@@ -322,7 +322,7 @@ void playMusic()
   SDL_Log("Song[%i]: %s", songId, Song[songId]);
   loadfile((const char *)&Song[songId], (void *)&songBuffer, &songLen, 0);
   MIDIDigi_PlayBuffer(songBuffer, songLen);
-  free(songBuffer);
+  fre(songBuffer);
   songId = (songId + 1) % 9;
 }
 

@@ -3346,7 +3346,7 @@ void startmusic(int iSong)
         .iLength = musiclength,
       };
       MIDIInitSong(&InitSong);
-      free(musicbuffer);
+      fre(musicbuffer);
 
       // Play the song in the MIDI system
       MIDIStartSong();
