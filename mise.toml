@@ -1,3 +1,13 @@
 [tools]
 poetry = "2"
 zig = "0.15.1"
+
+[tasks.installer]
+description = "Run the ROLLER installer CLI"
+run = "poetry run python -m roller_installer"
+dir = "installer"
+
+[tasks.build-installer]
+description = "Build native ROLLER installer binary"
+run = "poetry run pyinstaller --onefile --name roller-installer --clean main.py"
+dir = "installer"

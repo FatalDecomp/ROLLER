@@ -380,3 +380,5 @@ packages.microsoft.gpg
 .vscode/launch.json
 .claude
 CLAUDE.md
+installer/build
+installer/dist

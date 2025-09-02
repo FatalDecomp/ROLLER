@@ -46,6 +46,10 @@ FATAL.EXE_split_dos4g_payload.exe
 
 Assets from a retail copy of the game are required to run. Drop the contents of the build directory (bin or zig-out) into the Whiplash/Fatal Racing install directory. ROLLER.exe should be in the same directory as WHIP.EXE/FATAL.EXE.
 
+### ROLLER Installer
+
+For easier installation and setup, see the [**ROLLER Installer**](installer/README.md) - a cross-platform installer that handles binary distribution, asset extraction, and configuration setup.
+
 ## Build MSVC
 1. Clone repository
 2. Open ROLLER.sln
