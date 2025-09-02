@@ -53,6 +53,12 @@ roller-installer install --install-dir /path/to/install
 # List available releases
 roller-installer list-releases
 
+# Self-update the installer
+roller-installer self-update
+
+# Check installer version
+roller-installer self-update --check-only
+
 # Show help
 roller-installer --help
 ```
@@ -86,6 +92,13 @@ def install(ctx, version, install_dir, force):
 @click.pass_context  
 def check_updates(ctx):
     """Check for ROLLER updates"""
+    pass
+
+@cli.command()
+@click.option('--check-only', is_flag=True, help='Only check for updates, do not install')
+@click.pass_context
+def self_update(ctx, check_only):
+    """Update the installer itself"""
     pass
 ```
 
@@ -144,6 +157,12 @@ class RollerGitHubClient:
         
     def get_platform_asset(self, release_data: Dict, platform: str) -> Optional[Dict]:
         """Get the appropriate asset for current platform"""
+        
+    def check_installer_updates(self, current_version: str) -> Optional[Dict]:
+        """Check if installer itself has updates available"""
+        
+    def get_installer_asset(self, release_data: Dict, platform: str) -> Optional[Dict]:
+        """Get installer binary asset for platform (roller-installer-windows-x64.exe, etc.)"""
 ```
 
 **Platform Detection**:
@@ -244,6 +263,12 @@ class RollerInstaller:
         
     def verify_installation(self) -> bool:
         """Verify installation completed successfully"""
+        
+    def self_update(self, new_binary_path: Path) -> bool:
+        """Update the installer itself with a new version"""
+        
+    def backup_current_installer(self) -> Path:
+        """Create backup of current installer for rollback"""
 ```
 
 **Installation Flow**:
@@ -268,11 +293,28 @@ class RollerInstaller:
 - **macOS**: `~/Applications/ROLLER` or `/Applications/ROLLER`
 - **Linux**: `~/.local/share/ROLLER` or `/opt/ROLLER`
 
+**Self-Update Flow**:
+1. **Check Current Version** - Get version from executable metadata or embedded version
+2. **Query GitHub API** - Check for newer installer releases
+3. **Download New Binary** - Download platform-specific installer binary
+4. **Verify Download** - Check checksums and signatures
+5. **Backup Current** - Save current installer as `.bak` file
+6. **Replace Binary** - Atomic replacement of current executable
+7. **Cleanup** - Remove backup after successful verification
+8. **Restart Prompt** - Option to restart with new version
+
+**Self-Update Challenges & Solutions**:
+- **Running Binary Replacement**: Use platform-specific techniques (Windows: batch scripts, Unix: exec)
+- **Permissions**: Handle elevated permissions for system-wide installations
+- **Rollback**: Keep previous version for emergency rollback
+- **Cross-Platform**: Different approaches for Windows (.exe) vs Unix systems
+
 **Dependencies**:
 ```toml
 dependencies = [
     "requests>=2.31.0",
     "platformdirs>=3.0.0",  # Cross-platform directory detection
+    "psutil>=5.9.0",       # Process management for self-updates
 ]
 ```
 

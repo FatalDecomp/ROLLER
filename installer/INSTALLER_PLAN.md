@@ -136,6 +136,14 @@ installer/
 - Optional automatic updates
 - Update notifications
 
+✅ **Self-Updating Installer**
+- **Installer Version Checking**: Check for newer installer releases on GitHub
+- **Self-Update Command**: `roller-installer self-update` to update the installer itself
+- **Automatic Self-Update**: Optional prompt to update installer before installing ROLLER
+- **Rollback Support**: Keep previous installer version for emergency rollback
+- **Update Verification**: Verify downloaded installer binaries with checksums
+- **Cross-Platform**: Handle self-updates on Windows (.exe), macOS, and Linux
+
 ### User Interfaces
 
 #### 1. GUI Interface (Primary)

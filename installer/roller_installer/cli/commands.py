@@ -80,6 +80,27 @@ def list_releases(
     console.print("✅ Arguments parsed successfully!")
 
 
+@app.command("self-update")
+def self_update(
+    check_only: bool = typer.Option(False, "--check-only", help="Only check for updates, do not install"),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
+):
+    """Update the installer itself to the latest version."""
+    console.print("[bold blue]ROLLER Installer - Self-Update Command[/bold blue]")
+    console.print()
+    
+    table = Table(title="Parsed Arguments")
+    table.add_column("Argument", style="cyan")
+    table.add_column("Value", style="magenta")
+    
+    table.add_row("check_only", str(check_only))
+    table.add_row("verbose", str(verbose))
+    
+    console.print(table)
+    console.print()
+    console.print("✅ Arguments parsed successfully!")
+
+
 def main():
     """Main entry point for the CLI."""
     app()
