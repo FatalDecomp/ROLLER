@@ -182,7 +182,7 @@ dependencies = [
 ```
 
 ### Task 3: Binary Download and Installation
-**Objective**: Download ROLLER binaries from GitHub releases and install them properly on the target system.
+**Objective**: Download ROLLER binaries from GitHub releases and install them properly on the target system, including configuration file generation.
 
 **Implementation Details**:
 
@@ -236,6 +236,9 @@ class RollerInstaller:
     def setup_file_associations(self) -> bool:
         """Setup file associations for .TRK files"""
         
+    def generate_config_files(self) -> bool:
+        """Generate ROLLER configuration files with sensible defaults"""
+        
     def create_uninstaller(self) -> bool:
         """Create uninstaller script/entry"""
         
@@ -249,10 +252,16 @@ class RollerInstaller:
 3. **Download Binary** - Download with progress indication and verification
 4. **Create Install Directory** - Set up installation location with proper permissions
 5. **Install Binary** - Copy/extract to final location
-6. **Set Permissions** - Make executable on Unix-like systems
-7. **Create Integration** - Desktop shortcuts, file associations, PATH updates
-8. **Verify Installation** - Test that ROLLER can be launched
-9. **Cleanup** - Remove temporary download files
+6. **Generate Config Files** - Create FATAL.INI and config.ini with defaults
+7. **Set Permissions** - Make executable on Unix-like systems
+8. **Create Integration** - Desktop shortcuts, file associations, PATH updates
+9. **Verify Installation** - Test that ROLLER can be launched
+10. **Cleanup** - Remove temporary download files
+
+**Config File Generation**:
+- **`FATAL.INI`** - Main game configuration with audio/video/control defaults
+- **`config.ini`** - Sound language configuration (Language=english, SoundCard=1)
+- Templates stored in `assets/templates/` and customized during installation
 
 **Default Installation Paths**:
 - **Windows**: `%LOCALAPPDATA%\Programs\ROLLER` or `C:\Program Files\ROLLER`

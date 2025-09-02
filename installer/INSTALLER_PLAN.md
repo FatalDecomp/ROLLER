@@ -105,6 +105,8 @@ installer/
 - **Folder**: Direct FATDATA directory selection
 - **ZIP**: Extract FATDATA from ZIP archive (handles nested structures)
 - **ISO**: Mount and extract FATDATA from ISO images
+  - **CD Audio Extraction**: Optional extraction of audio tracks for enhanced music experience
+  - **MIDI vs CD Audio Choice**: User preference between original MIDI and CD audio tracks
 - Validate presence of required files (FATAL.INI, etc.)
 - Handle different game versions (Fatal Racing vs Whiplash)
 
@@ -118,11 +120,15 @@ installer/
 - Proper permissions setup
 
 ✅ **Configuration Generation**
-- Generate `roller_config.ini` with sensible defaults
-- Audio/video settings detection
-- Controller configuration
-- Language selection
-- Performance presets (Low/Medium/High/Ultra)
+- **Primary Config Files**:
+  - `FATAL.INI` - Main game configuration (audio, video, controls, player names)
+  - `config.ini` - Sound language configuration (Language=english, SoundCard settings)
+- **Configuration Options**:
+  - Audio settings (Engine/SFX/Speech/Music volume, MIDI vs CD audio)
+  - Video settings (SVGA mode, screen size, graphical detail levels)
+  - Control mapping (Player 1/2 keyboard controls, joystick calibration)
+  - Player preferences (names, car selections, damage levels)
+  - Network settings (modem configuration, multiplayer messages)
 
 ✅ **Update Management**
 - Check for ROLLER updates on startup
