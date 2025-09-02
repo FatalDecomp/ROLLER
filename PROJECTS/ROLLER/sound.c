@@ -1483,7 +1483,9 @@ void play()
 //0003B520
 void stop()
 {
-  if (MusicCard) {
+  // TODO hack until something better is done with music
+  //if (MusicCard) {
+  if (1) {
     if (SongPtr) {
       MIDIStopSong();
       //sosMIDIStopSong(SongHandle);
@@ -3934,7 +3936,9 @@ void reinitmusic()
     startmusic(iSong);
   } else if (MusicCD && track_playing) {
     StopTrack();
-  } else if (MusicCard) {
+  // TODO hack until something better is done with music
+  //} else if (MusicCard) {
+  } else if (1) {
     if (SongPtr) {
       stop();
       //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);

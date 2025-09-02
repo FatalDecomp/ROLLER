@@ -2329,7 +2329,9 @@ void game_keys()
                             MusicVolume -= pausewindow;// Left Arrow - Decrease Music Volume
                             if (MusicVolume < 0)
                               MusicVolume = 0;
-                            if (MusicCard)
+                            // TODO hack until something better is done with music
+                            //if (MusicCard)
+                            if (1)
                               MIDISetMasterVolume(MusicVolume);
                               //sosMIDISetMasterVolume(MusicVolume);
                             if (MusicCD)
@@ -2367,7 +2369,9 @@ void game_keys()
                             MusicVolume += pausewindow;
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
-                            if (MusicCard)
+                            // TODO hack until something better is done with music
+                            //if (MusicCard)
+                            if (1)
                               MIDISetMasterVolume(MusicVolume);
                               //sosMIDISetMasterVolume(MusicVolume);
                             if (MusicCD)
@@ -2834,7 +2838,9 @@ void game_keys()
                 }
                 goto PROCESS_NEXT_KEY;
               case 7:
-                if (MusicCard || MusicCD) {
+                // TODO hack until something better is done with music
+                //if (MusicCard || MusicCD) {
+                if (1) {
                   musicon = musicon == 0;
                   reinitmusic();
                 } else {

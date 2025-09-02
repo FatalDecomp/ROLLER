@@ -2956,7 +2956,9 @@ void select_configure()
             byColor_11 = 0x8F;
           // ON
           scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640);
-        } else if (MusicCard || MusicCD) {
+        // TODO hack until something better is done with music
+        //} else if (MusicCard || MusicCD) {
+        } else if (1) {
           if (iVolumeSelection == 7)
             byColor_12 = 0xAB;
           else
@@ -3827,7 +3829,8 @@ void select_configure()
                             if (MusicVolume < 0)
                               MusicVolume = 0;
                             // Update hardware volume
-                            if (MusicCard)
+                            //if (MusicCard)
+                            if (1)
                               MIDISetMasterVolume(MusicVolume);
                               //sosMIDISetMasterVolume(MusicVolume);
                             if (MusicCD)
@@ -3859,7 +3862,8 @@ void select_configure()
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
                             // Update hardware volume
-                            if (MusicCard)
+                            //if (MusicCard)
+                            if (1)
                               MIDISetMasterVolume(MusicVolume);
                               //sosMIDISetMasterVolume(MusicVolume);
                             if (MusicCD)
@@ -3901,7 +3905,9 @@ void select_configure()
                       }
                       break;
                     case 7:                     // Toggle music
-                      if (MusicCard || MusicCD) {
+                      // TODO hack until something better is done with music
+                      //if (MusicCard || MusicCD) {
+                      if (1) {
                         musicon = musicon == 0;
                         reinitmusic();
                       } else {
