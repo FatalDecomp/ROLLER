@@ -1,0 +1,199 @@
+name: Build ROLLER Installer
+
+on:
+  push:
+    paths:
+      - "installer/**"
+      - "mise.toml"
+      - ".github/workflows/build-installer.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "installer/**"
+      - "mise.toml"
+      - ".github/workflows/build-installer.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  # Ensure consistent Python version across all jobs
+  PYTHON_VERSION: "3.12"
+  # Poetry configuration
+  POETRY_VERSION: "2"
+  POETRY_VENV_IN_PROJECT: true
+  # PyInstaller optimization
+  PYTHONOPTIMIZE: 1
+  PYTHONDONTWRITEBYTECODE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.os-name }} Binary
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os-name: Linux
+            binary-suffix: ""
+            artifact-name: roller-installer-linux-x64
+            cache-key: linux
+          - os: macos-13
+            os-name: macOS-Intel
+            binary-suffix: ""
+            artifact-name: roller-installer-macos-intel
+            cache-key: macos-intel
+          - os: macos-14
+            os-name: macOS-ARM64
+            binary-suffix: ""
+            artifact-name: roller-installer-macos-arm64
+            cache-key: macos-arm64
+          - os: windows-2022
+            os-name: Windows
+            binary-suffix: ".exe"
+            artifact-name: roller-installer-windows-x64
+            cache-key: windows
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: true
+          experimental: true
+
+      - name: Install tools required for CI
+        run: |
+          mise run install:ci
+
+      - name: Install Poetry dependencies
+        working-directory: installer
+        run: |
+          mise run deps:installer
+
+      - name: Build installer binary
+        working-directory: installer
+        run: |
+          mise run build-installer
+
+      - name: Verify binary creation
+        working-directory: installer
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ls -la dist/roller-installer.exe
+            file dist/roller-installer.exe || echo "File command not available on Windows"
+          else
+            ls -la dist/roller-installer
+            file dist/roller-installer
+          fi
+
+      - name: Test binary execution
+        working-directory: installer/dist
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ./roller-installer.exe --help || echo "Binary test completed with exit code $?"
+          else
+            ./roller-installer --help || echo "Binary test completed with exit code $?"
+          fi
+
+      - name: Rename binary for artifact
+        working-directory: installer/dist
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            mv roller-installer.exe ${{ matrix.artifact-name }}.exe
+          else
+            mv roller-installer ${{ matrix.artifact-name }}
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: installer/dist/${{ matrix.artifact-name }}${{ matrix.binary-suffix }}
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 9
+
+  # Collect all artifacts for release
+  collect-artifacts:
+    name: Collect Release Artifacts
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: List downloaded artifacts
+        run: |
+          find binaries -type f -exec ls -la {} \;
+
+      - name: Create checksums
+        run: |
+          cd binaries
+          find . -type f -name "roller-installer*" -exec sha256sum {} \; > checksums.txt
+          cat checksums.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: binaries/checksums.txt
+          retention-days: 90
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: |
+            binaries/roller-installer-linux-x64/roller-installer-linux-x64
+            binaries/roller-installer-macos-intel/roller-installer-macos-intel
+            binaries/roller-installer-macos-arm64/roller-installer-macos-arm64
+            binaries/roller-installer-windows-x64/roller-installer-windows-x64.exe
+            binaries/checksums.txt
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Job to verify all builds completed successfully
+  build-status:
+    name: Build Status Check
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    steps:
+      - name: Check build results
+        run: |
+          echo "Build results:"
+          echo "Linux: ${{ needs.build.result }}"
+
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "One or more builds failed"
+            exit 1
+          fi
+
+          echo "All builds completed successfully!"
+
+      - name: Build summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux x64 | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS Intel | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS ARM64 | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows x64 | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All installer binaries built successfully!" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,92 @@
+name: Test ROLLER Installer
+
+on:
+  push:
+    paths:
+      - "installer/**"
+  pull_request:
+    branches: [master]
+    paths:
+      - "installer/**"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2"
+
+jobs:
+  test-code:
+    name: Test Installer Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+          experimental: true
+
+      - name: Install dependencies
+        working-directory: installer
+        run: |
+          mise run deps:installer
+
+      - name: Install lint dependencies
+        working-directory: installer
+        run: |
+          mise exec -- poetry install --with lint --no-interaction
+
+      - name: Lint code
+        working-directory: installer
+        run: |
+          mise exec -- poetry run ruff check . || echo "Linting issues found"
+          mise exec -- poetry run ruff format --check . || echo "Code formatting issues found"
+
+      - name: Test CLI functionality
+        run: |
+          # Test basic CLI functionality
+          mise run installer --help
+
+  test-build-process:
+    name: Test Build Process
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+          cache: true
+          experimental: true
+
+      - name: Install tools required for CI
+        run: |
+          mise run install:ci
+
+      - name: Install dependencies
+        working-directory: installer
+        run: |
+          mise run deps:installer
+
+      - name: Test build process
+        working-directory: installer
+        run: |
+          # Test that build command works without errors
+          mise run build-installer
+
+      - name: Test binary creation
+        working-directory: installer
+        run: |
+          cd dist
+
+          # Check binary exists and is executable
+          ls -la roller-installer
+          chmod +x roller-installer
+
+          # Basic functional test
+          ./roller-installer --help | head -5

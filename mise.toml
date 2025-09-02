@@ -1,13 +1,29 @@
 [tools]
 poetry = "2"
 zig = "0.15.1"
+act = "latest"
+usage = "latest"
+python = "3"
 
 [tasks.installer]
 description = "Run the ROLLER installer CLI"
 run = "poetry run python -m roller_installer"
 dir = "installer"
 
+[tasks."deps:installer"]
+description = "Install poetry dependencies for installer"
+run = "poetry install --no-interaction --no-ansi"
+dir = "installer"
+
 [tasks.build-installer]
 description = "Build native ROLLER installer binary"
 run = "poetry run pyinstaller --onefile --name roller-installer --clean main.py"
 dir = "installer"
+
+[tasks.test-github-workflows]
+description = "Test GitHub Actions locally with act"
+run = "act"
+
+[tasks."install:ci"]
+description = "Install only tools required for CI"
+run = "mise install poetry python"
