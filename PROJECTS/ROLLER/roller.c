@@ -258,7 +258,6 @@ int InitSDL()
   const char *home_dir = SDL_GetBasePath();
   if (home_dir) {
     chdir(home_dir);
-    SDL_free((void *)home_dir);
   }
 
   ROLLERGetAudioInfo();
@@ -329,8 +328,10 @@ void ShutdownSDL()
   SDL_DestroyTexture(s_pWindowTexture);
   SDL_DestroyTexture(s_pDebugTexture);
 
-  free(s_pRGBBuffer);
-  free(s_pDebugBuffer);
+  if (s_pRGBBuffer) free(s_pRGBBuffer);
+  if (s_pDebugBuffer) free(s_pDebugBuffer);
+
+  SDL_Quit();
 }
 
 uint8 songId = 4;
