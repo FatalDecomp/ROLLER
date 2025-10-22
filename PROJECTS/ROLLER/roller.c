@@ -258,7 +258,6 @@ int InitSDL()
   const char *home_dir = SDL_GetBasePath();
   if (home_dir) {
     chdir(home_dir);
-    SDL_free((void *)home_dir);
   }
 
   ROLLERGetAudioInfo();
