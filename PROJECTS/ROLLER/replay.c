@@ -325,7 +325,7 @@ void startreplay()
   int iNumCarsLocal; // ebp
   //signed int iCarByteOffset; // eax
   //signed int iTotalCarBytes; // edx
-  uint8 replayData[32]; // [esp+0h] [ebp-3Ch] BYREF
+  tReplayData replayData; // [esp+0h] [ebp-3Ch] BYREF
   uint8 buffer[28]; // [esp+20h] [ebp-1Ch] BYREF
 
   oldcars = numcars;                            // Initialize replay state variables
@@ -543,11 +543,11 @@ void startreplay()
           do {
             fread(&replayData, 0x1Eu, 1u, replayfile);// Read initial replay frame data (30 bytes per car)
             ++iReplayDataIndex;
-            cReplayDataByte = replayData[3];
+            cReplayDataByte = GET_HIBYTE(replayData.iPackedPosX);
             iNumCarsLocal = numcars;
 
 //TODO: ensure this is correct
-            newrepsample[iReplayDataIndex - 1] = replayData[3];
+            newrepsample[iReplayDataIndex - 1] = GET_HIBYTE(replayData.iPackedPosX);
             repsample[iReplayDataIndex - 1] = cReplayDataByte;
             //temp_names[15][iReplayDataIndex + 8] = replayData[3];
             //newrepsample[iReplayDataIndex + 15] = cReplayDataByte;
@@ -3527,9 +3527,11 @@ void findintrofiles()
   while ((entry = readdir(dir)) != NULL) {
     if (fnmatch("INTRO*.GSS", entry->d_name, FNM_CASEFOLD) == 0) {
       introfiles++;
+      continue;
     }
     if (fnmatch("intro*.gss", entry->d_name, FNM_CASEFOLD) == 0) {
       introfiles++;
+      continue;
     }
   }
 
