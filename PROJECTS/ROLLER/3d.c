@@ -1028,7 +1028,7 @@ int main(int argc, const char **argv, const char **envp)
   const char *whiplash_root = NULL;
   const char *midi_root = NULL;
 
-  for (int i = 1; i < argc; i++) {
+  for (int i = 1; i < argc;) {
     int consumed = -1;
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
       print_usage(stdout, argv[0]);
