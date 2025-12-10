@@ -1007,17 +1007,58 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   }
 }
 
+static void print_usage(FILE *f, const char *argv0)
+{
+  fprintf(f, "usage: %s [--data-root DIR]\n\n");
+  fprintf(f, "options:\n");
+  fprintf(f, " -h, --help             show this help message and exit\n");
+  fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
+  fprintf(f, " --midi-root DIR        specify midi data directory\n");
+}
+
 //-------------------------------------------------------------------------------------------------
 //00011930
 int main(int argc, const char **argv, const char **envp)
 {
-  char *szDirectory; // eax
   int iMemBlocksIdx2; // eax
   int iMemBlocksIdx; // edx
   int nGameFlags; // edx
   int16 nCarIdx; // bx
+  int consumed = 0;
+  const char *whiplash_root = NULL;
+  const char *midi_root = NULL;
+
+  for (int i = 1; i < argc; i++) {
+    int consumed = -1;
+    if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+      print_usage(stdout, argv[0]);
+      return 0;
+    } else if (strcmp(argv[i], "--whiplash-root") == 0) {
+      if (i + 1 < argc) {
+        whiplash_root = argv[i + 1];
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--whiplash-root' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--midi-root") == 0) {
+      if (i + 1 < argc) {
+        midi_root = argv[i + 1];
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
+        return 1;
+      }
+    }
+    if (consumed < 0) {
+      fprintf(stderr, "ERROR: Unknown argument '%s'\n");
+      print_usage(stderr, argv[0]);
+      return 1;
+    }
+    i += consumed;
+  }
   
-  if (InitSDL(data_root) != 0) {
+  if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;
   }
 
@@ -1042,9 +1083,8 @@ int main(int argc, const char **argv, const char **envp)
   textures_off = 0;
   frontend_on = -1;
   claim_key_int();
-  szDirectory = (char *)*argv;
   max_mem = 0;                                  // Initialize memory tracking
-  setdirectory(szDirectory);
+  setdirectory(whiplash_root);
   iMemBlocksIdx2 = 0;
   do {
     iMemBlocksIdx = (int16)iMemBlocksIdx2++;  // Clear all memory block pointers

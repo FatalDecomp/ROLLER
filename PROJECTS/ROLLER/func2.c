@@ -1879,38 +1879,29 @@ void DisplayFree()
 void setdirectory(const char *szAppPath)
 {
   char szLocalDir[256];
-  char *p = szLocalDir;
-  const char *s = szAppPath;
 
-  // Copy the path into localPath, 2 bytes at a time
-  while (true) {
-    *p++ = *s;
-    if (*s == '\0') break;
-    *p++ = *(s + 1);
-    s += 2;
-    if (*(s - 1) == '\0') break;
+  if (szAppPath) {
+    strncpy(szLocalDir, szAppPath, sizeof(szLocalDir));
+    szLocalDir[sizeof(szLocalDir) - 1] = '\0';
+  } else {
+    getcwd(szLocalDir, sizeof(szLocalDir));
+    szLocalDir[sizeof(szLocalDir) - 1] = '\0';
   }
+
+  // Trim trailing slashes
+  size_t lenLocalDir = strlen(szLocalDir);
+  while (lenLocalDir > 0 && szLocalDir[lenLocalDir - 1] == '/' || szLocalDir[lenLocalDir - 1] == '\\') {
+    lenLocalDir -= 1;
+  }
+  szLocalDir[lenLocalDir] = '\0';
 
 #ifdef IS_WINDOWS
   // Set current drive based on first letter of path (e.g., 'C' -> drive 3)
   char cDriveLetter = szLocalDir[0] & 0xDF; // Convert to uppercase
-  int iDrive = (int)(cDriveLetter - '@');  // 'A' => 1, 'C' => 3, etc.
+  int iDrive = (int)(cDriveLetter - 'A' + 1);  // 'A' => 1, 'C' => 3, etc.
   //dos_setdrive(iDrive, 0);
   _chdrive(iDrive);
 #endif
-
-  // Find last backslash in the path
-  char *szLastSlash = strrchr(szLocalDir, '\\');
-  if (!szLastSlash)
-    szLastSlash = strrchr(szLocalDir, '/'); //linux compatibility
-  if (szLastSlash && *(szLastSlash - 1) == ':') {
-    szLastSlash++;  // skip over ":"
-  }
-
-  // trim filename
-  if (szLastSlash) {
-    *szLastSlash = '\0';
-  }
 
   // set dir to szLocalDir
   chdir(szLocalDir);

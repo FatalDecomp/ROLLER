@@ -21,7 +21,7 @@ extern int g_iNumTracks;
 //-------------------------------------------------------------------------------------------------
 
 // functions added by ROLLER
-int InitSDL();
+int InitSDL(const char *data_root, const char *midi_root);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();

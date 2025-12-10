@@ -247,17 +247,24 @@ void ToggleFullscreen()
 
 //-------------------------------------------------------------------------------------------------
 
-int InitSDL()
+int InitSDL(const char *whiplash_root, const char *midi_root)
 {
   if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
   }
 
-  // Change to the base path of the application
-  const char *home_dir = SDL_GetBasePath();
-  if (home_dir) {
-    chdir(home_dir);
+  if (whiplash_root) {
+    if (chdir(whiplash_root) != 0) {
+      ErrorBoxExit("Could not changed working directory to '%s'", whiplash_root);
+      return 1;
+    }
+  } else {
+    // Change to the base path of the application
+    whiplash_root = SDL_GetBasePath();
+    if (whiplash_root) {
+      chdir(whiplash_root);
+    }
   }
 
   ROLLERGetAudioInfo();
@@ -305,9 +312,26 @@ int InitSDL()
   }
   memset(&g_rollerJoyPos, 0, sizeof(tJoyPos));
 
+  char localMidiPath[256];
+  if (midi_root) {
+    strcpy(localMidiPath, midi_root);
+    size_t lenMidiPath = strlen(localMidiPath);
+    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' || localMidiPath[lenMidiPath - 1] != '\\')) {
+      localMidiPath[lenMidiPath] = '/';
+      localMidiPath[lenMidiPath+1] = '\0';
+    }
+  } else {
+    midi_root = SDL_GetBasePath();
+    if (midi_root) {
+      strcpy(localMidiPath, midi_root);
+    } else {
+      strcpy(localMidiPath, "./");
+    }
+  }
+  strcat(localMidiPath, "midi/wildmidi.cfg");
   // Initialize MIDI with WildMidi
-  if (!MIDI_Init("./midi/wildmidi.cfg")) {
-    SDL_Log("Failed to initialize WildMidi. Please check your configuration file ./midi/wildmidi.cfg.");
+  if (!MIDI_Init(localMidiPath)) {
+    SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
   }
 
   return 0;
