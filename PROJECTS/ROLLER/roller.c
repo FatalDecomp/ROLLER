@@ -923,7 +923,7 @@ void apply_pan_u8(Uint8 *raw, int length, float pan)
   float right_gain = (pan >= 0) ? 1.0f : 1.0f + pan;
 
   for (int i = 0; i < frames; i++) {
-      // Convert from unsigned (0–255) to signed (-128…127)
+      // Convert from unsigned (0â€“255) to signed (-128â€¦127)
     int l = (int)raw[2 * i] - 128;
     int r = (int)raw[2 * i + 1] - 128;
 
@@ -935,7 +935,7 @@ void apply_pan_u8(Uint8 *raw, int length, float pan)
     if (l > 127) l = 127; if (l < -128) l = -128;
     if (r > 127) r = 127; if (r < -128) r = -128;
 
-    // Convert back to unsigned (0–255)
+    // Convert back to unsigned (0â€“255)
     raw[2 * i] = (Uint8)(l + 128);
     raw[2 * i + 1] = (Uint8)(r + 128);
   }
