@@ -250,8 +250,8 @@ void ToggleFullscreen()
 int InitSDL()
 {
   if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
-    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
-    return SDL_APP_FAILURE;
+    ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
+    return 1;
   }
 
   // Change to the base path of the application
@@ -270,8 +270,8 @@ int InitSDL()
   g_pTimerMutex = SDL_CreateMutex();
 
   if (!SDL_CreateWindowAndRenderer("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE, &s_pWindow, &s_pRenderer)) {
-    SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
-    return SDL_APP_FAILURE;
+    ErrorBoxExit("Couldn't create window/renderer: %s", SDL_GetError());
+    return 1;
   }
   s_pWindowTexture = SDL_CreateTexture(s_pRenderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, 640, 400);
   SDL_SetTextureScaleMode(s_pWindowTexture, SDL_SCALEMODE_NEAREST);
@@ -310,7 +310,7 @@ int InitSDL()
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file ./midi/wildmidi.cfg.");
   }
 
-  return SDL_APP_SUCCESS;
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------

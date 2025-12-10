@@ -1017,7 +1017,9 @@ int main(int argc, const char **argv, const char **envp)
   int nGameFlags; // edx
   int16 nCarIdx; // bx
   
-  InitSDL();
+  if (InitSDL(data_root) != 0) {
+    return 1;
+  }
 
   //gssCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
   oldmode = readmode();                         // Save current video mode
