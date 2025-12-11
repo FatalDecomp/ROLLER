@@ -247,17 +247,24 @@ void ToggleFullscreen()
 
 //-------------------------------------------------------------------------------------------------
 
-int InitSDL()
+int InitSDL(const char *whiplash_root, const char *midi_root)
 {
   if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
-    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
-    return SDL_APP_FAILURE;
+    ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
+    return 1;
   }
 
-  // Change to the base path of the application
-  const char *home_dir = SDL_GetBasePath();
-  if (home_dir) {
-    chdir(home_dir);
+  if (whiplash_root) {
+    if (chdir(whiplash_root) != 0) {
+      ErrorBoxExit("Could not changed working directory to '%s'", whiplash_root);
+      return 1;
+    }
+  } else {
+    // Change to the base path of the application
+    whiplash_root = SDL_GetBasePath();
+    if (whiplash_root) {
+      chdir(whiplash_root);
+    }
   }
 
   ROLLERGetAudioInfo();
@@ -270,8 +277,8 @@ int InitSDL()
   g_pTimerMutex = SDL_CreateMutex();
 
   if (!SDL_CreateWindowAndRenderer("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE, &s_pWindow, &s_pRenderer)) {
-    SDL_Log("Couldn't create window/renderer: %s", SDL_GetError());
-    return SDL_APP_FAILURE;
+    ErrorBoxExit("Couldn't create window/renderer: %s", SDL_GetError());
+    return 1;
   }
   s_pWindowTexture = SDL_CreateTexture(s_pRenderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, 640, 400);
   SDL_SetTextureScaleMode(s_pWindowTexture, SDL_SCALEMODE_NEAREST);
@@ -305,12 +312,29 @@ int InitSDL()
   }
   memset(&g_rollerJoyPos, 0, sizeof(tJoyPos));
 
+  char localMidiPath[256];
+  if (midi_root) {
+    strcpy(localMidiPath, midi_root);
+    size_t lenMidiPath = strlen(localMidiPath);
+    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' || localMidiPath[lenMidiPath - 1] != '\\')) {
+      localMidiPath[lenMidiPath] = '/';
+      localMidiPath[lenMidiPath+1] = '\0';
+    }
+  } else {
+    midi_root = SDL_GetBasePath();
+    if (midi_root) {
+      strcpy(localMidiPath, midi_root);
+    } else {
+      strcpy(localMidiPath, "./");
+    }
+  }
+  strcat(localMidiPath, "midi/wildmidi.cfg");
   // Initialize MIDI with WildMidi
-  if (!MIDI_Init("./midi/wildmidi.cfg")) {
-    SDL_Log("Failed to initialize WildMidi. Please check your configuration file ./midi/wildmidi.cfg.");
+  if (!MIDI_Init(localMidiPath)) {
+    SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
   }
 
-  return SDL_APP_SUCCESS;
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -899,7 +923,7 @@ void apply_pan_u8(Uint8 *raw, int length, float pan)
   float right_gain = (pan >= 0) ? 1.0f : 1.0f + pan;
 
   for (int i = 0; i < frames; i++) {
-      // Convert from unsigned (0–255) to signed (-128…127)
+      // Convert from unsigned (0â€“255) to signed (-128â€¦127)
     int l = (int)raw[2 * i] - 128;
     int r = (int)raw[2 * i + 1] - 128;
 
@@ -911,7 +935,7 @@ void apply_pan_u8(Uint8 *raw, int length, float pan)
     if (l > 127) l = 127; if (l < -128) l = -128;
     if (r > 127) r = 127; if (r < -128) r = -128;
 
-    // Convert back to unsigned (0–255)
+    // Convert back to unsigned (0â€“255)
     raw[2 * i] = (Uint8)(l + 128);
     raw[2 * i + 1] = (Uint8)(r + 128);
   }

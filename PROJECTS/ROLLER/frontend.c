@@ -533,40 +533,40 @@ char my_name[14];         //0016FF12
 // Replace accented characters with non-accented equivalents in the font table - add by ROLLER
 void font_ascii_replace_accent(char *font)
 {
-  font[0xc7] = font['C']; // «
-  font[0xe7] = font['c']; // Á
+  font[0xc7] = font['C']; // √á
+  font[0xe7] = font['c']; // √ß
 
-  font[0xc0] = font['A']; // ¿
-  font[0xc1] = font['A']; // ¡
-  font[0xc2] = font['A']; // ¬
-  font[0xc3] = font['A']; // √
-  font[0xe0] = font['a']; // ‡
-  font[0xe1] = font['a']; // ·
-  font[0xe2] = font['a']; // ‚
-  font[0xe3] = font['a']; // „
+  font[0xc0] = font['A']; // √Ä
+  font[0xc1] = font['A']; // √Å
+  font[0xc2] = font['A']; // √Ç
+  font[0xc3] = font['A']; // √É
+  font[0xe0] = font['a']; // √†
+  font[0xe1] = font['a']; // √°
+  font[0xe2] = font['a']; // √¢
+  font[0xe3] = font['a']; // √£
 
-  font[0xd3] = font['O']; // ”
-  font[0xd5] = font['O']; // ’
-  font[0xf3] = font['o']; // Û
-  font[0xf5] = font['o']; // ı
+  font[0xd3] = font['O']; // √ì
+  font[0xd5] = font['O']; // √ï
+  font[0xf3] = font['o']; // √≥
+  font[0xf5] = font['o']; // √µ
 
-  font[0xcd] = font['I']; // Õ
-  font[0xed] = font['i']; // Ì
+  font[0xcd] = font['I']; // √ç
+  font[0xed] = font['i']; // √≠
 
-  font[0xd9] = font['U']; // Ÿ
-  font[0xda] = font['U']; // ⁄
-  font[0xfa] = font['u']; // ˙
-  font[0xf9] = font['u']; // ˘
+  font[0xd9] = font['U']; // √ô
+  font[0xda] = font['U']; // √ö
+  font[0xfa] = font['u']; // √∫
+  font[0xf9] = font['u']; // √π
 
-  font[0xc9] = font['E']; // …
-  font[0xc8] = font['E']; // »
-  font[0xc9] = font['E']; //  
-  font[0xe9] = font['e']; // È
-  font[0xe8] = font['e']; // Ë
-  font[0xea] = font['e']; // Í
+  font[0xc9] = font['E']; // √â
+  font[0xc8] = font['E']; // √à
+  font[0xc9] = font['E']; // √ä
+  font[0xe9] = font['e']; // √©
+  font[0xe8] = font['e']; // √®
+  font[0xea] = font['e']; // √™
 
-  font[0xd1] = font['N']; // —
-  font[0xf1] = font['n']; // Ò
+  font[0xd1] = font['N']; // √ë
+  font[0xf1] = font['n']; // √±
 }
 
 //-------------------------------------------------------------------------------------------------

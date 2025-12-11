@@ -3349,7 +3349,7 @@ void startmusic(int iSong)
         .iLength = musiclength,
       };
       MIDIInitSong(&InitSong);
-      fre(&musicbuffer);
+      fre((void **)&musicbuffer);
 
       // Play the song in the MIDI system
       MIDIStartSong();
