@@ -1009,7 +1009,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
 static void print_usage(FILE *f, const char *argv0)
 {
-  fprintf(f, "usage: %s [--data-root DIR]\n\n");
+  fprintf(f, "usage: [--data-root DIR]\n\n");
   fprintf(f, "options:\n");
   fprintf(f, " -h, --help             show this help message and exit\n");
   fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
@@ -1051,7 +1051,7 @@ int main(int argc, const char **argv, const char **envp)
       }
     }
     if (consumed < 0) {
-      fprintf(stderr, "ERROR: Unknown argument '%s'\n");
+      fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
       print_usage(stderr, argv[0]);
       return 1;
     }

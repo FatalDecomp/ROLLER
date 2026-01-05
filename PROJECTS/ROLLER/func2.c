@@ -27,6 +27,7 @@
 #define chdir _chdir
 #define read _read
 #define close _close
+#define getcwd _getcwd
 #else
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
