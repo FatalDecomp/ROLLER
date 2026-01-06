@@ -317,7 +317,7 @@ void StopTrack()
 void SetAudioVolume(int iVolume)
 {
   int iUseVolume; // eax
-  tVolumeControl volCtrl; // [esp+0h] [ebp-14h] BYREF
+  //tVolumeControl volCtrl; // [esp+0h] [ebp-14h] BYREF
   
   // Double the volume level (range expansion)
   iUseVolume = 2 * iVolume;
