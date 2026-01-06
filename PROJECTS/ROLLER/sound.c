@@ -3151,7 +3151,20 @@ void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, f
       //_CHP();
       iBaseEngineVolume = (int)dVolumeCalc;
     }
-    iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume) / 8;
+
+
+    //********************************
+    //temporary hack added by ROLLER to enable engine sounds during replays until we can figure out
+    //how iEngineState is set during replays
+    //iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume) / 8; //original line
+    if (replaytype == 2) {
+      iCalculatedEngineVolume = iBaseEngineVolume;
+    } else {
+      iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume) / 8; //original line
+    }
+    //********************************
+
+    
     //iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume
     //                         - (__CFSHL__((Car[iCarIdx].iEngineState * iBaseEngineVolume) >> 31, 3)
     //                            + 8 * ((Car[iCarIdx].iEngineState * iBaseEngineVolume) >> 31))) >> 3;// Apply engine state modifier to volume (divide by 8)
