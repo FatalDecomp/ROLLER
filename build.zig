@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
                 .file = b.path("ROLLER.rc"),
             });
             exe.subsystem = .Windows;
+            exe.linkSystemLibrary("ws2_32");
         },
         else => {
             exe_mod.addCMacro("__int16", "int16");
