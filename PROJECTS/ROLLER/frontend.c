@@ -14,7 +14,7 @@
 #include "polytex.h"
 #include "comms.h"
 #include "colision.h"
-#include "control.h"
+#include "rollercomms.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -5123,7 +5123,7 @@ void select_players()
                 net_type = 1;
               if (uiSelectedPlayerType == 4)
                 net_type = 2;
-              //gssCommsSetType(net_type);
+              ROLLERCommsSetType(net_type);
               if (iNetworkMode) {
               LABEL_128:
                 iExitFlag = -1;

@@ -53,6 +53,7 @@ SRC = 	PROJECTS/ROLLER/3d.c \
         PROJECTS/ROLLER/polytex.c \
         PROJECTS/ROLLER/replay.c \
         PROJECTS/ROLLER/roller.c \
+        PROJECTS/ROLLER/rollercomms.c \
         PROJECTS/ROLLER/sound.c \
         PROJECTS/ROLLER/svgacpy.c \
         PROJECTS/ROLLER/tower.c \

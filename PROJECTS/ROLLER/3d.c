@@ -17,6 +17,7 @@
 #include "colision.h"
 #include "horizon.h"
 #include "building.h"
+#include "rollercomms.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -1062,7 +1063,7 @@ int main(int argc, const char **argv, const char **envp)
     return 1;
   }
 
-  //gssCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
+  ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
   oldmode = readmode();                         // Save current video mode
   blankpal();
   SVGA_ON = 0;                                  // Disable SVGA mode for initial screen setup

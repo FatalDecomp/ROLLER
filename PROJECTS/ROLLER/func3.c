@@ -17,6 +17,7 @@
 #include "comms.h"
 #include "function.h"
 #include "loadtrak.h"
+#include "rollercomms.h"
 #include <memory.h>
 #include <fcntl.h>
 #include <math.h>
@@ -3225,20 +3226,20 @@ int load_champ(int iSlot)
       my_number = pFileBuf[6];
 
       for (int i = 0; i < 16; i++) {
-          byPlayerByte = *pbyPlayerData++;
-          iPlayerSecondByte = *pbyPlayerData++;
-          
-          // Store player car selection (bits 0-4 of first byte)
-          Players_Cars[i] = byPlayerByte & 0x1F;
-          
-          // Store player invulnerability status (bit 6: 0=vulnerable, 1=invulnerable)
-          player_invul[i] = ((byPlayerByte & 0x40) == 0) - 1;
-          
-          // Store manual control flags for this player
-          manual_control[i] = iPlayerSecondByte;
-          
-          // Update data pointer to current position (as int pointer for next section)
-          piDataPointer = (int *)pbyPlayerData;
+        byPlayerByte = *pbyPlayerData++;
+        iPlayerSecondByte = *pbyPlayerData++;
+
+        // Store player car selection (bits 0-4 of first byte)
+        Players_Cars[i] = byPlayerByte & 0x1F;
+
+        // Store player invulnerability status (bit 6: 0=vulnerable, 1=invulnerable)
+        player_invul[i] = ((byPlayerByte & 0x40) == 0) - 1;
+
+        // Store manual control flags for this player
+        manual_control[i] = iPlayerSecondByte;
+
+        // Update data pointer to current position (as int pointer for next section)
+        piDataPointer = (int *)pbyPlayerData;
       }
       //for (i = 0; i != 16; *(int *)((char *)&competitors + i * 4) = iPlayerSecondByte)// Load 16 players' car choices and starting status
       //{
@@ -3282,7 +3283,7 @@ int load_champ(int iSlot)
       iNetType = *piStatsPointer;
       piTeamStatsPointer = piStatsPointer + 1;
       net_type = iNetType;
-      //gssCommsSetType(iNetType);
+      ROLLERCommsSetType(iNetType);
       iStatsLoop = 0;
       if (numcars > 0)                        // INDIVIDUAL STATISTICS: Load championship points, kills, fastest laps, wins for each car
       {
@@ -3441,7 +3442,7 @@ int load_champ(int iSlot)
       if (numcars > 0)                        // CONTROL SETUP
       {
         for (int i = 0; i < numcars; i++) {
-            result_control[i] = human_control[i];
+          result_control[i] = human_control[i];
         }
         //iControlArraySize = 4 * numcars;
         //uiControlLoop = 0;
@@ -3541,13 +3542,13 @@ int load_champ(int iSlot)
       }
       Race = ((uint8)TrackLoad - 1) & 7;        // FINALIZATION: Set race number, enable game timer, configure network
       tick_on = -1;
-      //TODO
-      //if (gssCommsGetType())                  // NETWORK RESTORATION: Reinitialize network connections if saved game used networking
-      //{
-      //  iHighestPoints = 0;
-      //  gssCommsUnInitSystem();
-      //  network_on = 0;
-      //  net_started = 0;
+      if (ROLLERCommsGetType())                  // NETWORK RESTORATION: Reinitialize network connections if saved game used networking
+      {
+        iHighestPoints = 0;
+        ROLLERCommsUnInitSystem();
+        network_on = 0;
+        net_started = 0;
+      }
       if (player_type == 1 && net_type == 1)
         select_comport(3);
       if (player_type == 1 && net_type == 2)

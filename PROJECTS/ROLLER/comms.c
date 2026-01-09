@@ -4,6 +4,7 @@
 #include "func2.h"
 #include "3d.h"
 #include "network.h"
+#include "rollercomms.h"
 #include <math.h>
 #include <float.h>
 #include <string.h>
@@ -48,7 +49,7 @@ int select_comport(int iIconIdx)
   if (iAvailableComPorts < serial_port)       // Validate current serial port selection against available ports
     serial_port = 2;
   check16550(serial_port);                      // Test 16550 UART availability on selected serial port
-  //gssCommsSetComBaudRate(9600);                 // Set communication baud rate to 9600 bps
+  ROLLERCommsSetComBaudRate(9600);                 // Set communication baud rate to 9600 bps
   do {
     display_picture(scrbuf, front_vga[0]);      // Display main background picture
     display_block(scrbuf, front_vga[1], 3, head_x, head_y, 0);
@@ -118,8 +119,7 @@ int select_comport(int iIconIdx)
       }
     }
   } while (!iExitFlag);                         // Continue loop until user presses Enter or Escape
-  //TODO
-  //gssCommsSetComPort(serial_port);              // Configure communications system with selected COM port
+  ROLLERCommsSetComPort(serial_port);              // Configure communications system with selected COM port
   return (uiKey != 13) - 1;                     // Return 0 if Enter pressed, -1 if Escape pressed
 }
 
@@ -202,8 +202,7 @@ int select_modemstuff(int iIconIdx)
     modem_port = 2;
   check16550(modem_port);                       // Check if COM port has 16550 UART
   modem_baud = 19200;                           // Set default baud rate to 19200
-  //TODO
-  //gssCommsSetComBaudRate(19200);
+  ROLLERCommsSetComBaudRate(19200);
   do {
     //szTemp2 = (char *)unInputMode;              // Main UI loop - display menu and handle input
     display_essentials(iIconIdx, iMenuPos, unInputMode);
@@ -392,9 +391,9 @@ int select_modemstuff(int iIconIdx)
               modem_call = (iMenuPos != 5) - 1;
               scale_text(front_vga[15], &language_buffer[6656], font1_ascii, font1_offsets, 400, 279, 143, 1u, 200, 640);
               copypic(scrbuf, screen);
-              //gssCommsSetComPort(modem_port);
+              ROLLERCommsSetComPort(modem_port);
               Initialise_Network(0);
-              //gssModemHangUp();
+              ROLLERModemHangUp();
               //TODO
               //keypair = (tKeycodePair)clock();
               //fDialTime = (float)(unsigned int)keypair.iKeycode;

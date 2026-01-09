@@ -8,6 +8,7 @@
 #include "control.h"
 #include "colision.h"
 #include "roller.h"
+#include "rollercomms.h"
 //-------------------------------------------------------------------------------------------------
 
 int sync_errors = 0;        //000A6100
@@ -79,7 +80,7 @@ void Initialise_Network(int iSelectNetSlot)
 
   for (int i = 0; i < 16; ++i) {
     player_ready[i] = 0;
-    for (int j = 0; i < 512; ++j) {
+    for (int j = 0; j < 512; ++j) {
       player_checks[j][i] = -1;
     }
   }
@@ -93,9 +94,8 @@ void Initialise_Network(int iSelectNetSlot)
   frame_number = 0;
   active_nodes = 0;
 
-  //TODO network
-  //if ((net_type || !net_started) && gssCommsInitSystem(20u))
-  //  iResetNetwork = -1;
+  if ((net_type || !net_started) && !ROLLERCommsInitSystem(20u))
+    iResetNetwork = -1;
   if (!iResetNetwork) {
     I_Quit = 0;
     broadcast_mode = 0;
@@ -114,9 +114,8 @@ void Initialise_Network(int iSelectNetSlot)
     if (!network_champ_on)
       Players_Cars[player1_car] = -1;
     my_age = 0;
-    //TODO network
-    //gssCommsGetNetworkAddr(address[0]);
-    //gssCommsGetConsoleNode();
+    ROLLERCommsGetNetworkAddr(address);
+    ROLLERCommsGetConsoleNode();
     network_on = 1;
     if (iSelectNetSlot || network_slot < 0)
       broadcast_mode = 0xFFFFFE38;              // force slave broadcast?
@@ -125,8 +124,7 @@ void Initialise_Network(int iSelectNetSlot)
     tick_on = -1;
     while (broadcast_mode)
       UpdateSDL(); //added by ROLLER
-    //TODO network
-    //gssCommsSortNodes();
+    ROLLERCommsSortNodes();
     received_records = 1;
     switch_sets = 0;
     switch_same = 0;
@@ -144,36 +142,36 @@ void close_network()
   network_slot = -1;
   if (network_on) {
     tick_on = 0;
-    //while (gssCommsPostListen())
-    //  ;
+    while (ROLLERCommsPostListen())
+      ;
     iNode = 0;
-    wConsoleNode = 0;// gssCommsNetAddrToNode((int)&address);
+    wConsoleNode = ROLLERCommsNetAddrToNode(address);
     while (iNode < wConsoleNode) {
-      //if (gssCommsDeleteNode(0)) {
-      //  printf("FAILED TO DELETE NODE a (%d)!!!\n", iNode);
-      //  doexit();
-      //}
-      //gssCommsSortNodes();
+      if (ROLLERCommsDeleteNode(0)) {
+        printf("FAILED TO DELETE NODE a (%d)!!!\n", iNode);
+        doexit();
+      }
+      ROLLERCommsSortNodes();
       ++iNode;
     }
     for (i = wConsoleNode + 1; i < network_on; ++i) {
-      //if (gssCommsDeleteNode(1)) {
-      //  printf("FAILED TO DELETE NODE b (%d)!!!\n", i);
-      //  doexit();
-      //}
-      //gssCommsSortNodes();
+      if (ROLLERCommsDeleteNode(1)) {
+        printf("FAILED TO DELETE NODE b (%d)!!!\n", i);
+        doexit();
+      }
+      ROLLERCommsSortNodes();
     }
-    //gssCommsGetActiveNodes();
-    wConsoleNode = 0;// gssCommsNetAddrToNode((int)&address);
+    ROLLERCommsGetActiveNodes();
+    wConsoleNode = ROLLERCommsNetAddrToNode(address);
     if (exiting)
       goto LABEL_18;
   } else if ((net_started || net_type) && exiting) {
   LABEL_18:
     ;
-    //gssCommsSetType(1);
-    //gssCommsUnInitSystem();
-    //gssCommsSetType(0);
-    //gssCommsUnInitSystem();
+    ROLLERCommsSetType(1);
+    ROLLERCommsUnInitSystem();
+    ROLLERCommsSetType(0);
+    ROLLERCommsUnInitSystem();
   }
 
   for (int i = 0; i < 16; ++i)
@@ -198,8 +196,8 @@ void close_network()
     network_champ_on = 0;
   broadcast_mode = 0;
   clear_network_game();
-  //if (net_type)
-  //  gssCommsUnInitSystem();
+  if (net_type)
+    ROLLERCommsUnInitSystem();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -214,8 +212,7 @@ void send_net_error()
     if (wConsoleNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          //TODO network
-          //gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
+          ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
         }
       }
     }
@@ -226,7 +223,7 @@ void send_net_error()
 //0004EFD0
 void send_game_error()
 {
-  int iDataSent; // eax
+  int iDataSent = 0; // eax
   int i; // esi
 
   if (network_on) {
@@ -236,8 +233,7 @@ void send_game_error()
     if (wConsoleNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          //TODO network
-          iDataSent = 0;// gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
+          iDataSent = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
           if (!iDataSent)
             i = network_on;
         }
@@ -260,13 +256,11 @@ void send_network_sync_error()
     if (wConsoleNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          //TODO network
-          //gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
+          ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
         }
       }
     } else {
-      //TODO network
-      //gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
+      ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
     }
   }
 }
@@ -279,8 +273,7 @@ void send_resync(int iFrameNumber)
     resync = iFrameNumber;
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RESYNC;
-    //TODO network
-    //gssCommsSendData(&p_header, sizeof(tSyncHeader), &resync, sizeof(int32), master);
+    ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &resync, sizeof(int32), master);
   }
 }
 
@@ -296,13 +289,11 @@ void send_nocd_error()
     if (wConsoleNode == (int16)master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          //TODO network
-          //gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
+          ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
         }
       }
     } else {
-      //TODO network
-      //gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
+      ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
     }
   }
 }
@@ -319,16 +310,14 @@ void send_quit()
     if (wConsoleNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          //TODO network
-          //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i))
-          //  UpdateSDL(); //added by ROLLER
+          while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i))
+            UpdateSDL(); //added by ROLLER
         }
       }
       net_quit = -1;
     } else {
-      //TODO network
-      //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master))
-      //  UpdateSDL(); //added by ROLLER
+      while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master))
+        UpdateSDL(); //added by ROLLER
     }
   }
 }
@@ -347,9 +336,8 @@ void send_ready()
       p_header.uiId = PACKET_ID_NOCD;
     if (wConsoleNode != master || player_ready[master]) {
       do {
-        //TODO network
         //_disable();
-        iDataSent = 1;// gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
+        iDataSent = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
         //_enable();
         UpdateSDL(); //added by ROLLER
       } while (!iDataSent);
@@ -371,9 +359,8 @@ void send_record_to_master(int iRecordIdx)
     strncpy(p_record.szRecordName, RecordNames[iRecordIdx], sizeof(p_record.szRecordName));
     p_record.unRecordCar = RecordCars[iRecordIdx];
 
-    //TODO network
-    //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master))
-    //  UpdateSDL(); //added by ROLLER
+    while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master))
+      UpdateSDL(); //added by ROLLER
   }
 }
 
@@ -391,10 +378,9 @@ void send_record_to_slaves(int iRecordIdx)
     for (int i = 0; i < network_on; ++i) {
       iRecordIdx = wConsoleNode;
       if (wConsoleNode != i) {
-        //TODO network
-        //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), i)) {
-        //  UpdateSDL(); //added by ROLLER
-        //}
+        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), i)) {
+          UpdateSDL(); //added by ROLLER
+        }
       }
     }
   }
@@ -424,18 +410,16 @@ void send_mes(int iNetworkMessageIdx, int iNode)
           iNetPlayers = 0;
           do {
             if (iNodeIdx != wConsoleNode && net_players[iNetPlayers]) {
-              //TODO network
-              //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNodeIdx))
-              //  UpdateSDL(); //added by ROLLER
+              while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNodeIdx))
+                UpdateSDL(); //added by ROLLER
             }
             ++iNetPlayers;
             ++iNodeIdx;
           } while (iNodeIdx < network_on);
         }
       } else {
-        //TODO network
-        //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNode))
-        //  UpdateSDL(); //added by ROLLER
+        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNode))
+          UpdateSDL(); //added by ROLLER
       }
     } else {
       message_sent = 4;
@@ -453,9 +437,8 @@ void send_seed(int iRandomSeed)
     p_header.byConsoleNode = (uint8)wConsoleNode;
     for (int i = 0;  i < network_on; ++i) {
       if (i != wConsoleNode) {
-        //TODO network
-        //while (!gssCommsSendData(&p_header, 12, &test_seed, 4, i))
-        //  UpdateSDL(); //added by ROLLER
+        while (!ROLLERCommsSendData(&p_header, 12, &test_seed, 4, i))
+          UpdateSDL(); //added by ROLLER
       }
     }
 
@@ -496,7 +479,7 @@ void send_single(uint32 uiData)
   }
 
   //TODO network
-  //gssCommsSendData(&p_header, sizeof(p_header), slave_data, sizeof(tDataPacket), master);
+  ROLLERCommsSendData(&p_header, sizeof(p_header), &slave_data, sizeof(tDataPacket), master);
 
   // Mark check as processed
   player_checks[read_check][player1_car] = -1;  // 0xFFFF
@@ -518,9 +501,8 @@ void send_pause()
     syncHeader.byConsoleNode = (uint8)wConsoleNode;
     syncHeader.uiId = PACKET_ID_PAUSE;
     bPaused = paused == 0;
-    //TODO network
-    //while (!gssCommsSendData(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), master))
-    //  UpdateSDL(); //added by ROLLER
+    while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), master))
+      UpdateSDL(); //added by ROLLER
   }
 }
 
@@ -529,14 +511,13 @@ void send_pause()
 void send_slot()
 {
   tSyncHeader syncHeader;
-  //int iSlot;// = network_slot?
+  int iSlot;// = network_slot?
 
   if (network_on) {
     syncHeader.byConsoleNode = (uint8)network_slot;
     syncHeader.uiId = PACKET_ID_SLOT;
-    //TODO network
-    //while (!gssCommsSendData(&syncHeader, sizeof(tSyncHeader), &iSlot, sizeof(int), 21))
-    //  UpdateSDL(); //added by ROLLER
+    while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iSlot, sizeof(int), 21))
+      UpdateSDL(); //added by ROLLER
   }
 }
 
@@ -558,9 +539,8 @@ void transmitpausetoslaves()
       iNetPlayerIdx = 0;
       do {
         if (iNode != master && net_players[iNetPlayerIdx]) {
-          //Todo network
-          //while (!gssCommsSendData(&syncHeader, sizeof(tSyncHeader), bPaused, sizeof(bool), iNode))
-          //  UpdateSDL(); //added by ROLLER
+          while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), iNode))
+            UpdateSDL(); //added by ROLLER
         }
         ++iNetPlayerIdx;
         ++iNode;
@@ -612,8 +592,7 @@ void send_multiple()
             if (iNode == master || !net_players[iNode4])
               iNodeIsValid = -1;
             else {
-              //TODO network
-              //iNodeIsValid = gssCommsSendData(&p_header, sizeof(tSyncHeader), pCopyMultiple, 1, iNode);
+              iNodeIsValid = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), pCopyMultiple, 1, iNode);
             }
             if (iNodeIsValid) {
               --iNode4;
@@ -638,8 +617,7 @@ void send_multiple()
             if (iNode == master || !net_players[iNode3])
               iNodeIsValid = -1;
             else {
-              //TODO network
-              //iNodeIsValid = gssCommsSendData(&p_header, sizeof(tSyncHeader), test_mini, 8, iNode);
+              iNodeIsValid = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), test_mini, 8, iNode);
             }
             if (iNodeIsValid) {
               --iNode3;
@@ -664,8 +642,7 @@ void send_multiple()
         do {
           if (!iNodeIsValid)
             break;
-          //TODO network
-          //iNodeIsValid = iNode == master || !net_players[iNode2] ? -1 : gssCommsSendData(&p_header, sizeof(tSyncHeader), test_multiple, 64, iNode);
+          iNodeIsValid = iNode == master || !net_players[iNode2] ? -1 : ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), test_multiple, 64, iNode);
           if (iNodeIsValid) {
             --iNode2;
             --iNode;
@@ -688,25 +665,22 @@ void receive_multiple()
 {
   tPlayerInfoPacket playerInfoPacket; // [esp+0h] [ebp-60h] BYREF
   char szMesPacket[14]; // [esp+28h] [ebp-38h] BYREF
-  //void *pPacket; // [esp+38h] [ebp-28h] BYREF
+  void *pPacket; // [esp+38h] [ebp-28h] BYREF
   int iPaused; // [esp+40h] [ebp-20h] BYREF
   int *pSeed; // [esp+44h] [ebp-1Ch]
 
   if (network_on && !net_quit) {
     pSeed = &test_seed;
-    while (false) {
-    //while (gssCommsGetHeader(&in_header, 12, &pPacket)) {
+    while (ROLLERCommsGetHeader(&in_header, 12, &pPacket)) {
       switch (in_header.uiId) {
         case PACKET_ID_SEND_MES:
-          //TODO network
-          //gssCommsGetBlock(pPacket, szMesPacket, 14);
+          ROLLERCommsGetBlock(pPacket, szMesPacket, 14);
           message_received = in_header.byConsoleNode;
           strncpy(received_message, szMesPacket, sizeof(received_message));
           goto LABEL_54;
         case PACKET_ID_QUIT:
           net_quit = -1;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_PLAYER_CARS:
           if (net_type) {
@@ -717,8 +691,7 @@ void receive_multiple()
             }
             active_nodes = network_on;
             net_loading = 0;
-            //TODO network
-            //gssCommsGetBlock(pPacket, test_mini, 8);
+            ROLLERCommsGetBlock(pPacket, test_mini, 8);
             for (int i = 0; i < 2; ++i) {
               copy_multiple[writeptr][player_to_car[i]].uiFullData = test_mini[i];
             }
@@ -731,8 +704,7 @@ void receive_multiple()
             }
             active_nodes = network_on;
             net_loading = 0;
-            //TODO network
-            //gssCommsGetBlock(pPacket, &copy_multiple[writeptr], 64);
+            ROLLERCommsGetBlock(pPacket, &copy_multiple[writeptr], 64);
           }
           network_timeout = frames;
           ++ticks_received;
@@ -740,52 +712,43 @@ void receive_multiple()
             ++frame_number;
             writeptr = (writeptr + 1) & 0x1FF;
             next_resync = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           if (in_header.unFrameId <= frame_number)
             goto LABEL_54;
           ++lost_message;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           if (in_header.unFrameId - frame_number > 500) {
             send_network_sync_error();
             network_sync_error = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           if (frames <= next_resync)
             goto LABEL_54;
-          //TODO network
-          //if (gssCommsGetType())
-          //  gssclrrx();
+          if (ROLLERCommsGetType())
+            ROLLERclrrx();
           goto LABEL_17;
         case PACKET_ID_SEED:
-          //TODO network
-          //gssCommsGetBlock(pPacket, &test_seed, 4);
+          ROLLERCommsGetBlock(pPacket, &test_seed, 4);
           srand(*pSeed);
           random_seed = *pSeed;
           received_seed = -1;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_PAUSE:
-          //TODO network
-          //gssCommsGetBlock(pPacket, &iPaused, 4);
+          ROLLERCommsGetBlock(pPacket, &iPaused, 4);
           if (paused != iPaused && iPaused)
             dostopsamps = -1;
           paused = iPaused;
           if (!iPaused)
             goto LABEL_54;
           pauser = in_header.byConsoleNode;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_PLAYER_INFO:
-          //TODO network
-          //gssCommsGetBlock(pPacket, &playerInfoPacket, sizeof(tPlayerInfoPacket));
+          ROLLERCommsGetBlock(pPacket, &playerInfoPacket, sizeof(tPlayerInfoPacket));
           Players_Cars[in_header.byConsoleNode] = playerInfoPacket.iPlayerCar;
           check_cars();
           name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
@@ -799,30 +762,25 @@ void receive_multiple()
           else
             player_invul[in_header.byConsoleNode] = 0;
           manual_control[in_header.byConsoleNode] = playerInfoPacket.iManualControl;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_NET_ERROR:
           network_error = 999;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_SYNC_ERROR:
           goto LABEL_13;
         case PACKET_ID_GAME_ERROR:
           network_error = 666;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_NOCD:
           //cd_error = -1;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_SEND_HERE:
           load_times[in_header.byConsoleNode] = in_header.unFrameId;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           continue;
         case PACKET_ID_MULTIPLE:
           if (in_header.unFrameId == frame_number) {
@@ -838,38 +796,33 @@ void receive_multiple()
             ++frame_number;
             writeptr = (writeptr + 1) & 0x1FF;
             next_resync = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           if (in_header.unFrameId <= frame_number)
             goto LABEL_54;
           ++lost_message;
-          //TODO network
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
           if (in_header.unFrameId - frame_number <= 500) {
             if (frames <= next_resync) {
             LABEL_54:
               ;
-              //TODO network
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
             } else {
-              //TODO network
-              //if (gssCommsGetType())
-              //  gssclrrx();
+              if (ROLLERCommsGetType()) {
+                ROLLERclrrx();
+              }
             LABEL_17:
               ++sync_errors;
               send_resync(frame_number);
               next_resync = frames + 16;
-              //TODO network
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
             }
           } else {
             send_network_sync_error();
           LABEL_13:
             network_sync_error = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
           }
           break;
         default:
@@ -888,47 +841,38 @@ void receive_all_singles()
   tTransmitInitPacket transmitInitPacket; // [esp+0h] [ebp-140h] BYREF
   tPlayerInfoPacket playerInfoPacket; // [esp+E8h] [ebp-58h] BYREF
   char szMesPacket[14]; // [esp+110h] [ebp-30h] BYREF
-  //void *pData; // [esp+120h] [ebp-20h] BYREF
-  int iFrame;
+  void *pData; // [esp+120h] [ebp-20h] BYREF
+  int iFrame = 0;
 
   if (network_on) {
-    //TODO network
-    //while (gssCommsGetHeader(&in_header, sizeof(tSyncHeader), &pData)) {
-    while (false) {
+    while (ROLLERCommsGetHeader(&in_header, sizeof(tSyncHeader), &pData)) {
       byConsoleNode = in_header.byConsoleNode;
       if (net_players[car_to_player[byConsoleNode]]) {
         switch (in_header.uiId) {
           case PACKET_ID_TRANSMIT_INIT:
-            //TODO network
-            //gssCommsGetBlock(pData, &transmitInitPacket, sizeof(tTransmitInitPacket));
+            ROLLERCommsGetBlock(pData, &transmitInitPacket, sizeof(tTransmitInitPacket));
             if (transmitInitPacket.iTimeToStart != 0xFFFFFE38)
               goto LABEL_31;
             send_slot();
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_SEND_MES:
-            //TODO network
-            //gssCommsGetBlock(pData, szMesPacket, 14);
+            ROLLERCommsGetBlock(pData, szMesPacket, 14);
             message_received = in_header.byConsoleNode;
 
             strncpy(received_message, szMesPacket, sizeof(received_message));
 
             goto LABEL_31;
           case PACKET_ID_QUIT:
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             send_quit();
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_SINGLE:
-            //TODO network
-            //gssCommsGetBlock(pData, &slave_data, 6);
+            ROLLERCommsGetBlock(pData, &slave_data, 6);
             copy_multiple[writeptr][in_header.byConsoleNode].uiFullData = slave_data.uiData;
             net_time[car_to_player[in_header.byConsoleNode]] = frames;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_READY:
             if (player_ready[in_header.byConsoleNode])
@@ -936,18 +880,15 @@ void receive_all_singles()
             ++active_nodes;
             player_ready[byConsoleNode] = -1;
             netCD = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_PAUSE:
             slave_pause = -1;
             pauser = in_header.byConsoleNode;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_PLAYER_INFO: 
-            //TODO network
-            //gssCommsGetBlock(pData, &playerInfoPacket, sizeof(tPlayerInfoPacket));
+            ROLLERCommsGetBlock(pData, &playerInfoPacket, sizeof(tPlayerInfoPacket));
             Players_Cars[in_header.byConsoleNode] = playerInfoPacket.iPlayerCar;
             check_cars();
             name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
@@ -961,8 +902,7 @@ void receive_all_singles()
             else
               player_invul[in_header.byConsoleNode] = 0;
             manual_control[in_header.byConsoleNode] = playerInfoPacket.iManualControl;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_SYNC_ERROR:
             goto LABEL_23;
@@ -971,21 +911,17 @@ void receive_all_singles()
               goto LABEL_31;
             ++active_nodes;
             player_ready[byConsoleNode] = -1;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           case PACKET_ID_RESYNC: 
             ++lost_message;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             syncnode = in_header.byConsoleNode;
-            //TODO network
-            //gssCommsGetBlock(pData, iFrame, 4);
+            ROLLERCommsGetBlock(pData, &iFrame, 4);
             syncframe = iFrame;
             if (frame_number - iFrame <= 500) {
-              //TODO network
-              //if (gssCommsGetType())
-              //  gssclrtx();
+              if (ROLLERCommsGetType())
+                ROLLERclrtx();
               syncleft = frame_number - syncframe;
               syncptr = syncframe & 0x1FF;
               if (check_set && syncleft > 7) {
@@ -993,22 +929,18 @@ void receive_all_singles()
                 check_set = 0;
               }
               do_sync_stuff();
-              //TODO network
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
             } else {
             LABEL_23:
-              //TODO network
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
               send_network_sync_error();
               network_sync_error = -1;
-              //TODO network
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
             }
             break;
           case PACKET_ID_SEND_HERE:
             load_times[in_header.byConsoleNode] = in_header.unFrameId;
-            //TODO network
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             break;
           default:
             ++duff_message;
@@ -1017,8 +949,7 @@ void receive_all_singles()
       } else {
       LABEL_31:
         ;
-        //TODO network
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
       }
     }
   }
@@ -1026,54 +957,84 @@ void receive_all_singles()
 
 //-------------------------------------------------------------------------------------------------
 //00050600
-void do_sync_stuff(void)
+void do_sync_stuff()
 {
-  uint32 *pCopy;
-  uint8 byConsoleNode = (uint8)wConsoleNode;
-  uint16 unFrame = syncframe;
+  int iSyncPtr; // esi
+  uint8 byConsoleNode2; // al
+  int iNumCars; // edx
+  int iCarIdx; // eax
+  int *pTestMultiple; // edx
+  uint32 uiSyncData2; // ebx
+  int iSendDataSuccess2; // eax
+  uint8 byConsoleNode; // al
+  int *pTestMini; // edx
+  int i; // eax
+  uint32 uiSyncData; // ebx
+  int iSendDataSuccess; // eax
 
-  if (net_type == 0) {
-    // Full sync: send all cars to all nodes
-    while (syncleft > 0) {
-      in_header.uiId = PACKET_ID_PLAYER_CARS;
+  iSyncPtr = syncptr;
+  if (net_type) {
+    do {
+      if (!syncleft)
+        break;
+
+      // Prepare sync header
+      byConsoleNode = (uint8)wConsoleNode;
+      in_header.uiId = 0x686C6366;              // fclh
       in_header.byConsoleNode = byConsoleNode;
-      in_header.unFrameId = unFrame;
+      pTestMini = test_mini;
+      in_header.unFrameId = syncframe;
 
-      // Pack data for all cars
-      pCopy = test_multiple;
-      for (int i = 0; i < numcars; i++)
-        *pCopy++ = copy_multiple[syncptr][player_to_car[i]].uiFullData;
-
-      // Send 64 bytes (16 * 4-byte ints)
-      //if (!gssCommsSendData(&in_header, 12, syncnode, test_multiple, 64))
-      //  break;
-
-      syncptr = (syncptr + 1) & 0x1FF; // wrap around 512
-      syncframe++;
-      syncleft--;
-    }
-  } else {
-    // Minimal sync: send only player-to-car pairs
-    while (syncleft > 0) {
-      in_header.uiId = PACKET_ID_PLAYER_CARS;
-      in_header.byConsoleNode = byConsoleNode;
-      in_header.unFrameId = unFrame;
-
-      // Pack data for player-to-car mappings
-      pCopy = test_mini;
-      for (int i = 0; i < 2; i++) {
-        *pCopy++ = copy_multiple[syncptr][player_to_car[i]].uiFullData;
+      // Build minimal sync for two local players
+      for (i = 0; i < 2; ++i) {
+        ++pTestMini;
+        uiSyncData = copy_multiple[iSyncPtr][player_to_car[i]].uiFullData;
+        *(pTestMini - 1) = uiSyncData;
       }
+      syncptr = iSyncPtr;
 
-      // Send 8 bytes (2 * 4-byte ints)
-      //if (!gssCommsSendData(&in_header, 12, syncnode, test_mini, 8))
-      //  break;
+      // Send data
+      iSendDataSuccess = ROLLERCommsSendData(&in_header, 12, test_mini, 8, syncnode);
 
-      syncptr = (syncptr + 1) & 0x1FF;
-      syncframe++;
-      syncleft--;
+      // Advance state
+      iSyncPtr = ((uint16)syncptr + 1) & 0x1FF;  // ensure this index doesn't go beyond 511
+      --syncleft;
+      ++syncframe;
+    } while (iSendDataSuccess);
+  } else {
+    while (syncleft) {
+      // Prepare sync header
+      byConsoleNode2 = (uint8)wConsoleNode;
+      in_header.uiId = 0x686C6366;              // fclh
+      in_header.byConsoleNode = byConsoleNode2;
+      iNumCars = numcars;
+      in_header.unFrameId = syncframe;
+      iCarIdx = 0;
+
+      // Build sync payload with data for all cars
+      if (iNumCars > 0) {
+        pTestMultiple = test_multiple;
+        do {
+          uiSyncData2 = copy_multiple[iSyncPtr][iCarIdx++].uiFullData;
+          *pTestMultiple++ = uiSyncData2;
+        } while (iCarIdx < numcars);
+      }
+      syncptr = iSyncPtr;
+
+      // Send data
+      iSendDataSuccess2 = ROLLERCommsSendData(&in_header, 12, test_multiple, 64, syncnode);
+
+      // Advance state
+      iSyncPtr = ((uint16)syncptr + 1) & 0x1FF;
+      --syncleft;
+      ++syncframe;
+      if (!iSendDataSuccess2) {
+        syncptr = ((uint16)syncptr + 1) & 0x1FF; // ensure this index doesn't go beyond 511
+        return;
+      }
     }
   }
+  syncptr = iSyncPtr;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1152,13 +1113,12 @@ int TransmitInit()
       szDefaultNamesDst += 9;
     } while (szDefaultNameItr != default_names[16]);
 
-    return -1; //TODO network
-    //return gssCommsSendData(
-    //         &initPacket.header,
-    //         sizeof(tSyncHeader),
-    //         &initPacket,
-    //         sizeof(tTransmitInitPacket),
-    //         21);
+    return ROLLERCommsSendData(
+             &header,
+             sizeof(tSyncHeader),
+             &initPacket,
+             sizeof(tTransmitInitPacket),
+             21);
   }
   return iSuccess;
 }
@@ -1168,9 +1128,8 @@ int TransmitInit()
 void StartNode(int iNode)
 {
   my_age = 0;
-  //TODO network
-  //gssCommsGetNetworkAddr(address);
-  //gssCommsGetConsoleNode();
+  ROLLERCommsGetNetworkAddr(address);
+  ROLLERCommsGetConsoleNode();
   network_on = 1;
   if (iNode || network_slot < 0)
     broadcast_mode = 0xFFFFFE38;
@@ -1232,7 +1191,7 @@ void CheckNewNodes()
   tPlayerInfoPacket playerInfoPacket; // [esp+118h] [ebp-74h] BYREF
   tRecordPacket recordPacket; // [esp+140h] [ebp-4Ch] BYREF
   tSyncHeader syncHeader; // [esp+150h] [ebp-3Ch] BYREF
-  //void *pPacket2; // [esp+15Ch] [ebp-30h] BYREF
+  void *pPacket2; // [esp+15Ch] [ebp-30h] BYREF
   int iMaxGamerIndex; // [esp+160h] [ebp-2Ch]
   int *pTestSeed; // [esp+164h] [ebp-28h]
   int iTxInitPacketNetworkSlotMinus1; // [esp+168h] [ebp-24h]
@@ -1241,23 +1200,19 @@ void CheckNewNodes()
 
   pTestSeed = &test_seed;                       // Initialize pointer to test seed for random number generation
 
-  //TODO networking
-  //while (gssCommsGetHeader(&syncHeader, sizeof(tSyncHeader), &pPacket2))// Main packet processing loop - handle incoming network packets from other nodes
-  while(false)
+  while (ROLLERCommsGetHeader(&syncHeader, sizeof(tSyncHeader), &pPacket2))// Main packet processing loop - handle incoming network packets from other nodes
   {                                             // Handle PACKET_ID_TRANSMIT_INIT (0x686C6361) - player initialization packets
     switch (syncHeader.uiId) {
       case PACKET_ID_TRANSMIT_INIT:                         // PACKET_ID_TRANSMIT_INIT
         transmitInitPacket.iNetworkChampOn = 0;
         transmitInitPacket.iNetworkSlot = 0;
-        //TODO networking
-        //gssCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
+        ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
         if (network_slot >= 0)                // Process init packet when we are already connected (network_slot >= 0)
         {
           if (transmitInitPacket.iNetworkSlot < 0 && !I_Quit) {
             send_broadcast(0xFFFFFE37);
             test = 3;
-            //TODO networking
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           test = 4;
@@ -1296,12 +1251,10 @@ void CheckNewNodes()
             if (I_Quit)
               goto LABEL_40;
             test = 20;                          // Add new network node if all validation checks pass
-            //TODO networking
-            //if ((unsigned int)gssCommsAddNode(&transmitInitPacket.address) > 1)
-            //  goto LABEL_40;
+            if ((unsigned int)ROLLERCommsAddNode(&transmitInitPacket.address) > 1)
+              goto LABEL_40;
             test = 6;
-            //TODO networking
-            //gssCommsSortNodes();
+            ROLLERCommsSortNodes();
 
             memcpy(&address[network_on], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
             //pNetNowNodeAddr3 = &address[network_on];// Manual address copying - could be simplified to: memcpy(&address[network_on], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
@@ -1319,8 +1272,7 @@ void CheckNewNodes()
                 goto LABEL_40;
             LABEL_64:
               reset_network(-1);
-              //TODO networking
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
               continue;
             }
             test = 7;
@@ -1435,8 +1387,7 @@ void CheckNewNodes()
               goto LABEL_40;
           LABEL_104:
             cheat_mode = 0;
-            //TODO networking
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           test = 8;
@@ -1549,8 +1500,7 @@ void CheckNewNodes()
           if (transmitInitPacket.iTimeToStart < ~665u) {
             if (transmitInitPacket.iTimeToStart == -667) {
               send_broadcast(0xFFFFFFFF);
-              //TODO networking
-              //gssCommsPostListen();
+              ROLLERCommsPostListen();
               continue;
             }
           } else {
@@ -1561,8 +1511,7 @@ void CheckNewNodes()
           }
           time_to_start = -1;
           FoundNodes();
-          //TODO networking
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
         } else {
           test = 1;
           if (transmitInitPacket.iNetworkSlot < 0)
@@ -1576,8 +1525,7 @@ void CheckNewNodes()
           if (transmitInitPacket.iTimeToStart <= -666) {
             send_broadcast(0xFFFFFE38);
             gamers_playing[iTxInitPacketNetworkSlotMinus1] = 0;
-            //TODO networking
-            //gssCommsPostListen();
+            ROLLERCommsPostListen();
             continue;
           }
           if (transmitInitPacket.iTimeToStart != -1) {
@@ -1637,14 +1585,12 @@ void CheckNewNodes()
             }
           }
           gamers_playing[iTxInitPacketNetworkSlotMinus1] = -2;
-          //TODO networking
-          //gssCommsPostListen();
+          ROLLERCommsPostListen();
         }
         break;
       case PACKET_ID_QUIT:                         // PACKET_ID_QUIT
         net_quit = -1;                          // Handle PACKET_ID_QUIT (0x686C6364) - player disconnection notification
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_READY:                         // PACKET_ID_READY
         if (player_ready[syncHeader.byConsoleNode])// Handle PACKET_ID_READY (0x686C6367) - player ready status
@@ -1652,21 +1598,17 @@ void CheckNewNodes()
         ++active_nodes;
         player_ready[syncHeader.byConsoleNode] = -1;
         netCD = -1;
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_SEED:                         // PACKET_ID_SEED
-        //TODO networking
-        //gssCommsGetBlock(pPacket2, &test_seed, 4);// Handle PACKET_ID_SEED (0x686C6368) - synchronize random seed across network
+        ROLLERCommsGetBlock(pPacket2, &test_seed, 4);// Handle PACKET_ID_SEED (0x686C6368) - synchronize random seed across network
         srand(*pTestSeed);
         random_seed = *pTestSeed;
         received_seed = -1;
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_PLAYER_INFO:                         // PACKET_ID_PLAYER_INFO
-        //TODO networking
-        //gssCommsGetBlock(pPacket2, &playerInfoPacket, 40);// Handle PACKET_ID_PLAYER_INFO (0x686C636A) - update player information
+        ROLLERCommsGetBlock(pPacket2, &playerInfoPacket, 40);// Handle PACKET_ID_PLAYER_INFO (0x686C636A) - update player information
         byConsoleNode = syncHeader.byConsoleNode;
         Players_Cars[syncHeader.byConsoleNode] = playerInfoPacket.iPlayerCar;
         name_copy(player_names[byConsoleNode], playerInfoPacket.szPlayerName);
@@ -1683,8 +1625,7 @@ void CheckNewNodes()
         goto LABEL_40;
       case PACKET_ID_RECORD:                         // PACKET_ID_RECORD
         ++received_records;                     // Handle PACKET_ID_RECORD (0x686C636B) - update lap record if faster than current
-        //TODO networking
-        //gssCommsGetBlock(pPacket2, &recordPacket, 16);
+        ROLLERCommsGetBlock(pPacket2, &recordPacket, 16);
         if (recordPacket.fRecordLap < (double)RecordLaps[TrackLoad]) {
           RecordLaps[TrackLoad] = recordPacket.fRecordLap;
           RecordCars[TrackLoad] = (int16)recordPacket.unRecordCar;
@@ -1699,28 +1640,22 @@ void CheckNewNodes()
           goto LABEL_40;
         ++active_nodes;
         player_ready[syncHeader.byConsoleNode] = -1;
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_SLOT:                         // PACKET_ID_SLOT
         //TODO: ensure this is accurate
         gamers_playing[syncHeader.byConsoleNode - 1] = -2;
         //*(_DWORD *)&gamers_address[3][15].sNETBIOS.bNode[4 * syncHeader.byConsoleNode + 12] = -2;
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_SEND_HERE:                         // PACKET_ID_SEND_HERE
         load_times[syncHeader.byConsoleNode] = syncHeader.unFrameId;
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
       case PACKET_ID_MESSAGE:                         // PACKET_ID_MESSAGE
-        //TODO networking
-        //gssCommsGetBlock(pPacket2, &messagePacket, 48);// Handle PACKET_ID_MESSAGE (0x686C6373) - receive and process chat messages
+        ROLLERCommsGetBlock(pPacket2, &messagePacket, 48);// Handle PACKET_ID_MESSAGE (0x686C6373) - receive and process chat messages
         iNode = syncHeader.byConsoleNode;
-        //TODO networking
-        //if (iNode != gssCommsNetAddrToNode(address) && messagePacket.iNetworkSlot == network_slot) {
-        if (false) {
+        if (iNode != ROLLERCommsNetAddrToNode(address) && messagePacket.iNetworkSlot == network_slot) {
           rec_status = 36;
           name_copy(rec_mes_name, messagePacket.szPlayerName);
 
@@ -1731,8 +1666,7 @@ void CheckNewNodes()
         goto LABEL_40;
       default:
       LABEL_40:
-        //TODO networking
-        //gssCommsPostListen();
+        ROLLERCommsPostListen();
         continue;
     }
   }
@@ -1745,10 +1679,9 @@ void FoundNodes()
   if (!master) return;  // Only process if we're the master
 
   // Update network state
-  // TODO network
-  //gssCommsSortNodes();
-  //network_on = gssCommsGetActiveNodes();
-  //wConsoleNode = gssCommsGetConsoleNode();
+  ROLLERCommsSortNodes();
+  network_on = ROLLERCommsGetActiveNodes();
+  wConsoleNode = ROLLERCommsGetConsoleNode();
 
   // Reset master flag and set player count
   master = 0;
@@ -1799,9 +1732,8 @@ void SendPlayerInfo()
     //send to all nodes
     for (int i = 0; i < network_on; ++i) {
       if (wConsoleNode != i) {
-        //TODO network
-        //while (!gssCommsSendData(&p_header, sizeof(tSyncHeader), &playerInfo, sizeof(tPlayerInfoPacket), i))
-        //  UpdateSDL(); //added by ROLLER
+        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &playerInfo, sizeof(tPlayerInfoPacket), i))
+          UpdateSDL(); //added by ROLLER
       }
     }
   }
@@ -1824,8 +1756,7 @@ void SendAMessage()
   tSyncHeader syncHeader; // [esp+38h] [ebp-18h] BYREF
 
   if (!broadcast_mode && send_message_to >= 0) {
-    //TODO network
-    syncHeader.byConsoleNode = -1;// gssCommsNetAddrToNode(address);
+    syncHeader.byConsoleNode = ROLLERCommsNetAddrToNode(address);
     syncHeader.uiId = PACKET_ID_MESSAGE;
     name_copy(messagePacket.szPlayerName, player_names[player1_car]);
 
@@ -1833,16 +1764,14 @@ void SendAMessage()
 
     messagePacket.iNetworkSlot = network_slot;
 
-    //TODO network
-    //if (send_message_to)
-    //  iNode = gssCommsNetAddrToNode(&address[send_message_to]);
-    //else
+    if (send_message_to)
+      iNode = ROLLERCommsNetAddrToNode(&address[send_message_to]);
+    else
       iNode = 21;
 
-    //TODO network
-    //if (gssCommsSendData(&syncHeader, sizeof(tSyncHeader), &messagePacket, sizeof(tMessagePacket), iNode))
-    //  send_status = 18;
-    //else
+    if (ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &messagePacket, sizeof(tMessagePacket), iNode))
+      send_status = 18;
+    else
       send_status = -18;
     send_message_to = -1;
   }
@@ -2021,18 +1950,19 @@ void BroadcastNews()
 void remove_messages(int iClear)
 {
   //uint8 buffer[4]; // [esp-Ch] [ebp-10h] BYREF
-  //
-  //// first message processing loop
-  //do {
-  //  gssCommsPostListen();                       // check for incoming messages
-  //  UpdateSDL(); //added by ROLLER
-  //} while (gssCommsGetHeader(&in_header, sizeof(tSyncHeader), buffer));// continue until there are no more messages
-  //
-  //// additional clearing if condition is true
-  //if (iClear) {
-  //  while (gssCommsPostListen())
-  //    UpdateSDL(); //added by ROLLER
-  //}
+  void *pPacketData;
+  
+  // first message processing loop
+  do {
+    ROLLERCommsPostListen();                       // check for incoming messages
+    UpdateSDL(); //added by ROLLER
+  } while (ROLLERCommsGetHeader(&in_header, sizeof(tSyncHeader), &pPacketData));// continue until there are no more messages
+  
+  // additional clearing if condition is true
+  if (iClear) {
+    while (ROLLERCommsPostListen())
+      UpdateSDL(); //added by ROLLER
+  }
   clear_network_game();
 }
 
@@ -2048,24 +1978,21 @@ void reset_network(int iResetBroadcastMode)
   gamers_playing[1] = 0;
   gamers_playing[2] = 0;
   gamers_playing[3] = 0;
-  //TODO network
-  wConsoleNode = 0;// gssCommsNetAddrToNode(address);
+  wConsoleNode = ROLLERCommsNetAddrToNode(address);
   while (iNode < wConsoleNode) {
-    //TODO network
-    //if (gssCommsDeleteNode(0)) {
-    //  printf("FAILED TO DELETE NODE c (%d)!!!\n", iNode);
-    //  doexit();
-    //}
-    //gssCommsSortNodes();
+    if (ROLLERCommsDeleteNode(0)) {
+      printf("FAILED TO DELETE NODE c (%d)!!!\n", iNode);
+      doexit();
+    }
+    ROLLERCommsSortNodes();
     ++iNode;
   }
   for (i = wConsoleNode + 1; i < network_on; ++i) {
-    //TODO network
-    //if (gssCommsDeleteNode(1)) {
-    //  printf("FAILED TO DELETE NODE (%d)!!!\n", i);
-    //  doexit();
-    //}
-    //gssCommsSortNodes();
+    if (ROLLERCommsDeleteNode(1)) {
+      printf("FAILED TO DELETE NODE (%d)!!!\n", i);
+      doexit();
+    }
+    ROLLERCommsSortNodes();
   }
 
   for (int i = 0; i < 16; ++i) {
@@ -2085,9 +2012,8 @@ void reset_network(int iResetBroadcastMode)
   wConsoleNode = 0;
   I_Quit = 0;
   my_age = 0;
-  //TODO network
-  //gssCommsGetNetworkAddr(address[0]);
-  //gssCommsGetConsoleNode();
+  ROLLERCommsGetNetworkAddr(address);
+  ROLLERCommsGetConsoleNode();
   network_on = 1;
   if (network_slot >= 0)
     broadcast_mode = -1;
@@ -2098,8 +2024,7 @@ void reset_network(int iResetBroadcastMode)
     send_broadcast(broadcast_mode);
     broadcast_mode = 0;
   }
-  //TODO network
-  //gssCommsSortNodes();
+  ROLLERCommsSortNodes();
   received_records = 1;
   switch_sets = 0;
   switch_types = 0;
@@ -2116,15 +2041,15 @@ void reset_network(int iResetBroadcastMode)
 //00052060
 void clear_network_game()
 {
-  // for (int iPlayer = 0; iPlayer < 16; ++iPlayer) {
-  //   player_ready[iPlayer] = 0;
-  //   // Start at offset = iPlayer * 2 and step by 32
-  //   for (int iOffset = iPlayer * 2; iOffset < 0x4000 / 2; iOffset += 16)  // step is 32 bytes = 16 shorts
-  //   {
-  //     player_checks[iOffset] = -1;
-  //   }
-  // }
-  // memset(copy_multiple, 0, sizeof(copy_multiple));
+  for (int iPlayer = 0; iPlayer < 16; ++iPlayer) {
+    player_ready[iPlayer] = 0;
+    // Start at offset = iPlayer * 2 and step by 32
+    for (int iOffset = iPlayer * 2; iOffset < 0x4000 / 2; iOffset += 16)  // step is 32 bytes = 16 shorts
+    {
+      player_checks[iOffset][iPlayer] = -1;
+    }
+  }
+  memset(copy_multiple, 0, sizeof(copy_multiple));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2181,7 +2106,7 @@ void send_here(int iNode, int iFrame)
 {
   int i; // esi
   tSyncHeader syncHeader; // [esp+0h] [ebp-1Ch] BYREF
-  //int iData; // [esp+Ch] [ebp-10h] BYREF
+  int iData; // [esp+Ch] [ebp-10h] BYREF
 
   if (network_on) {
     syncHeader.byConsoleNode = iNode;
@@ -2190,13 +2115,11 @@ void send_here(int iNode, int iFrame)
     if (iNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != master) {
-          //TODO network
-          //gssCommsSendData(&syncHeader, sizeof(tSyncHeader), iData, sizeof(int), i);
+          ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iData, sizeof(int), i);
         }
       }
     } else {
-      //TODO network
-      //gssCommsSendData(&syncHeader, sizeof(tSyncHeader), iData, sizeof(int), master);
+      ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iData, sizeof(int), master);
     }
   }
 }

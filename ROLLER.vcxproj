@@ -231,6 +231,7 @@ exit 1</Command>
     <ClCompile Include="PROJECTS\ROLLER\polytex.c" />
     <ClCompile Include="PROJECTS\ROLLER\replay.c" />
     <ClCompile Include="PROJECTS\ROLLER\roller.c" />
+    <ClCompile Include="PROJECTS\ROLLER\rollercomms.c" />
     <ClCompile Include="PROJECTS\ROLLER\sound.c" />
     <ClCompile Include="PROJECTS\ROLLER\svgacpy.c" />
     <ClCompile Include="PROJECTS\ROLLER\tower.c" />
@@ -268,6 +269,7 @@ exit 1</Command>
     <ClInclude Include="PROJECTS\ROLLER\polytex.h" />
     <ClInclude Include="PROJECTS\ROLLER\replay.h" />
     <ClInclude Include="PROJECTS\ROLLER\roller.h" />
+    <ClInclude Include="PROJECTS\ROLLER\rollercomms.h" />
     <ClInclude Include="PROJECTS\ROLLER\sound.h" />
     <ClInclude Include="PROJECTS\ROLLER\svgacpy.h" />
     <ClInclude Include="PROJECTS\ROLLER\tower.h" />

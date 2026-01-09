@@ -114,6 +114,9 @@
     <ClCompile Include="PROJECTS\ROLLER\roller.c">
       <Filter>PROJECTS\ROLLER\Source</Filter>
     </ClCompile>
+    <ClCompile Include="PROJECTS\ROLLER\rollercomms.c">
+      <Filter>PROJECTS\ROLLER\Source</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
@@ -219,6 +222,9 @@
       <Filter>PROJECTS\ROLLER\Resources</Filter>
     </ClInclude>
     <ClInclude Include="PROJECTS\ROLLER\roller.h">
+      <Filter>PROJECTS\ROLLER\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="PROJECTS\ROLLER\rollercomms.h">
       <Filter>PROJECTS\ROLLER\Headers</Filter>
     </ClInclude>
   </ItemGroup>
