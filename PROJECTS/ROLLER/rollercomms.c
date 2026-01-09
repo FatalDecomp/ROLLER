@@ -94,8 +94,9 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   u_long iMode = 1;
   ioctlsocket(g_commsState.listenSocket, FIONBIO, &iMode);
 #else
-  int iFlags = fcntl(g_commsState.listenSocket, F_GETFL, 0);
-  fcntl(g_commsState.listenSocket, F_SETFL, iFlags | O_NONBLOCK);
+  //TODO
+  //int iFlags = fcntl(g_commsState.listenSocket, F_GETFL, 0);
+  //fcntl(g_commsState.listenSocket, F_SETFL, iFlags | O_NONBLOCK);
 #endif
 
   // Bind to any address on default port
