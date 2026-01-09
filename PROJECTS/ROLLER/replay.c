@@ -3569,7 +3569,7 @@ void displaycontrolpanel()
   }
   if (!replayedit)                            // Draw control panel overlay if not in replay edit mode
     replayicon(scrbuf, rev_vga[15], 77, 117, 187, iScreenWidth, -1);
-  if (!keys[28] || paused || (iIconOffset = -1, controlicon == 18) && !replayselect)// Calculate icon offset: -1 if ENTER pressed and conditions met, 0 otherwise
+  if (!keys[WHIP_SCANCODE_RETURN] || paused || (iIconOffset = -1, controlicon == 18) && !replayselect)// Calculate icon offset: -1 if ENTER pressed and conditions met, 0 otherwise
     iIconOffset = 0;
   replayicon(scrbuf, rev_vga[15], controlicon, ricon[controlicon].nX, ricon[controlicon].nY + 150 + iIconOffset, iScreenWidth, -1);// Draw current control icon with calculated offset
   if (replayspeed > 0 && !forwarding && !rewinding)// Draw fast forward indicators when replay speed is positive

@@ -496,8 +496,8 @@ void updatejoy()
   if (Joy1used || Joy2used)
     ReadJoys(&rud_Joy_pos);
   if (Joy1used) {
-    keys[128] = rud_Joy_pos.iJ1Button1;
-    keys[129] = rud_Joy_pos.iJ1Button2;
+    keys[WHIP_SCANCODE_J1B1] = rud_Joy_pos.iJ1Button1;
+    keys[WHIP_SCANCODE_J1B2] = rud_Joy_pos.iJ1Button2;
     iX1Scaled = ((2 * rud_Joy_pos.iJ1XAxis - JAXmax - JAXmin) << 10) / (JAXmax - JAXmin);
     //apply 100-unit deadzone
     if (iX1Scaled >= 0) {
@@ -526,8 +526,8 @@ void updatejoy()
     }
   }
   if (Joy2used) {
-    keys[130] = rud_Joy_pos.iJ2Button1;
-    keys[131] = rud_Joy_pos.iJ2Button2;
+    keys[WHIP_SCANCODE_J2B1] = rud_Joy_pos.iJ2Button1;
+    keys[WHIP_SCANCODE_J2B2] = rud_Joy_pos.iJ2Button2;
     iX2Scaled = ((2 * rud_Joy_pos.iJ2XAxis - JBXmax - JBXmin) << 10) / (JBXmax - JBXmin);
     //apply 100-unit deadzone
     if (iX2Scaled >= 0) {
@@ -794,16 +794,16 @@ LABEL_67:
   if (lastsample >= 0)
     goto LABEL_107;
   iStrategyFlags = 0;
-  if (keys[63])                               // F1
+  if (keys[WHIP_SCANCODE_F5])
   {
     iStrategyFlags = 0x40;
-  } else if (keys[64])                          // F2
+  } else if (keys[WHIP_SCANCODE_F6])
   {
     iStrategyFlags = 0x80;
-  } else if (keys[65])                          // F3
+  } else if (keys[WHIP_SCANCODE_F7])
   {
     iStrategyFlags = 0x100;
-  } else if (keys[66])                          // F4
+  } else if (keys[WHIP_SCANCODE_F8])
   {
     iStrategyFlags = 0x200;
   }
@@ -1786,119 +1786,6 @@ void ReadJoys(tJoyPos *pJoy)
 
   // Update global acceptance mask
   bitaccept = (x1ok << 0) | (y1ok << 1) | (x2ok << 2) | (y2ok << 3);
-
-  /*unsigned __int8 byCurrentVal; // al
-  int i; // ebx
-  int v4; // eax
-  int iJ2XAxis; // esi
-  int iY1Ok; // ecx
-  int iY2Ok; // edi
-  int iCurrentVal; // eax
-  int iX1Ok2; // ebx
-  int iX2Ok; // [esp+4h] [ebp-2Ch]
-  int iJ2YAxis; // [esp+8h] [ebp-28h]
-  int iX1Ok; // [esp+Ch] [ebp-24h]
-  int iJ1XAxis; // [esp+10h] [ebp-20h]
-  int iJ1YAxis; // [esp+14h] [ebp-1Ch]
-
-  // Read initial joystick state
-  byCurrentVal = __inbyte(0x201u);
-  i = 0;
-  iJ1XAxis = 0;
-  iJ1YAxis = 0;
-  v4 = (int)(unsigned __int8)~byCurrentVal >> 4;
-  iJ2YAxis = 0;
-  pJoyPos->iJ1Button1 = v4 & 1;
-  pJoyPos->iJ1Button2 = (v4 & 3) >> 1;
-  iJ2XAxis = 0;
-  pJoyPos->iJ2Button1 = (v4 >> 2) & 1;
-  pJoyPos->iJ2Button2 = ((v4 >> 2) & 3) >> 1;
-  _disable();
-  __outbyte(0x201u, 0xFFu);
-
-  // Store current axis presence flags
-  iX1Ok = x1ok;
-  iY1Ok = y1ok;
-  iX2Ok = x2ok;
-  iY2Ok = y2ok;
-
-  // Main measurement loop
-  do {
-    iCurrentVal = 0;
-    LOBYTE(iCurrentVal) = __inbyte(0x201u);
-
-    // Measure X1 axis
-    if (x1ok) {
-      iX1Ok = iCurrentVal & 1;
-      if ((iCurrentVal & 1) != 0)             // Axis still active
-        ++iJ1XAxis;
-    }
-
-    // Measure Y1 axis
-    if (y1ok) {
-      iY1Ok = iCurrentVal & 2;
-      if ((iCurrentVal & 2) != 0)             // Axis still active
-        ++iJ1YAxis;
-    }
-
-    // Measure X2 axis
-    if (x2ok) {
-      iX2Ok = iCurrentVal & 4;
-      if ((iCurrentVal & 4) != 0)             // Axis still active
-        ++iJ2XAxis;
-    }
-
-    // Measure Y2 axis
-    if (y2ok) {
-      iY2Ok = iCurrentVal & 8;
-      if ((iCurrentVal & 8) != 0)             // Axis still active
-        ++iJ2YAxis;
-    }
-    ++i;
-  } while ((iCurrentVal & bitaccept) != 0 && i < 10000);
-  // Exit conditions:
-  // 1. All axes have discharged
-  // 2. Reached maximum loop count (10,000)
-
-  // re-enable interrupts
-  iX1Ok2 = iX1Ok;
-  _enable();
-
-  // Process results for X1 axis
-  if (iX1Ok2) {
-    pJoyPos->iJ1XAxis = 0;
-    x1ok = 0;                                   // mark axis as unavailable
-    bitaccept = y2ok | y1ok | x2ok;             // Update global acceptance mask
-  } else {
-    pJoyPos->iJ1XAxis = iJ1XAxis;
-  }
-
-  // Process results for Y1 axis
-  if (iY1Ok) {
-    pJoyPos->iJ1YAxis = 0;
-    y1ok = 0;                                   // mark axis as unavailable
-    bitaccept = y2ok | x1ok | x2ok;             // Update global acceptance mask
-  } else {
-    pJoyPos->iJ1YAxis = iJ1YAxis;
-  }
-
-  // Process results for X2 axis
-  if (iX2Ok) {
-    pJoyPos->iJ2XAxis = 0;
-    x2ok = 0;                                   // Mark axis as unavailable
-    bitaccept = y2ok | y1ok | x1ok;             // Update global acceptance mask
-  } else {
-    pJoyPos->iJ2XAxis = iJ2XAxis;
-  }
-
-  // Process results for Y2 axis
-  if (iY2Ok) {
-    pJoyPos->iJ2YAxis = 0;
-    y2ok = 0;                                   // Mark axis as unavailable
-    bitaccept = x2ok | y1ok | x1ok;             // Update global acceptance mask
-  } else {
-    pJoyPos->iJ2YAxis = iJ2YAxis;
-  }*/
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -1788,7 +1788,14 @@ int fatgetch()
       UpdateSDL(); //added by ROLLER
 
     // Read next scancode from buffer and get mapped character
-    iResult = (char)mapping[key_buffer[read_key++]];
+    int iTestReadKey = read_key++;
+    uint8 byKey = key_buffer[iTestReadKey];
+    uint8 byMapping = mapping[byKey];
+    iResult = (char)byMapping;
+
+    int iTest = -69;
+    uint8 byTest = (uint8)iTest;
+
     read_key &= 0x3Fu;
 
     // Handle special keys
@@ -2718,7 +2725,7 @@ void display_paused()
   char bySVGAColor; // al
   const char *pszSVGAText; // edx
   char byExitColor; // al
-  tJoyPos pJoyPos; // [esp+0h] [ebp-28h] BYREF
+  tJoyPos joyPos; // [esp+0h] [ebp-28h] BYREF
   const char *pszConfigText1; // [esp+20h] [ebp-8h]
   const char *pszConfigText2; // [esp+24h] [ebp-4h]
 
@@ -2774,24 +2781,24 @@ void display_paused()
     case 1:
       blankwindow(0, 0, 320, 200);              // Case 1: Joystick calibration window
       if (calibrate_mode) {
-        ReadJoys(&pJoyPos);                     // Read joystick positions for calibration
+        ReadJoys(&joyPos);                     // Read joystick positions for calibration
         //_disable();
-        if (pJoyPos.iJ1XAxis < JAXmin)        // Update joystick 1 X-axis min/max calibration values
-          JAXmin = pJoyPos.iJ1XAxis;
-        if (pJoyPos.iJ1XAxis > JAXmax)
-          JAXmax = pJoyPos.iJ1XAxis;
-        if (pJoyPos.iJ1YAxis < JAYmin)        // Update joystick 1 Y-axis min/max calibration values
-          JAYmin = pJoyPos.iJ1YAxis;
-        if (pJoyPos.iJ1YAxis > JAYmax)
-          JAYmax = pJoyPos.iJ1YAxis;
-        if (pJoyPos.iJ2XAxis < JBXmin)        // Update joystick 2 X-axis min/max calibration values
-          JBXmin = pJoyPos.iJ2XAxis;
-        if (pJoyPos.iJ2XAxis > JBXmax)
-          JBXmax = pJoyPos.iJ2XAxis;
-        if (pJoyPos.iJ2YAxis < JBYmin)        // Update joystick 2 Y-axis min/max calibration values
-          JBYmin = pJoyPos.iJ2YAxis;
-        if (pJoyPos.iJ2YAxis > JBYmax)
-          JBYmax = pJoyPos.iJ2YAxis;
+        if (joyPos.iJ1XAxis < JAXmin)        // Update joystick 1 X-axis min/max calibration values
+          JAXmin = joyPos.iJ1XAxis;
+        if (joyPos.iJ1XAxis > JAXmax)
+          JAXmax = joyPos.iJ1XAxis;
+        if (joyPos.iJ1YAxis < JAYmin)        // Update joystick 1 Y-axis min/max calibration values
+          JAYmin = joyPos.iJ1YAxis;
+        if (joyPos.iJ1YAxis > JAYmax)
+          JAYmax = joyPos.iJ1YAxis;
+        if (joyPos.iJ2XAxis < JBXmin)        // Update joystick 2 X-axis min/max calibration values
+          JBXmin = joyPos.iJ2XAxis;
+        if (joyPos.iJ2XAxis > JBXmax)
+          JBXmax = joyPos.iJ2XAxis;
+        if (joyPos.iJ2YAxis < JBYmin)        // Update joystick 2 Y-axis min/max calibration values
+          JBYmin = joyPos.iJ2YAxis;
+        if (joyPos.iJ2YAxis > JBYmax)
+          JBYmax = joyPos.iJ2YAxis;
         if (JAXmin == JAXmax)                 // Ensure min != max to avoid division by zero
           JAXmax = JAXmin + 1;
         if (JAYmin == JAYmax)
@@ -2820,7 +2827,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[1728], 176, 68, byCalibColor3);
       if (calibrate_mode) {
         if (x1ok && JAXmax - JAXmin >= 100)
-          iJoy1XBar = 140 * (2 * pJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
+          iJoy1XBar = 140 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
         else
           iJoy1XBar = 0;
         displaycalibrationbar(180, 68, iJoy1XBar);
@@ -2838,7 +2845,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[1792], 176, 80, byJoy1XColor);
       if (calibrate_mode) {
         if (y1ok && JAYmax - JAYmin >= 100)
-          iJoy1YBar = 140 * (2 * pJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+          iJoy1YBar = 140 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
         else
           iJoy1YBar = 0;
         displaycalibrationbar(180, 80, iJoy1YBar);
@@ -2856,7 +2863,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[1856], 176, 92, byJoy1YColor);
       if (calibrate_mode) {
         if (x2ok && JBXmax - JBXmin >= 100)
-          iJoy2XBar = 140 * (2 * pJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+          iJoy2XBar = 140 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
         else
           iJoy2XBar = 0;
         displaycalibrationbar(180, 92, iJoy2XBar);
@@ -2874,7 +2881,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[1920], 176, 104, byJoy2XColor);
       if (calibrate_mode) {
         if (y2ok && JBYmax - JBYmin >= 100)
-          iJoy2YBar = 140 * (2 * pJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+          iJoy2YBar = 140 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
         else
           iJoy2YBar = 0;
         displaycalibrationbar(180, 104, iJoy2YBar);
@@ -2971,40 +2978,40 @@ void display_paused()
             ++iNameLoop;
           } while (iKeyLoop < 128);
           if (iKeyPressed == -1) {
-            ReadJoys(&pJoyPos);                 // Check joystick buttons if no keyboard input detected
-            if (pJoyPos.iJ1Button1)            // Joystick button mappings: 128=J1X, 129=J1Y, 130=J2X, 131=J2Y
+            ReadJoys(&joyPos);                 // Check joystick buttons if no keyboard input detected
+            if (joyPos.iJ1Button1)            // Joystick button mappings: 128=J1X, 129=J1Y, 130=J2X, 131=J2Y
               iKeyPressed = 128;
-            if (pJoyPos.iJ1Button2)
+            if (joyPos.iJ1Button2)
               iKeyPressed = 129;
-            if (pJoyPos.iJ2Button1)
+            if (joyPos.iJ2Button1)
               iKeyPressed = 130;
-            if (pJoyPos.iJ2Button2)
+            if (joyPos.iJ2Button2)
               iKeyPressed = 131;
           }
           if (iKeyPressed == -1) {
             if (y2ok) {
-              iJoy2YCalc = 100 * (2 * pJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+              iJoy2YCalc = 100 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
               if (iJoy2YCalc < -50)
                 iKeyPressed = 138;
               if (iJoy2YCalc > 50)
                 iKeyPressed = 139;
             }
             if (x2ok) {
-              iJoy2XCalc = 100 * (2 * pJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+              iJoy2XCalc = 100 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
               if (iJoy2XCalc < -50)
                 iKeyPressed = 136;
               if (iJoy2XCalc > 50)
                 iKeyPressed = 137;
             }
             if (y1ok) {
-              iJoy1YCalc = 100 * (2 * pJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+              iJoy1YCalc = 100 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
               if (iJoy1YCalc < -50)
                 iKeyPressed = 134;
               if (iJoy1YCalc > 50)
                 iKeyPressed = 135;
             }
             if (x1ok) {
-              iJoy1XCalc = 100 * (2 * pJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);// Calculate joystick axis positions: 132-139 are axis directions
+              iJoy1XCalc = 100 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);// Calculate joystick axis positions: 132-139 are axis directions
               if (iJoy1XCalc < -50)
                 iKeyPressed = 132;
               if (iJoy1XCalc > 50)
@@ -3048,7 +3055,7 @@ void display_paused()
             }
           }
         }
-        if (keys[1]) {
+        if (keys[WHIP_SCANCODE_ESCAPE]) {
           define_mode = 0;
           memcpy(userkey, oldkeys, 0xCu);
           memcpy(&userkey[12], &oldkeys[12], 2u);

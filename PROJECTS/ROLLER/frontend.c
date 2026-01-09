@@ -2620,7 +2620,7 @@ void select_configure()
   char byTempChar1; // [esp-10h] [ebp-16h]
   char byTempChar2; // [esp-10h] [ebp-16h]
   uint8 byTempValue; // [esp-8h] [ebp-Eh]
-  tJoyPos pJoyPos; // [esp+0h] [ebp-6h] BYREF
+  tJoyPos joyPos; // [esp+0h] [ebp-6h] BYREF
   char szNewNameBuf[12]; // [esp+20h] [ebp+1Ah] BYREF
   int iY; // [esp+2Ch] [ebp+26h]
   int iTextPosX; // [esp+30h] [ebp+2Ah]
@@ -3006,29 +3006,29 @@ void select_configure()
       case 2:
         // Joystick calibration
         if (iConfigState == 3) {
-          ReadJoys(&pJoyPos);
+          ReadJoys(&joyPos);
           //_disable();
 
           // Update calibration ranges for all axes
-          if (pJoyPos.iJ1XAxis < JAXmin)
-            JAXmin = pJoyPos.iJ1XAxis;
-          if (pJoyPos.iJ1XAxis > JAXmax)
-            JAXmax = pJoyPos.iJ1XAxis;
+          if (joyPos.iJ1XAxis < JAXmin)
+            JAXmin = joyPos.iJ1XAxis;
+          if (joyPos.iJ1XAxis > JAXmax)
+            JAXmax = joyPos.iJ1XAxis;
 
-          if (pJoyPos.iJ1YAxis < JAYmin)
-            JAYmin = pJoyPos.iJ1YAxis;
-          if (pJoyPos.iJ1YAxis > JAYmax)
-            JAYmax = pJoyPos.iJ1YAxis;
+          if (joyPos.iJ1YAxis < JAYmin)
+            JAYmin = joyPos.iJ1YAxis;
+          if (joyPos.iJ1YAxis > JAYmax)
+            JAYmax = joyPos.iJ1YAxis;
 
-          if (pJoyPos.iJ2XAxis < JBXmin)
-            JBXmin = pJoyPos.iJ2XAxis;
-          if (pJoyPos.iJ2XAxis > JBXmax)
-            JBXmax = pJoyPos.iJ2XAxis;
+          if (joyPos.iJ2XAxis < JBXmin)
+            JBXmin = joyPos.iJ2XAxis;
+          if (joyPos.iJ2XAxis > JBXmax)
+            JBXmax = joyPos.iJ2XAxis;
 
-          if (pJoyPos.iJ2YAxis < JBYmin)
-            JBYmin = pJoyPos.iJ2YAxis;
-          if (pJoyPos.iJ2YAxis > JBYmax)
-            JBYmax = pJoyPos.iJ2YAxis;
+          if (joyPos.iJ2YAxis < JBYmin)
+            JBYmin = joyPos.iJ2YAxis;
+          if (joyPos.iJ2YAxis > JBYmax)
+            JBYmax = joyPos.iJ2YAxis;
 
           if (JAXmin == JAXmax)
             JAXmax = JAXmin + 1;
@@ -3057,7 +3057,7 @@ void select_configure()
         if (iConfigState_1 == 3) {
           // Show calibration bar
           if (x1ok && JAXmax - JAXmin >= 100)
-            iJoyCalibValue1 = 140 * (2 * pJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
+            iJoyCalibValue1 = 140 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
           else
             iJoyCalibValue1 = 0;
           front_displaycalibrationbar(300, 128, iJoyCalibValue1);
@@ -3075,7 +3075,7 @@ void select_configure()
         if (iConfigState == 3) {
           // Show Calibration bar
           if (y1ok && JAYmax - JAYmin >= 100)
-            iJoyCalibValue2 = 140 * (2 * pJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+            iJoyCalibValue2 = 140 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
           else
             iJoyCalibValue2 = 0;
           front_displaycalibrationbar(300, 178, iJoyCalibValue2);
@@ -3093,7 +3093,7 @@ void select_configure()
         if (iConfigState == 3) {
           // Calibration bar
           if (x2ok && JBXmax - JBXmin >= 100)
-            iX2CalibrationVal = 140 * (2 * pJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+            iX2CalibrationVal = 140 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
           else
             iX2CalibrationVal = 0;
           front_displaycalibrationbar(300, 228, iX2CalibrationVal);
@@ -3113,7 +3113,7 @@ void select_configure()
         if (iConfigState_2 == 3) {
           // Calibration bar
           if (y2ok && JBYmax - JBYmin >= 100)
-            iY2CalibrationVal = 140 * (2 * pJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+            iY2CalibrationVal = 140 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
           else
             iY2CalibrationVal = 0;
           front_displaycalibrationbar(300, 278, iY2CalibrationVal);
@@ -3286,42 +3286,42 @@ void select_configure()
 
         // If no keyboard key pressed check joystick buttons
         if (iFoundKey == -1) {
-          ReadJoys(&pJoyPos);
-          if (pJoyPos.iJ1Button1)
+          ReadJoys(&joyPos);
+          if (joyPos.iJ1Button1)
             iFoundKey = 128;
-          if (pJoyPos.iJ1Button2)
+          if (joyPos.iJ1Button2)
             iFoundKey = 129;
-          if (pJoyPos.iJ2Button1)
+          if (joyPos.iJ2Button1)
             iFoundKey = 130;
-          if (pJoyPos.iJ2Button2)
+          if (joyPos.iJ2Button2)
             iFoundKey = 131;
         }
 
         // If still no input check joystick axis movements
         if (iFoundKey == -1) {
           if (y2ok) {
-            iJoyValue1 = 100 * (2 * pJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+            iJoyValue1 = 100 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
             if (iJoyValue1 < -50)
               iFoundKey = 138;
             if (iJoyValue1 > 50)
               iFoundKey = 139;
           }
           if (x2ok) {
-            iJoyValue2 = 100 * (2 * pJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+            iJoyValue2 = 100 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
             if (iJoyValue2 < -50)
               iFoundKey = 136;
             if (iJoyValue2 > 50)
               iFoundKey = 137;
           }
           if (y1ok) {
-            iJoyValue3 = 100 * (2 * pJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+            iJoyValue3 = 100 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
             if (iJoyValue3 < -50)
               iFoundKey = 134;
             if (iJoyValue3 > 50)
               iFoundKey = 135;
           }
           if (x1ok) {
-            iJoyValue4 = 100 * (2 * pJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
+            iJoyValue4 = 100 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
             if (iJoyValue4 < -50)
               iFoundKey = 132;
             if (iJoyValue4 > 50)

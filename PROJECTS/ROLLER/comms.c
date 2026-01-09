@@ -240,7 +240,7 @@ int select_modemstuff(int iIconIdx)
             if (!keypair.iKeycode)
               goto LABEL_57;
           LABEL_63:
-            if (keys[42] || keys[54])         // Handle shifted characters for special symbols
+            if (keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT])         // Handle shifted characters for special symbols
             {
               switch (keypair.iKeycode) {
                 case '#':

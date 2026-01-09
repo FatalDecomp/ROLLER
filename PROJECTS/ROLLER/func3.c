@@ -5291,7 +5291,7 @@ MAIN_UI_LOOP:
               }
             }
             if (uiCurrentMenu == 2 && iMessageLength < 30) {                                   // Handle shift key combinations for special characters
-              if (keys[42] || keys[54]) {
+              if (keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT]) {
                 switch (iCharCode) {
                   case '#':
                     iCharCode = 126;
@@ -5726,8 +5726,8 @@ int select_netslot()
         if (uiKeyCode < 0xD) {                                       // Handle extended keys (arrows)
           if (!uiKeyCode) {
             uiExtendedKey = fatgetch();
-            if (uiExtendedKey >= 0x4B) {
-              if (uiExtendedKey <= 0x4B) {                                 // Left arrow - move to previous available slot
+            if (uiExtendedKey >= WHIP_SCANCODE_LEFT) {
+              if (uiExtendedKey <= WHIP_SCANCODE_LEFT) {                                 // Left arrow - move to previous available slot
                 if (iCurrentSlot > 0) {
                   textColor[iCurrentSlot] = 131;
                   iPrevSlot = iCurrentSlot - 1;
@@ -5744,7 +5744,7 @@ int select_netslot()
                     iCurrentSlot = iPrevSlot;
                   textColor[iCurrentSlot] = 171;
                 }
-              } else if (uiExtendedKey == 77 && iCurrentSlot < 3)// Right arrow - move to next available slot
+              } else if (uiExtendedKey == WHIP_SCANCODE_RIGHT && iCurrentSlot < 3)// Right arrow - move to next available slot
               {
                 textColor[iCurrentSlot] = 131;
                 iRightSearchSlot = iCurrentSlot + 1;

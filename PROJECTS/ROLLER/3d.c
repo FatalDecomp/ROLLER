@@ -2129,11 +2129,11 @@ void play_game(int iTrack)
       winner_done = -1;
       racing = -1;
     }
-    bShiftKeyPressed = keys[42] || keys[54];    // Check for shift keys (left shift=42, right shift=54)
+    bShiftKeyPressed = keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT];
     shifting = bShiftKeyPressed;
-    if (bShiftKeyPressed && keys[65] || keys[28] && controlicon == 8)// Handle rewind controls (Shift+A or Enter when control icon 8)
+    if (bShiftKeyPressed && keys[WHIP_SCANCODE_F7] || keys[WHIP_SCANCODE_RETURN] && controlicon == 8)
     {
-      if (shifting && keys[65])
+      if (shifting && keys[WHIP_SCANCODE_F7])
         controlicon = 9;
       slowing = 0;
       if (!rewinding)
@@ -2141,9 +2141,9 @@ void play_game(int iTrack)
     } else if (rewinding) {
       slowing = -1;
     }
-    if (shifting && keys[66] || keys[28] && controlicon == 10)// Handle fast-forward controls (Shift+B or Enter when control icon 10)
+    if (shifting && keys[WHIP_SCANCODE_F8] || keys[WHIP_SCANCODE_RETURN] && controlicon == 10)
     {
-      if (shifting && keys[66])
+      if (shifting && keys[WHIP_SCANCODE_F8])
         controlicon = 9;
       slowing = 0;
       if (!forwarding)
@@ -2249,67 +2249,67 @@ void game_keys()
                 iExtendedKey = fatgetch();      // Process extended keys (arrow keys, function keys)
                 if (iExtendedKey != 75 && iExtendedKey != 77 && iExtendedKey != 72 && iExtendedKey != 80)// Check for arrow keys (75=Left, 77=Right, 72=Up, 80=Down)
                 {                               // Apply Shift modifier (keys[42]=LShift, keys[54]=RShift, adds 25)
-                  if (keys[42] || keys[54]) {
+                  if (keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT]) {
                     iExtendedKey += 25;
-                  } else if (keys[56])          // Apply Alt modifier (keys[56]=Alt, adds 45)
+                  } else if (keys[WHIP_SCANCODE_LALT])          // Apply Alt modifier (keys[56]=Alt, adds 45)
                   {
                     iExtendedKey += 45;
                   }
                 }
                 switch (iExtendedKey) {
-                  case 0x3B:
+                  case WHIP_SCANCODE_F1:
                     if (network_on)           // F1 (0x3B) - Network message controls / Replay car selection
                       mesminus();
                     if (replaytype == 2)
                       carminus();
                     break;
-                  case 0x3C:
+                  case WHIP_SCANCODE_F2:
                     if (network_on)           // F2 (0x3C) - Network message controls / Replay car selection
                       mesplus();
                     if (replaytype == 2)
                       carplus();
                     break;
-                  case 0x3D:
+                  case WHIP_SCANCODE_F3:
                     if (view0_cnt < 0)        // F3 (0x3D) - Previous view for player 1
                     {
                       view0_cnt = 18;
                       viewminus(0);
                     }
                     break;
-                  case 0x3E:
+                  case WHIP_SCANCODE_F4:
                     if (view0_cnt < 0)        // F4 (0x3E) - Next view for player 1
                     {
                       view0_cnt = 18;
                       viewplus(0);
                     }
                     break;
-                  case 0x41:
+                  case WHIP_SCANCODE_F7:
                     if (player_type == 2 && view1_cnt < 0) {
                       view1_cnt = 18;
                       viewminus(1);
                     }
                     break;
-                  case 0x42:
+                  case WHIP_SCANCODE_F8:
                     if (player_type == 2 && view1_cnt < 0) {
                       view1_cnt = 18;
                       viewplus(1);
                     }
                     break;
-                  case 0x43:
+                  case WHIP_SCANCODE_F9:
                     if (++names_on > 2)       // F9 (0x43) - Toggle player names display (0=off, 1=on, 2=detailed)
                       names_on = 0;
                     break;
-                  case 0x44:
+                  case WHIP_SCANCODE_F10:
                     if (I_Would_Like_To_Quit && Quit_Count <= 0)// F10 (0x44) - Quit game (if quit sequence active)
                     {
                       I_Want_Out = -1;
                       stopallsamples();
                     }
                     break;
-                  case 0x46:
+                  case WHIP_SCANCODE_F12:
                     showversion = showversion == 0;// F12 (0x46) - Toggle version display
                     break;
-                  case 0x48:
+                  case WHIP_SCANCODE_UP:
                     if (game_req) {
                       if (!pausewindow && req_edit > 0)
                         --req_edit;
@@ -2349,7 +2349,7 @@ void game_keys()
                       }
                     }
                     break;
-                  case 0x4B:
+                  case WHIP_SCANCODE_LEFT:
                     if (game_req) {
                       if (pausewindow == 4) {
                         switch (sound_edit) {
@@ -2386,7 +2386,7 @@ void game_keys()
                       --controlicon;
                     }
                     break;
-                  case 0x4D:
+                  case WHIP_SCANCODE_RIGHT:
                     iGameReqState = game_req;
                     if (game_req) {
                       if (pausewindow == 4) {
@@ -2428,7 +2428,7 @@ void game_keys()
                         ++controlicon;
                     }
                     break;
-                  case 0x50:
+                  case WHIP_SCANCODE_DOWN:
                     if (game_req) {
                       if (!pausewindow && req_edit < 6)
                         ++req_edit;
@@ -2605,7 +2605,7 @@ void game_keys()
                       }
                     }
                   } else if (uiKeyCode == 68) {
-                    if (keys[56]) {
+                    if (keys[WHIP_SCANCODE_LALT]) {
                       controlicon = 9;
                       if (replaytype == 2)
                         filingmenu = 3;
@@ -2613,14 +2613,14 @@ void game_keys()
                   }
                 }
               } else if (uiKeyCode <= 0x4C) {
-                if (keys[56]) {
+                if (keys[WHIP_SCANCODE_LALT]) {
                   controlicon = 9;
                   if (replaytype == 2)
                     filingmenu = 1;
                 }
               } else if (uiKeyCode >= 0x53) {
                 if (uiKeyCode <= 0x53) {
-                  if (keys[56]) {
+                  if (keys[WHIP_SCANCODE_LALT]) {
                     controlicon = 9;
                     if (replaytype == 2)
                       filingmenu = 2;
