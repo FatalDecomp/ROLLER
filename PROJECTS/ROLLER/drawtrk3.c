@@ -251,7 +251,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   }
 
   // Apply view distance limits for certain game modes
-  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode) {
+  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode && !g_bForceMaxDraw) {
     iHasExtraView = 0;
     iExtraViewStart = -1;
     if (player_type == 2) {
