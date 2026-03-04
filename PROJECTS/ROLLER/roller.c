@@ -64,6 +64,7 @@ SDL_JoystickID g_joyId1 = 0;
 SDL_JoystickID g_joyId2 = 0;
 bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = false; //TODO: figure out why this causes some flickering, also load from INI file
+bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 uint8 testbuf[4096];
 static uint8 *s_pRGBBuffer = NULL;
 static uint8 *s_pDebugBuffer = NULL;

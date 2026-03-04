@@ -14,6 +14,7 @@ extern SDL_Gamepad *g_pController2;
 extern tJoyPos g_rollerJoyPos;
 extern bool g_bPaletteSet;
 extern bool g_bForceMaxDraw;
+extern bool g_bAINoCheatStart;
 extern uint8 testbuf[4096];
 extern bool g_bRepeat;
 extern int g_iNumTracks;

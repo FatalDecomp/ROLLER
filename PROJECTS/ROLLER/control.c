@@ -1239,7 +1239,7 @@ void Accelerate(tCar *pCar)
           fPower = fPower + 32.0f;
         } else if (iGearAyMax == -1) {
           fPower = fCarComplexityFactor * 2.0f + fPower;
-        } else if (pCar->fTotalRaceTime >= 20.0f || human_control[pCar->iDriverIdx]) {
+        } else if (pCar->fTotalRaceTime >= 20.0f || human_control[pCar->iDriverIdx] || g_bAINoCheatStart) {  // Last check added by ROLLER
           fPower = (fHealthFactor + fCarComplexityFactor + fGravityFactor) * 0.5f + fPower;
         } else {
           fPower = (fHealthFactor + fCarComplexityFactor + fGravityFactor) / (float)(pCar->byRacePosition / 15 + 1) + fPower;
