@@ -22,7 +22,8 @@ extern int g_iNumTracks;
 //-------------------------------------------------------------------------------------------------
 
 // functions added by ROLLER
-int InitSDL(const char *data_root, const char *midi_root);
+int InitSDL(char *data_root, const char *midi_root);
+void InitFATDATA(const char *szDataRoot);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();
@@ -54,6 +55,7 @@ void DIGISetPanLocation(int iHandle, int iPan);
 void PlayAudioSampleWait(int iIndex);
 void PlayAudioDataWait(Uint8 *buffer, Uint32 length);
 bool ROLLERfexists(const char *szFile);
+bool ROLLERdirexists(const char *szDir);
 FILE *ROLLERfopen(const char *szFile, const char *szMode); //tries to open file with both all caps and all lower case
 int ROLLERopen(const char *szFile, int iOpenFlags); //tries to open file with both all caps and all lower case
 int ROLLERremove(const char *szFile); //tries to remove file with both all caps and all lower case

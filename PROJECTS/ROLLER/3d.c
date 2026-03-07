@@ -54,7 +54,7 @@ int graphic_mode = 0;       //000A31A0
 int calibrate_select = 0;   //000A31A4
 int sound_edit = 0;         //000A31A8
 int showversion = 0;        //000A31AC
-int game_svga = 0;          //000A31B0
+int game_svga = 1;          //000A31B0 ROLLER modification - SVGA mode by default
 int game_size = 64;         //000A31B4
 int game_view[2] = { 0, 0 }; //000A31B8
 int svga_possible = -1;     //000A31C0
@@ -1026,7 +1026,7 @@ int main(int argc, const char **argv, const char **envp)
   int nGameFlags; // edx
   int16 nCarIdx; // bx
   int consumed = 0;
-  const char *whiplash_root = NULL;
+  char whiplash_root[260] = { 0 };
   const char *midi_root = NULL;
 
   for (int i = 1; i < argc;) {
@@ -1036,7 +1036,7 @@ int main(int argc, const char **argv, const char **envp)
       return 0;
     } else if (strcmp(argv[i], "--whiplash-root") == 0) {
       if (i + 1 < argc) {
-        whiplash_root = argv[i + 1];
+        strncpy(whiplash_root, argv[i + 1], sizeof(whiplash_root));
         consumed = 2;
       } else {
         fprintf(stderr, "ERROR: '--whiplash-root' needs an argument\n");
@@ -1062,6 +1062,8 @@ int main(int argc, const char **argv, const char **envp)
   if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;
   }
+
+  InitFATDATA(whiplash_root);
 
   ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
   oldmode = readmode();                         // Save current video mode

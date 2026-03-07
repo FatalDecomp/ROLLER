@@ -40,6 +40,7 @@
 //-------------------------------------------------------------------------------------------------
 
 #define MAX_TIMERS 16
+#define ROLLER_MAX_PATH 260
 
 //-------------------------------------------------------------------------------------------------
 
@@ -50,6 +51,20 @@ typedef struct
   uint64 ullLastSDLTicksNS;
   uint64 ullCurrSDLTicksNS;
 } tTimerData;
+
+typedef struct
+{
+  char szPath[ROLLER_MAX_PATH];
+  bool bFolder;
+  bool bDone;
+  bool bCancelled;
+} tDialogResult;
+
+typedef struct
+{
+  const char *szSrc;
+  const char *szDst;
+} tCopyDirContext;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -248,32 +263,27 @@ void ToggleFullscreen()
 
 //-------------------------------------------------------------------------------------------------
 
-int InitSDL(const char *whiplash_root, const char *midi_root)
+int InitSDL(char *whiplash_root, const char *midi_root)
 {
   if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
   }
 
-  if (whiplash_root) {
+  if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
       ErrorBoxExit("Could not changed working directory to '%s'", whiplash_root);
       return 1;
     }
   } else {
     // Change to the base path of the application
-    whiplash_root = SDL_GetBasePath();
+    strncpy(whiplash_root, SDL_GetBasePath(), 260);
     if (whiplash_root) {
       chdir(whiplash_root);
     }
   }
 
   ROLLERGetAudioInfo();
-
-  // check if the ./FATDATA/FATAL.INI to ensure the game can run
-  if (!ROLLERfexists("./FATDATA/FATAL.INI")) {
-    ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the FATDATA folder assets from a retail copy of the game.");
-  }
 
   g_pTimerMutex = SDL_CreateMutex();
 
@@ -336,6 +346,129 @@ int InitSDL(const char *whiplash_root, const char *midi_root)
   }
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFilter)
+{
+  tDialogResult *pResult = (tDialogResult *)pUserData;
+
+  if (!filelist || !filelist[0]) {
+    pResult->bCancelled = true;
+  } else {
+    SDL_strlcpy(pResult->szPath, filelist[0], ROLLER_MAX_PATH);
+  }
+  pResult->bDone = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+SDL_EnumerationResult SDLCALL CopyFATDATADirCallback(void *pUserData,
+                                               const char *szDir,
+                                               const char *szName)
+{
+  UpdateSDL();
+
+  tCopyDirContext *pCtx = (tCopyDirContext *)pUserData;
+  char szSrcPath[ROLLER_MAX_PATH];
+  char szDstPath[ROLLER_MAX_PATH];
+
+  SDL_snprintf(szSrcPath, ROLLER_MAX_PATH, "%s/%s", szDir, szName);
+  SDL_snprintf(szDstPath, ROLLER_MAX_PATH, "%s/%s", pCtx->szDst, szName);
+
+  SDL_PathInfo info;
+  SDL_GetPathInfo(szSrcPath, &info);
+
+  if (SDL_strcasestr(szSrcPath, "FATDATA")) {
+    if (info.type == SDL_PATHTYPE_DIRECTORY) {
+      SDL_CreateDirectory(szDstPath);
+      tCopyDirContext subCtx = { szSrcPath, szDstPath };
+      SDL_EnumerateDirectory(szSrcPath, CopyFATDATADirCallback, &subCtx);
+    } else {
+      SDL_CopyFile(szSrcPath, szDstPath);
+    }
+  }
+
+  return SDL_ENUM_CONTINUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void CopyFATDATADir(const char *szSrc, const char *szDst)
+{
+  SDL_CreateDirectory(szDst);
+  tCopyDirContext ctx = { szSrc, szDst };
+  SDL_EnumerateDirectory(szSrc, CopyFATDATADirCallback, &ctx);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InitFATDATA(const char *szDataRoot)
+{
+  if (!szDataRoot)
+    return;
+
+  // check if data folder exists
+  if (!ROLLERdirexists("./FATDATA")) {
+    SDL_MessageBoxButtonData buttons[] = {
+      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
+      { 0,                                       1, "Drive/Folder" },
+      { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Cancel" },
+    };
+
+    SDL_MessageBoxData msgbox = {
+        SDL_MESSAGEBOX_INFORMATION,
+        s_pWindow,
+        "FATDATA not found",
+        "Choose how to extract the game data:",
+        SDL_arraysize(buttons),
+        buttons,
+        NULL
+    };
+
+    int iButtonID;
+    tDialogResult result = { 0 };
+    if (SDL_ShowMessageBox(&msgbox, &iButtonID)) {
+      switch (iButtonID) {
+        case 0:
+        {
+          SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+          SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
+        }
+        break;
+        case 1:
+          result.bFolder = true;
+          SDL_ShowOpenFolderDialog(FileCallback, &result, s_pWindow, szDataRoot, false);
+          break;
+        case 2:
+          break;
+      }
+    }
+
+    SDL_Event event;
+    while (!result.bDone) {
+      while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_QUIT) {
+          ShutdownSDL();
+          exit(0);
+        }
+      }
+      SDL_Delay(10);
+    }
+
+    if (result.bFolder) {
+      CopyFATDATADir(result.szPath, szDataRoot);
+      //TODO: extract cd audio
+    } else {
+      //TODO
+    }
+  }
+
+  //check if extraction was successful
+  if (!ROLLERdirexists("./FATDATA")) {
+    ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the FATDATA folder assets from a retail copy of the game.");
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1213,6 +1346,35 @@ bool ROLLERfexists(const char *szFile)
   pFile = fopen(szLower, "r");
   if (pFile) {
     fclose(pFile);
+    return true;
+  }
+
+  return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+bool ROLLERdirexists(const char *szDir)
+{
+  struct stat sb;
+  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
+    return true;
+  }
+
+  char szUpper[260] = { 0 };
+  char szLower[260] = { 0 };
+  int iLength = (int)strlen(szDir);
+
+  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+    szUpper[i] = toupper(szDir[i]);
+    szLower[i] = tolower(szDir[i]);
+  }
+
+  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
+    return true;
+  }
+
+  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
     return true;
   }
 
