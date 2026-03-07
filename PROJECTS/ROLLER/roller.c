@@ -414,7 +414,7 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists
   if (!ROLLERdirexists("./FATDATA")) {
     SDL_MessageBoxButtonData buttons[] = {
-      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
+      //{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
       { 0,                                       1, "Drive/Folder" },
       { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Cancel" },
     };
