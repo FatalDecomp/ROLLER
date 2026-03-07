@@ -11,6 +11,7 @@
 #include <SDL3_image/SDL_image.h>
 #include <wildmidi_lib.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #ifdef IS_WINDOWS
 #include <io.h>
 #include <direct.h>
@@ -21,6 +22,7 @@
 #define chdir _chdir
 #define open _open
 #define close _close
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
 #else
 #include <stdlib.h>
 #include <inttypes.h>
@@ -1357,7 +1359,7 @@ bool ROLLERfexists(const char *szFile)
 bool ROLLERdirexists(const char *szDir)
 {
   struct stat sb;
-  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
+  if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
 
@@ -1370,11 +1372,11 @@ bool ROLLERdirexists(const char *szDir)
     szLower[i] = tolower(szDir[i]);
   }
 
-  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
+  if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
 
-  if (stat(szDir, &sb) == 0 && sb.st_mode & _S_IFDIR) {
+  if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
 
