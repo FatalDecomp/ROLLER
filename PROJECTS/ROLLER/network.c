@@ -2043,10 +2043,9 @@ void clear_network_game()
 {
   for (int iPlayer = 0; iPlayer < 16; ++iPlayer) {
     player_ready[iPlayer] = 0;
-    // Start at offset = iPlayer * 2 and step by 32
-    for (int iOffset = iPlayer * 2; iOffset < 0x4000 / 2; iOffset += 16)  // step is 32 bytes = 16 shorts
+    for (int iRow = 0; iRow < 512; iRow++)
     {
-      player_checks[iOffset][iPlayer] = -1;
+      player_checks[iRow][iPlayer] = -1;
     }
   }
   memset(copy_multiple, 0, sizeof(copy_multiple));
