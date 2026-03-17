@@ -510,7 +510,7 @@ void displayclouds(uint8 *pScrBuf)
       iScrSizeTemp = scr_size;
       //_CHP();
       yp = (int)dProjY0;
-      fScreenX0 = (float)(iScrSizeTemp * xp >> 6);        // Convert to screen space and check clipping bounds (-5000 to +5000)
+      fScreenX0 = (float)((long long)iScrSizeTemp * xp >> 6);        // Convert to screen space and check clipping bounds (-5000 to +5000)
       //long long cast added by ROLLER to avoid integer overflow
       iYCalcTemp = (int)((long long)iScrSizeTemp * (199 - (int)dProjY0)) >> 6;
       fScreenY0 = (float)iYCalcTemp;
@@ -546,7 +546,7 @@ void displayclouds(uint8 *pScrBuf)
         //_CHP();
         yp = (int)dProjY1;
         //iScreenXTemp = xp >> 6;
-        fScreenX1 = (float)(iScrSize1 * xp >> 6);
+        fScreenX1 = (float)((long long)iScrSize1 * xp >> 6);
         iYCalcTemp = ((long long)iScrSize1 * (199 - (int)dProjY1)) >> 6;
         fScreenY1 = (float)iYCalcTemp;
         if (iBehindCamera || fScreenX1 >= -5000.0 && fScreenX1 <= 5000.0 && fScreenY1 >= -5000.0 && fScreenY1 <= 5000.0) {
@@ -580,7 +580,7 @@ void displayclouds(uint8 *pScrBuf)
           iScrSize2 = scr_size;
           //_CHP();
           yp = (int)dProjY2;
-          fScreenX2 = (float)(iScrSize2 * xp >> 6);
+          fScreenX2 = (float)((long long)iScrSize2 * xp >> 6);
           iYCalcTemp = ((long long)iScrSize2 * (199 - (int)dProjY2)) >> 6;
           fScreenY2 = (float)iYCalcTemp;
           if (iBehindCamera || fScreenX2 >= -5000.0 && fScreenX2 <= 5000.0 && fScreenY2 >= -5000.0 && fScreenY2 <= 5000.0) {
@@ -614,7 +614,7 @@ void displayclouds(uint8 *pScrBuf)
             iScrSize3 = scr_size;
             //_CHP();
             yp = (int)dProjY3;
-            fScreenX3 = (float)(iScrSize3 * xp >> 6);
+            fScreenX3 = (float)((long long)iScrSize3 * xp >> 6);
             iYCalcTemp = ((long long)iScrSize3 * (199 - (int)dProjY3)) >> 6;
             fScreenY3 = (float)iYCalcTemp;
             if (iBehindCamera || fScreenX3 >= -5000.0 && fScreenX3 <= 5000.0 && fScreenY3 >= -5000.0 && fScreenY3 <= 5000.0) {

@@ -695,10 +695,10 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
         TrackInfo[iTrackInfoIdx].fRShoulderHeight = (float)dRightShoulderHeight;
         TrackInfo[iTrackInfoIdx].fRoofHeight = (float)dRoofHeight;
         dAngleCalc1 = dRadiansPerDegree;
-        dLeftAngle = atan2(dLeftShoulderHeight / dLeftShoulderWidth, 1.0) * 16384.0 * dRadiansPerDegree;
+        dLeftAngle = dLeftShoulderWidth != 0.0 ? atan2(dLeftShoulderHeight / dLeftShoulderWidth, 1.0) * 16384.0 * dRadiansPerDegree : 0.0;
         //_CHP();
         iTemp3 = (int)dLeftAngle;
-        dRightAngle = dRightShoulderHeight / dRightShoulderWidth;
+        dRightAngle = dRightShoulderWidth != 0.0 ? dRightShoulderHeight / dRightShoulderWidth : 0.0;
         TrackInfo[iTrackInfoIdx].iLeftBankAngle = iTemp3;
         //_CHP();
         iTemp3 = (int)(dAngleCalc1 * (atan2(dRightAngle, 1.0) * 16384.0));
