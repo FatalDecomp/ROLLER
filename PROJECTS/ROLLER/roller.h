@@ -21,6 +21,10 @@ extern int g_iNumTracks;
 
 //-------------------------------------------------------------------------------------------------
 
+// GPU device accessors
+SDL_GPUDevice *GetGPUDevice(void);
+SDL_Window *GetWindow(void);
+
 // functions added by ROLLER
 int InitSDL(char *data_root, const char *midi_root);
 void InitFATDATA(const char *szDataRoot);

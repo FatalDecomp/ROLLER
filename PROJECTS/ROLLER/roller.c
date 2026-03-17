@@ -71,9 +71,9 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 static SDL_Window *s_pWindow = NULL;
-static SDL_Renderer *s_pRenderer = NULL;
-static SDL_Texture *s_pWindowTexture = NULL;
-static SDL_Texture *s_pDebugTexture = NULL;
+static SDL_GPUDevice *s_pGPUDevice = NULL;
+static SDL_GPUTexture *s_pGameTexture = NULL;
+static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 SDL_Gamepad *g_pController1 = NULL;
 SDL_Gamepad *g_pController2 = NULL;
 tJoyPos g_rollerJoyPos;
@@ -84,8 +84,10 @@ bool g_bForceMaxDraw = false; //TODO: figure out why this causes some flickering
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 uint8 testbuf[4096];
 static uint8 *s_pRGBBuffer = NULL;
-static uint8 *s_pDebugBuffer = NULL;
 uint64 g_ullTimer150Ms = 0;
+
+SDL_GPUDevice *GetGPUDevice(void) { return s_pGPUDevice; }
+SDL_Window *GetWindow(void) { return s_pWindow; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
