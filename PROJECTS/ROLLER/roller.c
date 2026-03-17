@@ -83,11 +83,10 @@ bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = false; //TODO: figure out why this causes some flickering, also load from INI file
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 uint8 testbuf[4096];
-static uint8 *s_pRGBBuffer = NULL;
 uint64 g_ullTimer150Ms = 0;
 
-SDL_GPUDevice *GetGPUDevice(void) { return s_pGPUDevice; }
-SDL_Window *GetWindow(void) { return s_pWindow; }
+SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
+SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
@@ -185,16 +184,17 @@ uint8 sdl_to_set1[] = {
 
 //-------------------------------------------------------------------------------------------------
 
-void ConvertIndexedToRGB(const uint8 *pIndexed, const tColor *pPalette, uint8 *pRGB, int width, int height)
+static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
+                                  uint8 *pRGBA, int width, int height)
 {
-  if (!pIndexed || !pPalette || !pRGB)
-    return;
+  if (!pIndexed || !pPalette || !pRGBA) return;
 
   for (int i = 0; i < width * height; ++i) {
     const tColor *c = &pPalette[pIndexed[i]];
-    pRGB[i * 3 + 0] = (c->byR * 255) / 63;
-    pRGB[i * 3 + 1] = (c->byG * 255) / 63;
-    pRGB[i * 3 + 2] = (c->byB * 255) / 63;
+    pRGBA[i * 4 + 0] = (c->byR * 255) / 63;
+    pRGBA[i * 4 + 1] = (c->byG * 255) / 63;
+    pRGBA[i * 4 + 2] = (c->byB * 255) / 63;
+    pRGBA[i * 4 + 3] = 255;
   }
 }
 
@@ -202,58 +202,70 @@ void ConvertIndexedToRGB(const uint8 *pIndexed, const tColor *pPalette, uint8 *p
 
 void UpdateSDLWindow()
 {
-  if (!g_bPaletteSet)
+  if (!g_bPaletteSet) return;
+
+  // Acquire command buffer
+  SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
+  if (!cmdBuf) return;
+
+  // Convert indexed framebuffer directly into mapped transfer buffer
+  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
+  ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
+  SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
+
+  SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(cmdBuf);
+
+  SDL_GPUTextureTransferInfo src = {0};
+  src.transfer_buffer = s_pTransferBuffer;
+
+  SDL_GPUTextureRegion dstRegion = {0};
+  dstRegion.texture = s_pGameTexture;
+  dstRegion.w = winw;
+  dstRegion.h = winh;
+  dstRegion.d = 1;
+
+  SDL_UploadToGPUTexture(copyPass, &src, &dstRegion, false);
+  SDL_EndGPUCopyPass(copyPass);
+
+  // Acquire swapchain and blit
+  SDL_GPUTexture *swapchainTex;
+  Uint32 swW, swH;
+  if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
+          &swapchainTex, &swW, &swH) || !swapchainTex) {
+    SDL_CancelGPUCommandBuffer(cmdBuf);
     return;
-
-  ConvertIndexedToRGB(scrbuf, pal_addr, s_pRGBBuffer, winw, winh);
-  ConvertIndexedToRGB(testbuf, pal_addr, s_pDebugBuffer, 64, 64);
-
-  SDL_UpdateTexture(s_pWindowTexture, NULL, s_pRGBBuffer, winw * 3);
-  SDL_UpdateTexture(s_pDebugTexture, NULL, s_pDebugBuffer, 64 * 3);
-
-  // Get current window size
-  int iWindowWidth, iWindowHeight;
-  SDL_GetCurrentRenderOutputSize(s_pRenderer, &iWindowWidth, &iWindowHeight);
-
-  // Get original texture size
-  int iTexWidth = winw;
-  int iTexHeight = winh;
-  SDL_FRect src;
-  src.h = (float)winh;
-  src.w = (float)winw;
-  src.x = 0;
-  src.y = 0;
-
-  // Calculate aspect ratio-preserving destination rectangle
-  SDL_FRect dst;
-  float fWindowAspect = (float)iWindowWidth / (float)iWindowHeight;
-  float fTextureAspect = (float)iTexWidth / (float)iTexHeight;
-
-  if (fWindowAspect > fTextureAspect) {
-      // Window is wider than texture
-    dst.h = (float)iWindowHeight;
-    dst.w = fTextureAspect * iWindowHeight;
-    dst.x = (iWindowWidth - dst.w) / 2;
-    dst.y = 0;
-  } else {
-      // Window is taller than texture
-    dst.w = (float)iWindowWidth;
-    dst.h = iWindowWidth / fTextureAspect;
-    dst.x = 0;
-    dst.y = (iWindowHeight - dst.h) / 2;
   }
 
-  SDL_RenderClear(s_pRenderer);
-  SDL_RenderTexture(s_pRenderer, s_pWindowTexture, &src, &dst);
+  // Blit with aspect-ratio preservation
+  SDL_GPUBlitInfo blitInfo = {0};
+  blitInfo.source.texture = s_pGameTexture;
+  blitInfo.source.w = winw;
+  blitInfo.source.h = winh;
 
-  //SDL_FRect debugRect;
-  //debugRect.h = 64;
-  //debugRect.w = 64;
-  //debugRect.x = 0;
-  //debugRect.y = 0;
-  //SDL_RenderTexture(s_pRenderer, s_pDebugTexture, NULL, &debugRect);
+  float fWindowAspect = (float)swW / (float)swH;
+  float fTextureAspect = (float)winw / (float)winh;
 
-  SDL_RenderPresent(s_pRenderer);
+  if (fWindowAspect > fTextureAspect) {
+    Uint32 dstW = (Uint32)(fTextureAspect * swH);
+    blitInfo.destination.texture = swapchainTex;
+    blitInfo.destination.x = (swW - dstW) / 2;
+    blitInfo.destination.y = 0;
+    blitInfo.destination.w = dstW;
+    blitInfo.destination.h = swH;
+  } else {
+    Uint32 dstH = (Uint32)(swW / fTextureAspect);
+    blitInfo.destination.texture = swapchainTex;
+    blitInfo.destination.x = 0;
+    blitInfo.destination.y = (swH - dstH) / 2;
+    blitInfo.destination.w = swW;
+    blitInfo.destination.h = dstH;
+  }
+  blitInfo.filter = SDL_GPU_FILTER_NEAREST;
+  blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+  blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
+
+  SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  SDL_SubmitGPUCommandBuffer(cmdBuf);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -320,14 +332,21 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   texInfo.num_levels = 1;
   texInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
   s_pGameTexture = SDL_CreateGPUTexture(s_pGPUDevice, &texInfo);
+  if (!s_pGameTexture) {
+    ErrorBoxExit("Couldn't create GPU texture: %s", SDL_GetError());
+    return 1;
+  }
 
   // Transfer buffer for CPU->GPU framebuffer upload
   SDL_GPUTransferBufferCreateInfo tbInfo = {0};
   tbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
   tbInfo.size = 640 * 400 * 4;
   s_pTransferBuffer = SDL_CreateGPUTransferBuffer(s_pGPUDevice, &tbInfo);
+  if (!s_pTransferBuffer) {
+    ErrorBoxExit("Couldn't create GPU transfer buffer: %s", SDL_GetError());
+    return 1;
+  }
 
-  s_pRGBBuffer = malloc(640 * 400 * 4);
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
 
@@ -512,13 +531,11 @@ void ShutdownSDL()
   if (g_pController2) SDL_CloseGamepad(g_pController2);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 
-  SDL_DestroyRenderer(s_pRenderer);
+  SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
+  SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
+  SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
+  SDL_DestroyGPUDevice(s_pGPUDevice);
   SDL_DestroyWindow(s_pWindow);
-  SDL_DestroyTexture(s_pWindowTexture);
-  SDL_DestroyTexture(s_pDebugTexture);
-
-  if (s_pRGBBuffer) free(s_pRGBBuffer);
-  if (s_pDebugBuffer) free(s_pDebugBuffer);
 
   SDL_Quit();
 }
