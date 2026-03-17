@@ -291,16 +291,43 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   g_pTimerMutex = SDL_CreateMutex();
 
-  if (!SDL_CreateWindowAndRenderer("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE, &s_pWindow, &s_pRenderer)) {
-    ErrorBoxExit("Couldn't create window/renderer: %s", SDL_GetError());
+  s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
+  if (!s_pWindow) {
+    ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
     return 1;
   }
-  s_pWindowTexture = SDL_CreateTexture(s_pRenderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, 640, 400);
-  SDL_SetTextureScaleMode(s_pWindowTexture, SDL_SCALEMODE_NEAREST);
-  s_pDebugTexture = SDL_CreateTexture(s_pRenderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, 64, 64);
-  SDL_SetTextureScaleMode(s_pDebugTexture, SDL_SCALEMODE_NEAREST);
-  s_pRGBBuffer = malloc(640 * 400 * 3);
-  s_pDebugBuffer = malloc(64 * 64 * 3);
+
+  s_pGPUDevice = SDL_CreateGPUDevice(
+    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
+    false, NULL);
+  if (!s_pGPUDevice) {
+    ErrorBoxExit("Couldn't create GPU device: %s", SDL_GetError());
+    return 1;
+  }
+
+  if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
+    ErrorBoxExit("Couldn't claim window for GPU device: %s", SDL_GetError());
+    return 1;
+  }
+
+  // GPU texture for game framebuffer presentation
+  SDL_GPUTextureCreateInfo texInfo = {0};
+  texInfo.type = SDL_GPU_TEXTURETYPE_2D;
+  texInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+  texInfo.width = 640;
+  texInfo.height = 400;
+  texInfo.layer_count_or_depth = 1;
+  texInfo.num_levels = 1;
+  texInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+  s_pGameTexture = SDL_CreateGPUTexture(s_pGPUDevice, &texInfo);
+
+  // Transfer buffer for CPU->GPU framebuffer upload
+  SDL_GPUTransferBufferCreateInfo tbInfo = {0};
+  tbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+  tbInfo.size = 640 * 400 * 4;
+  s_pTransferBuffer = SDL_CreateGPUTransferBuffer(s_pGPUDevice, &tbInfo);
+
+  s_pRGBBuffer = malloc(640 * 400 * 4);
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
 
