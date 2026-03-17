@@ -3992,9 +3992,10 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
           if (c & 16) {
           // Bit 4 : 1 : Word sequence
             c = (c & 15) + 2;	// bits 3-0 = len 2->17
-            v = *(short *)(unmangledst - 2);
+            memcpy(&v, unmangledst - 2, 2);
+            v = (short)v;
             while (c--) {
-              *(short *)unmangledst = (short)v;
+              memcpy(unmangledst, &v, 2);
               unmangledst += 2;
             }
           } else {
@@ -4009,11 +4010,11 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
           if (c & 16) {
           // Bit 4 : 1 : Word difference
             c = (c & 15) + 2;			// bits 3-0 = len 2->17
-            u = *(short *)(unmangledst - 2);		// start word
-            v = u - *(short *)(unmangledst - 4);	// dif
+            { short tmp_s; memcpy(&tmp_s, unmangledst - 2, 2); u = tmp_s; }	// start word
+            { short tmp_s; memcpy(&tmp_s, unmangledst - 4, 2); v = u - tmp_s; }	// dif
             while (c--) {
               u += v;
-              *(short *)unmangledst = (short)u;
+              { short tmp_s = (short)u; memcpy(unmangledst, &tmp_s, 2); }
               unmangledst += 2;
             }
           } else {
