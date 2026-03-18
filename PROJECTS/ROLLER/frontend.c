@@ -1074,7 +1074,8 @@ void select_screen()
       } else {
         menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
       }
-      show_3dmap(cur_TrackZ, 1280, iRotation);
+      menu_render_load_track_mesh(mr, pal_addr);
+      menu_render_draw_track_preview(mr, cur_TrackZ, 1280, iRotation, 170, 10, 300, 330);
       if (game_type < 2) {
         iCurLaps = cur_laps[level];
         NoOfLaps = iCurLaps;
@@ -1121,10 +1122,13 @@ void select_screen()
         menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u, pal_addr);
       }
     } else if (iBlockIdx >= CAR_DESIGN_AUTO) {
-      if (iBlockIdx == CAR_DESIGN_F1WACK)
-        DrawCar(scrbuf + 34640, CAR_DESIGN_F1WACK, 6000.0, 1280, 0);
-      else
-        DrawCar(scrbuf + 34640, iBlockIdx, 2200.0, 1280, 0);
+      if (iBlockIdx == CAR_DESIGN_F1WACK) {
+        menu_render_load_car_mesh(mr, CAR_DESIGN_F1WACK, palette);
+        menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, 170, 10, 300, 330);
+      } else {
+        menu_render_load_car_mesh(mr, iBlockIdx, palette);
+        menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, 170, 10, 300, 330);
+      }
       if (iBlockIdx < CAR_DESIGN_SUICYCO)
         menu_render_sprite(mr, 3, iBlockIdx, 190, 356, 0, pal_addr);
     }
@@ -2096,14 +2100,15 @@ void select_car()
       menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
       if (iPlayer1Car < CAR_DESIGN_AUTO) {
         menu_render_text(mr, 15, &language_buffer[4160], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
-      } else {                                         // 3D car preview (Phase 6 — renders to scrbuf, not visible yet)
+      } else {                                         // 3D car preview (GPU mesh rendering)
+        menu_render_load_car_mesh(mr, iPlayer1Car, palette);
         if (iPlayer1Car == CAR_DESIGN_F1WACK) {
-          DrawCar(scrbuf + 34640, CAR_DESIGN_F1WACK, 6000.0, 1280, 0);
+          menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, 170, 10, 300, 330);
         } else if (iDelayBeforeRotation) {
-          DrawCar(scrbuf + 34640, iPlayer1Car, 2200.0, 1280, 0);
+          menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, 170, 10, 300, 330);
         } else {
           fCarDrawDistance = (float)iZoomDistance;
-          DrawCar(scrbuf + 34640, iPlayer1Car, fCarDrawDistance, 1280, 0);
+          menu_render_draw_car_preview(mr, 1280.0f, fCarDrawDistance, 170, 10, 300, 330);
         }
         if (iPlayer1Car < CAR_DESIGN_SUICYCO)
           menu_render_sprite(mr, 3, iPlayer1Car, 190, 356, 0, pal_addr);
@@ -6099,10 +6104,11 @@ void select_track()
     iBlockIdx = (TrackLoad - 1) / 8;  // Calculate cup icon index (8 tracks per cup)
     //iBlockIdx = (TrackLoad - 1 - (__CFSHL__((TrackLoad - 1) >> 31, 3) + 8 * ((TrackLoad - 1) >> 31))) >> 3;// Calculate cup icon index for display
     if (TrackLoad >= 0) {                                           // Render 3D track preview
+      menu_render_load_track_mesh(mr, pal_addr);
       if (iAnimationTimer)
-        show_3dmap(fZ, 1280, iYaw);
+        menu_render_draw_track_preview(mr, fZ, 1280, iYaw, 170, 10, 300, 330);
       else
-        show_3dmap(fZ_1, 1280, iYaw);
+        menu_render_draw_track_preview(mr, fZ_1, 1280, iYaw, 170, 10, 300, 330);
       if (game_type >= 2)                     // Set number of laps based on game type and difficulty level
       {
         NoOfLaps = 5;
