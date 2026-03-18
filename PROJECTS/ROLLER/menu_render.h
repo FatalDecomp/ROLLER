@@ -42,13 +42,13 @@ void menu_render_fade_wait(MenuRenderer *renderer,
 
 // Text rendering
 void menu_render_text(MenuRenderer *renderer, int fontSlot, const char *text,
-                      const uint8 *mappingTable, int *charVOffsets,
+                      const char *mappingTable, int *charVOffsets,
                       int x, int y, uint8 colorReplace, int alignment,
                       const tColor *palette);
 void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
                              const char *text, const char *mappingTable,
                              int *charVOffsets, int x, int y,
-                             char colorReplace, unsigned int alignment,
+                             uint8 colorReplace, unsigned int alignment,
                              int clipLeft, int clipRight,
                              const tColor *palette);
 
