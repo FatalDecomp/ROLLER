@@ -27,11 +27,18 @@ float4 main(PixelInput input) : SV_Target
 {
     float4 color = menuTexture.Sample(menuSampler, input.uv);
 
+    // Transparency is baked into alpha channel at texture upload time
+    // (palette index 0 pixels get alpha=0). When transparency is enabled,
+    // discard those pixels. When disabled (transparentColorR < 0), force
+    // alpha to 1.0 so all pixels draw including index-0 ones.
     if (transparentColorR >= 0.0)
     {
-        float3 diff = abs(color.rgb - float3(transparentColorR, transparentColorG, transparentColorB));
-        if (diff.r < 0.004 && diff.g < 0.004 && diff.b < 0.004)
+        if (color.a < 0.5)
             discard;
+    }
+    else
+    {
+        color.a = 1.0;
     }
 
     // Color replacement (e.g., 0x8F glyph recoloring for text)
