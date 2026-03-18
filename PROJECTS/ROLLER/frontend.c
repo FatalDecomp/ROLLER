@@ -1023,31 +1023,31 @@ void select_screen()
       menu_render_sprite(mr, 6, 3, 52, 334, 0, pal_addr);
     } else {
       menu_render_sprite(mr, 6, 1, 52, 334, 0, pal_addr);
-      front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0, pal_addr);
     }
     if (game_type == 1) {
-      front_text(front_vga[2], language_buffer, font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
+      menu_render_text(mr, 2, language_buffer, font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
       if (Race)
-        front_text(front_vga[2], &language_buffer[128], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
+        menu_render_text(mr, 2, &language_buffer[128], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
       else
-        front_text(front_vga[2], &language_buffer[64], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
+        menu_render_text(mr, 2, &language_buffer[64], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
     } else {
-      front_text(front_vga[2], &language_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], &language_buffer[320], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
+      menu_render_text(mr, 2, &language_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &language_buffer[320], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
     }
-    front_text(front_vga[2], &language_buffer[192], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], config_buffer, font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &language_buffer[384], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &language_buffer[448], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &language_buffer[512], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[640], font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u);
+    menu_render_text(mr, 2, &language_buffer[192], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, config_buffer, font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &language_buffer[384], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &language_buffer[448], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &language_buffer[512], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[640], font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
     if (game_type == 1) {
       menu_render_sprite(mr, 14, (TrackLoad - 1) / 8, 500, 300, 0, pal_addr);
       if (TrackLoad <= 0) {
         if (TrackLoad)
-          front_text(front_vga[2], "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
+          menu_render_text(mr, 2, "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
         else
-          front_text(front_vga[2], "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
+          menu_render_text(mr, 2, "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
       } else if (TrackLoad >= 17) {
         menu_render_sprite(mr, 13, TrackLoad - 17, 190, 356, 0, pal_addr);
       } else {
@@ -1060,8 +1060,8 @@ void select_screen()
         if (competitors == 2)
           NoOfLaps = iCurLaps / 2;
         sprintf(buffer, "%s: %i", &language_buffer[4544], NoOfLaps);
-        front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 16, 0x8Fu, 1u);
-        front_text(front_vga[15], &language_buffer[4608], font1_ascii, font1_offsets, 420, 34, 0x8Fu, 1u);
+        menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 16, 0x8Fu, 1u, pal_addr);
+        menu_render_text(mr, 15, &language_buffer[4608], font1_ascii, font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
         if (RecordCars[TrackLoad] < 0) {
           sprintf(buffer, "%s", RecordNames[TrackLoad]);
         } else {
@@ -1097,7 +1097,7 @@ void select_screen()
           //  iSeconds,
           //  (unsigned int)(llRecordLap % 100));
         }
-        front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u);
+        menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u, pal_addr);
       }
     } else if (iBlockIdx >= CAR_DESIGN_AUTO) {
       if (iBlockIdx == CAR_DESIGN_F1WACK)
@@ -1137,9 +1137,9 @@ void select_screen()
         break;
     }
     if (iBlockIdx < CAR_DESIGN_AUTO)
-      front_text(front_vga[15], &language_buffer[4160], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u);
+      menu_render_text(mr, 15, &language_buffer[4160], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
     if (iQuitConfirmed)
-      front_text(front_vga[15], &language_buffer[3456], font1_ascii, font1_offsets, 400, 250, 0xE7u, 1u);
+      menu_render_text(mr, 15, &language_buffer[3456], font1_ascii, font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
     show_received_mesage();
     menu_render_end_frame(mr);
     if (switch_same > 0) {
