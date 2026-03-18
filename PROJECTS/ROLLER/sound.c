@@ -3499,6 +3499,35 @@ void fade_palette(int iTargetBrightness)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+void fade_music_start(int iTargetBrightness)
+{
+    if (iTargetBrightness == 32 && soundon) {
+        DIGISetMasterVolume(0x7FFF);
+    }
+}
+
+void fade_music_step(int iStep)
+{
+    if (holdmusic) return;
+    if (musicon)
+        MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+    if (soundon) {
+        int iVolumeStep = (iStep << 15) - iStep;
+        DIGISetMasterVolume(iVolumeStep >> 5);
+    }
+    if (MusicCD)
+        SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+}
+
+void fade_music_finish(int iTargetBrightness)
+{
+    if (iTargetBrightness != 0 || holdmusic) return;
+    if (MusicCD && track_playing) StopTrack();
+    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
+}
+
+//-------------------------------------------------------------------------------------------------
 //0003EA00
 void set_palette(int iBrightness)
 {
