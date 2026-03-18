@@ -5965,6 +5965,18 @@ void select_track()
   front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
   iYaw = 0;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
+  // Restore palette and create GPU textures for sub-menu rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+    MenuRenderer *mr = GetMenuRenderer();
+    if (mr) {
+      menu_render_load_blocks(mr, 3, front_vga[3], palette);
+      menu_render_load_blocks(mr, 13, front_vga[13], palette);
+      menu_render_load_blocks(mr, 14, front_vga[14], palette);
+    }
+  }
   frames = 0;
   fZ = cur_TrackZ;
   fZ_1 = cur_TrackZ;
@@ -5992,29 +6004,36 @@ void select_track()
       else
         network_champ_on = 0;
     }
-    display_picture(scrbuf, front_vga[0]);      // Draw main background and UI elements
-    display_block(scrbuf, front_vga[1], 2, head_x, head_y, 0);
+    {                                           // RENDER FRAME (GPU)
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+    }
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 1, 2, head_x, head_y, 0, pal_addr);
     if (cup_won)                              // Show cup trophy if championship won
-      display_block(scrbuf, front_vga[1], 8, 480, 388, 0);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-    display_block(scrbuf, front_vga[5], player_type, -4, 247, 0);// Display player type and game type indicators
-    display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-    display_block(scrbuf, front_vga[4], 1, 76, 257, -1);
+      menu_render_sprite(mr, 1, 8, 480, 388, 0, pal_addr);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+    menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);// Display player type and game type indicators
+    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+    menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
     if (iSelectedTrack >= 8)                  // Draw track selector: championship view or individual track selector
     {
-      display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+      menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
-      display_block(scrbuf, front_vga[6], 2, 62, 336, -1);
-      front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iSelectedTrack].x, sel_posns[iSelectedTrack].y, 0x8Fu, 0);
+      menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iSelectedTrack].x, sel_posns[iSelectedTrack].y, 0x8Fu, 0, pal_addr);
     }
-    front_text(front_vga[2], "AUTO ARIEL", font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);// Display hardcoded track names (should use track name data)
-    front_text(front_vga[2], "DESILVA", font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "PULSE", font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "GLOBAL", font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "MISSION", font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "ZIZIN", font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], "REISE WAGON", font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u);
+    menu_render_text(mr, 2, "AUTO ARIEL", font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);// Display hardcoded track names (should use track name data)
+    menu_render_text(mr, 2, "DESILVA", font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "PULSE", font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "GLOBAL", font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "MISSION", font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "ZIZIN", font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, "REISE WAGON", font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
     iBlockIdx = (TrackLoad - 1) / 8;  // Calculate cup icon index (8 tracks per cup)
     //iBlockIdx = (TrackLoad - 1 - (__CFSHL__((TrackLoad - 1) >> 31, 3) + 8 * ((TrackLoad - 1) >> 31))) >> 3;// Calculate cup icon index for display
     if (TrackLoad >= 0) {                                           // Render 3D track preview
@@ -6032,8 +6051,8 @@ void select_track()
           NoOfLaps = iLapsForLevel / 2;
       }
       sprintf(buffer, "%s: %i", &language_buffer[4544], NoOfLaps);
-      front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 16, 0x8Fu, 1u);
-      front_text(front_vga[15], &language_buffer[4608], font1_ascii, font1_offsets, 420, 34, 0x8Fu, 1u);
+      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 16, 0x8Fu, 1u, pal_addr);
+      menu_render_text(mr, 15, &language_buffer[4608], font1_ascii, font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
       if (RecordCars[TrackLoad] < 0)          // Display track record holder and lap time
       {
         sprintf(buffer, "%s", RecordNames[TrackLoad]);
@@ -6067,22 +6086,23 @@ void select_track()
         //  iRecordSeconds,
         //  (unsigned int)(llTimeCalc % 100));
       }
-      front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u);
+      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u, pal_addr);
     }
-    display_block(scrbuf, front_vga[14], iBlockIdx, 500, 300, 0);// Display cup icon and track name/type
+    menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);// Display cup icon and track name/type
     if (TrackLoad <= 0) {
       if (TrackLoad)
-        front_text(front_vga[2], "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
+        menu_render_text(mr, 2, "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
       else
-        front_text(front_vga[2], "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
+        menu_render_text(mr, 2, "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
     } else if (TrackLoad >= 17)                 // Display track name: bonus tracks (17+), regular tracks (1-16), or special tracks
     {
-      display_block(scrbuf, front_vga[13], TrackLoad - 17, 190, 356, 0);
+      menu_render_sprite(mr, 13, TrackLoad - 17, 190, 356, 0, pal_addr);
     } else {
-      display_block(scrbuf, front_vga[3], TrackLoad - 1, 190, 356, 0);
+      menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
     }
     show_received_mesage();
-    copypic(scrbuf, screen);
+    menu_render_end_frame(mr);
+    }
     if (switch_same > 0)                      // Handle same-car mode activation/deactivation
     {
 
@@ -6154,8 +6174,6 @@ void select_track()
     if (!front_fade)                          // Initialize screen fade and sound effects on first display
     {
       loadtracksample(TrackLoad);
-      front_fade = -1;
-      fade_palette(32);
       frontendsample(0x8000);
       frames = 0;
     }
@@ -6243,7 +6261,18 @@ void select_track()
 
     UpdateSDL();
   } while (!iExitFlag);
-  fade_palette(0);                              // Cleanup: fade out, free graphics memory, restore car selection graphics
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   front_fade = 0;
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[13]);
