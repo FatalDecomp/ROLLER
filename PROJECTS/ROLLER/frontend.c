@@ -1277,7 +1277,8 @@ void select_screen()
             // GPU fade-out before leaving main menu to sub-menus
             // (main menu is GPU-rendered, scrbuf is stale, so software
             // fade_palette(0) in sub-menus would flash stale content)
-            {
+            // Skip for case 7 (Exit to DOS) — menu stays visible for Y/N prompt
+            if (iMenuSelection != 7) {
               MenuRenderer *mr2 = GetMenuRenderer();
               menu_render_begin_fade(mr2, 0, 32);
               menu_render_fade_wait(mr2, fade_redraw_bg, mr2);
@@ -1287,10 +1288,10 @@ void select_screen()
                 pal_addr[i].byB = 0;
                 pal_addr[i].byG = 0;
               }
+              fre((void **)&front_vga[3]);
+              fre((void **)&front_vga[13]);
+              fre((void **)&front_vga[14]);
             }
-            fre((void **)&front_vga[3]);
-            fre((void **)&front_vga[13]);
-            fre((void **)&front_vga[14]);
             switch (iMenuSelection) {
               case 0:
                 sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
