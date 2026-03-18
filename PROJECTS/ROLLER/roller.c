@@ -5,6 +5,7 @@
 #include "func2.h"
 #include "graphics.h"
 #include "config.h"
+#include "menu_render.h"
 #include <assert.h>
 #include <string.h>
 #include <ctype.h>
@@ -87,6 +88,9 @@ uint64 g_ullTimer150Ms = 0;
 
 SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
 SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
+
+static MenuRenderer *s_pMenuRenderer = NULL;
+MenuRenderer *GetMenuRenderer(void) { return s_pMenuRenderer; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
@@ -202,6 +206,8 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
 
 void UpdateSDLWindow()
 {
+  extern int frontend_on;
+  if (frontend_on && s_pMenuRenderer) return;
   if (!g_bPaletteSet) return;
 
   // Acquire command buffer
@@ -321,6 +327,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't claim window for GPU device: %s", SDL_GetError());
     return 1;
   }
+
+  s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
 
   // GPU texture for game framebuffer presentation
   SDL_GPUTextureCreateInfo texInfo = {0};
@@ -531,6 +539,7 @@ void ShutdownSDL()
   if (g_pController2) SDL_CloseGamepad(g_pController2);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 
+  menu_render_destroy(s_pMenuRenderer);
   SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
   SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
   SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
