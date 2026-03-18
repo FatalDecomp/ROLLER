@@ -5423,6 +5423,17 @@ void select_type()
   iMenuSelection = 0;
   fade_palette(0);
   front_fade = 0;
+  // Restore palette for GPU rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+    MenuRenderer *mr = GetMenuRenderer();
+    if (mr) {
+      menu_render_load_blocks(mr, 14, front_vga[14], palette);
+    }
+  }
+  frames = 0;
   iCurrentOption = 5;
   do {                                             // Handle game type switches and updates
     if (switch_types) {
@@ -5435,58 +5446,65 @@ void select_type()
       else
         network_champ_on = 0;
     }
-    display_picture(scrbuf, front_vga[0]);      // RENDER FRAME: Draw background, UI elements, and cup winner icon
-    display_block(scrbuf, front_vga[1], 4, head_x, head_y, 0);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-    display_block(scrbuf, front_vga[5], player_type, -4, 247, 0);
-    display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-    display_block(scrbuf, front_vga[4], 4, 76, 257, -1);
+    {                                           // RENDER FRAME (GPU)
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+    }
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 1, 4, head_x, head_y, 0, pal_addr);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+    menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+    menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
     if (cup_won && !iSkipColor)
-      display_block(scrbuf, front_vga[1], 8, 200, 56, 0);
+      menu_render_sprite(mr, 1, 8, 200, 56, 0, pal_addr);
     if (iCurrentOption >= 5)                  // Draw selection cursor or \"Random\" indicator (option 5 = Random)
     {
-      display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+      menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
-      display_block(scrbuf, front_vga[6], 2, 62, 336, -1);
-      front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iCurrentOption].x, sel_posns[iCurrentOption].y, 0x8Fu, 0);
+      menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iCurrentOption].x, sel_posns[iCurrentOption].y, 0x8Fu, 0, pal_addr);
     }
     if (iSkipColor)                           // OPTION LABELS: Display main option categories (Game Type/Difficulty/etc.)
     {
-      front_text(front_vga[2], &language_buffer[3136], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);
+      menu_render_text(mr, 2, &language_buffer[3136], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
     } else {
-      front_text(front_vga[2], &language_buffer[384], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], &language_buffer[3200], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], &language_buffer[3264], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], &language_buffer[3328], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
+      menu_render_text(mr, 2, &language_buffer[384], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &language_buffer[3200], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &language_buffer[3264], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &language_buffer[3328], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
       if (iCheatModesAvailable)
-        front_text(front_vga[2], &language_buffer[4288], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u);
+        menu_render_text(mr, 2, &language_buffer[4288], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
     }
-    display_block(scrbuf, front_vga[14], iBlockIdx, 500, 300, 0);// Display cup icon corresponding to current track selection
+    menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);// Display cup icon corresponding to current track selection
     if (iSkipColor)                           // CHAMPIONSHIP MODE UI: Show current settings and restrictions
     {
-      scale_text(front_vga[15], &language_buffer[3392], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);
-      scale_text(front_vga[15], &language_buffer[1280], font1_ascii, font1_offsets, 400, 100, 143, 2u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[3392], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);
+      menu_render_scaled_text(mr, 15, &language_buffer[1280], font1_ascii, font1_offsets, 400, 100, 143, 2u, 200, 640, pal_addr);
       if ((cheat_mode & 2) != 0)
-        scale_text(front_vga[15], &language_buffer[2048], font1_ascii, font1_offsets, 405, 100, 143, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[2048], font1_ascii, font1_offsets, 405, 100, 143, 0, 200, 640, pal_addr);
       else
-        scale_text(front_vga[15], &language_buffer[64 * level + 1472], font1_ascii, font1_offsets, 405, 100, 143, 0, 200, 640);
-      scale_text(front_vga[15], &language_buffer[1344], font1_ascii, font1_offsets, 400, 118, 143, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[64 * level + 1472], font1_ascii, font1_offsets, 405, 100, 143, 0, 200, 640, pal_addr);
+      menu_render_scaled_text(mr, 15, &language_buffer[1344], font1_ascii, font1_offsets, 400, 118, 143, 2u, 200, 640, pal_addr);
       if ((cheat_mode & 2) != 0)
-        scale_text(front_vga[15], &language_buffer[2048], font1_ascii, font1_offsets, 405, 118, 143, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[2048], font1_ascii, font1_offsets, 405, 118, 143, 0, 200, 640, pal_addr);
       else
-        scale_text(front_vga[15], &language_buffer[64 * damage_level + 1856], font1_ascii, font1_offsets, 405, 118, 143, 0, 200, 640);
-      scale_text(front_vga[15], &language_buffer[1024], font1_ascii, font1_offsets, 400, 136, 143, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[64 * damage_level + 1856], font1_ascii, font1_offsets, 405, 118, 143, 0, 200, 640, pal_addr);
+      menu_render_scaled_text(mr, 15, &language_buffer[1024], font1_ascii, font1_offsets, 400, 136, 143, 2u, 200, 640, pal_addr);
       if ((unsigned int)competitors < 8) {
         if (competitors == 2)
-          scale_text(front_vga[15], &language_buffer[1088], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1088], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640, pal_addr);
       } else if ((unsigned int)competitors <= 8) {
-        scale_text(front_vga[15], &language_buffer[1152], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[1152], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640, pal_addr);
       } else if (competitors == 16) {
-        scale_text(front_vga[15], &language_buffer[1216], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[1216], font1_ascii, font1_offsets, 405, 136, 143, 0, 200, 640, pal_addr);
       }
       if (network_on)                         // NETWORK MODE: Display connected players list
       {
-        scale_text(front_vga[15], &language_buffer[4672], font1_ascii, font1_offsets, 400, 154, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[4672], font1_ascii, font1_offsets, 400, 154, 143, 1u, 200, 640, pal_addr);
         iNetworkPlayerCount = 0;
         if (players > 0) {
           szText = player_names[0];
@@ -5494,9 +5512,9 @@ void select_type()
           iNetworkDisplayY = 172;
           do {
             if (iNetworkPlayerCount >= 8)
-              scale_text(front_vga[15], szText, font1_ascii, font1_offsets, 405, iY, 143, 0, 200, 640);
+              menu_render_scaled_text(mr, 15, szText, font1_ascii, font1_offsets, 405, iY, 143, 0, 200, 640, pal_addr);
             else
-              scale_text(front_vga[15], szText, font1_ascii, font1_offsets, 400, iNetworkDisplayY, 143, 2u, 200, 640);
+              menu_render_scaled_text(mr, 15, szText, font1_ascii, font1_offsets, 400, iNetworkDisplayY, 143, 2u, 200, 640, pal_addr);
             szText += 9;
             iY += 18;
             iNetworkDisplayY += 18;
@@ -5511,9 +5529,9 @@ void select_type()
       case 0:
         if (!iSkipColor)                      // Option 0 - Game Type: Show race modes with highlighting for current selection
         {
-          scale_text(front_vga[15], &language_buffer[384], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[384], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);
           if (iMenuSelection == 1) {
-            scale_text(front_vga[15], &language_buffer[3584], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+            menu_render_scaled_text(mr, 15, &language_buffer[3584], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
             byTextColor = -85;
           } else {
             byTextColor = -87;
@@ -5522,12 +5540,12 @@ void select_type()
             byGameModeColor1 = -113;
           else
             byGameModeColor1 = byTextColor;
-          scale_text(front_vga[15], &language_buffer[3648], font1_ascii, font1_offsets, 400, 135, byGameModeColor1, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3648], font1_ascii, font1_offsets, 400, 135, byGameModeColor1, 1u, 200, 640, pal_addr);
           if (game_type == 1)
             byGameModeColor2 = byTextColor;
           else
             byGameModeColor2 = -113;
-          scale_text(front_vga[15], &language_buffer[3520], font1_ascii, font1_offsets, 400, 153, byGameModeColor2, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3520], font1_ascii, font1_offsets, 400, 153, byGameModeColor2, 1u, 200, 640, pal_addr);
           if (game_type == 2)
             byGameModeColor3 = byTextColor;
           else
@@ -5538,7 +5556,7 @@ void select_type()
           goto LABEL_130;
         }
         if (iMenuSelection == 6) {
-          scale_text(front_vga[15], &language_buffer[3456], font1_ascii, font1_offsets, 400, 320, 231, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3456], font1_ascii, font1_offsets, 400, 320, 231, 1u, 200, 640, pal_addr);
           byFinalTextColor = -25;
           iTextYPosition = 338;
           pszTextBuffer = &language_buffer[3520];
@@ -5546,9 +5564,9 @@ void select_type()
         }
         break;
       case 1:
-        scale_text(front_vga[15], &language_buffer[3776], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);// Option 1 - Difficulty: Show skill levels with cheat mode override
+        menu_render_scaled_text(mr, 15, &language_buffer[3776], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);// Option 1 - Difficulty: Show skill levels with cheat mode override
         if (iMenuSelection == 2) {
-          scale_text(front_vga[15], &language_buffer[3840], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3840], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
           byDifficultyMenuColor = -85;
         } else {
           byDifficultyMenuColor = -87;
@@ -5558,27 +5576,27 @@ void select_type()
             byDifficultyColor1 = byDifficultyMenuColor;
           else
             byDifficultyColor1 = -113;
-          scale_text(front_vga[15], &language_buffer[1792], font1_ascii, font1_offsets, 400, 135, byDifficultyColor1, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1792], font1_ascii, font1_offsets, 400, 135, byDifficultyColor1, 1u, 200, 640, pal_addr);
           if (level == 4)
             byDifficultyColor2 = byDifficultyMenuColor;
           else
             byDifficultyColor2 = -113;
-          scale_text(front_vga[15], &language_buffer[1728], font1_ascii, font1_offsets, 400, 153, byDifficultyColor2, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1728], font1_ascii, font1_offsets, 400, 153, byDifficultyColor2, 1u, 200, 640, pal_addr);
           if (level == 3)
             byDifficultyColor3 = byDifficultyMenuColor;
           else
             byDifficultyColor3 = -113;
-          scale_text(front_vga[15], &language_buffer[1664], font1_ascii, font1_offsets, 400, 171, byDifficultyColor3, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1664], font1_ascii, font1_offsets, 400, 171, byDifficultyColor3, 1u, 200, 640, pal_addr);
           if (level == 2)
             byDifficultyColor4 = byDifficultyMenuColor;
           else
             byDifficultyColor4 = -113;
-          scale_text(front_vga[15], &language_buffer[1600], font1_ascii, font1_offsets, 400, 189, byDifficultyColor4, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1600], font1_ascii, font1_offsets, 400, 189, byDifficultyColor4, 1u, 200, 640, pal_addr);
           if (level == 1)
             byDifficultyColor5 = byDifficultyMenuColor;
           else
             byDifficultyColor5 = -113;
-          scale_text(front_vga[15], &language_buffer[1536], font1_ascii, font1_offsets, 400, 207, byDifficultyColor5, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1536], font1_ascii, font1_offsets, 400, 207, byDifficultyColor5, 1u, 200, 640, pal_addr);
           if (level)
             byDifficultyColor6 = -113;
           else
@@ -5588,12 +5606,12 @@ void select_type()
           pszTextBuffer = &language_buffer[1472];
           goto LABEL_130;
         }
-        scale_text(front_vga[15], &language_buffer[2048], font1_ascii, font1_offsets, 400, 135, byDifficultyMenuColor, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[2048], font1_ascii, font1_offsets, 400, 135, byDifficultyMenuColor, 1u, 200, 640, pal_addr);
         break;
       case 2:
-        scale_text(front_vga[15], &language_buffer[3904], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);// Option 2 - Competitors: Show number of opponent cars (2/8/16 or \"Just Me\")
+        menu_render_scaled_text(mr, 15, &language_buffer[3904], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);// Option 2 - Competitors: Show number of opponent cars (2/8/16 or \"Just Me\")
         if (iMenuSelection == 3) {
-          scale_text(front_vga[15], &language_buffer[3008], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3008], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
           byDamageMenuColor = -85;
         } else {
           byDamageMenuColor = -87;
@@ -5603,12 +5621,12 @@ void select_type()
             byCompetitorColor1 = byDamageMenuColor;
           else
             byCompetitorColor1 = -113;
-          scale_text(front_vga[15], &language_buffer[1088], font1_ascii, font1_offsets, 400, 135, byCompetitorColor1, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1088], font1_ascii, font1_offsets, 400, 135, byCompetitorColor1, 1u, 200, 640, pal_addr);
           if (competitors == 8)
             byCompetitorColor2 = byDamageMenuColor;
           else
             byCompetitorColor2 = -113;
-          scale_text(front_vga[15], &language_buffer[1152], font1_ascii, font1_offsets, 400, 153, byCompetitorColor2, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1152], font1_ascii, font1_offsets, 400, 153, byCompetitorColor2, 1u, 200, 640, pal_addr);
           if (competitors == 16)
             byCompetitorColor3 = byDamageMenuColor;
           else
@@ -5618,12 +5636,12 @@ void select_type()
           pszTextBuffer = &language_buffer[1216];
           goto LABEL_130;
         }
-        scale_text(front_vga[15], &language_buffer[3968], font1_ascii, font1_offsets, 400, 135, byDamageMenuColor, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[3968], font1_ascii, font1_offsets, 400, 135, byDamageMenuColor, 1u, 200, 640, pal_addr);
         break;
       case 3:
-        scale_text(front_vga[15], &language_buffer[4032], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640); // Option 3 - Damage: Show car damage levels (None/Cosmetic/Realistic)
+        menu_render_scaled_text(mr, 15, &language_buffer[4032], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr); // Option 3 - Damage: Show car damage levels (None/Cosmetic/Realistic)
         if (iMenuSelection == 4) {
-          scale_text(front_vga[15], &language_buffer[3840], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[3840], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
           byTextureMenuColor = -85;
         } else {
           byTextureMenuColor = -87;
@@ -5633,12 +5651,12 @@ void select_type()
             byDamageColor1 = -113;
           else
             byDamageColor1 = byTextureMenuColor;
-          scale_text(front_vga[15], &language_buffer[1856], font1_ascii, font1_offsets, 400, 135, byDamageColor1, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1856], font1_ascii, font1_offsets, 400, 135, byDamageColor1, 1u, 200, 640, pal_addr);
           if (damage_level == 1)
             byDamageColor2 = byTextureMenuColor;
           else
             byDamageColor2 = -113;
-          scale_text(front_vga[15], &language_buffer[1920], font1_ascii, font1_offsets, 400, 153, byDamageColor2, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[1920], font1_ascii, font1_offsets, 400, 153, byDamageColor2, 1u, 200, 640, pal_addr);
           if (damage_level == 2)
             byDamageColor3 = byTextureMenuColor;
           else
@@ -5648,12 +5666,12 @@ void select_type()
           pszTextBuffer = &language_buffer[1984];
           goto LABEL_130;
         }
-        scale_text(front_vga[15], &language_buffer[2048], font1_ascii, font1_offsets, 400, 135, byTextureMenuColor, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[2048], font1_ascii, font1_offsets, 400, 135, byTextureMenuColor, 1u, 200, 640, pal_addr);
         break;
       case 4:
-        scale_text(front_vga[15], &language_buffer[4288], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);// Option 4 - Textures: Show texture quality options (On/Off)
+        menu_render_scaled_text(mr, 15, &language_buffer[4288], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);// Option 4 - Textures: Show texture quality options (On/Off)
         if (iMenuSelection == 5) {
-          scale_text(front_vga[15], &language_buffer[4480], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[4480], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
           byCompetitorMenuColor = -85;
         } else {
           byCompetitorMenuColor = -87;
@@ -5662,7 +5680,7 @@ void select_type()
           byTextureColor1 = -113;
         else
           byTextureColor1 = byCompetitorMenuColor;
-        scale_text(front_vga[15], &language_buffer[4352], font1_ascii, font1_offsets, 400, 135, byTextureColor1, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[4352], font1_ascii, font1_offsets, 400, 135, byTextureColor1, 1u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0)
           byTextureColor2 = byCompetitorMenuColor;
         else
@@ -5671,13 +5689,14 @@ void select_type()
         iTextYPosition = 153;
         pszTextBuffer = &language_buffer[4416];
       LABEL_130:
-        scale_text(front_vga[15], pszTextBuffer, font1_ascii, font1_offsets, 400, iTextYPosition, byFinalTextColor, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, pszTextBuffer, font1_ascii, font1_offsets, 400, iTextYPosition, byFinalTextColor, 1u, 200, 640, pal_addr);
         break;
       default:
         break;                                  // OPTION-SPECIFIC UI: Display details for currently selected option
     }
     show_received_mesage();
-    copypic(scrbuf, screen);
+    menu_render_end_frame(mr);
+    }
     if (switch_same > 0)                      // CHEAT MODE HANDLING: Process switch_same command for player synchronization
     {
       iCheatSetLoop = 0;
@@ -5717,12 +5736,7 @@ void select_type()
     }
     cheat_mode = uiUpdatedCheatFlags;
   LABEL_142:
-    if (!front_fade)                          // Handle screen fade-in effect
-    {
-      front_fade = -1;
-      fade_palette(32);
-      frames = 0;
-    }
+    ;
     while (fatkbhit())                        // KEYBOARD INPUT PROCESSING: Handle navigation and option changes
     {
       byInputKey = fatgetch();
@@ -5950,7 +5964,18 @@ void select_type()
     while (broadcast_mode)
       UpdateSDL();
   }
-  fade_palette(0);
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   fre((void **)&front_vga[14]);
   front_fade = 0;
 }
