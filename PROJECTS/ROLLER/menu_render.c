@@ -1,7 +1,12 @@
 #include "menu_render.h"
 #include "menu_shaders.h"
+#include "carplans.h"
+#include "car.h"
+#include "graphics.h"
+#include "3d.h"
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define MENU_WIDTH 640
 #define MENU_HEIGHT 400
@@ -32,6 +37,34 @@ typedef struct {
 } DrawCommand;
 
 #define MAX_DRAW_COMMANDS 512
+
+// 3D mesh vertex (must match HLSL MeshVertexInput layout: 36 bytes)
+typedef struct {
+    float position[3];
+    float uv[2];
+    float color[4];
+} MeshVertex;
+
+// Loaded mesh GPU buffers
+typedef struct {
+    SDL_GPUBuffer *vertexBuffer;
+    SDL_GPUBuffer *indexBuffer;
+    SDL_GPUTexture *texture;
+    int indexCount;
+    bool loaded;
+} MeshPreview;
+
+// Recorded mesh draw command (deferred -- replayed in end_frame)
+typedef struct {
+    SDL_GPUBuffer *vertexBuffer;
+    SDL_GPUBuffer *indexBuffer;
+    SDL_GPUTexture *texture;
+    int indexCount;
+    float mvp[16];
+    float vpX, vpY, vpW, vpH; // viewport in virtual 640x400 coords
+} MeshDrawCommand;
+
+#define MAX_MESH_DRAWS 4
 
 struct MenuRenderer {
     SDL_GPUDevice *device;
@@ -66,6 +99,23 @@ struct MenuRenderer {
     float fadeAlpha;
     float fadeStep;
     int fadeActive;
+
+    // Mesh pipeline (3D previews)
+    SDL_GPUGraphicsPipeline *meshPipeline;
+    SDL_GPUTexture *depthTexture;
+    Uint32 depthWidth;
+    Uint32 depthHeight;
+    SDL_GPUTexture *whiteTexture;
+
+    // 3D mesh state
+    MeshPreview carMesh;
+    int loadedCarIdx;   // -1 = no car loaded (avoids per-frame reload)
+    bool trackMeshLoaded;
+    MeshPreview trackMesh;
+
+    // Per-frame mesh draw commands
+    MeshDrawCommand meshDraws[MAX_MESH_DRAWS];
+    int meshDrawCount;
 
 };
 
@@ -104,6 +154,30 @@ static SDL_GPUShader *LoadShader(SDL_GPUDevice *device, SDL_GPUShaderStage stage
 //---------------------------------------------------------------------------
 // Projection, quad emit, draw recording
 //---------------------------------------------------------------------------
+
+static void FreeMeshPreview(SDL_GPUDevice *dev, MeshPreview *mp, SDL_GPUTexture *whiteTexture);
+
+static void EnsureDepthTexture(MenuRenderer *r)
+{
+    if (r->depthTexture && r->depthWidth == r->swapchainWidth &&
+        r->depthHeight == r->swapchainHeight)
+        return;
+
+    if (r->depthTexture)
+        SDL_ReleaseGPUTexture(r->device, r->depthTexture);
+
+    SDL_GPUTextureCreateInfo dti = {0};
+    dti.type = SDL_GPU_TEXTURETYPE_2D;
+    dti.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    dti.width = r->swapchainWidth;
+    dti.height = r->swapchainHeight;
+    dti.layer_count_or_depth = 1;
+    dti.num_levels = 1;
+    dti.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    r->depthTexture = SDL_CreateGPUTexture(r->device, &dti);
+    r->depthWidth = r->swapchainWidth;
+    r->depthHeight = r->swapchainHeight;
+}
 
 static void MakeOrthoProjection(float *m, float l, float r, float b, float t)
 {
@@ -216,6 +290,58 @@ static void ReplayDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
     }
 }
 
+static void ReplayMeshDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
+{
+    if (!r->meshPipeline || r->meshDrawCount == 0) return;
+
+    // Compute viewport mapping from virtual 640x400 to swapchain pixels
+    float wAsp = (float)r->swapchainWidth / (float)r->swapchainHeight;
+    float mAsp = (float)MENU_WIDTH / (float)MENU_HEIGHT;
+    float baseX, baseY, baseW, baseH;
+    if (wAsp > mAsp) {
+        baseH = (float)r->swapchainHeight;
+        baseW = mAsp * baseH;
+        baseX = (r->swapchainWidth - baseW) / 2.0f;
+        baseY = 0;
+    } else {
+        baseW = (float)r->swapchainWidth;
+        baseH = baseW / mAsp;
+        baseX = 0;
+        baseY = (r->swapchainHeight - baseH) / 2.0f;
+    }
+    float scaleX = baseW / (float)MENU_WIDTH;
+    float scaleY = baseH / (float)MENU_HEIGHT;
+
+    SDL_BindGPUGraphicsPipeline(renderPass, r->meshPipeline);
+
+    for (int i = 0; i < r->meshDrawCount; i++) {
+        MeshDrawCommand *cmd = &r->meshDraws[i];
+
+        // Set sub-viewport for this mesh preview
+        SDL_GPUViewport mvp = {0};
+        mvp.x = baseX + cmd->vpX * scaleX;
+        mvp.y = baseY + cmd->vpY * scaleY;
+        mvp.w = cmd->vpW * scaleX;
+        mvp.h = cmd->vpH * scaleY;
+        mvp.min_depth = 0.0f;
+        mvp.max_depth = 1.0f;
+        SDL_SetGPUViewport(renderPass, &mvp);
+
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
+
+        SDL_GPUTextureSamplerBinding tsb = { .texture = cmd->texture, .sampler = r->sampler };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &tsb, 1);
+
+        SDL_GPUBufferBinding vbb = { .buffer = cmd->vertexBuffer };
+        SDL_BindGPUVertexBuffers(renderPass, 0, &vbb, 1);
+
+        SDL_GPUBufferBinding ibb = { .buffer = cmd->indexBuffer };
+        SDL_BindGPUIndexBuffer(renderPass, &ibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+
+        SDL_DrawGPUIndexedPrimitives(renderPass, cmd->indexCount, 1, 0, 0, 0);
+    }
+}
+
 //---------------------------------------------------------------------------
 // Asset upload helper
 //---------------------------------------------------------------------------
@@ -249,6 +375,35 @@ static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, 
 
     SDL_ReleaseGPUTransferBuffer(dev, tb);
     return tex;
+}
+
+static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
+                                       const void *data, Uint32 size)
+{
+    SDL_GPUBufferCreateInfo bi = {0};
+    bi.usage = usage;
+    bi.size = size;
+    SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(dev, &bi);
+    if (!buf) return NULL;
+
+    SDL_GPUTransferBufferCreateInfo tbi = {0};
+    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    tbi.size = size;
+    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
+    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
+    memcpy(m, data, size);
+    SDL_UnmapGPUTransferBuffer(dev, tb);
+
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTransferBufferLocation src = { .transfer_buffer = tb };
+    SDL_GPUBufferRegion dst = { .buffer = buf, .size = size };
+    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_SubmitGPUCommandBuffer(cmd);
+
+    SDL_ReleaseGPUTransferBuffer(dev, tb);
+    return buf;
 }
 
 // tColor field order: byR, byB, byG — read byG for green, byB for blue
@@ -330,6 +485,9 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
 
     pipeInfo.target_info.color_target_descriptions = &colorTarget;
     pipeInfo.target_info.num_color_targets = 1;
+    pipeInfo.target_info.has_depth_stencil_target = true;
+    pipeInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    // depth_stencil_state defaults: depth test/write disabled (2D quads don't need depth)
 
     r->pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipeInfo);
     SDL_ReleaseGPUShader(device, vert);
@@ -340,6 +498,66 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
         free(r);
         return NULL;
     }
+
+    // --- Mesh pipeline (3D previews with depth testing) ---
+    SDL_GPUShader *meshVert = LoadShader(device, SDL_GPU_SHADERSTAGE_VERTEX,
+        menu_mesh_vertex_spirv, menu_mesh_vertex_spirv_size,
+        menu_mesh_vertex_msl, menu_mesh_vertex_msl_size,
+        0, 1);  // 0 samplers, 1 uniform buffer (MVP)
+
+    SDL_GPUShader *meshFrag = LoadShader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        menu_mesh_pixel_spirv, menu_mesh_pixel_spirv_size,
+        menu_mesh_pixel_msl, menu_mesh_pixel_msl_size,
+        1, 0);  // 1 sampler, 0 uniform buffers
+
+    if (!meshVert || !meshFrag) {
+        SDL_Log("Failed to create mesh shaders");
+    } else {
+        SDL_GPUGraphicsPipelineCreateInfo meshPipeInfo = {0};
+        meshPipeInfo.vertex_shader = meshVert;
+        meshPipeInfo.fragment_shader = meshFrag;
+        meshPipeInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+
+        SDL_GPUVertexBufferDescription meshVbDesc = {0};
+        meshVbDesc.slot = 0;
+        meshVbDesc.pitch = sizeof(MeshVertex);
+        meshVbDesc.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+
+        SDL_GPUVertexAttribute meshAttrs[3] = {0};
+        meshAttrs[0].location = 0;
+        meshAttrs[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        meshAttrs[0].offset = offsetof(MeshVertex, position);
+        meshAttrs[1].location = 1;
+        meshAttrs[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        meshAttrs[1].offset = offsetof(MeshVertex, uv);
+        meshAttrs[2].location = 2;
+        meshAttrs[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        meshAttrs[2].offset = offsetof(MeshVertex, color);
+
+        meshPipeInfo.vertex_input_state.vertex_buffer_descriptions = &meshVbDesc;
+        meshPipeInfo.vertex_input_state.num_vertex_buffers = 1;
+        meshPipeInfo.vertex_input_state.vertex_attributes = meshAttrs;
+        meshPipeInfo.vertex_input_state.num_vertex_attributes = 3;
+
+        meshPipeInfo.target_info.color_target_descriptions = &colorTarget;
+        meshPipeInfo.target_info.num_color_targets = 1;
+        meshPipeInfo.target_info.has_depth_stencil_target = true;
+        meshPipeInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+
+        meshPipeInfo.depth_stencil_state.enable_depth_test = true;
+        meshPipeInfo.depth_stencil_state.enable_depth_write = true;
+        meshPipeInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+
+        meshPipeInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+        meshPipeInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        meshPipeInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+
+        r->meshPipeline = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipeline)
+            SDL_Log("Failed to create mesh pipeline: %s", SDL_GetError());
+    }
+    if (meshVert) SDL_ReleaseGPUShader(device, meshVert);
+    if (meshFrag) SDL_ReleaseGPUShader(device, meshFrag);
 
     // Sampler
     SDL_GPUSamplerCreateInfo sampInfo = {0};
@@ -364,6 +582,12 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
     uint8 blackPixel[4] = {0, 0, 0, 255};
     r->blackTexture = UploadRGBA(device, blackPixel, 1, 1);
 
+    // 1x1 white texture for flat-colored meshes (track map)
+    uint8 whitePixel[4] = {255, 255, 255, 255};
+    r->whiteTexture = UploadRGBA(device, whitePixel, 1, 1);
+
+    r->loadedCarIdx = -1;
+
     return r;
 }
 
@@ -373,6 +597,11 @@ void menu_render_destroy(MenuRenderer *r)
     for (int i = 0; i < MAX_SLOTS; i++)
         menu_render_free_blocks(r, i);
     if (r->blackTexture) SDL_ReleaseGPUTexture(r->device, r->blackTexture);
+    FreeMeshPreview(r->device, &r->carMesh, r->whiteTexture);
+    FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
+    if (r->whiteTexture) SDL_ReleaseGPUTexture(r->device, r->whiteTexture);
+    if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
+    if (r->meshPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipeline);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
     SDL_ReleaseGPUSampler(r->device, r->sampler);
@@ -388,6 +617,7 @@ void menu_render_begin_frame(MenuRenderer *r)
 {
     r->vertexCount = 0;
     r->drawCommandCount = 0;
+    r->meshDrawCount = 0;
 
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
     if (!r->cmdBuf) return;
@@ -431,13 +661,22 @@ void menu_render_end_frame(MenuRenderer *r)
     }
 
     // Phase 2: Render pass — replay all recorded draw commands
+    EnsureDepthTexture(r);
+
     SDL_GPUColorTargetInfo ct = {0};
     ct.texture = r->swapchainTexture;
     ct.load_op = SDL_GPU_LOADOP_CLEAR;
     ct.store_op = SDL_GPU_STOREOP_STORE;
     ct.clear_color = (SDL_FColor){0, 0, 0, 1};
 
-    SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(r->cmdBuf, &ct, 1, NULL);
+    SDL_GPUDepthStencilTargetInfo dsi = {0};
+    dsi.texture = r->depthTexture;
+    dsi.load_op = SDL_GPU_LOADOP_CLEAR;
+    dsi.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    dsi.clear_depth = 1.0f;
+
+    SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(r->cmdBuf, &ct, 1,
+        r->depthTexture ? &dsi : NULL);
 
     // Set viewport for aspect-ratio preservation
     SDL_GPUViewport vp = {0};
@@ -455,8 +694,11 @@ void menu_render_end_frame(MenuRenderer *r)
     vp.max_depth = 1.0f;
     SDL_SetGPUViewport(renderPass, &vp);
 
-    // Replay all draw commands (including fade overlay if active)
+    // Replay all 2D draw commands (including fade overlay if active)
     ReplayDraws(r, renderPass);
+
+    // Replay 3D mesh draws (car/track previews)
+    ReplayMeshDraws(r, renderPass);
 
     SDL_EndGPURenderPass(renderPass);
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);
@@ -684,3 +926,478 @@ void menu_render_fade_wait(MenuRenderer *r, void (*redraw_fn)(void *ctx), void *
         menu_render_end_frame(r);
     }
 }
+
+//---------------------------------------------------------------------------
+// 4x4 matrix helpers (column-major, matching GPU convention)
+// Column-major: m[col*4 + row], i.e. m[0..3]=col0, m[4..7]=col1, etc.
+//---------------------------------------------------------------------------
+
+static void Mat4Multiply(float *out, const float *a, const float *b)
+{
+    float tmp[16];
+    for (int c = 0; c < 4; c++) {
+        for (int r = 0; r < 4; r++) {
+            tmp[c * 4 + r] =
+                a[0 * 4 + r] * b[c * 4 + 0] +
+                a[1 * 4 + r] * b[c * 4 + 1] +
+                a[2 * 4 + r] * b[c * 4 + 2] +
+                a[3 * 4 + r] * b[c * 4 + 3];
+        }
+    }
+    memcpy(out, tmp, sizeof(tmp));
+}
+
+static void MakePerspective(float *m, float fovY, float aspect, float zNear, float zFar)
+{
+    memset(m, 0, 16 * sizeof(float));
+    float f = 1.0f / tanf(fovY * 0.5f);
+    m[0]  = f / aspect;
+    m[5]  = f;
+    m[10] = zFar / (zNear - zFar);
+    m[11] = -1.0f;
+    m[14] = (zNear * zFar) / (zNear - zFar);
+}
+
+static void MakeLookAt(float *m, float eyeX, float eyeY, float eyeZ,
+                        float atX, float atY, float atZ)
+{
+    // Forward = normalize(at - eye)
+    float fx = atX - eyeX, fy = atY - eyeY, fz = atZ - eyeZ;
+    float flen = sqrtf(fx*fx + fy*fy + fz*fz);
+    if (flen < 1e-6f) flen = 1.0f;
+    fx /= flen; fy /= flen; fz /= flen;
+
+    // Right = normalize(cross(forward, up))  where up = (0, 1, 0)
+    // cross(f, (0,1,0)) = (-fz, 0, fx)
+    float rx = -fz, ry = 0.0f, rz = fx;
+    float rlen = sqrtf(rx*rx + ry*ry + rz*rz);
+    if (rlen < 1e-6f) rlen = 1.0f;
+    rx /= rlen; ry /= rlen; rz /= rlen;
+
+    // True up = cross(right, forward)
+    float ux = ry * fz - rz * fy;
+    float uy = rz * fx - rx * fz;
+    float uz = rx * fy - ry * fx;
+
+    // Column-major view matrix
+    m[0] = rx;   m[4] = ry;   m[8]  = rz;   m[12] = -(rx*eyeX + ry*eyeY + rz*eyeZ);
+    m[1] = ux;   m[5] = uy;   m[9]  = uz;   m[13] = -(ux*eyeX + uy*eyeY + uz*eyeZ);
+    m[2] = -fx;  m[6] = -fy;  m[10] = -fz;  m[14] =  (fx*eyeX + fy*eyeY + fz*eyeZ);
+    m[3] = 0.0f; m[7] = 0.0f; m[11] = 0.0f; m[15] = 1.0f;
+}
+
+static void FreeMeshPreview(SDL_GPUDevice *dev, MeshPreview *mp, SDL_GPUTexture *whiteTexture)
+{
+    if (mp->vertexBuffer) { SDL_ReleaseGPUBuffer(dev, mp->vertexBuffer); mp->vertexBuffer = NULL; }
+    if (mp->indexBuffer)  { SDL_ReleaseGPUBuffer(dev, mp->indexBuffer);  mp->indexBuffer  = NULL; }
+    // Don't release whiteTexture — it's shared
+    if (mp->texture && mp->texture != whiteTexture)
+        SDL_ReleaseGPUTexture(dev, mp->texture);
+    mp->texture = NULL;
+    mp->indexCount = 0;
+    mp->loaded = false;
+}
+
+//---------------------------------------------------------------------------
+// 3D mesh previews — car
+//---------------------------------------------------------------------------
+
+// Build RGBA texture atlas from car's indexed-color tile data.
+// Layout: 256px wide (4 tiles per row), with one extra white row at bottom.
+static SDL_GPUTexture *BuildCarTextureAtlas(MenuRenderer *r, int carIdx,
+                                            const tColor *pal,
+                                            int *outNumTiles, int *outAtlasH)
+{
+    int texSlot = car_texmap[carIdx];
+    if (texSlot <= 0) return NULL;
+
+    uint8 *texData = cartex_vga[texSlot - 1];
+    if (!texData) return NULL;
+
+    int nTiles = num_textures[texSlot - 1];
+    if (nTiles <= 0) return NULL;
+
+    int numRows = (nTiles + 3) / 4;
+    int atlasW = 256;
+    int atlasH = numRows * 64 + 1; // +1 row for white pixel
+
+    uint8 *rgba = calloc((size_t)atlasW * atlasH * 4, 1);
+    if (!rgba) return NULL;
+
+    // Convert sorted indexed-color tiles (4-per-row, 256px wide) to RGBA
+    for (int t = 0; t < nTiles; t++) {
+        int col = t % 4;
+        int row = t / 4;
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                int srcOff = (row * 64 + y) * 256 + col * 64 + x;
+                uint8 palIdx = texData[srcOff];
+                int ax = col * 64 + x;
+                int ay = row * 64 + y;
+                int dstOff = (ay * atlasW + ax) * 4;
+                const tColor *c = &pal[palIdx];
+                rgba[dstOff + 0] = (uint8)(c->byR * 255 / 63);
+                rgba[dstOff + 1] = (uint8)(c->byG * 255 / 63);
+                rgba[dstOff + 2] = (uint8)(c->byB * 255 / 63);
+                rgba[dstOff + 3] = palIdx ? 255 : 0;
+            }
+        }
+    }
+
+    // Fill bottom row with white (flat-colored polygon UVs sample here)
+    for (int x = 0; x < atlasW; x++) {
+        int off = ((atlasH - 1) * atlasW + x) * 4;
+        rgba[off] = rgba[off + 1] = rgba[off + 2] = rgba[off + 3] = 255;
+    }
+
+    SDL_GPUTexture *tex = UploadRGBA(r->device, rgba, atlasW, atlasH);
+    free(rgba);
+
+    *outNumTiles = nTiles;
+    *outAtlasH = atlasH;
+    return tex;
+}
+
+void menu_render_load_car_mesh(MenuRenderer *r, int carIdx, const tColor *pal)
+{
+    if (r->loadedCarIdx == carIdx && r->carMesh.loaded) return;
+    menu_render_free_car_mesh(r);
+
+    if (carIdx < 0 || carIdx > CAR_DESIGN_DEATH) return;
+
+    tCarDesign *design = &CarDesigns[carIdx];
+    int numPols = design->byNumPols;
+    int numCoords = design->byNumCoords;
+    tVec3 *coords = design->pCoords;
+    tPolygon *pols = design->pPols;
+    tAnimation *pAnms = design->pAnms;
+    if (!coords || !pols || numPols == 0) return;
+
+    // Build texture atlas from car texture data
+    int numTiles = 0, atlasH = 0;
+    SDL_GPUTexture *atlas = BuildCarTextureAtlas(r, carIdx, pal,
+                                                 &numTiles, &atlasH);
+    bool hasAtlas = (atlas != NULL && numTiles > 0);
+    float fAtlasH = hasAtlas ? (float)atlasH : 1.0f;
+
+    // White pixel UV (center of bottom row, for flat-colored polygons)
+    float whiteU = hasAtlas ? 0.5f / 256.0f : 0.0f;
+    float whiteV = hasAtlas ? (atlasH - 0.5f) / fAtlasH : 0.0f;
+
+    // Each quad becomes 4 verts + 6 indices (2 triangles)
+    MeshVertex *vertices = calloc(numPols * 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numPols * 6, sizeof(uint32));
+    int vertCount = 0, idxCount = 0;
+
+    tCarColorRemap *remap = &car_flat_remap[carIdx];
+
+    for (int p = 0; p < numPols; p++) {
+        uint32 tex = pols[p].uiTex;
+        if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+
+        // Resolve animation texture lookups (use frame 0 for menu preview)
+        if ((tex & CAR_FLAG_ANMS_LOOKUP) && pAnms) {
+            tex = pAnms[(uint8)tex].framesAy[0];
+        }
+
+        bool isTextured = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                          (uint8)tex < numTiles;
+
+        float u0, u1, v0, v1;
+        float cr, cg, cb, ca;
+
+        if (isTextured) {
+            // Textured polygon — compute UV rect for tile in atlas
+            uint8 tileIdx = (uint8)tex;
+            int col = tileIdx % 4;
+            int row = tileIdx / 4;
+            u0 = (col * 64.0f) / 256.0f;
+            u1 = ((col + 1) * 64.0f) / 256.0f;
+            v0 = (row * 64.0f) / fAtlasH;
+            v1 = ((row + 1) * 64.0f) / fAtlasH;
+
+            if (tex & SURFACE_FLAG_FLIP_HORIZ) {
+                float tmp = u0; u0 = u1; u1 = tmp;
+            }
+            if (tex & SURFACE_FLAG_FLIP_VERT) {
+                float tmp = v0; v0 = v1; v1 = tmp;
+            }
+
+            // Vertex color = white (texture provides all color)
+            cr = cg = cb = ca = 1.0f;
+        } else {
+            // Flat-colored polygon — palette color via vertex color
+            uint8 colorIdx = (uint8)tex;
+            if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                remap->uiColorFrom != 0xFFFFFFFF &&
+                colorIdx == (uint8)remap->uiColorFrom)
+                colorIdx = (uint8)remap->uiColorTo;
+
+            const tColor *c = &pal[colorIdx];
+            cr = (c->byR * 255.0f / 63.0f) / 255.0f;
+            cg = (c->byG * 255.0f / 63.0f) / 255.0f;
+            cb = (c->byB * 255.0f / 63.0f) / 255.0f;
+            ca = 1.0f;
+
+            // UV points to white pixel in atlas
+            u0 = u1 = whiteU;
+            v0 = v1 = whiteV;
+        }
+
+        int baseVert = vertCount;
+
+        // UV mapping matches game's startsx/startsy defaults:
+        // v0 → (right, top), v1 → (left, top),
+        // v2 → (left, bottom), v3 → (right, bottom)
+        float uvs[4][2] = {
+            { u1, v0 }, { u0, v0 }, { u0, v1 }, { u1, v1 }
+        };
+
+        for (int v = 0; v < 4; v++) {
+            uint8 vi = pols[p].verts[v];
+            if (vi >= numCoords) vi = 0;
+
+            MeshVertex *mv = &vertices[vertCount++];
+            // Game uses Z-up (X=forward, Y=lateral, Z=up);
+            // GPU pipeline uses Y-up (X=right, Y=up, Z=depth)
+            mv->position[0] = coords[vi].fY;   // GPU X = model lateral
+            mv->position[1] = coords[vi].fZ;   // GPU Y = model up
+            mv->position[2] = coords[vi].fX;   // GPU Z = model forward
+            mv->uv[0] = uvs[v][0];
+            mv->uv[1] = uvs[v][1];
+            mv->color[0] = cr;
+            mv->color[1] = cg;
+            mv->color[2] = cb;
+            mv->color[3] = ca;
+        }
+
+        // Two triangles: (0,1,2) and (0,2,3)
+        indices[idxCount++] = baseVert + 0;
+        indices[idxCount++] = baseVert + 1;
+        indices[idxCount++] = baseVert + 2;
+        indices[idxCount++] = baseVert + 0;
+        indices[idxCount++] = baseVert + 2;
+        indices[idxCount++] = baseVert + 3;
+    }
+
+    if (idxCount > 0) {
+        r->carMesh.vertexBuffer = UploadGPUBuffer(r->device,
+            SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
+        r->carMesh.indexBuffer = UploadGPUBuffer(r->device,
+            SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
+        r->carMesh.texture = atlas ? atlas : r->whiteTexture;
+        r->carMesh.indexCount = idxCount;
+        r->carMesh.loaded = true;
+        r->loadedCarIdx = carIdx;
+    } else if (atlas) {
+        SDL_ReleaseGPUTexture(r->device, atlas);
+    }
+
+    free(vertices);
+    free(indices);
+}
+
+void menu_render_free_car_mesh(MenuRenderer *r)
+{
+    FreeMeshPreview(r->device, &r->carMesh, r->whiteTexture);
+    r->loadedCarIdx = -1;
+}
+
+void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
+                                  int destX, int destY, int destW, int destH)
+{
+    if (!r->carMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
+
+    // Convert TRIG angle (0-16383) to radians
+    float rad = angle * (2.0f * 3.14159265f / 16384.0f);
+
+    // Camera orbits car at distance, matching original DrawCar convention:
+    //   worldx = -distance * tcos[angle], worldz = distance * tsin[angle]
+    float eyeX = -distance * cosf(rad);
+    float eyeZ =  distance * sinf(rad);
+    float eyeY = distance * 0.15f;  // slight elevation for 3/4 view
+
+    float view[16], proj[16], vp[16], mvp[16];
+    MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
+    float aspect = (float)destW / (float)destH;
+    MakePerspective(proj, 0.6f, aspect, 1.0f, distance * 4.0f);
+    Mat4Multiply(mvp, proj, view);
+
+    // Identity model matrix — car coords are already in model space
+    // mvp = proj * view is sufficient
+
+    MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
+    cmd->vertexBuffer = r->carMesh.vertexBuffer;
+    cmd->indexBuffer = r->carMesh.indexBuffer;
+    cmd->texture = r->carMesh.texture;
+    cmd->indexCount = r->carMesh.indexCount;
+    memcpy(cmd->mvp, mvp, sizeof(mvp));
+    cmd->vpX = (float)destX;
+    cmd->vpY = (float)destY;
+    cmd->vpW = (float)destW;
+    cmd->vpH = (float)destH;
+}
+
+//---------------------------------------------------------------------------
+// 3D mesh previews — track map
+//---------------------------------------------------------------------------
+
+void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
+{
+    menu_render_free_track_mesh(r);
+
+    extern int TRAK_LEN;
+    if (TRAK_LEN <= 0) return;
+
+    // Each track chunk has: ground (5 surfaces) and track (6 surfaces)
+    // Each surface is a quad between two adjacent chunks (4 verts, 2 tris)
+    // Estimate: up to 11 quads per chunk * 2 tris * 3 indices
+    int maxQuads = TRAK_LEN * 11;
+    MeshVertex *vertices = calloc(maxQuads * 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(maxQuads * 6, sizeof(uint32));
+    int vertCount = 0, idxCount = 0;
+
+    for (int chunk = 0; chunk < TRAK_LEN - 1; chunk++) {
+        // Track surface quads (6 surfaces: left lane, center, right lane, left wall, right wall, roof)
+        for (int surf = 0; surf < 6; surf++) {
+            int colorIdx = TrakColour[chunk][surf];
+            if (colorIdx < 0 || colorIdx > 255) continue;
+
+            const tColor *c = &pal[colorIdx];
+            float cr = (float)(c->byR * 255 / 63) / 255.0f;
+            float cg = (float)(c->byG * 255 / 63) / 255.0f;
+            float cb = (float)(c->byB * 255 / 63) / 255.0f;
+
+            // Quad: two points from this chunk, two from next chunk
+            // TrakPt[chunk].pointAy has 6 vertices (pairs for each surface edge)
+            // Surface i uses points i and i+1 (or i and wrapping)
+            int i0 = surf, i1 = (surf < 5) ? surf + 1 : 0;
+            tVec3 *p0 = &TrakPt[chunk].pointAy[i0];
+            tVec3 *p1 = &TrakPt[chunk].pointAy[i1];
+            tVec3 *p2 = &TrakPt[chunk + 1].pointAy[i1];
+            tVec3 *p3 = &TrakPt[chunk + 1].pointAy[i0];
+
+            int baseVert = vertCount;
+            tVec3 *pts[4] = { p0, p1, p2, p3 };
+            for (int v = 0; v < 4; v++) {
+                MeshVertex *mv = &vertices[vertCount++];
+                mv->position[0] = pts[v]->fX;
+                mv->position[1] = pts[v]->fY;
+                mv->position[2] = pts[v]->fZ;
+                mv->uv[0] = 0.0f;
+                mv->uv[1] = 0.0f;
+                mv->color[0] = cr;
+                mv->color[1] = cg;
+                mv->color[2] = cb;
+                mv->color[3] = 1.0f;
+            }
+
+            indices[idxCount++] = baseVert + 0;
+            indices[idxCount++] = baseVert + 1;
+            indices[idxCount++] = baseVert + 2;
+            indices[idxCount++] = baseVert + 0;
+            indices[idxCount++] = baseVert + 2;
+            indices[idxCount++] = baseVert + 3;
+        }
+
+        // Ground surface quads (5 surfaces)
+        for (int surf = 0; surf < 5; surf++) {
+            int colorIdx = GroundColour[chunk][surf];
+            if (colorIdx < 0 || colorIdx > 255) continue;
+
+            const tColor *c = &pal[colorIdx];
+            float cr = (float)(c->byR * 255 / 63) / 255.0f;
+            float cg = (float)(c->byG * 255 / 63) / 255.0f;
+            float cb = (float)(c->byB * 255 / 63) / 255.0f;
+
+            int i0 = surf, i1 = surf + 1;
+            tVec3 *p0 = &GroundPt[chunk].pointAy[i0];
+            tVec3 *p1 = &GroundPt[chunk].pointAy[i1];
+            tVec3 *p2 = &GroundPt[chunk + 1].pointAy[i1];
+            tVec3 *p3 = &GroundPt[chunk + 1].pointAy[i0];
+
+            int baseVert = vertCount;
+            tVec3 *pts[4] = { p0, p1, p2, p3 };
+            for (int v = 0; v < 4; v++) {
+                MeshVertex *mv = &vertices[vertCount++];
+                mv->position[0] = pts[v]->fX;
+                mv->position[1] = pts[v]->fY;
+                mv->position[2] = pts[v]->fZ;
+                mv->uv[0] = 0.0f;
+                mv->uv[1] = 0.0f;
+                mv->color[0] = cr;
+                mv->color[1] = cg;
+                mv->color[2] = cb;
+                mv->color[3] = 1.0f;
+            }
+
+            indices[idxCount++] = baseVert + 0;
+            indices[idxCount++] = baseVert + 1;
+            indices[idxCount++] = baseVert + 2;
+            indices[idxCount++] = baseVert + 0;
+            indices[idxCount++] = baseVert + 2;
+            indices[idxCount++] = baseVert + 3;
+        }
+    }
+
+    if (idxCount > 0) {
+        r->trackMesh.vertexBuffer = UploadGPUBuffer(r->device,
+            SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
+        r->trackMesh.indexBuffer = UploadGPUBuffer(r->device,
+            SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
+        r->trackMesh.texture = r->whiteTexture;
+        r->trackMesh.indexCount = idxCount;
+        r->trackMesh.loaded = true;
+    }
+
+    free(vertices);
+    free(indices);
+}
+
+void menu_render_free_track_mesh(MenuRenderer *r)
+{
+    FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
+}
+
+void menu_render_draw_track_preview(MenuRenderer *r, float cameraZ,
+                                    int elevation, int yaw,
+                                    int destX, int destY, int destW, int destH)
+{
+    if (!r->trackMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
+
+    // Convert TRIG angles (0-16383) to radians
+    float yawRad = (float)yaw * (2.0f * 3.14159265f / 16384.0f);
+    float elevRad = (float)elevation * (2.0f * 3.14159265f / 16384.0f);
+
+    // Camera looks down at the track from above
+    float camDist = cameraZ;
+    float eyeX = camDist * sinf(yawRad) * cosf(elevRad);
+    float eyeY = camDist * sinf(elevRad);
+    float eyeZ = camDist * cosf(yawRad) * cosf(elevRad);
+
+    // Look at center of track (approximate: average of first and mid chunk)
+    extern int TRAK_LEN;
+    int mid = TRAK_LEN / 2;
+    float centerX = (TrakPt[0].pointAy[0].fX + TrakPt[mid].pointAy[0].fX) * 0.5f;
+    float centerY = (TrakPt[0].pointAy[0].fY + TrakPt[mid].pointAy[0].fY) * 0.5f;
+    float centerZ = (TrakPt[0].pointAy[0].fZ + TrakPt[mid].pointAy[0].fZ) * 0.5f;
+
+    float view[16], proj[16], mvp[16];
+    MakeLookAt(view, eyeX + centerX, eyeY + centerY, eyeZ + centerZ,
+               centerX, centerY, centerZ);
+    float aspect = (float)destW / (float)destH;
+    MakePerspective(proj, 0.8f, aspect, 1.0f, camDist * 8.0f);
+    Mat4Multiply(mvp, proj, view);
+
+    MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
+    cmd->vertexBuffer = r->trackMesh.vertexBuffer;
+    cmd->indexBuffer = r->trackMesh.indexBuffer;
+    cmd->texture = r->trackMesh.texture;
+    cmd->indexCount = r->trackMesh.indexCount;
+    memcpy(cmd->mvp, mvp, sizeof(mvp));
+    cmd->vpX = (float)destX;
+    cmd->vpY = (float)destY;
+    cmd->vpW = (float)destW;
+    cmd->vpH = (float)destH;
+}
+
