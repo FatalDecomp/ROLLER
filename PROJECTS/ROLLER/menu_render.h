@@ -1,0 +1,37 @@
+#ifndef MENU_RENDER_H
+#define MENU_RENDER_H
+
+#include <SDL3/SDL.h>
+#include "types.h"
+#include "func3.h"
+
+typedef struct MenuRenderer MenuRenderer;
+
+typedef struct {
+    SDL_GPUTexture *texture;
+    int width;
+    int height;
+} MenuTexture;
+
+// Lifecycle
+MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window);
+void menu_render_destroy(MenuRenderer *renderer);
+
+// Asset conversion
+int menu_render_load_blocks(MenuRenderer *renderer, int slot,
+                            tBlockHeader *blocks, const tColor *palette);
+void menu_render_free_blocks(MenuRenderer *renderer, int slot);
+
+// Frame lifecycle
+void menu_render_begin_frame(MenuRenderer *renderer);
+void menu_render_end_frame(MenuRenderer *renderer);
+
+// Draw calls (between begin_frame / end_frame)
+void menu_render_clear(MenuRenderer *renderer, uint8 colorIndex,
+                       const tColor *palette);
+void menu_render_background(MenuRenderer *renderer, int slot);
+void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
+                        int x, int y, int transparentColorIndex,
+                        const tColor *palette);
+
+#endif
