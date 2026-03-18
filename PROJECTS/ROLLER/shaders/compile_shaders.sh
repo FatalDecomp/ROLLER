@@ -22,6 +22,14 @@ echo "Compiling pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/menu_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/menu_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/menu_pixel.hlsl" -s HLSL -d MSL -t fragment -e main -o "$OUT_DIR/menu_pixel.msl"
 
+echo "Compiling mesh vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/menu_mesh_vertex.hlsl" -s HLSL -d SPIRV -t vertex -e main -o "$OUT_DIR/menu_mesh_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/menu_mesh_vertex.hlsl" -s HLSL -d MSL -t vertex -e main -o "$OUT_DIR/menu_mesh_vertex.msl"
+
+echo "Compiling mesh pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/menu_mesh_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/menu_mesh_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/menu_mesh_pixel.hlsl" -s HLSL -d MSL -t fragment -e main -o "$OUT_DIR/menu_mesh_pixel.msl"
+
 echo "Generating menu_shaders.h..."
 python3 -c "
 import os
@@ -34,11 +42,12 @@ def embed(path, name):
 
 out_dir = '$OUT_DIR'
 h = '#ifndef MENU_SHADERS_H\n#define MENU_SHADERS_H\n\n'
-for stage in ['vertex', 'pixel']:
-    for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
-        p = os.path.join(out_dir, f'menu_{stage}.{ext}')
-        if os.path.exists(p):
-            h += embed(p, f'menu_{stage}_{fmt}') + '\n'
+for prefix in ['menu', 'menu_mesh']:
+    for stage in ['vertex', 'pixel']:
+        for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
+            p = os.path.join(out_dir, f'{prefix}_{stage}.{ext}')
+            if os.path.exists(p):
+                h += embed(p, f'{prefix}_{stage}_{fmt}') + '\n'
 h += '#endif\n'
 with open('$HEADER', 'w') as f:
     f.write(h)
