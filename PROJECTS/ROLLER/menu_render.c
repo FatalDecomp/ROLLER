@@ -367,6 +367,17 @@ void menu_render_end_frame(MenuRenderer *r)
 {
     if (!r->cmdBuf) return;
 
+    // Step fade and emit overlay quad (before copy pass so vertices are included)
+    if (r->fadeActive) {
+        r->fadeAlpha += r->fadeStep;
+        if (r->fadeAlpha <= 0.0f) { r->fadeAlpha = 0.0f; r->fadeActive = 0; }
+        if (r->fadeAlpha >= 1.0f) { r->fadeAlpha = 1.0f; r->fadeActive = 0; }
+    }
+    if (r->fadeAlpha > 0.001f && r->blackTexture) {
+        EmitQuad(r, 0, 0, MENU_WIDTH, MENU_HEIGHT, 0, 0, 1, 1);
+        RecordDraw(r, r->blackTexture, r->fadeAlpha, -1, NULL);
+    }
+
     // Phase 1: Copy pass — upload all accumulated vertex data
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexTransferBuffer, true);
@@ -406,27 +417,8 @@ void menu_render_end_frame(MenuRenderer *r)
     vp.max_depth = 1.0f;
     SDL_SetGPUViewport(renderPass, &vp);
 
-    // Replay all draw commands
+    // Replay all draw commands (including fade overlay if active)
     ReplayDraws(r, renderPass);
-
-    // Step + draw fade overlay (last, so it covers everything)
-    if (r->fadeActive) {
-        r->fadeAlpha += r->fadeStep;
-        if (r->fadeAlpha <= 0.0f) { r->fadeAlpha = 0.0f; r->fadeActive = 0; }
-        if (r->fadeAlpha >= 1.0f) { r->fadeAlpha = 1.0f; r->fadeActive = 0; }
-    }
-    if (r->fadeAlpha > 0.001f && r->blackTexture) {
-        // Fade quad — emit directly, push uniforms, draw
-        // Note: these vertices were not in the copy pass above.
-        // For the fade overlay we use push constants approach:
-        // the quad is fullscreen so we reuse vertex offset 0 if we have any draws,
-        // or we skip the fade if no vertices were uploaded.
-        // A cleaner approach: always emit the fade quad before end_frame.
-        // For now, if we have at least 6 vertices, reuse the first quad's vertices
-        // as a fullscreen quad approximation won't work. Instead, we handle this
-        // by requiring callers to emit the fade quad before end_frame.
-        // TODO: Pre-emit fade quad in begin_frame if fadeAlpha > 0
-    }
 
     SDL_EndGPURenderPass(renderPass);
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);
@@ -518,4 +510,33 @@ void menu_render_sprite(MenuRenderer *r, int slot, int blockIdx, int x, int y,
     if (!mt->texture) return;
     EmitQuad(r, (float)x, (float)y, (float)mt->width, (float)mt->height, 0, 0, 1, 1);
     RecordDraw(r, mt->texture, 1.0f, transparentIdx, pal);
+}
+
+//---------------------------------------------------------------------------
+// Fade system
+//---------------------------------------------------------------------------
+
+void menu_render_begin_fade(MenuRenderer *r, int direction, int durationFrames)
+{
+    if (durationFrames <= 0) durationFrames = 32;
+    if (direction == 0) {
+        // Fade out: overlay goes from transparent to opaque
+        r->fadeStep = 1.0f / (float)durationFrames;
+    } else {
+        // Fade in: overlay goes from opaque to transparent
+        r->fadeAlpha = 1.0f;
+        r->fadeStep = -1.0f / (float)durationFrames;
+    }
+    r->fadeActive = 1;
+}
+
+int menu_render_fade_active(MenuRenderer *r) { return r->fadeActive; }
+
+void menu_render_fade_wait(MenuRenderer *r, void (*redraw_fn)(void *ctx), void *ctx)
+{
+    while (menu_render_fade_active(r)) {
+        menu_render_begin_frame(r);
+        if (redraw_fn) redraw_fn(ctx);
+        menu_render_end_frame(r);
+    }
 }

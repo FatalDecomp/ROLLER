@@ -34,4 +34,15 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
                         const tColor *palette);
 
+// Fade system
+void menu_render_begin_fade(MenuRenderer *renderer, int direction, int durationFrames);
+int menu_render_fade_active(MenuRenderer *renderer);
+void menu_render_fade_wait(MenuRenderer *renderer,
+                           void (*redraw_fn)(void *ctx), void *ctx);
+
+// 3D preview compositing
+void menu_render_preview(MenuRenderer *renderer, const uint8 *previewBuf,
+                         int width, int height, int destX, int destY,
+                         const tColor *palette);
+
 #endif
