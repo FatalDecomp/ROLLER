@@ -80,7 +80,6 @@ static SDL_GPUShader *LoadShader(SDL_GPUDevice *device, SDL_GPUShaderStage stage
     SDL_GPUShaderFormat fmts = SDL_GetGPUShaderFormats(device);
     SDL_GPUShaderCreateInfo info = {0};
     info.stage = stage;
-    info.entrypoint = "main";
     info.num_samplers = numSamplers;
     info.num_uniform_buffers = numUniformBuffers;
 
@@ -88,10 +87,12 @@ static SDL_GPUShader *LoadShader(SDL_GPUDevice *device, SDL_GPUShaderStage stage
         info.format = SDL_GPU_SHADERFORMAT_SPIRV;
         info.code = spirv;
         info.code_size = spirvSize;
+        info.entrypoint = "main";
     } else if (fmts & SDL_GPU_SHADERFORMAT_MSL) {
         info.format = SDL_GPU_SHADERFORMAT_MSL;
         info.code = msl;
         info.code_size = mslSize;
+        info.entrypoint = "main0";
     } else {
         return NULL;
     }
