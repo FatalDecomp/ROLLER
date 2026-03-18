@@ -1972,6 +1972,17 @@ void select_car()
   front_fade = 0;
   front_vga[3] = (tBlockHeader*)load_picture("carnames.bm");   // Load car company name graphics (carnames.bm) and car selection UI (selcar2.bm)
   front_vga[7] = (tBlockHeader*)load_picture("selcar2.bm");    // Load car selection UI bitmap
+  // Restore palette and create GPU textures for sub-menu rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+    MenuRenderer *mr = GetMenuRenderer();
+    if (mr) {
+      menu_render_load_blocks(mr, 3, front_vga[3], palette);
+      menu_render_load_blocks(mr, 7, front_vga[7], palette);
+    }
+  }
   car_request = 0;
   byMenuExitFlag = 0;                           // Initialize selection state: byMenuExitFlag=0 (stay in menu), iOriginalCarSelection=-1 (no backup)
   iOriginalCarSelection = -1;                   // byExitCode = 0 - stay in selection, -1 = exit to menu
@@ -2044,21 +2055,28 @@ void select_car()
         frontendsample(0x8000);
         SampleHandleCar[84].handles[0] = -1;
       }
-      display_picture(scrbuf, front_vga[0]);    // RENDER FRAME
+      {                                           // RENDER FRAME (GPU)
+      MenuRenderer *mr = GetMenuRenderer();
+      menu_render_begin_frame(mr);
+      if (!front_fade) {
+        front_fade = -1;
+        menu_render_begin_fade(mr, 1, 32);
+      }
+      menu_render_background(mr, 0);
       if (player_type == 2)                   // Two-player mode
       {
         if (iActivePlayer)
-          display_block(scrbuf, front_vga[1], 6, head_x, head_y, 0);
+          menu_render_sprite(mr, 1, 6, head_x, head_y, 0, pal_addr);
         else
-          display_block(scrbuf, front_vga[1], 5, head_x, head_y, 0);
-        display_block(scrbuf, front_vga[1], 7, 200, 56, 0);
+          menu_render_sprite(mr, 1, 5, head_x, head_y, 0, pal_addr);
+        menu_render_sprite(mr, 1, 7, 200, 56, 0, pal_addr);
       } else {
-        display_block(scrbuf, front_vga[1], 1, head_x, head_y, 0);
+        menu_render_sprite(mr, 1, 1, head_x, head_y, 0, pal_addr);
       }
-      display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
+      menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
       if (iPlayer1Car < CAR_DESIGN_AUTO) {
-        front_text(front_vga[15], &language_buffer[4160], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u);
-      } else {                                         // Render 3D car model with zoom/rotation
+        menu_render_text(mr, 15, &language_buffer[4160], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
+      } else {                                         // 3D car preview (Phase 6 — renders to scrbuf, not visible yet)
         if (iPlayer1Car == CAR_DESIGN_F1WACK) {
           DrawCar(scrbuf + 34640, CAR_DESIGN_F1WACK, 6000.0, 1280, 0);
         } else if (iDelayBeforeRotation) {
@@ -2068,37 +2086,37 @@ void select_car()
           DrawCar(scrbuf + 34640, iPlayer1Car, fCarDrawDistance, 1280, 0);
         }
         if (iPlayer1Car < CAR_DESIGN_SUICYCO)
-          display_block(scrbuf, front_vga[3], iPlayer1Car, 190, 356, 0);
+          menu_render_sprite(mr, 3, iPlayer1Car, 190, 356, 0, pal_addr);
       }
-      display_block(scrbuf, front_vga[7], 0, 560, 20, 0);// Draw car statistics as 7 pie chart segments (speed, acceleration, braking, etc.)
+      menu_render_sprite(mr, 7, 0, 560, 20, 0, pal_addr);
       uiNetworkLoop = 0;
-      iPieChartY = 19;                          // Draw 7 pie chart segments (iY starts at 19, increments by 51)
+      iPieChartY = 19;                          // Draw 7 pie chart segments
       do {
-        display_block(scrbuf, front_vga[7], blockIdxAy[uiNetworkLoop / 4], 568, iPieChartY, 0);
+        menu_render_sprite(mr, 7, blockIdxAy[uiNetworkLoop / 4], 568, iPieChartY, 0, pal_addr);
         uiNetworkLoop += 4;
         iPieChartY += 51;
       } while (uiNetworkLoop != 28);
-      display_block(scrbuf, front_vga[5], player_type, -4, 247, 0);
-      display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-      display_block(scrbuf, front_vga[4], 0, 76, 257, -1);
+      menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+      menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+      menu_render_sprite(mr, 4, 0, 76, 257, -1, pal_addr);
       if (iCurrentCarSelectorPos >= 8)        // Draw car selection cursor
       {
-        display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+        menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
       } else {
-        display_block(scrbuf, front_vga[6], 2, 62, 336, -1);
-        front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iCurrentCarSelectorPos].x, sel_posns[iCurrentCarSelectorPos].y, 0x8Fu, 0);
+        menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+        menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iCurrentCarSelectorPos].x, sel_posns[iCurrentCarSelectorPos].y, 0x8Fu, 0, pal_addr);
       }
-      front_text(front_vga[2], "AUTO ARIEL", font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);                                    // Draw all car company names
-      front_text(front_vga[2], "DESILVA", font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "PULSE", font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "GLOBAL", font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "MISSION", font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "ZIZIN", font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u);
-      front_text(front_vga[2], "REISE WAGON", font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u);
-      if (iCurrentCarSelectorPos < 8 && network_on && (cheat_mode & 0x4000) == 0)// Network mode: show which players have allocated which cars
+      menu_render_text(mr, 2, "AUTO ARIEL", font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "DESILVA", font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "PULSE", font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "GLOBAL", font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "MISSION", font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "ZIZIN", font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, "REISE WAGON", font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
+      if (iCurrentCarSelectorPos < 8 && network_on && (cheat_mode & 0x4000) == 0)// Network mode
       {
-        front_text(front_vga[15], &language_buffer[4672], font1_ascii, font1_offsets, 380, 380, 0x8Fu, 2u);
+        menu_render_text(mr, 15, &language_buffer[4672], font1_ascii, font1_offsets, 380, 380, 0x8Fu, 2u, pal_addr);
         if (allocated_cars[iCurrentCarSelectorPos]) {
           iPlayerNameX = 385;
           iNetworkPlayerCount = 0;
@@ -2111,7 +2129,7 @@ void select_car()
                   uiPlayerIndex = 0;
                 else
                   uiPlayerIndex = 2;
-                front_text(front_vga[15], szPlayerName, font1_ascii, font1_offsets, iPlayerNameX, 380, 0x8Fu, uiPlayerIndex);
+                menu_render_text(mr, 15, szPlayerName, font1_ascii, font1_offsets, iPlayerNameX, 380, 0x8Fu, uiPlayerIndex, pal_addr);
                 iPlayerNameX = 620;
               }
               uiNetworkPlayerIndex += 4;
@@ -2120,7 +2138,7 @@ void select_car()
             } while (iNetworkPlayerCount < players);
           }
         } else {
-          front_text(front_vga[15], &language_buffer[4736], font1_ascii, font1_offsets, 385, 380, 0x83u, 0);
+          menu_render_text(mr, 15, &language_buffer[4736], font1_ascii, font1_offsets, 385, 380, 0x83u, 0, pal_addr);
         }
       }
       if (iOriginalCarSelection >= 0)         // Display current player's selected car company name at bottom
@@ -2129,10 +2147,11 @@ void select_car()
           sprintf(buffer, "%s %s", &language_buffer[2880], CompanyNames[Players_Cars[player2_car]]);
         else
           sprintf(buffer, "%s %s", &language_buffer[2816], szCurrentCompanyName);
-        scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 375, 316, 231, 1u, 170, 550);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 375, 316, 231, 1u, 170, 550, pal_addr);
       }
       show_received_mesage();
-      copypic(scrbuf, screen);
+      menu_render_end_frame(mr);
+      }
       iAnimationCounter = iDelayBeforeRotation; // ANIMATION UPDATE: Rotate pie chart segments during delay period
       if (iDelayBeforeRotation) {
         if (iPlayer1Car >= CAR_DESIGN_AUTO) {
@@ -2417,7 +2436,18 @@ void select_car()
       UpdateSDL();
     } while (!byMenuExitFlag);                  // MAIN SELECTION LOOP - Handle UI rendering, input, and car switching
   }
-  fade_palette(0);                              // CLEANUP: Fade screen, free graphics memory, restore original car selection
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   fre((void **)&front_vga[7]);
   if (frontendspeechptr)
     fre((void **)&frontendspeechptr);
