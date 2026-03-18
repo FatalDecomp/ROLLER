@@ -557,7 +557,7 @@ void menu_render_sprite(MenuRenderer *r, int slot, int blockIdx, int x, int y,
 //---------------------------------------------------------------------------
 
 void menu_render_text(MenuRenderer *r, int fontSlot, const char *text,
-                      const uint8 *mappingTable, int *charVOffsets,
+                      const char *mappingTable, int *charVOffsets,
                       int x, int y, uint8 colorReplace, int alignment,
                       const tColor *pal)
 {
@@ -602,7 +602,7 @@ void menu_render_text(MenuRenderer *r, int fontSlot, const char *text,
 
 void menu_render_scaled_text(MenuRenderer *r, int fontSlot, const char *text,
                              const char *mappingTable, int *charVOffsets,
-                             int x, int y, char colorReplace,
+                             int x, int y, uint8 colorReplace,
                              unsigned int alignment, int clipLeft, int clipRight,
                              const tColor *pal)
 {

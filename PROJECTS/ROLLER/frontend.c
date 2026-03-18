@@ -2756,6 +2756,13 @@ void select_configure()
   front_fade = 0;
   iConfigState = 0;
 
+  // Restore palette for GPU rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+  }
+
   // Main config loop
   while (2) {
     UpdateSDL();
@@ -2770,35 +2777,41 @@ void select_configure()
         network_champ_on = 0;
     }
 
-    // Draw background and ui elements
-    display_picture(scrbuf, front_vga[0]);
-    display_block(scrbuf, front_vga[1], 0, head_x, head_y, 0);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-    display_block(scrbuf, front_vga[5], player_type, -4, 247, 0);
-    display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-    display_block(scrbuf, front_vga[4], 1, 76, 257, -1);
+    // Draw background and ui elements (GPU)
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+    }
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+    menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+    menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
 
     // draw menu selector
     if (iMenuSelection >= 7) {
       // no menu item selected (exit)
-      display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+      menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
       // draw menu selector
-      display_block(scrbuf, front_vga[6], 2, 62, 336, -1);
-      front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0);
+      menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0, pal_addr);
     }
 
     // menu options labels
-    front_text(front_vga[2], &config_buffer[3968], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[1664], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[2], &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u);
+    menu_render_text(mr, 2, &config_buffer[3968], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[1664], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
 
     // network option if enabled
     if (network_on)
-      front_text(front_vga[2], &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u);
+      menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
 
     // Config state machine
     switch (iMenuSelection) {
@@ -2844,19 +2857,19 @@ void select_configure()
             // Car is available for Ai palyers
             if (iCarIndex == iSelectedCar && iEditingName == 1) {
               // Selected car with name being edited
-              front_text(front_vga[15], szCarName, font1_ascii, font1_offsets, 425, iTextPosY, iNormalColor, 2u);
+              menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, iNormalColor, 2u, pal_addr);
               if (iCarIndex == iSelectedCar)
                 byTextColor3 = iHighlightColor;
               else
                 byTextColor3 = 0x8F;
-              front_text(front_vga[15], szNewNameBuf, font1_ascii, font1_offsets, 430, iTextPosY, byTextColor3, 0);
+              menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, iTextPosY, byTextColor3, 0, pal_addr);
             } else {
               // Selected car with default name displayed
               if (iCarIndex == iSelectedCar)
                 byTextColor4 = iNormalColor;
               else
                 byTextColor4 = 0x8F;
-              front_text(front_vga[15], szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor4, 2u);
+              menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor4, 2u, pal_addr);
               if (iCarIndex == iSelectedCar)
                 byChar = iHighlightColor;
               else
@@ -2867,7 +2880,7 @@ void select_configure()
               iFontWidth = iCarDisplay;
               //LOBYTE(iFontWidth) = iCarDisplay ^ 1;
               iFontWidth = iCarDisplay ^ 1;
-              front_text(front_vga[15], default_names[iFontWidth], font1_ascii, font1_offsets, 430, iTextPosY, byTempValue, 0);
+              menu_render_text(mr, 15, default_names[iFontWidth], font1_ascii, font1_offsets, 430, iTextPosY, byTempValue, 0, pal_addr);
             }
           } else {
             // Car is allocated to a human player
@@ -2875,14 +2888,14 @@ void select_configure()
               byTextColor1 = iActiveColor;
             else
               byTextColor1 = 0x8B;
-            front_text(front_vga[15], szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor1, 2u);
+            menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor1, 2u, pal_addr);
             if (iCarIndex == iSelectedCar)
               byTextColor2 = iDimmedColor;
             else
               byTextColor2 = 0x7F;
 
             // Display human player name
-            front_text(front_vga[15], player_names[car_to_player[14 - (iCarLoop & 0xFE) + (iCarLoop & 1)]], font1_ascii, font1_offsets, 430, iTextPosY, byTextColor2, 0);
+            menu_render_text(mr, 15, player_names[car_to_player[14 - (iCarLoop & 0xFE) + (iCarLoop & 1)]], font1_ascii, font1_offsets, 430, iTextPosY, byTextColor2, 0, pal_addr);
           }
 
           // Move to next car
@@ -2901,12 +2914,12 @@ void select_configure()
               byTextColor5 = iNormalColor;
             else
               byTextColor5 = 0x8F;
-            front_text(front_vga[15], &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor5, player_type);
+            menu_render_text(mr, 15, &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor5, player_type, pal_addr);
             if (iSelectedCar == 2)
               byTextColor6 = iHighlightColor;
             else
               byTextColor6 = 0x8F;
-            front_text(front_vga[15], szNewNameBuf, font1_ascii, font1_offsets, 430, 338, byTextColor6, 0);
+            menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, 338, byTextColor6, 0, pal_addr);
           } else {
             // Player 2 name display mode
             if (iSelectedCar == 2)
@@ -2914,24 +2927,24 @@ void select_configure()
             else
               byTextColor7 = 0x8F;
             iTemp1 = iSelectedCar;
-            front_text(front_vga[15], &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor7, 2u);
+            menu_render_text(mr, 15, &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor7, 2u, pal_addr);
             if (iTemp1 == 2)
               byTextColor8 = iHighlightColor;
             else
               byTextColor8 = 0x8F;
-            front_text(front_vga[15], player_names[player2_car], font1_ascii, font1_offsets, 430, 338, byTextColor8, 0);
+            menu_render_text(mr, 15, player_names[player2_car], font1_ascii, font1_offsets, 430, 338, byTextColor8, 0, pal_addr);
           }
         }
 
         // Display player 1 configuration
         if (iSelectedCar == 1 && iEditingName == 1) {
           // Player 1 name being edited
-          front_text(front_vga[15], &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, iNormalColor, 2u);
+          menu_render_text(mr, 15, &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, iNormalColor, 2u, pal_addr);
           if (iSelectedCar == 1)
             byTextColor9 = iHighlightColor;
           else
             byTextColor9 = 0x8F;
-          front_text(front_vga[15], szNewNameBuf, font1_ascii, font1_offsets, 430, 356, byTextColor9, 0);
+          menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, 356, byTextColor9, 0, pal_addr);
         } else {
           // Player 1 name display mode
           if (iSelectedCar == 1)
@@ -2939,12 +2952,12 @@ void select_configure()
           else
             byColor = 0x8F;
           iSelectedCar_1 = iSelectedCar;
-          front_text(front_vga[15], &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, byColor, 2u);
+          menu_render_text(mr, 15, &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, byColor, 2u, pal_addr);
           if (iSelectedCar_1 == 1)
             byColor_1 = iHighlightColor;
           else
             byColor_1 = 0x8F;
-          front_text(front_vga[15], player_names[player1_car], font1_ascii, font1_offsets, 430, 356, byColor_1, 0);
+          menu_render_text(mr, 15, player_names[player1_car], font1_ascii, font1_offsets, 430, 356, byColor_1, 0, pal_addr);
         }
 
         // Display "BACK" option
@@ -2952,12 +2965,12 @@ void select_configure()
           byColor_2 = 0x8F;
         else
           byColor_2 = iNormalColor;
-        front_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 420, 374, byColor_2, 2u);
+        menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 374, byColor_2, 2u, pal_addr);
 
         // Display blinking cursor when editing names
         if (iEditingName == 1) {
           if ((frames & 0xFu) < 8)            // blink cursor based on frame counter
-            front_text(front_vga[15], "_", font1_ascii, font1_offsets, iTextPosX, iY, 0xABu, 0);
+            menu_render_text(mr, 15, "_", font1_ascii, font1_offsets, iTextPosX, iY, 0xABu, 0, pal_addr);
           szNewNameBuf[iNameLength] = 0;
         }
         goto RENDER_FRAME;                      // skip to end of switch
@@ -2971,49 +2984,49 @@ void select_configure()
           byVolumeColor1 = 0xAB;
         else
           byVolumeColor1 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2304], font1_ascii, font1_offsets, 425, 80, byVolumeColor1, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2304], font1_ascii, font1_offsets, 425, 80, byVolumeColor1, 2u, 200, 640, pal_addr);
 
         // SFX volume
         if (iVolumeSelection == 2)
           byVolumeColor2 = 0xAB;
         else
           byVolumeColor2 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2368], font1_ascii, font1_offsets, 425, 104, byVolumeColor2, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2368], font1_ascii, font1_offsets, 425, 104, byVolumeColor2, 2u, 200, 640, pal_addr);
 
         // Speech volume
         if (iVolumeSelection == 3)
           byVolumeColor3 = 0xAB;
         else
           byVolumeColor3 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2432], font1_ascii, font1_offsets, 425, 128, byVolumeColor3, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2432], font1_ascii, font1_offsets, 425, 128, byVolumeColor3, 2u, 200, 640, pal_addr);
 
         // Music volume
         if (iVolumeSelection == 4)
           byVolumeColor4 = 0xAB;
         else
           byVolumeColor4 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2496], font1_ascii, font1_offsets, 425, 152, byVolumeColor4, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2496], font1_ascii, font1_offsets, 425, 152, byVolumeColor4, 2u, 200, 640, pal_addr);
 
         // Engine options
         if (iVolumeSelection == 5)
           byColor_3 = 0xAB;
         else
           byColor_3 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2560], font1_ascii, font1_offsets, 425, 176, byColor_3, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2560], font1_ascii, font1_offsets, 425, 176, byColor_3, 2u, 200, 640, pal_addr);
         if (allengines) {
           if (iVolumeSelection == 5)
             byColor_4 = 0xAB;
           else
             byColor_4 = 0x8F;
           // ALL ENGINES
-          scale_text(front_vga[15], &config_buffer[2752], font1_ascii, font1_offsets, 430, 176, byColor_4, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2752], font1_ascii, font1_offsets, 430, 176, byColor_4, 0, 200, 640, pal_addr);
         } else {
           if (iVolumeSelection == 5)
             byColor_5 = 0xAB;
           else
             byColor_5 = 0x8F;
           // STARTERS & TURBOS
-          scale_text(front_vga[15], &config_buffer[2816], font1_ascii, font1_offsets, 430, 176, byColor_5, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2816], font1_ascii, font1_offsets, 430, 176, byColor_5, 0, 200, 640, pal_addr);
         }
 
         // Sound effects options
@@ -3021,28 +3034,28 @@ void select_configure()
           byColor_6 = 0xAB;
         else
           byColor_6 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2880], font1_ascii, font1_offsets, 425, 200, byColor_6, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2880], font1_ascii, font1_offsets, 425, 200, byColor_6, 2u, 200, 640, pal_addr);
         if (soundon) {
           if (iVolumeSelection == 6)
             byColor_7 = 0xAB;
           else
             byColor_7 = 0x8F;
           // ON
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 430, 200, byColor_7, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 200, byColor_7, 0, 200, 640, pal_addr);
         } else if (SoundCard) {
           if (iVolumeSelection == 6)
             byColor_8 = 0xAB;
           else
             byColor_8 = 0x8F;
           // OFF
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 430, 200, byColor_8, soundon, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 430, 200, byColor_8, soundon, 200, 640, pal_addr);
         } else {
           if (iVolumeSelection == 6)
             byColor_9 = 0xAB;
           else
             byColor_9 = 0x8F;
           // DISABLED
-          scale_text(front_vga[15], &config_buffer[6848], font1_ascii, font1_offsets, 430, 200, byColor_9, soundon, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[6848], font1_ascii, font1_offsets, 430, 200, byColor_9, soundon, 200, 640, pal_addr);
         }
 
         // Music options
@@ -3050,28 +3063,28 @@ void select_configure()
           byColor_10 = 0xAB;
         else
           byColor_10 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[2944], font1_ascii, font1_offsets, 425, 224, byColor_10, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[2944], font1_ascii, font1_offsets, 425, 224, byColor_10, 2u, 200, 640, pal_addr);
         if (musicon) {
           if (iVolumeSelection == 7)
             byColor_11 = 0xAB;
           else
             byColor_11 = 0x8F;
           // ON
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640, pal_addr);
         } else if (MusicCard || MusicCD) {
           if (iVolumeSelection == 7)
             byColor_12 = 0xAB;
           else
             byColor_12 = 0x8F;
           // OFF
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 430, 224, byColor_12, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 430, 224, byColor_12, 0, 200, 640, pal_addr);
         } else {
           if (iVolumeSelection == 7)
             byColor_13 = 0xAB;
           else
             byColor_13 = 0x8F;
           // DISABLED
-          scale_text(front_vga[15], &config_buffer[6848], font1_ascii, font1_offsets, 430, 224, byColor_13, musicon, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[6848], font1_ascii, font1_offsets, 430, 224, byColor_13, musicon, 200, 640, pal_addr);
         }
 
         // Back option
@@ -3079,7 +3092,7 @@ void select_configure()
           byColor_14 = 0x8F;
         else
           byColor_14 = 0xAB;
-        scale_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 420, 248, byColor_14, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 248, byColor_14, 2u, 200, 640, pal_addr);
 
         // Display volume bars
         if (iVolumeSelection == 1)
@@ -3146,15 +3159,15 @@ void select_configure()
         // Display calibration instructions when active
         if (iConfigState == 3) {
           // MOVE JOYSTICKS TO FULL EXTENTS
-          scale_text(front_vga[15], &config_buffer[2112], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2112], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
           // THEN PRESS ANY KEY
-          scale_text(front_vga[15], &config_buffer[2176], font1_ascii, font1_offsets, 400, 78, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2176], font1_ascii, font1_offsets, 400, 78, 143, 1u, 200, 640, pal_addr);
         }
 
         iConfigState_1 = iConfigState;
 
         // X1 axis display
-        scale_text(front_vga[15], &config_buffer[1728], font1_ascii, font1_offsets, 400, 110, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[1728], font1_ascii, font1_offsets, 400, 110, 143, 1u, 200, 640, pal_addr);
         if (iConfigState_1 == 3) {
           // Show calibration bar
           if (x1ok && JAXmax - JAXmin >= 100)
@@ -3168,11 +3181,11 @@ void select_configure()
             szJoyStatus1 = &config_buffer[2048];
           else
             szJoyStatus1 = &config_buffer[1984];
-          scale_text(front_vga[15], szJoyStatus1, font1_ascii, font1_offsets, 400, 128, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, szJoyStatus1, font1_ascii, font1_offsets, 400, 128, 143, 1u, 200, 640, pal_addr);
         }
 
         // Y1 axis display
-        scale_text(front_vga[15], &config_buffer[1792], font1_ascii, font1_offsets, 400, 160, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[1792], font1_ascii, font1_offsets, 400, 160, 143, 1u, 200, 640, pal_addr);
         if (iConfigState == 3) {
           // Show Calibration bar
           if (y1ok && JAYmax - JAYmin >= 100)
@@ -3186,11 +3199,11 @@ void select_configure()
             szJoyStatus2 = &config_buffer[2048];
           else
             szJoyStatus2 = &config_buffer[1984];
-          scale_text(front_vga[15], szJoyStatus2, font1_ascii, font1_offsets, 400, 178, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, szJoyStatus2, font1_ascii, font1_offsets, 400, 178, 143, 1u, 200, 640, pal_addr);
         }
 
         // X2 axis display
-        scale_text(front_vga[15], &config_buffer[1856], font1_ascii, font1_offsets, 400, 210, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[1856], font1_ascii, font1_offsets, 400, 210, 143, 1u, 200, 640, pal_addr);
         if (iConfigState == 3) {
           // Calibration bar
           if (x2ok && JBXmax - JBXmin >= 100)
@@ -3204,13 +3217,13 @@ void select_configure()
             szX2Text = &config_buffer[2048];
           else
             szX2Text = &config_buffer[1984];
-          scale_text(front_vga[15], szX2Text, font1_ascii, font1_offsets, 400, 228, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, szX2Text, font1_ascii, font1_offsets, 400, 228, 143, 1u, 200, 640, pal_addr);
         }
 
         iConfigState_2 = iConfigState;
 
         // Y2 axis display
-        scale_text(front_vga[15], &config_buffer[1920], font1_ascii, font1_offsets, 400, 260, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[1920], font1_ascii, font1_offsets, 400, 260, 143, 1u, 200, 640, pal_addr);
         if (iConfigState_2 == 3) {
           // Calibration bar
           if (y2ok && JBYmax - JBYmin >= 100)
@@ -3224,7 +3237,7 @@ void select_configure()
             szY2Text = &config_buffer[2048];
           else
             szY2Text = &config_buffer[1984];
-          scale_text(front_vga[15], szY2Text, font1_ascii, font1_offsets, 400, 278, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, szY2Text, font1_ascii, font1_offsets, 400, 278, 143, 1u, 200, 640, pal_addr);
         }
         goto RENDER_FRAME;
       case 3:
@@ -3259,7 +3272,7 @@ void select_configure()
             byColor_19 = 0xAB;
           else
             byColor_19 = 0x8F;
-          scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 60, byColor_19, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 60, byColor_19, 1u, 200, 640, pal_addr);
 
           // Player 2 customize controls option
           if (iControlSelection == 3)
@@ -3267,7 +3280,7 @@ void select_configure()
           else
             byColor_20 = 0x8F;
           // CUSTOMIZE PLAYER 2
-          scale_text(front_vga[15], &config_buffer[704], font1_ascii, font1_offsets, 420, 78, byColor_20, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[704], font1_ascii, font1_offsets, 420, 78, byColor_20, 1u, 200, 640, pal_addr);
         }
 
         // Display player 1 controls
@@ -3279,21 +3292,21 @@ void select_configure()
           byColor_21 = 0xAB;
         else
           byColor_21 = 0x8F;
-        scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 420, 96, byColor_21, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 96, byColor_21, 1u, 200, 640, pal_addr);
         // Player 1 customize controls option
         if (iControlSelection == 1)
           byColor_22 = 0xAB;
         else
           byColor_22 = 0x8F;
         // CUSTOMIZE PLAYER 1
-        scale_text(front_vga[15], &config_buffer[768], font1_ascii, font1_offsets, 420, 114, byColor_22, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[768], font1_ascii, font1_offsets, 420, 114, byColor_22, 1u, 200, 640, pal_addr);
 
         // Back option
         if (iControlSelection)
           byColor_23 = 0x8F;
         else
           byColor_23 = 0xAB;
-        scale_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 420, 132, byColor_23, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 132, byColor_23, 1u, 200, 640, pal_addr);
 
         // Display player 1 control customization screen
         if (iControlSelection == 1 || iControlSelection == 2) {
@@ -3306,12 +3319,12 @@ void select_configure()
               byControlColor = 0xAB;
             else
               byControlColor = 0x8F;
-            front_text(front_vga[15], szControlName, font1_ascii, font1_offsets, 475, iY_1, byControlColor, 2u);
+            menu_render_text(mr, 15, szControlName, font1_ascii, font1_offsets, 475, iY_1, byControlColor, 2u, pal_addr);
             if (iControlLoop == control_edit)
               byColor_24 = 0xAB;
             else
               byColor_24 = 0x8F;
-            scale_text(front_vga[15], keyname[userkey[iControlLoop]], font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, keyname[userkey[iControlLoop]], font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640, pal_addr);
             szControlName += 64;                // next control name
             ++iControlLoop;
             iY_1 += 18;
@@ -3321,12 +3334,12 @@ void select_configure()
               byColor_25 = 0xAB;
             else
               byColor_25 = 0x8F;
-            front_text(front_vga[15], "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_25, 2u);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_25, 2u, pal_addr);
             if (control_edit == 12)
               byColor_26 = 0xAB;
             else
               byColor_26 = 0x8F;
-            scale_text(front_vga[15], keyname[userkey[12]], font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, keyname[userkey[12]], font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640, pal_addr);
           }
         }
         // Display Player 2 control customization screen
@@ -3340,12 +3353,12 @@ void select_configure()
               byColor_27 = 0xAB;
             else
               byColor_27 = 0x8F;
-            front_text(front_vga[15], szText, font1_ascii, font1_offsets, 475, iY_2, byColor_27, 2u);
+            menu_render_text(mr, 15, szText, font1_ascii, font1_offsets, 475, iY_2, byColor_27, 2u, pal_addr);
             if (iControlIndex2 == control_edit)
               byColor_28 = 0xAB;
             else
               byColor_28 = 0x8F;
-            front_text(front_vga[15], keyname[userkey[iControlIndex2]], font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0);
+            menu_render_text(mr, 15, keyname[userkey[iControlIndex2]], font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0, pal_addr);
             szText += 64;                       // Next control name
             ++iControlIndex2;
             iY_2 += 18;
@@ -3357,12 +3370,12 @@ void select_configure()
               byColor_29 = 0xAB;
             else
               byColor_29 = 0x8F;
-            front_text(front_vga[15], "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_29, 2u);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_29, 2u, pal_addr);
             if (control_edit == 13)
               byColor_30 = 0xAB;
             else
               byColor_30 = 0x8F;
-            front_text(front_vga[15], keyname[userkey[13]], font1_ascii, font1_offsets, 480, 308, byColor_30, 0);
+            menu_render_text(mr, 15, keyname[userkey[13]], font1_ascii, font1_offsets, 480, 308, byColor_30, 0, pal_addr);
           }
         }
 
@@ -3500,8 +3513,8 @@ void select_configure()
               // Display any received network messages
         show_received_mesage();
 
-        // render
-        copypic(scrbuf, screen);
+        // render (GPU)
+        menu_render_end_frame(mr);
 
         // Handle CHEAT_MODE_CLONES
         if (switch_same > 0) {
@@ -3547,13 +3560,6 @@ void select_configure()
 
           cheat_mode &= ~CHEAT_MODE_CLONES;
           //cheat_mode &= ~0x4000u;
-        }
-
-        // Init screen fade
-        if (!front_fade) {
-          front_fade = -1;
-          fade_palette(32);
-          frames = 0;
         }
 
         // Process keyboard input when not editing controls
@@ -4395,7 +4401,18 @@ void select_configure()
         }
         if (!iExitFlag)
           continue;
-        fade_palette(0);
+        // GPU fade-out
+        {
+          MenuRenderer *mr = GetMenuRenderer();
+          menu_render_begin_fade(mr, 0, 32);
+          menu_render_fade_wait(mr, fade_redraw_bg, mr);
+          palette_brightness = 0;
+          for (int i = 0; i < 256; i++) {
+            pal_addr[i].byR = 0;
+            pal_addr[i].byB = 0;
+            pal_addr[i].byG = 0;
+          }
+        }
         front_fade = 0;
         return;
       case 4:
@@ -4405,7 +4422,7 @@ void select_configure()
           byColor_31 = 0xAB;
         else
           byColor_31 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[6912], font1_ascii, font1_offsets, 435, 60, byColor_31, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[6912], font1_ascii, font1_offsets, 435, 60, byColor_31, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_PERSPECTIVE_CORRECTION) != 0) {
           if (iVideoState == 16)
             byColor_32 = 0xAB;
@@ -4421,261 +4438,261 @@ void select_configure()
           byTempChar1 = byColor_33;
           szText_1 = &config_buffer[2624];
         }
-        scale_text(front_vga[15], szText_1, font1_ascii, font1_offsets, 440, 60, byTempChar1, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, szText_1, font1_ascii, font1_offsets, 440, 60, byTempChar1, 0, 200, 640, pal_addr);
         sprintf(buffer, "%s:", &config_buffer[3968]);
         if (iVideoState == 15)
           byColor_34 = 0xAB;
         else
           byColor_34 = 0x8F;
-        scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 435, 80, byColor_34, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 80, byColor_34, 2u, 200, 640, pal_addr);
         if (names_on) {
           if (names_on == 2) {
             if (iVideoState == 15)
               byColor_105 = 0xAB;
             else
               byColor_105 = 0x8F;
-            scale_text(front_vga[15], &config_buffer[2816], font1_ascii, font1_offsets, 440, 80, byColor_105, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, &config_buffer[2816], font1_ascii, font1_offsets, 440, 80, byColor_105, 0, 200, 640, pal_addr);
           } else {
             if (iVideoState == 15)
               byColor_35 = 0xAB;
             else
               byColor_35 = 0x8F;
-            scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 80, byColor_35, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 80, byColor_35, 0, 200, 640, pal_addr);
           }
         } else {
           if (iVideoState == 15)
             byColor_36 = 0xAB;
           else
             byColor_36 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 80, byColor_36, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 80, byColor_36, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 14)
           byColor_37 = 0xAB;
         else
           byColor_37 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3008], font1_ascii, font1_offsets, 435, 100, byColor_37, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3008], font1_ascii, font1_offsets, 435, 100, byColor_37, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_BUILDINGS) != 0) {
           if (iVideoState == 14)
             byColor_38 = 0xAB;
           else
             byColor_38 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 100, byColor_38, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 100, byColor_38, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 14)
             byColor_39 = 0xAB;
           else
             byColor_39 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 100, byColor_39, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 100, byColor_39, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 13)
           byColor_40 = 0xAB;
         else
           byColor_40 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3072], font1_ascii, font1_offsets, 435, 120, byColor_40, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3072], font1_ascii, font1_offsets, 435, 120, byColor_40, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_GLASS_WALLS) != 0) {
           if (iVideoState == 13)
             byColor_41 = 0xAB;
           else
             byColor_41 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 120, byColor_41, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 120, byColor_41, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 13)
             byColor_42 = 0xAB;
           else
             byColor_42 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 120, byColor_42, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 120, byColor_42, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 12)
           byColor_43 = 0xAB;
         else
           byColor_43 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3200], font1_ascii, font1_offsets, 435, 140, byColor_43, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3200], font1_ascii, font1_offsets, 435, 140, byColor_43, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_HORIZON) != 0) {
           if (iVideoState == 12)
             byColor_44 = 0xAB;
           else
             byColor_44 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 140, byColor_44, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 140, byColor_44, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 12)
             byColor_45 = 0xAB;
           else
             byColor_45 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 140, byColor_45, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 140, byColor_45, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 11)
           byColor_46 = 0xAB;
         else
           byColor_46 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3136], font1_ascii, font1_offsets, 435, 160, byColor_46, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3136], font1_ascii, font1_offsets, 435, 160, byColor_46, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_CAR_TEXTURES) != 0) {
           if (iVideoState == 11)
             byColor_47 = 0xAB;
           else
             byColor_47 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 160, byColor_47, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 160, byColor_47, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 11)
             byColor_48 = 0xAB;
           else
             byColor_48 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 160, byColor_48, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 160, byColor_48, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 10)
           byColor_49 = 0xAB;
         else
           byColor_49 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3264], font1_ascii, font1_offsets, 435, 180, byColor_49, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3264], font1_ascii, font1_offsets, 435, 180, byColor_49, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
           if (iVideoState == 10)
             byColor_50 = 0xAB;
           else
             byColor_50 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 180, byColor_50, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 180, byColor_50, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 10)
             byColor_51 = 0xAB;
           else
             byColor_51 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 180, byColor_51, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 180, byColor_51, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 9)
           byColor_52 = 0xAB;
         else
           byColor_52 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3328], font1_ascii, font1_offsets, 435, 200, byColor_52, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3328], font1_ascii, font1_offsets, 435, 200, byColor_52, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0) {
           if (iVideoState == 9)
             byColor_53 = 0xAB;
           else
             byColor_53 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 200, byColor_53, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 200, byColor_53, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 9)
             byColor_54 = 0xAB;
           else
             byColor_54 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 200, byColor_54, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 200, byColor_54, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 8)
           byColor_55 = 0xAB;
         else
           byColor_55 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3392], font1_ascii, font1_offsets, 435, 220, byColor_55, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3392], font1_ascii, font1_offsets, 435, 220, byColor_55, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_BUILDING_TEXTURES) == 0) {
           if (iVideoState == 8)
             byColor_56 = 0xAB;
           else
             byColor_56 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 220, byColor_56, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 220, byColor_56, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 8)
             byColor_57 = 0xAB;
           else
             byColor_57 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 220, byColor_57, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 220, byColor_57, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 7)
           byColor_58 = 0xAB;
         else
           byColor_58 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3456], font1_ascii, font1_offsets, 435, 240, byColor_58, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3456], font1_ascii, font1_offsets, 435, 240, byColor_58, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0) {
           if (iVideoState == 7)
             byColor_59 = 0xAB;
           else
             byColor_59 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 240, byColor_59, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 240, byColor_59, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 7)
             byColor_60 = 0xAB;
           else
             byColor_60 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 240, byColor_60, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 240, byColor_60, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 6)
           byColor_61 = 0xAB;
         else
           byColor_61 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3520], font1_ascii, font1_offsets, 435, 260, byColor_61, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3520], font1_ascii, font1_offsets, 435, 260, byColor_61, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_SHADOWS) != 0) {
           if (iVideoState == 6)
             byColor_62 = 0xAB;
           else
             byColor_62 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 260, byColor_62, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 260, byColor_62, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 6)
             byColor_63 = 0xAB;
           else
             byColor_63 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 260, byColor_63, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 260, byColor_63, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 5)
           byColor_64 = 0xAB;
         else
           byColor_64 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3584], font1_ascii, font1_offsets, 435, 280, byColor_64, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3584], font1_ascii, font1_offsets, 435, 280, byColor_64, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_CLOUDS) != 0) {
           if (iVideoState == 5)
             byColor_65 = 0xAB;
           else
             byColor_65 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 280, byColor_65, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 280, byColor_65, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 5)
             byColor_66 = 0xAB;
           else
             byColor_66 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 280, byColor_66, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 280, byColor_66, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 4)
           byColor_67 = 0xAB;
         else
           byColor_67 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3648], font1_ascii, font1_offsets, 435, 300, byColor_67, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3648], font1_ascii, font1_offsets, 435, 300, byColor_67, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_PANEL_OFF) != 0) {
           if (iVideoState == 4)
             byColor_68 = 0xAB;
           else
             byColor_68 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 300, byColor_68, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 300, byColor_68, 0, 200, 640, pal_addr);
         } else if ((textures_off & TEX_OFF_PANEL_RESTRICTED) != 0) {
           if (iVideoState == 4)
             byColor_69 = 0xAB;
           else
             byColor_69 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[3776], font1_ascii, font1_offsets, 440, 300, byColor_69, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[3776], font1_ascii, font1_offsets, 440, 300, byColor_69, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 4)
             byColor_70 = 0xAB;
           else
             byColor_70 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 300, byColor_70, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 300, byColor_70, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 3)
           byColor_71 = 0xAB;
         else
           byColor_71 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3712], font1_ascii, font1_offsets, 435, 320, byColor_71, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3712], font1_ascii, font1_offsets, 435, 320, byColor_71, 2u, 200, 640, pal_addr);
         if (view_limit) {
           if (iVideoState == 3)
             byColor_72 = 0xAB;
           else
             byColor_72 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[3776], font1_ascii, font1_offsets, 440, 320, byColor_72, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[3776], font1_ascii, font1_offsets, 440, 320, byColor_72, 0, 200, 640, pal_addr);
         } else {
           if (iVideoState == 3)
             byColor_73 = 0xAB;
           else
             byColor_73 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[3840], font1_ascii, font1_offsets, 440, 320, byColor_73, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[3840], font1_ascii, font1_offsets, 440, 320, byColor_73, 0, 200, 640, pal_addr);
         }
         if (iVideoState == 2)
           byColor_74 = 0xAB;
         else
           byColor_74 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[3904], font1_ascii, font1_offsets, 435, 340, byColor_74, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[3904], font1_ascii, font1_offsets, 435, 340, byColor_74, 2u, 200, 640, pal_addr);
         if (game_svga)
           iReturnValue = (100 * game_size) >> 7;
           //iReturnValue = (100 * game_size) % 128;
@@ -4689,25 +4706,25 @@ void select_configure()
           byColor_76 = 0xAB;
         else
           byColor_76 = 0x8F;
-        scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 440, 340, byColor_76, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 440, 340, byColor_76, 0, 200, 640, pal_addr);
         if (game_svga) {
           if (iVideoState == 1)
             byColor_75 = 0xAB;
           else
             byColor_75 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[512], font1_ascii, font1_offsets, 440, 360, byColor_75, 1u, 20, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[512], font1_ascii, font1_offsets, 440, 360, byColor_75, 1u, 20, 640, pal_addr);
         } else {
           if (iVideoState == 1)
             byColor_77 = 0xAB;
           else
             byColor_77 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[448], font1_ascii, font1_offsets, 440, 360, byColor_77, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[448], font1_ascii, font1_offsets, 440, 360, byColor_77, 1u, 200, 640, pal_addr);
         }
         if (iVideoState)
           byColor_78 = 0x8F;
         else
           byColor_78 = 0xAB;
-        scale_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 430, 380, byColor_78, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 430, 380, byColor_78, 2u, 200, 640, pal_addr);
         goto RENDER_FRAME;
       case 5:
         if (iConfigState != 6)
@@ -4718,101 +4735,101 @@ void select_configure()
             byColor_79 = 0xAB;
           else
             byColor_79 = 0x8F;
-          scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 435, 78, byColor_79, 2u, 200, 640);
+          menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 78, byColor_79, 2u, 200, 640, pal_addr);
           if (iGraphicsState == 6)
             byColor_80 = 0xAB;
           else
             byColor_80 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[64 * game_view[1] + 4928], font1_ascii, font1_offsets, 440, 78, byColor_80, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[64 * game_view[1] + 4928], font1_ascii, font1_offsets, 440, 78, byColor_80, 0, 200, 640, pal_addr);
         }
         sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4864]);
         if (iGraphicsState == 5)
           byColor_81 = 0xAB;
         else
           byColor_81 = 0x8F;
-        scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 435, 96, byColor_81, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 96, byColor_81, 2u, 200, 640, pal_addr);
         if (iGraphicsState == 5)
           byColor_82 = 0xAB;
         else
           byColor_82 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[64 * game_view[0] + 4928], font1_ascii, font1_offsets, 440, 96, byColor_82, 0, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[64 * game_view[0] + 4928], font1_ascii, font1_offsets, 440, 96, byColor_82, 0, 200, 640, pal_addr);
         if (iGraphicsState == 4)
           byColor_83 = 0xAB;
         else
           byColor_83 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[5440], font1_ascii, font1_offsets, 435, 114, byColor_83, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[5440], font1_ascii, font1_offsets, 435, 114, byColor_83, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_KMH) != 0) {
           if (iGraphicsState == 4)
             byColor_84 = 0xAB;
           else
             byColor_84 = 0x8F;
-          scale_text(front_vga[15], "KMH", font1_ascii, font1_offsets, 440, 114, byColor_84, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, "KMH", font1_ascii, font1_offsets, 440, 114, byColor_84, 0, 200, 640, pal_addr);
         } else {
           if (iGraphicsState == 4)
             byColor_85 = 0xAB;
           else
             byColor_85 = 0x8F;
-          scale_text(front_vga[15], "MPH", font1_ascii, font1_offsets, 440, 114, byColor_85, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, "MPH", font1_ascii, font1_offsets, 440, 114, byColor_85, 0, 200, 640, pal_addr);
         }
         if (iGraphicsState == 3)
           byColor_86 = 0xAB;
         else
           byColor_86 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[5504], font1_ascii, font1_offsets, 435, 132, byColor_86, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[5504], font1_ascii, font1_offsets, 435, 132, byColor_86, 2u, 200, 640, pal_addr);
         if (replay_record) {
           if (iGraphicsState == 3)
             byColor_87 = 0xAB;
           else
             byColor_87 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 132, byColor_87, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 132, byColor_87, 0, 200, 640, pal_addr);
         } else {
           if (iGraphicsState == 3)
             byColor_88 = 0xAB;
           else
             byColor_88 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 132, byColor_88, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 132, byColor_88, 0, 200, 640, pal_addr);
         }
         if (iGraphicsState == 2)
           byColor_89 = 0xAB;
         else
           byColor_89 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[4672], font1_ascii, font1_offsets, 435, 150, byColor_89, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[4672], font1_ascii, font1_offsets, 435, 150, byColor_89, 2u, 200, 640, pal_addr);
         if (p_tex_size == 1) {
           if (iGraphicsState == 2)
             byColor_90 = 0xAB;
           else
             byColor_90 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[4736], font1_ascii, font1_offsets, 440, 150, byColor_90, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[4736], font1_ascii, font1_offsets, 440, 150, byColor_90, 0, 200, 640, pal_addr);
         } else {
           if (iGraphicsState == 2)
             byColor_91 = 0xAB;
           else
             byColor_91 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[4800], font1_ascii, font1_offsets, 440, 150, byColor_91, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[4800], font1_ascii, font1_offsets, 440, 150, byColor_91, 0, 200, 640, pal_addr);
         }
         if (iGraphicsState == 1)
           byColor_92 = 0xAB;
         else
           byColor_92 = 0x8F;
-        scale_text(front_vga[15], &config_buffer[5888], font1_ascii, font1_offsets, 435, 168, byColor_92, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[5888], font1_ascii, font1_offsets, 435, 168, byColor_92, 2u, 200, 640, pal_addr);
         if (false_starts) {
           if (iGraphicsState == 1)
             byColor_93 = 0xAB;
           else
             byColor_93 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2624], font1_ascii, font1_offsets, 440, 168, byColor_93, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 168, byColor_93, 0, 200, 640, pal_addr);
         } else {
           if (iGraphicsState == 1)
             byColor_94 = 0xAB;
           else
             byColor_94 = 0x8F;
-          scale_text(front_vga[15], &config_buffer[2688], font1_ascii, font1_offsets, 440, 168, byColor_94, 0, 200, 640);
+          menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 168, byColor_94, 0, 200, 640, pal_addr);
         }
         if (iGraphicsState)
           byColor_95 = 0x8F;
         else
           byColor_95 = 0xAB;
-        scale_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 430, 186, byColor_95, 2u, 200, 640);
+        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 430, 186, byColor_95, 2u, 200, 640, pal_addr);
         goto RENDER_FRAME;
       case 6:
         if (iEditingName == 1) {
@@ -4842,56 +4859,56 @@ void select_configure()
           byColor_106 = byColor_97;
         else
           byColor_106 = 0x8F;
-        front_text(front_vga[15], &language_buffer[7296], font1_ascii, font1_offsets, 390, 50, byColor_106, 1u);
+        menu_render_text(mr, 15, &language_buffer[7296], font1_ascii, font1_offsets, 390, 50, byColor_106, 1u, pal_addr);
         if (iNetworkState == 4)
           byColor_98 = byColor_97;
         else
           byColor_98 = 0x8F;
-        front_text(front_vga[15], &config_buffer[5632], font1_ascii, font1_offsets, 385, 68, byColor_98, 2u);
+        menu_render_text(mr, 15, &config_buffer[5632], font1_ascii, font1_offsets, 385, 68, byColor_98, 2u, pal_addr);
         if (iNetworkState == 4)
           byColor_99 = byColor_96;
         else
           byColor_99 = 0x8F;
-        scale_text(front_vga[15], network_messages[0], font1_ascii, font1_offsets, 390, 68, byColor_99, 0, 200, 630);
+        menu_render_scaled_text(mr, 15, network_messages[0], font1_ascii, font1_offsets, 390, 68, byColor_99, 0, 200, 630, pal_addr);
         if (iNetworkState == 3)
           byColor_100 = byColor_97;
         else
           byColor_100 = 0x8F;
-        front_text(front_vga[15], &config_buffer[5696], font1_ascii, font1_offsets, 385, 86, byColor_100, 2u);
+        menu_render_text(mr, 15, &config_buffer[5696], font1_ascii, font1_offsets, 385, 86, byColor_100, 2u, pal_addr);
         if (iNetworkState == 3)
           byColor_101 = byColor_96;
         else
           byColor_101 = 0x8F;
-        scale_text(front_vga[15], network_messages[1], font1_ascii, font1_offsets, 390, 86, byColor_101, 0, 200, 630);
+        menu_render_scaled_text(mr, 15, network_messages[1], font1_ascii, font1_offsets, 390, 86, byColor_101, 0, 200, 630, pal_addr);
         if (iNetworkState == 2)
           byColor_102 = byColor_97;
         else
           byColor_102 = 0x8F;
-        front_text(front_vga[15], &config_buffer[5760], font1_ascii, font1_offsets, 385, 104, byColor_102, 2u);
+        menu_render_text(mr, 15, &config_buffer[5760], font1_ascii, font1_offsets, 385, 104, byColor_102, 2u, pal_addr);
         if (iNetworkState == 2)
           byColor_103 = byColor_96;
         else
           byColor_103 = 0x8F;
-        scale_text(front_vga[15], network_messages[2], font1_ascii, font1_offsets, 390, 104, byColor_103, 0, 200, 630);
+        menu_render_scaled_text(mr, 15, network_messages[2], font1_ascii, font1_offsets, 390, 104, byColor_103, 0, 200, 630, pal_addr);
         if (iNetworkState == 1)
           byColor_104 = byColor_97;
         else
           byColor_104 = 0x8F;
-        front_text(front_vga[15], &config_buffer[5824], font1_ascii, font1_offsets, 385, 122, byColor_104, 2u);
+        menu_render_text(mr, 15, &config_buffer[5824], font1_ascii, font1_offsets, 385, 122, byColor_104, 2u, pal_addr);
         if (iNetworkState != 1)
           byColor_96 = 0x8F;
         byTempChar2 = byColor_96;
         iNetworkState_1 = iNetworkState;
-        scale_text(front_vga[15], network_messages[3], font1_ascii, font1_offsets, 390, 122, byTempChar2, 0, 200, 630);
+        menu_render_scaled_text(mr, 15, network_messages[3], font1_ascii, font1_offsets, 390, 122, byTempChar2, 0, 200, 630, pal_addr);
         if (iNetworkState_1)
           byColor_97 = 0x8F;
-        front_text(front_vga[15], &config_buffer[832], font1_ascii, font1_offsets, 390, 140, byColor_97, 1u);
+        menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 390, 140, byColor_97, 1u, pal_addr);
         if (iEditingName == 1 && (frames & 0xFu) < 8) {
           iX = stringwidth(network_messages[4 - iNetworkState]) + 390;
           if (iX <= 620)
-            front_text(front_vga[15], "_", font1_ascii, font1_offsets, iX, iY, 0xABu, 0);
+            menu_render_text(mr, 15, "_", font1_ascii, font1_offsets, iX, iY, 0xABu, 0, pal_addr);
           else
-            front_text(front_vga[15], "_", font1_ascii, font1_offsets, 621, iY, 0xABu, 0);
+            menu_render_text(mr, 15, "_", font1_ascii, font1_offsets, 621, iY, 0xABu, 0, pal_addr);
         }
         goto RENDER_FRAME;
       default:
