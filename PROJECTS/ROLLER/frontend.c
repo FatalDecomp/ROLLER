@@ -1074,7 +1074,7 @@ void select_screen()
       } else {
         menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
       }
-      menu_render_load_track_mesh(mr, pal_addr);
+      menu_render_load_track_mesh(mr, palette);
       menu_render_draw_track_preview(mr, cur_TrackZ, 1280, iRotation, 248, 57, 300, 330);
       if (game_type < 2) {
         iCurLaps = cur_laps[level];
@@ -6104,7 +6104,7 @@ void select_track()
     iBlockIdx = (TrackLoad - 1) / 8;  // Calculate cup icon index (8 tracks per cup)
     //iBlockIdx = (TrackLoad - 1 - (__CFSHL__((TrackLoad - 1) >> 31, 3) + 8 * ((TrackLoad - 1) >> 31))) >> 3;// Calculate cup icon index for display
     if (TrackLoad >= 0) {                                           // Render 3D track preview
-      menu_render_load_track_mesh(mr, pal_addr);
+      menu_render_load_track_mesh(mr, palette);
       if (iAnimationTimer)
         menu_render_draw_track_preview(mr, fZ, 1280, iYaw, 248, 57, 300, 330);
       else

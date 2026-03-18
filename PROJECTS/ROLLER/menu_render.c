@@ -1259,95 +1259,79 @@ void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
     extern int TRAK_LEN;
     if (TRAK_LEN <= 0) return;
 
-    // Each track chunk has: ground (5 surfaces) and track (6 surfaces)
-    // Each surface is a quad between two adjacent chunks (4 verts, 2 tris)
-    // Estimate: up to 11 quads per chunk * 2 tris * 3 indices
-    int maxQuads = TRAK_LEN * 11;
-    MeshVertex *vertices = calloc(maxQuads * 4, sizeof(MeshVertex));
-    uint32 *indices = calloc(maxQuads * 6, sizeof(uint32));
+    // Compute track center and height range (matching original show_3dmap)
+    float accX = 0, accY = 0, accZ = 0;
+    float minZ = 1e18f, maxZ = -1e18f;
+    for (int i = 0; i < TRAK_LEN; i++) {
+        accX += TrakPt[i].pointAy[0].fX + TrakPt[i].pointAy[4].fX;
+        accY += TrakPt[i].pointAy[0].fY + TrakPt[i].pointAy[4].fY;
+        accZ += TrakPt[i].pointAy[0].fZ + TrakPt[i].pointAy[4].fZ;
+        if (TrakPt[i].pointAy[2].fZ < minZ) minZ = TrakPt[i].pointAy[2].fZ;
+        if (TrakPt[i].pointAy[2].fZ > maxZ) maxZ = TrakPt[i].pointAy[2].fZ;
+    }
+    float div = 1.0f / (float)(2 * TRAK_LEN);
+    float cenX = -accX * div;
+    float cenY = -accY * div;
+    float cenZ = -accZ * div;
+    float zRange = maxZ - minZ;
+    if (zRange < 1.0f) zRange = 1.0f;
+
+    // One quad per 2-chunk segment, using pointAy[0] and pointAy[4]
+    // (full track width, matching original show_3dmap)
+    int numSegments = TRAK_LEN / 2;
+    MeshVertex *vertices = calloc(numSegments * 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numSegments * 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
 
-    for (int chunk = 0; chunk < TRAK_LEN - 1; chunk++) {
-        // Track surface quads (6 surfaces: left lane, center, right lane, left wall, right wall, roof)
-        for (int surf = 0; surf < 6; surf++) {
-            int colorIdx = TrakColour[chunk][surf];
-            if (colorIdx < 0 || colorIdx > 255) continue;
+    for (int seg = 0; seg < numSegments - 1; seg++) {
+        int chunk = seg * 2;
+        int nextChunk = (seg + 1) * 2;
+        if (nextChunk >= TRAK_LEN) break;
 
-            const tColor *c = &pal[colorIdx];
-            float cr = (float)(c->byR * 255 / 63) / 255.0f;
-            float cg = (float)(c->byG * 255 / 63) / 255.0f;
-            float cb = (float)(c->byB * 255 / 63) / 255.0f;
+        // Height-based color gradient (palette 128-139, matching original)
+        float heightCalc = (maxZ - TrakPt[chunk].pointAy[2].fZ) * 15.0f / zRange;
+        int colorIdx = 143 - (int)heightCalc;
+        if (colorIdx > 139) colorIdx = 139;
+        if (colorIdx < 128) colorIdx = 128;
 
-            // Quad: two points from this chunk, two from next chunk
-            // TrakPt[chunk].pointAy has 6 vertices (pairs for each surface edge)
-            // Surface i uses points i and i+1 (or i and wrapping)
-            int i0 = surf, i1 = (surf < 5) ? surf + 1 : 0;
-            tVec3 *p0 = &TrakPt[chunk].pointAy[i0];
-            tVec3 *p1 = &TrakPt[chunk].pointAy[i1];
-            tVec3 *p2 = &TrakPt[chunk + 1].pointAy[i1];
-            tVec3 *p3 = &TrakPt[chunk + 1].pointAy[i0];
+        const tColor *c = &pal[colorIdx];
+        float cr = c->byR / 63.0f;
+        float cg = c->byG / 63.0f;
+        float cb = c->byB / 63.0f;
 
-            int baseVert = vertCount;
-            tVec3 *pts[4] = { p0, p1, p2, p3 };
-            for (int v = 0; v < 4; v++) {
-                MeshVertex *mv = &vertices[vertCount++];
-                mv->position[0] = pts[v]->fX;
-                mv->position[1] = pts[v]->fY;
-                mv->position[2] = pts[v]->fZ;
-                mv->uv[0] = 0.0f;
-                mv->uv[1] = 0.0f;
-                mv->color[0] = cr;
-                mv->color[1] = cg;
-                mv->color[2] = cb;
-                mv->color[3] = 1.0f;
-            }
+        // Quad spanning full track width: pointAy[4] to pointAy[0]
+        // Vertex order matches original: next[4], next[0], cur[0], cur[4]
+        tVec3 *pts[4] = {
+            &TrakPt[nextChunk].pointAy[4],
+            &TrakPt[nextChunk].pointAy[0],
+            &TrakPt[chunk].pointAy[0],
+            &TrakPt[chunk].pointAy[4],
+        };
 
-            indices[idxCount++] = baseVert + 0;
-            indices[idxCount++] = baseVert + 1;
-            indices[idxCount++] = baseVert + 2;
-            indices[idxCount++] = baseVert + 0;
-            indices[idxCount++] = baseVert + 2;
-            indices[idxCount++] = baseVert + 3;
+        int baseVert = vertCount;
+        for (int v = 0; v < 4; v++) {
+            MeshVertex *mv = &vertices[vertCount++];
+            // Apply centering + Z-up to Y-up swap
+            float gx = pts[v]->fX + cenX;
+            float gy = pts[v]->fY + cenY;
+            float gz = pts[v]->fZ + cenZ;
+            mv->position[0] = gy;   // GPU X = game Y (lateral)
+            mv->position[1] = gz;   // GPU Y = game Z (up)
+            mv->position[2] = gx;   // GPU Z = game X (forward)
+            mv->uv[0] = 0.0f;
+            mv->uv[1] = 0.0f;
+            mv->color[0] = cr;
+            mv->color[1] = cg;
+            mv->color[2] = cb;
+            mv->color[3] = 1.0f;
         }
 
-        // Ground surface quads (5 surfaces)
-        for (int surf = 0; surf < 5; surf++) {
-            int colorIdx = GroundColour[chunk][surf];
-            if (colorIdx < 0 || colorIdx > 255) continue;
-
-            const tColor *c = &pal[colorIdx];
-            float cr = (float)(c->byR * 255 / 63) / 255.0f;
-            float cg = (float)(c->byG * 255 / 63) / 255.0f;
-            float cb = (float)(c->byB * 255 / 63) / 255.0f;
-
-            int i0 = surf, i1 = surf + 1;
-            tVec3 *p0 = &GroundPt[chunk].pointAy[i0];
-            tVec3 *p1 = &GroundPt[chunk].pointAy[i1];
-            tVec3 *p2 = &GroundPt[chunk + 1].pointAy[i1];
-            tVec3 *p3 = &GroundPt[chunk + 1].pointAy[i0];
-
-            int baseVert = vertCount;
-            tVec3 *pts[4] = { p0, p1, p2, p3 };
-            for (int v = 0; v < 4; v++) {
-                MeshVertex *mv = &vertices[vertCount++];
-                mv->position[0] = pts[v]->fX;
-                mv->position[1] = pts[v]->fY;
-                mv->position[2] = pts[v]->fZ;
-                mv->uv[0] = 0.0f;
-                mv->uv[1] = 0.0f;
-                mv->color[0] = cr;
-                mv->color[1] = cg;
-                mv->color[2] = cb;
-                mv->color[3] = 1.0f;
-            }
-
-            indices[idxCount++] = baseVert + 0;
-            indices[idxCount++] = baseVert + 1;
-            indices[idxCount++] = baseVert + 2;
-            indices[idxCount++] = baseVert + 0;
-            indices[idxCount++] = baseVert + 2;
-            indices[idxCount++] = baseVert + 3;
-        }
+        indices[idxCount++] = baseVert + 0;
+        indices[idxCount++] = baseVert + 1;
+        indices[idxCount++] = baseVert + 2;
+        indices[idxCount++] = baseVert + 0;
+        indices[idxCount++] = baseVert + 2;
+        indices[idxCount++] = baseVert + 3;
     }
 
     if (idxCount > 0) {
@@ -1385,16 +1369,9 @@ void menu_render_draw_track_preview(MenuRenderer *r, float cameraZ,
     float eyeY = camDist * sinf(elevRad);
     float eyeZ = camDist * cosf(yawRad) * cosf(elevRad);
 
-    // Look at center of track (approximate: average of first and mid chunk)
-    extern int TRAK_LEN;
-    int mid = TRAK_LEN / 2;
-    float centerX = (TrakPt[0].pointAy[0].fX + TrakPt[mid].pointAy[0].fX) * 0.5f;
-    float centerY = (TrakPt[0].pointAy[0].fY + TrakPt[mid].pointAy[0].fY) * 0.5f;
-    float centerZ = (TrakPt[0].pointAy[0].fZ + TrakPt[mid].pointAy[0].fZ) * 0.5f;
-
+    // Track mesh is pre-centered at origin
     float view[16], proj[16], mvp[16];
-    MakeLookAt(view, eyeX + centerX, eyeY + centerY, eyeZ + centerZ,
-               centerX, centerY, centerZ);
+    MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
     MakePerspective(proj, 0.8f, aspect, 1.0f, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
