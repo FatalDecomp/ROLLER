@@ -5012,6 +5012,12 @@ void select_players()
   fade_palette(0);
   uiSelectedPlayerType = player_type;
   front_fade = 0;
+  // Restore palette for GPU rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+  }
   if (player_type == 1 && net_type)           // Map network types to player selection modes: Serial=3, Modem=4
   {
     if ((unsigned int)net_type <= 1) {
@@ -5037,17 +5043,24 @@ void select_players()
       else
         network_champ_on = 0;
     }
-    display_picture(scrbuf, front_vga[0]);
-    display_block(scrbuf, front_vga[1], 3, head_x, head_y, 0);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-    display_block(scrbuf, front_vga[5], uiSelectedPlayerType, -4, 247, 0);
-    display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-    display_block(scrbuf, front_vga[4], 4, 76, 257, -1);
-    display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+    {                                           // RENDER FRAME (GPU)
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+    }
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 1, 3, head_x, head_y, 0, pal_addr);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+    menu_render_sprite(mr, 5, uiSelectedPlayerType, -4, 247, 0, pal_addr);
+    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+    menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
+    menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     if (iNetworkStatus && (uiSelectedPlayerType == 1 || uiSelectedPlayerType == 3 || uiSelectedPlayerType == 4))// Show connection status message for network modes
-      scale_text(front_vga[15], &language_buffer[4992], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[4992], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
     if ((uiSelectedPlayerType == 3 || uiSelectedPlayerType == 4) && !iComPortStatus)// Show COM port error message if networking failed to initialize
-      scale_text(front_vga[15], &language_buffer[8064], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[8064], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
     do {
       uiCheatArrayOffset = broadcast_mode;
       UpdateSDL();
@@ -5093,12 +5106,12 @@ void select_players()
       }
       if (net_type) {
         if ((unsigned int)net_type <= 1) {
-          scale_text(front_vga[15], &language_buffer[5056], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[5056], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
         } else if (net_type == 2) {
-          scale_text(front_vga[15], &language_buffer[5120], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[5120], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
         }
       } else {
-        scale_text(front_vga[15], &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
       }
       iPlayerListCount = 0;
       if (network_on > 0)                     // Display connected players and their selected cars
@@ -5107,12 +5120,12 @@ void select_players()
         iY = 80;
         szText = player_names[0];
         do {
-          scale_text(front_vga[15], szText, font1_ascii, font1_offsets, 336, iY, 143, 2u, 200, 640);
+          menu_render_scaled_text(mr, 15, szText, font1_ascii, font1_offsets, 336, iY, 143, 2u, 200, 640, pal_addr);
           iPlayerCarIndex = Players_Cars[iPlayerIndex];
           if (iPlayerCarIndex < 0)
-            scale_text(front_vga[15], &language_buffer[4160], font1_ascii, font1_offsets, 340, iY, 131, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, &language_buffer[4160], font1_ascii, font1_offsets, 340, iY, 131, 0, 200, 640, pal_addr);
           else
-            scale_text(front_vga[15], CompanyNames[iPlayerCarIndex], font1_ascii, font1_offsets, 342, iY, 143, 0, 200, 640);
+            menu_render_scaled_text(mr, 15, CompanyNames[iPlayerCarIndex], font1_ascii, font1_offsets, 342, iY, 143, 0, 200, 640, pal_addr);
           ++iPlayerIndex;
           szText += 9;
           iY += 18;
@@ -5123,51 +5136,46 @@ void select_players()
       }
       if (net_type) {
         if ((unsigned int)net_type <= 1) {
-          scale_text(front_vga[15], &language_buffer[5184], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[5184], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
         } else if (net_type == 2) {
-          scale_text(front_vga[15], &language_buffer[5248], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640);
+          menu_render_scaled_text(mr, 15, &language_buffer[5248], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
         }
       } else {
-        scale_text(front_vga[15], &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640);
+        menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
       }
-      scale_text(front_vga[15], &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640, pal_addr);
     } else {
-      scale_text(front_vga[15], &language_buffer[2944], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640);// MENU MODE UI: Show player selection options with highlighting
-      scale_text(front_vga[15], &language_buffer[3008], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2944], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr);// MENU MODE UI: Show player selection options with highlighting
+      menu_render_scaled_text(mr, 15, &language_buffer[3008], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);
       if (uiSelectedPlayerType)               // Highlight current selection
         byMenuColor1 = 0x8F;
       else
         byMenuColor1 = 0xAB;
-      scale_text(front_vga[15], &language_buffer[2112], font1_ascii, font1_offsets, 400, 135, byMenuColor1, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2112], font1_ascii, font1_offsets, 400, 135, byMenuColor1, 1u, 200, 640, pal_addr);
       if (uiSelectedPlayerType == 2)
         byMenuColor2 = 0xAB;
       else
         byMenuColor2 = 0x8F;
-      scale_text(front_vga[15], &language_buffer[2240], font1_ascii, font1_offsets, 400, 153, byMenuColor2, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2240], font1_ascii, font1_offsets, 400, 153, byMenuColor2, 1u, 200, 640, pal_addr);
       if (uiSelectedPlayerType == 1)
         byMenuColor3 = 0xAB;
       else
         byMenuColor3 = 0x8F;
-      scale_text(front_vga[15], &language_buffer[2176], font1_ascii, font1_offsets, 400, 171, byMenuColor3, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2176], font1_ascii, font1_offsets, 400, 171, byMenuColor3, 1u, 200, 640, pal_addr);
       if (uiSelectedPlayerType == 3)
         byMenuColor4 = 0xAB;
       else
         byMenuColor4 = 0x8F;
-      scale_text(front_vga[15], &language_buffer[2304], font1_ascii, font1_offsets, 400, 189, byMenuColor4, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2304], font1_ascii, font1_offsets, 400, 189, byMenuColor4, 1u, 200, 640, pal_addr);
       if (uiSelectedPlayerType == 4)
         byMenuColor5 = 0xAB;
       else
         byMenuColor5 = 0x8F;
-      scale_text(front_vga[15], &language_buffer[2368], font1_ascii, font1_offsets, 400, 207, byMenuColor5, 1u, 200, 640);
+      menu_render_scaled_text(mr, 15, &language_buffer[2368], font1_ascii, font1_offsets, 400, 207, byMenuColor5, 1u, 200, 640, pal_addr);
     }
     show_received_mesage();
-    copypic(scrbuf, screen);
-    if (!front_fade)                          // Handle screen fade-in effect
-    {
-      front_fade = -1;
-      fade_palette(32);
-      frames = 0;
-    }
+    menu_render_end_frame(mr);
+    }                                         // end RENDER FRAME (GPU)
     while (fatkbhit())                        // KEYBOARD INPUT PROCESSING: Handle navigation and selection
     {
       byInputKey = fatgetch();
@@ -5339,7 +5347,18 @@ void select_players()
   LABEL_169:
     player_type = uiSelectedPlayerType;
   }
-  fade_palette(0);
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   front_fade = 0;
 }
 
