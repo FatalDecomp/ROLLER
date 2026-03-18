@@ -1124,10 +1124,10 @@ void select_screen()
     } else if (iBlockIdx >= CAR_DESIGN_AUTO) {
       if (iBlockIdx == CAR_DESIGN_F1WACK) {
         menu_render_load_car_mesh(mr, CAR_DESIGN_F1WACK, palette);
-        menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, 170, 10, 300, 330);
+        menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, 170, 10, 300, 330);
       } else {
         menu_render_load_car_mesh(mr, iBlockIdx, palette);
-        menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, 170, 10, 300, 330);
+        menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, 170, 10, 300, 330);
       }
       if (iBlockIdx < CAR_DESIGN_SUICYCO)
         menu_render_sprite(mr, 3, iBlockIdx, 190, 356, 0, pal_addr);
@@ -2103,12 +2103,12 @@ void select_car()
       } else {                                         // 3D car preview (GPU mesh rendering)
         menu_render_load_car_mesh(mr, iPlayer1Car, palette);
         if (iPlayer1Car == CAR_DESIGN_F1WACK) {
-          menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, 170, 10, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, 170, 10, 300, 330);
         } else if (iDelayBeforeRotation) {
-          menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, 170, 10, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, 170, 10, 300, 330);
         } else {
           fCarDrawDistance = (float)iZoomDistance;
-          menu_render_draw_car_preview(mr, 1280.0f, fCarDrawDistance, 170, 10, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, fCarDrawDistance, Car[0].nYaw, 170, 10, 300, 330);
         }
         if (iPlayer1Car < CAR_DESIGN_SUICYCO)
           menu_render_sprite(mr, 3, iPlayer1Car, 190, 356, 0, pal_addr);

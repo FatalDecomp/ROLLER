@@ -1204,6 +1204,7 @@ void menu_render_free_car_mesh(MenuRenderer *r)
 }
 
 void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
+                                  int carYaw,
                                   int destX, int destY, int destW, int destH)
 {
     if (!r->carMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
@@ -1211,20 +1212,28 @@ void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
     // Convert TRIG angle (0-16383) to radians
     float rad = angle * (2.0f * 3.14159265f / 16384.0f);
 
-    // Camera orbits car at distance, matching original DrawCar convention:
-    //   worldx = -distance * tcos[angle], worldz = distance * tsin[angle]
-    float eyeX = -distance * cosf(rad);
-    float eyeZ =  distance * sinf(rad);
-    float eyeY = distance * 0.15f;  // slight elevation for 3/4 view
+    // Game uses Z-up: camera at world(-dist*cos, 0, dist*sin)
+    // After Z-up to Y-up conversion: X=lateral, Y=up, Z=forward
+    float eyeX = 0.0f;                       // world Y (lateral) = 0
+    float eyeY = distance * sinf(rad);        // world Z (up) = dist*sin
+    float eyeZ = -distance * cosf(rad);       // world X (forward) = -dist*cos
 
-    float view[16], proj[16], vp[16], mvp[16];
+    // Build model rotation from car yaw (rotation around Y axis in GPU space)
+    float yawRad = (float)carYaw * (2.0f * 3.14159265f / 16384.0f);
+    float cy = cosf(yawRad), sy = sinf(yawRad);
+    float model[16] = {
+         cy,  0.0f, sy,  0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        -sy,  0.0f, cy,  0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+
+    float view[16], proj[16], mv[16], mvp[16];
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
     MakePerspective(proj, 0.6f, aspect, 1.0f, distance * 4.0f);
-    Mat4Multiply(mvp, proj, view);
-
-    // Identity model matrix — car coords are already in model space
-    // mvp = proj * view is sufficient
+    Mat4Multiply(mv, view, model);      // view * model
+    Mat4Multiply(mvp, proj, mv);        // proj * view * model
 
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
     cmd->vertexBuffer = r->carMesh.vertexBuffer;

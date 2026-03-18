@@ -56,6 +56,7 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
 void menu_render_load_car_mesh(MenuRenderer *renderer, int carIdx, const tColor *palette);
 void menu_render_free_car_mesh(MenuRenderer *renderer);
 void menu_render_draw_car_preview(MenuRenderer *renderer, float angle, float distance,
+                                  int carYaw,
                                   int destX, int destY, int destW, int destH);
 
 void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette);
