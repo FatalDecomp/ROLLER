@@ -225,7 +225,11 @@ static void IndexedToRGBA(const uint8 *indexed, const tColor *pal, uint8 *rgba, 
         rgba[i * 4 + 0] = (c->byR * 255) / 63;
         rgba[i * 4 + 1] = (c->byG * 255) / 63;
         rgba[i * 4 + 2] = (c->byB * 255) / 63;
-        rgba[i * 4 + 3] = 255;
+        // Bake transparency for palette index 0 into alpha channel.
+        // Software display_block compares palette indices, not RGB values;
+        // multiple palette entries can share the same RGB, so comparing
+        // colors in the shader would incorrectly discard non-transparent pixels.
+        rgba[i * 4 + 3] = (indexed[i] == 0) ? 0 : 255;
     }
 }
 
