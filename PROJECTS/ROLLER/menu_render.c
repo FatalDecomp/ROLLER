@@ -62,6 +62,7 @@ typedef struct {
     int indexCount;
     float mvp[16];
     float vpX, vpY, vpW, vpH; // viewport in virtual 640x400 coords
+    bool useDepth;
 } MeshDrawCommand;
 
 #define MAX_MESH_DRAWS 4
@@ -100,8 +101,9 @@ struct MenuRenderer {
     float fadeStep;
     int fadeActive;
 
-    // Mesh pipeline (3D previews)
+    // Mesh pipelines (3D previews)
     SDL_GPUGraphicsPipeline *meshPipeline;
+    SDL_GPUGraphicsPipeline *meshPipelineNoDepth;
     SDL_GPUTexture *depthTexture;
     Uint32 depthWidth;
     Uint32 depthHeight;
@@ -312,10 +314,15 @@ static void ReplayMeshDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
     float scaleX = baseW / (float)MENU_WIDTH;
     float scaleY = baseH / (float)MENU_HEIGHT;
 
-    SDL_BindGPUGraphicsPipeline(renderPass, r->meshPipeline);
+    SDL_GPUGraphicsPipeline *curPipeline = NULL;
 
     for (int i = 0; i < r->meshDrawCount; i++) {
         MeshDrawCommand *cmd = &r->meshDraws[i];
+        SDL_GPUGraphicsPipeline *wanted = cmd->useDepth ? r->meshPipeline : r->meshPipelineNoDepth;
+        if (wanted != curPipeline) {
+            SDL_BindGPUGraphicsPipeline(renderPass, wanted);
+            curPipeline = wanted;
+        }
 
         // Set sub-viewport for this mesh preview
         SDL_GPUViewport mvp = {0};
@@ -555,6 +562,13 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
         r->meshPipeline = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
         if (!r->meshPipeline)
             SDL_Log("Failed to create mesh pipeline: %s", SDL_GetError());
+
+        // No-depth variant for flat meshes (track map)
+        meshPipeInfo.depth_stencil_state.enable_depth_test = false;
+        meshPipeInfo.depth_stencil_state.enable_depth_write = false;
+        r->meshPipelineNoDepth = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipelineNoDepth)
+            SDL_Log("Failed to create no-depth mesh pipeline: %s", SDL_GetError());
     }
     if (meshVert) SDL_ReleaseGPUShader(device, meshVert);
     if (meshFrag) SDL_ReleaseGPUShader(device, meshFrag);
@@ -602,6 +616,7 @@ void menu_render_destroy(MenuRenderer *r)
     if (r->whiteTexture) SDL_ReleaseGPUTexture(r->device, r->whiteTexture);
     if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
     if (r->meshPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipeline);
+    if (r->meshPipelineNoDepth) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineNoDepth);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
     SDL_ReleaseGPUSampler(r->device, r->sampler);
@@ -1246,6 +1261,7 @@ void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
     cmd->vpY = (float)destY;
     cmd->vpW = (float)destW;
     cmd->vpH = (float)destH;
+    cmd->useDepth = true;
 }
 
 //---------------------------------------------------------------------------
@@ -1259,13 +1275,23 @@ void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
     extern int TRAK_LEN;
     if (TRAK_LEN <= 0) return;
 
-    // Compute track center and height range (matching original show_3dmap)
+    // Compute track center, bounding box, and height range (matching original show_3dmap)
     float accX = 0, accY = 0, accZ = 0;
+    float bbMinX = 1e18f, bbMinY = 1e18f, bbMinZ = 1e18f;
+    float bbMaxX = -1e18f, bbMaxY = -1e18f, bbMaxZ = -1e18f;
     float minZ = 1e18f, maxZ = -1e18f;
     for (int i = 0; i < TRAK_LEN; i++) {
         accX += TrakPt[i].pointAy[0].fX + TrakPt[i].pointAy[4].fX;
         accY += TrakPt[i].pointAy[0].fY + TrakPt[i].pointAy[4].fY;
         accZ += TrakPt[i].pointAy[0].fZ + TrakPt[i].pointAy[4].fZ;
+        for (int p = 0; p <= 4; p += 4) {
+            float px = TrakPt[i].pointAy[p].fX;
+            float py = TrakPt[i].pointAy[p].fY;
+            float pz = TrakPt[i].pointAy[p].fZ;
+            if (px < bbMinX) bbMinX = px; if (px > bbMaxX) bbMaxX = px;
+            if (py < bbMinY) bbMinY = py; if (py > bbMaxY) bbMaxY = py;
+            if (pz < bbMinZ) bbMinZ = pz; if (pz > bbMaxZ) bbMaxZ = pz;
+        }
         if (TrakPt[i].pointAy[2].fZ < minZ) minZ = TrakPt[i].pointAy[2].fZ;
         if (TrakPt[i].pointAy[2].fZ > maxZ) maxZ = TrakPt[i].pointAy[2].fZ;
     }
@@ -1276,12 +1302,44 @@ void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
     float zRange = maxZ - minZ;
     if (zRange < 1.0f) zRange = 1.0f;
 
-    // One quad per 2-chunk segment, using pointAy[0] and pointAy[4]
-    // (full track width, matching original show_3dmap)
+    // Expanded bounding box with 10% margin (matching original)
+    float expandX = (bbMaxX - bbMinX) * 0.1f;
+    float expandY = (bbMaxY - bbMinY) * 0.1f;
+    float floorMinX = bbMinX - expandX;
+    float floorMaxX = bbMaxX + expandX;
+    float floorMinY = bbMinY - expandY;
+    float floorMaxY = bbMaxY + expandY;
+    float bbZRange = bbMaxZ - bbMinZ;
+    if (bbZRange < 100.0f) bbZRange = 100.0f;
+    float floorZ = bbMinZ - bbZRange * 0.4f;
+
+    // One quad per 2-chunk segment + 1 floor quad
     int numSegments = TRAK_LEN / 2;
-    MeshVertex *vertices = calloc(numSegments * 4, sizeof(MeshVertex));
-    uint32 *indices = calloc(numSegments * 6, sizeof(uint32));
+    MeshVertex *vertices = calloc(numSegments * 4 + 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numSegments * 6 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
+
+    // Floor quad: semi-transparent plane at bottom of bounding box (color index 2)
+    {
+        float fr = 0.0f, fg = 0.0f, fb = 0.0f;
+        float floorCorners[4][3] = {
+            { floorMinY + cenY, floorZ + cenZ, floorMinX + cenX },
+            { floorMaxY + cenY, floorZ + cenZ, floorMinX + cenX },
+            { floorMaxY + cenY, floorZ + cenZ, floorMaxX + cenX },
+            { floorMinY + cenY, floorZ + cenZ, floorMaxX + cenX },
+        };
+        for (int v = 0; v < 4; v++) {
+            MeshVertex *mv = &vertices[vertCount++];
+            mv->position[0] = floorCorners[v][0];
+            mv->position[1] = floorCorners[v][1];
+            mv->position[2] = floorCorners[v][2];
+            mv->uv[0] = 0.0f; mv->uv[1] = 0.0f;
+            mv->color[0] = fr; mv->color[1] = fg; mv->color[2] = fb;
+            mv->color[3] = 0.5f;
+        }
+        indices[idxCount++] = 0; indices[idxCount++] = 2; indices[idxCount++] = 1;
+        indices[idxCount++] = 0; indices[idxCount++] = 3; indices[idxCount++] = 2;
+    }
 
     for (int seg = 0; seg < numSegments - 1; seg++) {
         int chunk = seg * 2;
@@ -1386,5 +1444,6 @@ void menu_render_draw_track_preview(MenuRenderer *r, float cameraZ,
     cmd->vpY = (float)destY;
     cmd->vpW = (float)destW;
     cmd->vpH = (float)destH;
+    cmd->useDepth = false;
 }
 
