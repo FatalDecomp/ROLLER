@@ -25,6 +25,10 @@ extern int g_iNumTracks;
 SDL_GPUDevice *ROLLERGetGPUDevice(void);
 SDL_Window *ROLLERGetWindow(void);
 
+// Menu renderer accessor
+typedef struct MenuRenderer MenuRenderer;
+MenuRenderer *GetMenuRenderer(void);
+
 // functions added by ROLLER
 int InitSDL(char *data_root, const char *midi_root);
 void InitFATDATA(const char *szDataRoot);
