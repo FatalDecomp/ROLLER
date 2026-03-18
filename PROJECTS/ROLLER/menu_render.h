@@ -40,6 +40,18 @@ int menu_render_fade_active(MenuRenderer *renderer);
 void menu_render_fade_wait(MenuRenderer *renderer,
                            void (*redraw_fn)(void *ctx), void *ctx);
 
+// Text rendering
+void menu_render_text(MenuRenderer *renderer, int fontSlot, const char *text,
+                      const uint8 *mappingTable, int *charVOffsets,
+                      int x, int y, uint8 colorReplace, int alignment,
+                      const tColor *palette);
+void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
+                             const char *text, const char *mappingTable,
+                             int *charVOffsets, int x, int y,
+                             char colorReplace, unsigned int alignment,
+                             int clipLeft, int clipRight,
+                             const tColor *palette);
+
 // 3D preview compositing
 void menu_render_preview(MenuRenderer *renderer, const uint8 *previewBuf,
                          int width, int height, int destX, int destY,
