@@ -439,6 +439,8 @@ int menu_render_load_blocks(MenuRenderer *r, int slot, tBlockHeader *blocks, con
     for (int i = 0; i < MAX_BLOCKS_PER_SLOT; i++) {
         if (blocks[i].iWidth <= 0 || blocks[i].iHeight <= 0 || blocks[i].iDataOffset <= 0)
             break;
+        if (blocks[i].iWidth > MENU_WIDTH || blocks[i].iHeight > MENU_HEIGHT)
+            break;
         count++;
     }
 

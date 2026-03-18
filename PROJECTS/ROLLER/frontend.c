@@ -653,6 +653,12 @@ void copy_screens()
   fade_palette(0);
 }
 
+// Fade callback: redraws menu background so fade overlay is visible over content
+static void fade_redraw_bg(void *ctx)
+{
+  menu_render_background((MenuRenderer *)ctx, 0);
+}
+
 //-------------------------------------------------------------------------------------------------
 //0003F7B0
 void select_screen()
@@ -759,18 +765,6 @@ void select_screen()
       front_vga[6] = (tBlockHeader*)load_picture("selexit.bm");
       front_vga[15] = (tBlockHeader *)load_picture("font1.bm");
 
-      // Convert assets to GPU textures
-      {
-        extern tColor palette[];
-        MenuRenderer *mr = GetMenuRenderer();
-        if (mr) {
-          for (int i = 0; i <= 15; i++) {
-            if (front_vga[i])
-              menu_render_load_blocks(mr, i, front_vga[i], palette);
-          }
-        }
-      }
-
       fade_palette(0);
       iQuitConfirmed = 0;
       SVGA_ON = -1;
@@ -782,6 +776,18 @@ void select_screen()
       winh = YMAX;
       mirror = 0;
       setpal("frontend.pal");
+
+      // Convert assets to GPU textures (after setpal so palette is correct)
+      {
+        extern tColor palette[];
+        MenuRenderer *mr = GetMenuRenderer();
+        if (mr) {
+          for (int i = 0; i <= 15; i++) {
+            if (front_vga[i])
+              menu_render_load_blocks(mr, i, front_vga[i], palette);
+          }
+        }
+      }
       if (network_on) {
         Players_Cars[0] = my_car;
         name_copy(player_names[player1_car], my_name);
@@ -906,7 +912,14 @@ void select_screen()
       releasesamples();
       if (game_type != 4 && game_type != 3)
         holdmusic = 0;
-      fade_palette(0);
+      {
+        MenuRenderer *mr = GetMenuRenderer();
+        menu_render_begin_fade(mr, 0, 32);
+        fade_music_start(0);
+        menu_render_fade_wait(mr, fade_redraw_bg, mr);
+        fade_music_finish(0);
+        palette_brightness = 0;
+      }
       if (game_type != 4 && game_type != 3)
         stopmusic();
       front_fade = 0;
@@ -1214,7 +1227,12 @@ void select_screen()
     }
     if (!front_fade) {
       front_fade = -1;
-      fade_palette(32);
+      {
+        MenuRenderer *mr = GetMenuRenderer();
+        menu_render_begin_fade(mr, 1, 32);
+        menu_render_fade_wait(mr, fade_redraw_bg, mr);
+        palette_brightness = 32;
+      }
       frames = 0;
       if (network_on) {
         while (broadcast_mode)
