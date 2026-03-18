@@ -52,9 +52,4 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
                              int clipLeft, int clipRight,
                              const tColor *palette);
 
-// 3D preview compositing
-void menu_render_preview(MenuRenderer *renderer, const uint8 *previewBuf,
-                         int width, int height, int destX, int destY,
-                         const tColor *palette);
-
 #endif

@@ -67,11 +67,6 @@ struct MenuRenderer {
     float fadeStep;
     int fadeActive;
 
-    // 3D preview
-    SDL_GPUTexture *previewTexture;
-    SDL_GPUTransferBuffer *previewTransferBuffer;
-    int previewWidth;
-    int previewHeight;
 };
 
 //---------------------------------------------------------------------------
@@ -369,24 +364,6 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
     uint8 blackPixel[4] = {0, 0, 0, 255};
     r->blackTexture = UploadRGBA(device, blackPixel, 1, 1);
 
-    // Preview texture for car/track 3D renders
-    r->previewWidth = 280;
-    r->previewHeight = 200;
-    SDL_GPUTextureCreateInfo ptInfo = {0};
-    ptInfo.type = SDL_GPU_TEXTURETYPE_2D;
-    ptInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ptInfo.width = r->previewWidth;
-    ptInfo.height = r->previewHeight;
-    ptInfo.layer_count_or_depth = 1;
-    ptInfo.num_levels = 1;
-    ptInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    r->previewTexture = SDL_CreateGPUTexture(device, &ptInfo);
-
-    SDL_GPUTransferBufferCreateInfo ptbInfo = {0};
-    ptbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    ptbInfo.size = r->previewWidth * r->previewHeight * 4;
-    r->previewTransferBuffer = SDL_CreateGPUTransferBuffer(device, &ptbInfo);
-
     return r;
 }
 
@@ -396,8 +373,6 @@ void menu_render_destroy(MenuRenderer *r)
     for (int i = 0; i < MAX_SLOTS; i++)
         menu_render_free_blocks(r, i);
     if (r->blackTexture) SDL_ReleaseGPUTexture(r->device, r->blackTexture);
-    if (r->previewTexture) SDL_ReleaseGPUTexture(r->device, r->previewTexture);
-    if (r->previewTransferBuffer) SDL_ReleaseGPUTransferBuffer(r->device, r->previewTransferBuffer);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
     SDL_ReleaseGPUSampler(r->device, r->sampler);
@@ -679,37 +654,6 @@ void menu_render_scaled_text(MenuRenderer *r, int fontSlot, const char *text,
 
         curX += cw + scale;
     }
-}
-
-//---------------------------------------------------------------------------
-// 3D preview compositing
-//---------------------------------------------------------------------------
-
-void menu_render_preview(MenuRenderer *r, const uint8 *buf, int w, int h,
-                         int destX, int destY, const tColor *pal)
-{
-    if (!buf || !r->previewTexture) return;
-
-    // Convert indexed to RGBA and upload
-    uint8 *rgba = malloc(w * h * 4);
-    IndexedToRGBA(buf, pal, rgba, w * h);
-
-    void *mapped = SDL_MapGPUTransferBuffer(r->device, r->previewTransferBuffer, false);
-    memcpy(mapped, rgba, w * h * 4);
-    SDL_UnmapGPUTransferBuffer(r->device, r->previewTransferBuffer);
-    free(rgba);
-
-    // Upload via separate command buffer (can't mix copy+render on same cmd buf)
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(r->device);
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTextureTransferInfo src = { .transfer_buffer = r->previewTransferBuffer };
-    SDL_GPUTextureRegion dst = { .texture = r->previewTexture, .w = w, .h = h, .d = 1 };
-    SDL_UploadToGPUTexture(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
-
-    EmitQuad(r, (float)destX, (float)destY, (float)w, (float)h, 0, 0, 1, 1);
-    RecordDraw(r, r->previewTexture, 1.0f, -1, NULL);
 }
 
 //---------------------------------------------------------------------------
