@@ -15,6 +15,7 @@
 #include "comms.h"
 #include "colision.h"
 #include "rollercomms.h"
+#include "menu_render.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -757,6 +758,19 @@ void select_screen()
       front_vga[5] = (tBlockHeader*)load_picture("selicons.bm");
       front_vga[6] = (tBlockHeader*)load_picture("selexit.bm");
       front_vga[15] = (tBlockHeader *)load_picture("font1.bm");
+
+      // Convert assets to GPU textures
+      {
+        extern tColor palette[];
+        MenuRenderer *mr = GetMenuRenderer();
+        if (mr) {
+          for (int i = 0; i <= 15; i++) {
+            if (front_vga[i])
+              menu_render_load_blocks(mr, i, front_vga[i], palette);
+          }
+        }
+      }
+
       fade_palette(0);
       iQuitConfirmed = 0;
       SVGA_ON = -1;
@@ -987,13 +1001,15 @@ void select_screen()
     }
     check_cars();
 
-    display_picture(scrbuf, front_vga[0]);
-    display_block(scrbuf, front_vga[1], 0, head_x, head_y, 0);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
     if (iMenuSelection >= 8) {
-      display_block(scrbuf, front_vga[6], 3, 52, 334, 0);
+      menu_render_sprite(mr, 6, 3, 52, 334, 0, pal_addr);
     } else {
-      display_block(scrbuf, front_vga[6], 1, 52, 334, 0);
+      menu_render_sprite(mr, 6, 1, 52, 334, 0, pal_addr);
       front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0);
     }
     if (game_type == 1) {
@@ -1013,16 +1029,16 @@ void select_screen()
     front_text(front_vga[2], &language_buffer[512], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u);
     front_text(front_vga[2], &config_buffer[640], font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u);
     if (game_type == 1) {
-      display_block(scrbuf, front_vga[14], (TrackLoad - 1) / 8, 500, 300, 0);
+      menu_render_sprite(mr, 14, (TrackLoad - 1) / 8, 500, 300, 0, pal_addr);
       if (TrackLoad <= 0) {
         if (TrackLoad)
           front_text(front_vga[2], "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
         else
           front_text(front_vga[2], "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0);
       } else if (TrackLoad >= 17) {
-        display_block(scrbuf, front_vga[13], TrackLoad - 17, 190, 356, 0);
+        menu_render_sprite(mr, 13, TrackLoad - 17, 190, 356, 0, pal_addr);
       } else {
-        display_block(scrbuf, front_vga[3], TrackLoad - 1, 190, 356, 0);
+        menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
       }
       show_3dmap(cur_TrackZ, 1280, iRotation);
       if (game_type < 2) {
@@ -1076,35 +1092,35 @@ void select_screen()
       else
         DrawCar(scrbuf + 34640, iBlockIdx, 2200.0, 1280, 0);
       if (iBlockIdx < CAR_DESIGN_SUICYCO)
-        display_block(scrbuf, front_vga[3], iBlockIdx, 190, 356, 0);
+        menu_render_sprite(mr, 3, iBlockIdx, 190, 356, 0, pal_addr);
     }
-    display_block(scrbuf, front_vga[5], player_type, -4, 247, 0);
-    display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
+    menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
     switch (iMenuSelection) {
       case 1:
         if (game_type == 1)
           iBlockIdx2 = 8;
         else
           iBlockIdx2 = 1;
-        display_block(scrbuf, front_vga[4], iBlockIdx2, 76, 257, -1);
+        menu_render_sprite(mr, 4, iBlockIdx2, 76, 257, -1, pal_addr);
         break;
       case 3:
         if (game_type == 1 && Race > 0)
           goto LABEL_102;
-        display_block(scrbuf, front_vga[4], 3, 76, 257, -1);
+        menu_render_sprite(mr, 4, 3, 76, 257, -1, pal_addr);
         break;
       case 6:
       LABEL_102:
-        display_block(scrbuf, front_vga[4], 9, 76, 257, -1);
+        menu_render_sprite(mr, 4, 9, 76, 257, -1, pal_addr);
         break;
       case 7:
-        display_block(scrbuf, front_vga[4], 6, 76, 257, -1);
+        menu_render_sprite(mr, 4, 6, 76, 257, -1, pal_addr);
         break;
       case 8:
-        display_block(scrbuf, front_vga[4], 7, 76, 257, -1);
+        menu_render_sprite(mr, 4, 7, 76, 257, -1, pal_addr);
         break;
       default:
-        display_block(scrbuf, front_vga[4], iMenuSelection, 76, 257, -1);
+        menu_render_sprite(mr, 4, iMenuSelection, 76, 257, -1, pal_addr);
         break;
     }
     if (iBlockIdx < CAR_DESIGN_AUTO)
@@ -1112,7 +1128,7 @@ void select_screen()
     if (iQuitConfirmed)
       front_text(front_vga[15], &language_buffer[3456], font1_ascii, font1_offsets, 400, 250, 0xE7u, 1u);
     show_received_mesage();
-    copypic(scrbuf, screen);
+    menu_render_end_frame(mr);
     if (switch_same > 0) {
       if (game_type != 1 && switch_same - 666 != iBlockIdx) {
         if (iBlockIdx >= CAR_DESIGN_AUTO) {
