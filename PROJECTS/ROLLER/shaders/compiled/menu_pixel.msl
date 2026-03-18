@@ -33,73 +33,61 @@ fragment main0_out main0(main0_in in [[stage_in]], constant type_PixelUniforms& 
 {
     main0_out out = {};
     float4 _44 = menuTexture.sample(menuSampler, in.in_var_TEXCOORD0);
+    float4 _56;
     if (PixelUniforms.transparentColorR >= 0.0)
     {
-        float3 _57 = abs(_44.xyz - float3(PixelUniforms.transparentColorR, PixelUniforms.transparentColorG, PixelUniforms.transparentColorB));
-        bool _64;
-        if (_57.x < 0.0040000001899898052215576171875)
-        {
-            _64 = _57.y < 0.0040000001899898052215576171875;
-        }
-        else
-        {
-            _64 = false;
-        }
-        bool _69;
-        if (_64)
-        {
-            _69 = _57.z < 0.0040000001899898052215576171875;
-        }
-        else
-        {
-            _69 = false;
-        }
-        if (_69)
+        if (_44.w < 0.5)
         {
             discard_fragment();
         }
-    }
-    float4 _108;
-    if (PixelUniforms.replaceFromR >= 0.0)
-    {
-        float3 _84 = abs(_44.xyz - float3(PixelUniforms.replaceFromR, PixelUniforms.replaceFromG, PixelUniforms.replaceFromB));
-        bool _91;
-        if (_84.x < 0.0040000001899898052215576171875)
-        {
-            _91 = _84.y < 0.0040000001899898052215576171875;
-        }
-        else
-        {
-            _91 = false;
-        }
-        bool _96;
-        if (_91)
-        {
-            _96 = _84.z < 0.0040000001899898052215576171875;
-        }
-        else
-        {
-            _96 = false;
-        }
-        float4 _107;
-        if (_96)
-        {
-            float3 _105 = float3(PixelUniforms.replaceToR, PixelUniforms.replaceToG, PixelUniforms.replaceToB);
-            _107 = float4(_105.x, _105.y, _105.z, _44.w);
-        }
-        else
-        {
-            _107 = _44;
-        }
-        _108 = _107;
+        _56 = _44;
     }
     else
     {
-        _108 = _44;
+        _44.w = 1.0;
+        _56 = _44;
     }
-    float4 _113 = _108;
-    _113.w = _108.w * PixelUniforms.alphaMul;
-    out.out_var_SV_Target = _113;
+    float4 _93;
+    if (PixelUniforms.replaceFromR >= 0.0)
+    {
+        float3 _69 = abs(_56.xyz - float3(PixelUniforms.replaceFromR, PixelUniforms.replaceFromG, PixelUniforms.replaceFromB));
+        bool _76;
+        if (_69.x < 0.0040000001899898052215576171875)
+        {
+            _76 = _69.y < 0.0040000001899898052215576171875;
+        }
+        else
+        {
+            _76 = false;
+        }
+        bool _81;
+        if (_76)
+        {
+            _81 = _69.z < 0.0040000001899898052215576171875;
+        }
+        else
+        {
+            _81 = false;
+        }
+        float4 _92;
+        if (_81)
+        {
+            float3 _90 = float3(PixelUniforms.replaceToR, PixelUniforms.replaceToG, PixelUniforms.replaceToB);
+            _92 = float4(_90.x, _90.y, _90.z, _56.w);
+        }
+        else
+        {
+            _92 = _56;
+        }
+        _93 = _92;
+    }
+    else
+    {
+        _93 = _56;
+    }
+    float4 _98 = _93;
+    _98.w = _93.w * PixelUniforms.alphaMul;
+    out.out_var_SV_Target = _98;
     return out;
 }
 
