@@ -172,8 +172,10 @@ static void RecordDrawWithColorReplace(MenuRenderer *r, SDL_GPUTexture *texture,
     memset(&cmd->uniforms, 0, sizeof(cmd->uniforms));
     cmd->uniforms.alphaMul = alphaMul;
 
-    // No transparency discard — glyphs use alpha channel
-    cmd->uniforms.transparentR = cmd->uniforms.transparentG = cmd->uniforms.transparentB = -1.0f;
+    // Enable alpha-based transparency discard (shader checks transparentR >= 0)
+    cmd->uniforms.transparentR = 0.0f;
+    cmd->uniforms.transparentG = 0.0f;
+    cmd->uniforms.transparentB = 0.0f;
 
     // Color replacement: fromIdx -> toIdx
     if (pal) {
