@@ -6392,6 +6392,20 @@ void NetworkWait()
   front_vga[15] = (tBlockHeader *)load_picture("font1.bm");
   iContinueLoop = -1;
   setpal("result.pal");
+  // Restore palette for GPU rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+    MenuRenderer *mr = GetMenuRenderer();
+    if (mr) {
+      menu_render_load_blocks(mr, 0, front_vga[0], palette);
+      menu_render_load_blocks(mr, 1, front_vga[1], palette);
+      menu_render_load_blocks(mr, 2, front_vga[2], palette);
+      menu_render_load_blocks(mr, 3, front_vga[3], palette);
+      menu_render_load_blocks(mr, 15, front_vga[15], palette);
+    }
+  }
   if (network_on) {
     while (1) {
       UpdateSDL();
@@ -6440,11 +6454,14 @@ void NetworkWait()
       }
     LABEL_26:
       check_cars();
-      display_picture(scrbuf, front_vga[0]);    // Main network lobby display loop - show waiting screen
+      {                                           // RENDER FRAME (GPU)
+      MenuRenderer *mr = GetMenuRenderer();
+      menu_render_begin_frame(mr);
+      menu_render_background(mr, 0);             // Main network lobby display loop - show waiting screen
       sprintf(buffer, "%s: %i", &language_buffer[64], players);
-      front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 16, 4, 0x8Fu, 0);
+      menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 16, 4, 0x8Fu, 0, pal_addr);
       sprintf(buffer, "%s: %i", &language_buffer[256], TrackLoad);
-      front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 16, 24, 0x8Fu, 0);
+      menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 16, 24, 0x8Fu, 0, pal_addr);
       if (game_type)                          // Display game type text based on current mode
       {
         if ((unsigned int)game_type <= 1) {
@@ -6455,11 +6472,11 @@ void NetworkWait()
       } else {
         sprintf(buffer, "%s", &language_buffer[3648]);
       }
-      front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 200, 4, 0x8Fu, 1u);
+      menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 200, 4, 0x8Fu, 1u, pal_addr);
       if (players_waiting == network_on)      // Show flashing "Ready to start" message when all players connected
       {
         if ((frames & 0xFu) < 8)
-          front_text(front_vga[1], &language_buffer[4800], font2_ascii, font2_offsets, 200, 22, 0x8Fu, 1u);
+          menu_render_text(mr, 1, &language_buffer[4800], font2_ascii, font2_offsets, 200, 22, 0x8Fu, 1u, pal_addr);
         if (time_to_start)
           iContinueLoop = 0;
       }
@@ -6471,28 +6488,28 @@ void NetworkWait()
         iTextYPos = 49;
         do {                                       // Show flashing indicator for player1, solid for others
           if (player_started[iPlayerIndex] && (!iPlayerDisplayLoop && (frames & 0xFu) < 8 || iPlayerDisplayLoop > 0))
-            display_block(scrbuf, front_vga[2], 0, 13, iY, 0);
+            menu_render_sprite(mr, 2, 0, 13, iY, 0, pal_addr);
           sprintf(buffer, "%i", iPlayerDisplayLoop + 1);
           iCarSpriteYOffset = 22 * iPlayerDisplayLoop;
-          front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 33, iTextYPos, 0x8Fu, 0);
+          menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 33, iTextYPos, 0x8Fu, 0, pal_addr);
           sprintf(buffer, "%s", szCurrentPlayerName);
-          front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 85, iTextYPos, 0x8Fu, 0);
+          menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 85, iTextYPos, 0x8Fu, 0, pal_addr);
           iCarType = Players_Cars[iPlayerIndex];
           if (iCarType >= 0)                  // Display car company name and sprite if valid car selected
           {
             sprintf(buffer, "%s", CompanyNames[iCarType]);
-            front_text(front_vga[1], buffer, font2_ascii, font2_offsets, 218, iTextYPos, 0x8Fu, 0);
+            menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 218, iTextYPos, 0x8Fu, 0, pal_addr);
             iCarTypeForSprite = Players_Cars[iPlayerIndex];
             if (iCarTypeForSprite < 8) {
               if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0)
-                display_block(scrbuf, front_vga[2], smallcars[1][iCarTypeForSprite], 165, iCarSpriteYOffset + 46, 0);
+                menu_render_sprite(mr, 2, smallcars[1][iCarTypeForSprite], 165, iCarSpriteYOffset + 46, 0, pal_addr);
               else
-                display_block(scrbuf, front_vga[2], smallcars[0][iCarTypeForSprite], 165, iCarSpriteYOffset + 46, 0);
+                menu_render_sprite(mr, 2, smallcars[0][iCarTypeForSprite], 165, iCarSpriteYOffset + 46, 0, pal_addr);
             } else {
-              front_text(front_vga[1], "CHEAT", font2_ascii, font2_offsets, 165, iTextYPos, 0x8Fu, 0);
+              menu_render_text(mr, 1, "CHEAT", font2_ascii, font2_offsets, 165, iTextYPos, 0x8Fu, 0, pal_addr);
             }
           } else {
-            front_text(front_vga[1], &language_buffer[4160], font2_ascii, font2_offsets, 218, iTextYPos, 0x8Fu, 0);
+            menu_render_text(mr, 1, &language_buffer[4160], font2_ascii, font2_offsets, 218, iTextYPos, 0x8Fu, 0, pal_addr);
           }
           ++iPlayerIndex;
           iTextYPos += 22;
@@ -6505,10 +6522,10 @@ void NetworkWait()
         iContinueLoop = 0;
       if (iContinueLoop) {
         show_received_mesage();
-        copypic(scrbuf, screen);
+        menu_render_end_frame(mr);
         if (!front_fade) {
           front_fade = -1;                      // Initialize screen fade and network synchronization
-          fade_palette(32);
+          menu_render_begin_fade(mr, 1, 32);
           broadcast_mode = -668;
           while (broadcast_mode)
             UpdateSDL();
@@ -6517,6 +6534,7 @@ void NetworkWait()
             UpdateSDL();
           frames = 0;
         }
+      }
       }
       while (fatkbhit())                      // Handle keyboard input for network lobby
       {
@@ -6600,7 +6618,18 @@ LABEL_83:
     }
   }
   check_cars();                                 // Cleanup: fade screen, free graphics memory, restore screen size
-  fade_palette(0);
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   front_fade = 0;
   fre((void **)front_vga);
   fre((void **)&front_vga[1]);
