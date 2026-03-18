@@ -1231,7 +1231,8 @@ void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
     float view[16], proj[16], mv[16], mvp[16];
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
-    MakePerspective(proj, 0.6f, aspect, 1.0f, distance * 4.0f);
+    float fov = 2.0f * atanf(100.0f / (float)VIEWDIST);
+    MakePerspective(proj, fov, aspect, 1.0f, distance * 4.0f);
     Mat4Multiply(mv, view, model);      // view * model
     Mat4Multiply(mvp, proj, mv);        // proj * view * model
 
