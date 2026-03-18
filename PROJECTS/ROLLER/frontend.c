@@ -1274,6 +1274,20 @@ void select_screen()
               while (ppCartexVgaToFree_2 != (void **)&cartex_vga[16]);
               remove_mapsels();
             }
+            // GPU fade-out before leaving main menu to sub-menus
+            // (main menu is GPU-rendered, scrbuf is stale, so software
+            // fade_palette(0) in sub-menus would flash stale content)
+            {
+              MenuRenderer *mr2 = GetMenuRenderer();
+              menu_render_begin_fade(mr2, 0, 32);
+              menu_render_fade_wait(mr2, fade_redraw_bg, mr2);
+              palette_brightness = 0;
+              for (int i = 0; i < 256; i++) {
+                pal_addr[i].byR = 0;
+                pal_addr[i].byB = 0;
+                pal_addr[i].byG = 0;
+              }
+            }
             fre((void **)&front_vga[3]);
             fre((void **)&front_vga[13]);
             fre((void **)&front_vga[14]);
