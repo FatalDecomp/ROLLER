@@ -1623,6 +1623,12 @@ void select_disk()
   fade_palette(0);                              // Initialize screen fade and menu state variables
   uiMenuMode = 0;
   front_fade = 0;
+  // Restore palette for GPU rendering
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+  }
   iExitFlag = 0;
   iMenuCursor = 2;
   iStatusMessage = 0;
@@ -1640,55 +1646,62 @@ void select_disk()
     }
     if (!uiMenuMode)
       iSelectedSlot = 0;
-    display_picture(scrbuf, front_vga[0]);
-    display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-    display_block(scrbuf, front_vga[1], 0, head_x, head_y, 0);
+    {                                           // RENDER FRAME (GPU)
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_frame(mr);
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+    }
+    menu_render_background(mr, 0);
+    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+    menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
     if (iMenuCursor >= 2)                     // Draw selection cursor
     {
-      display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
+      menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
-      display_block(scrbuf, front_vga[6], 2, 62, 336, -1);
-      front_text(front_vga[2], "~", font2_ascii, font2_offsets, sel_posns[iMenuCursor].x, sel_posns[iMenuCursor].y, 0x8Fu, 0);
+      menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuCursor].x, sel_posns[iMenuCursor].y, 0x8Fu, 0, pal_addr);
     }
-    front_text(front_vga[2], &language_buffer[576], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u); // Display main menu options: "Load Game" and "Save Game"
-    front_text(front_vga[2], &language_buffer[640], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u);
-    front_text(front_vga[15], &language_buffer[704], font1_ascii, font1_offsets, 400, 270, 0xABu, 1u);// CURRENT GAME INFO: Display current championship settings and progress
-    front_text(front_vga[15], &language_buffer[768], font1_ascii, font1_offsets, 400, 290, 0x8Fu, 2u);
+    menu_render_text(mr, 2, &language_buffer[576], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr); // Display main menu options: "Load Game" and "Save Game"
+    menu_render_text(mr, 2, &language_buffer[640], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[704], font1_ascii, font1_offsets, 400, 270, 0xABu, 1u, pal_addr);// CURRENT GAME INFO: Display current championship settings and progress
+    menu_render_text(mr, 15, &language_buffer[768], font1_ascii, font1_offsets, 400, 290, 0x8Fu, 2u, pal_addr);
     uiCupIndex = (TrackLoad - 1) / 8;
     //uiCupIndex = (TrackLoad - 1 - (__CFSHL__((TrackLoad - 1) >> 31, 3) + 8 * ((TrackLoad - 1) >> 31))) >> 3;// Show current cup name based on track group
     if (uiCupIndex) {
       if (uiCupIndex <= 1) {
-        front_text(front_vga[15], &language_buffer[896], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0);
+        menu_render_text(mr, 15, &language_buffer[896], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0, pal_addr);
         goto LABEL_20;
       }
       if (uiCupIndex == 2) {
-        front_text(front_vga[15], &language_buffer[4928], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0);
+        menu_render_text(mr, 15, &language_buffer[4928], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0, pal_addr);
         goto LABEL_20;
       }
     }
-    front_text(front_vga[15], &language_buffer[832], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0);
+    menu_render_text(mr, 15, &language_buffer[832], font1_ascii, font1_offsets, 405, 290, 0x8Fu, 0, pal_addr);
   LABEL_20:
-    front_text(front_vga[15], &language_buffer[960], font1_ascii, font1_offsets, 400, 308, 0x8Fu, 2u);
-    front_text(front_vga[15], CompanyNames[Race], font1_ascii, font1_offsets, 405, 308, 0x8Fu, 0);
-    front_text(front_vga[15], &language_buffer[1024], font1_ascii, font1_offsets, 400, 326, 0x8Fu, 2u);
+    menu_render_text(mr, 15, &language_buffer[960], font1_ascii, font1_offsets, 400, 308, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 15, CompanyNames[Race], font1_ascii, font1_offsets, 405, 308, 0x8Fu, 0, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[1024], font1_ascii, font1_offsets, 400, 326, 0x8Fu, 2u, pal_addr);
     if ((unsigned int)competitors < 8) {
       if (competitors == 2)
-        front_text(front_vga[15], &language_buffer[1088], font1_ascii, font1_offsets, 405, 326, 0x8Fu,0);
+        menu_render_text(mr, 15, &language_buffer[1088], font1_ascii, font1_offsets, 405, 326, 0x8Fu, 0, pal_addr);
     } else if ((unsigned int)competitors <= 8) {
-      front_text(front_vga[15], &language_buffer[1152], font1_ascii, font1_offsets, 405, 326, 0x8Fu, 0);
+      menu_render_text(mr, 15, &language_buffer[1152], font1_ascii, font1_offsets, 405, 326, 0x8Fu, 0, pal_addr);
     } else if (competitors == 16) {
-      front_text(front_vga[15], &language_buffer[1216], font1_ascii, font1_offsets, 405, 326, 0x8Fu, 0);
+      menu_render_text(mr, 15, &language_buffer[1216], font1_ascii, font1_offsets, 405, 326, 0x8Fu, 0, pal_addr);
     }
-    front_text(front_vga[15], &language_buffer[1280], font1_ascii, font1_offsets, 400, 344, 0x8Fu, 2u);
-    front_text(front_vga[15], &language_buffer[64 * level + 1472], font1_ascii, font1_offsets, 405, 344, 0x8Fu, 0);
-    front_text(front_vga[15], &language_buffer[1344], font1_ascii, font1_offsets, 400, 362, 0x8Fu, 2u);
-    front_text(front_vga[15], &language_buffer[64 * damage_level + 1856], font1_ascii, font1_offsets, 405, 362, 0x8Fu, 0);
-    front_text(front_vga[15], &language_buffer[1408], font1_ascii, font1_offsets, 400, 380, 0x8Fu, 2u);
+    menu_render_text(mr, 15, &language_buffer[1280], font1_ascii, font1_offsets, 400, 344, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[64 * level + 1472], font1_ascii, font1_offsets, 405, 344, 0x8Fu, 0, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[1344], font1_ascii, font1_offsets, 400, 362, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[64 * damage_level + 1856], font1_ascii, font1_offsets, 405, 362, 0x8Fu, 0, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[1408], font1_ascii, font1_offsets, 400, 380, 0x8Fu, 2u, pal_addr);
     if (player_type == 1 && net_type) {
       if ((unsigned int)net_type >= (unsigned int)player_type && (unsigned int)net_type <= 2)
-        front_text(front_vga[15], &language_buffer[2304], font1_ascii, font1_offsets, 405, 380, 0x8Fu,0);
+        menu_render_text(mr, 15, &language_buffer[2304], font1_ascii, font1_offsets, 405, 380, 0x8Fu, 0, pal_addr);
     } else {
-      front_text(front_vga[15], &language_buffer[64 * player_type + 2112], font1_ascii, font1_offsets, 405, 380, 0x8Fu, 0);
+      menu_render_text(mr, 15, &language_buffer[64 * player_type + 2112], font1_ascii, font1_offsets, 405, 380, 0x8Fu, 0, pal_addr);
     }
     iSlotLoop = 0;                              // SAVE SLOT DISPLAY: Show all 4 championship save slots with their details
     iSlotYPosition = 56;
@@ -1700,7 +1713,7 @@ void select_disk()
         bySlotColor = 0xAB;
       else
         bySlotColor = 0x8F;
-      front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 300, iSlotYPosition, bySlotColor, 2u);
+      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 300, iSlotYPosition, bySlotColor, 2u, pal_addr);
       iSlotNumber = iSlotLoop + 1;
       if (save_status[iSaveArrayIndex].iSlotUsed)// Show save slot contents: cup, track, difficulty, damage, player type
       {
@@ -1717,53 +1730,53 @@ void select_disk()
               byCupColor2 = 0xAB;
             else
               byCupColor2 = 0x8F;
-            front_text(front_vga[15], &language_buffer[896], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor2, 0);
+            menu_render_text(mr, 15, &language_buffer[896], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor2, 0, pal_addr);
           } else if (uiSaveCupIndex == 2) {
             if (iSelectedSlot == iSlotNumber)
               byCupColor3 = 0xAB;
             else
               byCupColor3 = 0x8F;
-            front_text(front_vga[15], &language_buffer[4928], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor3, 0);
+            menu_render_text(mr, 15, &language_buffer[4928], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor3, 0, pal_addr);
           }
         } else {
           if (iSelectedSlot == iSlotNumber)
             byCupColor1 = 0xAB;
           else
             byCupColor1 = 0x8F;
-          front_text(front_vga[15], &language_buffer[832], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor1, 0);
+          menu_render_text(mr, 15, &language_buffer[832], font1_ascii, font1_offsets, 305, iSlotYPosition, byCupColor1, 0, pal_addr);
         }
         sprintf(buffer, "%s %i", &language_buffer[256], iSaveTrackNumber);
         if (iSelectedSlot == iSlotLoop + 1)
           byTrackColor = 0xAB;
         else
           byTrackColor = 0x8F;
-        front_text(front_vga[15], "-", font1_ascii, font1_offsets, 470, iSlotYPosition, byTrackColor, 0);
+        menu_render_text(mr, 15, "-", font1_ascii, font1_offsets, 470, iSlotYPosition, byTrackColor, 0, pal_addr);
         if (iSelectedSlot == iSlotLoop + 1)
           byDifficultyColor = 0xAB;
         else
           byDifficultyColor = 0x8F;
-        front_text(front_vga[15], buffer, font1_ascii, font1_offsets, 480, iSlotYPosition, byDifficultyColor, 0);
+        menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 480, iSlotYPosition, byDifficultyColor, 0, pal_addr);
         if (iSelectedSlot == iSlotLoop + 1)
           byLevelColor = 0xAB;
         else
           byLevelColor = 0x8F;
-        front_text(front_vga[15], &language_buffer[64 * save_status[iSaveArrayIndex].iDifficulty + 1472], font1_ascii, font1_offsets, 460, iY,  byLevelColor, 2u);
+        menu_render_text(mr, 15, &language_buffer[64 * save_status[iSaveArrayIndex].iDifficulty + 1472], font1_ascii, font1_offsets, 460, iY, byLevelColor, 2u, pal_addr);
         if (iSelectedSlot == iSlotLoop + 1)
           byDamageColor = 0xAB;
         else
           byDamageColor = 0x8F;
-        front_text(front_vga[15], "-", font1_ascii, font1_offsets, 470, iY, byDamageColor, 0);
+        menu_render_text(mr, 15, "-", font1_ascii, font1_offsets, 470, iY, byDamageColor, 0, pal_addr);
         if (iSelectedSlot == iSlotLoop + 1)
           byPlayerTypeColor = 0xAB;
         else
           byPlayerTypeColor = 0x8F;
-        front_text(front_vga[15], &language_buffer[64 * save_status[iSaveArrayIndex].iPlayerType + 2112], font1_ascii, font1_offsets, 480, iY, byPlayerTypeColor, 0);
+        menu_render_text(mr, 15, &language_buffer[64 * save_status[iSaveArrayIndex].iPlayerType + 2112], font1_ascii, font1_offsets, 480, iY, byPlayerTypeColor, 0, pal_addr);
       } else {                                         // Display "Empty" for unused save slots
         if (iSelectedSlot == iSlotNumber)
           byEmptySlotColor = 0xAB;
         else
           byEmptySlotColor = 0x8F;
-        front_text(front_vga[15], &language_buffer[2496], font1_ascii, font1_offsets, 305, iSlotYPosition, byEmptySlotColor, 0);
+        menu_render_text(mr, 15, &language_buffer[2496], font1_ascii, font1_offsets, 305, iSlotYPosition, byEmptySlotColor, 0, pal_addr);
       }
       iSlotYPosition += 40;
       ++iSaveArrayIndex;
@@ -1773,25 +1786,26 @@ void select_disk()
     switch (iStatusMessage) {
       case 0:
         if (network_on)                       // Case 0: Network save restriction message
-          front_text(front_vga[15], &language_buffer[4864], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u);
+          menu_render_text(mr, 15, &language_buffer[4864], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u, pal_addr);
         break;
       case 1:
         if (iChampResult)                     // Case 1: Load operation messages (success/confirmation)
-          front_text(front_vga[15], &language_buffer[2624], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u);
+          menu_render_text(mr, 15, &language_buffer[2624], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u, pal_addr);
         else
-          front_text(front_vga[15], &language_buffer[2560], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u);
+          menu_render_text(mr, 15, &language_buffer[2560], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u, pal_addr);
         break;
       case 2:
-        front_text(front_vga[15], &language_buffer[2688], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u); // Case 2: Save operation success message
+        menu_render_text(mr, 15, &language_buffer[2688], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u, pal_addr); // Case 2: Save operation success message
         break;
       case 4:
-        front_text(front_vga[15], &language_buffer[2752], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u); // Case 4: Empty slot selected (no save to load)
+        menu_render_text(mr, 15, &language_buffer[2752], font1_ascii, font1_offsets, 400, 230, 0xE7u, 1u, pal_addr); // Case 4: Empty slot selected (no save to load)
         break;
       default:
         break;                                  // STATUS MESSAGES: Display operation results and warnings
     }
     show_received_mesage();
-    copypic(scrbuf, screen);
+    menu_render_end_frame(mr);
+    }
     if (switch_same > 0)                      // CHEAT MODE HANDLING: Process switch_same command for player synchronization
     {
       iCheatSetLoop = 0;
@@ -1834,12 +1848,6 @@ void select_disk()
     }
     cheat_mode = uiUpdatedCheatFlags;
   LABEL_95:
-    if (!front_fade)                          // Handle screen fade-in effect
-    {
-      front_fade = -1;
-      fade_palette(32);
-      frames = 0;
-    }
     while (fatkbhit())                        // KEYBOARD INPUT PROCESSING: Handle navigation and save/load operations
     {
       byInputKey = fatgetch();
@@ -1910,7 +1918,18 @@ void select_disk()
     }
     UpdateSDL();
   } while (!iExitFlag);                         // MAIN MENU LOOP - Handle UI rendering and input processing
-  fade_palette(0);                              // CLEANUP: Fade screen and exit save/load menu
+  // GPU fade-out
+  {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+      pal_addr[i].byR = 0;
+      pal_addr[i].byB = 0;
+      pal_addr[i].byG = 0;
+    }
+  }
   front_fade = 0;
 }
 
