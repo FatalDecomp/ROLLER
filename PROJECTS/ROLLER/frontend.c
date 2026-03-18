@@ -1015,6 +1015,20 @@ void select_screen()
     check_cars();
 
     MenuRenderer *mr = GetMenuRenderer();
+    if (!front_fade) {
+      front_fade = -1;
+      menu_render_begin_fade(mr, 1, 32);
+      menu_render_fade_wait(mr, fade_redraw_bg, mr);
+      palette_brightness = 32;
+      frames = 0;
+      if (network_on) {
+        while (broadcast_mode)
+          UpdateSDL();
+        broadcast_mode = -1;
+        while (broadcast_mode)
+          UpdateSDL();
+      }
+    }
     menu_render_begin_frame(mr);
     menu_render_background(mr, 0);
     menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
@@ -1224,23 +1238,6 @@ void select_screen()
         LoadCarTextures = iLoadCarTextures_1;
       }
       switch_sets = 0;
-    }
-    if (!front_fade) {
-      front_fade = -1;
-      {
-        MenuRenderer *mr = GetMenuRenderer();
-        menu_render_begin_fade(mr, 1, 32);
-        menu_render_fade_wait(mr, fade_redraw_bg, mr);
-        palette_brightness = 32;
-      }
-      frames = 0;
-      if (network_on) {
-        while (broadcast_mode)
-          UpdateSDL();
-        broadcast_mode = -1;
-        while (broadcast_mode)
-          UpdateSDL();
-      }
     }
     print_data = 0;
     while (1) {
