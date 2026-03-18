@@ -206,8 +206,6 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
 
 void UpdateSDLWindow()
 {
-  extern int frontend_on;
-  if (frontend_on && s_pMenuRenderer) return;
   if (!g_bPaletteSet) return;
 
   // Acquire command buffer
