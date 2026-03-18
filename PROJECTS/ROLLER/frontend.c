@@ -919,6 +919,13 @@ void select_screen()
         menu_render_fade_wait(mr, fade_redraw_bg, mr);
         fade_music_finish(0);
         palette_brightness = 0;
+        // Zero pal_addr so software screens see a black palette
+        // (GPU fade-out doesn't touch pal_addr, but fade_palette(0) expects it zeroed)
+        for (int i = 0; i < 256; i++) {
+          pal_addr[i].byR = 0;
+          pal_addr[i].byB = 0;
+          pal_addr[i].byG = 0;
+        }
       }
       if (game_type != 4 && game_type != 3)
         stopmusic();
