@@ -159,6 +159,37 @@ static void RecordDraw(MenuRenderer *r, SDL_GPUTexture *texture,
     cmd->uniforms.replaceFromR = -1.0f;
 }
 
+static void RecordDrawWithColorReplace(MenuRenderer *r, SDL_GPUTexture *texture,
+                                       float alphaMul, uint8 fromIdx, uint8 toIdx,
+                                       const tColor *pal)
+{
+    if (r->vertexCount == 0 || r->drawCommandCount >= MAX_DRAW_COMMANDS) return;
+
+    DrawCommand *cmd = &r->drawCommands[r->drawCommandCount++];
+    cmd->texture = texture;
+    cmd->vertexOffset = r->vertexCount - 6;
+    cmd->vertexCount = 6;
+    memset(&cmd->uniforms, 0, sizeof(cmd->uniforms));
+    cmd->uniforms.alphaMul = alphaMul;
+
+    // No transparency discard — glyphs use alpha channel
+    cmd->uniforms.transparentR = cmd->uniforms.transparentG = cmd->uniforms.transparentB = -1.0f;
+
+    // Color replacement: fromIdx -> toIdx
+    if (pal) {
+        const tColor *fc = &pal[fromIdx];
+        cmd->uniforms.replaceFromR = ColorToFloat(fc->byR);
+        cmd->uniforms.replaceFromG = ColorToFloat(fc->byG);
+        cmd->uniforms.replaceFromB = ColorToFloat(fc->byB);
+        const tColor *tc = &pal[toIdx];
+        cmd->uniforms.replaceToR = ColorToFloat(tc->byR);
+        cmd->uniforms.replaceToG = ColorToFloat(tc->byG);
+        cmd->uniforms.replaceToB = ColorToFloat(tc->byB);
+    } else {
+        cmd->uniforms.replaceFromR = -1.0f;
+    }
+}
+
 static void ReplayDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
 {
     float proj[16];
@@ -516,6 +547,110 @@ void menu_render_sprite(MenuRenderer *r, int slot, int blockIdx, int x, int y,
     if (!mt->texture) return;
     EmitQuad(r, (float)x, (float)y, (float)mt->width, (float)mt->height, 0, 0, 1, 1);
     RecordDraw(r, mt->texture, 1.0f, transparentIdx, pal);
+}
+
+//---------------------------------------------------------------------------
+// Text rendering
+//---------------------------------------------------------------------------
+
+void menu_render_text(MenuRenderer *r, int fontSlot, const char *text,
+                      const uint8 *mappingTable, int *charVOffsets,
+                      int x, int y, uint8 colorReplace, int alignment,
+                      const tColor *pal)
+{
+    if (!text || fontSlot < 0 || fontSlot >= MAX_SLOTS || !r->slotTextures[fontSlot])
+        return;
+
+    // Pass 1: measure width
+    int totalWidth = 0;
+    for (const char *p = text; *p; p++) {
+        if (*p == '\n') continue;
+        uint8 idx = mappingTable[(uint8)*p];
+        if (idx == 0xFF) { totalWidth += 8; continue; }
+        if (idx < r->slotTextureCount[fontSlot])
+            totalWidth += r->slotTextures[fontSlot][idx].width + 1;
+    }
+    if (totalWidth > 0) totalWidth--;
+
+    // Apply alignment
+    int curX = x;
+    if (alignment == 1) curX = x - totalWidth / 2;
+    else if (alignment == 2) curX = x - totalWidth;
+
+    // Pass 2: render glyphs
+    for (const char *p = text; *p; p++) {
+        if (*p == '\n') continue;
+        uint8 idx = mappingTable[(uint8)*p];
+        if (idx == 0xFF) { curX += 8; continue; }
+        if (idx >= r->slotTextureCount[fontSlot]) continue;
+
+        MenuTexture *g = &r->slotTextures[fontSlot][idx];
+        if (!g->texture) continue;
+
+        int cy = y + (charVOffsets ? charVOffsets[idx] : 0);
+
+        EmitQuad(r, (float)curX, (float)cy, (float)g->width, (float)g->height,
+                 0, 0, 1, 1);
+        RecordDrawWithColorReplace(r, g->texture, 1.0f, 0x8F, colorReplace, pal);
+
+        curX += g->width + 1;
+    }
+}
+
+void menu_render_scaled_text(MenuRenderer *r, int fontSlot, const char *text,
+                             const char *mappingTable, int *charVOffsets,
+                             int x, int y, char colorReplace,
+                             unsigned int alignment, int clipLeft, int clipRight,
+                             const tColor *pal)
+{
+    if (!text || fontSlot < 0 || fontSlot >= MAX_SLOTS || !r->slotTextures[fontSlot])
+        return;
+
+    // Measure unscaled width
+    int totalWidth = 0;
+    for (const char *p = text; *p; p++) {
+        uint8 idx = (uint8)mappingTable[(uint8)*p];
+        if (idx < r->slotTextureCount[fontSlot])
+            totalWidth += r->slotTextures[fontSlot][idx].width + 1;
+    }
+    if (totalWidth > 0) totalWidth--;
+
+    // Scale factor
+    int avail = clipRight - clipLeft;
+    float scale = 1.0f;
+    if (totalWidth > avail && avail > 0)
+        scale = (float)avail / (float)totalWidth;
+
+    float scaledWidth = totalWidth * scale;
+
+    // Alignment
+    float startX = (float)x;
+    if (alignment == 1) startX = x - scaledWidth / 2.0f;
+    else if (alignment == 2) startX = x - scaledWidth;
+
+    // Render scaled glyphs
+    float curX = startX;
+    for (const char *p = text; *p; p++) {
+        if (*p == '\n') continue;
+        uint8 idx = (uint8)mappingTable[(uint8)*p];
+        if (idx == 0xFF) { curX += 8 * scale; continue; }
+        if (idx >= r->slotTextureCount[fontSlot]) continue;
+
+        MenuTexture *g = &r->slotTextures[fontSlot][idx];
+        if (!g->texture) { curX += scale; continue; }
+
+        float cw = g->width * scale;
+        float ch = g->height * scale;
+        int cy = y + (charVOffsets ? charVOffsets[idx] : 0);
+
+        if (curX + cw >= clipLeft && curX <= clipRight) {
+            EmitQuad(r, curX, (float)cy, cw, ch, 0, 0, 1, 1);
+            RecordDrawWithColorReplace(r, g->texture, 1.0f, 0x8F,
+                                       (uint8)colorReplace, pal);
+        }
+
+        curX += cw + scale;
+    }
 }
 
 //---------------------------------------------------------------------------
