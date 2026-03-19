@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/horizon.c",
             "PROJECTS/ROLLER/loadtrak.c",
             "PROJECTS/ROLLER/menu_render_gpu.c",
+            "PROJECTS/ROLLER/menu_render_software.c",
             "PROJECTS/ROLLER/mouse.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
