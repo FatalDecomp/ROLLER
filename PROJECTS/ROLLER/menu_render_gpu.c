@@ -1419,21 +1419,25 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
 {
     if (!r->trackMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
 
-    // Convert TRIG angles (0-16383) to radians
+    // Convert TRIG angles to radians
     float yawRad = (float)yaw * (2.0f * 3.14159265f / 16384.0f);
     float elevRad = (float)elevation * (2.0f * 3.14159265f / 16384.0f);
 
-    // Camera looks down at the track from above
+    // Camera position: match original show_3dmap
+    // Original: worldx = -fZ*tcos[elev], worldy = 0, worldz = fZ*tsin[elev]
+    // Game→GPU: GPU_X = game_Y, GPU_Y = game_Z, GPU_Z = game_X
+    // Camera orbit by +yaw with -Z forward matches original's vertex rotation
     float camDist = cameraZ;
-    float eyeX = camDist * sinf(yawRad) * cosf(elevRad);
+    float horizDist = camDist * cosf(elevRad);
+    float eyeX = horizDist * sinf(yawRad);
     float eyeY = camDist * sinf(elevRad);
-    float eyeZ = camDist * cosf(yawRad) * cosf(elevRad);
+    float eyeZ = -horizDist * cosf(yawRad);
 
-    // Track mesh is pre-centered at origin
     float view[16], proj[16], mvp[16];
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
-    MakePerspective(proj, 0.8f, aspect, 1.0f, camDist * 8.0f);
+    float fov = 2.0f * atanf(81.0f / (float)VIEWDIST);
+    MakePerspective(proj, fov, aspect, 1.0f, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
 
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
