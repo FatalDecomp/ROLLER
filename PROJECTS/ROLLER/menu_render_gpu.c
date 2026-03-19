@@ -1315,14 +1315,21 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     Mat4Multiply(mv, view, model);      // view * model
     Mat4Multiply(mvp, proj, mv);        // proj * view * model
 
-    // Expand viewport to full width to avoid clipping, compensate in MVP
+    // Expand viewport to full width and bottom to avoid clipping, compensate in MVP
     int padLeft = destX;
     int padRight = MENU_WIDTH - (destX + destW);
     int totalW = destW + padLeft + padRight;
-    float S = (float)destW / (float)totalW;
-    float T = (float)(padLeft - padRight) / (float)totalW;
+    float Sx = (float)destW / (float)totalW;
+    float Tx = (float)(padLeft - padRight) / (float)totalW;
     for (int j = 0; j < 4; j++)
-        mvp[j * 4] = S * mvp[j * 4] + T * mvp[j * 4 + 3];
+        mvp[j * 4] = Sx * mvp[j * 4] + Tx * mvp[j * 4 + 3];
+
+    int padBottom = MENU_HEIGHT - (destY + destH);
+    int totalH = destH + padBottom;
+    float Sy = (float)destH / (float)totalH;
+    float Ty = (float)padBottom / (float)totalH;
+    for (int j = 0; j < 4; j++)
+        mvp[j * 4 + 1] = Sy * mvp[j * 4 + 1] + Ty * mvp[j * 4 + 3];
 
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
     cmd->vertexBuffer = r->carMesh.vertexBuffer;
@@ -1333,7 +1340,7 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
-    cmd->vpH = (float)destH;
+    cmd->vpH = (float)totalH;
     cmd->useDepth = true;
 }
 
@@ -1511,14 +1518,21 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     MakePerspective(proj, fov, aspect, 1.0f, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
 
-    // Expand viewport to full width to avoid clipping, compensate in MVP
+    // Expand viewport to full width and bottom to avoid clipping, compensate in MVP
     int padLeft = destX;
     int padRight = MENU_WIDTH - (destX + destW);
     int totalW = destW + padLeft + padRight;
-    float S = (float)destW / (float)totalW;
-    float T = (float)(padLeft - padRight) / (float)totalW;
+    float Sx = (float)destW / (float)totalW;
+    float Tx = (float)(padLeft - padRight) / (float)totalW;
     for (int j = 0; j < 4; j++)
-        mvp[j * 4] = S * mvp[j * 4] + T * mvp[j * 4 + 3];
+        mvp[j * 4] = Sx * mvp[j * 4] + Tx * mvp[j * 4 + 3];
+
+    int padBottom = MENU_HEIGHT - (destY + destH);
+    int totalH = destH + padBottom;
+    float Sy = (float)destH / (float)totalH;
+    float Ty = (float)padBottom / (float)totalH;
+    for (int j = 0; j < 4; j++)
+        mvp[j * 4 + 1] = Sy * mvp[j * 4 + 1] + Ty * mvp[j * 4 + 3];
 
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
     cmd->vertexBuffer = r->trackMesh.vertexBuffer;
@@ -1529,6 +1543,6 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
-    cmd->vpH = (float)destH;
+    cmd->vpH = (float)totalH;
     cmd->useDepth = false;
 }
