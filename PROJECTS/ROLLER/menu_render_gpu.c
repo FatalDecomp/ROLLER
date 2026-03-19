@@ -1248,7 +1248,7 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     float view[16], proj[16], mv[16], mvp[16];
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
-    float fov = 2.0f * atanf(100.0f / (float)VIEWDIST);
+    float fov = 2.0f * atanf(81.0f / (float)VIEWDIST);
     MakePerspective(proj, fov, aspect, 1.0f, distance * 4.0f);
     Mat4Multiply(mv, view, model);      // view * model
     Mat4Multiply(mvp, proj, mv);        // proj * view * model
@@ -1448,4 +1448,3 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     cmd->vpH = (float)destH;
     cmd->useDepth = false;
 }
-
