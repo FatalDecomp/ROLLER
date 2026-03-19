@@ -1234,7 +1234,9 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     float eyeZ = -distance * cosf(rad);       // world X (forward) = -dist*cos
 
     // Build model rotation from car yaw (rotation around Y axis in GPU space)
-    float yawRad = (float)carYaw * (2.0f * 3.14159265f / 16384.0f);
+    // Negate to match game's rotation convention (original DrawCar rotates
+    // X' = cos*X - sin*Y; column-major layout inverts without negation)
+    float yawRad = -(float)carYaw * (2.0f * 3.14159265f / 16384.0f);
     float cy = cosf(yawRad), sy = sinf(yawRad);
     float model[16] = {
          cy,  0.0f, sy,  0.0f,
