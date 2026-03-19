@@ -155,11 +155,12 @@ void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,
                                      int destX, int destY,
                                      int destW, int destH) {
     (void)carYaw;
+    (void)destX;
+    (void)destY;
     (void)destW;
     (void)destH;
-    xbase = destX;
-    ybase = destY;
-    DrawCar(scrbuf, sw->loadedCarIdx, distance, (int)angle, 0);
+    // Original code: DrawCar(scrbuf + 34640, ...) — offset 34640 = row 54, col 80 in 640-wide buffer
+    DrawCar(scrbuf + 34640, sw->loadedCarIdx, distance, (int)angle, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,9 +184,10 @@ void menu_render_sw_draw_track_preview(MenuRendererSoftware *sw, float cameraZ,
                                        int destX, int destY,
                                        int destW, int destH) {
     (void)sw;
+    (void)destX;
+    (void)destY;
     (void)destW;
     (void)destH;
-    xbase = destX;
-    ybase = destY;
+    // Original code: show_3dmap uses xbase/ybase globals internally (set by init_screen)
     show_3dmap(cameraZ, elevation, yaw);
 }
