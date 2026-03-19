@@ -8,6 +8,7 @@
 
 struct MenuRendererSoftware {
     int loadedCarIdx; // stored by _sw_load_car_mesh for DrawCar()
+    int fadeInPending; // deferred fade-in (so content is drawn before the fade)
 };
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,20 @@ void menu_render_sw_begin_frame(MenuRendererSoftware *sw) {
 }
 
 void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
-    (void)sw;
+    if (sw->fadeInPending) {
+        sw->fadeInPending = 0;
+        // Content has been drawn to scrbuf; fade from black to full brightness.
+        // palette_brightness may have been set to 32 by GPU init code, so
+        // reset to 0 to ensure the fade actually animates.
+        palette_brightness = 0;
+        for (int i = 0; i < 256; i++) {
+            pal_addr[i].byR = 0;
+            pal_addr[i].byB = 0;
+            pal_addr[i].byG = 0;
+        }
+        fade_palette(32); // blocking; calls UpdateSDLWindow each step
+        return;
+    }
     g_bPaletteSet = true;
     UpdateSDLWindow();
 }
@@ -90,9 +104,13 @@ void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
 
 void menu_render_sw_begin_fade(MenuRendererSoftware *sw, int direction,
                                int durationFrames) {
-    (void)sw;
     (void)durationFrames;
-    fade_palette(direction);
+    if (direction) {
+        // Fade-in: defer to end_frame so scrbuf has the new content drawn first
+        sw->fadeInPending = 1;
+    } else {
+        fade_palette(0);
+    }
 }
 
 int menu_render_sw_fade_active(MenuRendererSoftware *sw) {
