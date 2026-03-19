@@ -1117,9 +1117,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
     float whiteU = hasAtlas ? 0.5f / 256.0f : 0.0f;
     float whiteV = hasAtlas ? (atlasH - 0.5f) / fAtlasH : 0.0f;
 
-    // Each quad becomes 4 verts + 6 indices (2 triangles)
-    MeshVertex *vertices = calloc(numPols * 4, sizeof(MeshVertex));
-    uint32 *indices = calloc(numPols * 6, sizeof(uint32));
+    // Each quad becomes 4 verts + 6 indices (2 triangles), plus 4+6 for shadow quad
+    MeshVertex *vertices = calloc(numPols * 4 + 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numPols * 6 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
 
     tCarColorRemap *remap = &car_flat_remap[carIdx];
@@ -1211,6 +1211,50 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
         indices[idxCount++] = baseVert + 0;
         indices[idxCount++] = baseVert + 2;
         indices[idxCount++] = baseVert + 3;
+    }
+
+    // Shadow quad: semi-transparent ground plane computed from mesh bounding box
+    {
+        float minX = 1e18f, maxX = -1e18f;
+        float minY = 1e18f;
+        float minZ = 1e18f, maxZ = -1e18f;
+        for (int c = 0; c < numCoords; c++) {
+            float gx = coords[c].fX, gy = coords[c].fY, gz = coords[c].fZ;
+            // GPU X = game Y, GPU Y = game Z, GPU Z = game X
+            if (gy < minX) minX = gy;
+            if (gy > maxX) maxX = gy;
+            if (gz < minY) minY = gz;
+            if (gx < minZ) minZ = gx;
+            if (gx > maxZ) maxZ = gx;
+        }
+        // Place shadow at the bottom of the car
+        float shadowY = minY;
+        float shadowCorners[4][3] = {
+            { minX, shadowY, minZ },
+            { minX, shadowY, maxZ },
+            { maxX, shadowY, maxZ },
+            { maxX, shadowY, minZ },
+        };
+        int shadowBase = vertCount;
+        for (int v = 0; v < 4; v++) {
+            MeshVertex *mv = &vertices[vertCount++];
+            mv->position[0] = shadowCorners[v][0];
+            mv->position[1] = shadowCorners[v][1];
+            mv->position[2] = shadowCorners[v][2];
+            mv->uv[0] = whiteU;
+            mv->uv[1] = whiteV;
+            mv->color[0] = 0.0f;
+            mv->color[1] = 0.0f;
+            mv->color[2] = 0.0f;
+            mv->color[3] = 0.5f;
+        }
+        // CCW winding when viewed from above (+Y)
+        indices[idxCount++] = shadowBase + 0;
+        indices[idxCount++] = shadowBase + 1;
+        indices[idxCount++] = shadowBase + 2;
+        indices[idxCount++] = shadowBase + 0;
+        indices[idxCount++] = shadowBase + 2;
+        indices[idxCount++] = shadowBase + 3;
     }
 
     if (idxCount > 0) {
