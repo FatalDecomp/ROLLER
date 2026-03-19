@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include "types.h"
 #include "func3.h"
+#include "menu_render.h"
 
 typedef struct MenuRendererGPU MenuRendererGPU;
 
@@ -25,6 +26,9 @@ void menu_render_gpu_free_blocks(MenuRendererGPU *renderer, int slot);
 // Frame lifecycle
 void menu_render_gpu_begin_frame(MenuRendererGPU *renderer);
 void menu_render_gpu_end_frame(MenuRendererGPU *renderer);
+
+// Draw layer control
+void menu_render_gpu_set_layer(MenuRendererGPU *renderer, MenuDrawLayer layer);
 
 // Draw calls (between begin_frame / end_frame)
 void menu_render_gpu_clear(MenuRendererGPU *renderer, uint8 colorIndex,

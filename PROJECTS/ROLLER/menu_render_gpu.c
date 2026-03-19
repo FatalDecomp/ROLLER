@@ -33,6 +33,7 @@ typedef struct {
     SDL_GPUTexture *texture;
     int vertexOffset;  // offset into vertex array (in vertices)
     int vertexCount;
+    MenuDrawLayer layer;
     PixelUniforms uniforms;
 } DrawCommand;
 
@@ -118,6 +119,7 @@ struct MenuRendererGPU {
     // Per-frame mesh draw commands
     MeshDrawCommand meshDraws[MAX_MESH_DRAWS];
     int meshDrawCount;
+    MenuDrawLayer currentLayer;
 
 };
 
@@ -221,6 +223,7 @@ static void RecordDraw(MenuRendererGPU *r, SDL_GPUTexture *texture,
     cmd->texture = texture;
     cmd->vertexOffset = r->vertexCount - 6; // last EmitQuad wrote 6 verts
     cmd->vertexCount = 6;
+    cmd->layer = r->currentLayer;
     memset(&cmd->uniforms, 0, sizeof(cmd->uniforms));
     cmd->uniforms.alphaMul = alphaMul;
 
@@ -246,6 +249,7 @@ static void RecordDrawWithColorReplace(MenuRendererGPU *r, SDL_GPUTexture *textu
     cmd->texture = texture;
     cmd->vertexOffset = r->vertexCount - 6;
     cmd->vertexCount = 6;
+    cmd->layer = r->currentLayer;
     memset(&cmd->uniforms, 0, sizeof(cmd->uniforms));
     cmd->uniforms.alphaMul = alphaMul;
 
@@ -269,7 +273,8 @@ static void RecordDrawWithColorReplace(MenuRendererGPU *r, SDL_GPUTexture *textu
     }
 }
 
-static void ReplayDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
+static void ReplayDrawsLayer(MenuRendererGPU *r, SDL_GPURenderPass *renderPass,
+                              MenuDrawLayer minLayer, MenuDrawLayer maxLayer)
 {
     float proj[16];
     MakeOrthoProjection(proj, 0, MENU_WIDTH, MENU_HEIGHT, 0);
@@ -282,6 +287,7 @@ static void ReplayDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 
     for (int i = 0; i < r->drawCommandCount; i++) {
         DrawCommand *cmd = &r->drawCommands[i];
+        if (cmd->layer < minLayer || cmd->layer > maxLayer) continue;
 
         SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &cmd->uniforms, sizeof(cmd->uniforms));
 
@@ -633,6 +639,7 @@ void menu_render_gpu_begin_frame(MenuRendererGPU *r)
     r->vertexCount = 0;
     r->drawCommandCount = 0;
     r->meshDrawCount = 0;
+    r->currentLayer = MENU_LAYER_BACKGROUND;
 
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
     if (!r->cmdBuf) return;
@@ -644,6 +651,11 @@ void menu_render_gpu_begin_frame(MenuRendererGPU *r)
         r->cmdBuf = NULL;
         return;
     }
+}
+
+void menu_render_gpu_set_layer(MenuRendererGPU *r, MenuDrawLayer layer)
+{
+    r->currentLayer = layer;
 }
 
 void menu_render_gpu_end_frame(MenuRendererGPU *r)
@@ -709,11 +721,17 @@ void menu_render_gpu_end_frame(MenuRendererGPU *r)
     vp.max_depth = 1.0f;
     SDL_SetGPUViewport(renderPass, &vp);
 
-    // Replay all 2D draw commands (including fade overlay if active)
-    ReplayDraws(r, renderPass);
+    // Background 2D draws (behind 3D preview)
+    ReplayDrawsLayer(r, renderPass, MENU_LAYER_BACKGROUND, MENU_LAYER_BACKGROUND);
 
-    // Replay 3D mesh draws (car/track previews)
+    // 3D mesh draws (car/track previews)
     ReplayMeshDraws(r, renderPass);
+
+    // Restore full viewport for foreground 2D draws
+    SDL_SetGPUViewport(renderPass, &vp);
+
+    // Foreground 2D draws (on top of 3D preview)
+    ReplayDrawsLayer(r, renderPass, MENU_LAYER_FOREGROUND, MENU_LAYER_FOREGROUND);
 
     SDL_EndGPURenderPass(renderPass);
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);

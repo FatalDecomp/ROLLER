@@ -10,6 +10,12 @@ typedef enum {
     MENU_RENDER_SOFTWARE
 } MenuRenderMode;
 
+typedef enum {
+    MENU_LAYER_BACKGROUND,  // behind 3D preview
+    MENU_LAYER_PREVIEW,     // 3D preview (set automatically by draw_*_preview)
+    MENU_LAYER_FOREGROUND   // on top of 3D preview
+} MenuDrawLayer;
+
 typedef struct MenuRenderer MenuRenderer;
 
 // Lifecycle
@@ -28,6 +34,9 @@ void menu_render_free_blocks(MenuRenderer *renderer, int slot);
 // Frame lifecycle
 void menu_render_begin_frame(MenuRenderer *renderer);
 void menu_render_end_frame(MenuRenderer *renderer);
+
+// Draw layer control (GPU only; software backend ignores this)
+void menu_render_set_layer(MenuRenderer *renderer, MenuDrawLayer layer);
 
 // Draw calls (between begin_frame / end_frame)
 void menu_render_clear(MenuRenderer *renderer, uint8 colorIndex,
