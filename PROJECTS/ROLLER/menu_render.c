@@ -1,6 +1,8 @@
 #include "menu_render.h"
 #include "menu_render_gpu.h"
 #include "menu_render_software.h"
+#include "3d.h"
+#include "sound.h"
 
 #include <stdlib.h>
 
@@ -50,8 +52,14 @@ void menu_render_free_blocks(MenuRenderer *renderer, int slot) {
 }
 
 void menu_render_begin_frame(MenuRenderer *renderer) {
-    if (renderer->pendingMode != renderer->mode)
+    if (renderer->pendingMode != renderer->mode) {
+        if (renderer->pendingMode == MENU_RENDER_SOFTWARE) {
+            // GPU fade doesn't update pal_addr; restore from base palette
+            for (int i = 0; i < 256; i++)
+                pal_addr[i] = palette[i];
+        }
         renderer->mode = renderer->pendingMode;
+    }
 
     if (renderer->mode == MENU_RENDER_GPU)
         menu_render_gpu_begin_frame(renderer->gpu);
