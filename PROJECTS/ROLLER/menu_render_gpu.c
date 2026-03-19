@@ -1,4 +1,4 @@
-#include "menu_render.h"
+#include "menu_render_gpu.h"
 #include "menu_shaders.h"
 #include "carplans.h"
 #include "car.h"
@@ -67,7 +67,7 @@ typedef struct {
 
 #define MAX_MESH_DRAWS 4
 
-struct MenuRenderer {
+struct MenuRendererGPU {
     SDL_GPUDevice *device;
     SDL_Window *window;
 
@@ -159,7 +159,7 @@ static SDL_GPUShader *LoadShader(SDL_GPUDevice *device, SDL_GPUShaderStage stage
 
 static void FreeMeshPreview(SDL_GPUDevice *dev, MeshPreview *mp, SDL_GPUTexture *whiteTexture);
 
-static void EnsureDepthTexture(MenuRenderer *r)
+static void EnsureDepthTexture(MenuRendererGPU *r)
 {
     if (r->depthTexture && r->depthWidth == r->swapchainWidth &&
         r->depthHeight == r->swapchainHeight)
@@ -192,7 +192,7 @@ static void MakeOrthoProjection(float *m, float l, float r, float b, float t)
     m[15] = 1.0f;
 }
 
-static void EmitQuad(MenuRenderer *r, float x, float y, float w, float h,
+static void EmitQuad(MenuRendererGPU *r, float x, float y, float w, float h,
                      float u0, float v0, float u1, float v1)
 {
     if (r->vertexCount + 6 > MAX_QUADS_PER_FRAME * 6) return;
@@ -212,7 +212,7 @@ static float ColorToFloat(uint8 component6bit)
     return (float)(component6bit * 255 / 63) / 255.0f;
 }
 
-static void RecordDraw(MenuRenderer *r, SDL_GPUTexture *texture,
+static void RecordDraw(MenuRendererGPU *r, SDL_GPUTexture *texture,
                        float alphaMul, int transparentIdx, const tColor *pal)
 {
     if (r->vertexCount == 0 || r->drawCommandCount >= MAX_DRAW_COMMANDS) return;
@@ -236,7 +236,7 @@ static void RecordDraw(MenuRenderer *r, SDL_GPUTexture *texture,
     cmd->uniforms.replaceFromR = -1.0f;
 }
 
-static void RecordDrawWithColorReplace(MenuRenderer *r, SDL_GPUTexture *texture,
+static void RecordDrawWithColorReplace(MenuRendererGPU *r, SDL_GPUTexture *texture,
                                        float alphaMul, uint8 fromIdx, uint8 toIdx,
                                        const tColor *pal)
 {
@@ -269,7 +269,7 @@ static void RecordDrawWithColorReplace(MenuRenderer *r, SDL_GPUTexture *texture,
     }
 }
 
-static void ReplayDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
+static void ReplayDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 {
     float proj[16];
     MakeOrthoProjection(proj, 0, MENU_WIDTH, MENU_HEIGHT, 0);
@@ -292,7 +292,7 @@ static void ReplayDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
     }
 }
 
-static void ReplayMeshDraws(MenuRenderer *r, SDL_GPURenderPass *renderPass)
+static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 {
     if (!r->meshPipeline || r->meshDrawCount == 0) return;
 
@@ -433,9 +433,9 @@ static void IndexedToRGBA(const uint8 *indexed, const tColor *pal, uint8 *rgba, 
 // Create / Destroy
 //---------------------------------------------------------------------------
 
-MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
+MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window)
 {
-    MenuRenderer *r = calloc(1, sizeof(MenuRenderer));
+    MenuRendererGPU *r = calloc(1, sizeof(MenuRendererGPU));
     r->device = device;
     r->window = window;
 
@@ -605,11 +605,11 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window)
     return r;
 }
 
-void menu_render_destroy(MenuRenderer *r)
+void menu_render_gpu_destroy(MenuRendererGPU *r)
 {
     if (!r) return;
     for (int i = 0; i < MAX_SLOTS; i++)
-        menu_render_free_blocks(r, i);
+        menu_render_gpu_free_blocks(r, i);
     if (r->blackTexture) SDL_ReleaseGPUTexture(r->device, r->blackTexture);
     FreeMeshPreview(r->device, &r->carMesh, r->whiteTexture);
     FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
@@ -628,7 +628,7 @@ void menu_render_destroy(MenuRenderer *r)
 // Frame lifecycle
 //---------------------------------------------------------------------------
 
-void menu_render_begin_frame(MenuRenderer *r)
+void menu_render_gpu_begin_frame(MenuRendererGPU *r)
 {
     r->vertexCount = 0;
     r->drawCommandCount = 0;
@@ -646,7 +646,7 @@ void menu_render_begin_frame(MenuRenderer *r)
     }
 }
 
-void menu_render_end_frame(MenuRenderer *r)
+void menu_render_gpu_end_frame(MenuRendererGPU *r)
 {
     if (!r->cmdBuf) return;
 
@@ -724,10 +724,10 @@ void menu_render_end_frame(MenuRenderer *r)
 // Asset conversion
 //---------------------------------------------------------------------------
 
-int menu_render_load_blocks(MenuRenderer *r, int slot, tBlockHeader *blocks, const tColor *pal)
+int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *blocks, const tColor *pal)
 {
     if (slot < 0 || slot >= MAX_SLOTS || !blocks) return 0;
-    menu_render_free_blocks(r, slot);
+    menu_render_gpu_free_blocks(r, slot);
 
     // Count valid sub-blocks
     int count = 0;
@@ -764,7 +764,7 @@ int menu_render_load_blocks(MenuRenderer *r, int slot, tBlockHeader *blocks, con
     return count;
 }
 
-void menu_render_free_blocks(MenuRenderer *r, int slot)
+void menu_render_gpu_free_blocks(MenuRendererGPU *r, int slot)
 {
     if (slot < 0 || slot >= MAX_SLOTS) return;
     if (r->slotTextures[slot]) {
@@ -785,20 +785,20 @@ void menu_render_free_blocks(MenuRenderer *r, int slot)
 // Draw calls
 //---------------------------------------------------------------------------
 
-void menu_render_clear(MenuRenderer *r, uint8 colorIndex, const tColor *pal)
+void menu_render_gpu_clear(MenuRendererGPU *r, uint8 colorIndex, const tColor *pal)
 {
     (void)r; (void)colorIndex; (void)pal;
     // Clear already done by render pass LOADOP_CLEAR (black).
 }
 
-void menu_render_background(MenuRenderer *r, int slot)
+void menu_render_gpu_background(MenuRendererGPU *r, int slot)
 {
     if (slot < 0 || slot >= MAX_SLOTS || !r->backgroundTextures[slot]) return;
     EmitQuad(r, 0, 0, MENU_WIDTH, MENU_HEIGHT, 0, 0, 1, 1);
     RecordDraw(r, r->backgroundTextures[slot], 1.0f, -1, NULL);
 }
 
-void menu_render_sprite(MenuRenderer *r, int slot, int blockIdx, int x, int y,
+void menu_render_gpu_sprite(MenuRendererGPU *r, int slot, int blockIdx, int x, int y,
                         int transparentIdx, const tColor *pal)
 {
     if (slot < 0 || slot >= MAX_SLOTS) return;
@@ -813,7 +813,7 @@ void menu_render_sprite(MenuRenderer *r, int slot, int blockIdx, int x, int y,
 // Text rendering
 //---------------------------------------------------------------------------
 
-void menu_render_text(MenuRenderer *r, int fontSlot, const char *text,
+void menu_render_gpu_text(MenuRendererGPU *r, int fontSlot, const char *text,
                       const char *mappingTable, int *charVOffsets,
                       int x, int y, uint8 colorReplace, int alignment,
                       const tColor *pal)
@@ -857,7 +857,7 @@ void menu_render_text(MenuRenderer *r, int fontSlot, const char *text,
     }
 }
 
-void menu_render_scaled_text(MenuRenderer *r, int fontSlot, const char *text,
+void menu_render_gpu_scaled_text(MenuRendererGPU *r, int fontSlot, const char *text,
                              const char *mappingTable, int *charVOffsets,
                              int x, int y, uint8 colorReplace,
                              unsigned int alignment, int clipLeft, int clipRight,
@@ -917,7 +917,7 @@ void menu_render_scaled_text(MenuRenderer *r, int fontSlot, const char *text,
 // Fade system
 //---------------------------------------------------------------------------
 
-void menu_render_begin_fade(MenuRenderer *r, int direction, int durationFrames)
+void menu_render_gpu_begin_fade(MenuRendererGPU *r, int direction, int durationFrames)
 {
     if (durationFrames <= 0) durationFrames = 32;
     if (direction == 0) {
@@ -931,14 +931,14 @@ void menu_render_begin_fade(MenuRenderer *r, int direction, int durationFrames)
     r->fadeActive = 1;
 }
 
-int menu_render_fade_active(MenuRenderer *r) { return r->fadeActive; }
+int menu_render_gpu_fade_active(MenuRendererGPU *r) { return r->fadeActive; }
 
-void menu_render_fade_wait(MenuRenderer *r, void (*redraw_fn)(void *ctx), void *ctx)
+void menu_render_gpu_fade_wait(MenuRendererGPU *r, void (*redraw_fn)(void *ctx), void *ctx)
 {
-    while (menu_render_fade_active(r)) {
-        menu_render_begin_frame(r);
+    while (menu_render_gpu_fade_active(r)) {
+        menu_render_gpu_begin_frame(r);
         if (redraw_fn) redraw_fn(ctx);
-        menu_render_end_frame(r);
+        menu_render_gpu_end_frame(r);
     }
 }
 
@@ -1019,7 +1019,7 @@ static void FreeMeshPreview(SDL_GPUDevice *dev, MeshPreview *mp, SDL_GPUTexture 
 
 // Build RGBA texture atlas from car's indexed-color tile data.
 // Layout: 256px wide (4 tiles per row), with one extra white row at bottom.
-static SDL_GPUTexture *BuildCarTextureAtlas(MenuRenderer *r, int carIdx,
+static SDL_GPUTexture *BuildCarTextureAtlas(MenuRendererGPU *r, int carIdx,
                                             const tColor *pal,
                                             int *outNumTiles, int *outAtlasH)
 {
@@ -1073,10 +1073,10 @@ static SDL_GPUTexture *BuildCarTextureAtlas(MenuRenderer *r, int carIdx,
     return tex;
 }
 
-void menu_render_load_car_mesh(MenuRenderer *r, int carIdx, const tColor *pal)
+void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor *pal)
 {
     if (r->loadedCarIdx == carIdx && r->carMesh.loaded) return;
-    menu_render_free_car_mesh(r);
+    menu_render_gpu_free_car_mesh(r);
 
     if (carIdx < 0 || carIdx > CAR_DESIGN_DEATH) return;
 
@@ -1212,13 +1212,13 @@ void menu_render_load_car_mesh(MenuRenderer *r, int carIdx, const tColor *pal)
     free(indices);
 }
 
-void menu_render_free_car_mesh(MenuRenderer *r)
+void menu_render_gpu_free_car_mesh(MenuRendererGPU *r)
 {
     FreeMeshPreview(r->device, &r->carMesh, r->whiteTexture);
     r->loadedCarIdx = -1;
 }
 
-void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
+void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float distance,
                                   int carYaw,
                                   int destX, int destY, int destW, int destH)
 {
@@ -1268,9 +1268,9 @@ void menu_render_draw_car_preview(MenuRenderer *r, float angle, float distance,
 // 3D mesh previews — track map
 //---------------------------------------------------------------------------
 
-void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
+void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
 {
-    menu_render_free_track_mesh(r);
+    menu_render_gpu_free_track_mesh(r);
 
     extern int TRAK_LEN;
     if (TRAK_LEN <= 0) return;
@@ -1406,12 +1406,12 @@ void menu_render_load_track_mesh(MenuRenderer *r, const tColor *pal)
     free(indices);
 }
 
-void menu_render_free_track_mesh(MenuRenderer *r)
+void menu_render_gpu_free_track_mesh(MenuRendererGPU *r)
 {
     FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
 }
 
-void menu_render_draw_track_preview(MenuRenderer *r, float cameraZ,
+void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
                                     int elevation, int yaw,
                                     int destX, int destY, int destW, int destH)
 {
