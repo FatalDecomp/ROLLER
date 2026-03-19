@@ -372,6 +372,11 @@ fatdata/
 # Zig build artifacts
 zig-out/
 .zig-cache/
+
+# Shadercross tool (build locally, not portable)
+tools/shadercross/lib/
+tools/shadercross/zig-out/
+tools/shadercross/.zig-cache/
 /compileData.scor
 /compileData.scor.gbl
 compile_flags.txt

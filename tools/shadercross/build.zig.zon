@@ -1,0 +1,29 @@
+.{
+    .name = .shadercross,
+    .version = "0.0.0",
+    .fingerprint = 0xdf9bd6900791605e,
+    .minimum_zig_version = "0.15.0",
+    .dependencies = .{
+        .SDL_shadercross = .{
+            .url = "git+https://github.com/libsdl-org/SDL_shadercross#3a314481ede01f5d966f0e834019942e34c02b82",
+            .hash = "N-V-__8AAG3GBgA9Xin-mupgrub3mZIeqcDWTTHvG8y8Z3t0",
+        },
+        .@"SPIRV-Cross" = .{
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Cross#vulkan-sdk-1.4.304.1",
+            .hash = "N-V-__8AAH-xqgCLJcKd8tYojD_fq21kdVIBYJA58yHekzzG",
+        },
+        .@"SPIRV-Headers" = .{
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Headers#vulkan-sdk-1.4.304.1",
+            .hash = "N-V-__8AAOCfOACzTvSmyvFC0oi84aOv7al_Yf4JCINrDGb-",
+        },
+        .sdl = .{
+            .url = "git+https://github.com/castholm/SDL#b1913e7c31ad72ecfd3ab04aeac387027754cfaf",
+            .hash = "sdl-0.3.0+3.2.22-7uIn9Pg3fwGG2IyIOPxxOSVe-75nUng9clt7tXGFLzMr",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "lib",
+    },
+}
