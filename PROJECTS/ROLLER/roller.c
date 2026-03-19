@@ -729,7 +729,7 @@ void UpdateSDL()
       //} else if (e.key.key == SDLK_F11) {
       //  ToggleFullscreen();
       //  continue;
-      if (e.key.key == SDLK_F11) {
+      if (e.key.key == SDLK_F10) {
         if (frontend_on) {
           MenuRenderer *mr = GetMenuRenderer();
           MenuRenderMode mode = menu_render_get_mode(mr);
