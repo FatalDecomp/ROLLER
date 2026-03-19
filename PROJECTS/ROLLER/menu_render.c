@@ -40,17 +40,13 @@ MenuRenderMode menu_render_get_mode(MenuRenderer *renderer) {
 
 int menu_render_load_blocks(MenuRenderer *renderer, int slot,
                             tBlockHeader *blocks, const tColor *palette) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        return menu_render_gpu_load_blocks(renderer->gpu, slot, blocks, palette);
-    else
-        return menu_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
+    menu_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
+    return menu_render_gpu_load_blocks(renderer->gpu, slot, blocks, palette);
 }
 
 void menu_render_free_blocks(MenuRenderer *renderer, int slot) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        menu_render_gpu_free_blocks(renderer->gpu, slot);
-    else
-        menu_render_sw_free_blocks(renderer->sw, slot);
+    menu_render_gpu_free_blocks(renderer->gpu, slot);
+    menu_render_sw_free_blocks(renderer->sw, slot);
 }
 
 void menu_render_begin_frame(MenuRenderer *renderer) {
@@ -151,17 +147,13 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
 
 void menu_render_load_car_mesh(MenuRenderer *renderer, int carIdx,
                                const tColor *palette) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        menu_render_gpu_load_car_mesh(renderer->gpu, carIdx, palette);
-    else
-        menu_render_sw_load_car_mesh(renderer->sw, carIdx, palette);
+    menu_render_gpu_load_car_mesh(renderer->gpu, carIdx, palette);
+    menu_render_sw_load_car_mesh(renderer->sw, carIdx, palette);
 }
 
 void menu_render_free_car_mesh(MenuRenderer *renderer) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        menu_render_gpu_free_car_mesh(renderer->gpu);
-    else
-        menu_render_sw_free_car_mesh(renderer->sw);
+    menu_render_gpu_free_car_mesh(renderer->gpu);
+    menu_render_sw_free_car_mesh(renderer->sw);
 }
 
 void menu_render_draw_car_preview(MenuRenderer *renderer, float angle,
@@ -176,17 +168,13 @@ void menu_render_draw_car_preview(MenuRenderer *renderer, float angle,
 }
 
 void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        menu_render_gpu_load_track_mesh(renderer->gpu, palette);
-    else
-        menu_render_sw_load_track_mesh(renderer->sw, palette);
+    menu_render_gpu_load_track_mesh(renderer->gpu, palette);
+    menu_render_sw_load_track_mesh(renderer->sw, palette);
 }
 
 void menu_render_free_track_mesh(MenuRenderer *renderer) {
-    if (renderer->mode == MENU_RENDER_GPU)
-        menu_render_gpu_free_track_mesh(renderer->gpu);
-    else
-        menu_render_sw_free_track_mesh(renderer->sw);
+    menu_render_gpu_free_track_mesh(renderer->gpu);
+    menu_render_sw_free_track_mesh(renderer->sw);
 }
 
 void menu_render_draw_track_preview(MenuRenderer *renderer, float cameraZ,

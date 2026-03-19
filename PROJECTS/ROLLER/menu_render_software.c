@@ -55,6 +55,7 @@ void menu_render_sw_begin_frame(MenuRendererSoftware *sw) {
 
 void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
     (void)sw;
+    g_bPaletteSet = true;
     UpdateSDLWindow();
 }
 
