@@ -465,8 +465,8 @@ void InitFATDATA(const char *szDataRoot)
   if (!szDataRoot)
     return;
 
-  // check if data folder exists
-  if (!ROLLERdirexists("./FATDATA")) {
+  // check if data folder exists (case-insensitive for linux)
+  if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     SDL_MessageBoxButtonData buttons[] = {
       //{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
       { 0,                                       1, "Drive/Folder" },
@@ -522,7 +522,7 @@ void InitFATDATA(const char *szDataRoot)
   }
 
   //check if extraction was successful
-  if (!ROLLERdirexists("./FATDATA")) {
+  if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the FATDATA folder assets from a retail copy of the game.");
   }
 }
