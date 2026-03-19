@@ -74,6 +74,11 @@ void menu_render_end_frame(MenuRenderer *renderer) {
         menu_render_sw_end_frame(renderer->sw);
 }
 
+void menu_render_set_layer(MenuRenderer *renderer, MenuDrawLayer layer) {
+    if (renderer->mode == MENU_RENDER_GPU)
+        menu_render_gpu_set_layer(renderer->gpu, layer);
+}
+
 void menu_render_clear(MenuRenderer *renderer, uint8 colorIndex,
                        const tColor *palette) {
     if (renderer->mode == MENU_RENDER_GPU)

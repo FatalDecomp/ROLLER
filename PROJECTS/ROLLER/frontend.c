@@ -1083,6 +1083,7 @@ void select_screen()
       }
       menu_render_load_track_mesh(mr, palette);
       menu_render_draw_track_preview(mr, cur_TrackZ, 1280, iRotation, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
+      menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
       if (game_type < 2) {
         iCurLaps = cur_laps[level];
         NoOfLaps = iCurLaps;
@@ -1139,6 +1140,7 @@ void select_screen()
       if (iBlockIdx < CAR_DESIGN_SUICYCO)
         menu_render_sprite(mr, 3, iBlockIdx, 190, 356, 0, pal_addr);
     }
+    menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
     menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
     menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
     switch (iMenuSelection) {
@@ -2120,6 +2122,7 @@ void select_car()
         if (iPlayer1Car < CAR_DESIGN_SUICYCO)
           menu_render_sprite(mr, 3, iPlayer1Car, 190, 356, 0, pal_addr);
       }
+      menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
       menu_render_sprite(mr, 7, 0, 560, 20, 0, pal_addr);
       uiNetworkLoop = 0;
       iPieChartY = 19;                          // Draw 7 pie chart segments
@@ -6116,6 +6119,7 @@ void select_track()
         menu_render_draw_track_preview(mr, fZ, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       else
         menu_render_draw_track_preview(mr, fZ_1, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
+      menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
       if (game_type >= 2)                     // Set number of laps based on game type and difficulty level
       {
         NoOfLaps = 5;
