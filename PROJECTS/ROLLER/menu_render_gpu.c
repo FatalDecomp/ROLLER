@@ -1253,15 +1253,24 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     Mat4Multiply(mv, view, model);      // view * model
     Mat4Multiply(mvp, proj, mv);        // proj * view * model
 
+    // Expand viewport to full width to avoid clipping, compensate in MVP
+    int padLeft = destX;
+    int padRight = MENU_WIDTH - (destX + destW);
+    int totalW = destW + padLeft + padRight;
+    float S = (float)destW / (float)totalW;
+    float T = (float)(padLeft - padRight) / (float)totalW;
+    for (int j = 0; j < 4; j++)
+        mvp[j * 4] = S * mvp[j * 4] + T * mvp[j * 4 + 3];
+
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
     cmd->vertexBuffer = r->carMesh.vertexBuffer;
     cmd->indexBuffer = r->carMesh.indexBuffer;
     cmd->texture = r->carMesh.texture;
     cmd->indexCount = r->carMesh.indexCount;
     memcpy(cmd->mvp, mvp, sizeof(mvp));
-    cmd->vpX = (float)destX;
+    cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
-    cmd->vpW = (float)destW;
+    cmd->vpW = (float)totalW;
     cmd->vpH = (float)destH;
     cmd->useDepth = true;
 }
@@ -1440,15 +1449,24 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     MakePerspective(proj, fov, aspect, 1.0f, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
 
+    // Expand viewport to full width to avoid clipping, compensate in MVP
+    int padLeft = destX;
+    int padRight = MENU_WIDTH - (destX + destW);
+    int totalW = destW + padLeft + padRight;
+    float S = (float)destW / (float)totalW;
+    float T = (float)(padLeft - padRight) / (float)totalW;
+    for (int j = 0; j < 4; j++)
+        mvp[j * 4] = S * mvp[j * 4] + T * mvp[j * 4 + 3];
+
     MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
     cmd->vertexBuffer = r->trackMesh.vertexBuffer;
     cmd->indexBuffer = r->trackMesh.indexBuffer;
     cmd->texture = r->trackMesh.texture;
     cmd->indexCount = r->trackMesh.indexCount;
     memcpy(cmd->mvp, mvp, sizeof(mvp));
-    cmd->vpX = (float)destX;
+    cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
-    cmd->vpW = (float)destW;
+    cmd->vpW = (float)totalW;
     cmd->vpH = (float)destH;
     cmd->useDepth = false;
 }
