@@ -27,6 +27,13 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+// 3D preview viewport (GPU backend only; software backend ignores these)
+#define PREVIEW_X         248
+#define PREVIEW_W         300
+#define PREVIEW_H         330
+#define CAR_PREVIEW_Y      57
+#define TRACK_PREVIEW_Y    5
+
 //-------------------------------------------------------------------------------------------------
 //symbol names added by ROLLER
 char szSelectEng[] = "select.eng";      //000A1980
@@ -196,7 +203,7 @@ char font1_ascii[256] =   //000A5504
 };
 int font2_offsets[96] =   //000A5604
 {
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, -1, 0, 0, 0, -2, 0, 0, -2, -2, 0, 0,
@@ -619,7 +626,7 @@ void title_screens()
     memcpy(font4_ascii, font4_ascii_br, 256);
     font_ascii_replace_accent((char *)font6_ascii);
     font_ascii_replace_accent((char *)ascii_conv3);
-  } 
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -636,7 +643,7 @@ void copy_screens()
 
   setpal("gremlin.pal");
   front_vga[0] = (tBlockHeader *)load_picture("gremlin.bm");
-  
+
   display_picture(scrbuf, front_vga[0]);
 
   fade_palette(32);
@@ -1075,7 +1082,7 @@ void select_screen()
         menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
       }
       menu_render_load_track_mesh(mr, palette);
-      menu_render_draw_track_preview(mr, cur_TrackZ, 1280, iRotation, 248, 57, 300, 330);
+      menu_render_draw_track_preview(mr, cur_TrackZ, 1280, iRotation, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       if (game_type < 2) {
         iCurLaps = cur_laps[level];
         NoOfLaps = iCurLaps;
@@ -1124,10 +1131,10 @@ void select_screen()
     } else if (iBlockIdx >= CAR_DESIGN_AUTO) {
       if (iBlockIdx == CAR_DESIGN_F1WACK) {
         menu_render_load_car_mesh(mr, CAR_DESIGN_F1WACK, palette);
-        menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, 248, 57, 300, 330);
+        menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       } else {
         menu_render_load_car_mesh(mr, iBlockIdx, palette);
-        menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, 248, 57, 300, 330);
+        menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       }
       if (iBlockIdx < CAR_DESIGN_SUICYCO)
         menu_render_sprite(mr, 3, iBlockIdx, 190, 356, 0, pal_addr);
@@ -1472,7 +1479,7 @@ LABEL_232:
           iNonCompetitorIdx++;
         }
         // Store the index of the first available non-competitor slot
-        grid[i] = iNonCompetitorIdx; 
+        grid[i] = iNonCompetitorIdx;
         // Move to next slot for next iteration
         iNonCompetitorIdx++;
       }
@@ -1536,7 +1543,7 @@ LABEL_232:
           //int iRandIdx2 = rand() % racers;
           int iRandIdx1 = GetHighOrderRand(racers, rand());
           int iRandIdx2 = GetHighOrderRand(racers, rand());
-          
+
           // Swap grid elements
           int iGridTemp = grid[iRandIdx1];
           grid[iRandIdx1] = grid[iRandIdx2];
@@ -2103,12 +2110,12 @@ void select_car()
       } else {                                         // 3D car preview (GPU mesh rendering)
         menu_render_load_car_mesh(mr, iPlayer1Car, palette);
         if (iPlayer1Car == CAR_DESIGN_F1WACK) {
-          menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, 248, 57, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, 6000.0f, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
         } else if (iDelayBeforeRotation) {
-          menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, 248, 57, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
         } else {
           fCarDrawDistance = (float)iZoomDistance;
-          menu_render_draw_car_preview(mr, 1280.0f, fCarDrawDistance, Car[0].nYaw, 248, 57, 300, 330);
+          menu_render_draw_car_preview(mr, 1280.0f, fCarDrawDistance, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
         }
         if (iPlayer1Car < CAR_DESIGN_SUICYCO)
           menu_render_sprite(mr, 3, iPlayer1Car, 190, 356, 0, pal_addr);
@@ -3733,7 +3740,7 @@ void select_configure()
                           goto SAVE_AI_DRIVER_NAME;
                         iPlayer2Car = player2_car;
 
-                        for (k = 0; k < 9; k++) 
+                        for (k = 0; k < 9; k++)
                         {
                           player_names[player2_car][k] = szNewNameBuf[k];
                         }
@@ -3789,7 +3796,7 @@ void select_configure()
                       iNameLength = 0;
                       if ((unsigned int)iSelectedCar <= 1)// Load player 1 name
                       {
-                        for (m = 0; m < 9; m++) 
+                        for (m = 0; m < 9; m++)
                         {
                           szNewNameBuf[m] = player_names[player1_car][m];
                         }
@@ -3797,7 +3804,7 @@ void select_configure()
                         //  ++m;
                       } else if (iSelectedCar == 2)// Load player 2 name
                       {
-                        for (n = 0; n < 9; n++) 
+                        for (n = 0; n < 9; n++)
                         {
                           szNewNameBuf[n] = player_names[player2_car][n];
                         }
@@ -3842,7 +3849,7 @@ void select_configure()
 
                         // Restore player 1 name
 
-                        for (ii = 0; ii < 9; ii++) 
+                        for (ii = 0; ii < 9; ii++)
                         {
                           player_names[player1_car][ii] = szNewNameBuf[ii];
                         }
@@ -3860,7 +3867,7 @@ void select_configure()
 
                         // Restore player 2 name
 
-                        for (jj = 0; jj < 9; jj++) 
+                        for (jj = 0; jj < 9; jj++)
                         {
                           player_names[player2_car][jj] = szNewNameBuf[jj];
                         }
@@ -3883,8 +3890,8 @@ void select_configure()
                       //LOBYTE(iAIDriverIdx_1) = (iSelectedCar - 3) ^ 1;
                       v196 = 0;
                       v197 = iAIDriverIdx_1;
-                      
-                      
+
+
                       //do {
                       //  ++v196;
                       //  *((_BYTE *)&team_col[15] + v196 + v197 * 9 + 3) = *((_BYTE *)&pJoyPos.iJ2YAxis + v196 + 3);
@@ -6106,9 +6113,9 @@ void select_track()
     if (TrackLoad >= 0) {                                           // Render 3D track preview
       menu_render_load_track_mesh(mr, palette);
       if (iAnimationTimer)
-        menu_render_draw_track_preview(mr, fZ, 1280, iYaw, 248, 57, 300, 330);
+        menu_render_draw_track_preview(mr, fZ, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       else
-        menu_render_draw_track_preview(mr, fZ_1, 1280, iYaw, 248, 57, 300, 330);
+        menu_render_draw_track_preview(mr, fZ_1, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
       if (game_type >= 2)                     // Set number of laps based on game type and difficulty level
       {
         NoOfLaps = 5;
