@@ -955,7 +955,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       iSpeedUnitBlkIdx = 32;
     else
       iSpeedUnitBlkIdx = 33;
-    print_block(&byScreenPtr[winw * ((172 * scr_size) >> 6) + winw - ((25 * scr_size) >> 6)], rev_vga[2], iSpeedUnitBlkIdx);// Display speed unit icon (km/h or mph)
+    game_render_print_block(g_pGameRenderer, 2, iSpeedUnitBlkIdx, &byScreenPtr[winw * ((172 * scr_size) >> 6) + winw - ((25 * scr_size) >> 6)]);// Display speed unit icon (km/h or mph)
     pLifeIconBlockHdr = rev_vga[4];
     iLifeIconIdx = 0;
     iLifeIconYPos = 54;
@@ -969,19 +969,19 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
         pKillBlockHdr = pLifeIconBlockHdr;
         iKillIconIdx = iKillsDisplayValue;
       }
-      print_block(&byScreenPtr[winw * ((iLifeIconYPos * scr_size) >> 6) + ((8 * scr_size) >> 6)], pKillBlockHdr, iKillIconIdx);
+      game_render_print_block(g_pGameRenderer, 4, iKillIconIdx, &byScreenPtr[winw * ((iLifeIconYPos * scr_size) >> 6) + ((8 * scr_size) >> 6)]);
       iLifeIconYPos += 20;
       ++iLifeIconIdx;
     }
     pPositionBlockHdr = rev_vga[4];
     if (Car[uiCarDataOffset5 / 0x134].byKills >= 9u)// Display kills - either as individual icons or as two-digit number
     {
-      print_block(&byScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((144 * scr_size) >> 6)], rev_vga[4], 8);
+      game_render_print_block(g_pGameRenderer, 4, 8, &byScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((144 * scr_size) >> 6)]);
       byKills = Car[uiCarDataOffset5 / 0x134].byKills;
       byKillsScreenPtr = byScreenPtr;
       pKillsDigitBlockHdr = rev_vga[2];
-      print_block(&byScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((122 * scr_size) >> 6)], rev_vga[2], byKills / 10 + 9);
-      print_block(&byKillsScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((110 * scr_size) >> 6)], pKillsDigitBlockHdr, byKills % 10 + 9);
+      game_render_print_block(g_pGameRenderer, 2, byKills / 10 + 9, &byScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((122 * scr_size) >> 6)]);
+      game_render_print_block(g_pGameRenderer, 2, byKills % 10 + 9, &byKillsScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((110 * scr_size) >> 6)]);
     } else {
       iRacePosition = 100;
       iKillIconLoopIdx = 0;
@@ -990,14 +990,14 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
         ++iKillIconLoopIdx;
         byKillIconPtr = &byScreenPtr[winw * ((178 * scr_size) >> 6) + winw - ((iRacePosition * scr_size) >> 6)];
         iRacePosition += 22;
-        print_block(byKillIconPtr, pPositionBlockHdr, 8);
+        game_render_print_block(g_pGameRenderer, 4, 8, byKillIconPtr);
       }
     }
     iGearCarIdx = iCarIndex_1;
     print_damage(&byScreenPtr[winw * (scr_size << 7 >> 6) + winw - ((80 * scr_size) >> 6)], rev_vga[2], iCarIdx);// Display damage indicator and gear display
     byGearScreenPtr = byScreenPtr;
-    print_block(&byScreenPtr[winw * ((181 * scr_size) >> 6) + winw - ((14 * scr_size) >> 6)], rev_vga[2], (char)Car[iGearCarIdx].byGearAyMax + 3);
-    print_block(&byGearScreenPtr[winw * ((21 * scr_size) >> 6) + winw - ((67 * scr_size) >> 6)], rev_vga[2], 19);
+    game_render_print_block(g_pGameRenderer, 2, (char)Car[iGearCarIdx].byGearAyMax + 3, &byScreenPtr[winw * ((181 * scr_size) >> 6) + winw - ((14 * scr_size) >> 6)]);
+    game_render_print_block(g_pGameRenderer, 2, 19, &byGearScreenPtr[winw * ((21 * scr_size) >> 6) + winw - ((67 * scr_size) >> 6)]);
     pLapBlockHdr = rev_vga[2];
     iCurrentLap = (char)Car[iGearCarIdx].byLap;
     pLapDigitBlockHdr = rev_vga[2];
@@ -1013,15 +1013,15 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
     byLapDisplayPtr = &byScreenPtr[winw * ((25 * scr_size) >> 6) + winw - iLapXOffset];
     if (iCurrentLap >= 10) {
       iTimeMinutes = iCurrentLap / 10 + 22;
-      print_block(&byScreenPtr[winw * ((25 * scr_size) >> 6) + winw - iLapXOffset], rev_vga[2], iTimeMinutes);
+      game_render_print_block(g_pGameRenderer, 2, iTimeMinutes, &byScreenPtr[winw * ((25 * scr_size) >> 6) + winw - iLapXOffset]);
       byLapDisplayPtr += winw * (pLapDigitBlockHdr[iTimeMinutes].iWidth - 1) / 320;
       iLapDigitIdx = iCurrentLap % 10 + 22;
     } else {
       iLapDigitIdx = iCurrentLap + 22;
     }
-    print_block(byLapDisplayPtr, pLapBlockHdr, iLapDigitIdx);
+    game_render_print_block(g_pGameRenderer, 2, iLapDigitIdx, byLapDisplayPtr);
     byRaceScreenPtr = byScreenPtr;
-    print_block(&byScreenPtr[winw * ((5 * scr_size) >> 6) + winw - ((52 * scr_size) >> 6)], rev_vga[2], 20);
+    game_render_print_block(g_pGameRenderer, 2, 20, &byScreenPtr[winw * ((5 * scr_size) >> 6) + winw - ((52 * scr_size) >> 6)]);
     iTimingCarIdx = iCarIndex_1;
     if (game_type >= 2)                       // Time trial mode - display lap times for multiple laps
     {
@@ -1087,7 +1087,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
         iLapTimeYPos2 += 8;
       } while (iLapNum2 < 6);
     } else {
-      print_block(&byRaceScreenPtr[winw * ((8 * scr_size) >> 6)], rev_vga[2], 21);// Race mode - display position and lap information
+      game_render_print_block(g_pGameRenderer, 2, 21, &byRaceScreenPtr[winw * ((8 * scr_size) >> 6)]);// Race mode - display position and lap information
       pPositionDigitBlockHdr = rev_vga[2];
       iPositionValue = Car[iTimingCarIdx].byRacePosition + 1;
       pLapDigitBlockHdr2 = rev_vga[2];
@@ -1098,13 +1098,13 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       iPositionXOffset = (scr_size * (59 - iPositionDigitWidth / 2)) >> 6;
       byPositionDisplayPtr = &byScreenPtr[winw * ((12 * scr_size) >> 6) + iPositionXOffset];
       if (iPositionValue >= 10) {
-        print_block(&byScreenPtr[winw * ((12 * scr_size) >> 6) + iPositionXOffset], rev_vga[2], 23);
+        game_render_print_block(g_pGameRenderer, 2, 23, &byScreenPtr[winw * ((12 * scr_size) >> 6) + iPositionXOffset]);
         byPositionDisplayPtr += (scr_size * (pLapDigitBlockHdr2[23].iWidth - 1)) >> 6;
         iPositionDigitIdx = iPositionValue % 10 + 22;
       } else {
         iPositionDigitIdx = iPositionValue + 22;
       }
-      print_block(byPositionDisplayPtr, pPositionDigitBlockHdr, iPositionDigitIdx);
+      game_render_print_block(g_pGameRenderer, 2, iPositionDigitIdx, byPositionDisplayPtr);
       iPositionCarIdx = iCarIndex_1;
       print_pos(4, 9, Car[iCarIndex_1].byRacePosition - 1);
       print_pos(4, 42, Car[iPositionCarIdx].byRacePosition + 1);

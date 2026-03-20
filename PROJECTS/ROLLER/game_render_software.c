@@ -176,6 +176,12 @@ void game_render_sw_sprite(GameRendererSoftware *sw, int slot, int blockIdx,
                       transparentColorIndex);
 }
 
+void game_render_sw_print_block(GameRendererSoftware *sw, int slot,
+                                int blockIdx, uint8 *pDest) {
+    if (slot >= 0 && slot < GAME_RENDER_MAX_BLOCK_SLOTS && sw->blocks[slot])
+        print_block(pDest, sw->blocks[slot], blockIdx);
+}
+
 // ---------------------------------------------------------------------------
 // Palette
 // ---------------------------------------------------------------------------
