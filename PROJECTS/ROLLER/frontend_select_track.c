@@ -27,12 +27,6 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-// 3D preview viewport (GPU backend only; software backend ignores these)
-#define PREVIEW_X         248
-#define PREVIEW_W         300
-#define PREVIEW_H         330
-#define CAR_PREVIEW_Y      57
-#define TRACK_PREVIEW_Y    5
 
 //-------------------------------------------------------------------------------------------------
 //00049070
