@@ -4,6 +4,7 @@
 #include "types.h"
 #include "engines.h"
 #include "frontend.h"
+#include "game_render.h"
 //-------------------------------------------------------------------------------------------------
 
 enum eTrakColour
@@ -246,6 +247,7 @@ extern int mpressed;
 extern int jpressed;
 extern uint8 *screen;
 extern uint8 *scrbuf;
+extern GameRenderer *g_pGameRenderer;
 extern uint8 *mirbuf;
 extern uint8 *texture_vga;
 extern uint8 *building_vga;

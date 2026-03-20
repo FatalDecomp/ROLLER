@@ -96,6 +96,7 @@ int jpressed = 0;           //000A352D
 int start_time = 0;         //000A3534
 uint8 *screen = NULL; //= 0xA0000; //000A3538
 uint8 *scrbuf = NULL;       //000A353C
+GameRenderer *g_pGameRenderer = NULL;
 uint8 *mirbuf = NULL;       //000A3540
 uint8 *texture_vga = NULL;   //000A3544
 uint8 *building_vga = NULL;  //000A3548
@@ -1626,6 +1627,8 @@ void play_game_init()
     race_started = -1;
   }
   network_mes_mode = iSavedNetworkMesMode;
+
+  g_pGameRenderer = game_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1636,6 +1639,11 @@ void play_game_uninit()
   int iView; // eax
   //int iMaxOffset; // ebx
   //unsigned int iOffset; // eax
+
+  if (g_pGameRenderer) {
+    game_render_destroy(g_pGameRenderer);
+    g_pGameRenderer = NULL;
+  }
 
   //_disable();
   if (!winner_mode && replaytype != 2 && network_on) {
