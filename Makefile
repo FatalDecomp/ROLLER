@@ -51,6 +51,8 @@ SRC = 	PROJECTS/ROLLER/3d.c \
         PROJECTS/ROLLER/menu_render.c \
         PROJECTS/ROLLER/menu_render_gpu.c \
         PROJECTS/ROLLER/menu_render_software.c \
+        PROJECTS/ROLLER/game_render.c \
+        PROJECTS/ROLLER/game_render_software.c \
         PROJECTS/ROLLER/func2.c \
         PROJECTS/ROLLER/func3.c \
         PROJECTS/ROLLER/function.c \
