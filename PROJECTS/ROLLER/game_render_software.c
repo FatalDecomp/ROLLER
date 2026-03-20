@@ -134,13 +134,12 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot) {
 // ---------------------------------------------------------------------------
 
 void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
-                         const uint8 *texture_data, int gfx_size,
-                         const uint8 *palette_remap) {
+                         const uint8 *texture_data, int tex_idx,
+                         int gfx_size, const uint8 *palette_remap) {
     (void)sw;
     (void)palette_remap;
-    if (poly->iSurfaceType & 0x100) { // SURFACE_FLAG_APPLY_TEXTURE
-        int texIdx = poly->iSurfaceType & 0xFF;
-        POLYTEX((uint8 *)texture_data, screen_pointer, poly, texIdx, gfx_size);
+    if (texture_data) {
+        POLYTEX((uint8 *)texture_data, screen_pointer, poly, tex_idx, gfx_size);
     } else {
         POLYFLAT(screen_pointer, poly);
     }
