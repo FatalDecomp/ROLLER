@@ -51,9 +51,12 @@ int game_render_load_blocks(GameRenderer *renderer, int slot,
 void game_render_free_blocks(GameRenderer *renderer, int slot);
 
 // Draw — polygon (track, buildings, particles, clouds)
+// tex_idx selects the texture bank (0=track, 17=building, 18=cargen, etc.)
+// For POLYFLAT calls, pass texture_data=NULL, tex_idx=0, gfx_size=0.
 void game_render_quad(GameRenderer *renderer,
                       tPolyParams *poly,
                       const uint8 *texture_data,
+                      int tex_idx,
                       int gfx_size,
                       const uint8 *palette_remap);
 

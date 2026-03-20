@@ -744,9 +744,9 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             if ((double)BuildingSub[uiBuildingType] * subscale <= fClosestZ)// Check if polygon needs subdivision based on distance
             {                                   // Render textured or flat polygon
               if ((BuildingPol.iSurfaceType & 0x100) != 0)
-                POLYTEX(building_vga, pScrPtr, &BuildingPol, 17, gfx_size);
+                game_render_quad(g_pGameRenderer, &BuildingPol, building_vga, 17, gfx_size, NULL);
               else
-                POLYFLAT(pScrPtr, &BuildingPol);
+                game_render_quad(g_pGameRenderer, &BuildingPol, NULL, 0, 0, NULL);
             } else {
               subdivide(
                 pScrPtr,

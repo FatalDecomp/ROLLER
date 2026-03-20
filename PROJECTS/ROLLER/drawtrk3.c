@@ -4948,12 +4948,13 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               {
                 // Render textured pol with car texture
                 //TODO is this correct?
-                POLYTEX(
-                  cartex_vga[car_texmap[subpolytype - 3] - 1],
-                  subptr,
+                game_render_quad(
+                  g_pGameRenderer,
                   subpoly,
+                  cartex_vga[car_texmap[subpolytype - 3] - 1],
                   car_texmap[subpolytype - 3],
-                  gfx_size);
+                  gfx_size,
+                  NULL);
                 //POLYTEX(
                 //  (&horizon_vga)[*(&car_draw_order[15].iChunkIdx + subpolytype)],// offset into car_texmap
                 //  subptr,
@@ -4965,7 +4966,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               pFrameBuf = subptr;
               pPolyParams = subpoly;
             LABEL_114:
-              POLYFLAT(pFrameBuf, pPolyParams); // render flat pol
+              game_render_quad(g_pGameRenderer, pPolyParams, NULL, 0, 0, NULL); // render flat pol
             LABEL_115:
                           // Debug: draw pol outline if showsub is enabled
               if (showsub) {
@@ -4988,7 +4989,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               goto LABEL_111;
             if ((pPolyParams->iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)// SURFACE_FLAG_APPLY_TEXTURE
             {
-              POLYTEX(building_vga, subptr, pPolyParamsLocal, 17, gfx_size);
+              game_render_quad(g_pGameRenderer, pPolyParamsLocal, building_vga, 17, gfx_size, NULL);
               goto LABEL_115;
             }
           LABEL_106:
@@ -4996,7 +4997,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
             goto LABEL_107;
           }
           // Default texture rendering
-          POLYTEX(texture_vga, subptr, pPolyParamsLocal, 0, gfx_size);
+          game_render_quad(g_pGameRenderer, pPolyParamsLocal, texture_vga, 0, gfx_size, NULL);
           goto LABEL_115;
         case 1:                                 // Horiz subdivision only
           // Calculate midpoint between verts 0 and 1, and 2 and 3

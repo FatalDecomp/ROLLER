@@ -41,8 +41,8 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot);
 
 // Draw calls
 void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
-                         const uint8 *texture_data, int gfx_size,
-                         const uint8 *palette_remap);
+                         const uint8 *texture_data, int tex_idx,
+                         int gfx_size, const uint8 *palette_remap);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,

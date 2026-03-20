@@ -1484,7 +1484,7 @@ LABEL_105:
     CarPol.uiNumVerts = 4;
     CarPol.iSurfaceType = 0x202002;
     CarPol.vertices[3].y = (int)dShadowCorner3Y;
-    POLYFLAT(pScrBuf, &CarPol);
+    game_render_quad(g_pGameRenderer, &CarPol, NULL, 0, 0, NULL);
   }
 LABEL_117:
   pCoords = CarDesigns[carDesignIndex].pCoords;
@@ -1956,7 +1956,7 @@ LABEL_117:
           } else {
             // SURFACE_FLAG_APPLY_TEXTURE
             if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
-              POLYTEX(cartex_vga[car_texmap[uiTextureMapOffset / 4] - 1], pScrBuf, &CarPol, car_texmap[uiTextureMapOffset / 4], gfx_size);
+              game_render_quad(g_pGameRenderer, &CarPol, cartex_vga[car_texmap[uiTextureMapOffset / 4] - 1], car_texmap[uiTextureMapOffset / 4], gfx_size, NULL);
             } else {
               goto LABEL_267;  // No texture - render flat polygon
             }
@@ -2019,11 +2019,11 @@ LABEL_117:
               // SURFACE_FLAG_APPLY_TEXTURE
               if ((CarPol.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_267:
-                POLYFLAT(pScrBuf, &CarPol);
+                game_render_quad(g_pGameRenderer, &CarPol, NULL, 0, 0, NULL);
                 goto LABEL_268;
               }
             }
-            POLYTEX(cargen_vga, pScrBuf, &CarPol, 18, gfx_size);
+            game_render_quad(g_pGameRenderer, &CarPol, cargen_vga, 18, gfx_size, NULL);
           }
         }
       LABEL_268:
@@ -2115,7 +2115,7 @@ LABEL_117:
       scr_size = iPrevScrSize;
       CarPol.iSurfaceType = team_col[iTeamColIdx];
       CarPol.uiNumVerts = 4;
-      POLYFLAT(pScrBuf, &CarPol);
+      game_render_quad(g_pGameRenderer, &CarPol, NULL, 0, 0, NULL);
     }
   }
 }

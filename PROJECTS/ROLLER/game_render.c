@@ -103,11 +103,11 @@ void game_render_free_blocks(GameRenderer *renderer, int slot) {
 // Draw calls
 
 void game_render_quad(GameRenderer *renderer, tPolyParams *poly,
-                      const uint8 *texture_data, int gfx_size,
-                      const uint8 *palette_remap) {
+                      const uint8 *texture_data, int tex_idx,
+                      int gfx_size, const uint8 *palette_remap) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad(renderer->sw, poly, texture_data, gfx_size,
-                            palette_remap);
+        game_render_sw_quad(renderer->sw, poly, texture_data, tex_idx,
+                            gfx_size, palette_remap);
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
