@@ -1533,7 +1533,7 @@ void play_game_init()
   loadsamples();                                // Initialize audio system - load samples, setup collisions and sounds
   initcollisions();
   initsounds();
-  game_render_begin_fade(g_pGameRenderer, 0, 0); // Initialize graphics system - fade palette and setup screen
+  fade_palette(0); // Before game renderer exists — use direct call
   init_screen();
   if (intro || replaytype == 2)               // Set screen size based on intro mode or replay
   {
