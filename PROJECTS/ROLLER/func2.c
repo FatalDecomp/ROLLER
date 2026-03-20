@@ -1820,7 +1820,9 @@ void release_key_int()
 void clear_border(int x, int y, int iWidth, int iLines)
 {
   //added by ROLLER
-  UpdateSDLWindow();
+  // During gameplay, game_render_end_frame handles presentation
+  if (!g_pGameRenderer)
+    UpdateSDLWindow();
   return;
 
   int iOldWinX; // edi
