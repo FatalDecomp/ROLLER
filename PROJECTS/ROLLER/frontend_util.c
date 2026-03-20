@@ -33,6 +33,9 @@
 #define PREVIEW_H         330
 #define CAR_PREVIEW_Y      57
 #define TRACK_PREVIEW_Y    5
+
+//-------------------------------------------------------------------------------------------------
+//00049C50
 void save_params()
 {
   p_tex_size = gfx_size;
@@ -46,7 +49,7 @@ void reset_params()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00049C70
+//0004A440
 void loadcheatnames()
 {
   char buffer[0x400]; // Temporary buffer for file contents
@@ -304,4 +307,3 @@ int CheckNames(char *szPlayerName, int iPlayerIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0004AB30

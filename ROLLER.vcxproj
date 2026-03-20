@@ -220,8 +220,11 @@ exit 1</Command>
     <ClCompile Include="PROJECTS\ROLLER\frontend_data.c" />
     <ClCompile Include="PROJECTS\ROLLER\frontend_network.c" />
     <ClCompile Include="PROJECTS\ROLLER\frontend_screens.c" />
-    <ClCompile Include="PROJECTS\ROLLER\frontend_select.c" />
-    <ClCompile Include="PROJECTS\ROLLER\frontend_select2.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select_car.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select_disk.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select_players.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select_track.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select_type.c" />
     <ClCompile Include="PROJECTS\ROLLER\frontend_util.c" />
     <ClCompile Include="PROJECTS\ROLLER\func2.c" />
     <ClCompile Include="PROJECTS\ROLLER\func3.c" />

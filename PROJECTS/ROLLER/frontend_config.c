@@ -33,6 +33,9 @@
 #define PREVIEW_H         330
 #define CAR_PREVIEW_Y      57
 #define TRACK_PREVIEW_Y    5
+
+//-------------------------------------------------------------------------------------------------
+//00042D40
 void select_configure()
 {
   char *szString; // eax
@@ -2529,4 +2532,3 @@ void front_volumebar(int iY, int iVolumeLevel, int iFillColor)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00047000

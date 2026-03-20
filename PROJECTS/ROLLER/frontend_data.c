@@ -538,4 +538,3 @@ uint8 oldkeys[14];        //0016FF04
 char my_name[14];         //0016FF12
 
 //-------------------------------------------------------------------------------------------------
-// Replace accented characters with non-accented equivalents in the font table - add by ROLLER

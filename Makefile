@@ -42,8 +42,11 @@ SRC = 	PROJECTS/ROLLER/3d.c \
         PROJECTS/ROLLER/frontend_data.c \
         PROJECTS/ROLLER/frontend_network.c \
         PROJECTS/ROLLER/frontend_screens.c \
-        PROJECTS/ROLLER/frontend_select.c \
-        PROJECTS/ROLLER/frontend_select2.c \
+        PROJECTS/ROLLER/frontend_select_car.c \
+        PROJECTS/ROLLER/frontend_select_disk.c \
+        PROJECTS/ROLLER/frontend_select_players.c \
+        PROJECTS/ROLLER/frontend_select_track.c \
+        PROJECTS/ROLLER/frontend_select_type.c \
         PROJECTS/ROLLER/frontend_util.c \
         PROJECTS/ROLLER/func2.c \
         PROJECTS/ROLLER/func3.c \

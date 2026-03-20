@@ -33,6 +33,9 @@
 #define PREVIEW_H         330
 #define CAR_PREVIEW_Y      57
 #define TRACK_PREVIEW_Y    5
+
+//-------------------------------------------------------------------------------------------------
+//00049C70
 void NetworkWait()
 {
   int iPlayerLoop1; // esi
@@ -314,7 +317,7 @@ LABEL_83:
 }
 
 //-------------------------------------------------------------------------------------------------
-//0004A440
+//0004AB30
 void restart_net_game()
 {
   int iActualCompetitors; // edi

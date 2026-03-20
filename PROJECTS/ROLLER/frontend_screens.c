@@ -33,6 +33,7 @@
 #define PREVIEW_H         330
 #define CAR_PREVIEW_Y      57
 #define TRACK_PREVIEW_Y    5
+// Replace accented characters with non-accented equivalents in the font table - add by ROLLER
 void font_ascii_replace_accent(char *font)
 {
   font[0xc7] = font['C']; // Ç
@@ -1096,4 +1097,3 @@ LABEL_232:
 }
 
 //-------------------------------------------------------------------------------------------------
-//000411D0
