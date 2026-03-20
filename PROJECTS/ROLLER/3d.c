@@ -1533,7 +1533,7 @@ void play_game_init()
   loadsamples();                                // Initialize audio system - load samples, setup collisions and sounds
   initcollisions();
   initsounds();
-  fade_palette(0);                              // Initialize graphics system - fade palette and setup screen
+  game_render_begin_fade(g_pGameRenderer, 0, 0); // Initialize graphics system - fade palette and setup screen
   init_screen();
   if (intro || replaytype == 2)               // Set screen size based on intro mode or replay
   {
@@ -1713,7 +1713,7 @@ void play_game_uninit()
   }
   network_error = 0;
   network_sync_error = 0;
-  fade_palette(0);
+  game_render_begin_fade(g_pGameRenderer, 0, 0);
   if (!loading_replay)
     stopmusic();
   stopallsamples();
@@ -2059,10 +2059,10 @@ void play_game(int iTrack)
           if (champ_mode == 3 && lastsample < -72 && readsample == writesample)// Initialize fireworks sequence with fade out/in
           {
             holdmusic = -1;
-            fade_palette((unsigned int)writesample ^ readsample);
+            game_render_begin_fade(g_pGameRenderer, 0, 0); // writesample ^ readsample == 0 when readsample == writesample
             ++champ_mode;
             firework_screen();
-            fade_palette(32);
+            game_render_begin_fade(g_pGameRenderer, 1, 0);
             champ_count = 720;
             champ_zoom = 3;
             champ_mode = 16;
@@ -2179,7 +2179,7 @@ void play_game(int iTrack)
     if (screenready)                          // Handle screen fade-in and music startup
     {
       if (!fadedin) {
-        fade_palette(32);
+        game_render_begin_fade(g_pGameRenderer, 1, 0);
         fadedin = -1;
         holdmusic = 0;
         if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
