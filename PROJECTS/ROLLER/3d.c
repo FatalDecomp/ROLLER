@@ -996,8 +996,8 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
     subscale = (float)dTextureSubscaleMultiplier;
   }
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
-  calculateview(uiViewMode, iCarIdx, iChaseCamIdx);// Calculate camera view matrix and projection parameters
-  DrawHorizon(pScrPtr);                         // Draw sky/horizon background
+  game_render_set_camera(g_pGameRenderer, uiViewMode, iCarIdx, iChaseCamIdx);// Calculate camera view matrix and projection parameters
+  game_render_draw_horizon(g_pGameRenderer);    // Draw sky/horizon background
   CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
   DrawCars(iCarIdx, uiViewMode);                // Render all visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
