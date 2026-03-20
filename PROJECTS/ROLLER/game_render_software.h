@@ -51,6 +51,8 @@ void game_render_sw_draw_horizon(GameRendererSoftware *sw);
 void game_render_sw_sprite(GameRendererSoftware *sw, int slot, int blockIdx,
                            int x, int y, int transparentColorIndex,
                            const tColor *palette);
+void game_render_sw_print_block(GameRendererSoftware *sw, int slot,
+                                int blockIdx, uint8 *pDest);
 
 // Palette
 void game_render_sw_set_palette(GameRendererSoftware *sw,

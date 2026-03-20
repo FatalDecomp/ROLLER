@@ -1635,6 +1635,14 @@ void play_game_init()
   network_mes_mode = iSavedNetworkMesMode;
 
   g_pGameRenderer = game_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
+
+  // Register HUD sprite blocks (rev_vga) with the game renderer.
+  // Slot 0: minitext font, 1: font6, 2: panel2 HUD sprites,
+  // 3: font3 zoom text, 4: pancar life/kill icons.
+  for (int i = 0; i < 5; i++) {
+    if (rev_vga[i])
+      game_render_load_blocks(g_pGameRenderer, i, rev_vga[i], pal_addr);
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
