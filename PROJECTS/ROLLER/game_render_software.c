@@ -55,7 +55,6 @@ void game_render_sw_end_frame(GameRendererSoftware *sw) {
         fade_palette(32);
         return;
     }
-    g_bPaletteSet = true;
     UpdateSDLWindow();
 }
 
