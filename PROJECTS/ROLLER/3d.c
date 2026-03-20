@@ -1713,7 +1713,7 @@ void play_game_uninit()
   }
   network_error = 0;
   network_sync_error = 0;
-  game_render_begin_fade(g_pGameRenderer, 0, 0);
+  fade_palette(0); // After game renderer destroyed — use direct call
   if (!loading_replay)
     stopmusic();
   stopallsamples();
