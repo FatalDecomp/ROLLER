@@ -38,6 +38,9 @@ add_executable(roller
     PROJECTS/ROLLER/frontend_select_track.c
     PROJECTS/ROLLER/frontend_select_type.c
     PROJECTS/ROLLER/frontend_util.c
+    PROJECTS/ROLLER/menu_render.c
+    PROJECTS/ROLLER/menu_render_gpu.c
+    PROJECTS/ROLLER/menu_render_software.c
     PROJECTS/ROLLER/func2.c
     PROJECTS/ROLLER/func3.c
     PROJECTS/ROLLER/function.c

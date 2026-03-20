@@ -226,6 +226,9 @@ exit 1</Command>
     <ClCompile Include="PROJECTS\ROLLER\frontend_select_track.c" />
     <ClCompile Include="PROJECTS\ROLLER\frontend_select_type.c" />
     <ClCompile Include="PROJECTS\ROLLER\frontend_util.c" />
+    <ClCompile Include="PROJECTS\ROLLER\menu_render.c" />
+    <ClCompile Include="PROJECTS\ROLLER\menu_render_gpu.c" />
+    <ClCompile Include="PROJECTS\ROLLER\menu_render_software.c" />
     <ClCompile Include="PROJECTS\ROLLER\func2.c" />
     <ClCompile Include="PROJECTS\ROLLER\func3.c" />
     <ClCompile Include="PROJECTS\ROLLER\function.c" />
