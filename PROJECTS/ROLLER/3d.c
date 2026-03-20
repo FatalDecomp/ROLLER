@@ -260,7 +260,9 @@ int player1_car;            //0013FB80
 void copypic(uint8 *pSrc, uint8 *pDest)
 {
   //added by ROLLER
-  UpdateSDLWindow();
+  // During gameplay, game_render_end_frame handles presentation
+  if (!g_pGameRenderer)
+    UpdateSDLWindow();
   return;
 
   int iRowIdx; // edx
@@ -798,6 +800,7 @@ void updatescreen()
   int iMirrorYOffset; // [esp+0h] [ebp-24h]
   int iShowRearView; // [esp+4h] [ebp-20h]
 
+  game_render_begin_frame(g_pGameRenderer);
   mirror = 0;                                   // Initialize global screen state variables
   shown_panel = 0;
   screenready = -1;
@@ -935,6 +938,7 @@ void updatescreen()
     LABEL_14:
       game_copypic(scrbuf, screen, ViewType[0]);// Copy screen buffer to final display and initialize animated elements
       init_animate_ads();
+      game_render_end_frame(g_pGameRenderer);
       return;
     }
     goto LABEL_59;
@@ -1021,6 +1025,7 @@ LABEL_30:
   {
   LABEL_59:
     init_animate_ads();                         // Initialize animated advertisements and return
+    game_render_end_frame(g_pGameRenderer);
     return;
   }
   if (SVGA_ON)
@@ -1030,6 +1035,7 @@ LABEL_30:
   winw = XMAX;
   winh = YMAX;
   init_animate_ads();
+  game_render_end_frame(g_pGameRenderer);
 }
 
 //-------------------------------------------------------------------------------------------------
