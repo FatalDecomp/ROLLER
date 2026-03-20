@@ -133,7 +133,7 @@ void DrawTower(int iTowerIdx, uint8 *pScrBuf)
       TowerPol.vertices[3].x = iPixelX + 3;
       TowerPol.iSurfaceType = SURFACE_FLAG_FLIP_BACKFACE | 0xE7; //0x20E7;          // Set tower polygon properties and draw to screen buffer
       TowerPol.uiNumVerts = 4;
-      POLYFLAT(pScrBuf, &TowerPol);
+      game_render_quad(g_pGameRenderer, &TowerPol, NULL, 0, 0, NULL);
     }
   }
 }
