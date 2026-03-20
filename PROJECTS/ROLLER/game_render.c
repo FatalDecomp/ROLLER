@@ -133,6 +133,12 @@ void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
                               transparentColorIndex, palette);
 }
 
+void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
+                             uint8 *pDest) {
+    if (renderer->mode == GAME_RENDER_SOFTWARE)
+        game_render_sw_print_block(renderer->sw, slot, blockIdx, pDest);
+}
+
 // Palette
 
 void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {

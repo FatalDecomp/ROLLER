@@ -74,6 +74,10 @@ void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
                         const tColor *palette);
 
+// Draw — HUD print_block (scaled sprite blit to dest pointer)
+void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
+                             uint8 *pDest);
+
 // Palette
 void game_render_set_palette(GameRenderer *renderer, const tColor *palette);
 
