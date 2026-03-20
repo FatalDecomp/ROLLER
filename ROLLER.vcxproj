@@ -216,7 +216,13 @@ exit 1</Command>
     <ClCompile Include="PROJECTS\ROLLER\date.c" />
     <ClCompile Include="PROJECTS\ROLLER\drawtrk3.c" />
     <ClCompile Include="PROJECTS\ROLLER\engines.c" />
-    <ClCompile Include="PROJECTS\ROLLER\frontend.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_config.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_data.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_network.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_screens.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_select2.c" />
+    <ClCompile Include="PROJECTS\ROLLER\frontend_util.c" />
     <ClCompile Include="PROJECTS\ROLLER\func2.c" />
     <ClCompile Include="PROJECTS\ROLLER\func3.c" />
     <ClCompile Include="PROJECTS\ROLLER\function.c" />

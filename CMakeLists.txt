@@ -28,7 +28,13 @@ add_executable(roller
     PROJECTS/ROLLER/date.c
     PROJECTS/ROLLER/drawtrk3.c
     PROJECTS/ROLLER/engines.c
-    PROJECTS/ROLLER/frontend.c
+    PROJECTS/ROLLER/frontend_config.c
+    PROJECTS/ROLLER/frontend_data.c
+    PROJECTS/ROLLER/frontend_network.c
+    PROJECTS/ROLLER/frontend_screens.c
+    PROJECTS/ROLLER/frontend_select.c
+    PROJECTS/ROLLER/frontend_select2.c
+    PROJECTS/ROLLER/frontend_util.c
     PROJECTS/ROLLER/func2.c
     PROJECTS/ROLLER/func3.c
     PROJECTS/ROLLER/function.c
