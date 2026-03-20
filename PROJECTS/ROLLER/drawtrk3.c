@@ -2192,7 +2192,7 @@ LABEL_393:
                 if ((LWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0)
                   goto LABEL_628;
               LABEL_677:
-                POLYTEX(texture_vga, pScrPtr_1, &LWallPoly, 0, gfx_size);
+                game_render_quad(g_pGameRenderer, &LWallPoly, texture_vga, 0, gfx_size, NULL);
                 goto LABEL_1203;
               }
               set_starts(0);
@@ -2243,7 +2243,7 @@ LABEL_393:
               }
               if ((LWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_647:
-                POLYFLAT(pScrPtr_1, &LWallPoly);
+                game_render_quad(g_pGameRenderer, &LWallPoly, NULL, 0, 0, NULL);
                 goto LABEL_1227;
               }
               goto LABEL_697;
@@ -2318,7 +2318,7 @@ LABEL_393:
               }
               if ((LWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_628:
-                POLYFLAT(pScrPtr_1, &LWallPoly);
+                game_render_quad(g_pGameRenderer, &LWallPoly, NULL, 0, 0, NULL);
                 goto LABEL_1203;
               }
               goto LABEL_677;
@@ -2353,7 +2353,7 @@ LABEL_393:
               if ((LWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0)
                 goto LABEL_647;
             LABEL_697:
-              POLYTEX(texture_vga, pScrPtr_1, &LWallPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &LWallPoly, texture_vga, 0, gfx_size, NULL);
               goto LABEL_1227;
             }
             subdivide(
@@ -2450,11 +2450,11 @@ LABEL_393:
                 }
                 if ((RWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
                 LABEL_731:
-                  POLYFLAT(pScrPtr_1, &RWallPoly);
+                  game_render_quad(g_pGameRenderer, &RWallPoly, NULL, 0, 0, NULL);
                   goto LABEL_1203;
                 }
               LABEL_780:
-                POLYTEX(texture_vga, pScrPtr_1, &RWallPoly, 0, gfx_size);
+                game_render_quad(g_pGameRenderer, &RWallPoly, texture_vga, 0, gfx_size, NULL);
                 goto LABEL_1203;
               }
               set_starts(0);
@@ -2505,7 +2505,7 @@ LABEL_393:
               }
               if ((RWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_750:
-                POLYFLAT(pScrPtr_1, &RWallPoly);
+                game_render_quad(g_pGameRenderer, &RWallPoly, NULL, 0, 0, NULL);
                 goto LABEL_1227;
               }
               goto LABEL_800;
@@ -2618,7 +2618,7 @@ LABEL_393:
             if ((RWallPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0)
               goto LABEL_750;
           LABEL_800:
-            POLYTEX(texture_vga, pScrPtr_1, &RWallPoly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &RWallPoly, texture_vga, 0, gfx_size, NULL);
             goto LABEL_1227;
           }
           subdivide(
@@ -2713,9 +2713,9 @@ LABEL_393:
               goto LABEL_1271;
             }
             if ((G3Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G3Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G3Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G3Poly);
+              game_render_quad(g_pGameRenderer, &G3Poly, NULL, 0, 0, NULL);
             goto LABEL_1203;
           }
           if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (G3Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -2767,9 +2767,9 @@ LABEL_393:
             goto LABEL_1271;
           }
           if ((G3Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            POLYTEX(texture_vga, pScrPtr_1, &G3Poly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &G3Poly, texture_vga, 0, gfx_size, NULL);
           else
-            POLYFLAT(pScrPtr_1, &G3Poly);
+            game_render_quad(g_pGameRenderer, &G3Poly, NULL, 0, 0, NULL);
           goto LABEL_1227;
         case 3:
           if (!facing_ok(
@@ -2848,9 +2848,9 @@ LABEL_393:
               goto LABEL_1068;
             }
             if ((G1Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G1Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G1Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G1Poly);
+              game_render_quad(g_pGameRenderer, &G1Poly, NULL, 0, 0, NULL);
           } else {
             set_starts(1u);
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (G1Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -2903,9 +2903,9 @@ LABEL_393:
               goto LABEL_1068;
             }
             if ((G1Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G1Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G1Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G1Poly);
+              game_render_quad(g_pGameRenderer, &G1Poly, NULL, 0, 0, NULL);
             set_starts(0);
           }
           set_starts(0);
@@ -2989,9 +2989,9 @@ LABEL_393:
               goto LABEL_1271;
             }
             if ((G2Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G2Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G2Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G2Poly);
+              game_render_quad(g_pGameRenderer, &G2Poly, NULL, 0, 0, NULL);
             goto LABEL_1203;
           }
           if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (G2Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -3045,9 +3045,9 @@ LABEL_393:
             goto LABEL_1271;
           }
           if ((G2Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            POLYTEX(texture_vga, pScrPtr_1, &G2Poly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &G2Poly, texture_vga, 0, gfx_size, NULL);
           else
-            POLYFLAT(pScrPtr_1, &G2Poly);
+            game_render_quad(g_pGameRenderer, &G2Poly, NULL, 0, 0, NULL);
           goto LABEL_1227;
         case 4:
           if (!facing_ok(
@@ -3127,9 +3127,9 @@ LABEL_393:
               goto LABEL_1174;
             }
             if ((G5Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G5Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G5Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G5Poly);
+              game_render_quad(g_pGameRenderer, &G5Poly, NULL, 0, 0, NULL);
           } else {
             set_starts(1u);
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (G5Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -3182,9 +3182,9 @@ LABEL_393:
               goto LABEL_1174;
             }
             if ((G5Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G5Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G5Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G5Poly);
+              game_render_quad(g_pGameRenderer, &G5Poly, NULL, 0, 0, NULL);
             set_starts(0);
           }
           set_starts(0);
@@ -3265,9 +3265,9 @@ LABEL_393:
               goto LABEL_1271;
             }
             if ((G4Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &G4Poly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &G4Poly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &G4Poly);
+              game_render_quad(g_pGameRenderer, &G4Poly, NULL, 0, 0, NULL);
             goto LABEL_1203;
           }
           if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (G4Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -3321,9 +3321,9 @@ LABEL_393:
             goto LABEL_1271;
           }
           if ((G4Poly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            POLYTEX(texture_vga, pScrPtr_1, &G4Poly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &G4Poly, texture_vga, 0, gfx_size, NULL);
           else
-            POLYFLAT(pScrPtr_1, &G4Poly);
+            game_render_quad(g_pGameRenderer, &G4Poly, NULL, 0, 0, NULL);
           goto LABEL_1227;
         case 5:
           if (facing_ok(
@@ -3473,11 +3473,11 @@ LABEL_393:
               }
               if ((RoadPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_481:
-                POLYFLAT(pScrPtr_1, &RoadPoly);
+                game_render_quad(g_pGameRenderer, &RoadPoly, NULL, 0, 0, NULL);
                 goto LABEL_1203;
               }
             LABEL_436:
-              POLYTEX(texture_vga, pScrPtr_1, &RoadPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &RoadPoly, texture_vga, 0, gfx_size, NULL);
             LABEL_1203:
               set_starts(0);
               set_starts(0);
@@ -3512,11 +3512,11 @@ LABEL_393:
             if ((double)(int16)iRenderingTemp * subscale <= fObjectDepth6) {
               if ((RoadPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_499:
-                POLYFLAT(pScrPtr_1, &RoadPoly);
+                game_render_quad(g_pGameRenderer, &RoadPoly, NULL, 0, 0, NULL);
                 goto LABEL_1227;
               }
             LABEL_456:
-              POLYTEX(texture_vga, pScrPtr_1, &RoadPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &RoadPoly, texture_vga, 0, gfx_size, NULL);
               goto LABEL_1227;
             }
           }
@@ -3599,9 +3599,9 @@ LABEL_393:
               goto LABEL_1271;
             }
             if ((LeftPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &LeftPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &LeftPoly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &LeftPoly);
+              game_render_quad(g_pGameRenderer, &LeftPoly, NULL, 0, 0, NULL);
             goto LABEL_1203;
           }
           set_starts(0);
@@ -3651,9 +3651,9 @@ LABEL_393:
             goto LABEL_1271;
           }
           if ((LeftPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            POLYTEX(texture_vga, pScrPtr_1, &LeftPoly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &LeftPoly, texture_vga, 0, gfx_size, NULL);
           else
-            POLYFLAT(pScrPtr_1, &LeftPoly);
+            game_render_quad(g_pGameRenderer, &LeftPoly, NULL, 0, 0, NULL);
           goto LABEL_1227;
         case 7:
           iRightSurfType = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_LANE];
@@ -3716,9 +3716,9 @@ LABEL_393:
               goto LABEL_1271;
             }
             if ((RightPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(texture_vga, pScrPtr_1, &RightPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &RightPoly, texture_vga, 0, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &RightPoly);
+              game_render_quad(g_pGameRenderer, &RightPoly, NULL, 0, 0, NULL);
             goto LABEL_1203;
           }
           set_starts(0);
@@ -3768,9 +3768,9 @@ LABEL_393:
             goto LABEL_1271;
           }
           if ((RightPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            POLYTEX(texture_vga, pScrPtr_1, &RightPoly, 0, gfx_size);
+            game_render_quad(g_pGameRenderer, &RightPoly, texture_vga, 0, gfx_size, NULL);
           else
-            POLYFLAT(pScrPtr_1, &RightPoly);
+            game_render_quad(g_pGameRenderer, &RightPoly, NULL, 0, 0, NULL);
           goto LABEL_1227;
         case 0xA:
           RoofPoly.uiNumVerts = 4;
@@ -3838,11 +3838,11 @@ LABEL_393:
               }
               if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_826:
-                POLYFLAT(pScrPtr_1, &RoofPoly);
+                game_render_quad(g_pGameRenderer, &RoofPoly, NULL, 0, 0, NULL);
                 goto LABEL_1203;
               }
             LABEL_924:
-              POLYTEX(texture_vga, pScrPtr_1, &RoofPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &RoofPoly, texture_vga, 0, gfx_size, NULL);
               goto LABEL_1203;
             }
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
@@ -4014,11 +4014,11 @@ LABEL_393:
             }
             if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0) {
             LABEL_963:
-              POLYTEX(texture_vga, pScrPtr_1, &RoofPoly, 0, gfx_size);
+              game_render_quad(g_pGameRenderer, &RoofPoly, texture_vga, 0, gfx_size, NULL);
               goto LABEL_1227;
             }
           LABEL_944:
-            POLYFLAT(pScrPtr_1, &RoofPoly);
+            game_render_quad(g_pGameRenderer, &RoofPoly, NULL, 0, 0, NULL);
           LABEL_1227:
             set_starts(0);
             goto LABEL_1271;
@@ -4477,9 +4477,9 @@ LABEL_393:
             RoadPoly.vertices[3].y = LightXYZ[iRenderingCoordIndex].screen.y;
             RoadPoly.vertices[3].x = iRenderingDataIndex;
             if ((RoadPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              POLYTEX(cargen_vga, pScrPtr_1, &RoadPoly, 18, gfx_size);
+              game_render_quad(g_pGameRenderer, &RoadPoly, cargen_vga, 18, gfx_size, NULL);
             else
-              POLYFLAT(pScrPtr_1, &RoadPoly);
+              game_render_quad(g_pGameRenderer, &RoadPoly, NULL, 0, 0, NULL);
             ++iNextSectionIndex;
           } while (iNextSectionIndex < 6);
           goto LABEL_1271;
