@@ -4186,7 +4186,10 @@ LABEL_393:
           goto LABEL_1271;
         case 0xB:
           if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw)
-            DisplayCar(iSectionNum, pScrPtr_1, fRenderDepth);
+            game_render_draw_car(g_pGameRenderer, iSectionNum,
+                                 Car[iSectionNum].nYaw, Car[iSectionNum].nPitch, Car[iSectionNum].nRoll,
+                                 Car[iSectionNum].pos.fX, Car[iSectionNum].pos.fY, Car[iSectionNum].pos.fZ,
+                                 0, NULL);
           --CarsLeft;
           if (names_on && (names_on == 1 || human_control[iSectionNum]))
             --NamesLeft;
