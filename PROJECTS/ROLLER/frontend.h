@@ -4,6 +4,12 @@
 #include "types.h"
 #include "func3.h"
 //-------------------------------------------------------------------------------------------------
+// 3D preview viewport (GPU backend only; software backend ignores these)
+#define PREVIEW_X         248
+#define PREVIEW_W         300
+#define PREVIEW_H         330
+#define CAR_PREVIEW_Y      57
+#define TRACK_PREVIEW_Y    5
 
 typedef struct
 {
@@ -102,9 +108,16 @@ extern int switch_same;
 extern int car_request;
 extern uint8 oldkeys[14];
 extern char my_name[14];
+extern char szSelectEng[];
+extern char szConfigEng[];
+extern char font1_ascii_br[256];
+extern char font2_ascii_br[256];
+extern char font3_ascii_br[256];
+extern char font4_ascii_br[256];
 
 //-------------------------------------------------------------------------------------------------
 
+void fade_redraw_bg(void *ctx);
 void title_screens();
 void copy_screens();
 void select_screen();

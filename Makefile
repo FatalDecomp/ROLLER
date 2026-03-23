@@ -38,7 +38,19 @@ SRC = 	PROJECTS/ROLLER/3d.c \
         PROJECTS/ROLLER/date.c \
         PROJECTS/ROLLER/drawtrk3.c \
         PROJECTS/ROLLER/engines.c \
-        PROJECTS/ROLLER/frontend.c \
+        PROJECTS/ROLLER/frontend_config.c \
+        PROJECTS/ROLLER/frontend_data.c \
+        PROJECTS/ROLLER/frontend_network.c \
+        PROJECTS/ROLLER/frontend_screens.c \
+        PROJECTS/ROLLER/frontend_select_car.c \
+        PROJECTS/ROLLER/frontend_select_disk.c \
+        PROJECTS/ROLLER/frontend_select_players.c \
+        PROJECTS/ROLLER/frontend_select_track.c \
+        PROJECTS/ROLLER/frontend_select_type.c \
+        PROJECTS/ROLLER/frontend_util.c \
+        PROJECTS/ROLLER/menu_render.c \
+        PROJECTS/ROLLER/menu_render_gpu.c \
+        PROJECTS/ROLLER/menu_render_software.c \
         PROJECTS/ROLLER/func2.c \
         PROJECTS/ROLLER/func3.c \
         PROJECTS/ROLLER/function.c \
