@@ -12,6 +12,10 @@
 #include <wildmidi_lib.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <cdio/cdio.h>
+#include <cdio/iso9660.h>
+#include <cdio/disc.h>
+#include <cdio/cd_types.h>
 #ifdef IS_WINDOWS
 #include <io.h>
 #include <direct.h>
@@ -43,6 +47,7 @@
 
 #define MAX_TIMERS 16
 #define ROLLER_MAX_PATH 260
+#define ISO_BLOCK_SIZE 2048
 
 //-------------------------------------------------------------------------------------------------
 
@@ -406,6 +411,123 @@ void CopyFATDATADir(const char *szSrc, const char *szDst)
 
 //-------------------------------------------------------------------------------------------------
 
+void ExtractDir(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
+{
+  UpdateSDL();
+
+  SDL_CreateDirectory(szOutDir);
+
+  CdioList_t *pList = iso9660_ifs_readdir(pIso, szIsoDir);
+  if (!pList)
+    return;
+
+  CdioListNode_t *pNode;
+  _CDIO_LIST_FOREACH(pNode, pList)
+  {
+    iso9660_stat_t *pStat = (iso9660_stat_t *)_cdio_list_node_data(pNode);
+    SDL_Log("Root entry: '%s' type=%d size=%u",
+            pStat->filename, pStat->type, pStat->size);
+
+    // strip version number from filename (e.g. "FILE.DAT;1" -> "FILE.DAT")
+    char szFilename[ROLLER_MAX_PATH];
+    SDL_strlcpy(szFilename, pStat->filename, ROLLER_MAX_PATH);
+    char *szSemi = SDL_strchr(szFilename, ';');
+    if (szSemi) *szSemi = '\0';
+
+    // skip . and ..
+    if (SDL_strcmp(szFilename, ".") == 0 || SDL_strcmp(szFilename, "..") == 0) {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
+    char szIsoPath[ROLLER_MAX_PATH];
+    char szOutPath[ROLLER_MAX_PATH];
+    SDL_snprintf(szIsoPath, ROLLER_MAX_PATH, "%s/%s", szIsoDir, szFilename);
+    SDL_snprintf(szOutPath, ROLLER_MAX_PATH, "%s/%s", szOutDir, szFilename);
+
+    if (pStat->type == _STAT_DIR) {
+      ExtractDir(pIso, szIsoPath, szOutPath);
+    } else {
+      FILE *pOut = fopen(szOutPath, "wb");
+      if (pOut) {
+        uint32_t uiBytesLeft = pStat->size;
+        lsn_t lsn = pStat->lsn;
+        char szBuf[ISO_BLOCK_SIZE];
+
+        while (uiBytesLeft > 0) {
+          memset(szBuf, 0, ISO_BLOCK_SIZE);
+          iso9660_iso_seek_read(pIso, szBuf, lsn, 1);
+
+          uint32_t uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
+            ? ISO_BLOCK_SIZE
+            : uiBytesLeft;
+          fwrite(szBuf, 1, uiToWrite, pOut);
+
+          uiBytesLeft -= uiToWrite;
+          lsn++;
+        }
+        fclose(pOut);
+      }
+    }
+    iso9660_stat_free(pStat);
+  }
+  _cdio_list_free(pList, false, NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+char *GetBinPathFromCue(const char *szCuePath, char *szBinPath, int nBufSize)
+{
+  FILE *pCue = fopen(szCuePath, "r");
+  if (!pCue) return NULL;
+
+  char szLine[256];
+  while (fgets(szLine, sizeof(szLine), pCue)) {
+    char szFile[256];
+    if (sscanf(szLine, " FILE \"%255[^\"]\"", szFile) == 1) {
+      char szDir[ROLLER_MAX_PATH];
+      SDL_strlcpy(szDir, szCuePath, ROLLER_MAX_PATH);
+      char *szSlash = SDL_strrchr(szDir, '/');
+      if (!szSlash) szSlash = SDL_strrchr(szDir, '\\');
+      if (szSlash) {
+        *(szSlash + 1) = '\0';
+        SDL_snprintf(szBinPath, nBufSize, "%s%s", szDir, szFile);
+      } else {
+        SDL_strlcpy(szBinPath, szFile, nBufSize);
+      }
+      fclose(pCue);
+      return szBinPath;
+    }
+  }
+  fclose(pCue);
+  return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
+{
+  const char *szOpenPath = szImagePath;
+  char szBinPath[ROLLER_MAX_PATH];
+
+  // if it's a .cue, extract the .bin path and open that
+  if (SDL_strcasestr(szImagePath, ".cue")) {
+    if (GetBinPathFromCue(szImagePath, szBinPath, ROLLER_MAX_PATH))
+      szOpenPath = szBinPath;
+  }
+
+  iso9660_t *pIso = iso9660_open_fuzzy(szOpenPath, 10);
+  if (!pIso) {
+    SDL_Log("Failed to open CD image: %s", szOpenPath);
+    return;
+  }
+
+  ExtractDir(pIso, "/FATDATA", szOutDir);
+  iso9660_close(pIso);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InitFATDATA(const char *szDataRoot)
 {
   if (!szDataRoot)
@@ -414,7 +536,7 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists
   if (!ROLLERdirexists("./FATDATA")) {
     SDL_MessageBoxButtonData buttons[] = {
-      //{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
+      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
       { 0,                                       1, "Drive/Folder" },
       { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Cancel" },
     };
@@ -463,7 +585,8 @@ void InitFATDATA(const char *szDataRoot)
       CopyFATDATADir(result.szPath, szDataRoot);
       //TODO: extract cd audio
     } else {
-      //TODO
+      ExtractFATDATA(result.szPath, szDataRoot);
+      //TODO: extract cd audio
     }
   }
 
