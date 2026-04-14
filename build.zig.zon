@@ -20,6 +20,10 @@
             .url = "git+https://github.com/deevus/compile_flagz#9ff0ac4f33e8900aaa21c31f50f60e6deede9013",
             .hash = "compile_flagz-2.0.0-dev-SrEtlDUcAACsmkKs7PaMj_rWR1i0eMClwLFX4Cspp1Px",
         },
+        .libcdio = .{
+            .url = "git+https://github.com/Zizin13/libcdio#7ebbc0340bab094184c11a1523f392c8c2dbf313",
+            .hash = "libcdio-2.3.0-LMRPmTHeFQDMb96tFK3pgRQO6jsbzp82EnE20m1MQh4l",
+        },
     },
     .paths = .{
         "build.zig",
