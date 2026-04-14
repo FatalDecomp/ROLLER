@@ -557,7 +557,12 @@ void InitFATDATA(const char *szDataRoot)
       switch (iButtonID) {
         case 0:
         {
-          SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+          #ifdef IS_WINDOWS
+            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+          #else
+            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
+          #endif
+
           SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
         }
         break;
