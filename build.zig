@@ -161,9 +161,16 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     });
     const sdl_lib = sdl.artifact("SDL3");
 
+    const libcdio = b.dependency("libcdio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const libcdio_lib = libcdio.artifact("cdio");
+
     exe_mod.linkLibrary(sdl_lib);
     exe_mod.linkLibrary(sdl_image_lib);
     exe_mod.linkLibrary(wildmidi_lib);
+    exe_mod.linkLibrary(libcdio_lib);
 
     const sdl_image_source = sdl_image.builder.dependency("SDL_image", .{
         .lto = .none,
@@ -173,6 +180,8 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     cflags.addIncludePath(sdl.builder.path("include"));
     cflags.addIncludePath(sdl_image_source.builder.path("include"));
     cflags.addIncludePath(wildmidi.builder.path("include"));
+    cflags.addIncludePath(libcdio.builder.path("include"));
+    cflags.addIncludePath(libcdio.builder.path("zig-config"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);

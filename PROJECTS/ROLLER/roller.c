@@ -7,12 +7,17 @@
 #include "config.h"
 #include "menu_render.h"
 #include <assert.h>
+#include <errno.h>
 #include <string.h>
 #include <ctype.h>
 #include <SDL3_image/SDL_image.h>
 #include <wildmidi_lib.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <cdio/cdio.h>
+#include <cdio/iso9660.h>
+#include <cdio/disc.h>
+#include <cdio/cd_types.h>
 #ifdef IS_WINDOWS
 #include <io.h>
 #include <direct.h>
@@ -44,6 +49,7 @@
 
 #define MAX_TIMERS 16
 #define ROLLER_MAX_PATH 260
+#define ISO_BLOCK_SIZE 2048
 
 //-------------------------------------------------------------------------------------------------
 
@@ -460,6 +466,138 @@ void CopyFATDATADir(const char *szSrc, const char *szDst)
 
 //-------------------------------------------------------------------------------------------------
 
+void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
+{
+  UpdateSDL();
+
+  SDL_CreateDirectory(szOutDir);
+
+  // iso9660_fs_readdir works via the CdIo driver layer, so Mode 2 XA
+  // sectors are handled correctly (unlike iso9660_ifs_readdir on iso9660_t).
+  CdioList_t *pList = iso9660_fs_readdir(p_cdio, szIsoDir);
+  if (!pList) {
+    SDL_Log("ExtractDir: iso9660_fs_readdir failed for '%s'", szIsoDir);
+    return;
+  }
+
+  SDL_Log("ExtractDir: reading '%s' -> '%s'", szIsoDir, szOutDir);
+
+  CdioListNode_t *pNode;
+  _CDIO_LIST_FOREACH(pNode, pList)
+  {
+    iso9660_stat_t *pStat = (iso9660_stat_t *)_cdio_list_node_data(pNode);
+
+    // strip version number from filename (e.g. "FILE.DAT;1" -> "FILE.DAT")
+    char szFilename[ROLLER_MAX_PATH];
+    SDL_strlcpy(szFilename, pStat->filename, ROLLER_MAX_PATH);
+    char *szSemi = SDL_strchr(szFilename, ';');
+    if (szSemi) *szSemi = '\0';
+
+    // skip . and ..
+    if (SDL_strcmp(szFilename, ".") == 0 || SDL_strcmp(szFilename, "..") == 0) {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
+    // skip empty filenames
+    if (szFilename[0] == '\0') {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
+    char szIsoPath[ROLLER_MAX_PATH];
+    char szOutPath[ROLLER_MAX_PATH];
+    SDL_snprintf(szIsoPath, ROLLER_MAX_PATH, "%s/%s", szIsoDir, szFilename);
+    SDL_snprintf(szOutPath, ROLLER_MAX_PATH, "%s/%s", szOutDir, szFilename);
+
+    if (pStat->type == _STAT_DIR) {
+      ExtractDir(p_cdio, szIsoPath, szOutPath);
+    } else {
+      FILE *pOut = fopen(szOutPath, "wb");
+      if (pOut) {
+        uint32_t uiBytesLeft = pStat->size;
+        lsn_t lsn = pStat->lsn;
+        char szBuf[ISO_BLOCK_SIZE];
+
+        while (uiBytesLeft > 0) {
+          memset(szBuf, 0, ISO_BLOCK_SIZE);
+          cdio_read_data_sectors(p_cdio, szBuf, lsn, ISO_BLOCK_SIZE, 1);
+
+          uint32_t uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
+            ? ISO_BLOCK_SIZE
+            : uiBytesLeft;
+          fwrite(szBuf, 1, uiToWrite, pOut);
+
+          uiBytesLeft -= uiToWrite;
+          lsn++;
+        }
+        fclose(pOut);
+        SDL_Log("  -> wrote '%s' (%u bytes)", szOutPath, pStat->size);
+      } else {
+        SDL_Log("  -> FAILED to open '%s' for writing: %s", szOutPath, strerror(errno));
+      }
+    }
+    iso9660_stat_free(pStat);
+  }
+  _cdio_list_free(pList, false, NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+char *GetBinPathFromCue(const char *szCuePath, char *szBinPath, int nBufSize)
+{
+  FILE *pCue = fopen(szCuePath, "r");
+  if (!pCue) return NULL;
+
+  char szLine[256];
+  while (fgets(szLine, sizeof(szLine), pCue)) {
+    char szFile[256];
+    if (sscanf(szLine, " FILE \"%255[^\"]\"", szFile) == 1) {
+      char szDir[ROLLER_MAX_PATH];
+      SDL_strlcpy(szDir, szCuePath, ROLLER_MAX_PATH);
+      char *szSlash = SDL_strrchr(szDir, '/');
+      if (!szSlash) szSlash = SDL_strrchr(szDir, '\\');
+      if (szSlash) {
+        *(szSlash + 1) = '\0';
+        SDL_snprintf(szBinPath, nBufSize, "%s%s", szDir, szFile);
+      } else {
+        SDL_strlcpy(szBinPath, szFile, nBufSize);
+      }
+      fclose(pCue);
+      return szBinPath;
+    }
+  }
+  fclose(pCue);
+  return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
+{
+  // Use cdio_open_am with DRIVER_UNKNOWN: auto-detects BIN/CUE, ISO, NRG, etc.
+  // Unlike iso9660_open_fuzzy (which reads raw bytes), the CdIo driver layer
+  // handles Mode 2 XA sectors (2352-byte, 24-byte header) correctly.
+  SDL_Log("ExtractFATDATA: opening '%s', output dir '%s'", szImagePath, szOutDir);
+
+  CdIo_t *p_cdio = cdio_open_am(szImagePath, DRIVER_UNKNOWN, NULL);
+  if (!p_cdio) {
+    SDL_Log("ExtractFATDATA: cdio_open_am failed for '%s'", szImagePath);
+    return;
+  }
+  SDL_Log("ExtractFATDATA: image opened successfully");
+
+  // Write into szOutDir/FATDATA/ so the ROLLERdirexists("./FATDATA") check
+  // in InitFATDATA passes after extraction.
+  char szFatdataOut[ROLLER_MAX_PATH];
+  SDL_snprintf(szFatdataOut, ROLLER_MAX_PATH, "%s/FATDATA", szOutDir);
+
+  ExtractDir(p_cdio, "/FATDATA", szFatdataOut);
+  cdio_destroy(p_cdio);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InitFATDATA(const char *szDataRoot)
 {
   if (!szDataRoot)
@@ -468,7 +606,7 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     SDL_MessageBoxButtonData buttons[] = {
-      //{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
+      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
       { 0,                                       1, "Drive/Folder" },
       { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Cancel" },
     };
@@ -489,7 +627,12 @@ void InitFATDATA(const char *szDataRoot)
       switch (iButtonID) {
         case 0:
         {
-          SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+          #ifdef IS_WINDOWS
+            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+          #else
+            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
+          #endif
+
           SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
         }
         break;
@@ -517,7 +660,8 @@ void InitFATDATA(const char *szDataRoot)
       CopyFATDATADir(result.szPath, szDataRoot);
       //TODO: extract cd audio
     } else {
-      //TODO
+      ExtractFATDATA(result.szPath, szDataRoot);
+      //TODO: extract cd audio
     }
   }
 

@@ -14,6 +14,7 @@ endif()
 find_package(SDL3 REQUIRED)
 find_package(SDL3_image REQUIRED)
 find_package(WildMidi REQUIRED)
+find_package(libcdio REQUIRED)
 
 add_executable(roller
     ROLLER.rc
@@ -66,6 +67,7 @@ add_executable(roller
 target_link_libraries(roller PRIVATE SDL3::SDL3)
 target_link_libraries(roller PRIVATE SDL3_image::SDL3_image)
 target_link_libraries(roller PRIVATE WildMidi::libwildmidi)
+target_link_libraries(roller PRIVATE libcdio::cdio)
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY STREQUAL "${CMAKE_BINARY_DIR}")
     add_custom_command(TARGET roller POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/midi" "$<TARGET_FILE_DIR:roller>/midi"
