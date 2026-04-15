@@ -6,6 +6,7 @@
 #include "graphics.h"
 #include "config.h"
 #include <assert.h>
+#include <errno.h>
 #include <string.h>
 #include <ctype.h>
 #include <SDL3_image/SDL_image.h>
@@ -411,22 +412,26 @@ void CopyFATDATADir(const char *szSrc, const char *szDst)
 
 //-------------------------------------------------------------------------------------------------
 
-void ExtractDir(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
+void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
 {
   UpdateSDL();
 
   SDL_CreateDirectory(szOutDir);
 
-  CdioList_t *pList = iso9660_ifs_readdir(pIso, szIsoDir);
-  if (!pList)
+  // iso9660_fs_readdir works via the CdIo driver layer, so Mode 2 XA
+  // sectors are handled correctly (unlike iso9660_ifs_readdir on iso9660_t).
+  CdioList_t *pList = iso9660_fs_readdir(p_cdio, szIsoDir);
+  if (!pList) {
+    SDL_Log("ExtractDir: iso9660_fs_readdir failed for '%s'", szIsoDir);
     return;
+  }
+
+  SDL_Log("ExtractDir: reading '%s' -> '%s'", szIsoDir, szOutDir);
 
   CdioListNode_t *pNode;
   _CDIO_LIST_FOREACH(pNode, pList)
   {
     iso9660_stat_t *pStat = (iso9660_stat_t *)_cdio_list_node_data(pNode);
-    SDL_Log("Root entry: '%s' type=%d size=%u",
-            pStat->filename, pStat->type, pStat->size);
 
     // strip version number from filename (e.g. "FILE.DAT;1" -> "FILE.DAT")
     char szFilename[ROLLER_MAX_PATH];
@@ -440,13 +445,19 @@ void ExtractDir(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
       continue;
     }
 
+    // skip empty filenames
+    if (szFilename[0] == '\0') {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
     char szIsoPath[ROLLER_MAX_PATH];
     char szOutPath[ROLLER_MAX_PATH];
     SDL_snprintf(szIsoPath, ROLLER_MAX_PATH, "%s/%s", szIsoDir, szFilename);
     SDL_snprintf(szOutPath, ROLLER_MAX_PATH, "%s/%s", szOutDir, szFilename);
 
     if (pStat->type == _STAT_DIR) {
-      ExtractDir(pIso, szIsoPath, szOutPath);
+      ExtractDir(p_cdio, szIsoPath, szOutPath);
     } else {
       FILE *pOut = fopen(szOutPath, "wb");
       if (pOut) {
@@ -456,7 +467,7 @@ void ExtractDir(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
 
         while (uiBytesLeft > 0) {
           memset(szBuf, 0, ISO_BLOCK_SIZE);
-          iso9660_iso_seek_read(pIso, szBuf, lsn, 1);
+          cdio_read_data_sectors(p_cdio, szBuf, lsn, ISO_BLOCK_SIZE, 1);
 
           uint32_t uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
             ? ISO_BLOCK_SIZE
@@ -467,6 +478,9 @@ void ExtractDir(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
           lsn++;
         }
         fclose(pOut);
+        SDL_Log("  -> wrote '%s' (%u bytes)", szOutPath, pStat->size);
+      } else {
+        SDL_Log("  -> FAILED to open '%s' for writing: %s", szOutPath, strerror(errno));
       }
     }
     iso9660_stat_free(pStat);
@@ -507,23 +521,25 @@ char *GetBinPathFromCue(const char *szCuePath, char *szBinPath, int nBufSize)
 
 void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
 {
-  const char *szOpenPath = szImagePath;
-  char szBinPath[ROLLER_MAX_PATH];
+  // Use cdio_open_am with DRIVER_UNKNOWN: auto-detects BIN/CUE, ISO, NRG, etc.
+  // Unlike iso9660_open_fuzzy (which reads raw bytes), the CdIo driver layer
+  // handles Mode 2 XA sectors (2352-byte, 24-byte header) correctly.
+  SDL_Log("ExtractFATDATA: opening '%s', output dir '%s'", szImagePath, szOutDir);
 
-  // if it's a .cue, extract the .bin path and open that
-  if (SDL_strcasestr(szImagePath, ".cue")) {
-    if (GetBinPathFromCue(szImagePath, szBinPath, ROLLER_MAX_PATH))
-      szOpenPath = szBinPath;
-  }
-
-  iso9660_t *pIso = iso9660_open_fuzzy(szOpenPath, 10);
-  if (!pIso) {
-    SDL_Log("Failed to open CD image: %s", szOpenPath);
+  CdIo_t *p_cdio = cdio_open_am(szImagePath, DRIVER_UNKNOWN, NULL);
+  if (!p_cdio) {
+    SDL_Log("ExtractFATDATA: cdio_open_am failed for '%s'", szImagePath);
     return;
   }
+  SDL_Log("ExtractFATDATA: image opened successfully");
 
-  ExtractDir(pIso, "/FATDATA", szOutDir);
-  iso9660_close(pIso);
+  // Write into szOutDir/FATDATA/ so the ROLLERdirexists("./FATDATA") check
+  // in InitFATDATA passes after extraction.
+  char szFatdataOut[ROLLER_MAX_PATH];
+  SDL_snprintf(szFatdataOut, ROLLER_MAX_PATH, "%s/FATDATA", szOutDir);
+
+  ExtractDir(p_cdio, "/FATDATA", szFatdataOut);
+  cdio_destroy(p_cdio);
 }
 
 //-------------------------------------------------------------------------------------------------

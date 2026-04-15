@@ -21,8 +21,8 @@
             .hash = "compile_flagz-2.0.0-dev-SrEtlDUcAACsmkKs7PaMj_rWR1i0eMClwLFX4Cspp1Px",
         },
         .libcdio = .{
-            .url = "git+https://github.com/Zizin13/libcdio#f480ef47848a57dc2ed6d2072793cabaa536c685",
-            .hash = "libcdio-2.3.0-LMRPmU3eFQAze4gCkrmV2po7223eWuMvKXdLJRnULyZR",
+            .url = "git+https://github.com/Zizin13/libcdio#6d0baff88a08a98db5cece86d6b8500026cf7cc5",
+            .hash = "libcdio-2.3.0-LMRPmavgFQDu_KMik0Pov_BXkqu7Odo6TR2OVlqfPJ3b",
         },
     },
     .paths = .{
