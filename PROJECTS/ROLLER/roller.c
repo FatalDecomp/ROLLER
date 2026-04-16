@@ -420,21 +420,21 @@ void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFil
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteU16LE(FILE *pOut, uint16_t v)
+static void WriteU16LE(FILE *pOut, uint16 v)
 {
-  uint8_t b[2] = { (uint8_t)(v & 0xff), (uint8_t)((v >> 8) & 0xff) };
+  uint8 b[2] = { (uint8)(v & 0xff), (uint8)((v >> 8) & 0xff) };
   fwrite(b, 1, 2, pOut);
 }
 
-static void WriteU32LE(FILE *pOut, uint32_t v)
+static void WriteU32LE(FILE *pOut, uint32 v)
 {
-  uint8_t b[4] = { (uint8_t)(v & 0xff), (uint8_t)((v >> 8) & 0xff),
-                   (uint8_t)((v >> 16) & 0xff), (uint8_t)((v >> 24) & 0xff) };
+  uint8 b[4] = { (uint8)(v & 0xff), (uint8)((v >> 8) & 0xff),
+                 (uint8)((v >> 16) & 0xff), (uint8)((v >> 24) & 0xff) };
   fwrite(b, 1, 4, pOut);
 }
 
 // Write a 44-byte RIFF PCM WAV header for CD-DA (44100 Hz, stereo, 16-bit).
-static void WriteWAVHeader(FILE *pOut, uint32_t uiDataBytes)
+static void WriteWAVHeader(FILE *pOut, uint32 uiDataBytes)
 {
   fwrite("RIFF", 1, 4, pOut);
   WriteU32LE(pOut, 36 + uiDataBytes); // file size minus 8
@@ -477,8 +477,8 @@ void ExtractAudioTracks(CdIo_t *p_cdio, const char *szOutDir)
       continue;
     }
 
-    uint32_t uiSectors   = (uint32_t)(lsnLast - lsnStart + 1);
-    uint32_t uiDataBytes = uiSectors * CDIO_CD_FRAMESIZE_RAW;
+    uint32 uiSectors   = (uint32)(lsnLast - lsnStart + 1);
+    uint32 uiDataBytes = uiSectors * CDIO_CD_FRAMESIZE_RAW;
 
     char szWavPath[ROLLER_MAX_PATH];
     SDL_snprintf(szWavPath, ROLLER_MAX_PATH, "%s/track%02u.wav", szAudioDir, (unsigned)t);
@@ -495,10 +495,10 @@ void ExtractAudioTracks(CdIo_t *p_cdio, const char *szOutDir)
 
     // Read and write in chunks of 32 sectors for reasonable performance.
     #define AUDIO_CHUNK_SECTORS 32
-    uint8_t szBuf[CDIO_CD_FRAMESIZE_RAW * AUDIO_CHUNK_SECTORS];
+    uint8 szBuf[CDIO_CD_FRAMESIZE_RAW * AUDIO_CHUNK_SECTORS];
     lsn_t lsn = lsnStart;
     while (lsn <= lsnLast) {
-      uint32_t uiCount = (uint32_t)(lsnLast - lsn + 1);
+      uint32 uiCount = (uint32)(lsnLast - lsn + 1);
       if (uiCount > AUDIO_CHUNK_SECTORS) uiCount = AUDIO_CHUNK_SECTORS;
       if (cdio_read_audio_sectors(p_cdio, szBuf, lsn, uiCount) != DRIVER_OP_SUCCESS) {
         SDL_Log("ExtractAudioTracks: read error at LSN %d", lsn);
@@ -565,7 +565,7 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
     } else {
       FILE *pOut = fopen(szOutPath, "wb");
       if (pOut) {
-        uint32_t uiBytesLeft = pStat->size;
+        uint32 uiBytesLeft = pStat->size;
         lsn_t lsn = pStat->lsn;
         char szBuf[ISO_BLOCK_SIZE];
 
@@ -573,7 +573,7 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
           memset(szBuf, 0, ISO_BLOCK_SIZE);
           cdio_read_data_sectors(p_cdio, szBuf, lsn, ISO_BLOCK_SIZE, 1);
 
-          uint32_t uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
+          uint32 uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
             ? ISO_BLOCK_SIZE
             : uiBytesLeft;
           fwrite(szBuf, 1, uiToWrite, pOut);
