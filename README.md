@@ -36,25 +36,9 @@ FATAL.EXE_split_dos4g_payload.exe
 * SDL3.2.14: https://github.com/libsdl-org/SDL
 * SDL_Image3.2.4: https://github.com/libsdl-org/SDL_image
 * WildMIDI 0.4.6: https://github.com/Mindwerks/wildmidi
+* libcdio-2.3.0: https://github.com/libcdio/libcdio
 
-## Build MSVC
-1. Clone repository
-2. Open ROLLER.sln
-3. Build project
-
-## Build GCC
-```bash
-git clone https://github.com/zizin13/roller.git
-cd roller
-make
-```
-
-### Prerequisites
-* SDL3
-* SDL3_Image
-* WildMIDI
-
-## Build Zig
+## Build
 
 ### Clone the repository
 
@@ -83,10 +67,6 @@ A custom data folder
 ```bash
 zig build -Dassets-path=/path/to/fatdata run
 ```
-
-### Windows development
-
-There is basic support for Visual Studio 2022 using [ZigVS](https://marketplace.visualstudio.com/items?itemName=LuckystarStudio.ZigVS)
 
 [ci-shd]: https://img.shields.io/github/actions/workflow/status/FatalDecomp/ROLLER/ci.yml?branch=master&style=for-the-badge&logo=github&label=CI&labelColor=black
 [ci-url]: https://github.com/FatalDecomp/ROLLER/blob/master/.github/workflows/ci.yml
