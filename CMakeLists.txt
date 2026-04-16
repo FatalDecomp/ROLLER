@@ -16,8 +16,14 @@ find_package(SDL3_image REQUIRED)
 find_package(WildMidi REQUIRED)
 find_package(libcdio REQUIRED)
 
+if(WIN32)
+    set(PLATFORM_SOURCES ROLLER.rc)
+else()
+    set(PLATFORM_SOURCES "")
+endif()
+
 add_executable(roller
-    ROLLER.rc
+    ${PLATFORM_SOURCES}
     PROJECTS/ROLLER/3d.c
     PROJECTS/ROLLER/building.c
     PROJECTS/ROLLER/car.c
@@ -68,6 +74,18 @@ target_link_libraries(roller PRIVATE SDL3::SDL3)
 target_link_libraries(roller PRIVATE SDL3_image::SDL3_image)
 target_link_libraries(roller PRIVATE WildMidi::libwildmidi)
 target_link_libraries(roller PRIVATE libcdio::cdio)
+
+if(WIN32)
+    target_compile_definitions(roller PRIVATE WILDMIDI_STATIC=1)
+    target_link_libraries(roller PRIVATE ws2_32)
+    set_target_properties(roller PROPERTIES WIN32_EXECUTABLE TRUE)
+else()
+    target_compile_definitions(roller PRIVATE
+        __int16=int16
+        _O_RDONLY=O_RDONLY
+        "_O_BINARY=0x200"
+    )
+endif()
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY STREQUAL "${CMAKE_BINARY_DIR}")
     add_custom_command(TARGET roller POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/midi" "$<TARGET_FILE_DIR:roller>/midi"
