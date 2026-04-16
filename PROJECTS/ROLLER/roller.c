@@ -69,12 +69,6 @@ typedef struct
   bool bCancelled;
 } tDialogResult;
 
-typedef struct
-{
-  const char *szSrc;
-  const char *szDst;
-} tCopyDirContext;
-
 //-------------------------------------------------------------------------------------------------
 
 static SDL_Window *s_pWindow = NULL;
@@ -426,42 +420,98 @@ void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFil
 
 //-------------------------------------------------------------------------------------------------
 
-SDL_EnumerationResult SDLCALL CopyFATDATADirCallback(void *pUserData,
-                                               const char *szDir,
-                                               const char *szName)
+static void WriteU16LE(FILE *pOut, uint16 v)
 {
-  UpdateSDL();
-
-  tCopyDirContext *pCtx = (tCopyDirContext *)pUserData;
-  char szSrcPath[ROLLER_MAX_PATH];
-  char szDstPath[ROLLER_MAX_PATH];
-
-  SDL_snprintf(szSrcPath, ROLLER_MAX_PATH, "%s/%s", szDir, szName);
-  SDL_snprintf(szDstPath, ROLLER_MAX_PATH, "%s/%s", pCtx->szDst, szName);
-
-  SDL_PathInfo info;
-  SDL_GetPathInfo(szSrcPath, &info);
-
-  if (SDL_strcasestr(szSrcPath, "FATDATA")) {
-    if (info.type == SDL_PATHTYPE_DIRECTORY) {
-      SDL_CreateDirectory(szDstPath);
-      tCopyDirContext subCtx = { szSrcPath, szDstPath };
-      SDL_EnumerateDirectory(szSrcPath, CopyFATDATADirCallback, &subCtx);
-    } else {
-      SDL_CopyFile(szSrcPath, szDstPath);
-    }
-  }
-
-  return SDL_ENUM_CONTINUE;
+  uint8 b[2] = { (uint8)(v & 0xff), (uint8)((v >> 8) & 0xff) };
+  fwrite(b, 1, 2, pOut);
 }
 
-//-------------------------------------------------------------------------------------------------
-
-void CopyFATDATADir(const char *szSrc, const char *szDst)
+static void WriteU32LE(FILE *pOut, uint32 v)
 {
-  SDL_CreateDirectory(szDst);
-  tCopyDirContext ctx = { szSrc, szDst };
-  SDL_EnumerateDirectory(szSrc, CopyFATDATADirCallback, &ctx);
+  uint8 b[4] = { (uint8)(v & 0xff), (uint8)((v >> 8) & 0xff),
+                 (uint8)((v >> 16) & 0xff), (uint8)((v >> 24) & 0xff) };
+  fwrite(b, 1, 4, pOut);
+}
+
+// Write a 44-byte RIFF PCM WAV header for CD-DA (44100 Hz, stereo, 16-bit).
+static void WriteWAVHeader(FILE *pOut, uint32 uiDataBytes)
+{
+  fwrite("RIFF", 1, 4, pOut);
+  WriteU32LE(pOut, 36 + uiDataBytes); // file size minus 8
+  fwrite("WAVE", 1, 4, pOut);
+  fwrite("fmt ", 1, 4, pOut);
+  WriteU32LE(pOut, 16);      // fmt chunk size
+  WriteU16LE(pOut, 1);       // PCM
+  WriteU16LE(pOut, 2);       // stereo
+  WriteU32LE(pOut, 44100);   // sample rate
+  WriteU32LE(pOut, 176400);  // byte rate: 44100 * 2 * 2
+  WriteU16LE(pOut, 4);       // block align: 2 channels * 2 bytes
+  WriteU16LE(pOut, 16);      // bits per sample
+  fwrite("data", 1, 4, pOut);
+  WriteU32LE(pOut, uiDataBytes);
+}
+
+// Extract CD-DA audio tracks 2..N from an already-opened CdIo image.
+// Writes track02.wav .. trackNN.wav into szOutDir/audio/.
+void ExtractAudioTracks(CdIo_t *p_cdio, const char *szOutDir)
+{
+  char szAudioDir[ROLLER_MAX_PATH];
+  SDL_snprintf(szAudioDir, ROLLER_MAX_PATH, "%s/audio", szOutDir);
+  SDL_CreateDirectory(szAudioDir);
+
+  track_t uiFirst = cdio_get_first_track_num(p_cdio);
+  track_t uiLast  = cdio_get_last_track_num(p_cdio);
+  SDL_Log("ExtractAudioTracks: tracks %u-%u", (unsigned)uiFirst, (unsigned)uiLast);
+
+  // Track 1 is the data track; audio starts at track 2.
+  for (track_t t = 2; t <= uiLast; t++) {
+    if (cdio_get_track_format(p_cdio, t) != TRACK_FORMAT_AUDIO) {
+      SDL_Log("ExtractAudioTracks: track %u is not audio, skipping", (unsigned)t);
+      continue;
+    }
+
+    lsn_t lsnStart = cdio_get_track_lsn(p_cdio, t);
+    lsn_t lsnLast  = cdio_get_track_last_lsn(p_cdio, t);
+    if (lsnStart == CDIO_INVALID_LSN || lsnLast == CDIO_INVALID_LSN) {
+      SDL_Log("ExtractAudioTracks: track %u has invalid LSN, skipping", (unsigned)t);
+      continue;
+    }
+
+    uint32 uiSectors   = (uint32)(lsnLast - lsnStart + 1);
+    uint32 uiDataBytes = uiSectors * CDIO_CD_FRAMESIZE_RAW;
+
+    char szWavPath[ROLLER_MAX_PATH];
+    SDL_snprintf(szWavPath, ROLLER_MAX_PATH, "%s/track%02u.wav", szAudioDir, (unsigned)t);
+    SDL_Log("ExtractAudioTracks: track %u, LSN %d-%d (%u sectors) -> '%s'",
+            (unsigned)t, lsnStart, lsnLast, uiSectors, szWavPath);
+
+    FILE *pOut = fopen(szWavPath, "wb");
+    if (!pOut) {
+      SDL_Log("ExtractAudioTracks: failed to open '%s': %s", szWavPath, strerror(errno));
+      continue;
+    }
+
+    WriteWAVHeader(pOut, uiDataBytes);
+
+    // Read and write in chunks of 32 sectors for reasonable performance.
+    #define AUDIO_CHUNK_SECTORS 32
+    uint8 szBuf[CDIO_CD_FRAMESIZE_RAW * AUDIO_CHUNK_SECTORS];
+    lsn_t lsn = lsnStart;
+    while (lsn <= lsnLast) {
+      uint32 uiCount = (uint32)(lsnLast - lsn + 1);
+      if (uiCount > AUDIO_CHUNK_SECTORS) uiCount = AUDIO_CHUNK_SECTORS;
+      if (cdio_read_audio_sectors(p_cdio, szBuf, lsn, uiCount) != DRIVER_OP_SUCCESS) {
+        SDL_Log("ExtractAudioTracks: read error at LSN %d", lsn);
+        memset(szBuf, 0, (size_t)uiCount * CDIO_CD_FRAMESIZE_RAW);
+      }
+      fwrite(szBuf, 1, (size_t)uiCount * CDIO_CD_FRAMESIZE_RAW, pOut);
+      lsn += (lsn_t)uiCount;
+    }
+    #undef AUDIO_CHUNK_SECTORS
+
+    fclose(pOut);
+    SDL_Log("ExtractAudioTracks: wrote '%s' (%u bytes)", szWavPath, 44 + uiDataBytes);
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -515,7 +565,7 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
     } else {
       FILE *pOut = fopen(szOutPath, "wb");
       if (pOut) {
-        uint32_t uiBytesLeft = pStat->size;
+        uint32 uiBytesLeft = pStat->size;
         lsn_t lsn = pStat->lsn;
         char szBuf[ISO_BLOCK_SIZE];
 
@@ -523,7 +573,7 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
           memset(szBuf, 0, ISO_BLOCK_SIZE);
           cdio_read_data_sectors(p_cdio, szBuf, lsn, ISO_BLOCK_SIZE, 1);
 
-          uint32_t uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
+          uint32 uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
             ? ISO_BLOCK_SIZE
             : uiBytesLeft;
           fwrite(szBuf, 1, uiToWrite, pOut);
@@ -593,6 +643,7 @@ void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
   SDL_snprintf(szFatdataOut, ROLLER_MAX_PATH, "%s/FATDATA", szOutDir);
 
   ExtractDir(p_cdio, "/FATDATA", szFatdataOut);
+  ExtractAudioTracks(p_cdio, szOutDir);
   cdio_destroy(p_cdio);
 }
 
@@ -606,16 +657,15 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     SDL_MessageBoxButtonData buttons[] = {
-      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Image" },
-      { 0,                                       1, "Drive/Folder" },
-      { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Cancel" },
+      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image" },
+      { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel" },
     };
 
     SDL_MessageBoxData msgbox = {
         SDL_MESSAGEBOX_INFORMATION,
         s_pWindow,
         "FATDATA not found",
-        "Choose how to extract the game data:",
+        "Choose a CD image (ISO, BIN/CUE) to extract the game data:",
         SDL_arraysize(buttons),
         buttons,
         NULL
@@ -623,45 +673,27 @@ void InitFATDATA(const char *szDataRoot)
 
     int iButtonID;
     tDialogResult result = { 0 };
-    if (SDL_ShowMessageBox(&msgbox, &iButtonID)) {
-      switch (iButtonID) {
-        case 0:
-        {
-          #ifdef IS_WINDOWS
-            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
-          #else
-            SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
-          #endif
+    if (SDL_ShowMessageBox(&msgbox, &iButtonID) && iButtonID == 0) {
+      #ifdef IS_WINDOWS
+        SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
+      #else
+        SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
+      #endif
 
-          SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
+      SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
+
+      SDL_Event event;
+      while (!result.bDone) {
+        while (SDL_PollEvent(&event)) {
+          if (event.type == SDL_EVENT_QUIT) {
+            ShutdownSDL();
+            exit(0);
+          }
         }
-        break;
-        case 1:
-          result.bFolder = true;
-          SDL_ShowOpenFolderDialog(FileCallback, &result, s_pWindow, szDataRoot, false);
-          break;
-        case 2:
-          break;
+        SDL_Delay(10);
       }
-    }
 
-    SDL_Event event;
-    while (!result.bDone) {
-      while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_EVENT_QUIT) {
-          ShutdownSDL();
-          exit(0);
-        }
-      }
-      SDL_Delay(10);
-    }
-
-    if (result.bFolder) {
-      CopyFATDATADir(result.szPath, szDataRoot);
-      //TODO: extract cd audio
-    } else {
       ExtractFATDATA(result.szPath, szDataRoot);
-      //TODO: extract cd audio
     }
   }
 
