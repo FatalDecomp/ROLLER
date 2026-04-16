@@ -2,6 +2,7 @@
 
 [![CI][ci-shd]][ci-url]
 [![LC][lc-shd]][lc-url]
+[![Download][dl-shd]][dl-url]
 
 ![Roller logo](./images/whiplash.gif)
 
@@ -72,3 +73,5 @@ zig build -Dassets-path=/path/to/fatdata run
 [ci-url]: https://github.com/FatalDecomp/ROLLER/blob/master/.github/workflows/ci.yml
 [lc-shd]: https://img.shields.io/github/license/FatalDecomp/ROLLER.svg?style=for-the-badge&labelColor=black
 [lc-url]: https://github.com/FatalDecomp/ROLLER/blob/master/LICENSE.md
+[dl-shd]: https://img.shields.io/github/v/release/FatalDecomp/ROLLER?include_prereleases&style=for-the-badge&logo=github&label=Download&labelColor=black&color=blue
+[dl-url]: https://github.com/FatalDecomp/ROLLER/releases/latest
