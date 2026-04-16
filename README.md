@@ -49,7 +49,7 @@ cd roller
 
 ### Install prerequisites
 
-- [Zig 0.14.1](https://ziglang.org/download/)
+- [Zig 0.15.2](https://ziglang.org/download/)
 
 The easiest way to install is to use [mise](https://mise.jdx.dev/):
 
