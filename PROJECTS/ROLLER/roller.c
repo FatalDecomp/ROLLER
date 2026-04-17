@@ -630,9 +630,19 @@ void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
   // handles Mode 2 XA sectors (2352-byte, 24-byte header) correctly.
   SDL_Log("ExtractFATDATA: opening '%s', output dir '%s'", szImagePath, szOutDir);
 
-  CdIo_t *p_cdio = cdio_open_am(szImagePath, DRIVER_UNKNOWN, NULL);
+  // libcdio's cdio_dirname (abs_path.c) only recognises '/' as a directory
+  // separator, so Windows backslash paths like C:\foo\bar.cue cause it to
+  // derive "." as the directory and then fail to find the .BIN file next to
+  // the .CUE.  Normalise to forward slashes before handing off to libcdio.
+  char szNormPath[ROLLER_MAX_PATH];
+  SDL_strlcpy(szNormPath, szImagePath, ROLLER_MAX_PATH);
+  for (char *p = szNormPath; *p; p++) {
+    if (*p == '\\') *p = '/';
+  }
+
+  CdIo_t *p_cdio = cdio_open_am(szNormPath, DRIVER_UNKNOWN, NULL);
   if (!p_cdio) {
-    SDL_Log("ExtractFATDATA: cdio_open_am failed for '%s'", szImagePath);
+    SDL_Log("ExtractFATDATA: cdio_open_am failed for '%s'", szNormPath);
     return;
   }
   SDL_Log("ExtractFATDATA: image opened successfully");
