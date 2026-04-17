@@ -303,8 +303,6 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     }
   }
 
-  ROLLERGetAudioInfo();
-
   g_pTimerMutex = SDL_CreateMutex();
 
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
@@ -710,6 +708,14 @@ void InitFATDATA(const char *szDataRoot)
   //check if extraction was successful
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the FATDATA folder assets from a retail copy of the game.");
+  }
+  
+  // if the extracted audio tracks are present, enable CD music.
+  FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
+  if (pTrack) {
+    fclose(pTrack);
+    MusicCard = 0;
+    MusicCD = -1;
   }
 }
 
