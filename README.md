@@ -41,6 +41,8 @@ FATAL.EXE_split_dos4g_payload.exe
 
 ## Build
 
+Video instructions: https://www.youtube.com/watch?v=QEDGhvvZ9XU
+
 ### Clone the repository
 
 ```bash
