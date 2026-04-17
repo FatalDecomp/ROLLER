@@ -701,7 +701,8 @@ void InitFATDATA(const char *szDataRoot)
         SDL_Delay(10);
       }
 
-      ExtractFATDATA(result.szPath, szDataRoot);
+      if (!result.bCancelled)
+        ExtractFATDATA(result.szPath, szDataRoot);
     }
   }
 
