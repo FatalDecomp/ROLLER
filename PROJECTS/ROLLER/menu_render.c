@@ -21,8 +21,8 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->window = window;
     r->gpu = menu_render_gpu_create(device, window);
     r->sw = menu_render_sw_create(device, window);
-    r->mode = MENU_RENDER_GPU;
-    r->pendingMode = MENU_RENDER_GPU;
+    r->mode = MENU_RENDER_SOFTWARE;
+    r->pendingMode = MENU_RENDER_SOFTWARE;
     return r;
 }
 
