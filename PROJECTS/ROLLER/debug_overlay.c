@@ -1,6 +1,7 @@
 #include "debug_overlay.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Nuklear — full implementation in this translation unit
@@ -15,9 +16,23 @@
 
 // ---------------------------------------------------------------------------
 
-#define OVERLAY_W 1280
-#define OVERLAY_H 720
-#define OVERLAY_BPP 4  // RGBA
+#define OVERLAY_W        1280
+#define OVERLAY_H        720
+#define OVERLAY_BPP      4    // RGBA
+
+#define MAX_LOG_MESSAGES 512
+#define MAX_LOG_LEN      256
+
+#define PANEL_MARGIN     10
+#define PANEL_H          (OVERLAY_H - PANEL_MARGIN * 2)
+#define LEFT_W           410
+#define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
+#define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
+#define LOG_ROW_H        20
+
+typedef struct {
+  char szText[MAX_LOG_LEN];
+} tLogEntry;
 
 struct DebugOverlay {
   SDL_GPUDevice         *pDevice;
@@ -33,7 +48,60 @@ struct DebugOverlay {
   uint8_t               *pPixels;      // OVERLAY_W * OVERLAY_H * OVERLAY_BPP
   SDL_GPUTexture        *pTexture;
   SDL_GPUTransferBuffer *pTransfer;
+
+  // Log ring buffer
+  tLogEntry              aLogEntries[MAX_LOG_MESSAGES];
+  int                    iLogHead;     // index of oldest entry
+  int                    iLogCount;
+  SDL_Mutex             *pLogMutex;
+
+  // Chained SDL log function
+  SDL_LogOutputFunction  pPrevLogFn;
+  void                  *pPrevLogUserdata;
+
+  bool                   bInputBegun;
 };
+
+// ---------------------------------------------------------------------------
+// Log callback
+// ---------------------------------------------------------------------------
+
+static const char *PriorityPrefix(SDL_LogPriority priority) {
+  switch (priority) {
+  case SDL_LOG_PRIORITY_VERBOSE:  return "[VRB] ";
+  case SDL_LOG_PRIORITY_DEBUG:    return "[DBG] ";
+  case SDL_LOG_PRIORITY_INFO:     return "[INF] ";
+  case SDL_LOG_PRIORITY_WARN:     return "[WRN] ";
+  case SDL_LOG_PRIORITY_ERROR:    return "[ERR] ";
+  case SDL_LOG_PRIORITY_CRITICAL: return "[CRT] ";
+  default:                        return "      ";
+  }
+}
+
+static void LogCallback(void *pUserdata, int iCategory, SDL_LogPriority priority,
+                         const char *pMessage) {
+  DebugOverlay *pOverlay = (DebugOverlay *)pUserdata;
+
+  // Chain to previous handler so console output is preserved
+  if (pOverlay->pPrevLogFn)
+    pOverlay->pPrevLogFn(pOverlay->pPrevLogUserdata, iCategory, priority, pMessage);
+
+  SDL_LockMutex(pOverlay->pLogMutex);
+
+  int iIdx;
+  if (pOverlay->iLogCount < MAX_LOG_MESSAGES) {
+    iIdx = (pOverlay->iLogHead + pOverlay->iLogCount) % MAX_LOG_MESSAGES;
+    pOverlay->iLogCount++;
+  } else {
+    iIdx = pOverlay->iLogHead;
+    pOverlay->iLogHead = (pOverlay->iLogHead + 1) % MAX_LOG_MESSAGES;
+  }
+
+  snprintf(pOverlay->aLogEntries[iIdx].szText, MAX_LOG_LEN,
+           "%s%s", PriorityPrefix(priority), pMessage);
+
+  SDL_UnlockMutex(pOverlay->pLogMutex);
+}
 
 // ---------------------------------------------------------------------------
 // Software rasterizer helpers
@@ -193,13 +261,13 @@ static void UploadAndBlit(DebugOverlay *pOverlay, SDL_GPUCommandBuffer *pCmdBuf)
 DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) {
   DebugOverlay *pOverlay = calloc(1, sizeof(DebugOverlay));
   if (!pOverlay) return NULL;
-  pOverlay->pDevice  = pDevice;
-  pOverlay->pWindow  = pWindow;
+  pOverlay->pDevice     = pDevice;
+  pOverlay->pWindow     = pWindow;
   pOverlay->bVisible = false;
 
   nk_font_atlas_init_default(&pOverlay->atlas);
   nk_font_atlas_begin(&pOverlay->atlas);
-  struct nk_font *pFont = nk_font_atlas_add_default(&pOverlay->atlas, 13, NULL);
+  struct nk_font *pFont = nk_font_atlas_add_default(&pOverlay->atlas, 16, NULL);
 
   const void *pBaked = nk_font_atlas_bake(&pOverlay->atlas,
                                            &pOverlay->iAtlasW, &pOverlay->iAtlasH,
@@ -229,11 +297,17 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   tbi.size  = OVERLAY_W * OVERLAY_H * OVERLAY_BPP;
   pOverlay->pTransfer = SDL_CreateGPUTransferBuffer(pDevice, &tbi);
 
+  pOverlay->pLogMutex = SDL_CreateMutex();
+  SDL_GetLogOutputFunction(&pOverlay->pPrevLogFn, &pOverlay->pPrevLogUserdata);
+  SDL_SetLogOutputFunction(LogCallback, pOverlay);
+
   return pOverlay;
 }
 
 void debug_overlay_destroy(DebugOverlay *pOverlay) {
   if (!pOverlay) return;
+  SDL_SetLogOutputFunction(pOverlay->pPrevLogFn, pOverlay->pPrevLogUserdata);
+  SDL_DestroyMutex(pOverlay->pLogMutex);
   nk_free(&pOverlay->nk);
   nk_font_atlas_clear(&pOverlay->atlas);
   free(pOverlay->pAtlasPixels);
@@ -256,24 +330,78 @@ void debug_overlay_toggle(DebugOverlay *pOverlay) {
 }
 
 void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
-  if (!pOverlay) return;
-  if (pEvent->type == SDL_EVENT_KEY_DOWN &&
-      pEvent->key.scancode == SDL_SCANCODE_F1) {
-    pOverlay->bVisible = !pOverlay->bVisible;
-    return;
+  if (!pOverlay || !pOverlay->bVisible) return;
+
+  // Open input bracket on first event of the frame
+  if (!pOverlay->bInputBegun) {
+    nk_input_begin(&pOverlay->nk);
+    pOverlay->bInputBegun = true;
   }
-  if (!pOverlay->bVisible) return;
+
+  // Scale window coords to logical overlay space
+  int iWinW, iWinH;
+  SDL_GetWindowSizeInPixels(pOverlay->pWindow, &iWinW, &iWinH);
+  float fScaleX = (float)OVERLAY_W / (float)iWinW;
+  float fScaleY = (float)OVERLAY_H / (float)iWinH;
+
   struct nk_context *pCtx = &pOverlay->nk;
-  if (pEvent->type == SDL_EVENT_MOUSE_MOTION)
-    nk_input_motion(pCtx, (int)pEvent->motion.x, (int)pEvent->motion.y);
-  else if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-           pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) {
+  if (pEvent->type == SDL_EVENT_MOUSE_MOTION) {
+    nk_input_motion(pCtx,
+                    (int)(pEvent->motion.x * fScaleX),
+                    (int)(pEvent->motion.y * fScaleY));
+  } else if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+             pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) {
     int iDown = (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN);
     if (pEvent->button.button == SDL_BUTTON_LEFT)
       nk_input_button(pCtx, NK_BUTTON_LEFT,
-                      (int)pEvent->button.x, (int)pEvent->button.y, iDown);
+                      (int)(pEvent->button.x * fScaleX),
+                      (int)(pEvent->button.y * fScaleY), iDown);
+  } else if (pEvent->type == SDL_EVENT_MOUSE_WHEEL) {
+    nk_input_scroll(pCtx, nk_vec2(0.0f, pEvent->wheel.y * 20.0f));
   }
 }
+
+// ---------------------------------------------------------------------------
+// UI panels
+// ---------------------------------------------------------------------------
+
+static void DrawDebugPanel(DebugOverlay *pOverlay) {
+  struct nk_context *pCtx = &pOverlay->nk;
+  if (nk_begin(pCtx, "Debug",
+               nk_rect(PANEL_MARGIN, PANEL_MARGIN, LEFT_W, PANEL_H),
+               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_label(pCtx, "Toggles (coming soon)", NK_TEXT_LEFT);
+  }
+  nk_end(pCtx);
+}
+
+static void DrawLogPanel(DebugOverlay *pOverlay) {
+  struct nk_context *pCtx = &pOverlay->nk;
+
+  if (nk_begin(pCtx, "Log",
+               nk_rect(RIGHT_X, PANEL_MARGIN, RIGHT_W, PANEL_H),
+               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    nk_layout_row_dynamic(pCtx, PANEL_H - 50, 1);
+    if (nk_group_begin(pCtx, "log_inner", NK_WINDOW_BORDER)) {
+      nk_layout_row_dynamic(pCtx, LOG_ROW_H, 1);
+      SDL_LockMutex(pOverlay->pLogMutex);
+      int iCount = pOverlay->iLogCount;
+      int iHead  = pOverlay->iLogHead;
+      for (int iI = 0; iI < iCount; iI++) {
+        int iIdx = (iHead + iI) % MAX_LOG_MESSAGES;
+        nk_label(pCtx, pOverlay->aLogEntries[iIdx].szText, NK_TEXT_LEFT);
+      }
+      SDL_UnlockMutex(pOverlay->pLogMutex);
+      nk_group_end(pCtx);
+    }
+  }
+  nk_end(pCtx);
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
 
 void debug_overlay_render(DebugOverlay *pOverlay,
                           SDL_GPUCommandBuffer *pCmdBuf,
@@ -282,15 +410,14 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   if (!pOverlay || !pOverlay->bVisible) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
-  nk_input_begin(pCtx);
+  // Close input bracket (open it first if no events arrived this frame)
+  if (!pOverlay->bInputBegun)
+    nk_input_begin(pCtx);
   nk_input_end(pCtx);
+  pOverlay->bInputBegun = false;
 
-  if (nk_begin(pCtx, "Debug", nk_rect(10, 10, 220, 80),
-               NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE)) {
-    nk_layout_row_dynamic(pCtx, 20, 1);
-    nk_label(pCtx, "Debug overlay (F1 to hide)", NK_TEXT_LEFT);
-  }
-  nk_end(pCtx);
+  DrawDebugPanel(pOverlay);
+  DrawLogPanel(pOverlay);
 
   memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
   RenderCommands(pOverlay);
