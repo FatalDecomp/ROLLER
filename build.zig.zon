@@ -29,5 +29,6 @@
         "build.zig",
         "build.zig.zon",
         "PROJECTS/",
+        "external/",
     },
 }

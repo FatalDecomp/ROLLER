@@ -21,8 +21,10 @@ pub fn build(b: *std.Build) void {
     // Only sanitize C code when building in Debug mode
     // So that release builds are more "stable"
     exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
+    exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
     exe_mod.addCSourceFiles(.{
         .files = &.{
+            "PROJECTS/ROLLER/debug_overlay.c",
             "PROJECTS/ROLLER/3d.c",
             "PROJECTS/ROLLER/building.c",
             "PROJECTS/ROLLER/car.c",
@@ -182,6 +184,7 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     cflags.addIncludePath(wildmidi.builder.path("include"));
     cflags.addIncludePath(libcdio.builder.path("include"));
     cflags.addIncludePath(libcdio.builder.path("zig-config"));
+    cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);
