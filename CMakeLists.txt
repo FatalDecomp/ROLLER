@@ -22,8 +22,7 @@ if(UNIX AND NOT APPLE)
         add_library(libcdio::cdio INTERFACE IMPORTED)
         set_target_properties(libcdio::cdio PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES "${LIBCDIO_INCLUDE_DIRS}"
-            INTERFACE_LINK_LIBRARIES "${LIBCDIO_LIBRARIES}"
-        )
+            INTERFACE_LINK_LIBRARIES "${LIBCDIO_LIBRARIES}")
     endif()
 else()
     find_package(libcdio REQUIRED)
