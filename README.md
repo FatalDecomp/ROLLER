@@ -38,6 +38,7 @@ FATAL.EXE_split_dos4g_payload.exe
 * SDL_Image3.2.4: https://github.com/libsdl-org/SDL_image
 * WildMIDI 0.4.6: https://github.com/Mindwerks/wildmidi
 * libcdio-2.3.0: https://github.com/libcdio/libcdio
+* Nuklear 4.13.2: https://github.com/Immediate-Mode-UI/Nuklear
 
 ## Build
 
