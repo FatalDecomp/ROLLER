@@ -1,4 +1,5 @@
 #include "debug_overlay.h"
+#include "debug_overlay_shaders.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -48,6 +49,8 @@ struct DebugOverlay {
   uint8_t               *pPixels;      // OVERLAY_W * OVERLAY_H * OVERLAY_BPP
   SDL_GPUTexture        *pTexture;
   SDL_GPUTransferBuffer *pTransfer;
+  SDL_GPUGraphicsPipeline *pPipeline;
+  SDL_GPUSampler          *pSampler;
 
   // Log ring buffer
   tLogEntry              aLogEntries[MAX_LOG_MESSAGES];
@@ -258,6 +261,31 @@ static void UploadAndBlit(DebugOverlay *pOverlay, SDL_GPUCommandBuffer *pCmdBuf)
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+static SDL_GPUShader *LoadOverlayShader(SDL_GPUDevice *pDevice, SDL_GPUShaderStage stage,
+    const unsigned char *pSpirv, unsigned int uiSpirvSize,
+    const unsigned char *pMsl, unsigned int uiMslSize,
+    int iNumSamplers, int iNumUniformBuffers) {
+  SDL_GPUShaderFormat fmts = SDL_GetGPUShaderFormats(pDevice);
+  SDL_GPUShaderCreateInfo info = {0};
+  info.stage = stage;
+  info.num_samplers = iNumSamplers;
+  info.num_uniform_buffers = iNumUniformBuffers;
+  if (fmts & SDL_GPU_SHADERFORMAT_SPIRV) {
+    info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    info.code = pSpirv;
+    info.code_size = uiSpirvSize;
+    info.entrypoint = "main";
+  } else if (fmts & SDL_GPU_SHADERFORMAT_MSL) {
+    info.format = SDL_GPU_SHADERFORMAT_MSL;
+    info.code = pMsl;
+    info.code_size = uiMslSize;
+    info.entrypoint = "main0";
+  } else {
+    return NULL;
+  }
+  return SDL_CreateGPUShader(pDevice, &info);
+}
+
 DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) {
   DebugOverlay *pOverlay = calloc(1, sizeof(DebugOverlay));
   if (!pOverlay) return NULL;
@@ -280,6 +308,16 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   nk_font_atlas_end(&pOverlay->atlas, nk_handle_ptr(pOverlay->pAtlasPixels), &nullTex);
   nk_init_default(&pOverlay->nk, &pFont->handle);
 
+  // Make window and group backgrounds translucent (~80% opacity)
+  struct nk_style *pStyle = &pOverlay->nk.style;
+  pStyle->window.fixed_background      = nk_style_item_color(nk_rgba(45,  45,  45,  200));
+  pStyle->window.background            = nk_rgba(45,  45,  45,  200);
+  pStyle->window.header.normal         = nk_style_item_color(nk_rgba(40,  40,  40,  200));
+  pStyle->window.header.hover          = nk_style_item_color(nk_rgba(40,  40,  40,  200));
+  pStyle->window.header.active         = nk_style_item_color(nk_rgba(40,  40,  40,  200));
+  pStyle->window.group_border_color    = nk_rgba(60,  60,  60,  200);
+  pStyle->window.border_color          = nk_rgba(60,  60,  60,  200);
+
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
   SDL_GPUTextureCreateInfo ti = {0};
@@ -301,6 +339,50 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   SDL_GetLogOutputFunction(&pOverlay->pPrevLogFn, &pOverlay->pPrevLogUserdata);
   SDL_SetLogOutputFunction(LogCallback, pOverlay);
 
+  // Build alpha-blend pipeline for compositing overlay over swapchain
+  SDL_GPUShader *pVert = LoadOverlayShader(pDevice, SDL_GPU_SHADERSTAGE_VERTEX,
+    overlay_vertex_spirv, overlay_vertex_spirv_size,
+    overlay_vertex_msl,  overlay_vertex_msl_size,
+    0, 0);
+  SDL_GPUShader *pFrag = LoadOverlayShader(pDevice, SDL_GPU_SHADERSTAGE_FRAGMENT,
+    overlay_pixel_spirv, overlay_pixel_spirv_size,
+    overlay_pixel_msl,  overlay_pixel_msl_size,
+    1, 0);
+  if (pVert && pFrag) {
+    SDL_GPUGraphicsPipelineCreateInfo pipeInfo = {0};
+    pipeInfo.vertex_shader   = pVert;
+    pipeInfo.fragment_shader = pFrag;
+    pipeInfo.primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+
+    SDL_GPUColorTargetDescription ct = {0};
+    ct.format = SDL_GetGPUSwapchainTextureFormat(pDevice, pWindow);
+    ct.blend_state.enable_blend              = true;
+    ct.blend_state.src_color_blendfactor     = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    ct.blend_state.dst_color_blendfactor     = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    ct.blend_state.color_blend_op            = SDL_GPU_BLENDOP_ADD;
+    ct.blend_state.src_alpha_blendfactor     = SDL_GPU_BLENDFACTOR_ONE;
+    ct.blend_state.dst_alpha_blendfactor     = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    ct.blend_state.alpha_blend_op            = SDL_GPU_BLENDOP_ADD;
+    pipeInfo.target_info.color_target_descriptions = &ct;
+    pipeInfo.target_info.num_color_targets         = 1;
+
+    pOverlay->pPipeline = SDL_CreateGPUGraphicsPipeline(pDevice, &pipeInfo);
+    if (!pOverlay->pPipeline)
+      SDL_Log("debug_overlay: failed to create pipeline: %s", SDL_GetError());
+  } else {
+    SDL_Log("debug_overlay: failed to load overlay shaders");
+  }
+  if (pVert) SDL_ReleaseGPUShader(pDevice, pVert);
+  if (pFrag) SDL_ReleaseGPUShader(pDevice, pFrag);
+
+  SDL_GPUSamplerCreateInfo si = {0};
+  si.min_filter     = SDL_GPU_FILTER_LINEAR;
+  si.mag_filter     = SDL_GPU_FILTER_LINEAR;
+  si.mipmap_mode    = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+  si.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+  si.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+  pOverlay->pSampler = SDL_CreateGPUSampler(pDevice, &si);
+
   return pOverlay;
 }
 
@@ -314,6 +396,10 @@ void debug_overlay_destroy(DebugOverlay *pOverlay) {
   free(pOverlay->pPixels);
   SDL_ReleaseGPUTexture(pOverlay->pDevice, pOverlay->pTexture);
   SDL_ReleaseGPUTransferBuffer(pOverlay->pDevice, pOverlay->pTransfer);
+  if (pOverlay->pPipeline)
+    SDL_ReleaseGPUGraphicsPipeline(pOverlay->pDevice, pOverlay->pPipeline);
+  if (pOverlay->pSampler)
+    SDL_ReleaseGPUSampler(pOverlay->pDevice, pOverlay->pSampler);
   free(pOverlay);
 }
 
@@ -423,14 +509,17 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   RenderCommands(pOverlay);
   UploadAndBlit(pOverlay, pCmdBuf);
 
-  SDL_GPUBlitInfo blit = {0};
-  blit.source.texture      = pOverlay->pTexture;
-  blit.source.w            = OVERLAY_W;
-  blit.source.h            = OVERLAY_H;
-  blit.destination.texture = pSwapchainTex;
-  blit.destination.w       = uiSwapchainW;
-  blit.destination.h       = uiSwapchainH;
-  blit.filter  = SDL_GPU_FILTER_LINEAR;
-  blit.load_op = SDL_GPU_LOADOP_LOAD;
-  SDL_BlitGPUTexture(pCmdBuf, &blit);
+  if (!pOverlay->pPipeline || !pOverlay->pSampler) return;
+
+  SDL_GPUColorTargetInfo ct = {0};
+  ct.texture   = pSwapchainTex;
+  ct.load_op   = SDL_GPU_LOADOP_LOAD;
+  ct.store_op  = SDL_GPU_STOREOP_STORE;
+
+  SDL_GPURenderPass *pRp = SDL_BeginGPURenderPass(pCmdBuf, &ct, 1, NULL);
+  SDL_BindGPUGraphicsPipeline(pRp, pOverlay->pPipeline);
+  SDL_GPUTextureSamplerBinding binding = { .texture = pOverlay->pTexture, .sampler = pOverlay->pSampler };
+  SDL_BindGPUFragmentSamplers(pRp, 0, &binding, 1);
+  SDL_DrawGPUPrimitives(pRp, 3, 1, 0, 0);
+  SDL_EndGPURenderPass(pRp);
 }
