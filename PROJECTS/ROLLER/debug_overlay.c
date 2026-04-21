@@ -1,5 +1,7 @@
 #include "debug_overlay.h"
 #include "debug_overlay_shaders.h"
+#include "roller.h"
+#include "menu_render.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -317,6 +319,8 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->window.header.active         = nk_style_item_color(nk_rgba(40,  40,  40,  200));
   pStyle->window.group_border_color    = nk_rgba(60,  60,  60,  200);
   pStyle->window.border_color          = nk_rgba(60,  60,  60,  200);
+  pStyle->checkbox.cursor_normal       = nk_style_item_color(nk_rgba(220, 220, 220, 255));
+  pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
 
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
@@ -453,11 +457,16 @@ void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
 
 static void DrawDebugPanel(DebugOverlay *pOverlay) {
   struct nk_context *pCtx = &pOverlay->nk;
-  if (nk_begin(pCtx, "Debug",
+  if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_MARGIN, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-    nk_layout_row_dynamic(pCtx, 20, 1);
-    nk_label(pCtx, "Toggles (coming soon)", NK_TEXT_LEFT);
+    MenuRenderer *pRenderer = GetMenuRenderer();
+    if (pRenderer) {
+      int bGPU = (menu_render_get_mode(pRenderer) == MENU_RENDER_GPU);
+      nk_layout_row_dynamic(pCtx, 20, 1);
+      if (nk_checkbox_label(pCtx, "Hardware Rendering (Experimental)", &bGPU))
+        menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+    }
   }
   nk_end(pCtx);
 }
