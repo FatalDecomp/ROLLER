@@ -112,7 +112,7 @@ static void LogCallback(void *pUserdata, int iCategory, SDL_LogPriority priority
 // Software rasterizer helpers
 // ---------------------------------------------------------------------------
 
-static void FillRect(uint8_t *pBuf, int iBx, int iBy, int iBw, int iBh,
+static void OverlayFillRect(uint8_t *pBuf, int iBx, int iBy, int iBw, int iBh,
                      struct nk_color c) {
   for (int iY = iBy; iY < iBy + iBh; iY++) {
     if (iY < 0 || iY >= OVERLAY_H) continue;
@@ -128,7 +128,7 @@ static void FillRect(uint8_t *pBuf, int iBx, int iBy, int iBw, int iBh,
   }
 }
 
-static void FillTriangle(uint8_t *pBuf,
+static void OverlayFillTriangle(uint8_t *pBuf,
                           int iX0, int iY0, int iX1, int iY1, int iX2, int iY2,
                           struct nk_color c) {
   int iMinX = iX0 < iX1 ? (iX0 < iX2 ? iX0 : iX2) : (iX1 < iX2 ? iX1 : iX2);
@@ -153,7 +153,7 @@ static void FillTriangle(uint8_t *pBuf,
   }
 }
 
-static void StrokeLine(uint8_t *pBuf, int iX0, int iY0, int iX1, int iY1,
+static void OverlayStrokeLine(uint8_t *pBuf, int iX0, int iY0, int iX1, int iY1,
                         struct nk_color c) {
   int iDx = abs(iX1-iX0), iDy = abs(iY1-iY0);
   int iSx = iX0 < iX1 ? 1 : -1, iSy = iY0 < iY1 ? 1 : -1;
@@ -174,7 +174,7 @@ static void StrokeLine(uint8_t *pBuf, int iX0, int iY0, int iX1, int iY1,
   }
 }
 
-static void DrawGlyph(DebugOverlay *pOverlay, const struct nk_font_glyph *pGlyph,
+static void OverlayDrawGlyph(DebugOverlay *pOverlay, const struct nk_font_glyph *pGlyph,
                        int iCx, int iCy, struct nk_color fg) {
   int iGw = (int)(pGlyph->x1 - pGlyph->x0);
   int iGh = (int)(pGlyph->y1 - pGlyph->y0);
@@ -208,18 +208,18 @@ static void RenderCommands(DebugOverlay *pOverlay) {
       break;
     case NK_COMMAND_LINE: {
       const struct nk_command_line *pL = (const struct nk_command_line *)pCmd;
-      StrokeLine(pOverlay->pPixels, pL->begin.x, pL->begin.y,
+      OverlayStrokeLine(pOverlay->pPixels, pL->begin.x, pL->begin.y,
                  pL->end.x, pL->end.y, pL->color);
     } break;
     case NK_COMMAND_RECT_FILLED: {
       const struct nk_command_rect_filled *pR =
         (const struct nk_command_rect_filled *)pCmd;
-      FillRect(pOverlay->pPixels, pR->x, pR->y, pR->w, pR->h, pR->color);
+      OverlayFillRect(pOverlay->pPixels, pR->x, pR->y, pR->w, pR->h, pR->color);
     } break;
     case NK_COMMAND_TRIANGLE_FILLED: {
       const struct nk_command_triangle_filled *pT =
         (const struct nk_command_triangle_filled *)pCmd;
-      FillTriangle(pOverlay->pPixels,
+      OverlayFillTriangle(pOverlay->pPixels,
         pT->a.x, pT->a.y, pT->b.x, pT->b.y, pT->c.x, pT->c.y, pT->color);
     } break;
     case NK_COMMAND_TEXT: {
@@ -230,7 +230,7 @@ static void RenderCommands(DebugOverlay *pOverlay) {
         nk_rune uiRune = (nk_rune)(unsigned char)pT->string[iI];
         const struct nk_font_glyph *pGlyph = nk_font_find_glyph(pFont, uiRune);
         if (!pGlyph) { fCx += pT->font->height * 0.5f; continue; }
-        DrawGlyph(pOverlay, pGlyph, (int)fCx, pT->y, pT->foreground);
+        OverlayDrawGlyph(pOverlay, pGlyph, (int)fCx, pT->y, pT->foreground);
         fCx += pGlyph->xadvance;
       }
     } break;
