@@ -14,7 +14,20 @@ endif()
 find_package(SDL3 REQUIRED)
 find_package(SDL3_image REQUIRED)
 find_package(WildMidi REQUIRED)
-find_package(libcdio REQUIRED)
+
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBCDIO REQUIRED libcdio libiso9660)
+    if(NOT TARGET libcdio::cdio)
+        add_library(libcdio::cdio INTERFACE IMPORTED)
+        set_target_properties(libcdio::cdio PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${LIBCDIO_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${LIBCDIO_LIBRARIES}"
+        )
+    endif()
+else()
+    find_package(libcdio REQUIRED)
+endif()
 
 if(WIN32)
     set(PLATFORM_SOURCES ROLLER.rc)
