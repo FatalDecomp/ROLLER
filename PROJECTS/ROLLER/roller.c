@@ -6,6 +6,7 @@
 #include "graphics.h"
 #include "config.h"
 #include "menu_render.h"
+#include "debug_overlay.h"
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -91,6 +92,9 @@ SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 
 static MenuRenderer *s_pMenuRenderer = NULL;
 MenuRenderer *GetMenuRenderer(void) { return s_pMenuRenderer; }
+
+static DebugOverlay *s_pDebugOverlay = NULL;
+DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
@@ -269,6 +273,7 @@ void UpdateSDLWindow()
   blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
 
   SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  debug_overlay_render(s_pDebugOverlay, cmdBuf, swapchainTex, swW, swH);
   SDL_SubmitGPUCommandBuffer(cmdBuf);
 }
 
@@ -325,6 +330,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   }
 
   s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
+  s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
 
   // GPU texture for game framebuffer presentation
   SDL_GPUTextureCreateInfo texInfo = {0};
@@ -730,6 +736,8 @@ void ShutdownSDL()
   if (g_pController2) SDL_CloseGamepad(g_pController2);
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 
+  debug_overlay_destroy(s_pDebugOverlay);
+  s_pDebugOverlay = NULL;
   menu_render_destroy(s_pMenuRenderer);
   SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
   SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
@@ -904,7 +912,13 @@ void UpdateSDL()
       quit_game = 1;
       doexit();
     }
+    debug_overlay_handle_event(s_pDebugOverlay, &e);
+
     if (e.type == SDL_EVENT_KEY_DOWN) {
+      if (e.key.scancode == SDL_SCANCODE_GRAVE) {
+        debug_overlay_toggle(s_pDebugOverlay);
+        continue;
+      }
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER

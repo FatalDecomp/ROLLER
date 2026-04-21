@@ -25,6 +25,10 @@ extern int g_iNumTracks;
 SDL_GPUDevice *ROLLERGetGPUDevice(void);
 SDL_Window *ROLLERGetWindow(void);
 
+// Debug overlay accessor
+struct DebugOverlay;
+struct DebugOverlay *ROLLERGetDebugOverlay(void);
+
 // Menu renderer accessor
 typedef struct MenuRenderer MenuRenderer;
 MenuRenderer *GetMenuRenderer(void);

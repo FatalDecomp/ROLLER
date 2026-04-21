@@ -4,6 +4,8 @@
 #include "car.h"
 #include "graphics.h"
 #include "3d.h"
+#include "roller.h"
+#include "debug_overlay.h"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -734,6 +736,8 @@ void menu_render_gpu_end_frame(MenuRendererGPU *r)
     ReplayDrawsLayer(r, renderPass, MENU_LAYER_FOREGROUND, MENU_LAYER_FOREGROUND);
 
     SDL_EndGPURenderPass(renderPass);
+    debug_overlay_render(ROLLERGetDebugOverlay(), r->cmdBuf,
+                         r->swapchainTexture, r->swapchainWidth, r->swapchainHeight);
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);
     r->cmdBuf = NULL;
 }
