@@ -460,13 +460,21 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_MARGIN, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
+
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
       int bGPU = (menu_render_get_mode(pRenderer) == MENU_RENDER_GPU);
       nk_layout_row_dynamic(pCtx, 20, 1);
-      if (nk_checkbox_label(pCtx, "Hardware Rendering (Experimental)", &bGPU))
+      if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU))
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
     }
+
+    int bForceMaxDraw = (int)g_bForceMaxDraw;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw))
+      g_bForceMaxDraw = (bool)bForceMaxDraw;
   }
   nk_end(pCtx);
 }
