@@ -11,7 +11,7 @@ This project aims to implement all the functionality of the 1995 game Whiplash/F
 [![On track!](https://img.youtube.com/vi/JvoiQTRjt88/maxresdefault.jpg)](https://www.youtube.com/watch?v=JvoiQTRjt88)
 
 ## Installation
-Assets from a retail copy of the game are required to run. Select a CD image (CUE/BIN or ISO) to extract the assets from on initial launch.
+Assets from a retail copy of the game are required to run. Download the latest version of ROLLER from the [releases](https://github.com/FatalDecomp/ROLLER/releases) page and extract wherever you want. On the initial launch you will be prompted to select a CD image (CUE/BIN or ISO) to extract the assets from. Press the ` key to access additional settings and the debug log.
 
 ## About
 
