@@ -1310,49 +1310,38 @@ int MIDIGetMasterVolume()
 #define NUM_DIGI_STREAMS 32
 SDL_AudioStream *digi_stream[NUM_DIGI_STREAMS];
 float digi_volume[NUM_DIGI_STREAMS];
+float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
 tSampleData digi_sample_data[NUM_DIGI_STREAMS];
 
-void mono_to_stereo_u8(const Uint8 *in, int in_length, Uint8 *out)
+// Convert mono U8 to stereo U8 with panning applied. out must be in_length * 2 bytes.
+static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out, float pan)
 {
-  int frames = in_length; // 1 byte per mono sample
-  for (int i = 0; i < frames; i++) {
-    Uint8 sample = in[i];
-    out[2 * i] = sample; // Left
-    out[2 * i + 1] = sample; // Right
-  }
-}
-
-void apply_pan_u8(Uint8 *raw, int length, float pan)
-{
-  int frames = length / 2; // 2 channels per frame
-
-  float left_gain = (pan <= 0) ? 1.0f : 1.0f - pan;
-  float right_gain = (pan >= 0) ? 1.0f : 1.0f + pan;
-
-  for (int i = 0; i < frames; i++) {
-      // Convert from unsigned (0–255) to signed (-128…127)
-    int l = (int)raw[2 * i] - 128;
-    int r = (int)raw[2 * i + 1] - 128;
-
-    // Apply pan
-    l = (int)(l * left_gain);
-    r = (int)(r * right_gain);
-
-    // Clamp back to signed range
-    if (l > 127) l = 127; if (l < -128) l = -128;
-    if (r > 127) r = 127; if (r < -128) r = -128;
-
-    // Convert back to unsigned (0–255)
-    raw[2 * i] = (Uint8)(l + 128);
-    raw[2 * i + 1] = (Uint8)(r + 128);
+  float left_gain  = (pan <= 0.0f) ? 1.0f : 1.0f - pan;
+  float right_gain = (pan >= 0.0f) ? 1.0f : 1.0f + pan;
+  for (int i = 0; i < in_length; i++) {
+    int s = (int)in[i] - 128;
+    int l = (int)(s * left_gain);
+    int r = (int)(s * right_gain);
+    if (l >  127) l =  127; if (l < -128) l = -128;
+    if (r >  127) r =  127; if (r < -128) r = -128;
+    out[2 * i]     = (Uint8)(l + 128);
+    out[2 * i + 1] = (Uint8)(r + 128);
   }
 }
 
 void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
   tSampleData *data = (tSampleData *)userdata;
-  if (data && data->pSample && additional_amount > 0)
-    SDL_PutAudioStreamData(stream, data->pSample, data->iLength);
+  if (!data || !data->pSample || additional_amount <= 0)
+    return;
+  int index = (int)(data - digi_sample_data);
+  float pan = (index >= 0 && index < NUM_DIGI_STREAMS) ? digi_pan[index] : 0.0f;
+  int stereo_len = data->iLength * 2;
+  Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
+  if (!stereo_buf) return;
+  mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, pan);
+  SDL_PutAudioStreamData(stream, stereo_buf, stereo_len);
+  SDL_free(stereo_buf);
 }
 
 int DIGISampleStart(tSampleData *data)
@@ -1381,15 +1370,17 @@ int DIGISampleStart(tSampleData *data)
     memset(&digi_sample_data[index], 0, sizeof(tSampleData));
   }
 
+  // Compute initial pan: raw iPan [0, 0x10000], 0x8000 = center → [-1.0, 1.0]
+  float fInitialPan = ((float)((int32_t)iPan) / (int32_t)0x8000) - 1.0f;
+  if (fInitialPan < -1.0f) fInitialPan = -1.0f;
+  if (fInitialPan >  1.0f) fInitialPan =  1.0f;
+  digi_pan[index] = fInitialPan;
+
   if (!digi_stream[index]) {
     SDL_AudioSpec spec;
-    spec.channels = 1; // Mono
+    spec.channels = 2; // Stereo (panning applied manually per-sample)
     spec.freq = 11025; // Sample rate
     spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
-    //spec.channels = 2; // Stereo
-    //spec.freq = 11025; // Sample rate
-    //spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
-    //SDL_Log("DIGISampleStart[%i]: channels: %i, freq: %i, format: %i", index, spec.channels, spec.freq, spec.format);
     if (iFlags != 18176) //one of these means loop the audio
       digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
     else {
@@ -1420,8 +1411,14 @@ int DIGISampleStart(tSampleData *data)
   float master_volume = (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
   SDL_SetAudioStreamGain(digi_stream[index], volume * master_volume);
 
-  // Put audio data into the stream
-  SDL_PutAudioStreamData(digi_stream[index], ((Uint8 *)data->pSample), data->iLength);
+  // Convert mono to stereo with pan applied and push to stream
+  int stereo_len = data->iLength * 2;
+  Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
+  if (stereo_buf) {
+    mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fInitialPan);
+    SDL_PutAudioStreamData(digi_stream[index], stereo_buf, stereo_len);
+    SDL_free(stereo_buf);
+  }
   SDL_ResumeAudioStreamDevice(digi_stream[index]);
 
   return index;
@@ -1489,6 +1486,7 @@ void DIGIStopSample(int index)
     SDL_DestroyAudioStream(digi_stream[index]);
     digi_stream[index] = NULL;
     memset(&digi_sample_data[index], 0, sizeof(tSampleData));
+    digi_pan[index] = 0.0f;
   }
 }
 
@@ -1500,6 +1498,7 @@ void DIGIClearAllStream()
       SDL_ClearAudioStream(digi_stream[i]);
       digi_stream[i] = NULL;
       memset(&digi_sample_data[i], 0, sizeof(tSampleData));
+      digi_pan[i] = 0.0f;
     }
   }
 }
@@ -1538,8 +1537,25 @@ void DIGISetPitch(int iHandle, int iPitch)
 
 void DIGISetPanLocation(int iHandle, int iPan)
 {
-  float fStreamPan = ((float)((int32_t)iPan) / (int32_t)0x8000) - 1.0f;
-  //SDL_Log("DIGISetPanLocation[%i]: %f | %i", iHandle, fStreamPan, iPan);
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS || !digi_stream[iHandle])
+    return;
+  float fNewPan = ((float)((int32_t)iPan) / (int32_t)0x8000) - 1.0f;
+  if (fNewPan < -1.0f) fNewPan = -1.0f;
+  if (fNewPan >  1.0f) fNewPan =  1.0f;
+  digi_pan[iHandle] = fNewPan;
+  // For looping samples (callback-driven), flush queued audio so the new pan
+  // takes effect immediately rather than after the current loop finishes.
+  tSampleData *data = &digi_sample_data[iHandle];
+  if (data->pSample) {
+    SDL_ClearAudioStream(digi_stream[iHandle]);
+    int stereo_len = data->iLength * 2;
+    Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
+    if (stereo_buf) {
+      mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fNewPan);
+      SDL_PutAudioStreamData(digi_stream[iHandle], stereo_buf, stereo_len);
+      SDL_free(stereo_buf);
+    }
+  }
 }
 
 void PlayAudioDataWait(Uint8 *buffer, Uint32 length)
