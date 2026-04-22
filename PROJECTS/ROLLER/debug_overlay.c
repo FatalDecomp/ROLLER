@@ -473,6 +473,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       startmusic(g_iCurrentSong);
     }
 
+    int bAINoCheatStart = (int)g_bAINoCheatStart;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart))
+      g_bAINoCheatStart = (bool)bAINoCheatStart;
+
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
