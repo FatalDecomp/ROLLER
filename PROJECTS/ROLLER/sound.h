@@ -306,6 +306,7 @@ extern int MusicVolume;
 extern int MusicCard;
 extern int MusicCD;
 extern int MusicPort;
+extern int g_iCurrentSong;
 extern uint8 *SongPtr;
 extern int SongHandle;
 extern int CDSong[20];

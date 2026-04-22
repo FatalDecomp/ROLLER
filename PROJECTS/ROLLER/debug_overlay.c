@@ -2,6 +2,7 @@
 #include "debug_overlay_shaders.h"
 #include "roller.h"
 #include "menu_render.h"
+#include "sound.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -460,6 +461,18 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_MARGIN, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    static const char *apszMusic[] = { "MIDI", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 1 : 0;
+    nk_layout_row_dynamic(pCtx, 20, 2);
+    nk_label(pCtx, "Music", NK_TEXT_LEFT);
+    int iNewMusicSel = nk_combo(pCtx, apszMusic, 2, iMusicSel, 20, nk_vec2(100, 60));
+    if (iNewMusicSel != iMusicSel) {
+      stopmusic();
+      if (iNewMusicSel == 1) { MusicCD = -1; MusicCard = 0; }
+      else                   { MusicCD = 0;  MusicCard = -1; }
+      startmusic(g_iCurrentSong);
+    }
+
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 

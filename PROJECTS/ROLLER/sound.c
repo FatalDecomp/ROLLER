@@ -59,6 +59,7 @@ int SpeechVolume = 127;     //000A478C
 int MusicVolume = 108;      //000A4790
 int MusicCard = 0;          //000A4794
 int MusicCD = 0;            //000A4798
+int g_iCurrentSong = 0;
 int MusicPort = 0;          //000A479C
 uint8 *SongPtr = NULL;      //000A47A0
 int SongHandle = 0;         //000A47A4
@@ -3189,6 +3190,7 @@ void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, f
 //0003E1C0
 void startmusic(int iSong)
 {
+  g_iCurrentSong = iSong;
   int musicOrTitle = 0;
   if (MusicCD && track_playing) {
     StopTrack();
