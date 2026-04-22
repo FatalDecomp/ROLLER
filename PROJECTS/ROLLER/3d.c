@@ -1010,11 +1010,14 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
 static void print_usage(FILE *f, const char *argv0)
 {
-  fprintf(f, "usage: [--data-root DIR]\n\n");
+  fprintf(f, "usage: %s [options]\n\n", argv0);
   fprintf(f, "options:\n");
   fprintf(f, " -h, --help             show this help message and exit\n");
   fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
   fprintf(f, " --midi-root DIR        specify midi data directory\n");
+  fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
+  fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
+  fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1050,6 +1053,49 @@ int main(int argc, const char **argv, const char **envp)
         fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--port") == 0) {
+      if (i + 1 < argc) {
+        int iPort = atoi(argv[i + 1]);
+        if (iPort <= 0 || iPort > 65535) {
+          fprintf(stderr, "ERROR: '--port' must be 1-65535\n");
+          return 1;
+        }
+        ROLLERCommsSetLocalPort((uint16_t)iPort);
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--port' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--peer") == 0) {
+      if (i + 1 < argc) {
+        char szPeerBuf[64];
+        strncpy(szPeerBuf, argv[i + 1], sizeof(szPeerBuf) - 1);
+        szPeerBuf[sizeof(szPeerBuf) - 1] = '\0';
+        char *pszColon = strrchr(szPeerBuf, ':');
+        if (!pszColon) {
+          fprintf(stderr, "ERROR: '--peer' expects IP:PORT format\n");
+          return 1;
+        }
+        *pszColon = '\0';
+        int iPeerPort = atoi(pszColon + 1);
+        if (iPeerPort <= 0 || iPeerPort > 65535) {
+          fprintf(stderr, "ERROR: '--peer' port must be 1-65535\n");
+          return 1;
+        }
+        ROLLERCommsSetPeer(szPeerBuf, (uint16_t)iPeerPort);
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--peer' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--net-slot") == 0) {
+      if (i + 1 < argc) {
+        network_slot = atoi(argv[i + 1]);
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
+        return 1;
+      }
     }
     if (consumed < 0) {
       fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
@@ -1077,9 +1123,7 @@ int main(int argc, const char **argv, const char **envp)
   blankpal();
   test_w95();                                   // Test for Windows 95 compatibility
   //harderr((int)criticalhandler, __CS__);        // Install critical error handler
-  network_slot = 0;
-  if (argc == 2)                              // Parse network slot from command line if provided
-    network_slot = atoi(argv[1]) & 0xFFFFFF;
+  // network_slot defaults to 0 (host); --net-slot sets it before we get here
   player1_car = 0;
   player2_car = 1;
   name_copy(player_names[0], "HUMAN");          // Initialize default player names

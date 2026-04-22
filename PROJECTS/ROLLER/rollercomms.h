@@ -18,6 +18,10 @@ typedef struct
 } tROLLERNetAddr;
 
 //-------------------------------------------------------------------------------------------------
+// Pre-init configuration (call before InitSystem)
+void ROLLERCommsSetLocalPort(uint16_t unPort);
+void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort);
+
 // Init/shutdown
 int ROLLERCommsInitSystem(unsigned int uiMaxPackets);
 void ROLLERCommsUnInitSystem(void);
