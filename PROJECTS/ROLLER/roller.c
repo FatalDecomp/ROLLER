@@ -1593,6 +1593,97 @@ void UpdateSDLAudioEvents(SDL_Event e)
 }
 //-------------------------------------------------------------------------------------------------
 
+#ifndef IS_WINDOWS
+static int s_findpath_append(char *szPath, int iCurLen, int iMaxLen, const char *szComp)
+{
+  int iCompLen = (int)strlen(szComp);
+  if (iCurLen == 0) {
+    if (iCompLen >= iMaxLen) return -1;
+    memcpy(szPath, szComp, iCompLen + 1);
+    return iCompLen;
+  }
+  if (iCurLen == 1 && szPath[0] == '/') {
+    if (1 + iCompLen >= iMaxLen) return -1;
+    memcpy(szPath + 1, szComp, iCompLen + 1);
+    return 1 + iCompLen;
+  }
+  if (iCurLen + 1 + iCompLen >= iMaxLen) return -1;
+  szPath[iCurLen] = '/';
+  memcpy(szPath + iCurLen + 1, szComp, iCompLen + 1);
+  return iCurLen + 1 + iCompLen;
+}
+#endif
+
+const char *ROLLERfindpath(const char *szFile)
+{
+#ifdef IS_WINDOWS
+  return szFile;
+#else
+  static char szResolved[260];
+  char szInput[260];
+  strncpy(szInput, szFile, sizeof(szInput) - 1);
+  szInput[sizeof(szInput) - 1] = '\0';
+
+  bool bAbsolute = (szInput[0] == '/');
+  szResolved[0] = '\0';
+  int iResolvedLen = 0;
+  if (bAbsolute) {
+    szResolved[0] = '/';
+    szResolved[1] = '\0';
+    iResolvedLen = 1;
+  }
+
+  char *pSave = NULL;
+  char *pToken = strtok_r(szInput, "/", &pSave);
+  if (!pToken) return NULL;
+
+  while (pToken) {
+    const char *szScanDir = (iResolvedLen == 0) ? "." : szResolved;
+
+    char szExact[260];
+    int iExactLen;
+    if (iResolvedLen == 0)
+      iExactLen = snprintf(szExact, sizeof(szExact), "%s", pToken);
+    else if (iResolvedLen == 1 && szResolved[0] == '/')
+      iExactLen = snprintf(szExact, sizeof(szExact), "/%s", pToken);
+    else
+      iExactLen = snprintf(szExact, sizeof(szExact), "%s/%s", szResolved, pToken);
+
+    struct stat sb;
+    if (iExactLen > 0 && iExactLen < (int)sizeof(szExact) && stat(szExact, &sb) == 0) {
+      iResolvedLen = s_findpath_append(szResolved, iResolvedLen, sizeof(szResolved), pToken);
+      if (iResolvedLen < 0) return NULL;
+      pToken = strtok_r(NULL, "/", &pSave);
+      continue;
+    }
+
+    DIR *pDir = opendir(szScanDir);
+    if (!pDir) return NULL;
+
+    char szFound[256] = { 0 };
+    struct dirent *pEntry;
+    while ((pEntry = readdir(pDir)) != NULL) {
+      if (strcasecmp(pEntry->d_name, pToken) == 0) {
+        strncpy(szFound, pEntry->d_name, sizeof(szFound) - 1);
+        break;
+      }
+    }
+    closedir(pDir);
+
+    if (szFound[0] == '\0') return NULL;
+
+    iResolvedLen = s_findpath_append(szResolved, iResolvedLen, sizeof(szResolved), szFound);
+    if (iResolvedLen < 0) return NULL;
+
+    pToken = strtok_r(NULL, "/", &pSave);
+  }
+
+  return szResolved;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 bool ROLLERfexists(const char *szFile)
 {
   FILE *pFile = fopen(szFile, "r");
@@ -1601,11 +1692,12 @@ bool ROLLERfexists(const char *szFile)
     return true;
   }
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szFile);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szFile[i]);
     szLower[i] = tolower(szFile[i]);
   }
@@ -1621,6 +1713,13 @@ bool ROLLERfexists(const char *szFile)
     fclose(pFile);
     return true;
   }
+#else
+  const char *szResolved = ROLLERfindpath(szFile);
+  if (szResolved) {
+    pFile = fopen(szResolved, "r");
+    if (pFile) { fclose(pFile); return true; }
+  }
+#endif
 
   return false;
 }
@@ -1634,22 +1733,29 @@ bool ROLLERdirexists(const char *szDir)
     return true;
   }
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szDir);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szDir[i]);
     szLower[i] = tolower(szDir[i]);
   }
 
-  if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+  if (stat(szUpper, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
 
-  if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+  if (stat(szLower, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
+#else
+  const char *szResolved = ROLLERfindpath(szDir);
+  if (szResolved && stat(szResolved, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+    return true;
+  }
+#endif
 
   return false;
 }
@@ -1661,11 +1767,12 @@ FILE *ROLLERfopen(const char *szFile, const char *szMode)
   FILE *pFile = fopen(szFile, szMode);
   if (pFile) return pFile;
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szFile);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szFile[i]);
     szLower[i] = tolower(szFile[i]);
   }
@@ -1675,6 +1782,11 @@ FILE *ROLLERfopen(const char *szFile, const char *szMode)
 
   pFile = fopen(szLower, szMode);
   return pFile;
+#else
+  const char *szResolved = ROLLERfindpath(szFile);
+  if (szResolved) return fopen(szResolved, szMode);
+  return NULL;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1684,11 +1796,12 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
   int iHandle = open(szFile, iOpenFlags);
   if (iHandle != -1) return iHandle;
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szFile);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szFile[i]);
     szLower[i] = tolower(szFile[i]);
   }
@@ -1698,6 +1811,11 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
 
   iHandle = open(szLower, iOpenFlags);
   return iHandle;
+#else
+  const char *szResolved = ROLLERfindpath(szFile);
+  if (szResolved) return open(szResolved, iOpenFlags);
+  return -1;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1705,14 +1823,14 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
 int ROLLERremove(const char *szFile)
 {
   int iSuccess = remove(szFile);
-  if (iSuccess == 0)
-    return 0;
+  if (iSuccess == 0) return 0;
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szFile);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szFile[i]);
     szLower[i] = tolower(szFile[i]);
   }
@@ -1722,6 +1840,11 @@ int ROLLERremove(const char *szFile)
 
   iSuccess = remove(szLower);
   return iSuccess;
+#else
+  const char *szResolved = ROLLERfindpath(szFile);
+  if (szResolved) return remove(szResolved);
+  return iSuccess;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1729,14 +1852,14 @@ int ROLLERremove(const char *szFile)
 int ROLLERrename(const char *szOldName, const char *szNewName)
 {
   int iSuccess = rename(szOldName, szNewName);
-  if (iSuccess == 0)
-    return 0;
+  if (iSuccess == 0) return 0;
 
+#ifdef IS_WINDOWS
   char szUpper[260] = { 0 };
   char szLower[260] = { 0 };
   int iLength = (int)strlen(szOldName);
 
-  for (int i = 0; i < iLength && i < sizeof(szUpper); ++i) {
+  for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
     szUpper[i] = toupper(szOldName[i]);
     szLower[i] = tolower(szOldName[i]);
   }
@@ -1746,6 +1869,11 @@ int ROLLERrename(const char *szOldName, const char *szNewName)
 
   iSuccess = rename(szLower, szNewName);
   return iSuccess;
+#else
+  const char *szResolved = ROLLERfindpath(szOldName);
+  if (szResolved) return rename(szResolved, szNewName);
+  return iSuccess;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
