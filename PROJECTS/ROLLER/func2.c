@@ -1129,10 +1129,10 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           dAheadTimeLaps = fAheadTime * 0.0000001;
           //_CHP();
           iLapsAheadCnt = (int)dAheadTimeLaps;
-          if ((int)dAheadTimeLaps == 1)
+          if (iLapsAheadCnt == 1)
             sprintf(buffer, "1 %s", &language_buffer[256]);
           else
-            sprintf(buffer, "%2i %s", (int)dAheadTimeLaps, &language_buffer[320]);
+            sprintf(buffer, "%2i %s", iLapsAheadCnt, &language_buffer[320]);
           prt_string(rev_vga[1], buffer, iBaseXPos, 24);
         } else {
           ShowATime(fAheadTime, iTimingBaseXPos, 24);
@@ -1142,10 +1142,10 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           dBehindTimeLaps = fBehindTime * 0.0000001;
           //_CHP();
           iBehindLapCnt = (int)dBehindTimeLaps;
-          if ((int)dBehindTimeLaps == 1)
+          if (iBehindLapCnt == 1)
             sprintf(buffer, "1 %s", &language_buffer[256]);
           else
-            sprintf(buffer, "%2i %s", (int)dBehindTimeLaps, &language_buffer[320]);
+            sprintf(buffer, "%2i %s", iBehindLapCnt, &language_buffer[320]);
           prt_string(rev_vga[1], buffer, iBaseXPos, 34);
         } else {
           ShowATime(fBehindTime, iBaseXPos, 34);
@@ -2259,7 +2259,7 @@ void prt_string(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY)
 void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPos, int iFontType)
 {
   int iSavedScrSize; // esi
-  int iCharIndex; // edi
+  uint8 iCharIndex; // edi
   int iYOffset; // edx
   tBlockHeader *pCharData; // eax
   int iCharWidth; // edi
