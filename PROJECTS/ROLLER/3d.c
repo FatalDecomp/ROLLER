@@ -1293,7 +1293,7 @@ int main(int argc, const char **argv, const char **envp)
               }
               finish_race();                    // Championship mode - handle race completion
               StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((eCarDesignIndex)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
                 winner_race();
               ResultRoundUp();
               RaceResult();
@@ -1317,7 +1317,7 @@ ROLL_CREDITS:
             if (!gave_up) {
               finish_race();
               StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((eCarDesignIndex)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
                 winner_race();
               ResultRoundUp();
               RaceResult();

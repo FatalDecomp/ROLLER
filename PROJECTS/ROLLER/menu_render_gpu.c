@@ -376,7 +376,9 @@ static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, 
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     tbi.size = w * h * 4;
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
+    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
+    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     memcpy(m, rgba, w * h * 4);
     SDL_UnmapGPUTransferBuffer(dev, tb);
 
@@ -405,7 +407,9 @@ static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlag
     tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
     tbi.size = size;
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
+    if (!tb) { SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
+    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     memcpy(m, data, size);
     SDL_UnmapGPUTransferBuffer(dev, tb);
 

@@ -93,6 +93,7 @@ void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort)
   s_peerAddr.uiIPAddress = addr.s_addr;
   s_peerAddr.unPort = unPort;
   s_peerAddr.unPadding = 0;
+  s_peerAddr.ullReserved = 0;
   s_bHasPeer = true;
 }
 

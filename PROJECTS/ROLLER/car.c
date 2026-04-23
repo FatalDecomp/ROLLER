@@ -78,16 +78,16 @@ float CarDiag;                  //00188524
 //00052270
 void InitCarStructs()
 {
-  eCarDesignIndex carDesignIndex; // ebx
+  int carDesignIndex; // ebx
   int v1; // esi
-  eCarDesignIndex carDesignIndex2; // ecx
+  int carDesignIndex2; // ecx
   int iNumGears; // edi
   float *pSpds; // ebx
   int j; // ecx
   double v6; // st7
   int iCurrGear; // ebx
   int iChgIdx; // ecx
-  eCarDesignIndex carDesignIndex3; // esi
+  int carDesignIndex3; // esi
   int iRevsOffset; // ebp
   int iNextGear; // edx
   float fChg; // [esp+0h] [ebp-20h]
@@ -95,7 +95,7 @@ void InitCarStructs()
   int16 i; // [esp+4h] [ebp-1Ch]
 
   for (i = 0; i < 14; ++i) {
-    carDesignIndex = (eCarDesignIndex)i;
+    carDesignIndex = (int)i;
     v1 = 0;
     carDesignIndex2 = CAR_DESIGN_AUTO;
     iNumGears = CarEngines.engines[carDesignIndex].iNumGears;
@@ -103,7 +103,7 @@ void InitCarStructs()
     while (v1 < i) {
       if (pSpds == CarEngines.engines[carDesignIndex2].pSpds)
         iNumGears = -1;
-      carDesignIndex2 = (eCarDesignIndex)((int)carDesignIndex2 + 1);
+      carDesignIndex2 = ((int)carDesignIndex2 + 1);
       ++v1;
     }
     for (j = 0; j < iNumGears; *(pSpds - 1) = (float)v6) {
@@ -114,7 +114,7 @@ void InitCarStructs()
     if (iNumGears > 0) {
       iChgIdx = 0;
       do {
-        carDesignIndex3 = (eCarDesignIndex)i;                    // why is this defined a second time
+        carDesignIndex3 = (int)i;                    // why is this defined a second time
         iRevsOffset = 12 * i;
         fChg = (float)CarEngines.engines[carDesignIndex3].pChgs[iChgIdx];
         eng_chg_revs[iChgIdx + iRevsOffset] = (float)calc_revs(CarEngines.engines[carDesignIndex3].pRevs, iCurrGear, fChg);
@@ -976,7 +976,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   float fClampedZ; // [esp+DCh] [ebp-1BCh]
   int iTextureDisabled; // [esp+E0h] [ebp-1B8h]
   float fShadowViewX; // [esp+E4h] [ebp-1B4h]
-  eCarDesignIndex carDesignIndex; // [esp+E8h] [ebp-1B0h]
+  int carDesignIndex; // [esp+E8h] [ebp-1B0h]
   float fCarPointY; // [esp+F0h] [ebp-1A8h]
   float fTrackRelativeZ; // [esp+F4h] [ebp-1A4h]
   float fTrackRelativeY; // [esp+F8h] [ebp-1A0h]
