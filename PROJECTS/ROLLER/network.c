@@ -1811,7 +1811,7 @@ void BroadcastNews()
         return;
       }
       if (broadcast_mode <= 0xFFFFD8F1) {
-        if (total_wins[car_request + 15] < 2) {
+        if (allocated_cars[car_request - 1] < 2) {
           iInitSuccess2 = -1;
           if (network_on)
             iInitSuccess2 = TransmitInit();
