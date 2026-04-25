@@ -546,12 +546,12 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, 18, 1);
     nk_label(pCtx, szLocalLine, NK_TEXT_LEFT);
 
-    nk_layout_row_static(pCtx, 20, 60, 2);
+    nk_layout_row_dynamic(pCtx, 20, 2);
     nk_label(pCtx, "Peer IP", NK_TEXT_LEFT);
     nk_edit_string_zero_terminated(pCtx, NK_EDIT_FIELD, pOverlay->szNetPeerIP,
-                                   sizeof(pOverlay->szNetPeerIP), nk_filter_decimal);
+                                   sizeof(pOverlay->szNetPeerIP), nk_filter_default);
 
-    nk_layout_row_static(pCtx, 20, 60, 2);
+    nk_layout_row_dynamic(pCtx, 20, 2);
     nk_label(pCtx, "Port", NK_TEXT_LEFT);
     nk_edit_string_zero_terminated(pCtx, NK_EDIT_FIELD, pOverlay->szNetPeerPort,
                                    sizeof(pOverlay->szNetPeerPort), nk_filter_decimal);
