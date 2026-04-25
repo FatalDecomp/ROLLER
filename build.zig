@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
     exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
     exe_mod.addCSourceFiles(.{
+        .flags = &.{ "-fwrapv" },
         .files = &.{
             "PROJECTS/ROLLER/debug_overlay.c",
             "PROJECTS/ROLLER/3d.c",

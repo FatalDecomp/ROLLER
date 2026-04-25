@@ -343,7 +343,7 @@ int ROLLERCommsDeleteNode(int iNodeIdx)
 
 void ROLLERCommsSortNodes(void)
 {
-    // Compact the node list by removing inactive nodes
+  // Compact: remove inactive nodes
   int iWriteIdx = 0;
   for (int iReadIdx = 0; iReadIdx < g_commsState.iActiveNodes; iReadIdx++) {
     if (g_commsState.nodes[iReadIdx].bActive) {
@@ -354,6 +354,36 @@ void ROLLERCommsSortNodes(void)
     }
   }
   g_commsState.iActiveNodes = iWriteIdx;
+
+  // Sort by (uiIPAddress, unPort) ascending so every node agrees on the same
+  // ordering and the master always lands at index 0.
+  for (int i = 0; i < g_commsState.iActiveNodes - 1; i++) {
+    for (int j = 0; j < g_commsState.iActiveNodes - 1 - i; j++) {
+      tROLLERNetAddr *pA = &g_commsState.nodes[j].address;
+      tROLLERNetAddr *pB = &g_commsState.nodes[j + 1].address;
+      int bSwap = 0;
+      uint32_t uiA = ntohl(pA->uiIPAddress);
+      uint32_t uiB = ntohl(pB->uiIPAddress);
+      if (uiA > uiB)
+        bSwap = 1;
+      else if (uiA == uiB && pA->unPort > pB->unPort)
+        bSwap = 1;
+      if (bSwap) {
+        tNodeInfo tmp = g_commsState.nodes[j];
+        g_commsState.nodes[j] = g_commsState.nodes[j + 1];
+        g_commsState.nodes[j + 1] = tmp;
+      }
+    }
+  }
+
+  // Update iConsoleNode to our address's new position after the sort.
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (memcmp(&g_commsState.nodes[i].address, &g_commsState.myAddress,
+               sizeof(tROLLERNetAddr)) == 0) {
+      g_commsState.iConsoleNode = i;
+      break;
+    }
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
