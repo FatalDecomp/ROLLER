@@ -55,7 +55,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-int winner_screen(eCarDesignIndex carDesign, char byFlags);
+int winner_screen(int carDesign, char byFlags);
 void StoreResult();
 void RaceResult();
 void TimeTrials(int iDriverIdx);
@@ -63,7 +63,7 @@ void ChampionshipStandings();
 void TeamStandings();
 void ShowLapRecords();
 void show_3dmap(float fZ, int iElevation, int iYaw);
-void DrawCar(uint8 *pScrBuf, eCarDesignIndex iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
+void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
 void championship_winner();
 void print_mem_used(const char *szMsg);
 uint8 *try_load_picture(const char *szFile);

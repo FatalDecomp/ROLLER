@@ -15,9 +15,14 @@ typedef struct
   uint32 uiIPAddress;      // IPv4 address in network byte order
   uint16 unPort;           // Port number
   uint16 unPadding;
+  uint64 ullReserved;    // Must be zero — pads to 16 bytes to match _NETNOW_NODE_ADDR
 } tROLLERNetAddr;
 
 //-------------------------------------------------------------------------------------------------
+// Pre-init configuration (call before InitSystem)
+void ROLLERCommsSetLocalPort(uint16_t unPort);
+void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort);
+
 // Init/shutdown
 int ROLLERCommsInitSystem(unsigned int uiMaxPackets);
 void ROLLERCommsUnInitSystem(void);

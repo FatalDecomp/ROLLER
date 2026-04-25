@@ -218,7 +218,7 @@ void select_screen()
   int iInitScreen; // [esp+0h] [ebp-54h]
   int16 nFrames; // [esp+4h] [ebp-50h]
   int iRotation; // [esp+Ch] [ebp-48h]
-  eCarDesignIndex iBlockIdx; // [esp+10h] [ebp-44h]
+  int iBlockIdx; // [esp+10h] [ebp-44h]
   int iLoadCarTex2; // [esp+2Ch] [ebp-28h]
   int iLoadCarTexFlag; // [esp+30h] [ebp-24h]
   int iLoadCarTextures2; // [esp+34h] [ebp-20h]

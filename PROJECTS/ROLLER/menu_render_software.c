@@ -3,6 +3,7 @@
 #include "frontend.h"
 #include "roller.h"
 #include "sound.h"
+#include "carplans.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -178,6 +179,8 @@ void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,
     (void)destW;
     (void)destH;
     // Original code: DrawCar(scrbuf + 34640, ...) — offset 34640 = row 54, col 80 in 640-wide buffer
+    if (sw->loadedCarIdx < 0 || sw->loadedCarIdx > CAR_DESIGN_DEATH) return;
+    if (!CarDesigns[sw->loadedCarIdx].pCoords) return;
     DrawCar(scrbuf + 34640, sw->loadedCarIdx, distance, (int)angle, 0);
 }
 

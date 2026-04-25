@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
 #define SOCKET int
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
@@ -44,6 +45,11 @@ static struct
 
 } g_commsState;
 
+// Pre-init configuration (survives ROLLERCommsUnInitSystem)
+static uint16_t s_unLocalPort = ROLLER_DEFAULT_PORT;
+static bool s_bHasPeer = false;
+static tROLLERNetAddr s_peerAddr;
+
 //-------------------------------------------------------------------------------------------------
 
 static int InitializeSockets(void)
@@ -70,10 +76,33 @@ static void CleanupSockets(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void ROLLERCommsSetLocalPort(uint16_t unPort)
+{
+  s_unLocalPort = unPort;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort)
+{
+  struct in_addr addr;
+  if (inet_pton(AF_INET, szIP, &addr) != 1) {
+    printf("ROLLERCommsSetPeer: invalid IP address '%s'\n", szIP);
+    return;
+  }
+  s_peerAddr.uiIPAddress = addr.s_addr;
+  s_peerAddr.unPort = unPort;
+  s_peerAddr.unPadding = 0;
+  s_peerAddr.ullReserved = 0;
+  s_bHasPeer = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
 {
   if (g_commsState.bInitialized) {
-    return 1;  // Already initialized
+    return 1;
   }
 
   if (!InitializeSockets()) {
@@ -81,50 +110,53 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   }
 
   memset(&g_commsState, 0, sizeof(g_commsState));
+  g_commsState.listenSocket = INVALID_SOCKET;
 
-  // Create UDP socket for game communication
   g_commsState.listenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (g_commsState.listenSocket == INVALID_SOCKET) {
     CleanupSockets();
     return 0;
   }
 
-  // Set socket to non-blocking mode
 #ifdef IS_WINDOWS
   u_long iMode = 1;
   ioctlsocket(g_commsState.listenSocket, FIONBIO, &iMode);
 #else
-  //TODO
-  //int iFlags = fcntl(g_commsState.listenSocket, F_GETFL, 0);
-  //fcntl(g_commsState.listenSocket, F_SETFL, iFlags | O_NONBLOCK);
+  int iFlags = fcntl(g_commsState.listenSocket, F_GETFL, 0);
+  fcntl(g_commsState.listenSocket, F_SETFL, iFlags | O_NONBLOCK);
 #endif
 
-  // Bind to any address on default port
   struct sockaddr_in bindAddr;
   memset(&bindAddr, 0, sizeof(bindAddr));
   bindAddr.sin_family = AF_INET;
   bindAddr.sin_addr.s_addr = INADDR_ANY;
-  bindAddr.sin_port = htons(ROLLER_DEFAULT_PORT);
+  bindAddr.sin_port = htons(s_unLocalPort);
 
   if (bind(g_commsState.listenSocket, (struct sockaddr *)&bindAddr, sizeof(bindAddr)) == SOCKET_ERROR) {
+    printf("ROLLERCommsInitSystem: bind to port %u failed\n", (unsigned)s_unLocalPort);
     closesocket(g_commsState.listenSocket);
     CleanupSockets();
     return 0;
   }
 
+  // Phase 2: replace with getifaddrs() to pick a real LAN IP
+  g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
+  g_commsState.myAddress.unPort = s_unLocalPort;
+  g_commsState.myAddress.unPadding = 0;
+
   g_commsState.bInitialized = 1;
   g_commsState.iNetType = 0;
   g_commsState.iConsoleNode = 0;
-  g_commsState.iActiveNodes = 1;
+  g_commsState.iActiveNodes = 0;
 
-  // Get our own IP address
-  struct in_addr addr;
-  if (inet_pton(AF_INET, "127.0.0.1", &addr) == 1) {
-    g_commsState.myAddress.uiIPAddress = addr.s_addr;
-  } else {
-    g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
+  // Add ourselves as node 0 so ROLLERCommsNetAddrToNode(myAddress) returns 0
+  ROLLERCommsAddNode(&g_commsState.myAddress);
+  g_commsState.iConsoleNode = 0;
+
+  // Pre-configured peer (from --peer CLI arg)
+  if (s_bHasPeer) {
+    ROLLERCommsAddNode(&s_peerAddr);
   }
-  g_commsState.myAddress.unPort = ROLLER_DEFAULT_PORT;
 
   return 1;
 }
@@ -175,6 +207,10 @@ int ROLLERCommsSendData(
 
   if (iDestNode < 0 || iDestNode >= ROLLER_MAX_NODES || !g_commsState.nodes[iDestNode].bActive) {
     return 0;
+  }
+
+  if (iDestNode == g_commsState.iConsoleNode) {
+    return 1;  // Don't send to ourselves
   }
 
   // Combine header and data into single packet
@@ -272,6 +308,13 @@ int ROLLERCommsGetConsoleNode(void)
 
 int ROLLERCommsAddNode(const void *pAddress)
 {
+  // Idempotent: if this address is already in the table, do nothing
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (memcmp(&g_commsState.nodes[i].address, pAddress, sizeof(tROLLERNetAddr)) == 0) {
+      return 1;  // Already present (not an error — > 1 is the failure sentinel)
+    }
+  }
+
   if (g_commsState.iActiveNodes >= ROLLER_MAX_NODES) {
     return 2;  // Too many nodes
   }
@@ -300,7 +343,7 @@ int ROLLERCommsDeleteNode(int iNodeIdx)
 
 void ROLLERCommsSortNodes(void)
 {
-    // Compact the node list by removing inactive nodes
+  // Compact: remove inactive nodes
   int iWriteIdx = 0;
   for (int iReadIdx = 0; iReadIdx < g_commsState.iActiveNodes; iReadIdx++) {
     if (g_commsState.nodes[iReadIdx].bActive) {
@@ -311,6 +354,36 @@ void ROLLERCommsSortNodes(void)
     }
   }
   g_commsState.iActiveNodes = iWriteIdx;
+
+  // Sort by (uiIPAddress, unPort) ascending so every node agrees on the same
+  // ordering and the master always lands at index 0.
+  for (int i = 0; i < g_commsState.iActiveNodes - 1; i++) {
+    for (int j = 0; j < g_commsState.iActiveNodes - 1 - i; j++) {
+      tROLLERNetAddr *pA = &g_commsState.nodes[j].address;
+      tROLLERNetAddr *pB = &g_commsState.nodes[j + 1].address;
+      int bSwap = 0;
+      uint32_t uiA = ntohl(pA->uiIPAddress);
+      uint32_t uiB = ntohl(pB->uiIPAddress);
+      if (uiA > uiB)
+        bSwap = 1;
+      else if (uiA == uiB && pA->unPort > pB->unPort)
+        bSwap = 1;
+      if (bSwap) {
+        tNodeInfo tmp = g_commsState.nodes[j];
+        g_commsState.nodes[j] = g_commsState.nodes[j + 1];
+        g_commsState.nodes[j + 1] = tmp;
+      }
+    }
+  }
+
+  // Update iConsoleNode to our address's new position after the sort.
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (memcmp(&g_commsState.nodes[i].address, &g_commsState.myAddress,
+               sizeof(tROLLERNetAddr)) == 0) {
+      g_commsState.iConsoleNode = i;
+      break;
+    }
+  }
 }
 
 //-------------------------------------------------------------------------------------------------

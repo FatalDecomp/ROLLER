@@ -269,7 +269,8 @@ void NetworkWait()
     goto LABEL_25;
   }
 LABEL_83:
-  while (ticks + 18 > ticks)                  // Wait loop for network synchronization timing
+  int iTimer = ticks + 18;
+  while (iTimer > ticks)                  // Wait loop for network synchronization timing
     ;
   if (time_to_start)                          // Final network synchronization before race starts
   {

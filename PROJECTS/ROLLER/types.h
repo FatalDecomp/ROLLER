@@ -180,23 +180,20 @@ typedef enum
 
 //-------------------------------------------------------------------------------------------------
 
-typedef enum
-{
-  CAR_DESIGN_AUTO = 0x0,
-  CAR_DESIGN_DESILVA = 0x1,
-  CAR_DESIGN_PULSE = 0x2,
-  CAR_DESIGN_GLOBAL = 0x3,
-  CAR_DESIGN_MILLION = 0x4,
-  CAR_DESIGN_MISSION = 0x5,
-  CAR_DESIGN_ZIZIN = 0x6,
-  CAR_DESIGN_REISE = 0x7,
-  CAR_DESIGN_SUICYCO = 0x8,
-  CAR_DESIGN_MAYTE = 0x9,
-  CAR_DESIGN_2X4B523P = 0xA,
-  CAR_DESIGN_TINKLE = 0xB,
-  CAR_DESIGN_F1WACK = 0xC,
-  CAR_DESIGN_DEATH = 0xD,
-} eCarDesignIndex;
+#define CAR_DESIGN_AUTO 0x0
+#define CAR_DESIGN_DESILVA 0x1
+#define CAR_DESIGN_PULSE 0x2
+#define CAR_DESIGN_GLOBAL 0x3
+#define CAR_DESIGN_MILLION 0x4
+#define CAR_DESIGN_MISSION 0x5
+#define CAR_DESIGN_ZIZIN 0x6
+#define CAR_DESIGN_REISE 0x7
+#define CAR_DESIGN_SUICYCO 0x8
+#define CAR_DESIGN_MAYTE 0x9
+#define CAR_DESIGN_2X4B523P 0xA
+#define CAR_DESIGN_TINKLE 0xB
+#define CAR_DESIGN_F1WACK 0xC
+#define CAR_DESIGN_DEATH 0xD
 
 //-------------------------------------------------------------------------------------------------
 

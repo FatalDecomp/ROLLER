@@ -95,7 +95,7 @@ int result_p1_pos;        //0018883C
 
 //-------------------------------------------------------------------------------------------------
 //00056070
-int winner_screen(eCarDesignIndex carDesign, char byFlags)
+int winner_screen(int carDesign, char byFlags)
 {
   int iExit; // ebp
   //int iCartexLoopItr; // eax
@@ -2175,7 +2175,7 @@ void show_3dmap(float fZ, int iElevation, int iYaw)
 
 //-------------------------------------------------------------------------------------------------
 //0005A400
-void DrawCar(uint8 *pScrBuf, eCarDesignIndex iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame)
+void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame)
 {
   int iNumCoords; // ecx
   int iYaw; // eax
@@ -2302,7 +2302,7 @@ void DrawCar(uint8 *pScrBuf, eCarDesignIndex iCarDesignIndex, float fDistance, i
   tVec3 *pCoords; // [esp+120h] [ebp-7Ch]
   signed int iProcessedPols; // [esp+124h] [ebp-78h]
   int iPolIdx; // [esp+128h] [ebp-74h]
-  eCarDesignIndex carDesign; // [esp+12Ch] [ebp-70h]
+  int carDesign; // [esp+12Ch] [ebp-70h]
   uint32 uiColorTo_1; // [esp+130h] [ebp-6Ch]
   int iIsBack; // [esp+134h] [ebp-68h]
   uint32 uiCarDesignOffset; // [esp+138h] [ebp-64h]

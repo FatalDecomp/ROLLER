@@ -34,7 +34,7 @@ void select_car()
 {
   eCarType currentCarType; // ebx
   int iSelectedCar; // ebp
-  eCarDesignIndex iPlayer1Car; // edi
+  int iPlayer1Car; // edi
   eCarType carType; // eax
   int iLoadCarTextures; // edx
   int iCartexLoaded; // esi
@@ -50,7 +50,7 @@ void select_car()
   int iNextPieValue; // ecx
   int iNewZoomDistance; // ebx
   int iCarAllocationStatus; // edx
-  eCarDesignIndex iCarDesignIndex; // eax
+  int iCarDesignIndex; // eax
   uint8 **ppTextureArray; // edi
   void **ppCurrentTexture; // eax
   int iPlayerCarIndex; // eax
@@ -124,7 +124,10 @@ void select_car()
   }
   if (iPlayer1Car < CAR_DESIGN_AUTO)          // Initialize car statistics pie chart display blocks (7 stats: Speed, Acceleration, etc.)
   {
-    memset(blockIdxAy, 8, 7 * sizeof(int));
+    for (int i = 0; i < 7; ++i) {
+      blockIdxAy[i] = 8;
+    }
+    //memset(blockIdxAy, 8, 7 * sizeof(int));
     //_STOSD(blockIdxAy, 8, currentCarType * 4, 7u);
   } else {
     iCarIdx = 0;
@@ -443,7 +446,7 @@ void select_car()
       }
       if (!front_fade)                        // Screen fade-in: Load car voice sample and fade palette to visible
       {
-        if (iPlayer1Car < CAR_DESIGN_SUICYCO)
+        if (iPlayer1Car >= CAR_DESIGN_AUTO && iPlayer1Car < CAR_DESIGN_SUICYCO)
           loadfrontendsample(descript[iPlayer1Car]);
         front_fade = -1;
         fade_palette(32);

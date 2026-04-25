@@ -2286,17 +2286,17 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
     iCharIndex = (uint8)ascii_conv3[(uint8)byChar];// Use alternate font (ascii_conv3) with no Y offset
     iYOffset = 0;
   } else {
-    iCharIndex = (int8)font6_ascii[(uint8)byChar];// Use default font6 with Y offset from font6_offsets table
+    iCharIndex = (uint8)font6_ascii[(uint8)byChar];// Use default font6 with Y offset from font6_offsets table
+    if (iCharIndex == 255) {                    // Space sentinel: advance X and return before touching font6_offsets
+      *piXPos += (4 * scr_size) >> 6;
+      scr_size = iSavedScrSize;
+      return;
+    }
     iYOffset = font6_offsets[iCharIndex];
   }
   pCharData = &pBlockHeader[iCharIndex];        // Get character data: width, height, bitmap offset (12 bytes per character)
   if (scr_size != 64)                         // Branch: scr_size == 64 uses simple blitting, != 64 uses scaled rendering
-  {                                             // Scaled path: Check for space character (index 255)
-    if (iCharIndex == 255) {
-      *piXPos += (4 * scr_size) >> 6;           // Space character: advance X by scaled width (4 * scr_size / 64)
-      scr_size = iSavedScrSize;
-      return;
-    }
+  {                                             // Scaled path
     iScaledCharWidth = pCharData->iWidth;
     iCharWidth2 = pCharData->iHeight;
     pRowStart = (uint8 *)pBlockHeader + pCharData->iDataOffset;
@@ -2329,7 +2329,7 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
     goto CLEANUP_AND_RETURN;
   }
   if (iCharIndex == 255) {
-    *piXPos += 4;                               // Unscaled path: Space character advances X by 4 pixels
+    *piXPos += 4;                               // Unscaled path: Space character advances X by 4 pixels (dead, space handled above)
   CLEANUP_AND_RETURN:
     scr_size = iSavedScrSize;
     return;

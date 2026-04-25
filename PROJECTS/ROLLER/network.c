@@ -1221,7 +1221,7 @@ void CheckNewNodes()
           {
 
             //This byte-by-byte comparison could be simplified to: 
-            iAddressMatchFlag2 = memcmp(&address[iNetworkNodeIndex], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
+            iAddressMatchFlag2 = memcmp(&address[iNetworkNodeIndex * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
             //pTxInitPacketByteCmp_1 = (char *)&transmitInitPacket;
             //iAddressMatchFlag2 = 0;
             //pNodeAddrByteCmp = (char *)&address[iNetworkNodeIndex];
@@ -1256,8 +1256,8 @@ void CheckNewNodes()
             test = 6;
             ROLLERCommsSortNodes();
 
-            memcpy(&address[network_on], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
-            //pNetNowNodeAddr3 = &address[network_on];// Manual address copying - could be simplified to: memcpy(&address[network_on], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
+            memcpy(&address[network_on * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
+            //pNetNowNodeAddr3 = &address[network_on * 4];// Manual address copying - could be simplified to: memcpy(&address[network_on * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
             //*(_DWORD *)pNetNowNodeAddr3->sIPX.sInternetAddr.bNetwork = *(_DWORD *)transmitInitPacket.address.sIPX.sInternetAddr.bNetwork;
             //pNetNowNodeAddr3 = (_NETNOW_NODE_ADDR *)((char *)pNetNowNodeAddr3 + 4);
             //*(_DWORD *)pNetNowNodeAddr3->sIPX.sInternetAddr.bNetwork = *(_DWORD *)&transmitInitPacket.address.sNETBIOS.bNode[4];
@@ -1765,7 +1765,7 @@ void SendAMessage()
     messagePacket.iNetworkSlot = network_slot;
 
     if (send_message_to)
-      iNode = ROLLERCommsNetAddrToNode(&address[send_message_to]);
+      iNode = ROLLERCommsNetAddrToNode(&address[send_message_to * 4]);
     else
       iNode = 21;
 
@@ -1811,7 +1811,7 @@ void BroadcastNews()
         return;
       }
       if (broadcast_mode <= 0xFFFFD8F1) {
-        if (total_wins[car_request + 15] < 2) {
+        if (allocated_cars[car_request - 1] < 2) {
           iInitSuccess2 = -1;
           if (network_on)
             iInitSuccess2 = TransmitInit();
