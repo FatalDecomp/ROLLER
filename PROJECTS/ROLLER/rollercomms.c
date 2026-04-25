@@ -506,15 +506,20 @@ int ROLLERCommsNetAddrToNode(const int *pAddress)
 void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen)
 {
   if (!szBuf || iBufLen <= 0) return;
-  if (!g_commsState.bInitialized) {
-    snprintf(szBuf, iBufLen, "not connected");
-    return;
+  uint32_t uiIP;
+  uint16_t unPort;
+  if (g_commsState.bInitialized) {
+    uiIP   = g_commsState.myAddress.uiIPAddress;
+    unPort = g_commsState.myAddress.unPort;
+  } else {
+    uiIP   = DetectLocalIPv4();
+    unPort = s_unLocalPort;
   }
   char szIP[INET_ADDRSTRLEN];
   struct in_addr addr;
-  addr.s_addr = g_commsState.myAddress.uiIPAddress;
+  addr.s_addr = uiIP;
   inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
-  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.myAddress.unPort);
+  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)unPort);
 }
 
 //-------------------------------------------------------------------------------------------------
