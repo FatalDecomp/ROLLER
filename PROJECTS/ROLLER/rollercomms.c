@@ -190,6 +190,8 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   }
 
   g_commsState.myAddress.uiIPAddress = DetectLocalIPv4();
+  if (s_bHasPeer && s_peerAddr.uiIPAddress == htonl(INADDR_LOOPBACK))
+    g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
   g_commsState.myAddress.unPort = s_unLocalPort;
   g_commsState.myAddress.unPadding = 0;
 
