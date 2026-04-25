@@ -52,54 +52,68 @@ static struct
 static uint16_t s_unLocalPort = ROLLER_DEFAULT_PORT;
 static bool s_bHasPeer = false;
 static tROLLERNetAddr s_peerAddr;
+static uint32_t s_uiLocalIPOverride = 0; // 0 = auto-detect
 
 //-------------------------------------------------------------------------------------------------
 
-static uint32_t DetectLocalIPv4(void)
+int ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax)
 {
+  if (!pOut || iMax <= 0) return 0;
+  int iCount = 0;
 #ifdef IS_WINDOWS
-  uint32_t uiFound = htonl(INADDR_LOOPBACK);
   ULONG uiBufLen = 15000;
   IP_ADAPTER_ADDRESSES *pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
-  if (!pBuf) return uiFound;
+  if (!pBuf) return 0;
   if (GetAdaptersAddresses(AF_INET,
         GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
         NULL, pBuf, &uiBufLen) == ERROR_BUFFER_OVERFLOW) {
     free(pBuf);
     pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
-    if (!pBuf) return uiFound;
+    if (!pBuf) return 0;
     GetAdaptersAddresses(AF_INET,
       GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
       NULL, pBuf, &uiBufLen);
   }
-  for (IP_ADAPTER_ADDRESSES *pAA = pBuf; pAA; pAA = pAA->Next) {
+  for (IP_ADAPTER_ADDRESSES *pAA = pBuf; pAA && iCount < iMax; pAA = pAA->Next) {
     if (pAA->OperStatus != IfOperStatusUp) continue;
     if (pAA->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
     for (IP_ADAPTER_UNICAST_ADDRESS *pUA = pAA->FirstUnicastAddress; pUA; pUA = pUA->Next) {
       if (pUA->Address.lpSockaddr->sa_family != AF_INET) continue;
       struct sockaddr_in *pSin = (struct sockaddr_in *)pUA->Address.lpSockaddr;
-      uiFound = pSin->sin_addr.s_addr;
-      free(pBuf);
-      return uiFound;
+      inet_ntop(AF_INET, &pSin->sin_addr, pOut[iCount].szIP, sizeof(pOut[iCount].szIP));
+      WideCharToMultiByte(CP_UTF8, 0, pAA->FriendlyName, -1,
+                          pOut[iCount].szName, sizeof(pOut[iCount].szName), NULL, NULL);
+      iCount++;
+      break; // one entry per adapter
     }
   }
   free(pBuf);
-  return uiFound;
 #else
   struct ifaddrs *pList = NULL;
-  uint32_t uiFound = htonl(INADDR_LOOPBACK);
   if (getifaddrs(&pList) == 0) {
-    for (struct ifaddrs *pIfa = pList; pIfa; pIfa = pIfa->ifa_next) {
+    for (struct ifaddrs *pIfa = pList; pIfa && iCount < iMax; pIfa = pIfa->ifa_next) {
       if (!pIfa->ifa_addr || pIfa->ifa_addr->sa_family != AF_INET) continue;
       struct sockaddr_in *pSin = (struct sockaddr_in *)pIfa->ifa_addr;
       if (pSin->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) continue;
-      uiFound = pSin->sin_addr.s_addr;
-      break;
+      inet_ntop(AF_INET, &pSin->sin_addr, pOut[iCount].szIP, sizeof(pOut[iCount].szIP));
+      strncpy(pOut[iCount].szName, pIfa->ifa_name, sizeof(pOut[iCount].szName) - 1);
+      pOut[iCount].szName[sizeof(pOut[iCount].szName) - 1] = '\0';
+      iCount++;
     }
     freeifaddrs(pList);
   }
-  return uiFound;
 #endif
+  return iCount;
+}
+
+static uint32_t DetectLocalIPv4(void)
+{
+  tROLLERNetIface iface;
+  if (ROLLERCommsEnumLocalAddrs(&iface, 1) < 1)
+    return htonl(INADDR_LOOPBACK);
+  struct in_addr addr;
+  inet_pton(AF_INET, iface.szIP, &addr);
+  return addr.s_addr;
 }
 
 static int InitializeSockets(void)
@@ -129,6 +143,19 @@ static void CleanupSockets(void)
 void ROLLERCommsSetLocalPort(uint16_t unPort)
 {
   s_unLocalPort = unPort;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsSetLocalIP(const char *szIP)
+{
+  if (!szIP || szIP[0] == '\0') {
+    s_uiLocalIPOverride = 0;
+    return;
+  }
+  struct in_addr addr;
+  if (inet_pton(AF_INET, szIP, &addr) == 1)
+    s_uiLocalIPOverride = addr.s_addr;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -189,9 +216,13 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
     return 0;
   }
 
-  g_commsState.myAddress.uiIPAddress = DetectLocalIPv4();
-  if (s_bHasPeer && s_peerAddr.uiIPAddress == htonl(INADDR_LOOPBACK))
-    g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
+  if (s_uiLocalIPOverride) {
+    g_commsState.myAddress.uiIPAddress = s_uiLocalIPOverride;
+  } else {
+    g_commsState.myAddress.uiIPAddress = DetectLocalIPv4();
+    if (s_bHasPeer && s_peerAddr.uiIPAddress == htonl(INADDR_LOOPBACK))
+      g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
+  }
   g_commsState.myAddress.unPort = s_unLocalPort;
   g_commsState.myAddress.unPadding = 0;
 
@@ -511,6 +542,9 @@ void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen)
   if (g_commsState.bInitialized) {
     uiIP   = g_commsState.myAddress.uiIPAddress;
     unPort = g_commsState.myAddress.unPort;
+  } else if (s_uiLocalIPOverride) {
+    uiIP   = s_uiLocalIPOverride;
+    unPort = s_unLocalPort;
   } else {
     uiIP   = DetectLocalIPv4();
     unPort = s_unLocalPort;

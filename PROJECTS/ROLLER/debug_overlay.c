@@ -71,6 +71,9 @@ struct DebugOverlay {
   // Network panel state
   char                   szNetPeerIP[64];
   char                   szNetPeerPort[8];
+  char                   szNetLocalIP[16]; // selected local IP override; empty = auto
+  tROLLERNetIface        aNetIfaces[ROLLER_MAX_IFACES];
+  int                    iNetIfaceCount;
 };
 
 // ---------------------------------------------------------------------------
@@ -425,10 +428,12 @@ bool debug_overlay_is_visible(DebugOverlay *pOverlay) {
 void debug_overlay_toggle(DebugOverlay *pOverlay) {
   if (!pOverlay) return;
   pOverlay->bVisible = !pOverlay->bVisible;
-  if (pOverlay->bVisible)
+  if (pOverlay->bVisible) {
     SDL_StartTextInput(pOverlay->pWindow);
-  else
+    pOverlay->iNetIfaceCount = ROLLERCommsEnumLocalAddrs(pOverlay->aNetIfaces, ROLLER_MAX_IFACES);
+  } else {
     SDL_StopTextInput(pOverlay->pWindow);
+  }
 }
 
 void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
@@ -539,12 +544,33 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Network", NK_TEXT_LEFT);
 
-    char szLocalAddr[64];
-    ROLLERCommsGetLocalAddrStr(szLocalAddr, sizeof(szLocalAddr));
-    char szLocalLine[80];
-    snprintf(szLocalLine, sizeof(szLocalLine), "Local: %s", szLocalAddr);
-    nk_layout_row_dynamic(pCtx, 18, 1);
-    nk_label(pCtx, szLocalLine, NK_TEXT_LEFT);
+    // Adapter combobox — build display list: "Auto" + one entry per interface
+    int iTotal = pOverlay->iNetIfaceCount + 1;
+    char aszDisplay[ROLLER_MAX_IFACES + 1][80];
+    const char *apszDisplay[ROLLER_MAX_IFACES + 1];
+    snprintf(aszDisplay[0], sizeof(aszDisplay[0]), "Auto");
+    apszDisplay[0] = aszDisplay[0];
+    int iCurSel = 0;
+    for (int i = 0; i < pOverlay->iNetIfaceCount; i++) {
+      snprintf(aszDisplay[i + 1], sizeof(aszDisplay[i + 1]), "%s (%s)",
+               pOverlay->aNetIfaces[i].szIP, pOverlay->aNetIfaces[i].szName);
+      apszDisplay[i + 1] = aszDisplay[i + 1];
+      if (strcmp(pOverlay->szNetLocalIP, pOverlay->aNetIfaces[i].szIP) == 0)
+        iCurSel = i + 1;
+    }
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    int iNewSel = nk_combo(pCtx, apszDisplay, iTotal, iCurSel, 20, nk_vec2(LEFT_W - 20, 150));
+    if (iNewSel != iCurSel) {
+      if (iNewSel == 0) {
+        pOverlay->szNetLocalIP[0] = '\0';
+        ROLLERCommsSetLocalIP(NULL);
+      } else {
+        strncpy(pOverlay->szNetLocalIP, pOverlay->aNetIfaces[iNewSel - 1].szIP,
+                sizeof(pOverlay->szNetLocalIP) - 1);
+        pOverlay->szNetLocalIP[sizeof(pOverlay->szNetLocalIP) - 1] = '\0';
+        ROLLERCommsSetLocalIP(pOverlay->szNetLocalIP);
+      }
+    }
 
     nk_layout_row_dynamic(pCtx, 20, 2);
     nk_label(pCtx, "Peer IP", NK_TEXT_LEFT);
