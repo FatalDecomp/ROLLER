@@ -39,6 +39,8 @@ int ROLLERCommsNetAddrToNode(const int *pAddress);
 
 // Address
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
+void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
+void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
 
 // Data transmission
 int ROLLERCommsSendData(

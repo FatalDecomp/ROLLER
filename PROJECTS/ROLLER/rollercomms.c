@@ -6,13 +6,16 @@
 #ifdef IS_WINDOWS
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
 #define SOCKET int
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
@@ -51,6 +54,53 @@ static bool s_bHasPeer = false;
 static tROLLERNetAddr s_peerAddr;
 
 //-------------------------------------------------------------------------------------------------
+
+static uint32_t DetectLocalIPv4(void)
+{
+#ifdef IS_WINDOWS
+  uint32_t uiFound = htonl(INADDR_LOOPBACK);
+  ULONG uiBufLen = 15000;
+  IP_ADAPTER_ADDRESSES *pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
+  if (!pBuf) return uiFound;
+  if (GetAdaptersAddresses(AF_INET,
+        GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+        NULL, pBuf, &uiBufLen) == ERROR_BUFFER_OVERFLOW) {
+    free(pBuf);
+    pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
+    if (!pBuf) return uiFound;
+    GetAdaptersAddresses(AF_INET,
+      GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+      NULL, pBuf, &uiBufLen);
+  }
+  for (IP_ADAPTER_ADDRESSES *pAA = pBuf; pAA; pAA = pAA->Next) {
+    if (pAA->OperStatus != IfOperStatusUp) continue;
+    if (pAA->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+    for (IP_ADAPTER_UNICAST_ADDRESS *pUA = pAA->FirstUnicastAddress; pUA; pUA = pUA->Next) {
+      if (pUA->Address.lpSockaddr->sa_family != AF_INET) continue;
+      struct sockaddr_in *pSin = (struct sockaddr_in *)pUA->Address.lpSockaddr;
+      uiFound = pSin->sin_addr.s_addr;
+      free(pBuf);
+      return uiFound;
+    }
+  }
+  free(pBuf);
+  return uiFound;
+#else
+  struct ifaddrs *pList = NULL;
+  uint32_t uiFound = htonl(INADDR_LOOPBACK);
+  if (getifaddrs(&pList) == 0) {
+    for (struct ifaddrs *pIfa = pList; pIfa; pIfa = pIfa->ifa_next) {
+      if (!pIfa->ifa_addr || pIfa->ifa_addr->sa_family != AF_INET) continue;
+      struct sockaddr_in *pSin = (struct sockaddr_in *)pIfa->ifa_addr;
+      if (pSin->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) continue;
+      uiFound = pSin->sin_addr.s_addr;
+      break;
+    }
+    freeifaddrs(pList);
+  }
+  return uiFound;
+#endif
+}
 
 static int InitializeSockets(void)
 {
@@ -139,8 +189,7 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
     return 0;
   }
 
-  // Phase 2: replace with getifaddrs() to pick a real LAN IP
-  g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
+  g_commsState.myAddress.uiIPAddress = DetectLocalIPv4();
   g_commsState.myAddress.unPort = s_unLocalPort;
   g_commsState.myAddress.unPadding = 0;
 
@@ -448,6 +497,38 @@ int ROLLERCommsNetAddrToNode(const int *pAddress)
     }
   }
   return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen)
+{
+  if (!szBuf || iBufLen <= 0) return;
+  if (!g_commsState.bInitialized) {
+    snprintf(szBuf, iBufLen, "not connected");
+    return;
+  }
+  char szIP[INET_ADDRSTRLEN];
+  struct in_addr addr;
+  addr.s_addr = g_commsState.myAddress.uiIPAddress;
+  inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
+  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.myAddress.unPort);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen)
+{
+  if (!szBuf || iBufLen <= 0) return;
+  if (!g_commsState.bInitialized || iNode < 0 || iNode >= g_commsState.iActiveNodes) {
+    snprintf(szBuf, iBufLen, "---");
+    return;
+  }
+  char szIP[INET_ADDRSTRLEN];
+  struct in_addr addr;
+  addr.s_addr = g_commsState.nodes[iNode].address.uiIPAddress;
+  inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
+  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.nodes[iNode].address.unPort);
 }
 
 //-------------------------------------------------------------------------------------------------
