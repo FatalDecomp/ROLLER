@@ -1698,6 +1698,9 @@ void FoundNodes()
   // Update player1 to current network slot
   player1_car = wConsoleNode;
 
+  SDL_Log("[NET] FoundNodes: wConsoleNode=%d player1_car=%d network_on=%d\n",
+         (int)wConsoleNode, player1_car, network_on);
+
   // Initialize net_players array
   if (network_on > 0) {
     for (int i = 0; i < network_on; i++) {

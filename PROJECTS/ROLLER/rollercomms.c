@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL3/SDL.h>
 
 #ifdef IS_WINDOWS
 #include <winsock2.h>
@@ -465,6 +466,17 @@ void ROLLERCommsSortNodes(void)
       g_commsState.iConsoleNode = i;
       break;
     }
+  }
+
+  // Diagnostic: dump the sorted node table so we can verify iConsoleNode is correct on each machine.
+  SDL_Log("[NET] SortNodes: %d active nodes, iConsoleNode=%d\n",
+         g_commsState.iActiveNodes, g_commsState.iConsoleNode);
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    char szIP[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &g_commsState.nodes[i].address.uiIPAddress, szIP, sizeof(szIP));
+    SDL_Log("[NET]   node[%d]: %s:%u%s\n", i, szIP,
+           (unsigned)g_commsState.nodes[i].address.unPort,
+           i == g_commsState.iConsoleNode ? " <-- self" : "");
   }
 }
 
