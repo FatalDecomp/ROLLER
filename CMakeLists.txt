@@ -91,7 +91,7 @@ target_link_libraries(roller PRIVATE libcdio::cdio)
 
 if(WIN32)
     target_compile_definitions(roller PRIVATE WILDMIDI_STATIC=1)
-    target_link_libraries(roller PRIVATE ws2_32)
+    target_link_libraries(roller PRIVATE ws2_32 iphlpapi)
     set_target_properties(roller PROPERTIES WIN32_EXECUTABLE TRUE)
 else()
     target_compile_definitions(roller PRIVATE
