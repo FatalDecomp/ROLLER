@@ -36,6 +36,11 @@ static int NetworkGridRand(int *pSeed)
   return (int)((uiSeed >> 16) & 0x7FFFu);
 }
 
+static int NetworkGridRandRange(int iRange, int *pSeed)
+{
+  return (int)(((uint32)iRange * (uint32)NetworkGridRand(pSeed)) >> 15);
+}
+
 // Replace accented characters with non-accented equivalents in the font table - add by ROLLER
 void font_ascii_replace_accent(char *font)
 {
@@ -1042,8 +1047,8 @@ LABEL_232:
           // Generate two random indices within the racers range
           //int iRandIdx1 = rand() % racers;
           //int iRandIdx2 = rand() % racers;
-          int iRandIdx1 = GetHighOrderRand(racers, network_on ? NetworkGridRand(&iNetworkGridSeed) : rand());
-          int iRandIdx2 = GetHighOrderRand(racers, network_on ? NetworkGridRand(&iNetworkGridSeed) : rand());
+          int iRandIdx1 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, rand());
+          int iRandIdx2 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, rand());
 
           // Swap grid elements
           int iGridTemp = grid[iRandIdx1];

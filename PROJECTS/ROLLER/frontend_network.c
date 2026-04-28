@@ -36,6 +36,11 @@ static int NetworkGridRand(int *pSeed)
   return (int)((uiSeed >> 16) & 0x7FFFu);
 }
 
+static int NetworkGridRandRange(int iRange, int *pSeed)
+{
+  return (int)(((uint32)iRange * (uint32)NetworkGridRand(pSeed)) >> 15);
+}
+
 //-------------------------------------------------------------------------------------------------
 //00049C70
 void NetworkWait()
@@ -437,13 +442,13 @@ void restart_net_game()
     int iNetworkGridSeed = random_seed;
     for (iAISearch = 0; iAISearch < 6 * iActualCompetitors; grid[iSecondSwapPos] = iTempCarId)// Shuffle grid positions randomly for non-championship races
     {
-      iRandRange = network_on ? NetworkGridRand(&iNetworkGridSeed) : rand();
+      iRandRange = network_on ? 0 : rand();
       //iFirstSwapPos = iRandRange % iActualCompetitors;  // Get random position within grid bounds
-      iFirstSwapPos = GetHighOrderRand(iActualCompetitors, iRandRange);
+      iFirstSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iRandRange);
       //iFirstSwapPos = (iActualCompetitors * iRandRange - (__CFSHL__((iActualCompetitors * iRandRange) >> 31, 15) + ((iActualCompetitors * iRandRange) >> 31 << 15))) >> 15;
-      iSecondRand = network_on ? NetworkGridRand(&iNetworkGridSeed) : rand();
+      iSecondRand = network_on ? 0 : rand();
       //iSecondSwapPos = iSecondRand % iActualCompetitors;  // Get second random position within grid bounds
-      iSecondSwapPos = GetHighOrderRand(iActualCompetitors, iSecondRand);
+      iSecondSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iSecondRand);
       //iSecondSwapPos = (iActualCompetitors * iSecondRand - (__CFSHL__((iActualCompetitors * iSecondRand) >> 31, 15) + ((iActualCompetitors * iSecondRand) >> 31 << 15))) >> 15;
       iTempCarId = grid[iFirstSwapPos];
       grid[iFirstSwapPos] = grid[iSecondSwapPos];
