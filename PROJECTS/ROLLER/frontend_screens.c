@@ -27,6 +27,15 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+
+static int NetworkGridRand(int *pSeed)
+{
+  uint32 uiSeed = (uint32)*pSeed;
+  uiSeed = uiSeed * 1103515245u + 12345u;
+  *pSeed = (int)uiSeed;
+  return (int)((uiSeed >> 16) & 0x7FFFu);
+}
+
 // Replace accented characters with non-accented equivalents in the font table - add by ROLLER
 void font_ascii_replace_accent(char *font)
 {
@@ -1027,15 +1036,14 @@ LABEL_232:
       }
     } else {
       int iShuffleIterations = 6 * racers;
-      if (network_on)
-        srand(random_seed);
+      int iNetworkGridSeed = random_seed;
       for (int k = 0; k < iShuffleIterations; k++)
       {
           // Generate two random indices within the racers range
           //int iRandIdx1 = rand() % racers;
           //int iRandIdx2 = rand() % racers;
-          int iRandIdx1 = GetHighOrderRand(racers, rand());
-          int iRandIdx2 = GetHighOrderRand(racers, rand());
+          int iRandIdx1 = GetHighOrderRand(racers, network_on ? NetworkGridRand(&iNetworkGridSeed) : rand());
+          int iRandIdx2 = GetHighOrderRand(racers, network_on ? NetworkGridRand(&iNetworkGridSeed) : rand());
 
           // Swap grid elements
           int iGridTemp = grid[iRandIdx1];
