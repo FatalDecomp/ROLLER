@@ -1965,9 +1965,26 @@ int ROLLERfilelength(const char *szFile)
 
 //-------------------------------------------------------------------------------------------------
 
+static uint32 g_uiRandState = 1;
+
+void ROLLERsrand(unsigned int uiSeed)
+{
+  g_uiRandState = (uint32)uiSeed;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERrandRaw(void)
+{
+  g_uiRandState = g_uiRandState * 1103515245u + 12345u;
+  return (int)((g_uiRandState >> 16) & 0x7FFFu);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERrand()
 {
-  return GetHighOrderRand(0x7FFF, rand());
+  return GetHighOrderRand(0x7FFF, ROLLERrandRaw());
 }
 
 //-------------------------------------------------------------------------------------------------

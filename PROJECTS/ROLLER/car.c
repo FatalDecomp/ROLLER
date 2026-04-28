@@ -403,7 +403,7 @@ void placecars()
       Car[iCarIdx3].iSelectedStrategy = 0;
       Car[iCarIdx3].iBobMode = 0;
       Car[iCarIdx3].iAITargetLine = -1;
-      iRandomVal = rand();
+      iRandomVal = ROLLERrandRaw();
       Car[iDriverIdx].iAITargetCar = -1;
       Car[iDriverIdx].fHealth = 100.0f;
       Car[iDriverIdx].nTargetChunk = -1;

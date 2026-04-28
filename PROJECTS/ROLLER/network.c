@@ -442,7 +442,7 @@ void send_seed(int iRandomSeed)
       }
     }
 
-    srand(iRandomSeed);
+    ROLLERsrand(iRandomSeed);
     random_seed = iRandomSeed;
   }
 }
@@ -741,7 +741,7 @@ void receive_multiple()
           goto LABEL_17;
         case PACKET_ID_SEED:
           ROLLERCommsGetBlock(pPacket, &test_seed, 4);
-          srand(*pSeed);
+          ROLLERsrand(*pSeed);
           random_seed = *pSeed;
           received_seed = -1;
           ROLLERCommsPostListen();
@@ -1622,7 +1622,7 @@ void CheckNewNodes()
         continue;
       case PACKET_ID_SEED:                         // PACKET_ID_SEED
         ROLLERCommsGetBlock(pPacket2, &test_seed, 4);// Handle PACKET_ID_SEED (0x686C6368) - synchronize random seed across network
-        srand(*pTestSeed);
+        ROLLERsrand(*pTestSeed);
         random_seed = *pTestSeed;
         received_seed = -1;
         ROLLERCommsPostListen();

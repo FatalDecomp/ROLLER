@@ -111,7 +111,7 @@ void finish_race()
   float fTimeDifference; // [esp+28h] [ebp-1Ch]
 
   if (player_type == 1)
-    srand(random_seed);
+    ROLLERsrand(random_seed);
   iAiCarCount = 0;                              // Count AI cars (non-human controlled) that are still alive
   iCarCounter = 0;
   iLap = Car[carorder[0]].byLap;
@@ -205,7 +205,7 @@ void finish_race()
       if (iAiCarCount > 0) {
         iAiPlacementIndex = 0;
         while (1) {
-          iRandomValue = rand();
+          iRandomValue = ROLLERrandRaw();
           iRandomCarIndex = GetHighOrderRand(numcars, iRandomValue);
           //iRandomCarIndex = (iRandomValue * numcars - (__CFSHL__((iRandomValue * numcars) >> 31, 15) + ((iRandomValue * numcars) >> 31 << 15))) >> 15;
           if (iRandomCarIndex == numcars)
@@ -672,9 +672,9 @@ void dodamage(tCar *pCar, float fDamage)
         pCar->byDamageIntensity = iDamageIntensity;
         do {
           if (pCarSpray->iLifeTime > 0) {
-            rand();
+            ROLLERrandRaw();
           } else {
-            iRandValue1 = rand();
+            iRandValue1 = ROLLERrandRaw();
             if (GetHighOrderRand(12, iRandValue1) < iDamageIntensity)
               pCarSpray->iTimer = -1;
           }
@@ -690,7 +690,7 @@ void dodamage(tCar *pCar, float fDamage)
           if (pPlayerSpray) {
             for (i = 0; i < 32; ++i) {
               if (pPlayerSpray->iLifeTime <= 0) {
-                iRandValue2 = rand();
+                iRandValue2 = ROLLERrandRaw();
                 if (GetHighOrderRand(12, iRandValue2) < iDamageIntensity)
                   pPlayerSpray->iTimer = -1;
               }
@@ -1018,14 +1018,14 @@ void changemateto(int iCarIndex, int iNewStrategy)
       if (player_type != 2 && iCarIndex == player1_car && (cheat_mode & CHEAT_MODE_CLONES) == 0)
         speechsample(iNewStrategy + 57, 20000, 18, iCarIndex);
     } else {
-      iRandomValue = rand();                    // Random chance (1/4) or cooldown check - mate may refuse strategy change
+      iRandomValue = ROLLERrandRaw();                    // Random chance (1/4) or cooldown check - mate may refuse strategy change
       if (GetHighOrderRand(4, iRandomValue) == 3 || Car[iMateCarIndex].nChangeMateCooldown) {
         // CHEAT_MODE_CLONES
         if (player_type == 2 || iCarIndex != player1_car || (cheat_mode & CHEAT_MODE_CLONES) != 0) {
-          rand();
+          ROLLERrandRaw();
         } else {
           iSpeechParam = player1_car + ((Car[iMateCarIndex].iSelectedStrategy + 61) << 8);// Play refusal speech sequence when mate rejects strategy change
-          iRandomSpeech = rand();
+          iRandomSpeech = ROLLERrandRaw();
           speechsample(GetHighOrderRand(2, iRandomSpeech) + 65, 20000, 18, iSpeechParam);
           speechsample(Car[iMateCarIndex].iSelectedStrategy + 61, 20000, 0, player1_car);
         }
@@ -1618,7 +1618,7 @@ void firework_display()
               fY = pSprayData->position.fY;
               fOrigVelX = pSprayData->velocity.fX;
               fOrigVelY = pSprayData->velocity.fY;
-              iRandColor = rand();
+              iRandColor = ROLLERrandRaw();
               iParticleCount = 0;
               iFireworkColor = firework_colours[GetHighOrderRand(12, iRandColor)];
               do {
@@ -1628,15 +1628,15 @@ void firework_display()
                 pSprayData->iColor = iFireworkColor;
                 pSprayData->position.fX = fX;
                 pSprayData->position.fY = fY;
-                iRandAngle = rand();
+                iRandAngle = ROLLERrandRaw();
 
                 iAngleIndex = GetHighOrderRand(32768, iRandAngle);
                 //iAngleIndex = ((iRandAngle << 14) - (__CFSHL__(iRandAngle << 14 >> 31, 15) + (iRandAngle << 14 >> 31 << 15))) >> 15;
                 
-                dRandVelocity = (double)rand() * 2.0 * 0.000030517578125;
+                dRandVelocity = (double)ROLLERrandRaw() * 2.0 * 0.000030517578125;
                 pSprayData->velocity.fX = (float)dRandVelocity * tcos[iAngleIndex] + fOrigVelX;
                 pSprayData->velocity.fY = (float)dRandVelocity * tsin[iAngleIndex] + fOrigVelY;
-                iRandParticleLife = rand();
+                iRandParticleLife = ROLLERrandRaw();
                 ++pSprayData;
                 ++iParticleCount;
                 pSprayData[-1].iLifeTime = GetHighOrderRand(36, iRandParticleLife) + 36;
@@ -1700,13 +1700,13 @@ void firework_display()
           pSprayData->iTimer = iTimerCount;
           if (iTimerCount < 0) {
             iWidthDiv3 = winw / 3;              // Launch new rocket with random position and velocity
-            iRandX = rand();
+            iRandX = ROLLERrandRaw();
             pSprayData->position.fX = (float)(2 * winw / 3 - GetHighOrderRand(iWidthDiv3, iRandX));
             pSprayData->position.fY = (float)winh;
-            iRandVelX = rand();
+            iRandVelX = ROLLERrandRaw();
             pSprayData->velocity.fX = (float)(2 - GetHighOrderRand(4, iRandVelX));
-            pSprayData->velocity.fY = (float)(-4.8 - (double)rand() * 1.2 * 0.000030517578125);
-            iRandLifetime = rand();
+            pSprayData->velocity.fY = (float)(-4.8 - (double)ROLLERrandRaw() * 1.2 * 0.000030517578125);
+            iRandLifetime = ROLLERrandRaw();
             pSprayData->iColor = 0x8F;
 
             pSprayData->iType = 1;
@@ -1716,7 +1716,7 @@ void firework_display()
           }
         } else {
           pSprayData->position.fZ = -1.0;       // Initialize new firework with random launch delay
-          iRandTimer = rand();
+          iRandTimer = ROLLERrandRaw();
           pSprayData->iTimer = GetHighOrderRand(36, iRandTimer);
         }
       }

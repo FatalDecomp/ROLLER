@@ -4093,7 +4093,7 @@ void EndChampSequence()
   do {
     setpal(round_pals[iImageIndex]);            // Set palette for current championship image
     memset(scrbuf, 0, 0x3E800u);                // Clear screen buffer (320x200 = 0x3E800 bytes)
-    iRandomValue = rand();                      // Generate random position for image display
+    iRandomValue = ROLLERrandRaw();                      // Generate random position for image display
     iRandomYPosition = 300 * GetHighOrderRand(5, iRandomValue);
     //iRandomYPosition = 300 * ((5 * iRandomValue - (__CFSHL__((5 * iRandomValue) >> 31, 15) + ((5 * iRandomValue) >> 31 << 15))) >> 15);// Calculate random Y position using complex modulo arithmetic
     display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
@@ -4900,7 +4900,7 @@ void AllocateCars()
       if (players == 1)                       // Single player mode: randomly select one AI as competitor
       {
         do {
-          iRandResult = rand();// iCompetitorMode);
+          iRandResult = ROLLERrandRaw();// iCompetitorMode);
           iNormalizedCarSlot = GetHighOrderRand(8, iRandResult);  // Normalize to range [0, 8)
 
           if (iNormalizedCarSlot == 8)
@@ -4936,7 +4936,7 @@ void AllocateCars()
       {
         int iActiveCompetitors = players;
         while (1) {
-          int randVal = rand();// iCompetitorMode);
+          int randVal = ROLLERrandRaw();// iCompetitorMode);
           int slot = GetHighOrderRand(8, randVal);
           if (slot == 8)
             slot = 7;

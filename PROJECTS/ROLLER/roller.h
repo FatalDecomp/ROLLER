@@ -77,6 +77,8 @@ int ROLLERrename(const char *szOldName, const char *szNewName); //tries to renam
 uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback, void *userdata);
 void ROLLERRemoveTimer(uint32 uiHandle);
 int ROLLERfilelength(const char *szFile);
+void ROLLERsrand(unsigned int uiSeed);
+int ROLLERrandRaw(void);
 int ROLLERrand();
 Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);
 Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);

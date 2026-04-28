@@ -442,11 +442,11 @@ void restart_net_game()
     int iNetworkGridSeed = random_seed;
     for (iAISearch = 0; iAISearch < 6 * iActualCompetitors; grid[iSecondSwapPos] = iTempCarId)// Shuffle grid positions randomly for non-championship races
     {
-      iRandRange = network_on ? 0 : rand();
+      iRandRange = network_on ? 0 : ROLLERrandRaw();
       //iFirstSwapPos = iRandRange % iActualCompetitors;  // Get random position within grid bounds
       iFirstSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iRandRange);
       //iFirstSwapPos = (iActualCompetitors * iRandRange - (__CFSHL__((iActualCompetitors * iRandRange) >> 31, 15) + ((iActualCompetitors * iRandRange) >> 31 << 15))) >> 15;
-      iSecondRand = network_on ? 0 : rand();
+      iSecondRand = network_on ? 0 : ROLLERrandRaw();
       //iSecondSwapPos = iSecondRand % iActualCompetitors;  // Get second random position within grid bounds
       iSecondSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iSecondRand);
       //iSecondSwapPos = (iActualCompetitors * iSecondRand - (__CFSHL__((iActualCompetitors * iSecondRand) >> 31, 15) + ((iActualCompetitors * iSecondRand) >> 31 << 15))) >> 15;

@@ -1045,10 +1045,10 @@ LABEL_232:
       for (int k = 0; k < iShuffleIterations; k++)
       {
           // Generate two random indices within the racers range
-          //int iRandIdx1 = rand() % racers;
-          //int iRandIdx2 = rand() % racers;
-          int iRandIdx1 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, rand());
-          int iRandIdx2 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, rand());
+          //int iRandIdx1 = ROLLERrandRaw() % racers;
+          //int iRandIdx2 = ROLLERrandRaw() % racers;
+          int iRandIdx1 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, ROLLERrandRaw());
+          int iRandIdx2 = network_on ? NetworkGridRandRange(racers, &iNetworkGridSeed) : GetHighOrderRand(racers, ROLLERrandRaw());
 
           // Swap grid elements
           int iGridTemp = grid[iRandIdx1];
