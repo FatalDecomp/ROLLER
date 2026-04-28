@@ -1105,6 +1105,13 @@ void tickhandler()
                     copy_multiple[writeptr][i].data.unFlags |= FLAG_FINISHED;
                   }
                 }
+                // Diagnostic: log first few master-branch ticks
+                if (frame_number < 5) {
+                  printf("[RACE-MASTER] frame=%d player1_car=%d wConsoleNode=%d car0=%08X car1=%08X writeptr=%d\n",
+                         frame_number, player1_car, (int)wConsoleNode,
+                         copy_multiple[writeptr][0].uiFullData,
+                         copy_multiple[writeptr][1].uiFullData, writeptr);
+                }
                 send_multiple();
                 
                 // Handle master transition
@@ -1157,6 +1164,12 @@ void tickhandler()
             readuserdata(0);
             send_single(user_inp);
             last_inp[0] = user_inp;
+
+            // Diagnostic: log first few slave-branch ticks
+            if (frame_number < 5) {
+              printf("[RACE-SLAVE] frame=%d player1_car=%d wConsoleNode=%d user_inp=%08X writeptr=%d\n",
+                     frame_number, player1_car, (int)wConsoleNode, user_inp, writeptr);
+            }
 
             receive_multiple();
 

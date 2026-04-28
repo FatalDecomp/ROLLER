@@ -705,6 +705,13 @@ void receive_multiple()
             active_nodes = network_on;
             net_loading = 0;
             ROLLERCommsGetBlock(pPacket, &copy_multiple[writeptr], 64);
+            // Diagnostic: log first few received frames
+            if (frame_number < 5) {
+              printf("[RACE-SLAVE-RX] frame=%d car0=%08X car1=%08X writeptr=%d\n",
+                     frame_number,
+                     copy_multiple[writeptr][0].uiFullData,
+                     copy_multiple[writeptr][1].uiFullData, writeptr);
+            }
           }
           network_timeout = frames;
           ++ticks_received;
