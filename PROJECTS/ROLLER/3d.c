@@ -1435,6 +1435,8 @@ void play_game_init()
   }
   replay_player = player_type;
   frame_number = 0;
+  writeptr = 0;
+  readptr = 0;
   if (replaytype == 2)                        // Special handling for replay mode - copy competitor settings
   {
     replay_cheat = cheat_mode;

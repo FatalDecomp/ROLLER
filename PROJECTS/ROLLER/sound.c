@@ -1033,7 +1033,7 @@ void tickhandler()
               }
             }
           }
-        } else {
+        } else if (start_race) {
           // Handle multiplayer mode
           ticks_received = 0;
 
@@ -1107,10 +1107,12 @@ void tickhandler()
                 }
                 // Diagnostic: log first few master-branch ticks
                 if (frame_number < 5) {
-                  printf("[RACE-MASTER] frame=%d player1_car=%d wConsoleNode=%d car0=%08X car1=%08X writeptr=%d\n",
+                  int iCar0 = player_to_car[0];
+                  int iCar1 = player_to_car[1];
+                  SDL_Log("[RACE-MASTER] frame=%d player1_car=%d wConsoleNode=%d p0car=%d p0=%08X p1car=%d p1=%08X writeptr=%d\n",
                          frame_number, player1_car, (int)wConsoleNode,
-                         copy_multiple[writeptr][0].uiFullData,
-                         copy_multiple[writeptr][1].uiFullData, writeptr);
+                         iCar0, copy_multiple[writeptr][iCar0].uiFullData,
+                         iCar1, copy_multiple[writeptr][iCar1].uiFullData, writeptr);
                 }
                 send_multiple();
                 
@@ -1167,8 +1169,9 @@ void tickhandler()
 
             // Diagnostic: log first few slave-branch ticks
             if (frame_number < 5) {
-              printf("[RACE-SLAVE] frame=%d player1_car=%d wConsoleNode=%d user_inp=%08X writeptr=%d\n",
-                     frame_number, player1_car, (int)wConsoleNode, user_inp, writeptr);
+              SDL_Log("[RACE-SLAVE] frame=%d player1_car=%d wConsoleNode=%d player_to_car=%d user_inp=%08X writeptr=%d\n",
+                     frame_number, player1_car, (int)wConsoleNode,
+                     player_to_car[wConsoleNode], user_inp, writeptr);
             }
 
             receive_multiple();

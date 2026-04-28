@@ -148,7 +148,7 @@ void close_network()
     wConsoleNode = ROLLERCommsNetAddrToNode(address);
     while (iNode < wConsoleNode) {
       if (ROLLERCommsDeleteNode(0)) {
-        printf("FAILED TO DELETE NODE a (%d)!!!\n", iNode);
+        SDL_Log("FAILED TO DELETE NODE a (%d)!!!\n", iNode);
         doexit();
       }
       ROLLERCommsSortNodes();
@@ -156,7 +156,7 @@ void close_network()
     }
     for (i = wConsoleNode + 1; i < network_on; ++i) {
       if (ROLLERCommsDeleteNode(1)) {
-        printf("FAILED TO DELETE NODE b (%d)!!!\n", i);
+        SDL_Log("FAILED TO DELETE NODE b (%d)!!!\n", i);
         doexit();
       }
       ROLLERCommsSortNodes();
@@ -707,10 +707,12 @@ void receive_multiple()
             ROLLERCommsGetBlock(pPacket, &copy_multiple[writeptr], 64);
             // Diagnostic: log first few received frames
             if (frame_number < 5) {
-              printf("[RACE-SLAVE-RX] frame=%d car0=%08X car1=%08X writeptr=%d\n",
+              int iCar0 = player_to_car[0];
+              int iCar1 = player_to_car[1];
+              SDL_Log("[RACE-SLAVE-RX] frame=%d p0car=%d p0=%08X p1car=%d p1=%08X writeptr=%d\n",
                      frame_number,
-                     copy_multiple[writeptr][0].uiFullData,
-                     copy_multiple[writeptr][1].uiFullData, writeptr);
+                     iCar0, copy_multiple[writeptr][iCar0].uiFullData,
+                     iCar1, copy_multiple[writeptr][iCar1].uiFullData, writeptr);
             }
           }
           network_timeout = frames;
@@ -854,8 +856,7 @@ void receive_all_singles()
   if (network_on) {
     while (ROLLERCommsGetHeader(&in_header, sizeof(tSyncHeader), &pData)) {
       byConsoleNode = in_header.byConsoleNode;
-      if (net_players[car_to_player[byConsoleNode]]) {
-        switch (in_header.uiId) {
+      switch (in_header.uiId) {
           case PACKET_ID_TRANSMIT_INIT:
             ROLLERCommsGetBlock(pData, &transmitInitPacket, sizeof(tTransmitInitPacket));
             if (transmitInitPacket.iTimeToStart != 0xFFFFFE38)
@@ -876,12 +877,22 @@ void receive_all_singles()
             ROLLERCommsPostListen();
             continue;
           case PACKET_ID_SINGLE:
+            if (byConsoleNode < 0 || byConsoleNode >= MAX_CARS)
+              goto LABEL_31;
+            if (car_to_player[byConsoleNode] < 0 || car_to_player[byConsoleNode] >= network_on)
+              goto LABEL_31;
+            if (!net_players[car_to_player[byConsoleNode]])
+              goto LABEL_31;
             ROLLERCommsGetBlock(pData, &slave_data, 6);
             copy_multiple[writeptr][in_header.byConsoleNode].uiFullData = slave_data.uiData;
             net_time[car_to_player[in_header.byConsoleNode]] = frames;
             ROLLERCommsPostListen();
             continue;
           case PACKET_ID_READY:
+            if (byConsoleNode < 0 || byConsoleNode >= network_on)
+              goto LABEL_31;
+            if (!net_players[byConsoleNode])
+              goto LABEL_31;
             if (player_ready[in_header.byConsoleNode])
               goto LABEL_31;
             ++active_nodes;
@@ -914,6 +925,10 @@ void receive_all_singles()
           case PACKET_ID_SYNC_ERROR:
             goto LABEL_23;
           case PACKET_ID_NOCD:
+            if (byConsoleNode < 0 || byConsoleNode >= network_on)
+              goto LABEL_31;
+            if (!net_players[byConsoleNode])
+              goto LABEL_31;
             if (player_ready[in_header.byConsoleNode])
               goto LABEL_31;
             ++active_nodes;
@@ -953,11 +968,9 @@ void receive_all_singles()
             ++duff_message;
             goto LABEL_31;
         }
-      } else {
       LABEL_31:
         ;
         ROLLERCommsPostListen();
-      }
     }
   }
 }
@@ -1685,6 +1698,19 @@ void FoundNodes()
 {
   if (!master) return;  // Only process if we're the master
 
+  int oldNetworkOn = network_on;
+  int oldPlayersCars[16];
+  int oldManualControl[16];
+  int oldPlayerInvul[16];
+  int oldPlayerStarted[16];
+  char oldPlayerNames[16][9];
+
+  memcpy(oldPlayersCars, Players_Cars, sizeof(oldPlayersCars));
+  memcpy(oldManualControl, manual_control, sizeof(oldManualControl));
+  memcpy(oldPlayerInvul, player_invul, sizeof(oldPlayerInvul));
+  memcpy(oldPlayerStarted, player_started, sizeof(oldPlayerStarted));
+  memcpy(oldPlayerNames, player_names, sizeof(oldPlayerNames));
+
   // Update network state
   ROLLERCommsSortNodes();
   network_on = ROLLERCommsGetActiveNodes();
@@ -1694,19 +1720,38 @@ void FoundNodes()
   master = 0;
   start_multiple = network_on - 1;
 
-  // Transfer player settings to network slot
-  Players_Cars[wConsoleNode] = Players_Cars[player1_car];
-  manual_control[wConsoleNode] = manual_control[player1_car];
-  player_invul[wConsoleNode] = player_invul[player1_car];
+  // The lobby address table is discovery-ordered with our own address in slot 0,
+  // while the comms node table is sorted.  Remap player configuration by address
+  // so player indices match sorted node indices before the race car mapping runs.
+  for (int i = 0; i < network_on; i++) {
+    Players_Cars[i] = -1;
+    manual_control[i] = 0;
+    player_invul[i] = 0;
+    player_started[i] = 0;
+  }
 
-  // Copy player name to network slot
-  name_copy(player_names[wConsoleNode], player_names[player1_car]);
+  for (int i = 0; i < oldNetworkOn && i < 16; i++) {
+    int iSortedNode = ROLLERCommsNetAddrToNode(&address[i * 4]);
+    if (iSortedNode < 0 || iSortedNode >= network_on)
+      continue;
+
+    Players_Cars[iSortedNode] = oldPlayersCars[i];
+    manual_control[iSortedNode] = oldManualControl[i];
+    player_invul[iSortedNode] = oldPlayerInvul[i];
+    player_started[iSortedNode] = oldPlayerStarted[i];
+    name_copy(player_names[iSortedNode], oldPlayerNames[i]);
+  }
 
   // Update player1 to current network slot
   player1_car = wConsoleNode;
 
   SDL_Log("[NET] FoundNodes: wConsoleNode=%d player1_car=%d network_on=%d\n",
          (int)wConsoleNode, player1_car, network_on);
+  for (int i = 0; i < network_on; i++) {
+    SDL_Log("[NET]   player[%d]: car=%d manual=%d started=%d%s\n",
+           i, Players_Cars[i], manual_control[i], player_started[i],
+           i == wConsoleNode ? " <-- self" : "");
+  }
 
   // Initialize net_players array
   if (network_on > 0) {
@@ -1991,7 +2036,7 @@ void reset_network(int iResetBroadcastMode)
   wConsoleNode = ROLLERCommsNetAddrToNode(address);
   while (iNode < wConsoleNode) {
     if (ROLLERCommsDeleteNode(0)) {
-      printf("FAILED TO DELETE NODE c (%d)!!!\n", iNode);
+      SDL_Log("FAILED TO DELETE NODE c (%d)!!!\n", iNode);
       doexit();
     }
     ROLLERCommsSortNodes();
@@ -1999,7 +2044,7 @@ void reset_network(int iResetBroadcastMode)
   }
   for (i = wConsoleNode + 1; i < network_on; ++i) {
     if (ROLLERCommsDeleteNode(1)) {
-      printf("FAILED TO DELETE NODE (%d)!!!\n", i);
+      SDL_Log("FAILED TO DELETE NODE (%d)!!!\n", i);
       doexit();
     }
     ROLLERCommsSortNodes();
