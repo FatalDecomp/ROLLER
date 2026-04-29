@@ -479,11 +479,6 @@ void restart_net_game()
       }
     }
   }
-  if (network_on) {
-    SDL_Log("[NET-GRID] seed=%d racers=%d p0car=%d p1car=%d grid0=%d grid1=%d grid2=%d grid3=%d\n",
-           random_seed, racers, player_to_car[0], player_to_car[1],
-           grid[0], grid[1], grid[2], grid[3]);
-  }
   StartPressed = 0;                             // Finalize restart state
   restart_net = 0;
   racers = iActualCompetitors;

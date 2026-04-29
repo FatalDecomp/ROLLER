@@ -705,15 +705,6 @@ void receive_multiple()
             active_nodes = network_on;
             net_loading = 0;
             ROLLERCommsGetBlock(pPacket, &copy_multiple[writeptr], 64);
-            // Diagnostic: log first few received frames
-            if (frame_number < 5) {
-              int iCar0 = player_to_car[0];
-              int iCar1 = player_to_car[1];
-              SDL_Log("[RACE-SLAVE-RX] frame=%d p0car=%d p0=%08X p1car=%d p1=%08X writeptr=%d\n",
-                     frame_number,
-                     iCar0, copy_multiple[writeptr][iCar0].uiFullData,
-                     iCar1, copy_multiple[writeptr][iCar1].uiFullData, writeptr);
-            }
           }
           network_timeout = frames;
           ++ticks_received;

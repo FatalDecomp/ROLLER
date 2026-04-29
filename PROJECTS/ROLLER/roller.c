@@ -1288,8 +1288,6 @@ void MIDISetMasterVolume(int8 volume)
   if (volume < 0) volume = 0;
   MIDIMasterVolume = volume;
 
-  SDL_Log("MIDISetMasterVolume: %i", volume);
-
   float master_volume = (float)volume / 127.0f; // Normalize to [0.0, 1.0] range
 
   // Change the gain for the MIDI stream
@@ -1454,9 +1452,7 @@ void DIGISetMasterVolume(int volume)
   if (volume > 0x7FFF) volume = 0x7FFF;
   if (volume < 0) volume = 0;
   DIGIMasterVolume = volume;
-
-  SDL_Log("DIGISetMasterVolume: %x", volume);
-
+  
   float normalized_volume = (float)volume / 0x7FFF; // Normalize to [0.0, 1.0] range
 
   for (size_t i = 0; i < NUM_DIGI_STREAMS; i++) {
