@@ -49,6 +49,7 @@ int ROLLERCommsNetAddrToNode(const int *pAddress);
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
 void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
 void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
+void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen);
 int  ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
 
 // Data transmission
@@ -58,6 +59,12 @@ int ROLLERCommsSendData(
     const void *pData,
     int iDataSize,
     int iDestNode);
+int ROLLERCommsBroadcastData(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    uint16_t unPort);
 
 // Data reception
 int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut);

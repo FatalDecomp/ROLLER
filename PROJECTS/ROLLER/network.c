@@ -64,6 +64,62 @@ char received_message[14];  //0017C9CC
 int16 wConsoleNode;         //0017C9DA
 
 //-------------------------------------------------------------------------------------------------
+
+static int s_iLastDiscoveryBroadcastFrame = -1000;
+
+//-------------------------------------------------------------------------------------------------
+
+static void NormalizePacketAddress(int32 pAddress[4])
+{
+  tROLLERNetAddr netAddr;
+  memset(&netAddr, 0, sizeof(netAddr));
+  memcpy(&netAddr, pAddress, sizeof(netAddr));
+  netAddr.unPadding = 0;
+  netAddr.ullReserved = 0;
+  memcpy(pAddress, &netAddr, sizeof(netAddr));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int IsInvalidPacketAddress(const int32 pAddress[4])
+{
+  const tROLLERNetAddr *pNetAddr = (const tROLLERNetAddr *)pAddress;
+  return pNetAddr->uiIPAddress == 0 || pNetAddr->unPort == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int IsLocalPacketAddress(const int32 pAddress[4])
+{
+  int localAddress[4];
+  ROLLERCommsGetNetworkAddr(localAddress);
+  NormalizePacketAddress(localAddress);
+  return memcmp(localAddress, pAddress, sizeof(tROLLERNetAddr)) == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void LogDiscoveryAddress(const char *szMessage, const int32 pAddress[4])
+{
+  char szAddr[32];
+  ROLLERCommsFormatAddr((const tROLLERNetAddr *)pAddress, szAddr, sizeof(szAddr));
+  SDL_Log("[NET-DISCOVERY] %s %s", szMessage, szAddr);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void PulseLobbyDiscovery(void)
+{
+  if (!frontend_on || !network_on || time_to_start || !master)
+    return;
+  if (frames - s_iLastDiscoveryBroadcastFrame < 36)
+    return;
+
+  s_iLastDiscoveryBroadcastFrame = frames;
+  TransmitInit();
+}
+
+//-------------------------------------------------------------------------------------------------
 //0004EB30
 void Initialise_Network(int iSelectNetSlot)
 {
@@ -359,6 +415,8 @@ void send_record_to_master(int iRecordIdx)
     strncpy(p_record.szRecordName, RecordNames[iRecordIdx], sizeof(p_record.szRecordName));
     p_record.unRecordCar = RecordCars[iRecordIdx];
 
+    SDL_Log("[NET-START] send record to master=%d from node=%d track=%d",
+            master, (int)wConsoleNode, iRecordIdx);
     while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master))
       UpdateSDL(); //added by ROLLER
   }
@@ -435,6 +493,8 @@ void send_seed(int iRandomSeed)
     test_seed = iRandomSeed;
     p_header.uiId = PACKET_ID_SEED;
     p_header.byConsoleNode = (uint8)wConsoleNode;
+    SDL_Log("[NET-START] send seed=%d from node=%d to %d nodes",
+            iRandomSeed, (int)wConsoleNode, network_on);
     for (int i = 0;  i < network_on; ++i) {
       if (i != wConsoleNode) {
         while (!ROLLERCommsSendData(&p_header, 12, &test_seed, 4, i))
@@ -1124,12 +1184,19 @@ int TransmitInit()
       szDefaultNamesDst += 9;
     } while (szDefaultNameItr != default_names[16]);
 
-    return ROLLERCommsSendData(
-             &header,
-             sizeof(tSyncHeader),
-             &initPacket,
-             sizeof(tTransmitInitPacket),
-             21);
+    int iKnownPeerSuccess = ROLLERCommsSendData(
+                              &header,
+                              sizeof(tSyncHeader),
+                              &initPacket,
+                              sizeof(tTransmitInitPacket),
+                              21);
+    int iBroadcastSuccess = ROLLERCommsBroadcastData(
+                              &header,
+                              sizeof(tSyncHeader),
+                              &initPacket,
+                              sizeof(tTransmitInitPacket),
+                              ROLLER_DEFAULT_PORT);
+    return iKnownPeerSuccess || iBroadcastSuccess;
   }
   return iSuccess;
 }
@@ -1218,6 +1285,15 @@ void CheckNewNodes()
         transmitInitPacket.iNetworkChampOn = 0;
         transmitInitPacket.iNetworkSlot = 0;
         ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
+        NormalizePacketAddress(transmitInitPacket.address);
+        if (IsInvalidPacketAddress(transmitInitPacket.address)) {
+          LogDiscoveryAddress("ignored invalid", transmitInitPacket.address);
+          goto LABEL_40;
+        }
+        if (IsLocalPacketAddress(transmitInitPacket.address)) {
+          LogDiscoveryAddress("ignored self", transmitInitPacket.address);
+          goto LABEL_40;
+        }
         if (network_slot >= 0)                // Process init packet when we are already connected (network_slot >= 0)
         {
           if (transmitInitPacket.iNetworkSlot < 0 && !I_Quit) {
@@ -1264,6 +1340,7 @@ void CheckNewNodes()
             test = 20;                          // Add new network node if all validation checks pass
             if ((unsigned int)ROLLERCommsAddNode(&transmitInitPacket.address) > 1)
               goto LABEL_40;
+            LogDiscoveryAddress("discovered", transmitInitPacket.address);
             test = 6;
             ROLLERCommsSortNodes();
 
@@ -1616,6 +1693,7 @@ void CheckNewNodes()
         ROLLERsrand(*pTestSeed);
         random_seed = *pTestSeed;
         received_seed = -1;
+        SDL_Log("[NET-START] received seed=%d on node=%d", random_seed, (int)wConsoleNode);
         ROLLERCommsPostListen();
         continue;
       case PACKET_ID_PLAYER_INFO:                         // PACKET_ID_PLAYER_INFO
@@ -1637,6 +1715,8 @@ void CheckNewNodes()
       case PACKET_ID_RECORD:                         // PACKET_ID_RECORD
         ++received_records;                     // Handle PACKET_ID_RECORD (0x686C636B) - update lap record if faster than current
         ROLLERCommsGetBlock(pPacket2, &recordPacket, 16);
+        SDL_Log("[NET-START] received record from node=%d count=%d/%d",
+                syncHeader.byConsoleNode, received_records, network_on);
         if (recordPacket.fRecordLap < (double)RecordLaps[TrackLoad]) {
           RecordLaps[TrackLoad] = recordPacket.fRecordLap;
           RecordCars[TrackLoad] = (int16)recordPacket.unRecordCar;
@@ -1842,7 +1922,10 @@ void BroadcastNews()
   int iInitSuccess; // eax
 
   if (!broadcast_mode)
+  {
+    PulseLobbyDiscovery();
     return;
+  }
   if (broadcast_mode < 0xFFFFFD63) {
     if (broadcast_mode < 0xFFFFF562) {
       if (broadcast_mode < 0xFFFFD8F1) {
