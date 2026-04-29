@@ -172,6 +172,13 @@ static int SendPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t
 
 //-------------------------------------------------------------------------------------------------
 
+static int IsLoopbackIPv4(uint32_t uiIPAddress)
+{
+  return (ntohl(uiIPAddress) & 0xFF000000u) == 0x7F000000u;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void CleanupSockets(void)
 {
 #ifdef IS_WINDOWS
@@ -458,9 +465,28 @@ int ROLLERCommsGetConsoleNode(void)
 
 int ROLLERCommsAddNode(const void *pAddress)
 {
+  tROLLERNetAddr address;
+  if (!pAddress)
+    return 2;
+
+  memset(&address, 0, sizeof(address));
+  memcpy(&address, pAddress, sizeof(address));
+  address.unPadding = 0;
+  address.ullReserved = 0;
+
+  if (g_commsState.iActiveNodes > 0 &&
+      address.uiIPAddress == g_commsState.myAddress.uiIPAddress &&
+      address.unPort != g_commsState.myAddress.unPort &&
+      !IsLoopbackIPv4(address.uiIPAddress)) {
+    char szAddr[32];
+    ROLLERCommsFormatAddr(&address, szAddr, sizeof(szAddr));
+    SDL_Log("[NET-DISCOVERY] ignored local-address peer %s", szAddr);
+    return 2;
+  }
+
   // Idempotent: if this address is already in the table, do nothing
   for (int i = 0; i < g_commsState.iActiveNodes; i++) {
-    if (memcmp(&g_commsState.nodes[i].address, pAddress, sizeof(tROLLERNetAddr)) == 0) {
+    if (memcmp(&g_commsState.nodes[i].address, &address, sizeof(tROLLERNetAddr)) == 0) {
       return 1;  // Already present (not an error — > 1 is the failure sentinel)
     }
   }
@@ -470,7 +496,7 @@ int ROLLERCommsAddNode(const void *pAddress)
   }
 
   int iNodeIdx = g_commsState.iActiveNodes;
-  memcpy(&g_commsState.nodes[iNodeIdx].address, pAddress, sizeof(tROLLERNetAddr));
+  memcpy(&g_commsState.nodes[iNodeIdx].address, &address, sizeof(tROLLERNetAddr));
   g_commsState.nodes[iNodeIdx].bActive = true;
   g_commsState.iActiveNodes++;
 

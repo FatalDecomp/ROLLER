@@ -415,6 +415,8 @@ void send_record_to_master(int iRecordIdx)
     strncpy(p_record.szRecordName, RecordNames[iRecordIdx], sizeof(p_record.szRecordName));
     p_record.unRecordCar = RecordCars[iRecordIdx];
 
+    SDL_Log("[NET-START] send record to master=%d from node=%d track=%d",
+            master, (int)wConsoleNode, iRecordIdx);
     while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master))
       UpdateSDL(); //added by ROLLER
   }
@@ -491,6 +493,8 @@ void send_seed(int iRandomSeed)
     test_seed = iRandomSeed;
     p_header.uiId = PACKET_ID_SEED;
     p_header.byConsoleNode = (uint8)wConsoleNode;
+    SDL_Log("[NET-START] send seed=%d from node=%d to %d nodes",
+            iRandomSeed, (int)wConsoleNode, network_on);
     for (int i = 0;  i < network_on; ++i) {
       if (i != wConsoleNode) {
         while (!ROLLERCommsSendData(&p_header, 12, &test_seed, 4, i))
@@ -1689,6 +1693,7 @@ void CheckNewNodes()
         ROLLERsrand(*pTestSeed);
         random_seed = *pTestSeed;
         received_seed = -1;
+        SDL_Log("[NET-START] received seed=%d on node=%d", random_seed, (int)wConsoleNode);
         ROLLERCommsPostListen();
         continue;
       case PACKET_ID_PLAYER_INFO:                         // PACKET_ID_PLAYER_INFO
@@ -1710,6 +1715,8 @@ void CheckNewNodes()
       case PACKET_ID_RECORD:                         // PACKET_ID_RECORD
         ++received_records;                     // Handle PACKET_ID_RECORD (0x686C636B) - update lap record if faster than current
         ROLLERCommsGetBlock(pPacket2, &recordPacket, 16);
+        SDL_Log("[NET-START] received record from node=%d count=%d/%d",
+                syncHeader.byConsoleNode, received_records, network_on);
         if (recordPacket.fRecordLap < (double)RecordLaps[TrackLoad]) {
           RecordLaps[TrackLoad] = recordPacket.fRecordLap;
           RecordCars[TrackLoad] = (int16)recordPacket.unRecordCar;
