@@ -132,6 +132,46 @@ static int InitializeSockets(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int BuildPacket(uint8_t *pPacketBuffer,
+                       int *pTotalSizeOut,
+                       const void *pHeader,
+                       int iHeaderSize,
+                       const void *pData,
+                       int iDataSize)
+{
+  int iTotalSize = iHeaderSize + iDataSize;
+
+  if (!pPacketBuffer || !pTotalSizeOut || !pHeader || iHeaderSize < 0 || iDataSize < 0)
+    return 0;
+  if (iTotalSize > ROLLER_MAX_PACKET_SIZE)
+    return 0;
+
+  memcpy(pPacketBuffer, pHeader, iHeaderSize);
+  if (iDataSize > 0 && pData)
+    memcpy(pPacketBuffer + iHeaderSize, pData, iDataSize);
+
+  *pTotalSizeOut = iTotalSize;
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int SendPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t *pPacket, int iPacketSize)
+{
+  struct sockaddr_in destAddr;
+  memset(&destAddr, 0, sizeof(destAddr));
+  destAddr.sin_family = AF_INET;
+  destAddr.sin_addr.s_addr = uiIPAddress;
+  destAddr.sin_port = htons(unPort);
+
+  int iBytesSent = sendto(g_commsState.listenSocket, (const char *)pPacket, iPacketSize, 0,
+                          (struct sockaddr *)&destAddr, sizeof(destAddr));
+
+  return (iBytesSent == iPacketSize) ? 1 : 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void CleanupSockets(void)
 {
 #ifdef IS_WINDOWS
@@ -204,6 +244,12 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   fcntl(g_commsState.listenSocket, F_SETFL, iFlags | O_NONBLOCK);
 #endif
 
+  int iBroadcast = 1;
+  if (setsockopt(g_commsState.listenSocket, SOL_SOCKET, SO_BROADCAST,
+                 (const char *)&iBroadcast, sizeof(iBroadcast)) == SOCKET_ERROR) {
+    SDL_Log("[NET-DISCOVERY] SO_BROADCAST setup failed; manual peers may still work");
+  }
+
   struct sockaddr_in bindAddr;
   memset(&bindAddr, 0, sizeof(bindAddr));
   bindAddr.sin_family = AF_INET;
@@ -226,6 +272,7 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   }
   g_commsState.myAddress.unPort = s_unLocalPort;
   g_commsState.myAddress.unPadding = 0;
+  g_commsState.myAddress.ullReserved = 0;
 
   g_commsState.bInitialized = 1;
   g_commsState.iNetType = 0;
@@ -298,28 +345,48 @@ int ROLLERCommsSendData(
 
   // Combine header and data into single packet
   uint8_t packetBuffer[ROLLER_MAX_PACKET_SIZE];
-  int iTotalSize = iHeaderSize + iDataSize;
+  int iTotalSize = 0;
+  if (!BuildPacket(packetBuffer, &iTotalSize, pHeader, iHeaderSize, pData, iDataSize)) {
+    return 0;
+  }
+  return SendPacketToIPv4(g_commsState.nodes[iDestNode].address.uiIPAddress,
+                          g_commsState.nodes[iDestNode].address.unPort,
+                          packetBuffer,
+                          iTotalSize);
+}
 
-  if (iTotalSize > ROLLER_MAX_PACKET_SIZE) {
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERCommsBroadcastData(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    uint16_t unPort)
+{
+  if (!g_commsState.bInitialized) {
     return 0;
   }
 
-  memcpy(packetBuffer, pHeader, iHeaderSize);
-  if (iDataSize > 0) {
-    memcpy(packetBuffer + iHeaderSize, pData, iDataSize);
+  uint8_t packetBuffer[ROLLER_MAX_PACKET_SIZE];
+  int iTotalSize = 0;
+  if (!BuildPacket(packetBuffer, &iTotalSize, pHeader, iHeaderSize, pData, iDataSize)) {
+    return 0;
   }
 
-  // Send via UDP
-  struct sockaddr_in destAddr;
-  memset(&destAddr, 0, sizeof(destAddr));
-  destAddr.sin_family = AF_INET;
-  destAddr.sin_addr.s_addr = g_commsState.nodes[iDestNode].address.uiIPAddress;
-  destAddr.sin_port = htons(g_commsState.nodes[iDestNode].address.unPort);
+  int iSuccess = 0;
+  if (SendPacketToIPv4(htonl(INADDR_BROADCAST), unPort, packetBuffer, iTotalSize)) {
+    SDL_Log("[NET-DISCOVERY] broadcast init to 255.255.255.255:%u", (unsigned)unPort);
+    iSuccess = 1;
+  }
 
-  int iBytesSent = sendto(g_commsState.listenSocket, (const char *)packetBuffer, iTotalSize, 0,
-                          (struct sockaddr *)&destAddr, sizeof(destAddr));
+  if (s_unLocalPort != unPort &&
+      SendPacketToIPv4(htonl(INADDR_BROADCAST), s_unLocalPort, packetBuffer, iTotalSize)) {
+    SDL_Log("[NET-DISCOVERY] broadcast init to 255.255.255.255:%u", (unsigned)s_unLocalPort);
+    iSuccess = 1;
+  }
 
-  return (iBytesSent == iTotalSize) ? 1 : 0;
+  return iSuccess;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -582,6 +649,23 @@ void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen)
   addr.s_addr = g_commsState.nodes[iNode].address.uiIPAddress;
   inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
   snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.nodes[iNode].address.unPort);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen)
+{
+  if (!szBuf || iBufLen <= 0) return;
+  if (!pAddress) {
+    snprintf(szBuf, iBufLen, "---");
+    return;
+  }
+
+  char szIP[INET_ADDRSTRLEN];
+  struct in_addr addr;
+  addr.s_addr = pAddress->uiIPAddress;
+  inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
+  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)pAddress->unPort);
 }
 
 //-------------------------------------------------------------------------------------------------

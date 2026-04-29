@@ -64,6 +64,62 @@ char received_message[14];  //0017C9CC
 int16 wConsoleNode;         //0017C9DA
 
 //-------------------------------------------------------------------------------------------------
+
+static int s_iLastDiscoveryBroadcastFrame = -1000;
+
+//-------------------------------------------------------------------------------------------------
+
+static void NormalizePacketAddress(int32 pAddress[4])
+{
+  tROLLERNetAddr netAddr;
+  memset(&netAddr, 0, sizeof(netAddr));
+  memcpy(&netAddr, pAddress, sizeof(netAddr));
+  netAddr.unPadding = 0;
+  netAddr.ullReserved = 0;
+  memcpy(pAddress, &netAddr, sizeof(netAddr));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int IsInvalidPacketAddress(const int32 pAddress[4])
+{
+  const tROLLERNetAddr *pNetAddr = (const tROLLERNetAddr *)pAddress;
+  return pNetAddr->uiIPAddress == 0 || pNetAddr->unPort == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int IsLocalPacketAddress(const int32 pAddress[4])
+{
+  int localAddress[4];
+  ROLLERCommsGetNetworkAddr(localAddress);
+  NormalizePacketAddress(localAddress);
+  return memcmp(localAddress, pAddress, sizeof(tROLLERNetAddr)) == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void LogDiscoveryAddress(const char *szMessage, const int32 pAddress[4])
+{
+  char szAddr[32];
+  ROLLERCommsFormatAddr((const tROLLERNetAddr *)pAddress, szAddr, sizeof(szAddr));
+  SDL_Log("[NET-DISCOVERY] %s %s", szMessage, szAddr);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void PulseLobbyDiscovery(void)
+{
+  if (!frontend_on || !network_on || time_to_start || !master)
+    return;
+  if (frames - s_iLastDiscoveryBroadcastFrame < 36)
+    return;
+
+  s_iLastDiscoveryBroadcastFrame = frames;
+  TransmitInit();
+}
+
+//-------------------------------------------------------------------------------------------------
 //0004EB30
 void Initialise_Network(int iSelectNetSlot)
 {
@@ -1124,12 +1180,19 @@ int TransmitInit()
       szDefaultNamesDst += 9;
     } while (szDefaultNameItr != default_names[16]);
 
-    return ROLLERCommsSendData(
-             &header,
-             sizeof(tSyncHeader),
-             &initPacket,
-             sizeof(tTransmitInitPacket),
-             21);
+    int iKnownPeerSuccess = ROLLERCommsSendData(
+                              &header,
+                              sizeof(tSyncHeader),
+                              &initPacket,
+                              sizeof(tTransmitInitPacket),
+                              21);
+    int iBroadcastSuccess = ROLLERCommsBroadcastData(
+                              &header,
+                              sizeof(tSyncHeader),
+                              &initPacket,
+                              sizeof(tTransmitInitPacket),
+                              ROLLER_DEFAULT_PORT);
+    return iKnownPeerSuccess || iBroadcastSuccess;
   }
   return iSuccess;
 }
@@ -1218,6 +1281,15 @@ void CheckNewNodes()
         transmitInitPacket.iNetworkChampOn = 0;
         transmitInitPacket.iNetworkSlot = 0;
         ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
+        NormalizePacketAddress(transmitInitPacket.address);
+        if (IsInvalidPacketAddress(transmitInitPacket.address)) {
+          LogDiscoveryAddress("ignored invalid", transmitInitPacket.address);
+          goto LABEL_40;
+        }
+        if (IsLocalPacketAddress(transmitInitPacket.address)) {
+          LogDiscoveryAddress("ignored self", transmitInitPacket.address);
+          goto LABEL_40;
+        }
         if (network_slot >= 0)                // Process init packet when we are already connected (network_slot >= 0)
         {
           if (transmitInitPacket.iNetworkSlot < 0 && !I_Quit) {
@@ -1264,6 +1336,7 @@ void CheckNewNodes()
             test = 20;                          // Add new network node if all validation checks pass
             if ((unsigned int)ROLLERCommsAddNode(&transmitInitPacket.address) > 1)
               goto LABEL_40;
+            LogDiscoveryAddress("discovered", transmitInitPacket.address);
             test = 6;
             ROLLERCommsSortNodes();
 
@@ -1842,7 +1915,10 @@ void BroadcastNews()
   int iInitSuccess; // eax
 
   if (!broadcast_mode)
+  {
+    PulseLobbyDiscovery();
     return;
+  }
   if (broadcast_mode < 0xFFFFFD63) {
     if (broadcast_mode < 0xFFFFF562) {
       if (broadcast_mode < 0xFFFFD8F1) {
