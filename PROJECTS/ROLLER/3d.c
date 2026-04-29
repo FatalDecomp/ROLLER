@@ -673,7 +673,7 @@ void firework_screen()
             fTempY = pCarSpray->position.fY;
             //_CHP();
             iScreenY = (int)fTempY;
-            iRandValue = rand();                // Generate random color variation for firework sparkle effect
+            iRandValue = ROLLERrandRaw();                // Generate random color variation for firework sparkle effect
             iColorOffset = GetHighOrderRand(16, iRandValue);// (16 * iRandValue) >> 15;
             //iColorOffset = (16 * iRandValue) % 32768 / 15;
             //iColorOffset = (16 * iRandValue - (__CFSHL__((16 * iRandValue) >> 31, 15) + ((16 * iRandValue) >> 31 << 15))) >> 15;
@@ -1435,6 +1435,8 @@ void play_game_init()
   }
   replay_player = player_type;
   frame_number = 0;
+  writeptr = 0;
+  readptr = 0;
   if (replaytype == 2)                        // Special handling for replay mode - copy competitor settings
   {
     replay_cheat = cheat_mode;

@@ -2,6 +2,7 @@
 #include "debug_overlay_shaders.h"
 #include "roller.h"
 #include "menu_render.h"
+#include "rollercomms.h"
 #include "sound.h"
 #include <stdlib.h>
 #include <string.h>
@@ -66,6 +67,13 @@ struct DebugOverlay {
   void                  *pPrevLogUserdata;
 
   bool                   bInputBegun;
+
+  // Network panel state
+  char                   szNetPeerIP[64];
+  char                   szNetPeerPort[8];
+  char                   szNetLocalIP[16]; // selected local IP override; empty = auto
+  tROLLERNetIface        aNetIfaces[ROLLER_MAX_IFACES];
+  int                    iNetIfaceCount;
 };
 
 // ---------------------------------------------------------------------------
@@ -294,7 +302,8 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   if (!pOverlay) return NULL;
   pOverlay->pDevice     = pDevice;
   pOverlay->pWindow     = pWindow;
-  pOverlay->bVisible = false;
+  pOverlay->bVisible    = false;
+  snprintf(pOverlay->szNetPeerPort, sizeof(pOverlay->szNetPeerPort), "%u", ROLLER_DEFAULT_PORT);
 
   nk_font_atlas_init_default(&pOverlay->atlas);
   nk_font_atlas_begin(&pOverlay->atlas);
@@ -417,7 +426,14 @@ bool debug_overlay_is_visible(DebugOverlay *pOverlay) {
 }
 
 void debug_overlay_toggle(DebugOverlay *pOverlay) {
-  if (pOverlay) pOverlay->bVisible = !pOverlay->bVisible;
+  if (!pOverlay) return;
+  pOverlay->bVisible = !pOverlay->bVisible;
+  if (pOverlay->bVisible) {
+    SDL_StartTextInput(pOverlay->pWindow);
+    pOverlay->iNetIfaceCount = ROLLERCommsEnumLocalAddrs(pOverlay->aNetIfaces, ROLLER_MAX_IFACES);
+  } else {
+    SDL_StopTextInput(pOverlay->pWindow);
+  }
 }
 
 void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
@@ -449,6 +465,32 @@ void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
                       (int)(pEvent->button.y * fScaleY), iDown);
   } else if (pEvent->type == SDL_EVENT_MOUSE_WHEEL) {
     nk_input_scroll(pCtx, nk_vec2(0.0f, pEvent->wheel.y * 20.0f));
+  } else if (pEvent->type == SDL_EVENT_KEY_DOWN || pEvent->type == SDL_EVENT_KEY_UP) {
+    nk_bool bDown = (pEvent->type == SDL_EVENT_KEY_DOWN) ? nk_true : nk_false;
+    SDL_Keymod mod = SDL_GetModState();
+    switch (pEvent->key.key) {
+    case SDLK_BACKSPACE: nk_input_key(pCtx, NK_KEY_BACKSPACE, bDown); break;
+    case SDLK_DELETE:    nk_input_key(pCtx, NK_KEY_DEL, bDown); break;
+    case SDLK_RETURN:
+    case SDLK_RETURN2:   nk_input_key(pCtx, NK_KEY_ENTER, bDown); break;
+    case SDLK_LEFT:
+      nk_input_key(pCtx, (mod & SDL_KMOD_CTRL) ? NK_KEY_TEXT_WORD_LEFT  : NK_KEY_LEFT,  bDown);
+      break;
+    case SDLK_RIGHT:
+      nk_input_key(pCtx, (mod & SDL_KMOD_CTRL) ? NK_KEY_TEXT_WORD_RIGHT : NK_KEY_RIGHT, bDown);
+      break;
+    case SDLK_HOME: nk_input_key(pCtx, NK_KEY_TEXT_LINE_START, bDown); break;
+    case SDLK_END:  nk_input_key(pCtx, NK_KEY_TEXT_LINE_END,   bDown); break;
+    case SDLK_LSHIFT:
+    case SDLK_RSHIFT: nk_input_key(pCtx, NK_KEY_SHIFT, bDown); break;
+    case SDLK_A:
+      if (mod & SDL_KMOD_CTRL) nk_input_key(pCtx, NK_KEY_TEXT_SELECT_ALL, bDown);
+      break;
+    default: break;
+    }
+  } else if (pEvent->type == SDL_EVENT_TEXT_INPUT) {
+    for (const char *pCh = pEvent->text.text; *pCh; pCh++)
+      nk_input_char(pCtx, *pCh);
   }
 }
 
@@ -478,6 +520,8 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart))
       g_bAINoCheatStart = (bool)bAINoCheatStart;
 
+    nk_layout_row_dynamic(pCtx, 8, 1);
+    nk_spacing(pCtx, 1);
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
@@ -493,6 +537,74 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, 20, 1);
     if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw))
       g_bForceMaxDraw = (bool)bForceMaxDraw;
+
+    // Network section
+    nk_layout_row_dynamic(pCtx, 8, 1);
+    nk_spacing(pCtx, 1);
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_label(pCtx, "Network", NK_TEXT_LEFT);
+
+    // Adapter combobox — build display list: "Auto" + one entry per interface
+    int iTotal = pOverlay->iNetIfaceCount + 1;
+    char aszDisplay[ROLLER_MAX_IFACES + 1][80];
+    const char *apszDisplay[ROLLER_MAX_IFACES + 1];
+    snprintf(aszDisplay[0], sizeof(aszDisplay[0]), "Auto");
+    apszDisplay[0] = aszDisplay[0];
+    int iCurSel = 0;
+    for (int i = 0; i < pOverlay->iNetIfaceCount; i++) {
+      snprintf(aszDisplay[i + 1], sizeof(aszDisplay[i + 1]), "%s (%s)",
+               pOverlay->aNetIfaces[i].szIP, pOverlay->aNetIfaces[i].szName);
+      apszDisplay[i + 1] = aszDisplay[i + 1];
+      if (strcmp(pOverlay->szNetLocalIP, pOverlay->aNetIfaces[i].szIP) == 0)
+        iCurSel = i + 1;
+    }
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    int iNewSel = nk_combo(pCtx, apszDisplay, iTotal, iCurSel, 20, nk_vec2(LEFT_W - 20, 150));
+    if (iNewSel != iCurSel) {
+      if (iNewSel == 0) {
+        pOverlay->szNetLocalIP[0] = '\0';
+        ROLLERCommsSetLocalIP(NULL);
+      } else {
+        strncpy(pOverlay->szNetLocalIP, pOverlay->aNetIfaces[iNewSel - 1].szIP,
+                sizeof(pOverlay->szNetLocalIP) - 1);
+        pOverlay->szNetLocalIP[sizeof(pOverlay->szNetLocalIP) - 1] = '\0';
+        ROLLERCommsSetLocalIP(pOverlay->szNetLocalIP);
+      }
+    }
+
+    nk_layout_row_dynamic(pCtx, 20, 2);
+    nk_label(pCtx, "Peer IP", NK_TEXT_LEFT);
+    nk_edit_string_zero_terminated(pCtx, NK_EDIT_FIELD, pOverlay->szNetPeerIP,
+                                   sizeof(pOverlay->szNetPeerIP), nk_filter_default);
+
+    nk_layout_row_dynamic(pCtx, 20, 2);
+    nk_label(pCtx, "Port", NK_TEXT_LEFT);
+    nk_edit_string_zero_terminated(pCtx, NK_EDIT_FIELD, pOverlay->szNetPeerPort,
+                                   sizeof(pOverlay->szNetPeerPort), nk_filter_decimal);
+
+    nk_layout_row_dynamic(pCtx, 25, 1);
+    if (nk_button_label(pCtx, "Set Peer")) {
+      int iPort = atoi(pOverlay->szNetPeerPort);
+      if (iPort <= 0 || iPort > 65535) iPort = ROLLER_DEFAULT_PORT;
+      ROLLERCommsSetPeer(pOverlay->szNetPeerIP, (uint16_t)iPort);
+      SDL_Log("[NET] peer set to %s:%d", pOverlay->szNetPeerIP, iPort);
+    }
+
+    int iNodes = ROLLERCommsGetActiveNodes();
+    char szNodesLine[32];
+    snprintf(szNodesLine, sizeof(szNodesLine), "Active nodes: %d", iNodes);
+    nk_layout_row_dynamic(pCtx, 18, 1);
+    nk_label(pCtx, szNodesLine, NK_TEXT_LEFT);
+
+    for (int i = 0; i < iNodes && i < 8; i++) {
+      char szAddr[64];
+      ROLLERCommsGetNodeAddrStr(i, szAddr, sizeof(szAddr));
+      char szLine[80];
+      snprintf(szLine, sizeof(szLine), "[%d] %s%s", i, szAddr,
+               (i == ROLLERCommsGetConsoleNode()) ? " *" : "");
+      nk_layout_row_dynamic(pCtx, 16, 1);
+      nk_label(pCtx, szLine, NK_TEXT_LEFT);
+    }
   }
   nk_end(pCtx);
 }

@@ -1033,7 +1033,7 @@ void tickhandler()
               }
             }
           }
-        } else {
+        } else if (start_race) {
           // Handle multiplayer mode
           ticks_received = 0;
 

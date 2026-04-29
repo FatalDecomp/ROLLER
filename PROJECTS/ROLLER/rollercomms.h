@@ -8,6 +8,13 @@
 #define ROLLER_MAX_NODES 16
 #define ROLLER_DEFAULT_PORT 7777
 #define ROLLER_MAX_PACKET_SIZE 1024
+#define ROLLER_MAX_IFACES 8
+
+typedef struct
+{
+  char szIP[16];   // dotted-decimal IPv4
+  char szName[48]; // interface / adapter friendly name
+} tROLLERNetIface;
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -22,6 +29,7 @@ typedef struct
 // Pre-init configuration (call before InitSystem)
 void ROLLERCommsSetLocalPort(uint16_t unPort);
 void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort);
+void ROLLERCommsSetLocalIP(const char *szIP); // NULL or "" = auto-detect
 
 // Init/shutdown
 int ROLLERCommsInitSystem(unsigned int uiMaxPackets);
@@ -39,6 +47,9 @@ int ROLLERCommsNetAddrToNode(const int *pAddress);
 
 // Address
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
+void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
+void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
+int  ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
 
 // Data transmission
 int ROLLERCommsSendData(

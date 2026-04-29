@@ -891,7 +891,7 @@ void control()
           iRandomValue = ROLLERrand() - 0x4000;
           dYawMotionCalc = (double)iRandomValue * fHealthValue / (double)CarEngines.engines[pCurrentCar->byCarDesignIdx].iStabilityFactor;
           //*(float *)&iRandomValue = fDamageMultiplier * pCurrentCar->fFinalSpeed;
-          //LODWORD(fHealthValue) = rand() - 0x4000;
+          //LODWORD(fHealthValue) = ROLLERrandRaw() - 0x4000;
           //dYawMotionCalc = (double)SLODWORD(fHealthValue) * *(float *)&iRandomValue / (double)CarEngines.engines[pCurrentCar->byCarDesignIdx].iStabilityFactor;
           //_CHP();
           ++pCurrentCar;
@@ -2112,7 +2112,7 @@ LABEL_45:
   if (!pCar->byThrottlePressed && !pCar->byEngineStartTimer && pCar->byAccelerating && pCar->iControlType == 3)// False start detection and engine start logic for AI cars
   {
     fHorizontalSpeed = pCar->fHealth * 9.0f * 0.0099999998f;
-    iRandomValue = rand();
+    iRandomValue = ROLLERrandRaw();
     int iTemp = GetHighOrderRand(20, iRandomValue);// (20 * iRandomValue) >> 15;
     //LODWORD(fCameraOscillationRange) = (20 * iRandomValue) >> 15;
     if (fHorizontalSpeed + 10.0 <= (double)iTemp && false_starts) {
@@ -2138,7 +2138,7 @@ LABEL_45:
     if (dWheelSpinAccumulator < -1000.0)
       pCar->fWheelSpinAccumulation = -1000.0;
   }
-  iRandomValue2 = rand();
+  iRandomValue2 = ROLLERrandRaw();
   //iOscillationValue = ((iRandomValue2) >> 13) + 512 + pCar->iEngineVibrateOffset;
   iOscillationValue = GetHighOrderRand(4, iRandomValue2) + 512 + pCar->iEngineVibrateOffset;
   pCar->iEngineVibrateOffset = iOscillationValue;
@@ -3511,7 +3511,7 @@ void checkplacement(tCar *pCar)
   int iRespawnChunk; // [esp+14h] [ebp-20h]
   int iCarCounter; // [esp+18h] [ebp-1Ch]
 
-  iRandValue = rand();                          // Generate random chunk position near current chunk
+  iRandValue = ROLLERrandRaw();                          // Generate random chunk position near current chunk
   iNewChunk = GetHighOrderRand(10, iRandValue) + pCar->nReferenceChunk;
   if (iNewChunk >= TRAK_LEN)
     iNewChunk = TRAK_LEN - 1;
@@ -3538,7 +3538,7 @@ void checkplacement(tCar *pCar)
     iBackupChunk = nCurrChunk;
     pCar->nCurrChunk = iNewChunk;
     do {
-      iRandValue2 = rand();                     // Generate random lane (0-2)
+      iRandValue2 = ROLLERrandRaw();                     // Generate random lane (0-2)
       uiLaneType = GetHighOrderRand(3, iRandValue2);
     } while ((TrakColour[iNewChunk][uiLaneType] & (SURFACE_FLAG_NO_SPAWN | SURFACE_FLAG_PIT | SURFACE_FLAG_WALL_22 | SURFACE_FLAG_SKIP_RENDER)) != 0);
     iCarCounter = 0;
@@ -3588,7 +3588,7 @@ void checkplacement(tCar *pCar)
   iPlacementResult = 0;
   if ((network_on || (char)pCar->byLives > 0 || lastsample >= -144 || pCar->nDeathTimer >= -64) && (!network_on || (char)pCar->byLives > 0 || pCar->nDeathTimer >= 0)) {                                             // Handle respawn for dead cars (health=0, has lives left)
     if (pCar->nDeathTimer < 0 && (char)pCar->byLives > 0) {
-      iRespawnRand = rand();                    // Randomly select a respawn stop position
+      iRespawnRand = ROLLERrandRaw();                    // Randomly select a respawn stop position
       iPlacementResult = -1;
       iCarLoopIdx = 0;
       iRespawnChunk = stops[GetHighOrderRand(numstops, iRespawnRand)];
@@ -5029,7 +5029,7 @@ LABEL_24:
   if (!iPitZoneFlag || pCar->fHealth >= 60.0 || iLastLapFlag) {
     pCar->iAITargetCar = -1;
   } else if (pCar->iAITargetCar == -1) {
-    iRandomPitStop = rand();                    // Select random pit stop target for AI car
+    iRandomPitStop = ROLLERrandRaw();                    // Select random pit stop target for AI car
     iPitStopTaken = 0;
     iPitStopTarget = stops[GetHighOrderRand(numstops, iRandomPitStop)];
     if (numcars > 0) {
@@ -5234,7 +5234,7 @@ LABEL_24:
     fRPMRatio = pCar->fRPMRatio;
     if (fRPMRatio >= 0.1) {
       if (fRPMRatio < 0.9) {
-        iRandomValue = rand();
+        iRandomValue = ROLLERrandRaw();
         if (GetHighOrderRand(72, iRandomValue)) {
           iAIThrottleControl = pCar->byAIThrottleControl;
         } else {
@@ -5293,10 +5293,10 @@ void changestrategy(tCar *pCar)
   iOldStrategy = pCar->iSelectedStrategy;
   if (pCar->fTotalRaceTime > 40.0)            // Only allow strategy changes after 40 seconds of race time
   {
-    iRandStrategy = rand();
+    iRandStrategy = ROLLERrandRaw();
     if (GetHighOrderRand(800, iRandStrategy) == 100)// 1 in 800 chance
     {
-      iRandProbability = rand();
+      iRandProbability = ROLLERrandRaw();
       iSelectedStrategy = 0;
       iProbabilityRemaining = GetHighOrderRand(100, iRandProbability);// Select strategy based on probability table (0-99 random)
       for (piStrategyIterator = (int *)pStrategyData; iProbabilityRemaining >= *piStrategyIterator; ++iSelectedStrategy) {
@@ -5307,7 +5307,7 @@ void changestrategy(tCar *pCar)
         iSelectedStrategy = 1;
       pCar->iSelectedStrategy = iSelectedStrategy;
       if (iSelectedStrategy) {
-        iRandFlip = rand();
+        iRandFlip = ROLLERrandRaw();
         if (GetHighOrderRand(100, iRandFlip) < flipst[level])// Chance to flip aggressive strategy back to normal based on level
           pCar->iSelectedStrategy = 0;
       }
@@ -5315,7 +5315,7 @@ void changestrategy(tCar *pCar)
       if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)              // Death mode forces normal strategy (no aggression)
         pCar->iSelectedStrategy = 0;
     }
-    iRandRevenge = rand();
+    iRandRevenge = ROLLERrandRaw();
     if (GetHighOrderRand(720, iRandRevenge) != 250)
       goto LABEL_39;                            // 1 in 720 chance for revenge mode consideration
     // CHEAT_MODE_DEATH_MODE
@@ -5330,7 +5330,7 @@ void changestrategy(tCar *pCar)
       } else {
         iRevengeProbability = -1;
       }
-      iRandRevengeCheck = rand();
+      iRandRevengeCheck = ROLLERrandRaw();
       if (GetHighOrderRand(1000, iRandRevengeCheck) < iRevengeProbability) {                                         // Trigger revenge speech if same car design as player (not in clones mode)
         // CHEAT_MODE_CLONES
         if (player_type != 2 && (cheat_mode & CHEAT_MODE_CLONES) == 0 && !pCar->iBobMode && pCar->byCarDesignIdx == Car[player1_car].byCarDesignIdx) {
@@ -5344,7 +5344,7 @@ void changestrategy(tCar *pCar)
         goto LABEL_39;
       }
     } else {
-      iRandRevengeAlt = rand();
+      iRandRevengeAlt = ROLLERrandRaw();
       if (GetHighOrderRand(1000, iRandRevengeAlt) < pStrategyData->strategyAy[4])// Advanced levels (4+): use strategy data for revenge probability
       {
         // CHEAT_MODE_CLONES
@@ -6423,7 +6423,7 @@ void changeline(tCar *pCar)
   {                                             // Check if center line marker is disabled (bit 24)
     if ((TrakColour[iCurrChunk][1] & SURFACE_FLAG_PIT_ZONE) == 0) { // Cars in 6th place or lower have reduced aggression
       if (pCar->byRacePosition >= 6u) {
-        iRandForPos = rand();
+        iRandForPos = ROLLERrandRaw();
         if (GetHighOrderRand(720, iRandForPos) != 100)
           goto LABEL_13;                        // 1 in 720 chance for line change when in poor position
         goto LABEL_7;
@@ -6441,7 +6441,7 @@ void changeline(tCar *pCar)
     {
       if (pCar->byRacePosition >= 6u) {
       LABEL_7:
-        iRandValue = rand();                    // Select random AI line (0-3 modulo operation)
+        iRandValue = ROLLERrandRaw();                    // Select random AI line (0-3 modulo operation)
         pCar->iAITargetLine = GetHighOrderRand(4, iRandValue);// (iRandValue) >> 13;
         goto LABEL_13;
       }
@@ -6460,7 +6460,7 @@ LABEL_13:
   }
   if (!iChangeSuccess && !linevalid(pCar->nCurrChunk, pCar->pos.fY, *(&pData->fAILine1 + pCar->iAICurrentLine)))// If current line invalid and no change made, pick new random line
   {
-    iRandNewLine = rand();
+    iRandNewLine = ROLLERrandRaw();
     pCar->iAITargetLine = GetHighOrderRand(4, iRandNewLine);// (iRandNewLine) >> 13;
   }
 }
@@ -6557,7 +6557,7 @@ void updatesmokeandflames(tCar *pCar)
     iCinematicMode = -1;
   else
     iCinematicMode = 0;
-  iRandSeed = rand();
+  iRandSeed = ROLLERrandRaw();
   dospray(pCar, iCinematicMode, CarSpray[pCar->iDriverIdx]);
   if (player_type == 2) {
     if (ViewType[0] == pCar->iDriverIdx)
@@ -6565,7 +6565,7 @@ void updatesmokeandflames(tCar *pCar)
     if (ViewType[1] == pCar->iDriverIdx)
       dospray(pCar, -1, CarSpray[17]);
   }
-  srand(iRandSeed);
+  ROLLERsrand(iRandSeed);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6670,7 +6670,7 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
     byType = pCarSpray->iType;
     if (byType) {                                           // Spray type 1: Active damage/smoke particles
       if (byType <= 1u) {
-        iRandomColor1 = rand();                 // Generate random color values for active smoke particles
+        iRandomColor1 = ROLLERrandRaw();                 // Generate random color values for active smoke particles
         iRandomColor2 = GetHighOrderRand(4, iRandomColor1);   // same as (4 * iRandomColor1) / 32768
         //iRandomColor2 = (4 * iRandomColor1 - (__CFSHL__((4 * iRandomColor1) >> 31, 15) + ((4 * iRandomColor1) >> 31 << 15))) >> 15;
         iColorValue = iRandomColor2 + 4;
@@ -6681,12 +6681,12 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
         iTimer = pCarSpray->iTimer;
         if (iCinematicMode)                   // Different particle behavior for menu/replay mode vs gameplay
         {
-          iRandomSize4 = rand();
+          iRandomSize4 = ROLLERrandRaw();
           iRandomSize5 = (GetHighOrderRand(60, iRandomSize4) + 20) * scr_size;
           //iRandomSize5 = (((60 * iRandomSize4 - (__CFSHL__((60 * iRandomSize4) >> 31, 15) + ((60 * iRandomSize4) >> 31 << 15))) >> 15) + 20) * scr_size;
           pCarSpray->fSize = (float)(iRandomSize5 >> 6);
           //pCarSpray->fSize = (float)((iRandomSize5 - (__CFSHL__(iRandomSize5 >> 31, 6) + (iRandomSize5 >> 31 << 6))) >> 6);
-          iRandomVelY3 = rand();
+          iRandomVelY3 = ROLLERrandRaw();
           if (iTimer == 1)
             iRandomVelX1 = (GetHighOrderRand(50, iRandomVelY3) + 40) * scr_size;
             //iRandomVelX1 = (((50 * iRandomVelY3 - (__CFSHL__((50 * iRandomVelY3) >> 31, 15) + ((50 * iRandomVelY3) >> 31 << 15))) >> 15) + 40) * scr_size;
@@ -6695,45 +6695,45 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
             //iRandomVelX1 = scr_size * (-40 - ((50 * iRandomVelY3 - (__CFSHL__((50 * iRandomVelY3) >> 31, 15) + ((50 * iRandomVelY3) >> 31 << 15))) >> 15));
           pCarSpray->velocity.fX = (float)(iRandomVelX1 >> 6);
           //pCarSpray->velocity.fX = (float)((iRandomVelX1 - (__CFSHL__(iRandomVelX1 >> 31, 6) + (iRandomVelX1 >> 31 << 6))) >> 6);
-          iRandomVelY4 = rand();
+          iRandomVelY4 = ROLLERrandRaw();
           iRandomVelY5 = (GetHighOrderRand(100, iRandomVelY4) + 40) * scr_size;
           //iRandomVelY5 = (((100 * iRandomVelY4 - (__CFSHL__((100 * iRandomVelY4) >> 31, 15) + ((100 * iRandomVelY4) >> 31 << 15))) >> 15) + 40) * scr_size;
           pCarSpray->velocity.fY = (float)(iRandomVelY5 >> 6);
           //pCarSpray->velocity.fY = (float)((iRandomVelY5 - (__CFSHL__(iRandomVelY5 >> 31, 6) + (iRandomVelY5 >> 31 << 6))) >> 6);
-          rand();
+          ROLLERrandRaw();
         } else {
-          iRandomSize6 = rand();                // Generate larger particle sizes and velocities for normal gameplay mode
+          iRandomSize6 = ROLLERrandRaw();                // Generate larger particle sizes and velocities for normal gameplay mode
           pCarSpray->fSize = (float)(GetHighOrderRand(100, iRandomSize6) + 100);
           //pCarSpray->fSize = (float)(((100 * iRandomSize6 - (__CFSHL__((100 * iRandomSize6) >> 31, 15) + ((100 * iRandomSize6) >> 31 << 15))) >> 15) + 100);
           if (iTimer) {
-            iRandomVelX3 = rand();
+            iRandomVelX3 = ROLLERrandRaw();
             if (iTimer == 1) {
               pCarSpray->velocity.fX = (float)(-100 - GetHighOrderRand(300, iRandomVelX3));
               //pCarSpray->velocity.fX = (float)(-100 - ((300 * iRandomVelX3 - (__CFSHL__((300 * iRandomVelX3) >> 31, 15) + ((300 * iRandomVelX3) >> 31 << 15))) >> 15));
-              iRandomVelY7 = rand();
+              iRandomVelY7 = ROLLERrandRaw();
               pCarSpray->velocity.fY = (float)(-100 - GetHighOrderRand(200, iRandomVelY7));
               //pCarSpray->velocity.fY = (float)(-100 - ((200 * iRandomVelY7 - (__CFSHL__((200 * iRandomVelY7) >> 31, 15) + ((200 * iRandomVelY7) >> 31 << 15))) >> 15));
-              iRandomUnk5_2 = rand();
+              iRandomUnk5_2 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(200, iRandomUnk5_2) + 200;
               //iCalculatedUnk5 = ((200 * iRandomUnk5_2 - (__CFSHL__((200 * iRandomUnk5_2) >> 31, 15) + ((200 * iRandomUnk5_2) >> 31 << 15))) >> 15) + 200;
             } else {
               pCarSpray->velocity.fX = (float)(-105 - GetHighOrderRand(150, iRandomVelX3));
               //pCarSpray->velocity.fX = (float)(-105 - ((150 * iRandomVelX3 - (__CFSHL__((150 * iRandomVelX3) >> 31, 15) + ((150 * iRandomVelX3) >> 31 << 15))) >> 15));
-              iRandomVelY8 = rand();
+              iRandomVelY8 = ROLLERrandRaw();
               pCarSpray->velocity.fY = (float)GetHighOrderRand(400, iRandomVelY8);
               //pCarSpray->velocity.fY = (float)(((400 * iRandomVelY8 - (__CFSHL__((400 * iRandomVelY8) >> 31, 15) + ((400 * iRandomVelY8) >> 31 << 15))) >> 15) - 200);
-              iRandomUnk5_3 = rand();
+              iRandomUnk5_3 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(30, iRandomUnk5_3) - 20;
               //iCalculatedUnk5 = ((30 * iRandomUnk5_3 - (__CFSHL__((30 * iRandomUnk5_3) >> 31, 15) + ((30 * iRandomUnk5_3) >> 31 << 15))) >> 15) - 20;
             }
           } else {
-            iRandomVelX2 = rand();
+            iRandomVelX2 = ROLLERrandRaw();
             pCarSpray->velocity.fX = (float)(-100 - GetHighOrderRand(300, iRandomVelX2));
             //pCarSpray->velocity.fX = (float)(-100 - ((300 * iRandomVelX2 - (__CFSHL__((300 * iRandomVelX2) >> 31, 15) + ((300 * iRandomVelX2) >> 31 << 15))) >> 15));
-            iRandomVelY6 = rand();
+            iRandomVelY6 = ROLLERrandRaw();
             pCarSpray->velocity.fY = (float)(GetHighOrderRand(200, iRandomVelY6) + 100);
             //pCarSpray->velocity.fY = (float)(((200 * iRandomVelY6 - (__CFSHL__((200 * iRandomVelY6) >> 31, 15) + ((200 * iRandomVelY6) >> 31 << 15))) >> 15) + 100);
-            iRandomUnk5_1 = rand();
+            iRandomUnk5_1 = ROLLERrandRaw();
             iCalculatedUnk5 = GetHighOrderRand(200, iRandomUnk5_1) + 200;
             //iCalculatedUnk5 = ((200 * iRandomUnk5_1 - (__CFSHL__((200 * iRandomUnk5_1) >> 31, 15) + ((200 * iRandomUnk5_1) >> 31 << 15))) >> 15) + 200;
           }
@@ -6753,46 +6753,46 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
             if (pCar->nExplosionSoundTimer < 0) {
               if (replaytype != 2)
                 sfxpend(SOUND_SAMPLE_EXPLO, pCar->iDriverIdx, 0x8000);// SOUND_SAMPLE_EXPLO
-              iRandomValue3 = rand();
+              iRandomValue3 = ROLLERrandRaw();
               pCar->nExplosionSoundTimer = GetHighOrderRand(4, iRandomValue3) + 4;
               //pCar->nExplosionSoundTimer = ((4 * iRandomValue3 - (__CFSHL__((4 * iRandomValue3) >> 31, 15) + ((4 * iRandomValue3) >> 31 << 15))) >> 15) + 4;
             }
             pCarSpray->position.fX = 0.0;
             pCarSpray->position.fY = 0.0;
             pCarSpray->position.fZ = 0.0;
-            iRandomValue4 = rand();
+            iRandomValue4 = ROLLERrandRaw();
             if ((iSprayIdx & 7) != 0) {
               pCarSpray->velocity.fX = (float)(50 - GetHighOrderRand(100, iRandomValue4));
               //pCarSpray->velocity.fX = (float)(50 - ((100 * iRandomValue4 - (__CFSHL__((100 * iRandomValue4) >> 31, 15) + ((100 * iRandomValue4) >> 31 << 15))) >> 15));
-              iRandomVelY2 = rand();
+              iRandomVelY2 = ROLLERrandRaw();
               pCarSpray->velocity.fY = (float)(30 - GetHighOrderRand(60, iRandomVelY2));
-              iRandomSize3 = rand();
+              iRandomSize3 = ROLLERrandRaw();
               iRandomSize2 = GetHighOrderRand(64, iRandomSize3) + 128;
             } else {
               pCarSpray->velocity.fX = (float)(20 - GetHighOrderRand(40, iRandomValue4));
-              iRandomVelY1 = rand();
+              iRandomVelY1 = ROLLERrandRaw();
               pCarSpray->velocity.fY = (float)(10 - GetHighOrderRand(20, iRandomVelY1));
-              iRandomSize1 = rand();
+              iRandomSize1 = ROLLERrandRaw();
               iRandomSize2 = GetHighOrderRand(320, iRandomSize1) + 320;
             }
             pCarSpray->fSize = (float)iRandomSize2;
             if (pCar->iStunned) {
-              iRandomVel1 = rand();
+              iRandomVel1 = ROLLERrandRaw();
               iTempVelocity = -5 - GetHighOrderRand(25, iRandomVel1);
             } else {
-              iRandomVel2 = rand();
+              iRandomVel2 = ROLLERrandRaw();
               iTempVelocity = GetHighOrderRand(25, iRandomVel2) + 5;
             }
             pCarSpray->velocity.fZ = (float)iTempVelocity;
             pCarSpray->iColor = 9485;
-            iRandomLifetime1 = rand();
+            iRandomLifetime1 = ROLLERrandRaw();
             pCarSpray->iLifeTime = GetHighOrderRand(64, iRandomLifetime1) + 32;
             //pCarSpray->iLifeTime = (((iRandomLifetime1 << 6)) >> 15) + 32;
           } else {
             if (pCarSpray->position.fX * pCarSpray->position.fX + pCarSpray->position.fY + pCarSpray->position.fY < 1125000.0
               && pCarSpray->position.fZ < 450.0
               && pCarSpray->position.fZ > -100.0) {
-              iRandomValue1 = rand();
+              iRandomValue1 = ROLLERrandRaw();
               pCarSpray->fSize = (float)(GetHighOrderRand(12, iRandomValue1) + 4)
                 + pCarSpray->fSize;
               pCarSpray->position.fX = pCarSpray->velocity.fX + pCarSpray->position.fX;
@@ -6830,7 +6830,7 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
             if ((double)ROLLERrand() * fHealthFactor < 8192.0 && fHealthFactor < 0.66) {
               pCarSpray->iType = (pCarSpray->iType & 0xFFFFFF00) | 1;
               //LOBYTE(pCarSpray->iType) = 1;
-              iRandomLifetime2 = rand();
+              iRandomLifetime2 = ROLLERrandRaw();
               pCarSpray->iLifeTime = GetHighOrderRand(16, iRandomLifetime2) + 8;
               if (pPlaces == (int *)-1) {
                 pCarSpray->position.fX = 0.0;
@@ -6839,11 +6839,11 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                 pCarSpray->iTimer = -1;
               } else {
                 if (iCinematicMode) {
-                  iRandomPlacement1 = rand();
+                  iRandomPlacement1 = ROLLERrandRaw();
                   iPlacementIdx = GetHighOrderRand(2, iRandomPlacement1);
                   if (iPlacementIdx == 2)
                     iPlacementIdx = 1;
-                  iRandomPosX1 = rand();
+                  iRandomPosX1 = ROLLERrandRaw();
                   if (iPlacementIdx == 1)
                     iTempPosX = winw / 2 + GetHighOrderRand(scr_size, iRandomPosX1);
                   else
@@ -6853,9 +6853,9 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                   pCarSpray->position.fY = (float)(((iRandomPosY1 * scr_size) >> 16)
                                                  + winh);
                 } else {
-                  iRandomPosY2 = rand();
+                  iRandomPosY2 = ROLLERrandRaw();
                   pCarSpray->position.fY = (float)(GetHighOrderRand(32, iRandomPosY2) + winh);
-                  iRandomPlacement2 = rand();
+                  iRandomPlacement2 = ROLLERrandRaw();
                   iPlacementIdx = GetHighOrderRand(4, iRandomPlacement2);
                   if (iPlacementIdx == 4)
                     iPlacementIdx = 3;
@@ -6871,7 +6871,7 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                     pCarSpray->position.fY = pCoordinates1->fY * 0.25f;
                     pCarSpray->position.fZ = pCoordinates1->fZ * 0.5f;
                   }
-                  rand();
+                  ROLLERrandRaw();
                 }
                 pCarSpray->iTimer = iPlacementIdx;
               }
@@ -6885,11 +6885,11 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                 pCarSpray->position.fY = 0.0;
                 pCarSpray->position.fZ = 0.0;
               } else if (iCinematicMode) {
-                iRandomPlacement3 = rand();
+                iRandomPlacement3 = ROLLERrandRaw();
                 iPlacementIdx2 = GetHighOrderRand(2, iRandomPlacement3);
                 if (iPlacementIdx2 == 2)
                   iPlacementIdx2 = 1;
-                iRandomPosX2 = rand();
+                iRandomPosX2 = ROLLERrandRaw();
                 if (iPlacementIdx2 == 1)
                   iTempPosX2 = winw / 2 + GetHighOrderRand(scr_size, iRandomPosX2);
                 else
@@ -6900,12 +6900,12 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                                                + winh);
               } else {                                 // Health-based placement logic: high health uses fewer placements
                 if (fHealthFactor >= 0.75) {
-                  iRandomPlacement5 = rand();
+                  iRandomPlacement5 = ROLLERrandRaw();
                   iPlacementIdx2 = GetHighOrderRand(2, iRandomPlacement5);
                   if (iPlacementIdx2 == 2)
                     iPlacementIdx2 = 1;
                 } else {
-                  iRandomPlacement4 = rand();
+                  iRandomPlacement4 = ROLLERrandRaw();
                   iPlacementIdx2 = GetHighOrderRand(4, iRandomPlacement4);
                   if (iPlacementIdx2 == 4)
                     iPlacementIdx2 = 3;
@@ -6921,10 +6921,10 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                   pCarSpray->position.fY = pCoordinates2->fY * 0.25f;
                   pCarSpray->position.fZ = pCoordinates2->fZ * 0.5f;
                 }
-                rand();
-                rand();
+                ROLLERrandRaw();
+                ROLLERrandRaw();
               }
-              iTempRandomValue = rand();
+              iTempRandomValue = ROLLERrandRaw();
               pCarSpray->iColor = 1302;
               pCarSpray->iLifeTime = GetHighOrderRand(24, iTempRandomValue) + 24;
               if (ROLLERrand() < 0x4000)
@@ -6934,10 +6934,10 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                 pCarSpray->iColor |= 40000u;
                 //BYTE2(pCarSpray->iColor) |= 4u;
               if (iCinematicMode) {
-                iRandomVelY9 = rand();          // Calculate menu/replay mode velocities with screen scaling
+                iRandomVelY9 = ROLLERrandRaw();          // Calculate menu/replay mode velocities with screen scaling
                 iVelYCalc1 = (-2 - GetHighOrderRand(6, iRandomVelY9)) * scr_size;
                 pCarSpray->velocity.fY = (float)((iVelYCalc1) >> 6);
-                iRandomVelX4 = rand();
+                iRandomVelX4 = ROLLERrandRaw();
                 if (iPlacementIdx2 == 1)
                   iTempVelX = GetHighOrderRand(3, iRandomVelX4) + 3;
                 else
@@ -6948,12 +6948,12 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                 dLifetimeCalc1 = (double)ROLLERrand() * fHealthMultiplier4 * 0.000030517578 + 64.0;
                 //_CHP();
                 pCarSpray->iTimer = (int)dLifetimeCalc1;
-                rand();
+                ROLLERrandRaw();
               } else {
-                iRandomVelX5 = rand();          // Calculate gameplay mode velocities based on placement position
+                iRandomVelX5 = ROLLERrandRaw();          // Calculate gameplay mode velocities based on placement position
                 pCarSpray->velocity.fX = (float)(-15 - GetHighOrderRand(20, iRandomVelX5));
                 if (iPlacementIdx2) {
-                  iRandomVelY10 = rand();
+                  iRandomVelY10 = ROLLERrandRaw();
                   if (iPlacementIdx2 == 1) {
                     iVelYCalc2 = GetHighOrderRand(15, iRandomVelY10);
                     iVelYBase = -5;
@@ -6963,13 +6963,13 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                   }
                   iTempVelY = iVelYBase - iVelYCalc2;
                 } else {
-                  iRandomVelY11 = rand();
+                  iRandomVelY11 = ROLLERrandRaw();
                   iTempVelY = GetHighOrderRand(15, iRandomVelY11) + 5;
                 }
                 pCarSpray->velocity.fY = (float)iTempVelY;
-                iRandomUnk5_4 = rand();
+                iRandomUnk5_4 = ROLLERrandRaw();
                 pCarSpray->velocity.fZ = (float)GetHighOrderRand(10, iRandomUnk5_4);
-                iRandomSize7 = rand();
+                iRandomSize7 = ROLLERrandRaw();
                 pCarSpray->fSize = (float)(GetHighOrderRand(10, iRandomSize7) + 10);
                 if (fHealthFactor <= 0.6) {
                   if (pCar->fHealth <= 0.0) {
@@ -7043,16 +7043,16 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
     pCarSpray->position.fY = pCarSpray->velocity.fY + pCarSpray->position.fY;
     pCarSpray->position.fZ = pCarSpray->velocity.fZ + pCarSpray->position.fZ;
     if (iCinematicMode) {
-      rand();
+      ROLLERrandRaw();
     } else {                                           // Fade out particles: reduce size as they near end of lifetime
       if (pCarSpray->iLifeTime <= 8) {
-        iRandomSizeShrink1 = rand();
+        iRandomSizeShrink1 = ROLLERrandRaw();
         iSizeShrinkCalc1 = (GetHighOrderRand(24, iRandomSizeShrink1) + 10) * scr_size;
         pCarSpray->fSize = pCarSpray->fSize - (float)((iSizeShrinkCalc1) >> 6);
         --pCarSpray->iLifeTime;
         goto NEXT_PARTICLE;
       }
-      iRandomSizeGrow1 = rand();
+      iRandomSizeGrow1 = ROLLERrandRaw();
       iSizeGrowCalc1 = (GetHighOrderRand(8, iRandomSizeGrow1) + 8) * scr_size;
       pCarSpray->fSize = (float)((iSizeGrowCalc1) >> 6) + pCarSpray->fSize;
     }

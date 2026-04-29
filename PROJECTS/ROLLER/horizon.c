@@ -311,20 +311,20 @@ void initclouds()
   for (iCloudIdx = 0; iCloudIdx < 40; ++iCloudIdx) {
     fRadius = 1800000.0;                        // Start with maximum radius for placement attempt
     do {
-      //iRandVal1 = rand();                       // Generate random angle1 (theta) for spherical coordinates
+      //iRandVal1 = ROLLERrandRaw();                       // Generate random angle1 (theta) for spherical coordinates
       //uiAngle1Calc = (uint32)3400 * (uint32)GetHighOrderRand(iRandVal1, iRandVal1);
       ////iAngle1Calc = 3400 * (((iRandVal1 * iRandVal1) & 0x7FFF) >> 15);
       ////iAngle1Calc = 3400 * ((iRandVal1 * iRandVal1 - (__CFSHL__((iRandVal1 * iRandVal1) >> 31, 15) + ((iRandVal1 * iRandVal1) >> 31 << 15))) >> 15);
       //iAngle1 = ((uiAngle1Calc & 0x8000) >> 15) + 520;  // Will be either 520 or 521
       ////iAngle1 = ((iAngle1Calc - (__CFSHL__(iAngle1Calc >> 31, 15) + (iAngle1Calc >> 31 << 15))) >> 15) + 520;
-      //iRandVal2 = rand();                       // Generate random angle2 (phi) for spherical coordinates
+      //iRandVal2 = ROLLERrandRaw();                       // Generate random angle2 (phi) for spherical coordinates
       //
       ////TODO look at this
       //iAngle2 = GetHighOrderRand(2, iRandVal2);  // Will be 0 or 1
       ////iAngle2 = ((iRandVal2 << 14) - (__CFSHL__(iRandVal2 << 14 >> 31, 15) + (iRandVal2 << 14 >> 31 << 15))) >> 15;
       
-      iAngle1 = (rand() & 0x0FFF) + 0x200;
-      iAngle2 = rand() & 0x3FFF;
+      iAngle1 = (ROLLERrandRaw() & 0x0FFF) + 0x200;
+      iAngle2 = ROLLERrandRaw() & 0x3FFF;
       
       fCos1Cos2 = tcos[iAngle2] * tcos[iAngle1];// Calculate rotation matrix elements using trigonometric tables
       fSin1Cos2 = tsin[iAngle2] * tcos[iAngle1];
@@ -373,7 +373,7 @@ void initclouds()
       cloud[iCloudIdx].world.fX = fRotComp1 * 0.0f + 0.0f * fNegSin1 + fBaseX;// World X coordinate: final cloud position after transformation
       cloud[iCloudIdx].world.fY = 0.0f * fCos1 + fBaseY + 0.0f * fRotComp2;// World Y coordinate: final cloud position after transformation
       cloud[iCloudIdx].world.fZ = fBaseZ + 0.0f * fCos2;// World Z coordinate: final cloud position after transformation
-      iRandColorBase = rand();                  // Generate random cloud color/texture index
+      iRandColorBase = ROLLERrandRaw();                  // Generate random cloud color/texture index
       iColorIndex = GetHighOrderRand(5, iRandColorBase);
       //iColorIndex = (5 * iRandColorBase - (__CFSHL__((5 * iRandColorBase) >> 31, 15) + ((5 * iRandColorBase) >> 31 << 15))) >> 15;
       cloud[iCloudIdx].iSurfaceType = iColorIndex;

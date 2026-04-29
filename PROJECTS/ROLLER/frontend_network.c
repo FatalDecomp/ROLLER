@@ -28,6 +28,19 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static int NetworkGridRand(int *pSeed)
+{
+  uint32 uiSeed = (uint32)*pSeed;
+  uiSeed = uiSeed * 1103515245u + 12345u;
+  *pSeed = (int)uiSeed;
+  return (int)((uiSeed >> 16) & 0x7FFFu);
+}
+
+static int NetworkGridRandRange(int iRange, int *pSeed)
+{
+  return (int)(((uint32)iRange * (uint32)NetworkGridRand(pSeed)) >> 15);
+}
+
 //-------------------------------------------------------------------------------------------------
 //00049C70
 void NetworkWait()
@@ -275,18 +288,28 @@ LABEL_83:
   if (time_to_start)                          // Final network synchronization before race starts
   {
     broadcast_mode = -314;
-    while (broadcast_mode)
-      ;
+    while (broadcast_mode) {
+      CheckNewNodes();
+      BroadcastNews();
+      UpdateSDL();
+    }
     if (wConsoleNode == master)               // Master node waits for all client records, then broadcasts seed
     {
-      while (received_records < network_on)
-        ;
+      while (received_records < network_on) {
+        CheckNewNodes();
+        UpdateSDL();
+      }
       broadcast_mode = -2718;
-      while (broadcast_mode)
-        ;
+      while (broadcast_mode) {
+        CheckNewNodes();
+        BroadcastNews();
+        UpdateSDL();
+      }
     } else {                                           // Client nodes wait for random seed from master
-      while (!received_seed)
-        ;
+      while (!received_seed) {
+        CheckNewNodes();
+        UpdateSDL();
+      }
     }
   }
   check_cars();                                 // Cleanup: fade screen, free graphics memory, restore screen size
@@ -416,15 +439,16 @@ void restart_net_game()
     }
   } else {
     racers = iActualCompetitors;
+    int iNetworkGridSeed = random_seed;
     for (iAISearch = 0; iAISearch < 6 * iActualCompetitors; grid[iSecondSwapPos] = iTempCarId)// Shuffle grid positions randomly for non-championship races
     {
-      iRandRange = rand();
+      iRandRange = network_on ? 0 : ROLLERrandRaw();
       //iFirstSwapPos = iRandRange % iActualCompetitors;  // Get random position within grid bounds
-      iFirstSwapPos = GetHighOrderRand(iActualCompetitors, iRandRange);
+      iFirstSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iRandRange);
       //iFirstSwapPos = (iActualCompetitors * iRandRange - (__CFSHL__((iActualCompetitors * iRandRange) >> 31, 15) + ((iActualCompetitors * iRandRange) >> 31 << 15))) >> 15;
-      iSecondRand = rand();
+      iSecondRand = network_on ? 0 : ROLLERrandRaw();
       //iSecondSwapPos = iSecondRand % iActualCompetitors;  // Get second random position within grid bounds
-      iSecondSwapPos = GetHighOrderRand(iActualCompetitors, iSecondRand);
+      iSecondSwapPos = network_on ? NetworkGridRandRange(iActualCompetitors, &iNetworkGridSeed) : GetHighOrderRand(iActualCompetitors, iSecondRand);
       //iSecondSwapPos = (iActualCompetitors * iSecondRand - (__CFSHL__((iActualCompetitors * iSecondRand) >> 31, 15) + ((iActualCompetitors * iSecondRand) >> 31 << 15))) >> 15;
       iTempCarId = grid[iFirstSwapPos];
       grid[iFirstSwapPos] = grid[iSecondSwapPos];

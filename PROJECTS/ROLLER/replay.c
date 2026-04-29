@@ -206,7 +206,7 @@ void setreplaytrack()
         pszRememberFilename += 2;
       } while (c2);
       do {
-        iRandValue1 = rand();                   // Generate random intro file number (1 to introfiles)
+        iRandValue1 = ROLLERrandRaw();                   // Generate random intro file number (1 to introfiles)
         iIntroFileNum1 = GetHighOrderRand(introfiles, iRandValue1) + 1;
       } while (iIntroFileNum1 == lastintro && introfiles != 1);
       lastintro = iIntroFileNum1;
@@ -215,7 +215,7 @@ void setreplaytrack()
     pFile = fopen(replayfilename, "rb");        // Open the selected intro GSS file
     if (!pFile) {
       do {
-        iRandValue2 = rand();                   // Fallback: try different intro file if first failed to open
+        iRandValue2 = ROLLERrandRaw();                   // Fallback: try different intro file if first failed to open
         iIntroFileNum2 = GetHighOrderRand(introfiles, iRandValue2) + 1;
       } while (iIntroFileNum2 == lastintro);
       lastintro = iIntroFileNum2;
@@ -1276,7 +1276,7 @@ void DoReplayData()
                   iDamageIntensity = pReplayCar->byDamageIntensity;
                   do {
                     if (pCarSpray->iLifeTime <= 0) {
-                      iRandomValue = rand();
+                      iRandomValue = ROLLERrandRaw();
                       if (GetHighOrderRand(12, iRandomValue) < iDamageIntensity)
                         pCarSpray->iTimer = -1;
                     }
