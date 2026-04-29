@@ -108,6 +108,32 @@ static void LogDiscoveryAddress(const char *szMessage, const int32 pAddress[4])
 
 //-------------------------------------------------------------------------------------------------
 
+static void PreferPacketSourceAddress(int32 pAddress[4])
+{
+  tROLLERNetAddr senderAddress;
+  tROLLERNetAddr *pAdvertisedAddress = (tROLLERNetAddr *)pAddress;
+
+  if (!ROLLERCommsGetLastSenderAddr(&senderAddress))
+    return;
+  if (senderAddress.uiIPAddress == 0 || senderAddress.unPort == 0)
+    return;
+  if (senderAddress.uiIPAddress == pAdvertisedAddress->uiIPAddress)
+    return;
+  if ((ntohl(senderAddress.uiIPAddress) & 0xFF000000u) == 0x7F000000u)
+    return;
+
+  char szAdvertised[32];
+  char szSender[32];
+  ROLLERCommsFormatAddr(pAdvertisedAddress, szAdvertised, sizeof(szAdvertised));
+  ROLLERCommsFormatAddr(&senderAddress, szSender, sizeof(szSender));
+  SDL_Log("[NET-DISCOVERY] using packet source %s instead of advertised %s",
+          szSender, szAdvertised);
+
+  pAdvertisedAddress->uiIPAddress = senderAddress.uiIPAddress;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void PulseLobbyDiscovery(void)
 {
   if (!frontend_on || !network_on || time_to_start || !master)
@@ -1286,6 +1312,7 @@ void CheckNewNodes()
         transmitInitPacket.iNetworkSlot = 0;
         ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
         NormalizePacketAddress(transmitInitPacket.address);
+        PreferPacketSourceAddress(transmitInitPacket.address);
         if (IsInvalidPacketAddress(transmitInitPacket.address)) {
           LogDiscoveryAddress("ignored invalid", transmitInitPacket.address);
           goto LABEL_40;

@@ -46,6 +46,8 @@ static struct
   uint8 receiveBuffer[ROLLER_MAX_PACKET_SIZE];
   int iReceiveSize;
   void *pCurrentPacketData;
+  tROLLERNetAddr lastSenderAddress;
+  bool bHasLastSenderAddress;
 
 } g_commsState;
 
@@ -425,6 +427,10 @@ int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut)
   g_commsState.iReceiveSize = iBytesReceived - iHeaderSize;
   g_commsState.pCurrentPacketData = g_commsState.receiveBuffer + iHeaderSize;
   *ppDataOut = g_commsState.pCurrentPacketData;
+  memset(&g_commsState.lastSenderAddress, 0, sizeof(g_commsState.lastSenderAddress));
+  g_commsState.lastSenderAddress.uiIPAddress = fromAddr.sin_addr.s_addr;
+  g_commsState.lastSenderAddress.unPort = ntohs(fromAddr.sin_port);
+  g_commsState.bHasLastSenderAddress = true;
 
   return 1;
 }
@@ -622,6 +628,17 @@ void ROLLERCommsGetNetworkAddr(int *pAddressOut)
   if (pAddressOut) {
     memcpy(pAddressOut, &g_commsState.myAddress, sizeof(tROLLERNetAddr));
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERCommsGetLastSenderAddr(tROLLERNetAddr *pAddressOut)
+{
+  if (!pAddressOut || !g_commsState.bHasLastSenderAddress)
+    return 0;
+
+  memcpy(pAddressOut, &g_commsState.lastSenderAddress, sizeof(tROLLERNetAddr));
+  return 1;
 }
 
 //-------------------------------------------------------------------------------------------------
