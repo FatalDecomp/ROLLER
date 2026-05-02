@@ -165,6 +165,31 @@ char selectfilename[30];  //0018EE80
 char rememberfilename[34];//0018EE9E
 
 //-------------------------------------------------------------------------------------------------
+
+static int SelectIntroFile(int iAvoidIntro)
+{
+  int iAttempt;
+  int iRandValue;
+  int iIntroFile;
+
+  if (introfiles <= 1)
+    return 1;
+
+  for (iAttempt = 0; iAttempt < 16; ++iAttempt) {
+    iRandValue = ROLLERrandRaw();
+    iIntroFile = GetHighOrderRand(introfiles, iRandValue) + 1;
+    if (iIntroFile != iAvoidIntro)
+      return iIntroFile;
+  }
+
+  iIntroFile = iAvoidIntro + 1;
+  if (iIntroFile > introfiles)
+    iIntroFile = 1;
+
+  return iIntroFile;
+}
+
+//-------------------------------------------------------------------------------------------------
 //00063DB0
 void setreplaytrack()
 {
@@ -172,10 +197,8 @@ void setreplaytrack()
   char *pszReplayFilename; // esi
   char c1; // al
   char c2; // al
-  int iRandValue1; // eax
   int iIntroFileNum1; // eax
   FILE *pFile; // edi
-  int iRandValue2; // eax
   int iIntroFileNum2; // eax
   //uint32 iCheatFlags1; // ecx
   //uint32 iCheatFlags2; // ebx
@@ -205,19 +228,13 @@ void setreplaytrack()
         pszRememberFilename[1] = c2;
         pszRememberFilename += 2;
       } while (c2);
-      do {
-        iRandValue1 = ROLLERrandRaw();                   // Generate random intro file number (1 to introfiles)
-        iIntroFileNum1 = GetHighOrderRand(introfiles, iRandValue1) + 1;
-      } while (iIntroFileNum1 == lastintro && introfiles != 1);
+      iIntroFileNum1 = SelectIntroFile(lastintro);       // Generate random intro file number (1 to introfiles)
       lastintro = iIntroFileNum1;
       sprintf(replayfilename, "INTRO%d.GSS", iIntroFileNum1);
     }
     pFile = fopen(replayfilename, "rb");        // Open the selected intro GSS file
-    if (!pFile) {
-      do {
-        iRandValue2 = ROLLERrandRaw();                   // Fallback: try different intro file if first failed to open
-        iIntroFileNum2 = GetHighOrderRand(introfiles, iRandValue2) + 1;
-      } while (iIntroFileNum2 == lastintro);
+    if (!pFile && introfiles > 1) {
+      iIntroFileNum2 = SelectIntroFile(lastintro);       // Fallback: try different intro file if first failed to open
       lastintro = iIntroFileNum2;
       sprintf(replayfilename, "INTRO%d.GSS", iIntroFileNum2);
       pFile = fopen(replayfilename, "rb");
