@@ -99,6 +99,7 @@ DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
+static SDL_Mutex *s_pDigiMutex = NULL;
 
 // Scancode translation table (SDL scancode -> PC set1 scancode)
 uint8 sdl_to_set1[] = {
@@ -310,6 +311,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   }
 
   g_pTimerMutex = SDL_CreateMutex();
+  s_pDigiMutex = SDL_CreateMutex();
 
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
   if (!s_pWindow) {
@@ -745,6 +747,15 @@ void ShutdownSDL()
   SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
   SDL_DestroyGPUDevice(s_pGPUDevice);
   SDL_DestroyWindow(s_pWindow);
+
+  if (s_pDigiMutex) {
+    SDL_DestroyMutex(s_pDigiMutex);
+    s_pDigiMutex = NULL;
+  }
+  if (g_pTimerMutex) {
+    SDL_DestroyMutex(g_pTimerMutex);
+    g_pTimerMutex = NULL;
+  }
 
   SDL_Quit();
 }
@@ -1311,6 +1322,18 @@ float digi_volume[NUM_DIGI_STREAMS];
 float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
 tSampleData digi_sample_data[NUM_DIGI_STREAMS];
 
+static void DIGILock(void)
+{
+  if (s_pDigiMutex)
+    SDL_LockMutex(s_pDigiMutex);
+}
+
+static void DIGIUnlock(void)
+{
+  if (s_pDigiMutex)
+    SDL_UnlockMutex(s_pDigiMutex);
+}
+
 // Convert mono U8 to stereo U8 with panning applied. out must be in_length * 2 bytes.
 static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out, float pan)
 {
@@ -1325,6 +1348,26 @@ static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out, fl
     out[2 * i]     = (Uint8)(l + 128);
     out[2 * i + 1] = (Uint8)(r + 128);
   }
+}
+
+static int DIGISampleAvailableUnlocked(int iHandle)
+{
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
+    return 0;
+  if (digi_stream[iHandle])
+    return SDL_GetAudioStreamAvailable(digi_stream[iHandle]);
+  return 0;
+}
+
+static bool DIGISampleDoneUnlocked(int iHandle)
+{
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
+    return true;
+  if (!digi_stream[iHandle])
+    return true;
+  if (digi_sample_data[iHandle].pSample)
+    return false;
+  return DIGISampleAvailableUnlocked(iHandle) == 0;
 }
 
 void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
@@ -1344,15 +1387,18 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
 
 int DIGISampleStart(tSampleData *data)
 {
+  DIGILock();
+
   int index = -1;
   for (int i = 0; i < NUM_DIGI_STREAMS; ++i) {
-    if (!digi_stream[i] || DIGISampleDone(i)) {
+    if (!digi_stream[i] || DIGISampleDoneUnlocked(i)) {
       index = i;
       break;
     }
   }
   if (index < 0) {
     //SDL_Log("DIGISampleStart: No available audio stream slots for digital sample.");
+    DIGIUnlock();
     return index; // No available stream slots
   }
 
@@ -1369,7 +1415,7 @@ int DIGISampleStart(tSampleData *data)
   }
 
   // Compute initial pan: raw iPan [0, 0x10000], 0x8000 = center → [-1.0, 1.0]
-  float fInitialPan = ((float)((int32_t)iPan) / (int32_t)0x8000) - 1.0f;
+  float fInitialPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
   if (fInitialPan < -1.0f) fInitialPan = -1.0f;
   if (fInitialPan >  1.0f) fInitialPan =  1.0f;
   digi_pan[index] = fInitialPan;
@@ -1395,12 +1441,13 @@ int DIGISampleStart(tSampleData *data)
 
   if (!digi_stream[index]) {
     //SDL_Log("DIGISampleStart: Couldn't create audio stream: %s", SDL_GetError());
+    DIGIUnlock();
     return -1;
   }
 
   // Set pitch in the stream
   SDL_SetAudioStreamFrequencyRatio(digi_stream[index], 1.0); // pitch
-  DIGISetPitch(index, data->iPitch);
+  SDL_SetAudioStreamFrequencyRatio(digi_stream[index], (float)data->iPitch / 0x10000);
 
   // Remember the volume for this stream
   digi_volume[index] = volume;
@@ -1419,6 +1466,7 @@ int DIGISampleStart(tSampleData *data)
   }
   SDL_ResumeAudioStreamDevice(digi_stream[index]);
 
+  DIGIUnlock();
   return index;
 }
 
@@ -1428,18 +1476,18 @@ int DIGISampleStart(tSampleData *data)
 /// <param name="index"></param>
 bool DIGISampleDone(int index)
 {
-  return DIGISampleAvailable(index) == 0;
+  DIGILock();
+  bool bDone = DIGISampleDoneUnlocked(index);
+  DIGIUnlock();
+  return bDone;
 }
 
 int DIGISampleAvailable(int index)
 {
-  if (index < 0 || index >= NUM_DIGI_STREAMS) {
-    return 0;
-  }
-  if (digi_stream[index]) {
-    return SDL_GetAudioStreamAvailable(digi_stream[index]);
-  }
-  return 0;
+  DIGILock();
+  int iAvailable = DIGISampleAvailableUnlocked(index);
+  DIGIUnlock();
+  return iAvailable;
 }
 
 int DIGIMasterVolume = 0x7FFF; // Default master volume (0-0x7FFF)
@@ -1455,11 +1503,13 @@ void DIGISetMasterVolume(int volume)
   
   float normalized_volume = (float)volume / 0x7FFF; // Normalize to [0.0, 1.0] range
 
+  DIGILock();
   for (size_t i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
       SDL_SetAudioStreamGain(digi_stream[i], digi_volume[i] * normalized_volume);
     }
   }
+  DIGIUnlock();
 }
 
 /// <summary>
@@ -1477,6 +1527,7 @@ void DIGIStopSample(int index)
     SDL_Log("DIGIStopSample: Invalid stream index: %d", index);
     return;
   }
+  DIGILock();
   if (digi_stream[index]) {
     SDL_PauseAudioStreamDevice(digi_stream[index]);
     SDL_DestroyAudioStream(digi_stream[index]);
@@ -1484,19 +1535,22 @@ void DIGIStopSample(int index)
     memset(&digi_sample_data[index], 0, sizeof(tSampleData));
     digi_pan[index] = 0.0f;
   }
+  DIGIUnlock();
 }
 
 void DIGIClearAllStream()
 {
+  DIGILock();
   for (int i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
       SDL_PauseAudioStreamDevice(digi_stream[i]);
-      SDL_ClearAudioStream(digi_stream[i]);
+      SDL_DestroyAudioStream(digi_stream[i]);
       digi_stream[i] = NULL;
       memset(&digi_sample_data[i], 0, sizeof(tSampleData));
       digi_pan[i] = 0.0f;
     }
   }
+  DIGIUnlock();
 }
 
 void PlayAudioSampleWait(int iIndex)
@@ -1509,8 +1563,14 @@ void PlayAudioSampleWait(int iIndex)
 
 void DIGISetSampleVolume(int iHandle, int iVolume)
 {
-  if (!digi_stream[iHandle])
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
+    return;
+
+  DIGILock();
+  if (!digi_stream[iHandle]) {
+    DIGIUnlock();
     return; //DIGI stream not found
+  }
 
   float fStreamVolume = (float)iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
 
@@ -1520,22 +1580,35 @@ void DIGISetSampleVolume(int iHandle, int iVolume)
   // Set the gain for the audio stream
   float fMasterVolume = (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
   SDL_SetAudioStreamGain(digi_stream[iHandle], fStreamVolume * fMasterVolume);
+  DIGIUnlock();
 }
 
 void DIGISetPitch(int iHandle, int iPitch)
 {
-  if (!digi_stream[iHandle])
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
+    return;
+
+  DIGILock();
+  if (!digi_stream[iHandle]) {
+    DIGIUnlock();
     return; //DIGI stream not found
+  }
 
   float fStreamPitch = (float)iPitch / 0x10000;
   SDL_SetAudioStreamFrequencyRatio(digi_stream[iHandle], fStreamPitch);
+  DIGIUnlock();
 }
 
 void DIGISetPanLocation(int iHandle, int iPan)
 {
-  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS || !digi_stream[iHandle])
+  if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return;
-  float fNewPan = ((float)((int32_t)iPan) / (int32_t)0x8000) - 1.0f;
+  DIGILock();
+  if (!digi_stream[iHandle]) {
+    DIGIUnlock();
+    return;
+  }
+  float fNewPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
   if (fNewPan < -1.0f) fNewPan = -1.0f;
   if (fNewPan >  1.0f) fNewPan =  1.0f;
   digi_pan[iHandle] = fNewPan;
@@ -1552,6 +1625,7 @@ void DIGISetPanLocation(int iHandle, int iPan)
       SDL_free(stereo_buf);
     }
   }
+  DIGIUnlock();
 }
 
 void PlayAudioDataWait(Uint8 *buffer, Uint32 length)
