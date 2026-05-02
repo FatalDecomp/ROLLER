@@ -1995,8 +1995,9 @@ uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback, void *
 
 void ROLLERRemoveTimer(uint32 uiHandle)
 {
-  SDL_LockMutex(g_pTimerMutex);
   SDL_RemoveTimer(uiHandle);
+
+  SDL_LockMutex(g_pTimerMutex);
   //clear timer data
   for (int i = 0; i < MAX_TIMERS; ++i) {
     if (timerDataAy[i].uiHandle == uiHandle) {
@@ -2071,16 +2072,13 @@ tTimerData *GetTimerData(SDL_TimerID timerID)
 
 //-------------------------------------------------------------------------------------------------
 
-Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
+static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval)
 {
-  tickhandler();
-  uint64 ullRet = 0;
-
   SDL_LockMutex(g_pTimerMutex);
   tTimerData *pTimerData = GetTimerData(timerID);
   if (!pTimerData) {
-    assert(0);
-    ErrorBoxExit("Tick timer handle not found!");
+    SDL_UnlockMutex(g_pTimerMutex);
+    return false;
   }
 
   pTimerData->ullCurrSDLTicksNS = SDL_GetTicksNS();
@@ -2089,8 +2087,21 @@ Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval
   if (llDelta < 0)
     llDelta = 0;
   pTimerData->ullLastSDLTicksNS = pTimerData->ullCurrSDLTicksNS;
-  ullRet = pTimerData->ullTargetSDLTicksNS - llDelta;
+  *pUllInterval = pTimerData->ullTargetSDLTicksNS - llDelta;
   SDL_UnlockMutex(g_pTimerMutex);
+
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
+{
+  tickhandler();
+  uint64 ullRet = 0;
+
+  if (!ROLLERGetTimerInterval(timerID, &ullRet))
+    return 0;
 
   return ullRet;
 }
@@ -2102,21 +2113,8 @@ Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
   SOSTimerCallbackS7();
   uint64 ullRet = 0;
 
-  SDL_LockMutex(g_pTimerMutex);
-  tTimerData *pTimerData = GetTimerData(timerID);
-  if (!pTimerData) {
-    assert(0);
-    ErrorBoxExit("S7 timer handle not found!");
-  }
-
-  pTimerData->ullCurrSDLTicksNS = SDL_GetTicksNS();
-  int64 llNSSinceLast = (int64)pTimerData->ullCurrSDLTicksNS - (int64)pTimerData->ullLastSDLTicksNS;
-  int64 llDelta = llNSSinceLast - (int64)pTimerData->ullTargetSDLTicksNS;
-  if (llDelta < 0)
-    llDelta = 0;
-  pTimerData->ullLastSDLTicksNS = pTimerData->ullCurrSDLTicksNS;
-  ullRet = pTimerData->ullTargetSDLTicksNS - llDelta;
-  SDL_UnlockMutex(g_pTimerMutex);
+  if (!ROLLERGetTimerInterval(timerID, &ullRet))
+    return 0;
 
   return ullRet;
 }
