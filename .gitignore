@@ -384,4 +384,5 @@ packages.microsoft.gpg
 .vscode/tasks.json
 .vscode/launch.json
 .claude
+.codex
 CLAUDE.md
