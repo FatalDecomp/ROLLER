@@ -292,6 +292,8 @@ void ToggleFullscreen()
 
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
+  SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+
   if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;

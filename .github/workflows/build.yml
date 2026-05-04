@@ -7,10 +7,27 @@ on:
         required: false
         type: string
         description: "Version string for the build"
+      semver_version:
+        required: false
+        type: string
+        description: "Semver version string for nightly/dev builds"
+      git_hash:
+        required: false
+        type: string
+        description: "Full git hash for the build"
       short_hash:
         required: false
         type: string
-        description: "Short git hash for the build"
+        description: "Short git hash for the build; legacy fallback"
+      build_date:
+        required: false
+        type: string
+        description: "UTC build date for build identity"
+      dev_build:
+        required: false
+        type: boolean
+        default: false
+        description: "Build with nightly/dev crash debugging settings"
 
 jobs:
   build:
@@ -40,13 +57,11 @@ jobs:
             os: macos
             arch: aarch64
             ext: ""
-            release: small
           - target: x86_64-macos
             runs-on: macos-15-intel
             os: macos
             arch: x86_64
             ext: ""
-            release: small
 
     steps:
       - name: Checkout repository
@@ -71,7 +86,46 @@ jobs:
             zig-cache-
 
       - name: Build for ${{ matrix.os }} ${{ matrix.arch }}
-        run: mise run build --target=${{ matrix.target }}${{ matrix.release && format(' --release={0}', matrix.release) || '' }}
+        env:
+          BUILD_VERSION: ${{ inputs.semver_version || inputs.version || 'local' }}
+          BUILD_HASH: ${{ inputs.git_hash || inputs.short_hash || github.sha || 'unknown' }}
+          BUILD_DATE_INPUT: ${{ inputs.build_date }}
+          DEV_BUILD: ${{ inputs.dev_build }}
+          MATRIX_RELEASE: ${{ matrix.release || '' }}
+        run: |
+          BUILD_DATE_VALUE="$BUILD_DATE_INPUT"
+          if [ -z "$BUILD_DATE_VALUE" ]; then
+            BUILD_DATE_VALUE="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          fi
+
+          RELEASE_MODE="$MATRIX_RELEASE"
+          if [ -z "$RELEASE_MODE" ]; then
+            if [ "$DEV_BUILD" = "true" ]; then
+              RELEASE_MODE="safe"
+            else
+              RELEASE_MODE="fast"
+            fi
+          fi
+
+          CRASH_DEBUG_ARGS=""
+          if [ "$DEV_BUILD" = "true" ]; then
+            CRASH_DEBUG_ARGS="--crash-debug"
+          fi
+
+          BUILD_ID_ARGS=""
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            BUILD_ID_ARGS="--build-id=sha1"
+          fi
+
+          mise run build \
+            --target=${{ matrix.target }} \
+            --release="$RELEASE_MODE" \
+            --version="$BUILD_VERSION" \
+            --git-hash="$BUILD_HASH" \
+            --build-date="$BUILD_DATE_VALUE" \
+            --build-target=${{ matrix.target }} \
+            $CRASH_DEBUG_ARGS \
+            $BUILD_ID_ARGS
 
       - name: Create output folder
         run: |
@@ -80,11 +134,48 @@ jobs:
       - name: Copy files to output folder
         run: |
           cp zig-out/bin/* dist/
-          rm -f dist/roller.pdb
           cp -r midi dist/
           cp images/roller.ico dist/
           cp README.md dist/
           cp LICENSE.md dist/
+
+      - name: Install Linux symbol tools
+        if: matrix.os == 'linux' && inputs.dev_build
+        run: |
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            sudo apt-get update
+            sudo apt-get install -y binutils-aarch64-linux-gnu
+          fi
+
+      - name: Create Linux symbol artifact
+        if: matrix.os == 'linux' && inputs.dev_build
+        run: |
+          OBJCOPY=objcopy
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            OBJCOPY=aarch64-linux-gnu-objcopy
+          fi
+          mkdir -p symbols
+          "$OBJCOPY" --only-keep-debug dist/roller symbols/roller.debug
+          "$OBJCOPY" --strip-debug --strip-unneeded dist/roller
+          "$OBJCOPY" --add-gnu-debuglink=symbols/roller.debug dist/roller
+          tar -czf roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.tar.gz -C symbols roller.debug
+
+      - name: Create macOS symbol artifact
+        if: matrix.os == 'macos' && inputs.dev_build
+        run: |
+          dsymutil dist/roller -o roller.dSYM
+          zip -r roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.zip roller.dSYM
+
+      - name: Verify debug symbols
+        if: inputs.dev_build
+        run: |
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            test -f dist/roller.pdb
+          elif [ "${{ matrix.os }}" = "linux" ]; then
+            test -f symbols/roller.debug
+          elif [ "${{ matrix.os }}" = "macos" ]; then
+            test -d roller.dSYM
+          fi
 
       - name: Package Windows/macOS build
         if: matrix.os == 'macos' || matrix.os == 'windows'
@@ -100,5 +191,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: roller-${{ matrix.os }}-${{ matrix.arch }}
-          path: roller-${{ matrix.os }}-${{ matrix.arch }}.*
+          path: |
+            roller-${{ matrix.os }}-${{ matrix.arch }}.*
+            roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.*
           retention-days: 7

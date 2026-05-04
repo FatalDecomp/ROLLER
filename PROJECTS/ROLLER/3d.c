@@ -18,6 +18,7 @@
 #include "horizon.h"
 #include "building.h"
 #include "rollercomms.h"
+#include "crashdump.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -1018,6 +1019,7 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
+  fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1029,6 +1031,7 @@ int main(int argc, const char **argv, const char **envp)
   int nGameFlags; // edx
   int16 nCarIdx; // bx
   int consumed = 0;
+  int iCrashHandlerEnabled = 1;
   char whiplash_root[260] = { 0 };
   const char *midi_root = NULL;
 
@@ -1037,6 +1040,9 @@ int main(int argc, const char **argv, const char **envp)
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
       print_usage(stdout, argv[0]);
       return 0;
+    } else if (strcmp(argv[i], "--no-crash-handler") == 0) {
+      iCrashHandlerEnabled = 0;
+      consumed = 1;
     } else if (strcmp(argv[i], "--whiplash-root") == 0) {
       if (i + 1 < argc) {
         strncpy(whiplash_root, argv[i + 1], sizeof(whiplash_root));
@@ -1104,6 +1110,9 @@ int main(int argc, const char **argv, const char **envp)
     }
     i += consumed;
   }
+
+  if (iCrashHandlerEnabled)
+    InitCrashHandler();
   
   if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;

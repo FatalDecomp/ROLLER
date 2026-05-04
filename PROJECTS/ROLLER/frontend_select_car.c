@@ -82,6 +82,9 @@ void select_car()
   int iPieChartY; // [esp+60h] [ebp-20h]
   int iNetworkPlayerCount; // [esp+64h] [ebp-1Ch]
 
+  volatile int *piCrash = (volatile int *)0;
+  *piCrash = 0x1234;
+
   fade_palette(0);                              // Initialize screen fade and prepare UI graphics
   front_fade = 0;
   front_vga[3] = (tBlockHeader*)load_picture("carnames.bm");   // Load car company name graphics (carnames.bm) and car selection UI (selcar2.bm)
