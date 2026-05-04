@@ -22,7 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      full_hash: ${{ steps.version.outputs.full_hash }}
       short_hash: ${{ steps.version.outputs.short_hash }}
+      build_date: ${{ steps.version.outputs.build_date }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -34,13 +36,19 @@ jobs:
         run: |
           # Extract version from build.zig.zon
           VERSION=$(grep -o '\.version = "[^"]*"' build.zig.zon | cut -d'"' -f2)
+          FULL_HASH=$(git rev-parse HEAD)
           SHORT_HASH=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "full_hash=${FULL_HASH}" >> $GITHUB_OUTPUT
           echo "short_hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
   build:
     needs: get-version
     uses: ./.github/workflows/build.yml
     with:
       version: ${{ needs.get-version.outputs.version }}
+      git_hash: ${{ needs.get-version.outputs.full_hash }}
       short_hash: ${{ needs.get-version.outputs.short_hash }}
+      build_date: ${{ needs.get-version.outputs.build_date }}

@@ -11,6 +11,11 @@ pub fn build(b: *std.Build) void {
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const crash_debug = b.option(bool, "crash-debug", "Enable crash dump friendly C build flags") orelse false;
+    const c_flags: []const []const u8 = if (crash_debug)
+        &.{ "-fwrapv", "-fno-omit-frame-pointer" }
+    else
+        &.{ "-fwrapv" };
 
     const exe_mod = b.createModule(.{
         .target = target,
@@ -23,9 +28,10 @@ pub fn build(b: *std.Build) void {
     exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
     exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
     exe_mod.addCSourceFiles(.{
-        .flags = &.{ "-fwrapv" },
+        .flags = c_flags,
         .files = &.{
             "PROJECTS/ROLLER/debug_overlay.c",
+            "PROJECTS/ROLLER/crashdump.c",
             "PROJECTS/ROLLER/3d.c",
             "PROJECTS/ROLLER/building.c",
             "PROJECTS/ROLLER/car.c",
@@ -87,6 +93,8 @@ pub fn build(b: *std.Build) void {
                 .file = b.path("ROLLER.rc"),
             });
             exe.subsystem = .Windows;
+            exe.linkSystemLibrary("dbghelp");
+            exe.linkSystemLibrary("user32");
             exe.linkSystemLibrary("ws2_32");
             exe.linkSystemLibrary("iphlpapi");
         },

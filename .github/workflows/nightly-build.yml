@@ -30,7 +30,9 @@ jobs:
       should_build: ${{ steps.check.outputs.should_build }}
       version: ${{ steps.version.outputs.version }}
       semver_version: ${{ steps.version.outputs.semver_version }}
+      full_hash: ${{ steps.version.outputs.full_hash }}
       short_hash: ${{ steps.version.outputs.short_hash }}
+      build_date: ${{ steps.version.outputs.build_date }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -50,7 +52,7 @@ jobs:
           fi
 
           # Get the commit of the latest nightly release
-          LATEST_COMMIT=$(gh release view "$LATEST_NIGHTLY" --json body --jq '.body' | grep -o 'Commit: [a-f0-9]\{6\}' | cut -d' ' -f2 || echo "")
+          LATEST_COMMIT=$(gh release view "$LATEST_NIGHTLY" --json body --jq '.body' | grep -o 'Commit: [a-f0-9]\{7,40\}' | cut -d' ' -f2 || echo "")
 
           if [ -z "$LATEST_COMMIT" ]; then
             echo "Could not determine commit from latest nightly, will build"
@@ -75,7 +77,9 @@ jobs:
         run: |
           # Extract version from build.zig.zon
           BASE_VERSION=$(grep -o '\.version = "[^"]*"' build.zig.zon | cut -d'"' -f2)
+          FULL_HASH=$(git rev-parse HEAD)
           SHORT_HASH=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 
           # Parse semantic version components
           IFS='.' read -r major minor patch <<< "$BASE_VERSION"
@@ -91,7 +95,9 @@ jobs:
 
           echo "version=${BASE_VERSION}" >> $GITHUB_OUTPUT
           echo "semver_version=${SEMVER_VERSION}" >> $GITHUB_OUTPUT
+          echo "full_hash=${FULL_HASH}" >> $GITHUB_OUTPUT
           echo "short_hash=${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
   build:
     needs: check-new-commits
@@ -99,7 +105,11 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       version: ${{ needs.check-new-commits.outputs.version }}
+      semver_version: ${{ needs.check-new-commits.outputs.semver_version }}
+      git_hash: ${{ needs.check-new-commits.outputs.full_hash }}
       short_hash: ${{ needs.check-new-commits.outputs.short_hash }}
+      build_date: ${{ needs.check-new-commits.outputs.build_date }}
+      dev_build: true
 
   release:
     name: Create nightly release
@@ -140,7 +150,9 @@ jobs:
         env:
           BASE_VERSION: ${{ needs.check-new-commits.outputs.version }}
           SEMVER_VERSION: ${{ needs.check-new-commits.outputs.semver_version }}
+          FULL_HASH: ${{ needs.check-new-commits.outputs.full_hash }}
           SHORT_HASH: ${{ needs.check-new-commits.outputs.short_hash }}
+          BUILD_DATE: ${{ needs.check-new-commits.outputs.build_date }}
         run: |
           RELEASE_TAG="v${SEMVER_VERSION}"
           RELEASE_NAME="ROLLER ${SEMVER_VERSION}"
@@ -152,8 +164,9 @@ jobs:
           **Build Information:**
           - Base Version: ${BASE_VERSION}
           - Release Version: ${SEMVER_VERSION}
-          - Commit: ${SHORT_HASH}
-          - Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - Commit: ${FULL_HASH}
+          - Short Commit: ${SHORT_HASH}
+          - Build Date: ${BUILD_DATE}
 
           **Platforms:**
           - Linux x86_64
@@ -182,7 +195,7 @@ jobs:
   cleanup:
     name: Cleanup old nightly releases
     runs-on: ubuntu-latest
-    needs: [release]
+    needs: [check-new-commits, release]
     if: always() && needs.check-new-commits.outputs.should_build == 'true'
     steps:
       - name: Checkout repository

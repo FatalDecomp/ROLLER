@@ -17,6 +17,7 @@
 mono_crash.*
 
 # Build results
+PROJECTS/ROLLER/build_info.h
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

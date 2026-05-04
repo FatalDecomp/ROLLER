@@ -4,16 +4,51 @@ import sys
 import subprocess
 import platform
 import argparse
+from pathlib import Path
+
+
+def c_string_literal(value):
+    return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+
+def write_build_info(args):
+    build_target = args.build_target or args.target
+    header_path = Path("PROJECTS/ROLLER/build_info.h")
+    header_text = """#ifndef _ROLLER_BUILD_INFO_H
+#define _ROLLER_BUILD_INFO_H
+//-------------------------------------------------------------------------------------------------
+
+#define BUILD_VERSION  "{version}"
+#define BUILD_GIT_HASH "{git_hash}"
+#define BUILD_DATE     "{build_date}"
+#define BUILD_TARGET   "{build_target}"
+
+//-------------------------------------------------------------------------------------------------
+#endif
+""".format(
+        version=c_string_literal(args.version),
+        git_hash=c_string_literal(args.git_hash),
+        build_date=c_string_literal(args.build_date),
+        build_target=c_string_literal(build_target),
+    )
+    header_path.write_text(header_text)
 
 def main():
     parser = argparse.ArgumentParser(description="Build ROLLER for specific platform")
     _ = parser.add_argument("-r", "--run", action="store_true", help="Run after building")
     _ = parser.add_argument("--target", default="native", help="Build target")
     _ = parser.add_argument("--release", default="fast", help="Release mode")
+    _ = parser.add_argument("--git-hash", default="unknown", help="Full git hash for build identity")
+    _ = parser.add_argument("--version", default="local", help="Version string for build identity")
+    _ = parser.add_argument("--build-date", default="unknown", help="Build date for build identity")
+    _ = parser.add_argument("--build-target", default=None, help="Target string for build identity")
+    _ = parser.add_argument("--crash-debug", action="store_true", help="Enable crash dump friendly build flags")
+    _ = parser.add_argument("--build-id", default=None, help="Zig build ID style")
 
     args = parser.parse_args()
 
     print("Building ROLLER...")
+    write_build_info(args)
 
     # Check for unsupported cross-compilation
     if "macos" in args.target and platform.system() != "Darwin":
@@ -45,6 +80,12 @@ def main():
 
     # Build command arguments
     cmd = ["zig", "build", f"--release={args.release}", f"-Dtarget={target}"]
+
+    if args.crash_debug:
+        cmd.append("-Dcrash-debug=true")
+
+    if args.build_id:
+        cmd.append(f"--build-id={args.build_id}")
 
     # Add sysroot for macOS cross-compilation (but not native builds)
     if platform.system() == "Darwin" and "macos" in args.target and target != "native":
