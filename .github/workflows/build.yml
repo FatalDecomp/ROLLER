@@ -147,24 +147,21 @@ jobs:
             sudo apt-get install -y binutils-aarch64-linux-gnu
           fi
 
-      - name: Create Linux symbol artifact
+      - name: Create Linux debug symbols
         if: matrix.os == 'linux' && inputs.dev_build
         run: |
           OBJCOPY=objcopy
           if [ "${{ matrix.arch }}" = "aarch64" ]; then
             OBJCOPY=aarch64-linux-gnu-objcopy
           fi
-          mkdir -p symbols
-          "$OBJCOPY" --only-keep-debug dist/roller symbols/roller.debug
+          "$OBJCOPY" --only-keep-debug dist/roller dist/roller.debug
           "$OBJCOPY" --strip-debug --strip-unneeded dist/roller
-          "$OBJCOPY" --add-gnu-debuglink=symbols/roller.debug dist/roller
-          tar -czf roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.tar.gz -C symbols roller.debug
+          "$OBJCOPY" --add-gnu-debuglink=dist/roller.debug dist/roller
 
-      - name: Create macOS symbol artifact
+      - name: Create macOS debug symbols
         if: matrix.os == 'macos' && inputs.dev_build
         run: |
-          dsymutil dist/roller -o roller.dSYM
-          zip -r roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.zip roller.dSYM
+          dsymutil dist/roller -o dist/roller.dSYM
 
       - name: Verify debug symbols
         if: inputs.dev_build
@@ -172,9 +169,9 @@ jobs:
           if [ "${{ matrix.os }}" = "windows" ]; then
             test -f dist/roller.pdb
           elif [ "${{ matrix.os }}" = "linux" ]; then
-            test -f symbols/roller.debug
+            test -f dist/roller.debug
           elif [ "${{ matrix.os }}" = "macos" ]; then
-            test -d roller.dSYM
+            test -d dist/roller.dSYM
           fi
 
       - name: Package Windows/macOS build
@@ -191,7 +188,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: roller-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            roller-${{ matrix.os }}-${{ matrix.arch }}.*
-            roller-${{ matrix.os }}-${{ matrix.arch }}-symbols.*
+          path: roller-${{ matrix.os }}-${{ matrix.arch }}.*
           retention-days: 7
