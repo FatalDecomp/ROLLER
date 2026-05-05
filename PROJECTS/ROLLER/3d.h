@@ -132,6 +132,8 @@ typedef struct
   int iRegsDi;    //unused by W95
 } tMemBlock;
 
+#define MEM_BLOCK_COUNT 128
+
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -275,7 +277,7 @@ extern uint8 blank_line[640];
 extern tTrackZOrderEntry TrackView[6500];
 extern int p_joyk1[2];
 extern int p_joyk2[2];
-extern tMemBlock mem_blocks[128];
+extern tMemBlock mem_blocks[MEM_BLOCK_COUNT];
 extern int zoom_size[2];
 extern char zoom_mes[2][24];
 extern int sub_on[2];
