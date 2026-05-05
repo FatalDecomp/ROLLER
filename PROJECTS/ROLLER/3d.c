@@ -126,7 +126,7 @@ uint8 blank_line[640];      //001312A8
 tTrackZOrderEntry TrackView[6500]; //00131528
 int p_joyk1[2];             //0013E048
 int p_joyk2[2];             //0013E050
-tMemBlock mem_blocks[128];  //0013E058
+tMemBlock mem_blocks[MEM_BLOCK_COUNT];  //0013E058
 int zoom_size[2];           //0013E858
 char zoom_mes[2][24];       //0013E860
 int sub_on[2];              //0013E890
@@ -342,11 +342,11 @@ void init_screen()
     if (iVesaMode == -1) {
       if (firstrun) {
         if (!language) {
-          printf("\n\nThis program has not detected a VESA video driver which it needs to run\n");
-          printf("at it's optimum level. Please contact your video board manufacturer for\n");
-          printf("more information. The program will now continue using lower resolution\n");
-          printf("graphics.\n");
-          printf("Press any key to continue...");
+          SDL_Log("\n\nThis program has not detected a VESA video driver which it needs to run\n");
+          SDL_Log("at it's optimum level. Please contact your video board manufacturer for\n");
+          SDL_Log("more information. The program will now continue using lower resolution\n");
+          SDL_Log("graphics.\n");
+          SDL_Log("Press any key to continue...");
           fflush(stdout);
           while (fatkbhit())
             fatgetch();
@@ -464,19 +464,90 @@ void init()
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static int find_free_mem_block(void)
+{
+  for (int i = 0; i < MEM_BLOCK_COUNT; ++i) {
+    if (!mem_blocks[i].pBuf)
+      return i;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int find_mem_block(void *pData)
+{
+  for (int i = 0; i < MEM_BLOCK_COUNT; ++i) {
+    if (mem_blocks[i].pBuf == pData)
+      return i;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void LogMemBlocks(const char *pszReason, uint32 uiRequestedSize)
+{
+  FILE *pFile;
+  int iActiveCount = 0;
+  uint32 uiTrackedSize = 0;
+
+  pFile = fopen("roller-mem-blocks.log", "a");
+  if (!pFile)
+    return;
+
+  for (int i = 0; i < MEM_BLOCK_COUNT; ++i) {
+    if (mem_blocks[i].pBuf) {
+      ++iActiveCount;
+      uiTrackedSize += mem_blocks[i].uiSize;
+    }
+  }
+
+  fprintf(pFile, "ROLLER memory block tracker exhaustion\n");
+  fprintf(pFile, "Reason: %s\n", pszReason);
+  fprintf(pFile, "Requested size: %u\n", uiRequestedSize);
+  fprintf(pFile, "Active slots: %d/%d\n", iActiveCount, MEM_BLOCK_COUNT);
+  fprintf(pFile, "Tracked bytes: %u\n", uiTrackedSize);
+  fprintf(pFile, "mem_used: %d\n", mem_used);
+  fprintf(pFile, "mem_used_low: %d\n", mem_used_low);
+  fprintf(pFile, "hibuffers: %d\n", hibuffers);
+  fprintf(pFile, "\n");
+  fprintf(pFile, "slot,pBuf,uiSize,pAlsoBuf,iRegsDi\n");
+
+  for (int i = 0; i < MEM_BLOCK_COUNT; ++i) {
+    if (mem_blocks[i].pBuf) {
+      fprintf(pFile, "%d,%p,%u,%p,%d\n",
+              i,
+              mem_blocks[i].pBuf,
+              mem_blocks[i].uiSize,
+              mem_blocks[i].pAlsoBuf,
+              mem_blocks[i].iRegsDi);
+    }
+  }
+
+  fprintf(pFile, "\n");
+  fclose(pFile);
+}
+
+//-------------------------------------------------------------------------------------------------
 //00010700
 void *getbuffer(uint32 uiSize)
 {
   int iMemBlocksIdx; // esi
   void *pBuf; // eax
-  int iRegsDi; // [esp+28h] [ebp-24h] BYREF
-  void *pPtr; // [esp+2Ch] [ebp-20h] BYREF
+  int iRegsDi = 0; // [esp+28h] [ebp-24h] BYREF
+  void *pPtr = NULL; // [esp+2Ch] [ebp-20h] BYREF
 
-  iMemBlocksIdx = 0;
-  if (mem_blocks[0].pBuf) {
-    while (mem_blocks[++iMemBlocksIdx].pBuf)
-      ;
+  iMemBlocksIdx = find_free_mem_block();
+  if (iMemBlocksIdx < 0) {
+    LogMemBlocks("getbuffer", uiSize);
+    ErrorBoxExit("Out of tracked memory blocks while allocating %u bytes", uiSize);
+    return NULL;
   }
+
   pBuf = malloc2(uiSize, &pPtr, &iRegsDi);
   if (pBuf) {
     mem_blocks[iMemBlocksIdx].pBuf = pBuf;
@@ -495,15 +566,16 @@ void *trybuffer(uint32 uiSize)
 {
   int iMemBlocksIdx; // esi
   void *pBuf; // eax
-  void *pPtr; // [esp+28h] [ebp-20h] BYREF
-  int iRegsDi; // [esp+2Ch] [ebp-1Ch] BYREF
+  void *pPtr = NULL; // [esp+28h] [ebp-20h] BYREF
+  int iRegsDi = 0; // [esp+2Ch] [ebp-1Ch] BYREF
   int iMemUsed; // ecx
 
-  iMemBlocksIdx = 0;
-  if (mem_blocks[0].pBuf) {
-    while (mem_blocks[++iMemBlocksIdx].pBuf)
-      ;
+  iMemBlocksIdx = find_free_mem_block();
+  if (iMemBlocksIdx < 0) {
+    LogMemBlocks("trybuffer", uiSize);
+    return NULL;
   }
+
   pBuf = malloc2(uiSize, &pPtr, &iRegsDi);
   if (pBuf) {
     mem_blocks[iMemBlocksIdx].pBuf = pBuf;
@@ -522,34 +594,29 @@ void *trybuffer(uint32 uiSize)
 //000109F0
 void fre(void **ppData)
 {
-  void *pBuf; // ebx
   int iMemBlocksIdx; // edx
-  int i; // eax
-  signed int uiSize; // eax
+  uint32 uiSize; // eax
+  void *pBuf; // ebx
 
-  if (*ppData) {
-    pBuf = mem_blocks[0].pBuf;
-    iMemBlocksIdx = 0;
-    for (i = 0; pBuf != *ppData; ++iMemBlocksIdx) {
-      if (i >= 128)
-        break;
-      pBuf = mem_blocks[++i].pBuf;
-    }
-    if (iMemBlocksIdx >= 128)                 // mem_blocks is 128 tMemBlocks
-    {
+  if (ppData && *ppData) {
+    iMemBlocksIdx = find_mem_block(*ppData);
+    if (iMemBlocksIdx < 0) {
       assert(0);
-      printf("Failed to find allocated block\n");
+      SDL_Log("Failed to find allocated block\n");
       doexit();
-    } else {
-      mem_blocks[iMemBlocksIdx].pBuf = 0;
+      return;
     }
+
+    pBuf = mem_blocks[iMemBlocksIdx].pBuf;
     uiSize = mem_blocks[iMemBlocksIdx].uiSize;
-    if (uiSize >= 0) {
-      mem_used -= uiSize;
-      free2(mem_blocks[iMemBlocksIdx].pBuf); //.pAlsoBuf?
-    } else {
-      // is this necessary?
-    }
+
+    mem_blocks[iMemBlocksIdx].pBuf = 0;
+    mem_blocks[iMemBlocksIdx].uiSize = 0;
+    mem_blocks[iMemBlocksIdx].pAlsoBuf = 0;
+    mem_blocks[iMemBlocksIdx].iRegsDi = 0;
+
+    mem_used -= (int)uiSize;
+    free2(pBuf); //.pAlsoBuf?
     *ppData = 0;
   }
 }
@@ -1026,8 +1093,6 @@ static void print_usage(FILE *f, const char *argv0)
 //00011930
 int main(int argc, const char **argv, const char **envp)
 {
-  int iMemBlocksIdx2; // eax
-  int iMemBlocksIdx; // edx
   int nGameFlags; // edx
   int16 nCarIdx; // bx
   int consumed = 0;
@@ -1142,11 +1207,7 @@ int main(int argc, const char **argv, const char **envp)
   claim_key_int();
   max_mem = 0;                                  // Initialize memory tracking
   setdirectory(whiplash_root);
-  iMemBlocksIdx2 = 0;
-  do {
-    iMemBlocksIdx = (int16)iMemBlocksIdx2++;  // Clear all memory block pointers
-    mem_blocks[iMemBlocksIdx].pBuf = 0;
-  } while ((int16)iMemBlocksIdx2 < 128);
+  memset(mem_blocks, 0, sizeof(mem_blocks));
   cheat_mode = 0;
   load_language_map();
   load_fatal_config();
@@ -1507,7 +1568,7 @@ void play_game_init()
   load_language_file(szIngameEng, 0);
   load_language_file(szConfigEng_0, 1);
   if (frontendspeechptr) {
-    printf("Front end speech memory still allocated!!!!!!!\n");
+    SDL_Log("Front end speech memory still allocated!!!!!!!\n");
     doexit();
   }
   if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)
@@ -2123,7 +2184,7 @@ void play_game(int iTrack)
     else
       firework_screen();
     if (print_data)
-      printf("\n\n");
+      SDL_Log("\n\n");
     print_data = 0;
     if (pause_request && !intro)              // Handle pause requests (excluding intro mode)
     {
