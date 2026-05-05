@@ -51,6 +51,7 @@
 #define MAX_TIMERS 16
 #define ROLLER_MAX_PATH 260
 #define ISO_BLOCK_SIZE 2048
+#define ROLLER_RAND_BITS 15
 
 //-------------------------------------------------------------------------------------------------
 
@@ -2218,7 +2219,8 @@ void autoselectsoundlanguage() // Add by ROLLER to auto-select languagename when
 
 int GetHighOrderRand(int iRange, int iRandValue)
 {
-  return (int)(((double)iRange * iRandValue) / (RAND_MAX + 1.0));
+  int64 llProduct = (int64)iRange * iRandValue;
+  return (int)(llProduct >> ROLLER_RAND_BITS);
 }
 
 //-------------------------------------------------------------------------------------------------
