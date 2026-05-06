@@ -14,6 +14,12 @@ typedef enum {
 typedef int TextureHandle;
 #define TEXTURE_HANDLE_INVALID 0
 
+/* Texture bank indices passed to game_render_load_texture / get_texture_handle.
+ * These identify which asset category a texture belongs to. */
+#define TEXTURE_BANK_TRACK    0
+#define TEXTURE_BANK_BUILDING 17
+#define TEXTURE_BANK_CARGEN   18
+
 typedef struct {
     float x, y, z;  // world-space position
     float u, v;     // texture coordinates
@@ -60,8 +66,8 @@ void game_render_set_projection(GameRenderer *renderer,
                                 const GameRenderProjection *proj);
 
 // Unified texture loading
-// tex_idx selects the texture bank (0=track, 17=building, 18=cargen,
-// 2..16=cars). gfx_size determines layout: 0=64x64, 1=32x32.
+// tex_idx: use TEXTURE_BANK_* constants.
+// gfx_size determines layout: 0=64x64, 1=32x32.
 TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        uint8 *pixelData,
                                        int width, int height,
