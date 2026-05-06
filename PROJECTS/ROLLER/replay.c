@@ -363,7 +363,7 @@ void startreplay()
   if (replaytype) {                                             // RECORDING MODE: Set up replay file for writing
     if ((unsigned int)replaytype <= 1) {
       pDestStr = replayfilename;
-      pSrcStr = "..\\REPLAYS\\REPLAY.TMP";      // Copy replay temp filename
+      pSrcStr = "../REPLAYS/REPLAY.TMP";      // Copy replay temp filename
       discfull = 0;
       do {
         cChar1 = *pSrcStr;
@@ -2151,7 +2151,7 @@ void Rassemble()
     fraction = 0;
     ticks = currentreplayframe;
     //_enable();
-    strcpy(szFilename, "..\\REPLAYS\\");        // Build output filename by concatenating path, selected name, and .GSS extension
+    strcpy(szFilename, "../REPLAYS/");        // Build output filename by concatenating path, selected name, and .GSS extension
     szSourcePtr = selectfilename;
     szDestPtr = &szFilename[strlen(szFilename)];
     do {
@@ -2490,16 +2490,16 @@ void displayreplay()
   {
     switch (filingmenu) {
       case 1:
-        fileselect(10, 10, 310, 125, 160, 20, &language_buffer[3136], "..\\REPLAYS\\*.GSS", 1);// Load replay dialog
+        fileselect(10, 10, 310, 125, 160, 20, &language_buffer[3136], "../REPLAYS/*.GSS", 1);// Load replay dialog
         break;
       case 2:
-        fileselect(10, 10, 310, 140, 160, 20, &language_buffer[3200], "..\\REPLAYS\\*.GSS", 2);// Save replay dialog
+        fileselect(10, 10, 310, 140, 160, 20, &language_buffer[3200], "../REPLAYS/*.GSS", 2);// Save replay dialog
         break;
       case 3:
-        fileselect(10, 10, 310, 125, 160, 20, &language_buffer[3264], "..\\REPLAYS\\*.GSS", 3);// Delete replay dialog
+        fileselect(10, 10, 310, 125, 160, 20, &language_buffer[3264], "../REPLAYS/*.GSS", 3);// Delete replay dialog
         break;
       case 4:
-        fileselect(10, 10, 310, 140, 160, 20, &language_buffer[3392], "..\\REPLAYS\\*.GSS", 4);// Assemble replay dialog
+        fileselect(10, 10, 310, 140, 160, 20, &language_buffer[3392], "../REPLAYS/*.GSS", 4);// Assemble replay dialog
         break;
       case 5:
         lsd(40, 37, 280, 107);                  // Show LSD (replay statistics) dialog
@@ -3244,7 +3244,7 @@ void loadreplay()
   if (filefiles)                              // If files are available for replay loading
   {
     play_game_uninit();
-    strcpy(replayfilename, "..\\REPLAYS\\");    // Start building replay file path with base directory
+    strcpy(replayfilename, "../REPLAYS/");    // Start building replay file path with base directory
     szSrc = selectfilename;                     // Manually copy selected filename to replay path (2 chars at a time)
     szDst = &replayfilename[strlen(replayfilename)];
     do {
@@ -3317,11 +3317,11 @@ void savereplay()
 
   iErrorFlag = 0;                               // Initialize error flag and buffer pointer
   pbyBuffer = scrbuf;
-  if (!strcmp(replayfilename, "..\\REPLAYS\\REPLAY.TMP"))// Check if currently working with temporary replay file
+  if (!strcmp(replayfilename, "../REPLAYS/REPLAY.TMP"))// Check if currently working with temporary replay file
   {
     ftell(replayfile);                          // Finalize temp replay: close file and rename to permanent location
     fclose(replayfile);
-    strcpy(replayfilename, "..\\REPLAYS\\");    // Build final replay filename: path + selected name + extension
+    strcpy(replayfilename, "../REPLAYS/");    // Build final replay filename: path + selected name + extension
     szSrc1 = selectfilename;                    // Copy selected filename to replay path (2 chars at a time)
     szDst1 = &replayfilename[strlen(replayfilename)];
     do {
@@ -3347,11 +3347,11 @@ void savereplay()
       szExtDst1 += 2;
     } while (byExtChar2_1);
     ROLLERremove(replayfilename);                     // Remove existing file and rename temp to final name
-    rename("..\\REPLAYS\\REPLAY.TMP", replayfilename);
+    rename("../REPLAYS/REPLAY.TMP", replayfilename);
     replayfile = ROLLERfopen(replayfilename, "rb");
     fseek(replayfile, 0, 0);
   } else {
-    strcpy(szTempFilename, "..\\REPLAYS\\");    // Handle non-temp replay: copy current replay to new filename
+    strcpy(szTempFilename, "../REPLAYS/");    // Handle non-temp replay: copy current replay to new filename
     szSrc2 = selectfilename;                    // Build target filename: path + selected name + extension
     szDst2 = &szTempFilename[strlen(szTempFilename)];
     do {
@@ -3430,7 +3430,7 @@ void deletereplay()
   char byTmpChar2; // al
   char szTargetFilename[40]; // [esp-30h] [ebp-34h] BYREF
 
-  strcpy(szTargetFilename, "..\\REPLAYS\\");    // Build target filename: path + selected filename + extension
+  strcpy(szTargetFilename, "../REPLAYS/");    // Build target filename: path + selected filename + extension
   szSrc = selectfilename;                       // Copy selected filename to path (2 chars at a time)
   szDst = &szTargetFilename[strlen(szTargetFilename)];
   do {
@@ -3457,12 +3457,12 @@ void deletereplay()
   } while (byExtChar2);
   if (!strcmp(replayfilename, szTargetFilename))// Check if deleting the currently loaded replay file
   {
-    ROLLERremove("..\\REPLAYS\\REPLAY.TMP");          // Deleting current replay: cleanup temp files and swap to temp
+    ROLLERremove("../REPLAYS/REPLAY.TMP");          // Deleting current replay: cleanup temp files and swap to temp
     ftell(replayfile);                          // Close current replay file and rename target to temp
     szTmpDst = replayfilename;
     fclose(replayfile);
-    szTmpSrc = "..\\REPLAYS\\REPLAY.TMP";       // Copy temp filename to current replayfilename (2 chars at a time)
-    ROLLERrename(szTargetFilename, "..\\REPLAYS\\REPLAY.TMP");
+    szTmpSrc = "../REPLAYS/REPLAY.TMP";       // Copy temp filename to current replayfilename (2 chars at a time)
+    ROLLERrename(szTargetFilename, "../REPLAYS/REPLAY.TMP");
     do {
       byTmpChar1 = *szTmpSrc;
       *szTmpDst = *szTmpSrc;

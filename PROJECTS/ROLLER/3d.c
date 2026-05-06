@@ -1232,7 +1232,7 @@ int main(int argc, const char **argv, const char **envp)
   findintrofiles();
   initmusic();
   tick_on = 0;
-  ROLLERremove("..\\REPLAYS\\REPLAY.TMP");
+  ROLLERremove("../REPLAYS/REPLAY.TMP");
   readsoundconfig();
   loadcheatnames();
   cdxinit();
