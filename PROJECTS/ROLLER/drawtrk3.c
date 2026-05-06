@@ -4020,10 +4020,7 @@ LABEL_393:
           if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             RoofPoly.iSurfaceType = remap_tex[(uint8)(RoofPoly.iSurfaceType)] + (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
           if ((RoofPoly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0) {
-            RoofPoly.vertices[0] = pScreenCoord->screenPtAy[4].screen;
-            RoofPoly.vertices[1] = pScreenCoord->screenPtAy[5].screen;
-            RoofPoly.vertices[2] = pScreenCoord_1->screenPtAy[5].screen;
-            RoofPoly.vertices[3] = pScreenCoord_1->screenPtAy[4].screen;
+            quad_verts_cross_first(&RoofPoly, pScreenCoord, pScreenCoord_1, 4, 5);
             if (wide_on) {
               set_starts(1u);
               if (pScreenCoord->screenPtAy[4].projected.fZ >= (double)pScreenCoord->screenPtAy[5].projected.fZ)
@@ -4124,10 +4121,7 @@ LABEL_393:
               0,
               gfx_size);
           } else {
-            RoofPoly.vertices[0] = pScreenCoord_1->screenPtAy[4].screen;
-            RoofPoly.vertices[1] = pScreenCoord->screenPtAy[4].screen;
-            RoofPoly.vertices[2] = pScreenCoord->screenPtAy[5].screen;
-            RoofPoly.vertices[3] = pScreenCoord_1->screenPtAy[5].screen;
+            quad_verts_reverse(&RoofPoly, pScreenCoord, pScreenCoord_1, 4, 5);
             set_starts(0);
             if (pScreenCoord_1->screenPtAy[4].projected.fZ >= (double)pScreenCoord->screenPtAy[4].projected.fZ)
               fTrackDepth13 = pScreenCoord->screenPtAy[4].projected.fZ;
