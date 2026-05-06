@@ -324,6 +324,8 @@ extern float ext_z;
 extern float viewx;
 extern float viewy;
 extern float viewz;
+extern float fcos;
+extern float fsin;
 extern int worlddirn;
 extern char keys[140];
 extern int oldmode;

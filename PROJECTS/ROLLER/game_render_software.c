@@ -2,7 +2,6 @@
 #include "3d.h"
 #include "func2.h"
 #include "func3.h"
-#include "view.h"
 #include "horizon.h"
 #include "car.h"
 #include "polytex.h"
@@ -95,9 +94,17 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 // ---------------------------------------------------------------------------
 
 void game_render_sw_set_camera(GameRendererSoftware *sw,
-                               int viewMode, int carIdx, int chaseCamIdx) {
+                               const GameRenderCamera *camera) {
     (void)sw;
-    calculateview(viewMode, carIdx, chaseCamIdx);
+    extern float viewx, viewy, viewz;
+    extern float fcos, fsin;
+    extern int VIEWDIST;
+    viewx = camera->viewX;
+    viewy = camera->viewY;
+    viewz = camera->viewZ;
+    fcos = camera->cosYaw;
+    fsin = camera->sinYaw;
+    VIEWDIST = (int)camera->fovScale;
 }
 
 // ---------------------------------------------------------------------------

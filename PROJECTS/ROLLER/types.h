@@ -26,6 +26,7 @@
 #define ONE_OVER_TRIG_LOOKUP_AY_COUNT 0.00006103515625
 #define ONE_OVER_TATN_LOOKUP_AY_COUNT 0.0009765625
 #define TWO_PI 6.28318530718
+#define ANGLE_TO_RADIANS(a) ((float)(a) * (float)TWO_PI / 16384.0f)
 #define HZ_TO_NS(x) ((x) > 0 ? (1000000000UL / (x)) : 0)
 #define TRIG_SCALE 25600.0f
 #define MAX_CARS 16
