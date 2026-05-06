@@ -1184,6 +1184,7 @@ int main(int argc, const char **argv, const char **envp)
   }
 
   InitFATDATA(whiplash_root);
+  InitREPLAYS(whiplash_root);
   ROLLERGetAudioInfo();
 
   ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command

@@ -734,6 +734,13 @@ void InitFATDATA(const char *szDataRoot)
 
 //-------------------------------------------------------------------------------------------------
 
+void InitREPLAYS(const char *szDataRoot)
+{
+  mkdir("./REPLAYS");
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void ShutdownSDL()
 {
   MIDI_Shutdown();
