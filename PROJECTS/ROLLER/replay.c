@@ -575,15 +575,12 @@ void startreplay()
         replayframes = (int)(replayframes - replayheader) / (30 * racers + 16);
       }
 
-      //TODO: ensure this is correct
-      for (int iCarIndex = 0; iCarIndex < numcars; iCarIndex++)
-      {
-        // Initialize car physics data for replay
-        Car[iCarIndex].iControlType = 8;           // was the DWORD assignment
-        Car[iCarIndex].fHorizontalSpeed = 0.0f;    // was hitboxAy[14][2].fZ
-        Car[iCarIndex].direction.fX = 0.0f;        // was hitboxAy[14][3].fY  
-        Car[iCarIndex].direction.fY = 0.0f;        // was hitboxAy[14][1].fY
-        Car[iCarIndex].direction.fZ = 0.0f;        // was hitboxAy[14][1].fZ
+      for (int iCarIndex = 0; iCarIndex < numcars; iCarIndex++) {
+        Car[iCarIndex].iPitchDynamicOffset = 0;
+        Car[iCarIndex].iRollDynamicOffset = 0;
+        Car[iCarIndex].iPitchCameraOffset = 0;
+        Car[iCarIndex].iRollCameraOffset = 0;
+        Car[iCarIndex].iEngineState = 8;
       }
       //if (numcars > 0) {
       //  iCarByteOffset = 0;
