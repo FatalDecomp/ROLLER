@@ -25,6 +25,16 @@ typedef struct {
     float fovScale;
 } GameRenderCamera;
 
+// Column-major 3×3 view matrix + screen-space projection state.
+// view[col][row] maps to GLSL mat3 for direct GPU upload.
+typedef struct {
+    float view[3][3];
+    int   screenScale;   // 6-bit fixed-point scale (was scr_size)
+    int   centerX;       // projection origin X (was xbase)
+    int   centerY;       // projection origin Y (was ybase)
+    int   texHalfRes;    // 0=64×64, 1=32×32 (was gfx_size)
+} GameRenderProjection;
+
 typedef struct GameRenderer GameRenderer;
 
 // Lifecycle
@@ -44,6 +54,10 @@ void game_render_set_viewport(GameRenderer *renderer,
 // Camera
 void game_render_set_camera(GameRenderer *renderer,
                             const GameRenderCamera *camera);
+
+// Projection
+void game_render_set_projection(GameRenderer *renderer,
+                                const GameRenderProjection *proj);
 
 // Unified texture loading
 // tex_idx selects the texture bank (0=track, 17=building, 18=cargen,

@@ -62,6 +62,14 @@ void game_render_set_camera(GameRenderer *renderer,
         game_render_sw_set_camera(renderer->sw, camera);
 }
 
+// Projection
+
+void game_render_set_projection(GameRenderer *renderer,
+                                const GameRenderProjection *proj) {
+    if (renderer->mode == GAME_RENDER_SOFTWARE)
+        game_render_sw_set_projection(renderer->sw, proj);
+}
+
 // Asset loading
 
 TextureHandle game_render_load_texture(GameRenderer *renderer,

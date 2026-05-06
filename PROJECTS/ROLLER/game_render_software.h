@@ -26,6 +26,10 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 void game_render_sw_set_camera(GameRendererSoftware *sw,
                                const GameRenderCamera *camera);
 
+// Projection
+void game_render_sw_set_projection(GameRendererSoftware *sw,
+                                   const GameRenderProjection *proj);
+
 // Asset loading
 TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
                                           uint8 *pixelData,
