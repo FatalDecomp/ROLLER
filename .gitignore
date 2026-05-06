@@ -368,7 +368,7 @@ FodyWeavers.xsd
 !/external/wildmidi-0.4.6/lib/x64
 
 # Roller data files
-fatdata/
+fatdata
 
 # Zig build artifacts
 zig-out/
