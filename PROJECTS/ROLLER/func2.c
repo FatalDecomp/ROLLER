@@ -504,7 +504,7 @@ void draw_smoke(uint8 *pScrBuf, int iPlayerCarIdx)
           if ((iColor & 0x100) == 0)          // SURFACE_FLAG_APPLY_TEXTURE
           {
           RENDER_POLYFLAT:
-            game_render_quad(g_pGameRenderer, &CarPol, NULL, 0, 0, NULL); // Render flat (untextured) polygon
+            game_render_quad(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL); // Render flat (untextured) polygon
             goto NEXT_PARTICLE;
           }
         } else {
@@ -535,7 +535,7 @@ void draw_smoke(uint8 *pScrBuf, int iPlayerCarIdx)
           if ((uiColor2 & 0x100) == 0)        // SURFACE_FLAG_APPLY_TEXTURE
             goto RENDER_POLYFLAT;               // Check texture flag - 0x100 bit indicates textured polygon
         }
-        game_render_quad(g_pGameRenderer, &CarPol, cargen_vga, 18, gfx_size, NULL); // Render textured polygon using car texture
+        game_render_quad(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, 18), NULL); // Render textured polygon using car texture
       }
     NEXT_PARTICLE:
       if (++pCarSpray == pNextCarSpray)       // Move to next spray particle

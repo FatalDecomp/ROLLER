@@ -1828,6 +1828,24 @@ void play_game_init()
 
   g_pGameRenderer = game_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
 
+  // Register already-loaded pixel textures with the renderer.
+  // These were loaded before the renderer existed, so the NULL-guarded
+  // calls in graphics.c were skipped.
+  if (texture_vga)
+    game_render_load_texture(g_pGameRenderer, texture_vga, 256, 0,
+                              0, gfx_size);
+  if (building_vga)
+    game_render_load_texture(g_pGameRenderer, building_vga, 256, 0,
+                              17, gfx_size);
+  if (cargen_vga)
+    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, 0,
+                              18, gfx_size);
+  for (int i = 0; i < 16; i++) {
+    if (cartex_vga[i])
+      game_render_load_texture(g_pGameRenderer, cartex_vga[i], 256, 0,
+                                i + 1, gfx_size ? 1 : 0);
+  }
+
   // Register HUD sprite blocks (rev_vga) with the game renderer.
   // Slot 0: minitext font, 1: font6, 2: panel2 HUD sprites,
   // 3: font3 zoom text, 4: pancar life/kill icons.
