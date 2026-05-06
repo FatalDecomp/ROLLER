@@ -1596,6 +1596,10 @@ void readsoundconfig(void)
   if (!fp) 
   {
     autoselectsoundlanguage(); // Add by ROLLER to auto-select languagename
+    //added by ROLLER to ensure sound is always available
+    if (!SoundCard)
+      SoundCard = -1;
+    return;
   }
 
   // Determine file size
