@@ -3101,119 +3101,22 @@ LABEL_393:
           }
           goto LABEL_1271;
         case 7:
-          iRightSurfType = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_LANE];
-          if (iRightSurfType < 0)
-            iRightSurfType = -iRightSurfType;
-          RightPoly.iSurfaceType = iRightSurfType;
-          RightPoly.uiNumVerts = 4;
-          if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (iRightSurfType & SURFACE_FLAG_APPLY_TEXTURE) != 0) {
-            RightPoly.iSurfaceType = remap_tex[(uint8)iRightSurfType] + (iRightSurfType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-          }
-          quad_verts_cross_first(&RightPoly, pScreenCoord, pScreenCoord_1, 3, 2);
-          if ((RightPoly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on) {
-            set_starts(1u);
-            if (pScreenCoord->screenPtAy[3].projected.fZ >= (double)pScreenCoord->screenPtAy[2].projected.fZ)
-              fRightDepth1 = pScreenCoord->screenPtAy[2].projected.fZ;
-            else
-              fRightDepth1 = pScreenCoord->screenPtAy[3].projected.fZ;
-            fObjectDepthC5 = fRightDepth1;
-            if (pScreenCoord_1->screenPtAy[2].projected.fZ >= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-              fRightDepth2 = pScreenCoord_1->screenPtAy[3].projected.fZ;
-            else
-              fRightDepth2 = pScreenCoord_1->screenPtAy[2].projected.fZ;
-            fObjectDepthC6 = fRightDepth2;
-            if (fObjectDepthC5 >= (double)fRightDepth2) {
-              if (pScreenCoord_1->screenPtAy[2].projected.fZ >= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-                fRightDepth3 = pScreenCoord_1->screenPtAy[3].projected.fZ;
-              else
-                fRightDepth3 = pScreenCoord_1->screenPtAy[2].projected.fZ;
-              fObjectDepthD3 = fRightDepth3;
-            } else {
-              if (pScreenCoord->screenPtAy[3].projected.fZ >= (double)pScreenCoord->screenPtAy[2].projected.fZ)
-                fRightDepth3 = pScreenCoord->screenPtAy[2].projected.fZ;
-              else
-                fRightDepth3 = pScreenCoord->screenPtAy[3].projected.fZ;
-              fObjectDepthD2 = fRightDepth3;
+          {
+            int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_LANE];
+            if (sf < 0)
+              sf = -sf;
+            if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+            {
+              GameRenderVertex v[4];
+              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 4, 3);
+              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                : TEXTURE_HANDLE_INVALID;
+              game_render_quad_world(g_pGameRenderer, v, h, sf);
             }
-            fObjectDepthD1 = fRightDepth3;
-            iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[2];
-            if ((double)(int16)iRenderingTemp * subscale > fRightDepth3) {
-              subdivide(
-                pScrPtr_1,
-                &RightPoly,
-                pScreenCoord->screenPtAy[3].projected.fX,
-                pScreenCoord->screenPtAy[3].projected.fY,
-                pScreenCoord->screenPtAy[3].projected.fZ,
-                pScreenCoord->screenPtAy[2].projected.fX,
-                pScreenCoord->screenPtAy[2].projected.fY,
-                pScreenCoord->screenPtAy[2].projected.fZ,
-                pScreenCoord_1->screenPtAy[2].projected.fX,
-                pScreenCoord_1->screenPtAy[2].projected.fY,
-                pScreenCoord_1->screenPtAy[2].projected.fZ,
-                pScreenCoord_1->screenPtAy[3].projected.fX,
-                pScreenCoord_1->screenPtAy[3].projected.fY,
-                pScreenCoord_1->screenPtAy[3].projected.fZ,
-                -1,
-                gfx_size);
-              goto LABEL_1271;
-            }
-            if ((RightPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              game_render_quad(g_pGameRenderer, &RightPoly, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
-            else
-              game_render_quad(g_pGameRenderer, &RightPoly, TEXTURE_HANDLE_INVALID, NULL);
-            goto LABEL_1203;
           }
-          set_starts(0);
-          if (pScreenCoord->screenPtAy[3].projected.fZ >= (double)pScreenCoord->screenPtAy[2].projected.fZ)
-            fRightDepth4 = pScreenCoord->screenPtAy[2].projected.fZ;
-          else
-            fRightDepth4 = pScreenCoord->screenPtAy[3].projected.fZ;
-          fObjectDepthD4 = fRightDepth4;
-          if (pScreenCoord_1->screenPtAy[2].projected.fZ >= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-            fRightDepth5 = pScreenCoord_1->screenPtAy[3].projected.fZ;
-          else
-            fRightDepth5 = pScreenCoord_1->screenPtAy[2].projected.fZ;
-          fObjectDepthD5 = fRightDepth5;
-          if (fObjectDepthD4 >= (double)fRightDepth5) {
-            if (pScreenCoord_1->screenPtAy[2].projected.fZ >= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-              fRightDepth6 = pScreenCoord_1->screenPtAy[3].projected.fZ;
-            else
-              fRightDepth6 = pScreenCoord_1->screenPtAy[2].projected.fZ;
-            fObjectDepthE2 = fRightDepth6;
-          } else {
-            if (pScreenCoord->screenPtAy[3].projected.fZ >= (double)pScreenCoord->screenPtAy[2].projected.fZ)
-              fRightDepth6 = pScreenCoord->screenPtAy[2].projected.fZ;
-            else
-              fRightDepth6 = pScreenCoord->screenPtAy[3].projected.fZ;
-            fObjectDepthE1 = fRightDepth6;
-          }
-          fObjectDepthD6 = fRightDepth6;
-          iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[2];
-          if ((double)(int16)iRenderingTemp * subscale > fRightDepth6) {
-            subdivide(
-              pScrPtr_1,
-              &RightPoly,
-              pScreenCoord->screenPtAy[3].projected.fX,
-              pScreenCoord->screenPtAy[3].projected.fY,
-              pScreenCoord->screenPtAy[3].projected.fZ,
-              pScreenCoord->screenPtAy[2].projected.fX,
-              pScreenCoord->screenPtAy[2].projected.fY,
-              pScreenCoord->screenPtAy[2].projected.fZ,
-              pScreenCoord_1->screenPtAy[2].projected.fX,
-              pScreenCoord_1->screenPtAy[2].projected.fY,
-              pScreenCoord_1->screenPtAy[2].projected.fZ,
-              pScreenCoord_1->screenPtAy[3].projected.fX,
-              pScreenCoord_1->screenPtAy[3].projected.fY,
-              pScreenCoord_1->screenPtAy[3].projected.fZ,
-              0,
-              gfx_size);
-            goto LABEL_1271;
-          }
-          if ((RightPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            game_render_quad(g_pGameRenderer, &RightPoly, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
-          else
-            game_render_quad(g_pGameRenderer, &RightPoly, TEXTURE_HANDLE_INVALID, NULL);
-          goto LABEL_1227;
+          goto LABEL_1271;
         case 0xA:
           RoofPoly.uiNumVerts = 4;
           iGeometryIndex = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
