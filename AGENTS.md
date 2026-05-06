@@ -1,5 +1,9 @@
 ## Agent skills
 
+### Build
+
+Use `zig build` to compile the project. The `cmake`-based build is not configured in this workspace.
+
 ### Issue tracker
 
 Issues live as GitHub Issues on `FatalDecomp/ROLLER`, accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.

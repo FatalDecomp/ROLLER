@@ -15,10 +15,25 @@ typedef int TextureHandle;
 #define TEXTURE_HANDLE_INVALID 0
 
 typedef struct {
+    float x, y, z;  // world-space position
+    float u, v;     // texture coordinates
+} GameRenderVertex;
+
+typedef struct {
     float viewX, viewY, viewZ;
     float cosYaw, sinYaw;
     float fovScale;
 } GameRenderCamera;
+
+// Column-major 3×3 view matrix + screen-space projection state.
+// view[col][row] maps to GLSL mat3 for direct GPU upload.
+typedef struct {
+    float view[3][3];
+    int   screenScale;   // 6-bit fixed-point scale (was scr_size)
+    int   centerX;       // projection origin X (was xbase)
+    int   centerY;       // projection origin Y (was ybase)
+    int   texHalfRes;    // 0=64×64, 1=32×32 (was gfx_size)
+} GameRenderProjection;
 
 typedef struct GameRenderer GameRenderer;
 
@@ -39,6 +54,10 @@ void game_render_set_viewport(GameRenderer *renderer,
 // Camera
 void game_render_set_camera(GameRenderer *renderer,
                             const GameRenderCamera *camera);
+
+// Projection
+void game_render_set_projection(GameRenderer *renderer,
+                                const GameRenderProjection *proj);
 
 // Unified texture loading
 // tex_idx selects the texture bank (0=track, 17=building, 18=cargen,
@@ -66,6 +85,14 @@ void game_render_quad(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);
+
+// Draw — world-space quad (GPU-ready interface)
+// verts must point to exactly 4 GameRenderVertex entries.
+// surfaceFlags carries the same bitfield as tPolyParams.iSurfaceType.
+void game_render_quad_world(GameRenderer *renderer,
+                            const GameRenderVertex *verts,
+                            TextureHandle handle,
+                            int surfaceFlags);
 
 // Draw — car mesh
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
