@@ -26,6 +26,10 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 void game_render_sw_set_camera(GameRendererSoftware *sw,
                                const GameRenderCamera *camera);
 
+// Projection
+void game_render_sw_set_projection(GameRendererSoftware *sw,
+                                   const GameRenderProjection *proj);
+
 // Asset loading
 TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
                                           uint8 *pixelData,
@@ -44,6 +48,10 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot);
 void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
                          TextureHandle handle,
                          const uint8 *palette_remap);
+void game_render_sw_quad_world(GameRendererSoftware *sw,
+                               const GameRenderVertex *verts,
+                               TextureHandle handle,
+                               int surfaceFlags);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,
