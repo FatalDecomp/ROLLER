@@ -1,3 +1,4 @@
+#include <limits.h>
 #include "types.h"
 #include "car.h"
 #include "engines.h"
@@ -8,6 +9,14 @@
 #include "transfrm.h"
 #include "drawtrk3.h"
 #include "moving.h"
+
+// Saturating double-to-int cast — avoids UB when screen/projection
+// coordinates overflow int32 range (caught by UBSan in Debug builds).
+static inline int d2i(double d) {
+    if (d >= (double)INT_MAX) return INT_MAX;
+    if (d <= (double)INT_MIN) return INT_MIN;
+    return (int)d;
+}
 #include "func2.h"
 #include "function.h"
 #include "polytex.h"
@@ -1447,43 +1456,43 @@ LABEL_105:
       dScreenX = dViewDistance * fShadowViewX * dInverseZ + (double)xbase;
       //_CHP();
       if (!isnan(dScreenX)) { //check added by ROLLER
-        xp = (int)dScreenX;
+        xp = d2i(dScreenX);
         dScreenY = dInverseZ * (dViewDistance * fShadowViewY) + (double)ybase;
         //_CHP();
-        yp = (int)dScreenY;
+        yp = d2i(dScreenY);
         carpoint[ii].fX = (float)(xp * iScreenSize >> 6);
         //carpoint[ii].fX = (float)(iScreenXInt >> 6);
-        iTemp = (iScreenSize * (199 - (int)dScreenY)) >> 6;
+        iTemp = (iScreenSize * (199 - d2i(dScreenY))) >> 6;
         carpoint[ii].fY = (float)iTemp;
       }
       //++ii;                                     // replace reference to carworld in for loop with this
     }
     dShadowX = carpoint[0].fX;
     //_CHP();
-    CarPol.vertices[0].x = (int)dShadowX;
+    CarPol.vertices[0].x = d2i(dShadowX);
     dShadowCorner0X = carpoint[0].fY;
     //_CHP();
-    CarPol.vertices[0].y = (int)dShadowCorner0X;
+    CarPol.vertices[0].y = d2i(dShadowCorner0X);
     dX = carpoint[1].fX;
     //_CHP();
-    CarPol.vertices[1].x = (int)dX;
+    CarPol.vertices[1].x = d2i(dX);
     dShadowCorner1Y = carpoint[1].fY;
     //_CHP();
-    CarPol.vertices[1].y = (int)dShadowCorner1Y;
+    CarPol.vertices[1].y = d2i(dShadowCorner1Y);
     dShadowCorner2X = carpoint[2].fX;
     //_CHP();
-    CarPol.vertices[2].x = (int)dShadowCorner2X;
+    CarPol.vertices[2].x = d2i(dShadowCorner2X);
     dShadowCorner2Y = carpoint[2].fY;
     //_CHP();
-    CarPol.vertices[2].y = (int)dShadowCorner2Y;
+    CarPol.vertices[2].y = d2i(dShadowCorner2Y);
     dShadowCorner3X = carpoint[3].fX;
     //_CHP();
-    CarPol.vertices[3].x = (int)dShadowCorner3X;
+    CarPol.vertices[3].x = d2i(dShadowCorner3X);
     dShadowCorner3Y = carpoint[3].fY;
     //_CHP();
     CarPol.uiNumVerts = 4;
     CarPol.iSurfaceType = 0x202002;
-    CarPol.vertices[3].y = (int)dShadowCorner3Y;
+    CarPol.vertices[3].y = d2i(dShadowCorner3Y);
     game_render_quad(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
   }
 LABEL_117:
@@ -1566,10 +1575,10 @@ LABEL_117:
       dProjInverseZ = 1.0 / fModelClampedZ;
       dProjScreenX = dProjViewDistance * fModelViewX * dProjInverseZ + (double)xbase;
       //_CHP();
-      xp = (int)dProjScreenX;
+      xp = d2i(dProjScreenX);
       dProjScreenY = dProjInverseZ * (dProjViewDistance * fModelViewY) + (double)ybase;
       //_CHP();
-      yp = (int)dProjScreenY;
+      yp = d2i(dProjScreenY);
       CarPt[iCoordOffset / 0x20].screen.x = xp * scr_size >> 6;
       //CarPt[iCoordOffset / 0x20].screen.x = iScreenXResult >> 6;
       CarPt[iCoordOffset / 0x20].screen.y = (scr_size * (199 - yp)) >> 6;
@@ -1766,10 +1775,10 @@ LABEL_117:
         dSmokeProjInverseZ = 1.0 / fSmokeClampedZ;
         dSmokeProjScreenX = dSmokeProjViewDist * fSmokeViewX * dSmokeProjInverseZ + (double)xbase;
         //_CHP();
-        xp = (int)dSmokeProjScreenX;
+        xp = d2i(dSmokeProjScreenX);
         dSmokeProjScreenY = dSmokeProjInverseZ * (dSmokeProjViewDist * fSmokeViewY) + (double)ybase;
         //_CHP();
-        yp = (int)dSmokeProjScreenY;
+        yp = d2i(dSmokeProjScreenY);
         SmokePt[0][iSmokeIndex].screen.x = xp * scr_size >> 6;
         //SmokePt[0][iSmokeIndex].screen.x = iSmokeScreenXResult >> 6;
         SmokePt[0][iSmokeIndex].screen.y = (scr_size * (199 - yp)) >> 6;
@@ -1812,10 +1821,10 @@ LABEL_117:
           dSmoke2ProjInverseZ = 1.0 / fSmoke2ClampedZ;
           dSmoke2ProjScreenX = dSmoke2ProjViewDist * fSmoke2ViewX * dSmoke2ProjInverseZ + (double)xbase;
           //_CHP();
-          xp = (int)dSmoke2ProjScreenX;
+          xp = d2i(dSmoke2ProjScreenX);
           dSmoke2ProjScreenY = dSmoke2ProjInverseZ * (dSmoke2ProjViewDist * fSmoke2ViewY) + (double)ybase;
           //_CHP();
-          yp = (int)dSmoke2ProjScreenY;
+          yp = d2i(dSmoke2ProjScreenY);
           SmokePt[1][iSmokeIndex].screen.x = xp * scr_size >> 6;
           //SmokePt[1][iSmokeIndex].screen.x = iSmoke2ScreenXResult >> 6;
           SmokePt[1][iSmokeIndex].screen.y = (scr_size * (199 - yp)) >> 6;
@@ -1972,7 +1981,7 @@ LABEL_117:
             if ((uint8)(pCurrentSprite->iType) == 1) {
               fSpriteSize = (double)VIEWDIST * pCurrentSprite->fSize / fSmokeDepthCheck;
               //_CHP();
-              iTemp = (int)fSpriteSize;
+              iTemp = d2i(fSpriteSize);
               iScreenX = SmokePt[0][iSpritePolygonIdx].screen.x;
               iScreenY = SmokePt[0][iSpritePolygonIdx].screen.y;
               x = SmokePt[1][iSpritePolygonIdx].screen.x;
@@ -1983,7 +1992,7 @@ LABEL_117:
               CarPol.vertices[1].y = y;
               uiSpriteSurface = pCurrentSprite->iColor;
               //uiSpriteSurface = pSpriteDataPtr->iColor;
-              iTemp = (scr_size * (int)fSpriteSize) >> 6;
+              iTemp = (scr_size * d2i(fSpriteSize)) >> 6;
               uiSpriteSurface |= SURFACE_FLAG_FLIP_BACKFACE;
               //BYTE1(uiSpriteSurface) |= 0x20u;
               CarPol.vertices[0].x = x + iTemp;
@@ -1998,9 +2007,9 @@ LABEL_117:
             } else {
               dSpriteProjection = (double)VIEWDIST * pCurrentSprite->fSize / fSmokeDepthCheck;
               //_CHP();
-              iSpriteScreenSize = (int)dSpriteProjection;
-              iSpriteSize = (int)dSpriteProjection;
-              if ((int)dSpriteProjection <= 0 || iSpriteSize >= 100)
+              iSpriteScreenSize = d2i(dSpriteProjection);
+              iSpriteSize = d2i(dSpriteProjection);
+              if (d2i(dSpriteProjection) <= 0 || iSpriteSize >= 100)
                 goto LABEL_268;
               CarPol.iSurfaceType = pCurrentSprite->iColor;
               //CarPol.iSurfaceType = pSpriteDataPtr2->iColor;
@@ -2068,14 +2077,14 @@ LABEL_117:
     dNameTagInverseZ = 1.0 / fNameTagClampedZ;
     dNameTagScreenX = dNameTagViewDist * fNameTagViewX * dNameTagInverseZ + (double)xbase;
     //_CHP();
-    xp = (int)dNameTagScreenX;
+    xp = d2i(dNameTagScreenX);
     dNameTagScreenY = dNameTagInverseZ * (dNameTagViewDist * fNameTagViewY) + (double)ybase;
     iNameTagScreenSize = scr_size;
     //_CHP();
-    yp = (int)dNameTagScreenY;
+    yp = d2i(dNameTagScreenY);
     CarPt[0].screen.x = xp * scr_size >> 6;
     //CarPt[0].screen.x = iNameTagXResult >> 6;
-    CarPt[0].screen.y = (iNameTagScreenSize * (199 - (int)dNameTagScreenY)) >> 6;
+    CarPt[0].screen.y = (iNameTagScreenSize * (199 - d2i(dNameTagScreenY))) >> 6;
     CarPt[0].view.fX = fNameTagViewX;
     CarPt[0].view.fY = fNameTagViewY;
     CarPt[0].view.fZ = fNameTagCameraZCopy;
