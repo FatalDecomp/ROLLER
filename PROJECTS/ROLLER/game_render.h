@@ -11,6 +11,9 @@ typedef enum {
     GAME_RENDER_SOFTWARE
 } GameRenderMode;
 
+typedef int TextureHandle;
+#define TEXTURE_HANDLE_INVALID 0
+
 typedef struct GameRenderer GameRenderer;
 
 // Lifecycle
@@ -31,33 +34,31 @@ void game_render_set_viewport(GameRenderer *renderer,
 void game_render_set_camera(GameRenderer *renderer,
                             int viewMode, int carIdx, int chaseCamIdx);
 
-// Asset loading — track textures
-int game_render_load_track_textures(GameRenderer *renderer,
-                                    uint8 *texture_vga, int gfx_size);
-void game_render_free_track_textures(GameRenderer *renderer);
+// Unified texture loading
+// tex_idx selects the texture bank (0=track, 17=building, 18=cargen,
+// 2..16=cars). gfx_size determines layout: 0=64x64, 1=32x32.
+TextureHandle game_render_load_texture(GameRenderer *renderer,
+                                       uint8 *pixelData,
+                                       int width, int height,
+                                       int tex_idx, int gfx_size);
+void game_render_free_texture(GameRenderer *renderer,
+                              TextureHandle handle);
 
-// Asset loading — car meshes
-void game_render_load_car_mesh(GameRenderer *renderer, int carIdx,
-                               const tColor *palette);
-void game_render_free_car_mesh(GameRenderer *renderer, int carIdx);
-
-// Asset loading — horizon
-int game_render_load_horizon(GameRenderer *renderer, uint8 *horizon_data);
-void game_render_free_horizon(GameRenderer *renderer);
+// Look up the handle registered for a given texture bank index
+TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
+                                             int tex_idx);
 
 // Asset loading — sprite blocks (HUD)
-int game_render_load_blocks(GameRenderer *renderer, int slot,
-                            tBlockHeader *blocks, const tColor *palette);
+TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
+                                      tBlockHeader *blocks,
+                                      const tColor *palette);
 void game_render_free_blocks(GameRenderer *renderer, int slot);
 
 // Draw — polygon (track, buildings, particles, clouds)
-// tex_idx selects the texture bank (0=track, 17=building, 18=cargen, etc.)
-// For POLYFLAT calls, pass texture_data=NULL, tex_idx=0, gfx_size=0.
+// Pass TEXTURE_HANDLE_INVALID for flat (untextured) polygons.
 void game_render_quad(GameRenderer *renderer,
                       tPolyParams *poly,
-                      const uint8 *texture_data,
-                      int tex_idx,
-                      int gfx_size,
+                      TextureHandle handle,
                       const uint8 *palette_remap);
 
 // Draw — car mesh
