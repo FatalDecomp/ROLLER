@@ -423,14 +423,14 @@ static void quad_verts_reverse(tPolyParams *poly,
 
 //-------------------------------------------------------------------------------------------------
 // World-space vertex builders — same three winding patterns as above,
-// reading from TrakPt[] instead of TrackScreenXYZ[].
+// reading from the caller-provided tGroundPt array.
 
 // Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
 static void world_verts_forward(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
 {
-    tGroundPt *n = &TrakPt[nextSec];
-    tGroundPt *c = &TrakPt[curSec];
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
     verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
     verts[1].x = c->pointAy[ptA].fX; verts[1].y = c->pointAy[ptA].fY; verts[1].z = c->pointAy[ptA].fZ;
     verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
@@ -443,10 +443,10 @@ static void world_verts_forward(GameRenderVertex *verts,
 
 // Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
 static void world_verts_cross_first(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
 {
-    tGroundPt *n = &TrakPt[nextSec];
-    tGroundPt *c = &TrakPt[curSec];
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
     verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
     verts[1].x = n->pointAy[ptB].fX; verts[1].y = n->pointAy[ptB].fY; verts[1].z = n->pointAy[ptB].fZ;
     verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
@@ -459,10 +459,10 @@ static void world_verts_cross_first(GameRenderVertex *verts,
 
 // Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
 static void world_verts_reverse(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
 {
-    tGroundPt *n = &TrakPt[nextSec];
-    tGroundPt *c = &TrakPt[curSec];
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
     verts[0].x = c->pointAy[ptA].fX; verts[0].y = c->pointAy[ptA].fY; verts[0].z = c->pointAy[ptA].fZ;
     verts[1].x = n->pointAy[ptA].fX; verts[1].y = n->pointAy[ptA].fY; verts[1].z = n->pointAy[ptA].fZ;
     verts[2].x = n->pointAy[ptB].fX; verts[2].y = n->pointAy[ptB].fY; verts[2].z = n->pointAy[ptB].fZ;
@@ -2867,7 +2867,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
+              world_verts_forward(v, GroundPt, iNextSectionIndex, iSectionNum, 0, 1);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
