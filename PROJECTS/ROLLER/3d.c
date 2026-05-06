@@ -172,6 +172,8 @@ float ext_z;                //0013F9A0
 float viewx;                //0013F9A4
 float viewy;                //0013F9A8
 float viewz;                //0013F9AC
+float fcos;
+float fsin;
 int worlddirn;              //0013F9B0
 char keys[140];             //0013F9B4
 int oldmode;                //0013FA40
@@ -1070,7 +1072,20 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
     subscale = (float)dTextureSubscaleMultiplier;
   }
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
-  game_render_set_camera(g_pGameRenderer, uiViewMode, iCarIdx, iChaseCamIdx);// Calculate camera view matrix and projection parameters
+  calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
+  {
+      extern float viewx, viewy, viewz;
+      extern int worlddirn, VIEWDIST;
+      GameRenderCamera cam = {
+          .viewX = viewx,
+          .viewY = viewy,
+          .viewZ = viewz,
+          .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
+          .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
+          .fovScale = (float)VIEWDIST,
+      };
+      game_render_set_camera(g_pGameRenderer, &cam);
+  }
   game_render_draw_horizon(g_pGameRenderer);    // Draw sky/horizon background
   CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
   DrawCars(iCarIdx, uiViewMode);                // Render all visible cars (excluding current player if in chase cam)

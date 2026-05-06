@@ -24,7 +24,7 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 
 // Camera
 void game_render_sw_set_camera(GameRendererSoftware *sw,
-                               int viewMode, int carIdx, int chaseCamIdx);
+                               const GameRenderCamera *camera);
 
 // Asset loading
 TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
