@@ -736,7 +736,11 @@ void InitFATDATA(const char *szDataRoot)
 
 void InitREPLAYS(const char *szDataRoot)
 {
+  #ifdef IS_WINDOWS
   mkdir("./REPLAYS");
+  #else
+  mkdir("./REPLAYS", 0755);
+  #endif
 }
 
 //-------------------------------------------------------------------------------------------------
