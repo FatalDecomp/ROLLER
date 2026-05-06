@@ -57,9 +57,9 @@ void game_render_set_viewport(GameRenderer *renderer,
 // Camera
 
 void game_render_set_camera(GameRenderer *renderer,
-                            int viewMode, int carIdx, int chaseCamIdx) {
+                            const GameRenderCamera *camera) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_set_camera(renderer->sw, viewMode, carIdx, chaseCamIdx);
+        game_render_sw_set_camera(renderer->sw, camera);
 }
 
 // Asset loading

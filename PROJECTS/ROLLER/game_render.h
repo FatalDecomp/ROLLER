@@ -14,6 +14,12 @@ typedef enum {
 typedef int TextureHandle;
 #define TEXTURE_HANDLE_INVALID 0
 
+typedef struct {
+    float viewX, viewY, viewZ;
+    float cosYaw, sinYaw;
+    float fovScale;
+} GameRenderCamera;
+
 typedef struct GameRenderer GameRenderer;
 
 // Lifecycle
@@ -32,7 +38,7 @@ void game_render_set_viewport(GameRenderer *renderer,
 
 // Camera
 void game_render_set_camera(GameRenderer *renderer,
-                            int viewMode, int carIdx, int chaseCamIdx);
+                            const GameRenderCamera *camera);
 
 // Unified texture loading
 // tex_idx selects the texture bank (0=track, 17=building, 18=cargen,
