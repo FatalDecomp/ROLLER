@@ -1080,8 +1080,8 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
           .viewX = viewx,
           .viewY = viewy,
           .viewZ = viewz,
-          .cosYaw = cosf((float)worlddirn * 3.1415926535f / 8192.0f),
-          .sinYaw = sinf((float)worlddirn * 3.1415926535f / 8192.0f),
+          .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
+          .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
           .fovScale = (float)VIEWDIST,
       };
       game_render_set_camera(g_pGameRenderer, &cam);
