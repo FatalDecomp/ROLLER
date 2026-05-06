@@ -2426,10 +2426,7 @@ LABEL_393:
                 LABEL_709:
               RWallPoly.iSurfaceType = SURFACE_FLAG_SKIP_RENDER;
             LABEL_710:
-              RWallPoly.vertices[0] = pScreenCoord_1->screenPtAy[5].screen;
-              RWallPoly.vertices[1] = pScreenCoord->screenPtAy[5].screen;
-              RWallPoly.vertices[2] = pScreenCoord->screenPtAy[2].screen;
-              RWallPoly.vertices[3] = pScreenCoord_1->screenPtAy[2].screen;
+              quad_verts_reverse(&RWallPoly, pScreenCoord, pScreenCoord_1, 5, 2);
               if ((RWallPoly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on) {
                 set_starts(1u);
                 if (pScreenCoord_1->screenPtAy[5].projected.fZ >= (double)pScreenCoord->screenPtAy[5].projected.fZ)
@@ -2562,10 +2559,7 @@ LABEL_393:
           if ((RWallPoly.iSurfaceType & SURFACE_FLAG_TRANSPARENT) != 0)
             goto LABEL_758;
         LABEL_759:
-          RWallPoly.vertices[0] = pScreenCoord_1->screenPtAy[5].screen;
-          RWallPoly.vertices[1] = pScreenCoord->screenPtAy[5].screen;
-          RWallPoly.vertices[2] = pScreenCoord->screenPtAy[3].screen;
-          RWallPoly.vertices[3] = pScreenCoord_1->screenPtAy[3].screen;
+          quad_verts_reverse(&RWallPoly, pScreenCoord, pScreenCoord_1, 5, 3);
           if ((RWallPoly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on) {
             set_starts(1u);
             if (pScreenCoord_1->screenPtAy[5].projected.fZ >= (double)pScreenCoord->screenPtAy[5].projected.fZ)
