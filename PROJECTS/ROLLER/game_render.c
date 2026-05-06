@@ -101,6 +101,14 @@ void game_render_quad(GameRenderer *renderer, tPolyParams *poly,
         game_render_sw_quad(renderer->sw, poly, handle, palette_remap);
 }
 
+void game_render_quad_world(GameRenderer *renderer,
+                            const GameRenderVertex *verts,
+                            TextureHandle handle,
+                            int surfaceFlags) {
+    if (renderer->mode == GAME_RENDER_SOFTWARE)
+        game_render_sw_quad_world(renderer->sw, verts, handle, surfaceFlags);
+}
+
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
                           int yaw, int pitch, int roll,
                           float worldX, float worldY, float worldZ,

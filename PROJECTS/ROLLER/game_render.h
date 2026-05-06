@@ -15,6 +15,11 @@ typedef int TextureHandle;
 #define TEXTURE_HANDLE_INVALID 0
 
 typedef struct {
+    float x, y, z;  // world-space position
+    float u, v;     // texture coordinates
+} GameRenderVertex;
+
+typedef struct {
     float viewX, viewY, viewZ;
     float cosYaw, sinYaw;
     float fovScale;
@@ -66,6 +71,14 @@ void game_render_quad(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);
+
+// Draw — world-space quad (GPU-ready interface)
+// verts must point to exactly 4 GameRenderVertex entries.
+// surfaceFlags carries the same bitfield as tPolyParams.iSurfaceType.
+void game_render_quad_world(GameRenderer *renderer,
+                            const GameRenderVertex *verts,
+                            TextureHandle handle,
+                            int surfaceFlags);
 
 // Draw — car mesh
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

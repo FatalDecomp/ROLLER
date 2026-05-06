@@ -1,5 +1,8 @@
 #include "game_render_software.h"
 #include "3d.h"
+#include "drawtrk3.h"
+#include "transfrm.h"
+#include "graphics.h"
 #include "func2.h"
 #include "func3.h"
 #include "horizon.h"
@@ -26,6 +29,7 @@ typedef struct {
 } TextureSlot;
 
 struct GameRendererSoftware {
+    GameRenderCamera camera;
     int fadeInPending;
     tBlockHeader *blocks[GAME_RENDER_MAX_BLOCK_SLOTS];
     TextureHandle blockHandles[GAME_RENDER_MAX_BLOCK_SLOTS];
@@ -95,10 +99,10 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 
 void game_render_sw_set_camera(GameRendererSoftware *sw,
                                const GameRenderCamera *camera) {
-    (void)sw;
     extern float viewx, viewy, viewz;
     extern float fcos, fsin;
     extern int VIEWDIST;
+    sw->camera = *camera;
     viewx = camera->viewX;
     viewy = camera->viewY;
     viewz = camera->viewZ;
@@ -195,6 +199,62 @@ void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
     } else {
         POLYFLAT(screen_pointer, poly);
     }
+}
+
+void game_render_sw_quad_world(GameRendererSoftware *sw,
+                               const GameRenderVertex *verts,
+                               TextureHandle handle,
+                               int surfaceFlags) {
+    (void)handle; // subdivide handles texture lookup internally via subpolytype
+
+    extern float vk1, vk2, vk3, vk4, vk5, vk6, vk7, vk8, vk9;
+    extern int scr_size, xbase, ybase, gfx_size;
+
+    const GameRenderCamera *cam = &sw->camera;
+    float vx[4], vy[4], vz[4];
+    int clippedCount = 0;
+
+    // World → view space transform using vk matrix
+    for (int i = 0; i < 4; i++) {
+        float dx = verts[i].x - cam->viewX;
+        float dy = verts[i].y - cam->viewY;
+        float dz = verts[i].z - cam->viewZ;
+
+        vx[i] = dx * vk1 + dy * vk4 + dz * vk7;
+        vy[i] = dx * vk2 + dy * vk5 + dz * vk8;
+        vz[i] = dx * vk3 + dy * vk6 + dz * vk9;
+    }
+
+    // Populate tPolyParams with screen-space vertices
+    tPolyParams poly;
+    poly.iSurfaceType = surfaceFlags;
+    poly.uiNumVerts = 4;
+
+    for (int i = 0; i < 4; i++) {
+        float z = vz[i];
+        if (z < 80.0f) {
+            z = 80.0f;
+            clippedCount++;
+        }
+
+        int sx = (int)(vx[i] * (int)cam->fovScale / z + xbase);
+        int sy = (int)(vy[i] * (int)cam->fovScale / z + ybase);
+
+        poly.vertices[i].x = (scr_size * sx) >> 6;
+        poly.vertices[i].y = (scr_size * (199 - sy)) >> 6;
+    }
+
+    // Skip fully-clipped polygons
+    if (clippedCount >= 4)
+        return;
+
+    // iSubpolyType 666 routes to building texture path inside dodivide
+    subdivide(screen_pointer, &poly,
+              vx[0], vy[0], vz[0],
+              vx[1], vy[1], vz[1],
+              vx[2], vy[2], vz[2],
+              vx[3], vy[3], vz[3],
+              666, gfx_size);
 }
 
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
