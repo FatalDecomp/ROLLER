@@ -2681,10 +2681,7 @@ LABEL_393:
             pNextGroundScreen->screenPtAy[3].projected.fZ))
             goto LABEL_1271;
           G3Poly.iSurfaceType = GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR];
-          G3Poly.vertices[0] = pNextGroundScreen->screenPtAy[3].screen;
-          G3Poly.vertices[1] = pNextGroundScreen->screenPtAy[2].screen;
-          G3Poly.vertices[2] = pCurrentGroundScreen->screenPtAy[2].screen;
-          G3Poly.vertices[3] = pCurrentGroundScreen->screenPtAy[3].screen;
+          quad_verts_cross_first(&G3Poly, pNextGroundScreen, pCurrentGroundScreen, 3, 2);
           G3Poly.uiNumVerts = 4;
           if ((G3Poly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0) {
             set_starts(1u);
@@ -2813,10 +2810,7 @@ LABEL_393:
           }
           G1Poly.uiNumVerts = 4;
           G1Poly.iSurfaceType = GroundColour[iSectionNum][GROUND_COLOUR_LUOWALL];
-          G1Poly.vertices[0] = pNextGroundScreen->screenPtAy[0].screen;
-          G1Poly.vertices[1] = pCurrentGroundScreen->screenPtAy[0].screen;
-          G1Poly.vertices[2] = pCurrentGroundScreen->screenPtAy[1].screen;
-          G1Poly.vertices[3] = pNextGroundScreen->screenPtAy[1].screen;
+          quad_verts_forward(&G1Poly, pNextGroundScreen, pCurrentGroundScreen, 0, 1);
           if (G1Poly.iSurfaceType == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
             goto LABEL_1068;
           if ((G1Poly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) == 0) {
@@ -2950,12 +2944,8 @@ LABEL_393:
             goto LABEL_1271;
           }
           G2Poly.iSurfaceType = GroundColour[iSectionNum][GROUND_COLOUR_LLOWALL];
-          G2Poly.vertices[0] = pNextGroundScreen->screenPtAy[1].screen;
-          G2Poly.vertices[1] = pCurrentGroundScreen->screenPtAy[1].screen;
-          G2Poly.vertices[2] = pCurrentGroundScreen->screenPtAy[2].screen;
-          G2Poly.vertices[3].x = pNextGroundScreen->screenPtAy[2].screen.x;
+          quad_verts_forward(&G2Poly, pNextGroundScreen, pCurrentGroundScreen, 1, 2);
           G2Poly.uiNumVerts = 4;
-          G2Poly.vertices[3].y = pNextGroundScreen->screenPtAy[2].screen.y;
           if (G2Poly.iSurfaceType == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
             goto LABEL_1271;
           if ((G2Poly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) != 0) {
@@ -3090,12 +3080,8 @@ LABEL_393:
             goto LABEL_1174;
           }
           G5Poly.iSurfaceType = GroundColour[iSectionNum][GROUND_COLOUR_RUOWALL];
-          G5Poly.vertices[0] = pNextGroundScreen->screenPtAy[4].screen;
-          G5Poly.vertices[1] = pCurrentGroundScreen->screenPtAy[4].screen;
-          G5Poly.vertices[2] = pCurrentGroundScreen->screenPtAy[5].screen;
-          G5Poly.vertices[3].x = pNextGroundScreen->screenPtAy[5].screen.x;
+          quad_verts_forward(&G5Poly, pNextGroundScreen, pCurrentGroundScreen, 4, 5);
           G5Poly.uiNumVerts = 4;
-          G5Poly.vertices[3].y = pNextGroundScreen->screenPtAy[5].screen.y;
           if (G5Poly.iSurfaceType == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
             goto LABEL_1174;
           if ((G5Poly.iSurfaceType & SURFACE_FLAG_TEXTURE_PAIR) == 0) {
@@ -3229,10 +3215,7 @@ LABEL_393:
             goto LABEL_1271;
           }
           G4Poly.iSurfaceType = GroundColour[iSectionNum][GROUND_COLOUR_RLOWALL];
-          G4Poly.vertices[0] = pNextGroundScreen->screenPtAy[3].screen;
-          G4Poly.vertices[1] = pCurrentGroundScreen->screenPtAy[3].screen;
-          G4Poly.vertices[2] = pCurrentGroundScreen->screenPtAy[4].screen;
-          G4Poly.vertices[3] = pNextGroundScreen->screenPtAy[4].screen;
+          quad_verts_forward(&G4Poly, pNextGroundScreen, pCurrentGroundScreen, 3, 4);
           G4Poly.uiNumVerts = 4;
           if (G4Poly.iSurfaceType == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
             goto LABEL_1271;
