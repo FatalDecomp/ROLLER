@@ -1,5 +1,8 @@
 #include "game_render_software.h"
 #include "3d.h"
+#include "drawtrk3.h"
+#include "transfrm.h"
+#include "graphics.h"
 #include "func2.h"
 #include "func3.h"
 #include "horizon.h"
@@ -26,6 +29,10 @@ typedef struct {
 } TextureSlot;
 
 struct GameRendererSoftware {
+    GameRenderCamera camera;
+    GameRenderProjection proj;
+    int screenWidth;
+    int screenHeight;
     int fadeInPending;
     tBlockHeader *blocks[GAME_RENDER_MAX_BLOCK_SLOTS];
     TextureHandle blockHandles[GAME_RENDER_MAX_BLOCK_SLOTS];
@@ -81,12 +88,11 @@ void game_render_sw_end_frame(GameRendererSoftware *sw) {
 
 void game_render_sw_set_viewport(GameRendererSoftware *sw,
                                  int x, int y, int w, int h) {
-    (void)sw;
-    (void)w;
-    (void)h;
+    sw->screenWidth = w;
+    sw->screenHeight = h;
     // Set screen_pointer to the viewport origin within scrbuf.
     // Existing rendering code writes relative to screen_pointer.
-    screen_pointer = scrbuf + (y * winw) + x;
+    screen_pointer = scrbuf + (y * sw->screenWidth) + x;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,16 +101,31 @@ void game_render_sw_set_viewport(GameRendererSoftware *sw,
 
 void game_render_sw_set_camera(GameRendererSoftware *sw,
                                const GameRenderCamera *camera) {
-    (void)sw;
     extern float viewx, viewy, viewz;
     extern float fcos, fsin;
     extern int VIEWDIST;
+    sw->camera = *camera;
     viewx = camera->viewX;
     viewy = camera->viewY;
     viewz = camera->viewZ;
     fcos = camera->cosYaw;
     fsin = camera->sinYaw;
     VIEWDIST = (int)camera->fovScale;
+}
+
+void game_render_sw_set_projection(GameRendererSoftware *sw,
+                                   const GameRenderProjection *proj) {
+    extern float vk1, vk2, vk3, vk4, vk5, vk6, vk7, vk8, vk9;
+    extern int scr_size, xbase, ybase, gfx_size;
+    sw->proj = *proj;
+    // Write through to globals for legacy code (subdivide, POLYTEX, etc.)
+    vk1 = proj->view[0][0]; vk2 = proj->view[0][1]; vk3 = proj->view[0][2];
+    vk4 = proj->view[1][0]; vk5 = proj->view[1][1]; vk6 = proj->view[1][2];
+    vk7 = proj->view[2][0]; vk8 = proj->view[2][1]; vk9 = proj->view[2][2];
+    scr_size = proj->screenScale;
+    xbase = proj->centerX;
+    ybase = proj->centerY;
+    gfx_size = proj->texHalfRes;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,19 +218,68 @@ void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
     }
 }
 
+void game_render_sw_quad_world(GameRendererSoftware *sw,
+                               const GameRenderVertex *verts,
+                               TextureHandle handle,
+                               int surfaceFlags) {
+    (void)handle; // subdivide handles texture lookup internally via subpolytype
+
+    const GameRenderCamera *cam = &sw->camera;
+    const GameRenderProjection *proj = &sw->proj;
+    int iVx[4], iVy[4], iVz[4];
+    int clippedCount = 0;
+
+    // Bit-exact mirror of legacy DrawBuilding precision: floor(world − viewer)
+    // in double, matrix-multiply, integer-truncate to view space.
+    for (int i = 0; i < 4; i++) {
+        double dx = floor((double)verts[i].x - cam->viewX);
+        double dy = floor((double)verts[i].y - cam->viewY);
+        double dz = floor((double)verts[i].z - cam->viewZ);
+        iVx[i] = (int)(dx * proj->view[0][0] + dy * proj->view[1][0] + dz * proj->view[2][0]);
+        iVy[i] = (int)(dx * proj->view[0][1] + dy * proj->view[1][1] + dz * proj->view[2][1]);
+        iVz[i] = (int)(dx * proj->view[0][2] + dy * proj->view[1][2] + dz * proj->view[2][2]);
+    }
+
+    tPolyParams poly;
+    poly.iSurfaceType = surfaceFlags;
+    poly.uiNumVerts = 4;
+
+    int viewDist = (int)cam->fovScale;
+    for (int i = 0; i < 4; i++) {
+        if (iVz[i] < 80) {
+            iVz[i] = 80;
+            clippedCount++;
+        }
+        int xp = iVx[i] * viewDist / iVz[i] + proj->centerX;
+        int yp = iVy[i] * viewDist / iVz[i] + proj->centerY;
+        poly.vertices[i].x = (proj->screenScale * xp) >> 6;
+        poly.vertices[i].y = (proj->screenScale * (199 - yp)) >> 6;
+    }
+
+    if (clippedCount >= 4)
+        return;
+
+    // iSubpolyType 666 routes to building texture path inside dodivide
+    subdivide(screen_pointer, &poly,
+              (float)iVx[0], (float)iVy[0], (float)iVz[0],
+              (float)iVx[1], (float)iVy[1], (float)iVz[1],
+              (float)iVx[2], (float)iVy[2], (float)iVz[2],
+              (float)iVx[3], (float)iVy[3], (float)iVz[3],
+              666, proj->texHalfRes);
+}
+
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,
                              int animFrame, const uint8 *color_remap) {
-    (void)sw;
     (void)yaw; (void)pitch; (void)roll;
     (void)animFrame; (void)color_remap;
     // Compute distance from camera to car for LOD.
     // DisplayCar reads car state from global Car[] array.
-    extern float viewx, viewy, viewz;
-    float dx = worldX - viewx;
-    float dy = worldY - viewy;
-    float dz = worldZ - viewz;
+    const GameRenderCamera *cam = &sw->camera;
+    float dx = worldX - cam->viewX;
+    float dy = worldY - cam->viewY;
+    float dz = worldZ - cam->viewZ;
     float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     DisplayCar(carIdx, screen_pointer, dist);
 }
