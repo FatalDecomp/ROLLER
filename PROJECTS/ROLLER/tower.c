@@ -80,61 +80,25 @@ void InitTowers()
 //-------------------------------------------------------------------------------------------------
 //00075850
 void DrawTower(int iTowerIdx, uint8 *pScrBuf)
-{                                               
-  double TowerMinusViewX; // st7
-  double TowerMinusViewY; // st6
-  double TowerMinusViewZ; // st5
-  double dTransformed3DZ; // st7
-  double dViewDistance; // st7
-  double dZInverse; // st6
-  double dScreenX; // st5
-  double dScreenY; // st7
-  int iScreenSize; // ebp
-  int iPixelOffsetX; // ecx
-  int iPixelX; // ecx
-  int iPixelY; // ebx
-  float fTransformed3DY; // [esp+20h] [ebp-20h]
-  float fTransformed3DX; // [esp+24h] [ebp-1Ch]
-  float fOriginalZ; // [esp+28h] [ebp-18h]
-  float fClampedZ; // [esp+2Ch] [ebp-14h]
-
-  if (iTowerIdx != NearTow && TowerBase[iTowerIdx].iEnabled > -1) {// Skip if tower is nearby or disabled
-    TowerMinusViewX = TowerX[iTowerIdx] - viewx;// Calculate tower position relative to camera view
-    TowerMinusViewY = TowerY[iTowerIdx] - viewy;
-    TowerMinusViewZ = TowerZ[iTowerIdx] - viewz;
-    fTransformed3DX = (float)TowerMinusViewX * vk1 + (float)TowerMinusViewY * vk4 + (float)TowerMinusViewZ * vk7;// Transform 3D tower position using view matrix
-    fTransformed3DY = (float)TowerMinusViewX * vk2 + (float)TowerMinusViewY * vk5 + (float)TowerMinusViewZ * vk8;
-    dTransformed3DZ = (float)TowerMinusViewX * vk3 + (float)TowerMinusViewY * vk6 + (float)TowerMinusViewZ * vk9;
-    fClampedZ = (float)dTransformed3DZ;
-    fOriginalZ = fClampedZ;
-    if (dTransformed3DZ < 80.0)               // Clamp Z distance to minimum for perspective division
-      fClampedZ = 80.0;
-    dViewDistance = (double)VIEWDIST;           // Project 3D coordinates to 2D screen space
-    dZInverse = 1.0 / fClampedZ;
-    dScreenX = dViewDistance * fTransformed3DX * dZInverse + (double)xbase;
-    //_CHP();
-    xp = (int)dScreenX;
-    dScreenY = dZInverse * (dViewDistance * fTransformed3DY) + (double)ybase;
-    iScreenSize = scr_size;
-    iPixelOffsetX = scr_size * (int)dScreenX;   // Calculate pixel buffer coordinates with bit shift scaling
-    //_CHP();
-    yp = (int)dScreenY;
-    iPixelX = iPixelOffsetX >> 6;
-    iPixelY = (iScreenSize * (199 - (int)dScreenY)) >> 6;// Complex visibility test for different distance ranges
-    if (fOriginalZ >= 5000.0 && xp >= -50 && xp < 370 && yp >= -50 && yp < 250
-      || fOriginalZ > -1000.0 && fOriginalZ < 5000.0 && (fTransformed3DX > -1000.0 && fTransformed3DX < 1000.0 || xp > -200 && xp < 520)) {
-      TowerPol.vertices[0].x = iPixelX + 3;     // Create 6x6 pixel rectangle for tower visualization
-      TowerPol.vertices[1].x = iPixelX - 3;
-      TowerPol.vertices[2].x = iPixelX - 3;
-      TowerPol.vertices[0].y = iPixelY - 3;
-      TowerPol.vertices[1].y = iPixelY - 3;
-      TowerPol.vertices[2].y = iPixelY + 3;
-      TowerPol.vertices[3].y = iPixelY + 3;
-      TowerPol.vertices[3].x = iPixelX + 3;
-      TowerPol.iSurfaceType = SURFACE_FLAG_FLIP_BACKFACE | 0xE7; //0x20E7;          // Set tower polygon properties and draw to screen buffer
-      TowerPol.uiNumVerts = 4;
-      game_render_quad(g_pGameRenderer, &TowerPol, TEXTURE_HANDLE_INVALID, NULL);
-    }
+{
+  if (iTowerIdx != NearTow && TowerBase[iTowerIdx].iEnabled > -1) {
+    GameRenderVertex verts[4];
+    float tx = TowerX[iTowerIdx];
+    float ty = TowerY[iTowerIdx];
+    float tz = TowerZ[iTowerIdx];
+    /* Small horizontal quad at the tower's world position.
+     * 100-unit half-size approximates the original ~6 px marker. */
+    verts[0].x = tx + 100.0f;  verts[0].y = ty + 100.0f;  verts[0].z = tz;
+    verts[1].x = tx - 100.0f;  verts[1].y = ty + 100.0f;  verts[1].z = tz;
+    verts[2].x = tx - 100.0f;  verts[2].y = ty - 100.0f;  verts[2].z = tz;
+    verts[3].x = tx + 100.0f;  verts[3].y = ty - 100.0f;  verts[3].z = tz;
+    verts[0].u = verts[0].v = 0.0f;
+    verts[1].u = verts[1].v = 0.0f;
+    verts[2].u = verts[2].v = 0.0f;
+    verts[3].u = verts[3].v = 0.0f;
+    game_render_quad_world(g_pGameRenderer, verts,
+        TEXTURE_HANDLE_INVALID,
+        SURFACE_FLAG_FLIP_BACKFACE | 0xE7);
   }
 }
 
