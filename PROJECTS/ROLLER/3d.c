@@ -1267,7 +1267,13 @@ int main(int argc, const char **argv, const char **envp)
   memset(mem_blocks, 0, sizeof(mem_blocks));
   cheat_mode = 0;
   load_language_map();
-  load_fatal_config();
+  if (g_bSnapshotMode) {
+    // Bypass fatal.ini so the user's local settings can't drift the
+    // captured pixels.
+    SnapshotApplyFixedSettings();
+  } else {
+    load_fatal_config();
+  }
   if ((textures_off & TEX_OFF_WIDESCREEN) != 0)           // Check for debug cheat flags in textures_off
   {
     cheat_mode |= CHEAT_MODE_WIDESCREEN;

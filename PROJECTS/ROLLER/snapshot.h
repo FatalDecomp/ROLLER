@@ -44,5 +44,11 @@ void SnapshotPresent(void);
 // No-op outside snapshot mode.
 void SnapshotAdvanceTick(void);
 
+// Substitutes for load_fatal_config() in snapshot mode. Pins every
+// rendering-relevant global (textures_off, game_svga, game_size, view_limit,
+// allengines, cheat_mode, etc.) to a fixed default set so the captured pixels
+// are independent of the developer's local fatal.ini.
+void SnapshotApplyFixedSettings(void);
+
 //-------------------------------------------------------------------------------------------------
 #endif

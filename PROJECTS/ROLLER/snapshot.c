@@ -5,6 +5,9 @@
 #include "sound.h"
 #include "frontend.h"
 #include "roller.h"
+#include "control.h"
+#include "drawtrk3.h"
+#include "colision.h"
 #include <SDL3/SDL_filesystem.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,4 +157,30 @@ void SnapshotAdvanceTick(void)
 {
   if (!g_bSnapshotMode) return;
   tickhandler();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SnapshotApplyFixedSettings(void)
+{
+  // Replaces load_fatal_config() in snapshot mode. Pinning these defaults
+  // makes the captured pixels independent of the developer's local
+  // fatal.ini (which would otherwise toggle texturing options, draw
+  // distance, screen size, etc., and silently drift the baselines).
+  fatal_ini_loaded = -1;     // skip the auto-config branch keyed on machine_speed
+  textures_off = 0;          // every rendering feature enabled
+  game_svga = -1;            // SVGA / 640x400 framebuffer
+  game_size = 128;           // full game screen size
+  game_view[0] = 1;          // chase camera
+  game_view[1] = 1;
+  allengines = -1;           // engine particles on
+  view_limit = 32;           // max draw distance
+  cheat_mode = 0;            // no cheats
+  replay_record = 0;
+  soundon = 0;               // headless: no audio
+  musicon = 0;
+  names_on = 1;              // standard player-name overlay setting
+  level = 0;
+  damage_level = 0;
+  infinite_laps = 0;
 }
