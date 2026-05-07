@@ -729,7 +729,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             }
             if ((uiTex & 0x100) != 0)
               game_render_quad(g_pGameRenderer, &BuildingPol,
-                               game_render_get_texture_handle(g_pGameRenderer, 17), NULL);
+                               game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING), NULL);
             else
               game_render_quad(g_pGameRenderer, &BuildingPol, TEXTURE_HANDLE_INVALID, NULL);
           } else {
@@ -744,9 +744,9 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
               verts[vi].v = 0.0f;
             }
             TextureHandle th = ((uiTex & 0x100) != 0)
-              ? game_render_get_texture_handle(g_pGameRenderer, 17)
+              ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
               : TEXTURE_HANDLE_INVALID;
-            game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex);
+            game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex, 0.0f);
           }
         }
         skip_polygon:;

@@ -51,7 +51,8 @@ void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
 void game_render_sw_quad_world(GameRendererSoftware *sw,
                                const GameRenderVertex *verts,
                                TextureHandle handle,
-                               int surfaceFlags);
+                               int surfaceFlags,
+                               float subThreshold);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,

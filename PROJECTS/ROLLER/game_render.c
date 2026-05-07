@@ -112,9 +112,11 @@ void game_render_quad(GameRenderer *renderer, tPolyParams *poly,
 void game_render_quad_world(GameRenderer *renderer,
                             const GameRenderVertex *verts,
                             TextureHandle handle,
-                            int surfaceFlags) {
+                            int surfaceFlags,
+                            float subThreshold) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad_world(renderer->sw, verts, handle, surfaceFlags);
+        game_render_sw_quad_world(renderer->sw, verts, handle, surfaceFlags,
+                                  subThreshold);
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

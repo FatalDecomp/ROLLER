@@ -14,6 +14,12 @@ typedef enum {
 typedef int TextureHandle;
 #define TEXTURE_HANDLE_INVALID 0
 
+/* Texture bank indices passed to game_render_load_texture / get_texture_handle.
+ * These identify which asset category a texture belongs to. */
+#define TEXTURE_BANK_TRACK    0
+#define TEXTURE_BANK_BUILDING 17
+#define TEXTURE_BANK_CARGEN   18
+
 typedef struct {
     float x, y, z;  // world-space position
     float u, v;     // texture coordinates
@@ -60,8 +66,8 @@ void game_render_set_projection(GameRenderer *renderer,
                                 const GameRenderProjection *proj);
 
 // Unified texture loading
-// tex_idx selects the texture bank (0=track, 17=building, 18=cargen,
-// 2..16=cars). gfx_size determines layout: 0=64x64, 1=32x32.
+// tex_idx: use TEXTURE_BANK_* constants.
+// gfx_size determines layout: 0=64x64, 1=32x32.
 TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        uint8 *pixelData,
                                        int width, int height,
@@ -89,10 +95,16 @@ void game_render_quad(GameRenderer *renderer,
 // Draw — world-space quad (GPU-ready interface)
 // verts must point to exactly 4 GameRenderVertex entries.
 // surfaceFlags carries the same bitfield as tPolyParams.iSurfaceType.
+// subThreshold is the legacy `subdivides[i] * subscale` depth threshold;
+// when >0 and the polygon's nearest projected Z meets/exceeds it, the
+// renderer skips subdivide and rasterizes via POLYTEX/POLYFLAT directly
+// (matches the legacy subdivide-vs-game_render_quad branch). Pass 0.0f
+// to always subdivide.
 void game_render_quad_world(GameRenderer *renderer,
                             const GameRenderVertex *verts,
                             TextureHandle handle,
-                            int surfaceFlags);
+                            int surfaceFlags,
+                            float subThreshold);
 
 // Draw — car mesh
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
