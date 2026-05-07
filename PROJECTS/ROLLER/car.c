@@ -1943,32 +1943,25 @@ LABEL_117:
           // TEX_OFF_ADVANCED_CARS SURFACE_FLAG_APPLY_TEXTURE
           if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 && (uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) == 0 && (uint8)uiTextureSurface == uiColorFrom)
             uiTextureSurface = uiColorTo;
-          CarPol.iSurfaceType = uiTextureSurface;
-          if (bCloseToCamera) {
-            subdivide(
-              pScrBuf,
-              &CarPol,
-              polygonVertices[0]->view.fX,
-              polygonVertices[0]->view.fY,
-              polygonVertices[0]->view.fZ,
-              polygonVertices[1]->view.fX,
-              polygonVertices[1]->view.fY,
-              polygonVertices[1]->view.fZ,
-              polygonVertices[2]->view.fX,
-              polygonVertices[2]->view.fY,
-              polygonVertices[2]->view.fZ,
-              polygonVertices[3]->view.fX,
-              polygonVertices[3]->view.fY,
-              polygonVertices[3]->view.fZ,
-              iSubdivisionParam,
-              gfx_size);                        // Subdivide polygon if too close to camera for better quality
-          } else {
-            // SURFACE_FLAG_APPLY_TEXTURE
-            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
-              game_render_quad(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, car_texmap[uiTextureMapOffset / 4]), NULL);
-            } else {
-              goto LABEL_267;  // No texture - render flat polygon
+          {
+            GameRenderVertex verts[4];
+            TextureHandle th;
+            int vi;
+            for (vi = 0; vi < 4; vi++) {
+              verts[vi].x = polygonVertices[vi]->world.fX;
+              verts[vi].y = polygonVertices[vi]->world.fY;
+              verts[vi].z = polygonVertices[vi]->world.fZ;
+              verts[vi].u = 0.0f;
+              verts[vi].v = 0.0f;
             }
+            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0
+                && iTextureDisabled)
+              th = game_render_get_texture_handle(g_pGameRenderer,
+                       car_texmap[uiTextureMapOffset / 4]);
+            else
+              th = TEXTURE_HANDLE_INVALID;
+            game_render_quad_world(g_pGameRenderer, verts, th,
+                                   (int)uiTextureSurface);
           }
         } else {
           CarZOrder[uiRenderLoopOffset / 0xC].iPolygonLink = -1;
