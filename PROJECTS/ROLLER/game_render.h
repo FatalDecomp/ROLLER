@@ -85,9 +85,9 @@ TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
                                       const tColor *palette);
 void game_render_free_blocks(GameRenderer *renderer, int slot);
 
-// Draw — polygon (track, buildings, particles, clouds)
+// Draw — screen-space quad (overlays, particles, HUD, replay UI)
 // Pass TEXTURE_HANDLE_INVALID for flat (untextured) polygons.
-void game_render_quad(GameRenderer *renderer,
+void game_render_quad_screen(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);

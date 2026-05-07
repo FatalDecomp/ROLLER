@@ -211,7 +211,7 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot) {
 // Draw calls
 // ---------------------------------------------------------------------------
 
-void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
+void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
                          TextureHandle handle,
                          const uint8 *palette_remap) {
     (void)palette_remap;
