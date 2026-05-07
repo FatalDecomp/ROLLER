@@ -411,230 +411,24 @@ void initclouds()
 //0006B530
 void displayclouds(uint8 *pScrBuf)
 {
-  int iCloudIdx; // esi
-  double dCorner0X; // st7
-  double dCorner0Y; // st6
-  double dCorner0Z; // st5
-  double dCorner0ViewZ; // st7
-  int iBehindCamera; // edx
-  double dViewDist; // st7
-  double dInvZ0; // st6
-  double dProjX0; // st5
-  double dProjY0; // st7
-  int iScrSizeTemp; // ecx
-  //int iXpTemp; // eax
-  double dScreenX0; // st7
-  double dScreenY0; // st7
-  double dCorner1X; // st7
-  double dCorner1Y; // st6
-  double dCorner1Z; // st5
-  double dCorner1ViewZ; // st7
-  double dViewDist1; // st7
-  double dInvZ1; // st6
-  double dProjX1; // st5
-  double dProjY1; // st7
-  int iScrSize1; // ebx
-  //int iXpTemp1; // eax
-  double dScreenX1; // st7
-  double dScreenY1; // st7
-  double dCorner2X; // st7
-  double dCorner2Y; // st6
-  double dCorner2Z; // st5
-  double dCorner2ViewZ; // st7
-  double dViewDist2; // st7
-  double dInvZ2; // st6
-  double dProjX2; // st5
-  double dProjY2; // st7
-  int iScrSize2; // ebx
-  //int iXpTemp2; // eax
-  double dScreenX2; // st7
-  double dScreenY2; // st7
-  double dCorner3X; // st7
-  double dCorner3Y; // st6
-  double dCorner3Z; // st5
-  double dCorner3ViewZ; // st7
-  double dViewDist3; // st7
-  double dInvZ3; // st6
-  double dProjX3; // st5
-  double dProjY3; // st7
-  int iScrSize3; // ebx
-  //int iXpTemp3; // eax
-  double dScreenX3; // st7
-  double dScreenY3; // st7
-  tPolyParams poly; // [esp+0h] [ebp-A8h] BYREF
-  int iYCalcTemp; // [esp+38h] [ebp-70h]
-  float fViewX0; // [esp+3Ch] [ebp-6Ch]
-  float fViewY0; // [esp+40h] [ebp-68h]
-  float fViewY1; // [esp+44h] [ebp-64h]
-  float fViewX3; // [esp+48h] [ebp-60h]
-  float fViewX2; // [esp+4Ch] [ebp-5Ch]
-  float fViewY3; // [esp+50h] [ebp-58h]
-  float fViewY2; // [esp+54h] [ebp-54h]
-  float fViewX1; // [esp+58h] [ebp-50h]
-  float fScreenX0; // [esp+5Ch] [ebp-4Ch]
-  float fViewZ0; // [esp+60h] [ebp-48h]
-  float fScreenY0; // [esp+64h] [ebp-44h]
-  float fScreenX2; // [esp+68h] [ebp-40h]
-  float fScreenX1; // [esp+6Ch] [ebp-3Ch]
-  float fViewZ3; // [esp+70h] [ebp-38h]
-  float fViewZ2; // [esp+74h] [ebp-34h]
-  float fViewZ1; // [esp+78h] [ebp-30h]
-  float fScreenX3; // [esp+7Ch] [ebp-2Ch]
-  float fScreenY1; // [esp+80h] [ebp-28h]
-  float fScreenY3; // [esp+84h] [ebp-24h]
-  float fScreenY2; // [esp+88h] [ebp-20h]
-  //int iScreenXTemp; // [esp+8Ch] [ebp-1Ch]
+  int iCloudIdx;
 
-  set_starts(0);                                // Initialize polygon renderer
-  if ((textures_off & 8) == 0)                // Skip cloud rendering if textures disabled (bit 3 of textures_off)
-  {                                             // Loop through all 40 cloud objects
+  set_starts(0);
+  if ((textures_off & 8) == 0)
+  {
     for (iCloudIdx = 0; iCloudIdx != 40; ++iCloudIdx) {
-      dCorner0X = cloud[iCloudIdx].matrix[0][0] - viewx;// Transform cloud corner 0 from world space to camera space
-      dCorner0Y = cloud[iCloudIdx].matrix[0][1] - viewy;
-      dCorner0Z = cloud[iCloudIdx].matrix[0][2] * 0.5 - viewz;
-      fViewX0 = (float)(dCorner0X * vk1 + dCorner0Y * vk4 + dCorner0Z * vk7);// Apply view matrix transformation to get view coordinates
-      fViewY0 = (float)(dCorner0X * vk2 + dCorner0Y * vk5 + dCorner0Z * vk8);
-      dCorner0ViewZ = dCorner0X * vk3 + dCorner0Y * vk6 + dCorner0Z * vk9;
-      fViewZ0 = (float)dCorner0ViewZ;
-      iBehindCamera = 0;                        // Check for near clipping (minimum Z distance = 80.0)
-      if (dCorner0ViewZ < 80.0) {
-        iBehindCamera = 1;
-        fViewZ0 = 80.0;
+      GameRenderVertex verts[4];
+      int k;
+      for (k = 0; k < 4; k++) {
+        verts[k].x = cloud[iCloudIdx].matrix[k][0];
+        verts[k].y = cloud[iCloudIdx].matrix[k][1];
+        verts[k].z = cloud[iCloudIdx].matrix[k][2] * 0.5f;
+        verts[k].u = 0.0f;
+        verts[k].v = 0.0f;
       }
-      dViewDist = (double)VIEWDIST;             // Project 3D coordinates to 2D screen coordinates using perspective division
-      dInvZ0 = 1.0 / fViewZ0;
-      dProjX0 = dViewDist * fViewX0 * dInvZ0 + (double)xbase;
-      //_CHP();
-      xp = (int)dProjX0;
-      dProjY0 = dInvZ0 * (dViewDist * fViewY0) + (double)ybase;
-      iScrSizeTemp = scr_size;
-      //_CHP();
-      yp = (int)dProjY0;
-      fScreenX0 = (float)((long long)iScrSizeTemp * xp >> 6);        // Convert to screen space and check clipping bounds (-5000 to +5000)
-      //long long cast added by ROLLER to avoid integer overflow
-      iYCalcTemp = (int)((long long)iScrSizeTemp * (199 - (int)dProjY0)) >> 6;
-      fScreenY0 = (float)iYCalcTemp;
-      if (iBehindCamera || fScreenX0 >= -5000.0 && fScreenX0 <= 5000.0 && fScreenY0 >= -5000.0 && fScreenY0 <= 5000.0) {
-        dScreenX0 = fScreenX0;                  // Store vertex 0 coordinates in polygon structure
-        //_CHP();
-        poly.vertices[0].x = (int)dScreenX0;
-        dScreenY0 = fScreenY0;
-        //_CHP();
-        poly.vertices[0].y = (int)dScreenY0;
-      } else {
-        iBehindCamera = 1;
-      }
-      if (!iBehindCamera) {
-        dCorner1X = cloud[iCloudIdx].matrix[1][0] - viewx;// Transform cloud corner 1 (repeat process for second vertex)
-        dCorner1Y = cloud[iCloudIdx].matrix[1][1] - viewy;
-        dCorner1Z = cloud[iCloudIdx].matrix[1][2] * 0.5 - viewz;
-        fViewX1 = (float)(dCorner1X * vk1 + dCorner1Y * vk4 + dCorner1Z * vk7);
-        fViewY1 = (float)(dCorner1X * vk2 + dCorner1Y * vk5 + dCorner1Z * vk8);
-        dCorner1ViewZ = dCorner1X * vk3 + dCorner1Y * vk6 + dCorner1Z * vk9;
-        fViewZ1 = (float)dCorner1ViewZ;
-        if (dCorner1ViewZ < 80.0) {
-          iBehindCamera = 1;
-          fViewZ1 = 80.0;
-        }
-        dViewDist1 = (double)VIEWDIST;
-        dInvZ1 = 1.0 / fViewZ1;
-        dProjX1 = dViewDist1 * fViewX1 * dInvZ1 + (double)xbase;
-        //_CHP();
-        xp = (int)dProjX1;
-        dProjY1 = dInvZ1 * (dViewDist1 * fViewY1) + (double)ybase;
-        iScrSize1 = scr_size;
-        //_CHP();
-        yp = (int)dProjY1;
-        //iScreenXTemp = xp >> 6;
-        fScreenX1 = (float)((long long)iScrSize1 * xp >> 6);
-        iYCalcTemp = ((long long)iScrSize1 * (199 - (int)dProjY1)) >> 6;
-        fScreenY1 = (float)iYCalcTemp;
-        if (iBehindCamera || fScreenX1 >= -5000.0 && fScreenX1 <= 5000.0 && fScreenY1 >= -5000.0 && fScreenY1 <= 5000.0) {
-          dScreenX1 = fScreenX1;                // Store vertex 1 coordinates in polygon structure
-          //_CHP();
-          poly.vertices[1].x = (int)dScreenX1;
-          dScreenY1 = fScreenY1;
-          //_CHP();
-          poly.vertices[1].y = (int)dScreenY1;
-        } else {
-          iBehindCamera = 1;
-        }
-        if (!iBehindCamera) {
-          dCorner2X = cloud[iCloudIdx].matrix[2][0] - viewx;// Transform cloud corner 2 (third vertex of quad)
-          dCorner2Y = cloud[iCloudIdx].matrix[2][1] - viewy;
-          dCorner2Z = cloud[iCloudIdx].matrix[2][2] * 0.5 - viewz;
-          fViewX2 = (float)(dCorner2X * vk1 + dCorner2Y * vk4 + dCorner2Z * vk7);
-          fViewY2 = (float)(dCorner2X * vk2 + dCorner2Y * vk5 + dCorner2Z * vk8);
-          dCorner2ViewZ = dCorner2X * vk3 + dCorner2Y * vk6 + dCorner2Z * vk9;
-          fViewZ2 = (float)dCorner2ViewZ;
-          if (dCorner2ViewZ < 80.0) {
-            iBehindCamera = 1;
-            fViewZ2 = 80.0;
-          }
-          dViewDist2 = (double)VIEWDIST;
-          dInvZ2 = 1.0 / fViewZ2;
-          dProjX2 = dViewDist2 * fViewX2 * dInvZ2 + (double)xbase;
-          //_CHP();
-          xp = (int)dProjX2;
-          dProjY2 = dInvZ2 * (dViewDist2 * fViewY2) + (double)ybase;
-          iScrSize2 = scr_size;
-          //_CHP();
-          yp = (int)dProjY2;
-          fScreenX2 = (float)((long long)iScrSize2 * xp >> 6);
-          iYCalcTemp = ((long long)iScrSize2 * (199 - (int)dProjY2)) >> 6;
-          fScreenY2 = (float)iYCalcTemp;
-          if (iBehindCamera || fScreenX2 >= -5000.0 && fScreenX2 <= 5000.0 && fScreenY2 >= -5000.0 && fScreenY2 <= 5000.0) {
-            dScreenX2 = fScreenX2;              // Store vertex 2 coordinates in polygon structure
-            //_CHP();
-            poly.vertices[2].x = (int)dScreenX2;
-            dScreenY2 = fScreenY2;
-            //_CHP();
-            poly.vertices[2].y = (int)dScreenY2;
-          } else {
-            iBehindCamera = 1;
-          }
-          if (!iBehindCamera) {
-            dCorner3X = cloud[iCloudIdx].matrix[3][0] - viewx;// Transform cloud corner 3 (final vertex of quad)
-            dCorner3Y = cloud[iCloudIdx].matrix[3][1] - viewy;
-            dCorner3Z = cloud[iCloudIdx].matrix[3][2] * 0.5 - viewz;
-            fViewX3 = (float)(dCorner3X * vk1 + dCorner3Y * vk4 + dCorner3Z * vk7);
-            fViewY3 = (float)(dCorner3X * vk2 + dCorner3Y * vk5 + dCorner3Z * vk8);
-            dCorner3ViewZ = dCorner3X * vk3 + dCorner3Y * vk6 + dCorner3Z * vk9;
-            fViewZ3 = (float)dCorner3ViewZ;
-            if (dCorner3ViewZ < 80.0) {
-              iBehindCamera = 1;
-              fViewZ3 = 80.0;
-            }
-            dViewDist3 = (double)VIEWDIST;
-            dInvZ3 = 1.0 / fViewZ3;
-            dProjX3 = dViewDist3 * fViewX3 * dInvZ3 + (double)xbase;
-            //_CHP();
-            xp = (int)dProjX3;
-            dProjY3 = dInvZ3 * (dViewDist3 * fViewY3) + (double)ybase;
-            iScrSize3 = scr_size;
-            //_CHP();
-            yp = (int)dProjY3;
-            fScreenX3 = (float)((long long)iScrSize3 * xp >> 6);
-            iYCalcTemp = ((long long)iScrSize3 * (199 - (int)dProjY3)) >> 6;
-            fScreenY3 = (float)iYCalcTemp;
-            if (iBehindCamera || fScreenX3 >= -5000.0 && fScreenX3 <= 5000.0 && fScreenY3 >= -5000.0 && fScreenY3 <= 5000.0) {
-              dScreenX3 = fScreenX3;            // Store vertex 3 coordinates in polygon structure
-              //_CHP();
-              poly.vertices[3].x = (int)dScreenX3;
-              dScreenY3 = fScreenY3;
-              //_CHP();
-              poly.vertices[3].y = (int)dScreenY3;
-            } else {
-              iBehindCamera = 1;
-            }
-            if (!iBehindCamera) {
-              poly.iSurfaceType = cloud[iCloudIdx].iSurfaceType;// Set polygon surface type and vertex count (quad = 4 vertices)
-              poly.uiNumVerts = -4;
-              game_render_quad(g_pGameRenderer, &poly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);// Render textured polygon to screen buffer
-            }
-          }
-        }
-      }
+      game_render_quad_world(g_pGameRenderer, verts,
+          game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_CARGEN),
+          (int)cloud[iCloudIdx].iSurfaceType);
     }
   }
 }
