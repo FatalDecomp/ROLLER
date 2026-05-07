@@ -657,7 +657,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           }
           TextureHandle th;
           if ((uiTex & 0x100) != 0)
-            th = game_render_get_texture_handle(g_pGameRenderer, 17);
+            th = game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING);
           else
             th = TEXTURE_HANDLE_INVALID;
           game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex);

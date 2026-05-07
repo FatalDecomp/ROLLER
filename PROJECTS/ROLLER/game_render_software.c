@@ -18,6 +18,13 @@
 #define GAME_RENDER_MAX_BLOCK_SLOTS 32
 #define GAME_RENDER_MAX_TEXTURE_SLOTS 32
 
+/* SubpolyType values passed to dodivide for texture routing.
+ * -1 = wide wall (2048x1024), 0 = standard track (1024x1024),
+ * 666 = building (other_texture[] lookup). */
+#define SUBPOLY_WALL     (-1)
+#define SUBPOLY_STANDARD   0
+#define SUBPOLY_BUILDING 666
+
 // Slot table entry for pixel textures
 typedef struct {
     uint8 *pixels;
@@ -222,8 +229,6 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
                                const GameRenderVertex *verts,
                                TextureHandle handle,
                                int surfaceFlags) {
-    (void)handle; // subdivide handles texture lookup internally via subpolytype
-
     const GameRenderCamera *cam = &sw->camera;
     const GameRenderProjection *proj = &sw->proj;
     float vx[4], vy[4], vz[4];
@@ -259,17 +264,37 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
         poly.vertices[i].y = (proj->screenScale * (199 - sy)) >> 6;
     }
 
-    // Skip fully-clipped polygons
+    /* Skip fully-clipped polygons */
     if (clippedCount >= 4)
         return;
 
-    // iSubpolyType 666 routes to building texture path inside dodivide
-    subdivide(screen_pointer, &poly,
-              vx[0], vy[0], vz[0],
-              vx[1], vy[1], vz[1],
-              vx[2], vy[2], vz[2],
-              vx[3], vy[3], vz[3],
-              666, proj->texHalfRes);
+    /* Flat (untextured) polygons: rasterize directly */
+    if (handle == TEXTURE_HANDLE_INVALID) {
+        POLYFLAT(screen_pointer, &poly);
+        return;
+    }
+
+    /* Routing: building textures use other_texture[] lookup,
+     * wall polygons use wide 2048x1024 layout, everything else
+     * uses standard 1024x1024. */
+    {
+        int subpolyType;
+        if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
+            && sw->texSlots[handle].in_use
+            && sw->texSlots[handle].tex_idx == TEXTURE_BANK_BUILDING) {
+            subpolyType = SUBPOLY_BUILDING;
+        } else if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) {
+            subpolyType = SUBPOLY_WALL;
+        } else {
+            subpolyType = SUBPOLY_STANDARD;
+        }
+        subdivide(screen_pointer, &poly,
+                  vx[0], vy[0], vz[0],
+                  vx[1], vy[1], vz[1],
+                  vx[2], vy[2], vz[2],
+                  vx[3], vy[3], vz[3],
+                  subpolyType, proj->texHalfRes);
+    }
 }
 
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
