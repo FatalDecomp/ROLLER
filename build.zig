@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     const c_flags: []const []const u8 = if (crash_debug)
         &.{ "-fwrapv", "-fno-omit-frame-pointer" }
     else
-        &.{ "-fwrapv" };
+        &.{"-fwrapv"};
 
     const exe_mod = b.createModule(.{
         .target = target,
@@ -78,6 +78,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
             "PROJECTS/ROLLER/roller.c",
+            "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/snapshot.c",
             "PROJECTS/ROLLER/sound.c",

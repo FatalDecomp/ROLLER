@@ -15,6 +15,14 @@
 
 //-------------------------------------------------------------------------------------------------
 
+#define MAX_TIMERS 16
+#define ROLLER_MAX_PATH 260
+#define ROLLER_MAX_CUE_TRACKS 100
+#define ISO_BLOCK_SIZE 2048
+#define ROLLER_RAND_BITS 15
+
+//-------------------------------------------------------------------------------------------------
+
 #define ONE_OVER_TRIG_LOOKUP_AY_COUNT 0.00006103515625
 #define ONE_OVER_TATN_LOOKUP_AY_COUNT 0.0009765625
 #define TWO_PI 6.28318530718
