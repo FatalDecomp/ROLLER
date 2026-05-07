@@ -31,8 +31,8 @@ We want a regression net that:
 ### Compare via git itself, not a custom byte-comparator
 
 The harness writes the captured PNGs straight into the checked-in
-baseline directory (`tests/snapshots/expected/`) and then runs
-`git diff --exit-code -- tests/snapshots/expected/`. Any pixel change
+baseline directory (`tests/snapshots/baselines/`) and then runs
+`git diff --exit-code -- tests/snapshots/baselines/`. Any pixel change
 manifests as a tracked-file modification, which the build step turns into
 a non-zero exit. The PR diff that lands in code review *is* the comparison
 artifact — GitHub renders binary PNGs as side-by-side image diffs that the
@@ -66,7 +66,7 @@ Rejected alternatives:
   itself to be wrong. The library `stb_image_write` is RGB-only, which
   is what pushed us off it onto vendored lodepng.
 
-### Baseline storage uses Git LFS, scoped to `tests/snapshots/expected/*.png`
+### Baseline storage uses Git LFS, scoped to `tests/snapshots/baselines/*.png`
 
 The baselines live in Git LFS via a scoped `.gitattributes` rule.
 Rationale: the new "harness overwrites baselines + git diff drives review"
@@ -99,9 +99,20 @@ To bless an intentional pixel change the developer just runs
 working-tree diff, and commits the modified baseline PNGs alongside the
 code change. The commit *is* the explicit blessing gesture.
 
-A `-Dupdate-snapshots` flag suppresses the post-capture diff check so
-contributors who have already eyeballed the diff can produce a clean exit
-without commiting. It is convenience, not policy.
+### Non-canonical hosts use scratch capture
+
+`zig build test-snapshots -Dscratch` routes the captures into
+`zig-out/snapshot-scratch/` and skips the git-diff check entirely. This
+lets a developer on a non-canonical host (Linux x86_64, Windows, etc.)
+exercise the capture path and inspect their pixels without ever touching
+the LFS-tracked baselines, so the working tree stays clean and the PR
+remains scoped to whatever code change motivated the run.
+
+Comparing scratch against the canonical baselines is left to whatever
+tool the developer prefers (e.g.
+`diff -rq tests/snapshots/baselines zig-out/snapshot-scratch`, or any
+image-diff viewer) — the harness intentionally doesn't enshrine a
+cross-platform compare path until the cross-platform parity ADR exists.
 
 ### Hand-picked frames per replay, not every frame
 
@@ -142,8 +153,9 @@ densely-spaced ticks instead.
   `PROJECTS/ROLLER/png_writer.{c,h}`.
 - Build step: `zig build test-snapshots`. Drives the snapshot binary
   serially across each entry in `snapshot_replays`, writing PNGs straight
-  into `tests/snapshots/expected/`, then runs
-  `git diff --exit-code --stat -- tests/snapshots/expected/`. With
-  `-Dupdate-snapshots` the diff check is skipped.
+  into `tests/snapshots/baselines/`, then runs
+  `git diff --exit-code --stat -- tests/snapshots/baselines/`. With
+  `-Dscratch` the captures land in `zig-out/snapshot-scratch/` and the
+  diff check is skipped.
 - LFS scope: `.gitattributes` carries
-  `tests/snapshots/expected/*.png filter=lfs diff=lfs merge=lfs -text`.
+  `tests/snapshots/baselines/*.png filter=lfs diff=lfs merge=lfs -text`.

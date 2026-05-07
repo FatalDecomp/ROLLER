@@ -195,14 +195,16 @@ fn configureSnapshotTests(
     roller_exe: *Compile,
     assets_path: LazyPath,
 ) void {
-    const update_snapshots = b.option(
+    const scratch = b.option(
         bool,
-        "update-snapshots",
-        "Skip the post-capture git-diff check so a refresh run can blesss new baselines without failing the build",
+        "scratch",
+        "Capture into zig-out/snapshot-scratch/ and skip the diff check. Use this on non-canonical hosts to sanity-check captures without mutating the LFS-tracked baselines.",
     ) orelse false;
 
-    const expected_dir = "tests/snapshots/expected";
-    const expected_abs = b.pathJoin(&.{ b.build_root.path orelse ".", expected_dir });
+    const baselines_dir = "tests/snapshots/baselines";
+    const scratch_dir = "zig-out/snapshot-scratch";
+    const out_rel = if (scratch) scratch_dir else baselines_dir;
+    const out_abs = b.pathJoin(&.{ b.build_root.path orelse ".", out_rel });
 
     const test_snapshots = b.step(
         "test-snapshots",
@@ -224,29 +226,33 @@ fn configureSnapshotTests(
         run_capture.addArg("--frames");
         run_capture.addArg(replay.frames);
         run_capture.addArg("--out");
-        run_capture.addArg(expected_abs);
+        run_capture.addArg(out_abs);
         run_capture.has_side_effects = true;
         if (prev_run) |p| run_capture.step.dependOn(p);
         prev_run = &run_capture.step;
     }
 
-    if (update_snapshots) {
-        // Refresh-only mode. The developer commits the resulting diff
-        // explicitly when they intend to bless the new pixels.
+    if (scratch) {
+        // Scratch mode never touches the LFS-tracked baselines, so the
+        // git-diff gate doesn't apply. Developers compare the scratch
+        // directory against the baselines with whatever tool they prefer
+        // (e.g. `diff -rq tests/snapshots/baselines zig-out/snapshot-scratch`).
         if (prev_run) |p| test_snapshots.dependOn(p);
         return;
     }
 
-    // After the captures land, fail the build if the baseline directory
-    // diverges from HEAD. The diff itself is what reviewers see in the PR
-    // (GitHub renders binary PNGs as side-by-side image diffs).
+    // After the captures land in the canonical baseline directory, fail the
+    // build if any baseline diverged from HEAD. The diff itself is what
+    // reviewers see in the PR (GitHub renders LFS-backed PNGs as
+    // side-by-side image diffs). To bless an intentional change the
+    // developer reruns, eyeballs the working-tree diff, and commits.
     const diff_check = b.addSystemCommand(&.{
         "git",
         "diff",
         "--exit-code",
         "--stat",
         "--",
-        expected_dir,
+        baselines_dir,
     });
     diff_check.has_side_effects = true;
     if (prev_run) |p| diff_check.step.dependOn(p);
