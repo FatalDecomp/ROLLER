@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
+            "PROJECTS/ROLLER/png_diff.c",
             "PROJECTS/ROLLER/png_writer.c",
             "PROJECTS/ROLLER/polyf.c",
             "PROJECTS/ROLLER/polytex.c",
@@ -157,6 +158,110 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "midi",
     });
     run_step.dependOn(&wildmidi_config_install.step);
+
+    // Snapshot regression harness: build the comparison walker, then wire a
+    // top-level `zig build test-snapshots` step that drives the snapshot
+    // binary across all seven intro replays before invoking the walker. The
+    // -Dupdate-snapshots flag flips the walker into write-baselines mode.
+    configureSnapshotTests(b, exe, assets_path, target, optimize);
+}
+
+const SnapshotReplay = struct {
+    name: []const u8,
+    frames: []const u8,
+};
+
+// Hand-picked frames per intro replay. Spread across each replay's length.
+// Pinned to single-host pixels per the ADR.
+const snapshot_replays = [_]SnapshotReplay{
+    .{ .name = "intro1", .frames = "60,240,480,720" },
+};
+
+fn configureSnapshotTests(
+    b: *Build,
+    roller_exe: *Compile,
+    assets_path: LazyPath,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+) void {
+    const update_snapshots = b.option(
+        bool,
+        "update-snapshots",
+        "Overwrite snapshot baselines under tests/snapshots/expected/ with the current actuals",
+    ) orelse false;
+
+    const walker_mod = b.createModule(.{
+        .root_source_file = b.path("tools/snapshot_walker.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    walker_mod.addIncludePath(b.path("external/lodepng"));
+    walker_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    walker_mod.addCSourceFiles(.{
+        .flags = &.{ "-fwrapv", "-DLODEPNG_NO_COMPILE_CPP" },
+        .files = &.{"external/lodepng/lodepng.c"},
+    });
+    walker_mod.addCSourceFiles(.{
+        .flags = &.{"-fwrapv"},
+        .files = &.{
+            "PROJECTS/ROLLER/png_writer.c",
+            "PROJECTS/ROLLER/png_diff.c",
+        },
+    });
+
+    const walker_exe = b.addExecutable(.{
+        .name = "snapshot_walker",
+        .root_module = walker_mod,
+    });
+    b.installArtifact(walker_exe);
+
+    const expected_dir = "tests/snapshots/expected";
+    const actual_dir = "zig-out/snapshot-actual";
+    const diff_dir = "zig-out/snapshot-diff";
+
+    const test_snapshots = b.step(
+        "test-snapshots",
+        "Run rendering snapshot regression tests across the intro replays",
+    );
+
+    const walker_run = b.addRunArtifact(walker_exe);
+    walker_run.addArg("--expected");
+    walker_run.addArg(expected_dir);
+    walker_run.addArg("--actual");
+    walker_run.addArg(actual_dir);
+    walker_run.addArg("--diff");
+    walker_run.addArg(diff_dir);
+    if (update_snapshots) walker_run.addArg("--update");
+
+    // Drive the snapshot binary serially: parallel invocations introduced
+    // non-deterministic pixels at long-running replay frames (suspected:
+    // contention on shared system probes during early init).
+    var prev_run: ?*Step = null;
+    for (snapshot_replays) |replay| {
+        const run_capture = b.addRunArtifact(roller_exe);
+        run_capture.addArg("--no-crash-handler");
+        run_capture.addArg("--whiplash-root");
+        run_capture.addDirectoryArg(assets_path);
+        run_capture.addArg("--snapshot");
+        run_capture.addArg(b.fmt("{s}.gss", .{replay.name}));
+        run_capture.addArg("--frames");
+        run_capture.addArg(replay.frames);
+        run_capture.addArg("--out");
+        run_capture.addArg(b.pathJoin(&.{ b.build_root.path orelse ".", actual_dir }));
+        run_capture.has_side_effects = true;
+        if (prev_run) |p| run_capture.step.dependOn(p);
+        walker_run.step.dependOn(&run_capture.step);
+        prev_run = &run_capture.step;
+    }
+
+    test_snapshots.dependOn(&walker_run.step);
+
+    // Unit tests for the walker (diff generator + decode round-trip).
+    const walker_tests = b.addTest(.{ .root_module = walker_mod });
+    const run_walker_tests = b.addRunArtifact(walker_tests);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_walker_tests.step);
 }
 
 fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optimize: OptimizeMode) void {

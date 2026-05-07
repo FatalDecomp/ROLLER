@@ -5,6 +5,7 @@
 #include "sound.h"
 #include "frontend.h"
 #include "roller.h"
+#include <SDL3/SDL_filesystem.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -125,6 +126,10 @@ void SnapshotPresent(void)
   if (bMatch) {
     char szPath[512];
     SnapshotBuildPath(szPath, sizeof(szPath), currentreplayframe);
+
+    // Make sure the output directory exists; fopen("wb") inside lodepng won't
+    // mkdir for us.
+    SDL_CreateDirectory(g_SnapshotConfig.szOutDir);
 
     int iRc = RollerWriteIndexedPng(szPath, scrbuf, palette, 640, 400);
     if (iRc != 0) {

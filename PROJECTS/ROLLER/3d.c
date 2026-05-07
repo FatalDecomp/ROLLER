@@ -1234,9 +1234,14 @@ int main(int argc, const char **argv, const char **envp)
     return 1;
   }
 
-  InitFATDATA(whiplash_root);
-  InitREPLAYS(whiplash_root);
-  ROLLERGetAudioInfo();
+  if (!g_bSnapshotMode) {
+    // The CD-image extraction prompt, replays directory bootstrap, and audio
+    // probe are all interactive or audio-device-dependent: skip in headless
+    // snapshot mode. The replay file is loaded directly from cwd later.
+    InitFATDATA(whiplash_root);
+    InitREPLAYS(whiplash_root);
+    ROLLERGetAudioInfo();
+  }
 
   ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
   oldmode = readmode();                         // Save current video mode
