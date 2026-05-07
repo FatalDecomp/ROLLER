@@ -274,27 +274,39 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
         return;
     }
 
-    /* Routing: building textures use other_texture[] lookup,
-     * wall polygons use wide 2048x1024 layout, everything else
-     * uses standard 1024x1024. */
-    {
-        int subpolyType;
-        if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
-            && sw->texSlots[handle].in_use
-            && sw->texSlots[handle].tex_idx == TEXTURE_BANK_BUILDING) {
-            subpolyType = SUBPOLY_BUILDING;
-        } else if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) {
-            subpolyType = SUBPOLY_WALL;
-        } else {
-            subpolyType = SUBPOLY_STANDARD;
+    /* Routing: building and wall textures need subdivide for their
+     * special layouts (other_texture[] lookup and 2048x1024 wide).
+     * All other textures (car, cargen, standard track) use POLYTEX
+     * directly — same as the screen-space path. */
+    if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
+        && sw->texSlots[handle].in_use) {
+        int tex_idx = sw->texSlots[handle].tex_idx;
+        if (tex_idx == TEXTURE_BANK_BUILDING) {
+            subdivide(screen_pointer, &poly,
+                      vx[0], vy[0], vz[0],
+                      vx[1], vy[1], vz[1],
+                      vx[2], vy[2], vz[2],
+                      vx[3], vy[3], vz[3],
+                      SUBPOLY_BUILDING, proj->texHalfRes);
+            return;
         }
-        subdivide(screen_pointer, &poly,
-                  vx[0], vy[0], vz[0],
-                  vx[1], vy[1], vz[1],
-                  vx[2], vy[2], vz[2],
-                  vx[3], vy[3], vz[3],
-                  subpolyType, proj->texHalfRes);
+        if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE)
+            && tex_idx == TEXTURE_BANK_TRACK) {
+            subdivide(screen_pointer, &poly,
+                      vx[0], vy[0], vz[0],
+                      vx[1], vy[1], vz[1],
+                      vx[2], vy[2], vz[2],
+                      vx[3], vy[3], vz[3],
+                      SUBPOLY_WALL, proj->texHalfRes);
+            return;
+        }
+        /* Car, cargen, standard track, and all other textures. */
+        POLYTEX(sw->texSlots[handle].pixels, screen_pointer,
+                &poly, tex_idx, sw->texSlots[handle].gfx_size);
+        return;
     }
+    /* No valid handle with pixel data: treated as flat. */
+    POLYFLAT(screen_pointer, &poly);
 }
 
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
