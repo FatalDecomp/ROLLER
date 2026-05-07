@@ -2751,39 +2751,23 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
       if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) == 0 && (uint8)uiTex == uiColorFrom)
         uiTex = uiColorTo_1;
 
-      CarPol.iSurfaceType = uiTex;
-
-      // Render pol
-      if (fMinViewZ >= 1.0) {
-        if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
-          iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
-          iGfxSize = gfx_size;
-          POLYTEX(cartex_vga[iCartexOffset - 1], pScreenBuffer, &CarPol, iCartexOffset, gfx_size);
-        } else                                    // flat color pol
-        {
-          POLYFLAT(pScreenBuffer, &CarPol);
-        }
-      } else                                      // near plane clipping required
       {
-        iGfxSize = gfx_size;
-        // Subdivide pol for proper clipping
-        subdivide(
-          pScreenBuffer,
-          &CarPol,
-          screenVertAy[0]->view.fX,
-          screenVertAy[0]->view.fY,
-          screenVertAy[0]->view.fZ,
-          screenVertAy[1]->view.fX,
-          screenVertAy[1]->view.fY,
-          screenVertAy[1]->view.fZ,
-          screenVertAy[2]->view.fX,
-          screenVertAy[2]->view.fY,
-          screenVertAy[2]->view.fZ,
-          screenVertAy[3]->view.fX,
-          screenVertAy[3]->view.fY,
-          screenVertAy[3]->view.fZ,
-          iSubPolType,
-          gfx_size);
+        GameRenderVertex verts[4];
+        TextureHandle th;
+        int m;
+        for (m = 0; m < 4; m++) {
+          verts[m].x = screenVertAy[m]->world.fX;
+          verts[m].y = screenVertAy[m]->world.fY;
+          verts[m].z = screenVertAy[m]->world.fZ;
+          verts[m].u = 0.0f;
+          verts[m].v = 0.0f;
+        }
+        if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled)
+          th = game_render_get_texture_handle(g_pGameRenderer,
+                   car_texmap[uiCarDesignIdxTimes4 / 4]);
+        else
+          th = TEXTURE_HANDLE_INVALID;
+        game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex);
       }
       iDrawIdx += 12;
     } while (iDrawIdx < iTotalZOrderBytes);
