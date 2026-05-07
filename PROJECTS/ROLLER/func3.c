@@ -2751,7 +2751,8 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
       if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) == 0 && (uint8)uiTex == uiColorFrom)
         uiTex = uiColorTo_1;
 
-      {
+      CarPol.iSurfaceType = uiTex;
+      if (g_pGameRenderer != NULL) {
         GameRenderVertex verts[4];
         TextureHandle th;
         int m;
@@ -2768,6 +2769,30 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
         else
           th = TEXTURE_HANDLE_INVALID;
         game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex);
+      } else {
+        /* Fallback for menu car preview: renderer not active. */
+        if (fMinViewZ >= 1.0) {
+          if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
+            iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
+            iGfxSize = gfx_size;
+            POLYTEX(cartex_vga[iCartexOffset - 1], pScreenBuffer,
+                    &CarPol, iCartexOffset, gfx_size);
+          } else {
+            POLYFLAT(pScreenBuffer, &CarPol);
+          }
+        } else {
+          iGfxSize = gfx_size;
+          subdivide(pScreenBuffer, &CarPol,
+                    screenVertAy[0]->view.fX, screenVertAy[0]->view.fY,
+                    screenVertAy[0]->view.fZ,
+                    screenVertAy[1]->view.fX, screenVertAy[1]->view.fY,
+                    screenVertAy[1]->view.fZ,
+                    screenVertAy[2]->view.fX, screenVertAy[2]->view.fY,
+                    screenVertAy[2]->view.fZ,
+                    screenVertAy[3]->view.fX, screenVertAy[3]->view.fY,
+                    screenVertAy[3]->view.fZ,
+                    iSubPolType, gfx_size);
+        }
       }
       iDrawIdx += 12;
     } while (iDrawIdx < iTotalZOrderBytes);
