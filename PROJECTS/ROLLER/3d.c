@@ -19,6 +19,7 @@
 #include "building.h"
 #include "rollercomms.h"
 #include "crashdump.h"
+#include "snapshot.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -1087,6 +1088,9 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
   fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
+  fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
+  fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
+  fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1167,6 +1171,34 @@ int main(int argc, const char **argv, const char **envp)
         fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--snapshot") == 0) {
+      if (i + 1 < argc) {
+        SnapshotSetReplay(argv[i + 1]);
+        g_bSnapshotMode = 1;
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--snapshot' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--frames") == 0) {
+      if (i + 1 < argc) {
+        if (SnapshotParseFrames(argv[i + 1]) != 0) {
+          fprintf(stderr, "ERROR: '--frames' must be a comma-separated list of non-negative integers\n");
+          return 1;
+        }
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--frames' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--out") == 0) {
+      if (i + 1 < argc) {
+        SnapshotSetOutDir(argv[i + 1]);
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--out' needs an argument\n");
+        return 1;
+      }
     }
     if (consumed < 0) {
       fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
@@ -1176,16 +1208,40 @@ int main(int argc, const char **argv, const char **envp)
     i += consumed;
   }
 
+  if (g_bSnapshotMode) {
+    if (g_SnapshotConfig.szReplayName[0] == '\0') {
+      fprintf(stderr, "ERROR: '--snapshot' requires a replay filename\n");
+      return 1;
+    }
+    if (g_SnapshotConfig.iNumFrames == 0) {
+      fprintf(stderr, "ERROR: '--snapshot' requires '--frames N[,M,...]'\n");
+      return 1;
+    }
+    if (g_SnapshotConfig.szOutDir[0] == '\0') {
+      fprintf(stderr, "ERROR: '--snapshot' requires '--out DIR'\n");
+      return 1;
+    }
+    iCrashHandlerEnabled = 0;
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    srand(0);
+    ROLLERsrand(0);
+  }
+
   if (iCrashHandlerEnabled)
     InitCrashHandler();
-  
+
   if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;
   }
 
-  InitFATDATA(whiplash_root);
-  InitREPLAYS(whiplash_root);
-  ROLLERGetAudioInfo();
+  if (!g_bSnapshotMode) {
+    // The CD-image extraction prompt, replays directory bootstrap, and audio
+    // probe are all interactive or audio-device-dependent: skip in headless
+    // snapshot mode. The replay file is loaded directly from cwd later.
+    InitFATDATA(whiplash_root);
+    InitREPLAYS(whiplash_root);
+    ROLLERGetAudioInfo();
+  }
 
   ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
   oldmode = readmode();                         // Save current video mode
@@ -1211,7 +1267,13 @@ int main(int argc, const char **argv, const char **envp)
   memset(mem_blocks, 0, sizeof(mem_blocks));
   cheat_mode = 0;
   load_language_map();
-  load_fatal_config();
+  if (g_bSnapshotMode) {
+    // Bypass fatal.ini so the user's local settings can't drift the
+    // captured pixels.
+    SnapshotApplyFixedSettings();
+  } else {
+    load_fatal_config();
+  }
   if ((textures_off & TEX_OFF_WIDESCREEN) != 0)           // Check for debug cheat flags in textures_off
   {
     cheat_mode |= CHEAT_MODE_WIDESCREEN;
@@ -1247,7 +1309,13 @@ int main(int argc, const char **argv, const char **envp)
   // claim_ticktimer which sets up a callback to
   // increment ticks
   Initialise_SOS();
-  check_machine_speed();
+  if (g_bSnapshotMode) {
+    // The SDL tick timer is not running in snapshot mode, so the busy-loop
+    // calibration in check_machine_speed would hang. Pick a sane default.
+    machine_speed = 9000;
+  } else {
+    check_machine_speed();
+  }
   if (fatal_ini_loaded)                       // Apply performance settings based on machine speed
   {
     if (view_limit) {
@@ -1289,8 +1357,10 @@ int main(int argc, const char **argv, const char **envp)
   init();
   print_data = 0;
   tick_on = 0;
-  copy_screens();                               // Copy screen buffers and display title screens
-  title_screens();
+  if (!g_bSnapshotMode) {
+    copy_screens();                               // Copy screen buffers and display title screens
+    title_screens();
+  }
   time_to_start = 0;                            // Initialize race state variables
   replaytype = 2;
   start_race = 0;
@@ -1304,6 +1374,10 @@ int main(int argc, const char **argv, const char **envp)
   intro = -1;
   play_game(TrackLoad);                   // Start initial game with intro sequence
   intro = 0;
+  if (g_bSnapshotMode) {
+    doexit();
+    return 0;
+  }
   VIEWDIST = 270;                               // Main game loop - continues until quit_game is set
   do {
     start_race = 0;
@@ -2071,8 +2145,16 @@ void play_game(int iTrack)
 
     //added by ROLLER - ensure we get a frame update before next process
     //TODO: figure out how this was handled originally
-    while (iLastFrame == frames)
-      ;
+    if (g_bSnapshotMode) {
+      // No SDL tick timer in snapshot mode: drive replay one tick per
+      // iteration with no wall-clock pacing, and zero scrbuf so any
+      // unredrawn region cannot leak from the previous frame.
+      SnapshotZeroScreen();
+      SnapshotAdvanceTick();
+    } else {
+      while (iLastFrame == frames)
+        ;
+    }
     iLastFrame = frames;
 
     UpdateSDL();

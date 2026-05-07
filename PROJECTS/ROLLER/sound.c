@@ -14,6 +14,7 @@
 #include "tower.h"
 #include "view.h"
 #include "transfrm.h"
+#include "snapshot.h"
 #include <memory.h>
 #include <ctype.h>
 #include <SDL3/SDL.h>
@@ -471,8 +472,11 @@ void Initialise_SOS()
   ticks = 0;
   frames = 0;
 
-  // start 36Hz timer that calls tickhandler
-  claim_ticktimer(36u);
+  // start 36Hz timer that calls tickhandler. In snapshot mode the tick is
+  // driven manually one tick per render iteration, so the timer is not
+  // installed.
+  if (!g_bSnapshotMode)
+    claim_ticktimer(36u);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3365,6 +3369,14 @@ void SOSTimerCallbackS7()
 //0003E680
 void fade_palette(int iTargetBrightness)
 {
+  if (g_bSnapshotMode) {
+    // In snapshot capture, fade animations are skipped: PNGs are the raw
+    // pixels with the active palette. Keep palette_brightness in sync and
+    // signal that the palette is valid so the snapshot hook will write.
+    palette_brightness = iTargetBrightness;
+    if (pal_addr) g_bPaletteSet = true;
+    return;
+  }
   int iOriginalTickOn = tick_on;
   int iOriginalTicks = ticks;
   uint32 uiTimerHandle = 0;
@@ -3398,7 +3410,7 @@ void fade_palette(int iTargetBrightness)
         pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
       }
 
-      if (current_mode != 0) {
+      if (current_mode != 0 && !g_bSnapshotMode) {
         //could also do this instead of SDL timer
         //uint32 uiStartTime = SDL_GetTicks();
         //while (SDL_GetTicks() - uiStartTime < 70) {
@@ -3443,7 +3455,7 @@ void fade_palette(int iTargetBrightness)
         pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
       }
 
-      if (current_mode != 0) {
+      if (current_mode != 0 && !g_bSnapshotMode) {
         int iPrevS7 = s7;
         while (s7 == iPrevS7); // Wait for timer tick
       } else {
