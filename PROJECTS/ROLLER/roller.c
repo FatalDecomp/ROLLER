@@ -7,6 +7,7 @@
 #include "config.h"
 #include "menu_render.h"
 #include "debug_overlay.h"
+#include "snapshot.h"
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -213,6 +214,11 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
 
 void UpdateSDLWindow()
 {
+  if (g_bSnapshotMode) {
+    SnapshotPresent();
+    return;
+  }
+
   if (!g_bPaletteSet) return;
 
   // Acquire command buffer
@@ -295,7 +301,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 
-  if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) {
+  Uint32 uiSdlInitFlags = SDL_INIT_VIDEO;
+  if (!g_bSnapshotMode)
+    uiSdlInitFlags |= SDL_INIT_AUDIO | SDL_INIT_JOYSTICK;
+  if (!SDL_Init(uiSdlInitFlags)) {
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
   }
@@ -315,6 +324,13 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   g_pTimerMutex = SDL_CreateMutex();
   s_pDigiMutex = SDL_CreateMutex();
+
+  if (g_bSnapshotMode) {
+    // Headless capture path: skip window/GPU/audio/MIDI init entirely.
+    // The dummy SDL_VIDEO_DRIVER hint set by main() lets SDL_INIT_VIDEO
+    // succeed without a display server.
+    return 0;
+  }
 
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
   if (!s_pWindow) {
@@ -747,20 +763,22 @@ void InitREPLAYS(const char *szDataRoot)
 
 void ShutdownSDL()
 {
-  MIDI_Shutdown();
+  if (!g_bSnapshotMode) {
+    MIDI_Shutdown();
 
-  if (g_pController1) SDL_CloseGamepad(g_pController1);
-  if (g_pController2) SDL_CloseGamepad(g_pController2);
-  SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    if (g_pController1) SDL_CloseGamepad(g_pController1);
+    if (g_pController2) SDL_CloseGamepad(g_pController2);
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 
-  debug_overlay_destroy(s_pDebugOverlay);
-  s_pDebugOverlay = NULL;
-  menu_render_destroy(s_pMenuRenderer);
-  SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
-  SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
-  SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
-  SDL_DestroyGPUDevice(s_pGPUDevice);
-  SDL_DestroyWindow(s_pWindow);
+    debug_overlay_destroy(s_pDebugOverlay);
+    s_pDebugOverlay = NULL;
+    menu_render_destroy(s_pMenuRenderer);
+    SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
+    SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
+    SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
+    SDL_DestroyGPUDevice(s_pGPUDevice);
+    SDL_DestroyWindow(s_pWindow);
+  }
 
   if (s_pDigiMutex) {
     SDL_DestroyMutex(s_pDigiMutex);
@@ -1119,6 +1137,7 @@ bool MIDI_Init(const char *config_file)
 
 void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
 {
+  if (g_bSnapshotMode) return;
   midi *midi_ptr = WildMidi_OpenBuffer(midi_buffer, midi_length);
   if (!midi_ptr) {
     SDL_Log("WildMidi_OpenBuffer failed: %s", WildMidi_GetError());
@@ -1249,6 +1268,7 @@ void MIDIClearStream()
 /// <param name="data">Pointer to a tInitSong structure containing the MIDI song data and its length.</param>
 void MIDIInitSong(tInitSong *data)
 {
+  if (g_bSnapshotMode) return;
   MIDIStopSong();
 
   SDL_Log("MIDIInitSong: Midi - Length: %i", data->iLength);
@@ -1401,6 +1421,7 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
 
 int DIGISampleStart(tSampleData *data)
 {
+  if (g_bSnapshotMode) return -1;
   DIGILock();
 
   int index = -1;

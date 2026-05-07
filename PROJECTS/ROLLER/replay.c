@@ -9,6 +9,7 @@
 #include "control.h"
 #include "view.h"
 #include "function.h"
+#include "snapshot.h"
 #include <string.h>
 #include <errno.h>
 #include <math.h>
@@ -215,7 +216,14 @@ void setreplaytrack()
     oldtrack = TrackLoad;                       // Save current game state before loading replay
     oldcars = numcars;
     oldtextures = textures_off;
-    if (intro || replayfilename[0] == 73) {
+    if (g_bSnapshotMode) {
+      // Snapshot capture: bind to the exact replay file the user named on the
+      // command line, bypassing the random intro picker.
+      strncpy(rememberfilename, replayfilename, sizeof(rememberfilename) - 1);
+      rememberfilename[sizeof(rememberfilename) - 1] = '\0';
+      strncpy(replayfilename, g_SnapshotConfig.szReplayName, sizeof(replayfilename) - 1);
+      replayfilename[sizeof(replayfilename) - 1] = '\0';
+    } else if (intro || replayfilename[0] == 73) {
       pszRememberFilename = rememberfilename;   // Copy current filename to remember buffer
       pszReplayFilename = replayfilename;
       do {
