@@ -2287,13 +2287,15 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
     iYOffset = 0;
   } else {
     iCharIndex = (uint8)font6_ascii[(uint8)byChar];// Use default font6 with Y offset from font6_offsets table
-    if (iCharIndex == 255) {                    // Space sentinel: advance X and return before touching font6_offsets
-      *piXPos += (4 * scr_size) >> 6;
-      scr_size = iSavedScrSize;
-      return;
-    }
-    iYOffset = font6_offsets[iCharIndex];
+    iYOffset = 0;
   }
+  if (iCharIndex == 255) {                    // Space/unmapped sentinel: advance X and return before touching glyph data
+    *piXPos += (4 * iSavedScrSize) >> 6;
+    scr_size = iSavedScrSize;
+    return;
+  }
+  if (!iFontType)
+    iYOffset = font6_offsets[iCharIndex];
   pCharData = &pBlockHeader[iCharIndex];        // Get character data: width, height, bitmap offset (12 bytes per character)
   if (scr_size != 64)                         // Branch: scr_size == 64 uses simple blitting, != 64 uses scaled rendering
   {                                             // Scaled path
@@ -2385,8 +2387,15 @@ void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *p
     iYOffset = 0;
   } else {
     byCharIndex = (uint8)font6_ascii[(uint8)byChar];// Use default font6 with Y offset from font6_offsets table
-    iYOffset = font6_offsets[byCharIndex];
+    iYOffset = 0;
   }
+  if (byCharIndex == 255) {                   // Space/unmapped sentinel: move X and return before touching glyph data
+    *piXPos -= (4 * iSavedScrSize) >> 6;
+    scr_size = iSavedScrSize;
+    return;
+  }
+  if (!iFontType)
+    iYOffset = font6_offsets[byCharIndex];
   pCharData = &pBlockHeader[byCharIndex];       // Get character data block: width, height, bitmap offset
   if (scr_size != 64)                         // Branch: scr_size == 64 uses simple reverse blitting, != 64 uses scaled reverse rendering
   {                                             // Scaled path: Check for space character (index 255)
