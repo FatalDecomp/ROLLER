@@ -387,43 +387,9 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 }
 
 //-------------------------------------------------------------------------------------------------
-// Vertex assignment helpers — capture the three winding patterns used by
-// DrawTrack3 when building quads from adjacent track sections.
-// NEXT = pScreenCoord (iNextSectionIndex), CUR = pScreenCoord_1 (iSectionNum).
-
-// Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
-static void quad_verts_forward(tPolyParams *poly,
-    tTrackScreenXYZ *next, tTrackScreenXYZ *cur, int ptA, int ptB)
-{
-    poly->vertices[0] = next->screenPtAy[ptA].screen;
-    poly->vertices[1] = cur->screenPtAy[ptA].screen;
-    poly->vertices[2] = cur->screenPtAy[ptB].screen;
-    poly->vertices[3] = next->screenPtAy[ptB].screen;
-}
-
-// Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
-static void quad_verts_cross_first(tPolyParams *poly,
-    tTrackScreenXYZ *next, tTrackScreenXYZ *cur, int ptA, int ptB)
-{
-    poly->vertices[0] = next->screenPtAy[ptA].screen;
-    poly->vertices[1] = next->screenPtAy[ptB].screen;
-    poly->vertices[2] = cur->screenPtAy[ptB].screen;
-    poly->vertices[3] = cur->screenPtAy[ptA].screen;
-}
-
-// Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
-static void quad_verts_reverse(tPolyParams *poly,
-    tTrackScreenXYZ *next, tTrackScreenXYZ *cur, int ptA, int ptB)
-{
-    poly->vertices[0] = cur->screenPtAy[ptA].screen;
-    poly->vertices[1] = next->screenPtAy[ptA].screen;
-    poly->vertices[2] = next->screenPtAy[ptB].screen;
-    poly->vertices[3] = cur->screenPtAy[ptB].screen;
-}
-
 //-------------------------------------------------------------------------------------------------
-// World-space vertex builders — same three winding patterns as above,
-// reading from the caller-provided tGroundPt array.
+// World-space vertex builders — three winding patterns (forward, cross_first, reverse)
+// reading from the caller-provided point array (tGroundPt or tTrakPt).
 
 // Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
 static void world_verts_forward(GameRenderVertex *verts,
