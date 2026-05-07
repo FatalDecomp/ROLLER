@@ -72,6 +72,30 @@ A custom data folder
 zig build -Dassets-path=/path/to/fatdata run
 ```
 
+## Testing
+
+### Rendering snapshot tests
+
+```bash
+git lfs install        # one-time, the baselines are LFS-tracked
+zig build test-snapshots
+```
+
+Captures the indexed framebuffer of every intro replay at hand-picked
+ticks and runs `git diff` against the checked-in baselines. Any pixel
+change shows up as a tracked-file diff that GitHub renders as a
+side-by-side image diff in PRs.
+
+On a non-canonical host (anything other than the pinned reference
+machine) use `-Dscratch` to capture into `zig-out/snapshot-scratch/`
+without touching the LFS-tracked baselines.
+
+See [`tests/snapshots/README.md`](tests/snapshots/README.md) for the
+full developer workflow (blessing intentional pixel changes,
+troubleshooting, etc.) and
+[`docs/adr/0001-rendering-snapshot-tests.md`](docs/adr/0001-rendering-snapshot-tests.md)
+for the policy decisions.
+
 [ci-shd]: https://img.shields.io/github/actions/workflow/status/FatalDecomp/ROLLER/ci.yml?branch=master&style=for-the-badge&logo=github&label=CI&labelColor=black
 [ci-url]: https://github.com/FatalDecomp/ROLLER/blob/master/.github/workflows/ci.yml
 [lc-shd]: https://img.shields.io/github/license/FatalDecomp/ROLLER.svg?style=for-the-badge&labelColor=black
