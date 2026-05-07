@@ -2475,265 +2475,63 @@ LABEL_393:
           }
           goto LABEL_1271;
         case 0xA:
-          RoofPoly.uiNumVerts = 4;
-          iGeometryIndex = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
-          RoofPoly.iSurfaceType = iGeometryIndex;
-          if (iGeometryIndex < 0) {
-            RoofPoly.vertices[2].x = GroundScreenXYZ[iNextSectionIndex].screenPtAy[5].screen.x;
-            RoofPoly.vertices[2].y = GroundScreenXYZ[iNextSectionIndex].screenPtAy[5].screen.y;
-            RoofPoly.vertices[3].x = GroundScreenXYZ[iNextSectionIndex].screenPtAy[0].screen.x;
-            RoofPoly.vertices[3].y = GroundScreenXYZ[iNextSectionIndex].screenPtAy[0].screen.y;
-            RoofPoly.vertices[0].x = GroundScreenXYZ[iNextSectionIndex].screenPtAy[1].screen.x;
-            RoofPoly.vertices[0].y = GroundScreenXYZ[iNextSectionIndex].screenPtAy[1].screen.y;
-            iProcessingIndex = GroundScreenXYZ[iNextSectionIndex].screenPtAy[4].screen.x;
-            RoofPoly.iSurfaceType = -iGeometryIndex;
-            RoofPoly.vertices[1].x = iProcessingIndex;
-            RoofPoly.vertices[1].y = GroundScreenXYZ[iNextSectionIndex].screenPtAy[4].screen.y;
-            if ((-iGeometryIndex & SURFACE_FLAG_TEXTURE_PAIR) != 0) {
-              set_starts(1u);
-              if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                RoofPoly.iSurfaceType = remap_tex[(uint8)(RoofPoly.iSurfaceType)] + (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-              if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-                fComputedDepth1 = pNextGroundScreen->screenPtAy[4].projected.fZ;
-              else
-                fComputedDepth1 = pNextGroundScreen->screenPtAy[1].projected.fZ;
-              fProjectionTempY4 = fComputedDepth1;
-              if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
-                fRenderValue1 = pNextGroundScreen->screenPtAy[0].projected.fZ;
-              else
-                fRenderValue1 = pNextGroundScreen->screenPtAy[5].projected.fZ;
-              fProjectionTempZ4 = fRenderValue1;
-              if (fProjectionTempY4 >= (double)fRenderValue1) {
-                if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
-                  fRenderValue2 = pNextGroundScreen->screenPtAy[0].projected.fZ;
-                else
-                  fRenderValue2 = pNextGroundScreen->screenPtAy[5].projected.fZ;
-                fProjectionTempZ5 = fRenderValue2;
-              } else {
-                if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-                  fRenderValue2 = pNextGroundScreen->screenPtAy[4].projected.fZ;
-                else
-                  fRenderValue2 = pNextGroundScreen->screenPtAy[1].projected.fZ;
-                fProjectionTempY5 = fRenderValue2;
-              }
-              fProjectionTempX5 = fRenderValue2;
-              iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[5];
-              if ((double)(int16)iRenderingTemp * subscale > fRenderValue2) {
-                subdivide(
-                  pScrPtr_1,
-                  &RoofPoly,
-                  pNextGroundScreen->screenPtAy[1].projected.fX,
-                  pNextGroundScreen->screenPtAy[1].projected.fY,
-                  pNextGroundScreen->screenPtAy[1].projected.fZ,
-                  pNextGroundScreen->screenPtAy[4].projected.fX,
-                  pNextGroundScreen->screenPtAy[4].projected.fY,
-                  pNextGroundScreen->screenPtAy[4].projected.fZ,
-                  pNextGroundScreen->screenPtAy[5].projected.fX,
-                  pNextGroundScreen->screenPtAy[5].projected.fY,
-                  pNextGroundScreen->screenPtAy[5].projected.fZ,
-                  pNextGroundScreen->screenPtAy[0].projected.fX,
-                  pNextGroundScreen->screenPtAy[0].projected.fY,
-                  pNextGroundScreen->screenPtAy[0].projected.fZ,
-                  -1,
-                  gfx_size);
-                goto LABEL_1271;
-              }
-              if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
-              LABEL_826:
-                game_render_quad(g_pGameRenderer, &RoofPoly, TEXTURE_HANDLE_INVALID, NULL);
-                goto LABEL_1203;
-              }
-            LABEL_924:
-              game_render_quad(g_pGameRenderer, &RoofPoly, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
-              goto LABEL_1203;
-            }
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              RoofPoly.iSurfaceType = (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE)) + remap_tex[(uint8)(RoofPoly.iSurfaceType)];
-            set_starts(0);
-            if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-              fRenderValue3 = pNextGroundScreen->screenPtAy[4].projected.fZ;
-            else
-              fRenderValue3 = pNextGroundScreen->screenPtAy[1].projected.fZ;
-            fScreenTempZ6 = fRenderValue3;
-            if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
-              fRenderValue4 = pNextGroundScreen->screenPtAy[0].projected.fZ;
-            else
-              fRenderValue4 = pNextGroundScreen->screenPtAy[5].projected.fZ;
-            fProjectionTempX6 = fRenderValue4;
-            if (fScreenTempZ6 >= (double)fRenderValue4) {
-              if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
-                fRenderValue5 = pNextGroundScreen->screenPtAy[0].projected.fZ;
-              else
-                fRenderValue5 = pNextGroundScreen->screenPtAy[5].projected.fZ;
-              fProjectionTempX7 = fRenderValue5;
-            } else {
-              if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-                fRenderValue5 = pNextGroundScreen->screenPtAy[4].projected.fZ;
-              else
-                fRenderValue5 = pNextGroundScreen->screenPtAy[1].projected.fZ;
-              fProjectionTempZ6 = fRenderValue5;
-            }
-            fProjectionTempY6 = fRenderValue5;
-            iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[5];
-            if ((double)(int16)iRenderingTemp * subscale > fRenderValue5) {
-              subdivide(
-                pScrPtr_1,
-                &RoofPoly,
-                pNextGroundScreen->screenPtAy[1].projected.fX,
-                pNextGroundScreen->screenPtAy[1].projected.fY,
-                pNextGroundScreen->screenPtAy[1].projected.fZ,
-                pNextGroundScreen->screenPtAy[4].projected.fX,
-                pNextGroundScreen->screenPtAy[4].projected.fY,
-                pNextGroundScreen->screenPtAy[4].projected.fZ,
-                pNextGroundScreen->screenPtAy[5].projected.fX,
-                pNextGroundScreen->screenPtAy[5].projected.fY,
-                pNextGroundScreen->screenPtAy[5].projected.fZ,
-                pNextGroundScreen->screenPtAy[0].projected.fX,
-                pNextGroundScreen->screenPtAy[0].projected.fY,
-                pNextGroundScreen->screenPtAy[0].projected.fZ,
-                0,
-                gfx_size);
-              goto LABEL_1271;
-            }
-            if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              goto LABEL_963;
-            goto LABEL_944;
-          }
-          if (!TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL] || !TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL])
-            goto LABEL_1271;
-          iRenderCommandIndex = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
-          if (iRenderCommandIndex < -1) {
-            RoofPoly.iSurfaceType = -iRenderCommandIndex;
-            RoofPoly.vertices[0].x = GroundScreenXYZ[iSectionNum].screenPtAy[4].screen.x;
-            RoofPoly.vertices[0].y = GroundScreenXYZ[iSectionNum].screenPtAy[4].screen.y;
-            RoofPoly.vertices[1].x = GroundScreenXYZ[iSectionNum].screenPtAy[1].screen.x;
-            RoofPoly.vertices[1].y = GroundScreenXYZ[iSectionNum].screenPtAy[1].screen.y;
-            RoofPoly.vertices[2].x = GroundScreenXYZ[iSectionNum].screenPtAy[0].screen.x;
-            RoofPoly.vertices[2].y = GroundScreenXYZ[iSectionNum].screenPtAy[0].screen.y;
-            iScreenYCoord = GroundScreenXYZ[iSectionNum].screenPtAy[5].screen.y;
-            RoofPoly.vertices[3].x = GroundScreenXYZ[iSectionNum].screenPtAy[5].screen.x;
-            RoofPoly.vertices[3].y = iScreenYCoord;
-            if ((-iRenderCommandIndex & SURFACE_FLAG_TEXTURE_PAIR) != 0) {
-              set_starts(1u);
-              if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                RoofPoly.iSurfaceType = remap_tex[(uint8)(RoofPoly.iSurfaceType)] + (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-              if (pCurrentGroundScreen->screenPtAy[4].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
-                fTrackDepth1 = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
-              else
-                fTrackDepth1 = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
-              fScreenTempX7 = fTrackDepth1;
-              if (pCurrentGroundScreen->screenPtAy[0].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[5].projected.fZ)
-                fTrackDepth2 = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
-              else
-                fTrackDepth2 = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
-              fScreenTempY7 = fTrackDepth2;
-              if (fScreenTempX7 >= (double)fTrackDepth2) {
-                if (pCurrentGroundScreen->screenPtAy[0].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[5].projected.fZ)
-                  fTrackDepth3 = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
-                else
-                  fTrackDepth3 = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
-                fScreenTempY8 = fTrackDepth3;
-              } else {
-                if (pCurrentGroundScreen->screenPtAy[4].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
-                  fTrackDepth3 = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
-                else
-                  fTrackDepth3 = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
-                fScreenTempX8 = fTrackDepth3;
-              }
-              fScreenTempZ7 = fTrackDepth3;
-              iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[5];
-              if ((double)(int16)iRenderingTemp * subscale > fTrackDepth3) {
-                subdivide(
-                  pScrPtr_1,
-                  &RoofPoly,
-                  pCurrentGroundScreen->screenPtAy[4].projected.fX,
-                  pCurrentGroundScreen->screenPtAy[4].projected.fY,
-                  pCurrentGroundScreen->screenPtAy[4].projected.fZ,
-                  pCurrentGroundScreen->screenPtAy[1].projected.fX,
-                  pCurrentGroundScreen->screenPtAy[1].projected.fY,
-                  pCurrentGroundScreen->screenPtAy[1].projected.fZ,
-                  pCurrentGroundScreen->screenPtAy[0].projected.fX,
-                  pCurrentGroundScreen->screenPtAy[0].projected.fY,
-                  pCurrentGroundScreen->screenPtAy[0].projected.fZ,
-                  pCurrentGroundScreen->screenPtAy[5].projected.fX,
-                  pCurrentGroundScreen->screenPtAy[5].projected.fY,
-                  pCurrentGroundScreen->screenPtAy[5].projected.fZ,
-                  -1,
-                  gfx_size);
-                goto LABEL_1271;
-              }
-              if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0)
-                goto LABEL_826;
-              goto LABEL_924;
-            }
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              RoofPoly.iSurfaceType = remap_tex[(uint8)(RoofPoly.iSurfaceType)] + (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            set_starts(0);
-            if (pCurrentGroundScreen->screenPtAy[4].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
-              fTrackDepth4 = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
-            else
-              fTrackDepth4 = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
-            fProjectionTempY7 = fTrackDepth4;
-            if (pCurrentGroundScreen->screenPtAy[0].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[5].projected.fZ)
-              fTrackDepth5 = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
-            else
-              fTrackDepth5 = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
-            fProjectionTempZ7 = fTrackDepth5;
-            if (fProjectionTempY7 >= (double)fTrackDepth5) {
-              if (pCurrentGroundScreen->screenPtAy[0].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[5].projected.fZ)
-                fTrackDepth6 = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
-              else
-                fTrackDepth6 = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
-              fScreenTempZ8 = fTrackDepth6;
-            } else {
-              if (pCurrentGroundScreen->screenPtAy[4].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
-                fTrackDepth6 = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
-              else
-                fTrackDepth6 = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
-              fProjectionTempY8 = fTrackDepth6;
-            }
-            fProjectionTempX8 = fTrackDepth6;
-            iRenderingTemp = (uint8)Subdivide[iSectionNum].subdivides[5];
-            if ((double)(int16)iRenderingTemp * subscale > fTrackDepth6) {
-              subdivide(
-                pScrPtr_1,
-                &RoofPoly,
-                pCurrentGroundScreen->screenPtAy[4].projected.fX,
-                pCurrentGroundScreen->screenPtAy[4].projected.fY,
-                pCurrentGroundScreen->screenPtAy[4].projected.fZ,
-                pCurrentGroundScreen->screenPtAy[1].projected.fX,
-                pCurrentGroundScreen->screenPtAy[1].projected.fY,
-                pCurrentGroundScreen->screenPtAy[1].projected.fZ,
-                pCurrentGroundScreen->screenPtAy[0].projected.fX,
-                pCurrentGroundScreen->screenPtAy[0].projected.fY,
-                pCurrentGroundScreen->screenPtAy[0].projected.fZ,
-                pCurrentGroundScreen->screenPtAy[5].projected.fX,
-                pCurrentGroundScreen->screenPtAy[5].projected.fY,
-                pCurrentGroundScreen->screenPtAy[5].projected.fZ,
-                0,
-                gfx_size);
-              goto LABEL_1271;
-            }
-            if ((RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0) {
-            LABEL_963:
-              game_render_quad(g_pGameRenderer, &RoofPoly, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
-              goto LABEL_1227;
-            }
-          LABEL_944:
-            game_render_quad(g_pGameRenderer, &RoofPoly, TEXTURE_HANDLE_INVALID, NULL);
-          LABEL_1227:
-            set_starts(0);
-            goto LABEL_1271;
-          }
-          if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 && (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            RoofPoly.iSurfaceType = remap_tex[(uint8)(RoofPoly.iSurfaceType)] + (RoofPoly.iSurfaceType & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
           {
-            GameRenderVertex v[4];
-            world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 5);
-            TextureHandle h = (RoofPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE)
-              ? game_render_get_texture_handle(g_pGameRenderer, 0)
-              : TEXTURE_HANDLE_INVALID;
-            game_render_quad_world(g_pGameRenderer, v, h, RoofPoly.iSurfaceType);
+            int sf = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
+            /* Single-section roof from NEXT section (negative surface type) */
+            if (sf < 0) {
+              int renderSf = -sf;
+              if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+                renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              {
+                GameRenderVertex v[4];
+                tGroundPt *g = &GroundPt[iNextSectionIndex];
+                v[0].x = g->pointAy[1].fX; v[0].y = g->pointAy[1].fY; v[0].z = g->pointAy[1].fZ;
+                v[1].x = g->pointAy[4].fX; v[1].y = g->pointAy[4].fY; v[1].z = g->pointAy[4].fZ;
+                v[2].x = g->pointAy[5].fX; v[2].y = g->pointAy[5].fY; v[2].z = g->pointAy[5].fZ;
+                v[3].x = g->pointAy[0].fX; v[3].y = g->pointAy[0].fY; v[3].z = g->pointAy[0].fZ;
+                v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
+                v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
+                TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+                game_render_quad_world(g_pGameRenderer, v, h, renderSf);
+              }
+            }
+            /* Single-section roof from CUR section (very negative surface) */
+            if (TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL]
+                && TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL]) {
+              int idx = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
+              if (idx < -1) {
+                int renderSf = -idx;
+                if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+                  renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+                {
+                  GameRenderVertex v[4];
+                  tGroundPt *g = &GroundPt[iSectionNum];
+                  v[0].x = g->pointAy[4].fX; v[0].y = g->pointAy[4].fY; v[0].z = g->pointAy[4].fZ;
+                  v[1].x = g->pointAy[1].fX; v[1].y = g->pointAy[1].fY; v[1].z = g->pointAy[1].fZ;
+                  v[2].x = g->pointAy[0].fX; v[2].y = g->pointAy[0].fY; v[2].z = g->pointAy[0].fZ;
+                  v[3].x = g->pointAy[5].fX; v[3].y = g->pointAy[5].fY; v[3].z = g->pointAy[5].fZ;
+                  v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
+                  v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
+                  TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
+                    ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                    : TEXTURE_HANDLE_INVALID;
+                  game_render_quad_world(g_pGameRenderer, v, h, renderSf);
+                }
+              }
+            }
+            /* Two-section roof quad (TrakPt source, always rendered) */
+            if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+            {
+              GameRenderVertex v[4];
+              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 5);
+              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                : TEXTURE_HANDLE_INVALID;
+              game_render_quad_world(g_pGameRenderer, v, h, sf);
+            }
           }
           goto LABEL_1271;
         case 0xB:
