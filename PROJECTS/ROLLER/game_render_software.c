@@ -262,8 +262,11 @@ void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
      * legacy floor/int-math recipe, tracks/walls/standard use the legacy
      * drawtrk3 double+round recipe. Wide-texture roads only land in the
      * wall path when wide_on is enabled (mirrors legacy case 5 dispatch). */
+    int useCloudProjection = subdivideType == GAME_RENDER_SUBDIVIDE_TYPE_CLOUD;
     int subpolyType;
-    if (subdivideType != GAME_RENDER_SUBDIVIDE_TYPE_AUTO) {
+    if (useCloudProjection) {
+        subpolyType = SUBPOLY_STANDARD;
+    } else if (subdivideType != GAME_RENDER_SUBDIVIDE_TYPE_AUTO) {
         subpolyType = subdivideType;
     } else if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
         && sw->texSlots[handle].in_use
@@ -316,11 +319,12 @@ void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
          * and perspective division (rounded int separately for subdivide Z),
          * round-to-int after double projection, no skip-all-clipped.
          *
-         * Car polygons use explicit subpoly types 3+ for car texture routing.
-         * DisplayCar's legacy projection differs subtly from drawtrk3: it
-         * truncates projected X/Y with d2i() and passes raw view-Z into
-         * subdivide(). Preserve that recipe so routing car meshes through the
-         * world API does not move their screen-space silhouette. */
+         * Car polygons use explicit subpoly types 3+ for car texture routing,
+         * and cloud quads use GAME_RENDER_SUBDIVIDE_TYPE_CLOUD. Their legacy
+         * projections differ subtly from drawtrk3: both truncate projected X/Y,
+         * and cars pass raw view-Z into subdivide(). Preserve that recipe so
+         * routing those meshes through the world API does not move their
+         * screen-space silhouette. */
         int useCarProjection = subpolyType >= 3;
         double viewDist = (double)cam->fovScale;
         for (int i = 0; i < 4; i++) {
@@ -338,7 +342,7 @@ void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
             double dInvZ = 1.0 / (double)fProjectedZ;
             int xp;
             int yp;
-            if (useCarProjection) {
+            if (useCarProjection || useCloudProjection) {
                 xp = (int)(viewDist * (double)fVx * dInvZ + (double)proj->centerX);
                 yp = (int)(dInvZ * (viewDist * (double)fVy) + (double)proj->centerY);
             } else {
@@ -349,7 +353,7 @@ void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
             poly.vertices[i].y = (proj->screenScale * (199 - yp)) >> 6;
             subVx[i] = fVx;
             subVy[i] = fVy;
-            subVz[i] = useCarProjection ? fVz : (float)((int)round(dCameraZ));
+            subVz[i] = (useCarProjection || useCloudProjection) ? fVz : (float)((int)round(dCameraZ));
         }
     }
 
