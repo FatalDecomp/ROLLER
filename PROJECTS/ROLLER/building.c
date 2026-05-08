@@ -571,7 +571,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
       viewIntZ[i] = (int)(dx * vk3 + dy * vk6 + dz * vk9);
       sortDepths[i] = (float)viewIntZ[i];
       // Project to screen-space using legacy integer math; far polygons
-      // dispatch via game_render_quad with these pre-projected coords.
+      // dispatch via game_render_quad_screen with these pre-projected coords.
       int iClipped = 0;
       int iVz = viewIntZ[i];
       if (iVz < 80) {
@@ -720,7 +720,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           if ((float)iZ3 < fClosestZ) fClosestZ = (float)iZ3;
 
           if ((double)BuildingSub[uiBuildingType] * subscale <= fClosestZ) {
-            // Far polygon — pre-projected screen verts via game_render_quad.
+            // Far polygon — pre-projected screen verts via game_render_quad_screen.
             BuildingPol.iSurfaceType = (int)uiTex;
             BuildingPol.uiNumVerts = 4;
             for (int vi = 0; vi < 4; vi++) {
@@ -728,10 +728,10 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
               BuildingPol.vertices[vi].y = screenY[iOrder[vi]];
             }
             if ((uiTex & 0x100) != 0)
-              game_render_quad(g_pGameRenderer, &BuildingPol,
+              game_render_quad_screen(g_pGameRenderer, &BuildingPol,
                                game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING), NULL);
             else
-              game_render_quad(g_pGameRenderer, &BuildingPol, TEXTURE_HANDLE_INVALID, NULL);
+              game_render_quad_screen(g_pGameRenderer, &BuildingPol, TEXTURE_HANDLE_INVALID, NULL);
           } else {
             // Close polygon — world-space dispatch lets sw_quad_world subdivide.
             GameRenderVertex verts[4];

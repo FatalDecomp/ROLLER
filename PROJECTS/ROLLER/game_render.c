@@ -76,37 +76,49 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        uint8 *pixelData,
                                        int width, int height,
                                        int tex_idx, int gfx_size) {
+    if (!renderer)
+        return TEXTURE_HANDLE_INVALID;
     return game_render_sw_load_texture(renderer->sw, pixelData,
                                        width, height, tex_idx, gfx_size);
 }
 
 void game_render_free_texture(GameRenderer *renderer,
                               TextureHandle handle) {
+    if (!renderer)
+        return;
     game_render_sw_free_texture(renderer->sw, handle);
 }
 
 TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
                                              int tex_idx) {
+    if (!renderer)
+        return TEXTURE_HANDLE_INVALID;
     return game_render_sw_get_texture_handle(renderer->sw, tex_idx);
 }
 
 TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
                                       tBlockHeader *blocks,
                                       const tColor *palette) {
+    if (!renderer)
+        return TEXTURE_HANDLE_INVALID;
     return game_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
 }
 
 void game_render_free_blocks(GameRenderer *renderer, int slot) {
+    if (!renderer)
+        return;
     game_render_sw_free_blocks(renderer->sw, slot);
 }
 
 // Draw calls
 
-void game_render_quad(GameRenderer *renderer, tPolyParams *poly,
+void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap) {
+    if (!renderer)
+        return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad(renderer->sw, poly, handle, palette_remap);
+        game_render_sw_quad_screen(renderer->sw, poly, handle, palette_remap);
 }
 
 void game_render_quad_world(GameRenderer *renderer,
@@ -114,9 +126,23 @@ void game_render_quad_world(GameRenderer *renderer,
                             TextureHandle handle,
                             int surfaceFlags,
                             float subThreshold) {
+    game_render_quad_world_subdivide_type(renderer, verts, handle, surfaceFlags,
+                                          GAME_RENDER_SUBDIVIDE_TYPE_AUTO,
+                                          subThreshold);
+}
+
+void game_render_quad_world_subdivide_type(GameRenderer *renderer,
+                                           const GameRenderVertex *verts,
+                                           TextureHandle handle,
+                                           int surfaceFlags,
+                                           int subdivideType,
+                                           float subThreshold) {
+    if (!renderer)
+        return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad_world(renderer->sw, verts, handle, surfaceFlags,
-                                  subThreshold);
+        game_render_sw_quad_world_subdivide_type(renderer->sw, verts, handle,
+                                                 surfaceFlags, subdivideType,
+                                                 subThreshold);
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

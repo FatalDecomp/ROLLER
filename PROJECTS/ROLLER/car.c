@@ -19,6 +19,7 @@ static inline int d2i(double d) {
 }
 #include "func2.h"
 #include "function.h"
+#include "polyf.h"
 #include "polytex.h"
 #include "roller.h"
 #include <math.h>
@@ -1493,7 +1494,7 @@ LABEL_105:
     CarPol.uiNumVerts = 4;
     CarPol.iSurfaceType = 0x202002;
     CarPol.vertices[3].y = d2i(dShadowCorner3Y);
-    game_render_quad(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+    game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
   }
 LABEL_117:
   pCoords = CarDesigns[carDesignIndex].pCoords;
@@ -1944,7 +1945,28 @@ LABEL_117:
           if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 && (uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) == 0 && (uint8)uiTextureSurface == uiColorFrom)
             uiTextureSurface = uiColorTo;
           CarPol.iSurfaceType = uiTextureSurface;
-          if (bCloseToCamera) {
+          GameRenderer *renderer = g_pGameRenderer;
+          if (renderer) {
+            GameRenderVertex verts[4];
+            for (int vi = 0; vi < 4; vi++) {
+              verts[vi].x = polygonVertices[vi]->world.fX;
+              verts[vi].y = polygonVertices[vi]->world.fY;
+              verts[vi].z = polygonVertices[vi]->world.fZ;
+              verts[vi].u = 0.0f;
+              verts[vi].v = 0.0f;
+            }
+            TextureHandle carPolyTexture = TEXTURE_HANDLE_INVALID;
+            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
+              carPolyTexture = game_render_get_texture_handle(renderer, car_texmap[uiTextureMapOffset / 4]);
+            }
+            game_render_quad_world_subdivide_type(
+              renderer,
+              verts,
+              carPolyTexture,
+              uiTextureSurface,
+              iSubdivisionParam,
+              bCloseToCamera ? 0.0f : 1.0f);
+          } else if (bCloseToCamera) {
             subdivide(
               pScrBuf,
               &CarPol,
@@ -1961,14 +1983,12 @@ LABEL_117:
               polygonVertices[3]->view.fY,
               polygonVertices[3]->view.fZ,
               iSubdivisionParam,
-              gfx_size);                        // Subdivide polygon if too close to camera for better quality
+              gfx_size);
+          } else if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
+            int iCarTexSlot = car_texmap[uiTextureMapOffset / 4];
+            POLYTEX(cartex_vga[iCarTexSlot - 1], pScrBuf, &CarPol, iCarTexSlot, gfx_size);
           } else {
-            // SURFACE_FLAG_APPLY_TEXTURE
-            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
-              game_render_quad(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, car_texmap[uiTextureMapOffset / 4]), NULL);
-            } else {
-              goto LABEL_267;  // No texture - render flat polygon
-            }
+            POLYFLAT(pScrBuf, &CarPol);
           }
         } else {
           CarZOrder[uiRenderLoopOffset / 0xC].iPolygonLink = -1;
@@ -2028,11 +2048,11 @@ LABEL_117:
               // SURFACE_FLAG_APPLY_TEXTURE
               if ((CarPol.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_267:
-                game_render_quad(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+                game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
                 goto LABEL_268;
               }
             }
-            game_render_quad(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
+            game_render_quad_screen(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
           }
         }
       LABEL_268:
@@ -2124,7 +2144,7 @@ LABEL_117:
       scr_size = iPrevScrSize;
       CarPol.iSurfaceType = team_col[iTeamColIdx];
       CarPol.uiNumVerts = 4;
-      game_render_quad(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+      game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
     }
   }
 }

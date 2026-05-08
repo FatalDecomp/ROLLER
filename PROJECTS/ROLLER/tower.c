@@ -123,17 +123,23 @@ void DrawTower(int iTowerIdx, uint8 *pScrBuf)
     iPixelY = (iScreenSize * (199 - (int)dScreenY)) >> 6;// Complex visibility test for different distance ranges
     if (fOriginalZ >= 5000.0 && xp >= -50 && xp < 370 && yp >= -50 && yp < 250
       || fOriginalZ > -1000.0 && fOriginalZ < 5000.0 && (fTransformed3DX > -1000.0 && fTransformed3DX < 1000.0 || xp > -200 && xp < 520)) {
-      TowerPol.vertices[0].x = iPixelX + 3;     // Create 6x6 pixel rectangle for tower visualization
-      TowerPol.vertices[1].x = iPixelX - 3;
-      TowerPol.vertices[2].x = iPixelX - 3;
-      TowerPol.vertices[0].y = iPixelY - 3;
-      TowerPol.vertices[1].y = iPixelY - 3;
-      TowerPol.vertices[2].y = iPixelY + 3;
-      TowerPol.vertices[3].y = iPixelY + 3;
-      TowerPol.vertices[3].x = iPixelX + 3;
-      TowerPol.iSurfaceType = SURFACE_FLAG_FLIP_BACKFACE | 0xE7; //0x20E7;          // Set tower polygon properties and draw to screen buffer
-      TowerPol.uiNumVerts = 4;
-      game_render_quad(g_pGameRenderer, &TowerPol, TEXTURE_HANDLE_INVALID, NULL);
+      GameRenderVertex verts[4];
+      float fHalfPixelSize = fClampedZ * 3.0f * 64.0f / ((float)scr_size * (float)VIEWDIST);
+      float viewOffsetX[4] = { fHalfPixelSize, -fHalfPixelSize, -fHalfPixelSize, fHalfPixelSize };
+      float viewOffsetY[4] = { fHalfPixelSize, fHalfPixelSize, -fHalfPixelSize, -fHalfPixelSize };
+      for (int vi = 0; vi < 4; vi++) {
+        verts[vi].x = TowerX[iTowerIdx] + viewOffsetX[vi] * vk1 + viewOffsetY[vi] * vk2;
+        verts[vi].y = TowerY[iTowerIdx] + viewOffsetX[vi] * vk4 + viewOffsetY[vi] * vk5;
+        verts[vi].z = TowerZ[iTowerIdx] + viewOffsetX[vi] * vk7 + viewOffsetY[vi] * vk8;
+        verts[vi].u = 0.0f;
+        verts[vi].v = 0.0f;
+      }
+      game_render_quad_world(
+        g_pGameRenderer,
+        verts,
+        TEXTURE_HANDLE_INVALID,
+        SURFACE_FLAG_FLIP_BACKFACE | 0xE7,
+        1.0f);
     }
   }
 }
