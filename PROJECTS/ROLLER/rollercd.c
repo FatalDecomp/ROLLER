@@ -1,5 +1,6 @@
 #include "rollercd.h"
 #include "roller.h"
+#include "func2.h"
 #include "types.h"
 #include <stdio.h>
 #include <fcntl.h>
@@ -13,8 +14,12 @@
 #include <cdio/disc.h>
 #include <cdio/cd_types.h>
 #ifdef IS_WINDOWS
+#include <direct.h>
+#define chdir _chdir
+#define getcwd _getcwd
 //-------------------------------------------------------------------------------------------------
 #else
+#include <unistd.h>
 #endif
 //-------------------------------------------------------------------------------------------------
 
@@ -190,6 +195,37 @@ static bool IsAbsolutePath(const char *szPath)
     return true;
 
   return isalpha((unsigned char)szPath[0]) && szPath[1] == ':';
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int ChangeWorkingDirectory(const char *szDir)
+{
+#ifdef IS_WINDOWS
+  if (isalpha((unsigned char)szDir[0]) && szDir[1] == ':') {
+    char cDriveLetter = szDir[0] & 0xDF;
+    _chdrive((int)(cDriveLetter - 'A' + 1));
+  }
+#endif
+  return chdir(szDir);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SaveDefaultFatalIni(const char *szWhipRoot)
+{
+  char szPreviousDir[ROLLER_MAX_PATH];
+
+  if (!getcwd(szPreviousDir, sizeof(szPreviousDir))) {
+    SDL_Log("ExtractFATDATA: failed to capture current directory before saving FATAL.INI: %s", strerror(errno));
+    return;
+  }
+
+  setdirectory(szWhipRoot);
+  save_fatal_config();
+
+  if (ChangeWorkingDirectory(szPreviousDir) != 0)
+    SDL_Log("ExtractFATDATA: failed to restore directory '%s': %s", szPreviousDir, strerror(errno));
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -482,8 +482,10 @@ void InitFATDATA(const char *szDataRoot)
         SDL_Delay(10);
       }
 
-      if (!result.bCancelled)
-        ExtractFATDATA(result.szPath, szDataRoot);
+      if (!result.bCancelled) {
+        ExtractFATDATA(result.szPath, szDataRoot);        
+        SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
+      }
     }
   }
 
