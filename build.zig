@@ -176,7 +176,7 @@ const snapshot_replays = [_]SnapshotReplay{
     .{ .name = "intro1", .frames = "60,240,480,720" },
     .{ .name = "intro2", .frames = "60,300,720,1200" },
     .{ .name = "intro3", .frames = "30,60,120,180" },
-    .{ .name = "intro4", .frames = "60,180,360,540" },
+    .{ .name = "intro4", .frames = "60,100,180,360,540" },
     .{ .name = "intro5", .frames = "60,300,720,1200" },
     .{ .name = "intro6", .frames = "60,300,720,1200" },
     // intro7 frame 900 currently produces non-deterministic pixels across
