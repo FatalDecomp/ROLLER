@@ -27,13 +27,6 @@ pub fn build(b: *std.Build) void {
     // So that release builds are more "stable"
     exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
     exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
-    exe_mod.addIncludePath(b.path("external/lodepng"));
-    exe_mod.addCSourceFiles(.{
-        .flags = &.{ "-fwrapv", "-DLODEPNG_NO_COMPILE_CPP" },
-        .files = &.{
-            "external/lodepng/lodepng.c",
-        },
-    });
     exe_mod.addCSourceFiles(.{
         .flags = c_flags,
         .files = &.{
@@ -305,7 +298,6 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     cflags.addIncludePath(libcdio.builder.path("include"));
     cflags.addIncludePath(libcdio.builder.path("zig-config"));
     cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
-    cflags.addIncludePath(b.path("external/lodepng"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);

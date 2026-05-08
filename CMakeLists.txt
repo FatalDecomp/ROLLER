@@ -36,7 +36,6 @@ endif()
 
 add_executable(roller
     ${PLATFORM_SOURCES}
-    external/lodepng/lodepng.c
     PROJECTS/ROLLER/debug_overlay.c
     PROJECTS/ROLLER/3d.c
     PROJECTS/ROLLER/building.c
@@ -87,8 +86,7 @@ add_executable(roller
     PROJECTS/ROLLER/userfns.c
     PROJECTS/ROLLER/view.c
 )
-target_include_directories(roller PRIVATE external/Nuklear-4.13.2 external/lodepng)
-set_source_files_properties(external/lodepng/lodepng.c PROPERTIES COMPILE_DEFINITIONS LODEPNG_NO_COMPILE_CPP)
+target_include_directories(roller PRIVATE external/Nuklear-4.13.2)
 target_link_libraries(roller PRIVATE SDL3::SDL3)
 target_link_libraries(roller PRIVATE SDL3_image::SDL3_image)
 target_link_libraries(roller PRIVATE WildMidi::libwildmidi)

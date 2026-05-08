@@ -168,10 +168,9 @@ plain git).
 
 ## Where the implementation is
 
-- `PROJECTS/ROLLER/png_writer.{c,h}` — indexed-PNG writer
+- `PROJECTS/ROLLER/png_writer.{c,h}` — indexed-PNG writer (uses `IMG_SavePNG` from SDL3_image, which delegates to libpng)
 - `PROJECTS/ROLLER/snapshot.{c,h}` — snapshot-mode state, CLI parsing,
   per-tick zero-screen hook, present hook, manual tick driver, fixed
   settings application
-- `external/lodepng/` — vendored single-file PNG library
 - `build.zig` — `test-snapshots` step, `snapshot_replays` table,
   `-Dscratch` flag

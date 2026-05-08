@@ -64,7 +64,9 @@ Rejected alternatives:
 - RGB PNGs require the writer to expand the palette and the comparer to
   contract it back, opening an opportunity for the colour transform
   itself to be wrong. The library `stb_image_write` is RGB-only, which
-  is what pushed us off it onto vendored lodepng.
+  is what pushed us to use a palette-aware encoder (initially vendored
+  lodepng, later migrated to `SDL_image`'s `IMG_SavePNG` since the
+  project already links `SDL3_image`).
 
 ### Baseline storage uses Git LFS, scoped to `tests/snapshots/baselines/*.png`
 

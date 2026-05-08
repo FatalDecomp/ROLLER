@@ -130,8 +130,7 @@ void SnapshotPresent(void)
     char szPath[512];
     SnapshotBuildPath(szPath, sizeof(szPath), currentreplayframe);
 
-    // Make sure the output directory exists; fopen("wb") inside lodepng won't
-    // mkdir for us.
+    // Make sure the output directory exists before writing the PNG.
     SDL_CreateDirectory(g_SnapshotConfig.szOutDir);
 
     int iRc = RollerWriteIndexedPng(szPath, scrbuf, palette, 640, 400);
