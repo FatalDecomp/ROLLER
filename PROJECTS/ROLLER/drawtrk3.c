@@ -439,6 +439,49 @@ static void world_verts_reverse(GameRenderVertex *verts,
     verts[3].u = 0; verts[3].v = 0;
 }
 
+static const tVec3 *ground_world_point(int sec, int pt)
+{
+    if (GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2 && TrackScreenXYZ[sec].iClipCount != 99) {
+        if (pt == 2) return &TrakPt[sec].pointAy[0];
+        if (pt == 3) return &TrakPt[sec].pointAy[4];
+    }
+    return &GroundPt[sec].pointAy[pt];
+}
+
+static void world_verts_ground_forward(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptA, int ptB)
+{
+    const tVec3 *nA = ground_world_point(nextSec, ptA);
+    const tVec3 *cA = ground_world_point(curSec, ptA);
+    const tVec3 *cB = ground_world_point(curSec, ptB);
+    const tVec3 *nB = ground_world_point(nextSec, ptB);
+    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
+    verts[1].x = cA->fX; verts[1].y = cA->fY; verts[1].z = cA->fZ;
+    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
+    verts[3].x = nB->fX; verts[3].y = nB->fY; verts[3].z = nB->fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+static void world_verts_ground_cross_first(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptA, int ptB)
+{
+    const tVec3 *nA = ground_world_point(nextSec, ptA);
+    const tVec3 *nB = ground_world_point(nextSec, ptB);
+    const tVec3 *cB = ground_world_point(curSec, ptB);
+    const tVec3 *cA = ground_world_point(curSec, ptA);
+    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
+    verts[1].x = nB->fX; verts[1].y = nB->fY; verts[1].z = nB->fZ;
+    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
+    verts[3].x = cA->fX; verts[3].y = cA->fY; verts[3].z = cA->fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
 // Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a 3-way
 // conditional on adjacent left-wall presence: pointAy[1] when both current and
 // previous sections have a left wall, else pointAy[0] when both wall types are
@@ -2315,7 +2358,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_cross_first(v, GroundPt, iNextSectionIndex, iSectionNum, 3, 2);
+              world_verts_ground_cross_first(v, iNextSectionIndex, iSectionNum, 3, 2);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
@@ -2348,7 +2391,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_forward(v, GroundPt, iNextSectionIndex, iSectionNum, 0, 1);
+              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
@@ -2383,7 +2426,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_forward(v, GroundPt, iNextSectionIndex, iSectionNum, 1, 2);
+              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 1, 2);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
@@ -2416,7 +2459,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_forward(v, GroundPt, iNextSectionIndex, iSectionNum, 4, 5);
+              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 4, 5);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
@@ -2449,7 +2492,7 @@ LABEL_393:
               sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_forward(v, GroundPt, iNextSectionIndex, iSectionNum, 3, 4);
+              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 3, 4);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
