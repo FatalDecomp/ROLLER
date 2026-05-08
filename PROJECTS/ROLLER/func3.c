@@ -2754,19 +2754,38 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
       CarPol.iSurfaceType = uiTex;
 
       // Render pol
-      if (fMinViewZ >= 1.0) {
+      if (g_pGameRenderer) {
+        GameRenderVertex verts[4];
+        for (int vi = 0; vi < 4; vi++) {
+          verts[vi].x = screenVertAy[vi]->world.fX;
+          verts[vi].y = screenVertAy[vi]->world.fY;
+          verts[vi].z = screenVertAy[vi]->world.fZ;
+          verts[vi].u = 0.0f;
+          verts[vi].v = 0.0f;
+        }
+        TextureHandle carPolyTexture = TEXTURE_HANDLE_INVALID;
+        if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
+          iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
+          iGfxSize = gfx_size;
+          carPolyTexture = game_render_get_texture_handle(g_pGameRenderer, iCartexOffset);
+        }
+        game_render_quad_world_subdivide_type(
+          g_pGameRenderer,
+          verts,
+          carPolyTexture,
+          uiTex,
+          iSubPolType,
+          fMinViewZ >= 1.0 ? 1.0f : 0.0f);
+      } else if (fMinViewZ >= 1.0) {
         if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
           iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
           iGfxSize = gfx_size;
           POLYTEX(cartex_vga[iCartexOffset - 1], pScreenBuffer, &CarPol, iCartexOffset, gfx_size);
-        } else                                    // flat color pol
-        {
+        } else {
           POLYFLAT(pScreenBuffer, &CarPol);
         }
-      } else                                      // near plane clipping required
-      {
+      } else {
         iGfxSize = gfx_size;
-        // Subdivide pol for proper clipping
         subdivide(
           pScreenBuffer,
           &CarPol,
