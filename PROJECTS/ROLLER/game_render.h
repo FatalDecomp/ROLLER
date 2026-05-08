@@ -25,6 +25,8 @@ typedef struct {
     float u, v;     // texture coordinates
 } GameRenderVertex;
 
+#define GAME_RENDER_SUBDIVIDE_TYPE_AUTO (-2147483647 - 1)
+
 typedef struct {
     float viewX, viewY, viewZ;
     float cosYaw, sinYaw;
@@ -105,6 +107,12 @@ void game_render_quad_world(GameRenderer *renderer,
                             TextureHandle handle,
                             int surfaceFlags,
                             float subThreshold);
+void game_render_quad_world_subdivide_type(GameRenderer *renderer,
+                                           const GameRenderVertex *verts,
+                                           TextureHandle handle,
+                                           int surfaceFlags,
+                                           int subdivideType,
+                                           float subThreshold);
 
 // Draw — car mesh
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

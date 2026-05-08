@@ -53,6 +53,12 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
                                TextureHandle handle,
                                int surfaceFlags,
                                float subThreshold);
+void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
+                                              const GameRenderVertex *verts,
+                                              TextureHandle handle,
+                                              int surfaceFlags,
+                                              int subdivideType,
+                                              float subThreshold);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,

@@ -114,9 +114,21 @@ void game_render_quad_world(GameRenderer *renderer,
                             TextureHandle handle,
                             int surfaceFlags,
                             float subThreshold) {
+    game_render_quad_world_subdivide_type(renderer, verts, handle, surfaceFlags,
+                                          GAME_RENDER_SUBDIVIDE_TYPE_AUTO,
+                                          subThreshold);
+}
+
+void game_render_quad_world_subdivide_type(GameRenderer *renderer,
+                                           const GameRenderVertex *verts,
+                                           TextureHandle handle,
+                                           int surfaceFlags,
+                                           int subdivideType,
+                                           float subThreshold) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad_world(renderer->sw, verts, handle, surfaceFlags,
-                                  subThreshold);
+        game_render_sw_quad_world_subdivide_type(renderer->sw, verts, handle,
+                                                 surfaceFlags, subdivideType,
+                                                 subThreshold);
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

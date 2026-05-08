@@ -230,6 +230,17 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
                                TextureHandle handle,
                                int surfaceFlags,
                                float subThreshold) {
+    game_render_sw_quad_world_subdivide_type(sw, verts, handle, surfaceFlags,
+                                             GAME_RENDER_SUBDIVIDE_TYPE_AUTO,
+                                             subThreshold);
+}
+
+void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
+                                              const GameRenderVertex *verts,
+                                              TextureHandle handle,
+                                              int surfaceFlags,
+                                              int subdivideType,
+                                              float subThreshold) {
     const GameRenderCamera *cam = &sw->camera;
     const GameRenderProjection *proj = &sw->proj;
 
@@ -241,7 +252,9 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
      * drawtrk3 double+round recipe. Wide-texture roads only land in the
      * wall path when wide_on is enabled (mirrors legacy case 5 dispatch). */
     int subpolyType;
-    if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
+    if (subdivideType != GAME_RENDER_SUBDIVIDE_TYPE_AUTO) {
+        subpolyType = subdivideType;
+    } else if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
         && sw->texSlots[handle].in_use
         && sw->texSlots[handle].tex_idx == TEXTURE_BANK_BUILDING) {
         subpolyType = SUBPOLY_BUILDING;
@@ -290,7 +303,14 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
         /* Track/wall recipe (legacy drawtrk3): world − view in double (no floor),
          * matrix product cast to float for X/Y, double Z preserved for clip
          * and perspective division (rounded int separately for subdivide Z),
-         * round-to-int after double projection, no skip-all-clipped. */
+         * round-to-int after double projection, no skip-all-clipped.
+         *
+         * Car polygons use explicit subpoly types 3+ for car texture routing.
+         * DisplayCar's legacy projection differs subtly from drawtrk3: it
+         * truncates projected X/Y with d2i() and passes raw view-Z into
+         * subdivide(). Preserve that recipe so routing car meshes through the
+         * world API does not move their screen-space silhouette. */
+        int useCarProjection = subpolyType >= 3;
         double viewDist = (double)cam->fovScale;
         for (int i = 0; i < 4; i++) {
             /* Float subtraction first (matches legacy: tVec3.fX - viewx),
@@ -302,16 +322,23 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
             float fVy = (float)(dx * proj->view[0][1] + dy * proj->view[1][1] + dz * proj->view[2][1]);
             double dCameraZ = dx * proj->view[0][2] + dy * proj->view[1][2] + dz * proj->view[2][2];
             float fVz = (float)dCameraZ;
-            int iProjectedZ = (int)round(dCameraZ);
-            if (fVz < 80.0f) fVz = 80.0f;
-            double dInvZ = 1.0 / (double)fVz;
-            int xp = (int)round(viewDist * (double)fVx * dInvZ + (double)proj->centerX);
-            int yp = (int)round(dInvZ * (viewDist * (double)fVy) + (double)proj->centerY);
+            float fProjectedZ = fVz;
+            if (fProjectedZ < 80.0f) fProjectedZ = 80.0f;
+            double dInvZ = 1.0 / (double)fProjectedZ;
+            int xp;
+            int yp;
+            if (useCarProjection) {
+                xp = (int)(viewDist * (double)fVx * dInvZ + (double)proj->centerX);
+                yp = (int)(dInvZ * (viewDist * (double)fVy) + (double)proj->centerY);
+            } else {
+                xp = (int)round(viewDist * (double)fVx * dInvZ + (double)proj->centerX);
+                yp = (int)round(dInvZ * (viewDist * (double)fVy) + (double)proj->centerY);
+            }
             poly.vertices[i].x = (xp * proj->screenScale) >> 6;
             poly.vertices[i].y = (proj->screenScale * (199 - yp)) >> 6;
             subVx[i] = fVx;
             subVy[i] = fVy;
-            subVz[i] = (float)iProjectedZ;
+            subVz[i] = useCarProjection ? fVz : (float)((int)round(dCameraZ));
         }
     }
 
@@ -334,7 +361,7 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
             useDirect = 1;
     }
 
-    if (handle == TEXTURE_HANDLE_INVALID) {
+    if (useDirect && handle == TEXTURE_HANDLE_INVALID) {
         POLYFLAT(screen_pointer, &poly);
     } else if (useDirect) {
         TextureSlot *slot = &sw->texSlots[handle];
