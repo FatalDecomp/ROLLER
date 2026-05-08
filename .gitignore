@@ -387,3 +387,4 @@ packages.microsoft.gpg
 .claude
 .codex
 CLAUDE.md
+.worktrees/
