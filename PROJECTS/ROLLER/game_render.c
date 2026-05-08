@@ -102,11 +102,11 @@ void game_render_free_blocks(GameRenderer *renderer, int slot) {
 
 // Draw calls
 
-void game_render_quad(GameRenderer *renderer, tPolyParams *poly,
+void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad(renderer->sw, poly, handle, palette_remap);
+        game_render_sw_quad_screen(renderer->sw, poly, handle, palette_remap);
 }
 
 void game_render_quad_world(GameRenderer *renderer,

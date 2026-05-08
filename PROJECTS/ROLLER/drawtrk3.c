@@ -2911,9 +2911,9 @@ LABEL_393:
             RoadPoly.vertices[3].y = LightXYZ[iRenderingCoordIndex].screen.y;
             RoadPoly.vertices[3].x = iRenderingDataIndex;
             if ((RoadPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              game_render_quad(g_pGameRenderer, &RoadPoly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
+              game_render_quad_screen(g_pGameRenderer, &RoadPoly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
             else
-              game_render_quad(g_pGameRenderer, &RoadPoly, TEXTURE_HANDLE_INVALID, NULL);
+              game_render_quad_screen(g_pGameRenderer, &RoadPoly, TEXTURE_HANDLE_INVALID, NULL);
             ++iNextSectionIndex;
           } while (iNextSectionIndex < 6);
           goto LABEL_1271;
@@ -3385,7 +3385,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               {
                 // Render textured pol with car texture
                 //TODO is this correct?
-                game_render_quad(
+                game_render_quad_screen(
                   g_pGameRenderer,
                   subpoly,
                   game_render_get_texture_handle(g_pGameRenderer, car_texmap[subpolytype - 3]),
@@ -3401,7 +3401,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               pFrameBuf = subptr;
               pPolyParams = subpoly;
             LABEL_114:
-              game_render_quad(g_pGameRenderer, pPolyParams, TEXTURE_HANDLE_INVALID, NULL); // render flat pol
+              game_render_quad_screen(g_pGameRenderer, pPolyParams, TEXTURE_HANDLE_INVALID, NULL); // render flat pol
             LABEL_115:
                           // Debug: draw pol outline if showsub is enabled
               if (showsub) {
@@ -3424,7 +3424,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               goto LABEL_111;
             if ((pPolyParams->iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)// SURFACE_FLAG_APPLY_TEXTURE
             {
-              game_render_quad(g_pGameRenderer, pPolyParamsLocal, game_render_get_texture_handle(g_pGameRenderer, 17), NULL);
+              game_render_quad_screen(g_pGameRenderer, pPolyParamsLocal, game_render_get_texture_handle(g_pGameRenderer, 17), NULL);
               goto LABEL_115;
             }
           LABEL_106:
@@ -3432,7 +3432,7 @@ void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
             goto LABEL_107;
           }
           // Default texture rendering
-          game_render_quad(g_pGameRenderer, pPolyParamsLocal, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
+          game_render_quad_screen(g_pGameRenderer, pPolyParamsLocal, game_render_get_texture_handle(g_pGameRenderer, 0), NULL);
           goto LABEL_115;
         case 1:                                 // Horiz subdivision only
           // Calculate midpoint between verts 0 and 1, and 2 and 3

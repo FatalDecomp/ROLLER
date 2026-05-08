@@ -87,7 +87,7 @@ void game_render_free_blocks(GameRenderer *renderer, int slot);
 
 // Draw — polygon (track, buildings, particles, clouds)
 // Pass TEXTURE_HANDLE_INVALID for flat (untextured) polygons.
-void game_render_quad(GameRenderer *renderer,
+void game_render_quad_screen(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);
@@ -98,7 +98,7 @@ void game_render_quad(GameRenderer *renderer,
 // subThreshold is the legacy `subdivides[i] * subscale` depth threshold;
 // when >0 and the polygon's nearest projected Z meets/exceeds it, the
 // renderer skips subdivide and rasterizes via POLYTEX/POLYFLAT directly
-// (matches the legacy subdivide-vs-game_render_quad branch). Pass 0.0f
+// (matches the legacy subdivide-vs-game_render_quad_screen branch). Pass 0.0f
 // to always subdivide.
 void game_render_quad_world(GameRenderer *renderer,
                             const GameRenderVertex *verts,

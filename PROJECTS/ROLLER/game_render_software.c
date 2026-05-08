@@ -211,7 +211,7 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot) {
 // Draw calls
 // ---------------------------------------------------------------------------
 
-void game_render_sw_quad(GameRendererSoftware *sw, tPolyParams *poly,
+void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
                          TextureHandle handle,
                          const uint8 *palette_remap) {
     (void)palette_remap;
@@ -322,7 +322,7 @@ void game_render_sw_quad_world(GameRendererSoftware *sw,
     /* Subdivide-vs-direct dispatch: when caller provided a threshold and
      * the polygon's nearest projected Z exceeds it, render directly via
      * POLYTEX/POLYFLAT — mirrors the legacy
-     * `if (subdivides[i] * subscale > min_z) subdivide else game_render_quad`
+     * `if (subdivides[i] * subscale > min_z) subdivide else game_render_quad_screen`
      * branch in drawtrk3.c. */
     int useDirect = 0;
     if (subThreshold > 0.0f) {

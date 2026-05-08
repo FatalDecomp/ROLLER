@@ -630,7 +630,7 @@ void displayclouds(uint8 *pScrBuf)
             if (!iBehindCamera) {
               poly.iSurfaceType = cloud[iCloudIdx].iSurfaceType;// Set polygon surface type and vertex count (quad = 4 vertices)
               poly.uiNumVerts = -4;
-              game_render_quad(g_pGameRenderer, &poly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);// Render textured polygon to screen buffer
+              game_render_quad_screen(g_pGameRenderer, &poly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);// Render textured polygon to screen buffer
             }
           }
         }
