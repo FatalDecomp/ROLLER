@@ -439,6 +439,74 @@ static void world_verts_reverse(GameRenderVertex *verts,
     verts[3].u = 0; verts[3].v = 0;
 }
 
+// Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a 3-way
+// conditional on adjacent left-wall presence: pointAy[1] when both current and
+// previous sections have a left wall, else pointAy[0] when both wall types are
+// non-negative, else pointAy[2]. The fallback collapses the wall top to the
+// wall base at discontinuities so no stray geometry is drawn.
+static int left_wall_top_pt_idx(int sec)
+{
+    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+    int curLW  = TrakColour[sec][TRAK_COLOUR_LEFT_WALL];
+    int prevLW = TrakColour[prevSec][TRAK_COLOUR_LEFT_WALL];
+    if (curLW && prevLW) return 1;
+    if (curLW >= 0 && prevLW >= 0) return 0;
+    return 2;
+}
+
+// Left-wall forward quad: top vertex (v[0], v[1]) is chosen per-section by
+// left_wall_top_pt_idx; bottom vertex (v[2], v[3]) uses ptBottom (0 = low wall,
+// 2 = high wall). Mirrors master's case 0/8 LWallPoly construction.
+static void world_verts_left_wall(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptBottom)
+{
+    int nextTop = left_wall_top_pt_idx(nextSec);
+    int curTop  = left_wall_top_pt_idx(curSec);
+    const tGroundPt *n = &TrakPt[nextSec];
+    const tGroundPt *c = &TrakPt[curSec];
+    verts[0].x = n->pointAy[nextTop].fX;  verts[0].y = n->pointAy[nextTop].fY;  verts[0].z = n->pointAy[nextTop].fZ;
+    verts[1].x = c->pointAy[curTop].fX;   verts[1].y = c->pointAy[curTop].fY;   verts[1].z = c->pointAy[curTop].fZ;
+    verts[2].x = c->pointAy[ptBottom].fX; verts[2].y = c->pointAy[ptBottom].fY; verts[2].z = c->pointAy[ptBottom].fZ;
+    verts[3].x = n->pointAy[ptBottom].fX; verts[3].y = n->pointAy[ptBottom].fY; verts[3].z = n->pointAy[ptBottom].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+// Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source
+// for the right wall: pointAy[5] when both adjacent RW types are non-zero, else
+// pointAy[4] when both are non-negative, else pointAy[3].
+static int right_wall_top_pt_idx(int sec)
+{
+    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+    int curRW  = TrakColour[sec][TRAK_COLOUR_RIGHT_WALL];
+    int prevRW = TrakColour[prevSec][TRAK_COLOUR_RIGHT_WALL];
+    if (curRW && prevRW) return 5;
+    if (curRW >= 0 && prevRW >= 0) return 4;
+    return 3;
+}
+
+// Right-wall reverse quad: top vertex (v[0], v[1]) chosen per-section; bottom
+// vertex (v[2], v[3]) uses ptBottom (4 = low wall, 3 = high wall). Mirrors
+// master's case 1/9 RWallPoly construction with reverse winding.
+static void world_verts_right_wall(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptBottom)
+{
+    int nextTop = right_wall_top_pt_idx(nextSec);
+    int curTop  = right_wall_top_pt_idx(curSec);
+    const tGroundPt *n = &TrakPt[nextSec];
+    const tGroundPt *c = &TrakPt[curSec];
+    verts[0].x = c->pointAy[curTop].fX;   verts[0].y = c->pointAy[curTop].fY;   verts[0].z = c->pointAy[curTop].fZ;
+    verts[1].x = n->pointAy[nextTop].fX;  verts[1].y = n->pointAy[nextTop].fY;  verts[1].z = n->pointAy[nextTop].fZ;
+    verts[2].x = n->pointAy[ptBottom].fX; verts[2].y = n->pointAy[ptBottom].fY; verts[2].z = n->pointAy[ptBottom].fZ;
+    verts[3].x = c->pointAy[ptBottom].fX; verts[3].y = c->pointAy[ptBottom].fY; verts[3].z = c->pointAy[ptBottom].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 //0001DE40
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx)
@@ -2187,10 +2255,7 @@ LABEL_393:
             }
             if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
               GameRenderVertex v[4];
-              if (highWall)
-                world_verts_forward(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 2);
-              else
-                world_verts_forward(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 0);
+              world_verts_left_wall(v, iNextSectionIndex, iSectionNum, highWall ? 2 : 0);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
@@ -2216,10 +2281,7 @@ LABEL_393:
             }
             if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
               GameRenderVertex v[4];
-              if (highWall)
-                world_verts_reverse(v, TrakPt, iNextSectionIndex, iSectionNum, 5, 3);
-              else
-                world_verts_reverse(v, TrakPt, iNextSectionIndex, iSectionNum, 5, 4);
+              world_verts_right_wall(v, iNextSectionIndex, iSectionNum, highWall ? 3 : 4);
               TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
