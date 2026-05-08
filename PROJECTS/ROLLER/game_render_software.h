@@ -59,6 +59,9 @@ void game_render_sw_quad_world_subdivide_type(GameRendererSoftware *sw,
                                               int surfaceFlags,
                                               int subdivideType,
                                               float subThreshold);
+void game_render_sw_subdivide_view_quad(uint8 *pDest, tPolyParams *poly,
+                                        const float viewCoords[4][3],
+                                        int subdivideType, int texHalfRes);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              int yaw, int pitch, int roll,
                              float worldX, float worldY, float worldZ,

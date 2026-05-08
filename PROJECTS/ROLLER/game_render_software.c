@@ -225,6 +225,17 @@ void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
     }
 }
 
+void game_render_sw_subdivide_view_quad(uint8 *pDest, tPolyParams *poly,
+                                        const float viewCoords[4][3],
+                                        int subdivideType, int texHalfRes) {
+    subdivide(pDest, poly,
+              viewCoords[0][0], viewCoords[0][1], viewCoords[0][2],
+              viewCoords[1][0], viewCoords[1][1], viewCoords[1][2],
+              viewCoords[2][0], viewCoords[2][1], viewCoords[2][2],
+              viewCoords[3][0], viewCoords[3][1], viewCoords[3][2],
+              subdivideType, texHalfRes);
+}
+
 void game_render_sw_quad_world(GameRendererSoftware *sw,
                                const GameRenderVertex *verts,
                                TextureHandle handle,
