@@ -5,44 +5,22 @@
 #include "types.h"
 #include "func3.h"
 #include "polyf.h"
+#include "scene_render.h"
 
 typedef enum {
     GAME_RENDER_GPU,
     GAME_RENDER_SOFTWARE
 } GameRenderMode;
 
-typedef int TextureHandle;
-#define TEXTURE_HANDLE_INVALID 0
+typedef SceneTextureHandle TextureHandle;
+#define TEXTURE_HANDLE_INVALID SCENE_TEXTURE_HANDLE_INVALID
 
-/* Texture bank indices passed to game_render_load_texture / get_texture_handle.
- * These identify which asset category a texture belongs to. */
-#define TEXTURE_BANK_TRACK    0
-#define TEXTURE_BANK_BUILDING 17
-#define TEXTURE_BANK_CARGEN   18
+typedef SceneRenderVertex GameRenderVertex;
+typedef SceneRenderCamera GameRenderCamera;
+typedef SceneRenderProjection GameRenderProjection;
 
-typedef struct {
-    float x, y, z;  // world-space position
-    float u, v;     // texture coordinates
-} GameRenderVertex;
-
-#define GAME_RENDER_SUBDIVIDE_TYPE_AUTO (-2147483647 - 1)
-#define GAME_RENDER_SUBDIVIDE_TYPE_CLOUD (-2147483647)
-
-typedef struct {
-    float viewX, viewY, viewZ;
-    float cosYaw, sinYaw;
-    float fovScale;
-} GameRenderCamera;
-
-// Column-major 3×3 view matrix + screen-space projection state.
-// view[col][row] maps to GLSL mat3 for direct GPU upload.
-typedef struct {
-    float view[3][3];
-    int   screenScale;   // 6-bit fixed-point scale (was scr_size)
-    int   centerX;       // projection origin X (was xbase)
-    int   centerY;       // projection origin Y (was ybase)
-    int   texHalfRes;    // 0=64×64, 1=32×32 (was gfx_size)
-} GameRenderProjection;
+#define GAME_RENDER_SUBDIVIDE_TYPE_AUTO SCENE_RENDER_SUBDIVIDE_TYPE_AUTO
+#define GAME_RENDER_SUBDIVIDE_TYPE_CLOUD SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD
 
 typedef struct GameRenderer GameRenderer;
 

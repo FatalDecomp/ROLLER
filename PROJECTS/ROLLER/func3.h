@@ -2,6 +2,7 @@
 #define _ROLLER_FUNC3_H
 //-------------------------------------------------------------------------------------------------
 #include "types.h"
+typedef struct SceneRenderer SceneRenderer;
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -63,7 +64,7 @@ void ChampionshipStandings();
 void TeamStandings();
 void ShowLapRecords();
 void show_3dmap(float fZ, int iElevation, int iYaw);
-void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
+void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
 void championship_winner();
 void print_mem_used(const char *szMsg);
 uint8 *try_load_picture(const char *szFile);

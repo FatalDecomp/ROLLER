@@ -18,6 +18,7 @@
 #include "function.h"
 #include "loadtrak.h"
 #include "rollercomms.h"
+#include "scene_render.h"
 #include <memory.h>
 #include <fcntl.h>
 #include <math.h>
@@ -93,6 +94,32 @@ int result_p2;            //00188834
 int result_p2_pos;        //00188838
 int result_p1_pos;        //0018883C
 
+static void sync_scene_render_from_legacy_view(SceneRenderer *scene)
+{
+  if (!scene)
+    return;
+
+  SceneRenderCamera cam = {
+    .viewX = viewx,
+    .viewY = viewy,
+    .viewZ = viewz,
+    .cosYaw = fcos,
+    .sinYaw = fsin,
+    .fovScale = (float)VIEWDIST,
+  };
+  SceneRenderProjection proj = {
+    .view = {{vk1, vk2, vk3},
+             {vk4, vk5, vk6},
+             {vk7, vk8, vk9}},
+    .screenScale = scr_size,
+    .centerX = xbase,
+    .centerY = ybase,
+    .texHalfRes = gfx_size,
+  };
+  scene_render_set_camera(scene, &cam);
+  scene_render_set_projection(scene, &proj);
+}
+
 //-------------------------------------------------------------------------------------------------
 //00056070
 int winner_screen(int carDesign, char byFlags)
@@ -117,6 +144,7 @@ int winner_screen(int carDesign, char byFlags)
   int iOldGfxSize; // [esp+4h] [ebp-24h]
   char byAnimFrame; // [esp+8h] [ebp-20h]
   int iDisplayDuration; // [esp+Ch] [ebp-1Ch]
+  SceneRenderer *scene;
 
   tick_on = -1;
   frontend_on = -1;
@@ -155,6 +183,7 @@ int winner_screen(int carDesign, char byFlags)
   Car[0].nRoll = 0;
   Car[0].nPitch = 0;
   set_starts(0);
+  scene = scene_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
 
   for (int i = 0; i < 16; ++i) {
     car_texs_loaded[i] = -1;
@@ -180,6 +209,10 @@ int winner_screen(int carDesign, char byFlags)
   }
 
   LoadCarTextures = iTexturesLoaded;
+  if (scene && car_texmap[carDesign] > 0 && cartex_vga[car_texmap[carDesign] - 1]) {
+    scene_render_load_texture(scene, cartex_vga[car_texmap[carDesign] - 1],
+                              256, 0, car_texmap[carDesign], gfx_size);
+  }
   NoOfTextures = 255;
   if ( SVGA_ON )
     scr_size = 128;
@@ -206,7 +239,9 @@ int winner_screen(int carDesign, char byFlags)
     memcpy(scrbuf, front_vga[0], 4 * uiDWordCount);
     memcpy(&pScrBuf[4 * uiDWordCount], &pWinnerImage->iWidth + uiDWordCount, byBufSizeLow & 3);
 
-    DrawCar(scrbuf + 73600, carDesign, 2200.0, 512, byAnimFrame);
+    scene_render_set_target(scene, scrbuf, winw, winw, winh);
+    scene_render_set_viewport(scene, 0, 115, winw, winh - 115);
+    DrawCar(scene, carDesign, 2200.0, 512, byAnimFrame);
     front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
     copypic(scrbuf, screen);
     if ( !front_fade )
@@ -249,6 +284,7 @@ int winner_screen(int carDesign, char byFlags)
   }
   while ( ppCartexItr != &cartex_vga[16] );
   remove_mapsels();
+  scene_render_destroy(scene);
   gfx_size = iOldGfxSize;
   if ( !iRetVal )
   {
@@ -2175,7 +2211,7 @@ void show_3dmap(float fZ, int iElevation, int iYaw)
 
 //-------------------------------------------------------------------------------------------------
 //0005A400
-void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame)
+void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame)
 {
   int iNumCoords; // ecx
   int iYaw; // eax
@@ -2261,7 +2297,6 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
   double dBoxX; // [esp+5Ch] [ebp-140h]
   uint32 uiColorFrom; // [esp+64h] [ebp-138h]
   int iNumPols; // [esp+68h] [ebp-134h]
-  uint8 *pScreenBuffer; // [esp+6Ch] [ebp-130h]
   float fRotMat01; // [esp+70h] [ebp-12Ch]
   float fClippedZ; // [esp+74h] [ebp-128h]
   float fNearClip; // [esp+78h] [ebp-124h]
@@ -2320,7 +2355,8 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
   int iTexturesEnabled; // [esp+180h] [ebp-1Ch]
   tAnimation *pAnms; // [esp+184h] [ebp-18h]
 
-  pScreenBuffer = pScrBuf;
+  if (!scene)
+    return;
   carDesign = iCarDesignIndex;
 
   // Calculate world position from angle and distance
@@ -2334,6 +2370,7 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
 
   // Set up view transformation
   calculatetransform(-1, 0, -iAngle & 0x3FFF, 0, worldx, 0.0, worldz, 0.0, 0.0, 0.0);
+  sync_scene_render_from_legacy_view(scene);
   worlddirn = vdirection;
   worldelev = velevation;
   worldtilt = vtilt;
@@ -2419,13 +2456,23 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
   } while (uiVertIdx != 32);
 
   // Draw car shadow
-  CarPol.vertices[0] = CarPt[0].screen;
-  CarPol.vertices[1] = CarPt[1].screen;
-  CarPol.vertices[2] = CarPt[2].screen;
-  CarPol.vertices[3] = CarPt[3].screen;
-  CarPol.iSurfaceType = SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_TRANSPARENT | 2; //0x202002
-  CarPol.uiNumVerts = 4;
-  POLYFLAT(pScreenBuffer, &CarPol);
+  {
+    SceneRenderVertex shadowVerts[4];
+    for (int vi = 0; vi < 4; vi++) {
+      shadowVerts[vi].x = CarPt[vi].world.fX;
+      shadowVerts[vi].y = CarPt[vi].world.fY;
+      shadowVerts[vi].z = CarPt[vi].world.fZ;
+      shadowVerts[vi].u = 0.0f;
+      shadowVerts[vi].v = 0.0f;
+    }
+    SceneRenderLegacyQuadOptions shadowOptions = {
+      .subdivideType = carDesign + 3,
+      .subThreshold = 1.0f,
+    };
+    scene_render_quad_world_legacy(scene, shadowVerts, SCENE_TEXTURE_HANDLE_INVALID,
+                                   SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_TRANSPARENT | 2,
+                                   shadowOptions);
+  }
 
   // Calculate car center position in view space
   dCarCenterX = fCarPosX - viewx;
@@ -2753,57 +2800,27 @@ void DrawCar(uint8 *pScrBuf, int iCarDesignIndex, float fDistance, int iAngle, c
 
       CarPol.iSurfaceType = uiTex;
 
-      // Render pol
-      if (g_pGameRenderer) {
-        GameRenderVertex verts[4];
-        for (int vi = 0; vi < 4; vi++) {
-          verts[vi].x = screenVertAy[vi]->world.fX;
-          verts[vi].y = screenVertAy[vi]->world.fY;
-          verts[vi].z = screenVertAy[vi]->world.fZ;
-          verts[vi].u = 0.0f;
-          verts[vi].v = 0.0f;
-        }
-        TextureHandle carPolyTexture = TEXTURE_HANDLE_INVALID;
-        if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
-          iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
-          iGfxSize = gfx_size;
-          carPolyTexture = game_render_get_texture_handle(g_pGameRenderer, iCartexOffset);
-        }
-        game_render_quad_world_subdivide_type(
-          g_pGameRenderer,
-          verts,
-          carPolyTexture,
-          uiTex,
-          iSubPolType,
-          fMinViewZ >= 1.0 ? 1.0f : 0.0f);
-      } else if (fMinViewZ >= 1.0) {
-        if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
-          iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
-          iGfxSize = gfx_size;
-          POLYTEX(cartex_vga[iCartexOffset - 1], pScreenBuffer, &CarPol, iCartexOffset, gfx_size);
-        } else {
-          POLYFLAT(pScreenBuffer, &CarPol);
-        }
-      } else {
-        iGfxSize = gfx_size;
-        subdivide(
-          pScreenBuffer,
-          &CarPol,
-          screenVertAy[0]->view.fX,
-          screenVertAy[0]->view.fY,
-          screenVertAy[0]->view.fZ,
-          screenVertAy[1]->view.fX,
-          screenVertAy[1]->view.fY,
-          screenVertAy[1]->view.fZ,
-          screenVertAy[2]->view.fX,
-          screenVertAy[2]->view.fY,
-          screenVertAy[2]->view.fZ,
-          screenVertAy[3]->view.fX,
-          screenVertAy[3]->view.fY,
-          screenVertAy[3]->view.fZ,
-          iSubPolType,
-          gfx_size);
+      // Render pol through the explicit scene seam. Missing renderers are
+      // handled at the seam as a no-op; there is no implicit legacy fallback.
+      SceneRenderVertex verts[4];
+      for (int vi = 0; vi < 4; vi++) {
+        verts[vi].x = screenVertAy[vi]->world.fX;
+        verts[vi].y = screenVertAy[vi]->world.fY;
+        verts[vi].z = screenVertAy[vi]->world.fZ;
+        verts[vi].u = 0.0f;
+        verts[vi].v = 0.0f;
       }
+      SceneTextureHandle carPolyTexture = SCENE_TEXTURE_HANDLE_INVALID;
+      if ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTexturesEnabled) {
+        iCartexOffset = car_texmap[uiCarDesignIdxTimes4 / 4];
+        iGfxSize = gfx_size;
+        carPolyTexture = scene_render_get_texture_handle(scene, iCartexOffset);
+      }
+      SceneRenderLegacyQuadOptions options = {
+        .subdivideType = iSubPolType,
+        .subThreshold = fMinViewZ >= 1.0 ? 1.0f : 0.0f,
+      };
+      scene_render_quad_world_legacy(scene, verts, carPolyTexture, uiTex, options);
       iDrawIdx += 12;
     } while (iDrawIdx < iTotalZOrderBytes);
   }
