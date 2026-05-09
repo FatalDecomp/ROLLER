@@ -114,6 +114,12 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const scene_render_seam_check = b.addSystemCommand(&.{
+        "python3",
+        "tests/scene_render_seam_check.py",
+    });
+    exe.step.dependOn(&scene_render_seam_check.step);
+
     configureDependencies(b, exe, target, optimize);
 
     const run_cmd = b.addRunArtifact(exe);

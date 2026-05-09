@@ -74,6 +74,33 @@ def main() -> int:
     game_render = read("PROJECTS/ROLLER/game_render.c")
     assert_true("SceneRenderer *scene" in game_render, "game renderer must own a SceneRenderer")
     assert_true("scene_render_quad_world_legacy" in game_render, "game renderer must delegate world quads to scene_render")
+
+    set_projection = extract_function(game_render, "game_render_set_projection")
+    assert_true(
+        "scene_render_set_target" not in set_projection,
+        "game_render_set_projection must not bind the scene target implicitly",
+    )
+    assert_true(
+        "game_render_set_target" in game_render,
+        "game renderer must expose an explicit target binding API",
+    )
+
+    game_render_sw_h = read("PROJECTS/ROLLER/game_render_software.h")
+    game_render_sw = read("PROJECTS/ROLLER/game_render_software.c")
+    for forbidden in [
+        "game_render_sw_quad_world",
+        "game_render_sw_quad_world_subdivide_type",
+        "game_render_sw_subdivide_view_quad",
+    ]:
+        assert_true(forbidden not in game_render_sw_h, f"{forbidden} still exposed by game_render_software.h")
+        assert_true(forbidden not in game_render_sw, f"{forbidden} still implemented by game_render_software.c")
+    assert_true("subdivide(" not in game_render_sw, "game_render_software still owns direct subdivide dispatch")
+
+    build_zig = read("build.zig")
+    assert_true(
+        "scene_render_seam_check.py" in build_zig,
+        "scene_render_seam_check.py must be enforced by zig build",
+    )
     return 0
 
 
