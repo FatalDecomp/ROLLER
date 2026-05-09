@@ -67,6 +67,13 @@ void game_render_set_viewport(GameRenderer *renderer,
     scene_render_set_viewport(renderer->scene, x, y, w, h);
 }
 
+void game_render_set_target(GameRenderer *renderer, uint8 *buffer,
+                            int stride, int width, int height) {
+    if (!renderer)
+        return;
+    scene_render_set_target(renderer->scene, buffer, stride, width, height);
+}
+
 // Camera
 
 void game_render_set_camera(GameRenderer *renderer,
@@ -86,7 +93,6 @@ void game_render_set_projection(GameRenderer *renderer,
         return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_set_projection(renderer->sw, proj);
-    scene_render_set_target(renderer->scene, screen_pointer, winw, winw, winh);
     scene_render_set_projection(renderer->scene, proj);
 }
 

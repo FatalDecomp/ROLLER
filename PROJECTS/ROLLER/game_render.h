@@ -37,6 +37,8 @@ void game_render_end_frame(GameRenderer *renderer);
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,
                               int x, int y, int w, int h);
+void game_render_set_target(GameRenderer *renderer, uint8 *buffer,
+                            int stride, int width, int height);
 
 // Camera
 void game_render_set_camera(GameRenderer *renderer,

@@ -1073,6 +1073,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
     subscale = (float)dTextureSubscaleMultiplier;
   }
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
+  game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
   {
       extern float viewx, viewy, viewz;
