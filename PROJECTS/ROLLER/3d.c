@@ -1075,38 +1075,34 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
-  {
-      extern float viewx, viewy, viewz;
-      extern int worlddirn, VIEWDIST;
-      GameRenderCamera cam = {
-          .viewX = viewx,
-          .viewY = viewy,
-          .viewZ = viewz,
-          .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
-          .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
-          .fovScale = (float)VIEWDIST,
-      };
-      game_render_set_camera(g_pGameRenderer, &cam);
-  }
-  {
-      extern float vk1, vk2, vk3, vk4, vk5, vk6, vk7, vk8, vk9;
-      extern int scr_size, xbase, ybase, gfx_size;
-      GameRenderProjection proj = {
-          .view = {{vk1, vk2, vk3},
-                   {vk4, vk5, vk6},
-                   {vk7, vk8, vk9}},
-          .screenScale = scr_size,
-          .centerX = xbase,
-          .centerY = ybase,
-          .texHalfRes = gfx_size,
-      };
-      game_render_set_projection(g_pGameRenderer, &proj);
-  }
+  extern float viewx, viewy, viewz;
+  extern int worlddirn, VIEWDIST;
+  GameRenderCamera cam = {
+      .viewX = viewx,
+      .viewY = viewy,
+      .viewZ = viewz,
+      .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
+      .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
+      .fovScale = (float)VIEWDIST,
+  };
+  game_render_set_camera(g_pGameRenderer, &cam);
+
+  extern float vk1, vk2, vk3, vk4, vk5, vk6, vk7, vk8, vk9;
+  GameRenderProjection proj = {
+      .view = {{vk1, vk2, vk3},
+               {vk4, vk5, vk6},
+               {vk7, vk8, vk9}},
+      .screenScale = scr_size,
+      .centerX = xbase,
+      .centerY = ybase,
+      .texHalfRes = gfx_size,
+  };
+  game_render_set_projection(g_pGameRenderer, &proj);
   game_render_draw_horizon(g_pGameRenderer);    // Draw sky/horizon background
   CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
   DrawCars(iCarIdx, uiViewMode);                // Render all visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
-  DrawTrack3(pScrPtr, iChaseCamIdx, iCarIdx);   // Render track surface, buildings, and track-side objects
+  DrawTrack3(pScrPtr, iChaseCamIdx, iCarIdx, &cam, &proj); // Render track surface, buildings, and track-side objects
   if (iCopyImmediately)                       // Check if immediate screen copy is requested
   {                                             // Copy rendered frame to display if screen is ready
     if (screenready)

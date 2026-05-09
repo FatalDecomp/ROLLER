@@ -34,6 +34,16 @@ def extract_function(source: str, name: str) -> str:
     raise AssertionError(f"function {name} body not closed")
 
 
+def extract_case(source: str, label: str, end_label: str) -> str:
+    start = source.find(label)
+    if start < 0:
+        raise AssertionError(f"case label {label} not found")
+    end = source.find(end_label, start)
+    if end < 0:
+        raise AssertionError(f"case end label {end_label} not found after {label}")
+    return source[start:end]
+
+
 def assert_true(cond: bool, msg: str) -> None:
     if not cond:
         raise AssertionError(msg)
@@ -114,6 +124,34 @@ def main() -> int:
     assert_true(
         re.search(r"^static\s+void\s+subdivide\s*\(", scene_render_sw, re.M),
         "scene_render_software.c must own static subdivide",
+    )
+
+    assert_true(
+        "const GameRenderCamera *camera" in drawtrk3_h
+        and "const GameRenderProjection *projection" in drawtrk3_h,
+        "DrawTrack3 must receive camera/projection explicitly",
+    )
+    assert_true("LightXYZ" not in drawtrk3_h, "LightXYZ must not be exposed by drawtrk3.h")
+    assert_true("cube_faces" not in drawtrk3_h, "cube_faces must not be exposed by drawtrk3.h")
+    assert_true("LightXYZ" not in drawtrk3, "start-light cube must not use LightXYZ screen/projection cache")
+    assert_true("int cube_faces" not in drawtrk3, "cube face topology must not be a drawtrk3 global")
+    assert_true(
+        "draw_start_light_cube_world" in drawtrk3,
+        "start-light cube rendering must be isolated in a helper",
+    )
+    start_light_case = extract_case(drawtrk3, "case 0xE:", "default:")
+    assert_true(
+        "game_render_quad_screen" not in start_light_case,
+        "case 0xE must not submit screen-space quads",
+    )
+    start_light_helper = extract_function(drawtrk3, "draw_start_light_cube_world")
+    assert_true(
+        "game_render_quad_world" in start_light_helper,
+        "start-light cube helper must submit world-space quads",
+    )
+    assert_true(
+        "game_render_quad_screen" not in start_light_helper,
+        "start-light cube helper must not submit screen-space quads",
     )
 
     build_zig = read("build.zig")

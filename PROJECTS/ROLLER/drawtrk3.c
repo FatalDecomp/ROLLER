@@ -15,19 +15,9 @@
 //-------------------------------------------------------------------------------------------------
 
 int showsub = 0;    //000A34A0
-int cube_faces[6][4] =  //000A4158
-{
-  { 0, 1, 2, 3 },
-  { 4, 5, 6, 7 },
-  { 3, 2, 6, 7 },
-  { 0, 3, 7, 4 },
-  { 1, 2, 6, 5 },
-  { 0, 1, 5, 4 }
-};
 int view_limit = 0; //000A41B8
 int divtype = 0;    //000A41BC
 int NextSect[MAX_TRACK_CHUNKS];  //00143BF4
-tScreenPt LightXYZ[8];  //001443C4
 int tex_hgt;        //00144464
 int polyysize;      //00144468
 int polyxsize;      //0014446C
@@ -550,9 +540,116 @@ static void world_verts_right_wall(GameRenderVertex *verts,
     verts[3].u = 0; verts[3].v = 0;
 }
 
+static void draw_start_light_cube_world(GameRenderer *renderer,
+                                        const tSLight *light,
+                                        int countdownValue,
+                                        int worldDirection,
+                                        const GameRenderCamera *camera,
+                                        const GameRenderProjection *projection)
+{
+    static const int cubeFaces[6][4] = {
+        { 0, 1, 2, 3 },
+        { 4, 5, 6, 7 },
+        { 3, 2, 6, 7 },
+        { 0, 3, 7, 4 },
+        { 1, 2, 6, 5 },
+        { 0, 1, 5, 4 },
+    };
+    static const float cubeCorners[8][3] = {
+        { -100.0f,  100.0f, -100.0f },
+        { -100.0f, -100.0f, -100.0f },
+        {  100.0f, -100.0f, -100.0f },
+        {  100.0f,  100.0f, -100.0f },
+        { -100.0f,  100.0f,  100.0f },
+        { -100.0f, -100.0f,  100.0f },
+        {  100.0f, -100.0f,  100.0f },
+        {  100.0f,  100.0f,  100.0f },
+    };
+
+    if (!renderer || !light || !camera || !projection)
+        return;
+
+    int lightYaw = ((int16)light->uiRotation + (int16)worldDirection) & 0x3FFF;
+    float sinZero = tsin[0];
+    float cosZero = tcos[0];
+    float basisX0 = tcos[lightYaw] * cosZero;
+    float basisY0 = tsin[lightYaw] * cosZero;
+    double cosYaw = tcos[lightYaw];
+    float basisZ0 = sinZero;
+    double cosYawSinZero = cosYaw * sinZero;
+    float basisX1 = (float)cosYawSinZero * sinZero - basisY0;
+    double sinYawSinZero = tsin[lightYaw] * sinZero;
+    float basisY1 = (float)sinYawSinZero * sinZero + basisX0;
+    float basisZ1 = -sinZero * cosZero;
+    float basisX2 = -tcos[lightYaw] * sinZero * cosZero - (float)sinYawSinZero;
+    float basisY2 = (float)cosYawSinZero + -tsin[lightYaw] * sinZero * cosZero;
+    float basisZ2 = cosZero * cosZero;
+
+    GameRenderVertex cubeVerts[8];
+    float cubeDepth[8];
+    for (int i = 0; i < 8; i++) {
+        float sx = cubeCorners[i][0];
+        float sy = cubeCorners[i][1];
+        float sz = cubeCorners[i][2];
+        cubeVerts[i].x = sx * basisX0 + sy * basisX1 + sz * basisX2 + light->currentPos.fX;
+        cubeVerts[i].y = sx * basisY0 + sy * basisY1 + sz * basisY2 + light->currentPos.fY;
+        cubeVerts[i].z = sx * basisZ0 + sy * basisZ1 + sz * basisZ2 + light->currentPos.fZ;
+        cubeVerts[i].u = 0.0f;
+        cubeVerts[i].v = 0.0f;
+
+        double depth = (cubeVerts[i].x - camera->viewX) * projection->view[0][2]
+                     + (cubeVerts[i].y - camera->viewY) * projection->view[1][2]
+                     + (cubeVerts[i].z - camera->viewZ) * projection->view[2][2];
+        cubeDepth[i] = (float)(int)round(depth);
+    }
+
+    int surfaceFlags;
+    if (countdownValue >= 0) {
+        surfaceFlags = countdownValue >= 72 ? 0x2101 : 0x2102;
+    } else {
+        surfaceFlags = 0x2103;
+    }
+
+    TextureHandle texture = (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE)
+        ? game_render_get_texture_handle(renderer, TEXTURE_BANK_CARGEN)
+        : TEXTURE_HANDLE_INVALID;
+
+    float faceDepth[6];
+    for (int i = 0; i < 6; i++) {
+        faceDepth[i] = (cubeDepth[cubeFaces[i][0]]
+                      + cubeDepth[cubeFaces[i][1]]
+                      + cubeDepth[cubeFaces[i][2]]
+                      + cubeDepth[cubeFaces[i][3]]) * 0.25f;
+    }
+
+    set_starts(0);
+    for (int drawCount = 0; drawCount < 6; drawCount++) {
+        int face = 0;
+        float maxDepth = faceDepth[0];
+        for (int i = 1; i < 6; i++) {
+            if (faceDepth[i] > (double)maxDepth) {
+                face = i;
+                maxDepth = faceDepth[i];
+            }
+        }
+        faceDepth[face] = -9.9999998e17f;
+
+        GameRenderVertex faceVerts[4] = {
+            cubeVerts[cubeFaces[face][0]],
+            cubeVerts[cubeFaces[face][1]],
+            cubeVerts[cubeFaces[face][2]],
+            cubeVerts[cubeFaces[face][3]],
+        };
+        game_render_quad_world(renderer, faceVerts, texture, surfaceFlags, 1.0f);
+    }
+}
+
+
 //-------------------------------------------------------------------------------------------------
 //0001DE40
-void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx)
+void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
+                const GameRenderCamera *camera,
+                const GameRenderProjection *projection)
 {
   tTrackScreenXYZ *pScreenCoord; // ebp
   tTrackScreenXYZ *pScreenCoord_1; // edi
@@ -2635,287 +2732,12 @@ LABEL_393:
           DrawBuilding(iSectionNum, pScrPtr_1);
           goto LABEL_1271;
         case 0xE:
-          iScreenIndex1 = iIndexTmp1 + 48 * iSectionNum;
-          fRenderDepthTmp14 = *(float *)((char *)&SLight[0][0].currentPos.fX + iScreenIndex1);
-          fRenderDepthTmp13 = *(float *)((char *)&SLight[0][0].currentPos.fY + iScreenIndex1);
-          iScreenIndex2 = *(uint32 *)((char *)&SLight[0][0].uiRotation + iScreenIndex1);
-          fRenderDepthTmp12 = *(float *)((char *)&SLight[0][0].currentPos.fZ + iScreenIndex1);
-          iScreenIndex3 = ((int16)iScreenIndex2 + (int16)worlddirn) & 0x3FFF;
-          fTransformTempZ2 = tcos[iScreenIndex3] * tcos[0];
-          fTransformTempY2 = tsin[iScreenIndex3] * tcos[0];
-          dTransform1 = tcos[iScreenIndex3];
-          fTransformTempX2 = tsin[0];
-          dTransform2 = dTransform1 * tsin[0];
-          fTransformTempZ1 = (float)dTransform2 * tsin[0] - fTransformTempY2;
-          dTransform3 = tsin[iScreenIndex3] * tsin[0];
-          fTransformTempY1 = (float)dTransform3 * tsin[0] + fTransformTempZ2;
-          fTransformTempX1 = -tsin[0] * tcos[0];
-          fRenderDepthTmp9 = -tcos[iScreenIndex3] * tsin[0] * tcos[0] - (float)dTransform3;
-          fRenderDepthTmp8 = (float)dTransform2 + -tsin[iScreenIndex3] * tsin[0] * tcos[0];
-          fRenderDepthTmp7 = tcos[0] * tcos[0];
-          fRenderDepthTmp11 = -100.0f * fTransformTempZ2 + 100.0f * fTransformTempZ1 - 100.0f * fRenderDepthTmp9 + fRenderDepthTmp14;
-          fTransformTempFinal = -100.0f * tsin[0] + 100.0f * fTransformTempX1 - 100.0f * fRenderDepthTmp7 + fRenderDepthTmp12;
-          dTransform4 = fRenderDepthTmp11 - viewx;
-          dTransform5 = -100.0 * fTransformTempY2 + 100.0 * fTransformTempY1 - 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dTransform6 = fTransformTempFinal - viewz;
-          fCameraTransformZ1 = (float)(dTransform4 * vk1 + dTransform5 * vk4 + dTransform6 * vk7);
-          fCameraTransformY1 = (float)(dTransform4 * vk2 + dTransform5 * vk5 + dTransform6 * vk8);
-          dTransform7 = dTransform4 * vk3 + dTransform5 * vk6 + dTransform6 * vk9;
-          fCameraTransformX1 = (float)dTransform7;
-          dTransform7 = round(dTransform7);//_CHP();
-          iOffsetTmp2 = (int)dTransform7;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dTransform8 = (double)VIEWDIST;
-          dTransform9 = 1.0 / fCameraTransformX1;
-          dTransform10 = dTransform8 * fCameraTransformZ1 * dTransform9 + (double)xbase;
-          dTransform10 = round(dTransform10);//_CHP();
-          xp = (int)dTransform10;
-          dTransform11 = dTransform9 * (dTransform8 * fCameraTransformY1) + (double)ybase;
-          dTransform11 = round(dTransform11);//_CHP();
-          yp = (int)dTransform11;
-          LightXYZ[0].projected.fZ = (float)iOffsetTmp2;
-          dTransform12 = -100.0 * fTransformTempZ2 - 100.0 * fTransformTempZ1 - 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dTransform13 = -100.0 * fTransformTempY2 - 100.0 * fTransformTempY1 - 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dTransform14 = -100.0 * fTransformTempX2 - 100.0 * fTransformTempX1 - 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[0].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[0].screen.y = (scr_size * (199 - yp)) >> 6;
-          iTransformInt1 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dTransform12 * vk1 + dTransform13 * vk4 + dTransform14 * vk7);
-          LightXYZ[0].projected.fX = iTransformInt1;
-          fCameraTransformY1 = (float)(dTransform12 * vk2 + dTransform13 * vk5 + dTransform14 * vk8);
-          dTransform15 = dTransform12 * vk3 + dTransform13 * vk6 + dTransform14 * vk9;
-          fCameraTransformX1 = (float)dTransform15;
-          dTransform15 = round(dTransform15);//_CHP();
-          iOffsetTmp2 = (int)dTransform15;
-          LightXYZ[0].projected.fY = (float)(int)dTransform15;// iTransformInt2;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dTransform16 = (double)VIEWDIST;
-          dTransform17 = 1.0 / fCameraTransformX1;
-          dTransform18 = dTransform16 * fCameraTransformZ1 * dTransform17 + (double)xbase;
-          dTransform18 = round(dTransform18);//_CHP();
-          xp = (int)dTransform18;
-          dTransform19 = dTransform17 * (dTransform16 * fCameraTransformY1) + (double)ybase;
-          dTransform19 = round(dTransform19);//_CHP();
-          yp = (int)dTransform19;
-          LightXYZ[1].projected.fZ = (float)iOffsetTmp2;
-          dTransform20 = 100.0 * fTransformTempZ2 - 100.0 * fTransformTempZ1 - 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dTransform21 = 100.0 * fTransformTempY2 - 100.0 * fTransformTempY1 - 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dTransform22 = 100.0 * fTransformTempX2 - 100.0 * fTransformTempX1 - 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[1].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[1].screen.y = (scr_size * (199 - yp)) >> 6;
-          iTransformInt3 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dTransform20 * vk1 + dTransform21 * vk4 + dTransform22 * vk7);
-          LightXYZ[1].projected.fX = iTransformInt3;
-          fCameraTransformY1 = (float)(dTransform20 * vk2 + dTransform21 * vk5 + dTransform22 * vk8);
-          dTransform23 = dTransform20 * vk3 + dTransform21 * vk6 + dTransform22 * vk9;
-          fCameraTransformX1 = (float)dTransform23;
-          dTransform23 = round(dTransform23);//_CHP();
-          iOffsetTmp2 = (int)dTransform23;
-          LightXYZ[1].projected.fY = (float)(int)dTransform23;// iTransformInt4;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dTransform24 = (double)VIEWDIST;
-          dTransform25 = 1.0 / fCameraTransformX1;
-          dTransform26 = dTransform24 * fCameraTransformZ1 * dTransform25 + (double)xbase;
-          dTransform26 = round(dTransform26);//_CHP();
-          xp = (int)dTransform26;
-          dTransform27 = dTransform25 * (dTransform24 * fCameraTransformY1) + (double)ybase;
-          dTransform27 = round(dTransform27);//_CHP();
-          yp = (int)dTransform27;
-          LightXYZ[2].projected.fZ = (float)iOffsetTmp2;
-          dTransform28 = 100.0 * fTransformTempZ2 + 100.0 * fTransformTempZ1 - 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dTransform29 = 100.0 * fTransformTempY2 + 100.0 * fTransformTempY1 - 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dTransform30 = 100.0 * fTransformTempX2 + 100.0 * fTransformTempX1 - 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[2].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[2].screen.y = (scr_size * (199 - yp)) >> 6;
-          iTransformInt5 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dTransform28 * vk1 + dTransform29 * vk4 + dTransform30 * vk7);
-          LightXYZ[2].projected.fX = iTransformInt5;
-          fCameraTransformY1 = (float)(dTransform28 * vk2 + dTransform29 * vk5 + dTransform30 * vk8);
-          dTransform31 = dTransform28 * vk3 + dTransform29 * vk6 + dTransform30 * vk9;
-          fCameraTransformX1 = (float)dTransform31;
-          dTransform31 = round(dTransform31);//_CHP();
-          iOffsetTmp2 = (int)dTransform31;
-          LightXYZ[2].projected.fY = (float)(int)dTransform31;// iTransformInt6;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dTransform32 = (double)VIEWDIST;
-          dTransform33 = 1.0 / fCameraTransformX1;
-          dTransform34 = dTransform32 * fCameraTransformZ1 * dTransform33 + (double)xbase;
-          dTransform34 = round(dTransform34);//_CHP();
-          xp = (int)dTransform34;
-          dProjectionDepth1 = dTransform33 * (dTransform32 * fCameraTransformY1) + (double)ybase;
-          dProjectionDepth1 = round(dProjectionDepth1);//_CHP();
-          yp = (int)dProjectionDepth1;
-          LightXYZ[3].projected.fZ = (float)iOffsetTmp2;
-          dProjectionDepth2 = -100.0 * fTransformTempZ2 + 100.0 * fTransformTempZ1 + 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dProjectionDepth3 = -100.0 * fTransformTempY2 + 100.0 * fTransformTempY1 + 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dProjectionDepth4 = -100.0 * fTransformTempX2 + 100.0 * fTransformTempX1 + 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[3].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[3].screen.y = (scr_size * (199 - yp)) >> 6;
-          iProjectionIndex1 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dProjectionDepth2 * vk1 + dProjectionDepth3 * vk4 + dProjectionDepth4 * vk7);
-          LightXYZ[3].projected.fX = iProjectionIndex1;
-          fCameraTransformY1 = (float)(dProjectionDepth2 * vk2 + dProjectionDepth3 * vk5 + dProjectionDepth4 * vk8);
-          dProjectionDepth5 = dProjectionDepth2 * vk3 + dProjectionDepth3 * vk6 + dProjectionDepth4 * vk9;
-          fCameraTransformX1 = (float)dProjectionDepth5;
-          dProjectionDepth5 = round(dProjectionDepth5);//_CHP();
-          iOffsetTmp2 = (int)dProjectionDepth5;
-          LightXYZ[3].projected.fY = (float)(int)dProjectionDepth5;// iProjectionIndex2;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dProjectionDepth6 = (double)VIEWDIST;
-          dProjectionDepth7 = 1.0 / fCameraTransformX1;
-          dProjectionDepth8 = dProjectionDepth6 * fCameraTransformZ1 * dProjectionDepth7 + (double)xbase;
-          dProjectionDepth8 = round(dProjectionDepth8);//_CHP();
-          xp = (int)dProjectionDepth8;
-          dProjectionDepth9 = dProjectionDepth7 * (dProjectionDepth6 * fCameraTransformY1) + (double)ybase;
-          dProjectionDepth9 = round(dProjectionDepth9);//_CHP();
-          yp = (int)dProjectionDepth9;
-          LightXYZ[4].projected.fZ = (float)iOffsetTmp2;
-          dProjectionDepth10 = -100.0 * fTransformTempZ2 - 100.0 * fTransformTempZ1 + 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dProjectionDepth11 = -100.0 * fTransformTempY2 - 100.0 * fTransformTempY1 + 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dProjectionDepth12 = -100.0 * fTransformTempX2 - 100.0 * fTransformTempX1 + 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[4].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[4].screen.y = (scr_size * (199 - yp)) >> 6;
-          iProjectionIndex3 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dProjectionDepth10 * vk1 + dProjectionDepth11 * vk4 + dProjectionDepth12 * vk7);
-          LightXYZ[4].projected.fX = iProjectionIndex3;
-          fCameraTransformY1 = (float)(dProjectionDepth10 * vk2 + dProjectionDepth11 * vk5 + dProjectionDepth12 * vk8);
-          dProjectionDepth13 = dProjectionDepth10 * vk3 + dProjectionDepth11 * vk6 + dProjectionDepth12 * vk9;
-          fCameraTransformX1 = (float)dProjectionDepth13;
-          dProjectionDepth13 = round(dProjectionDepth13);//_CHP();
-          iOffsetTmp2 = (int)dProjectionDepth13;
-          LightXYZ[4].projected.fY = (float)(int)dProjectionDepth13;// iProjectionIndex4;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dProjectionDepth14 = (double)VIEWDIST;
-          dProjectionDepth15 = 1.0 / fCameraTransformX1;
-          dProjectionDepth16 = dProjectionDepth14 * fCameraTransformZ1 * dProjectionDepth15 + (double)xbase;
-          dProjectionDepth16 = round(dProjectionDepth16);//_CHP();
-          xp = (int)dProjectionDepth16;
-          dProjectionDepth17 = dProjectionDepth15 * (dProjectionDepth14 * fCameraTransformY1) + (double)ybase;
-          dProjectionDepth17 = round(dProjectionDepth17);//_CHP();
-          yp = (int)dProjectionDepth17;
-          LightXYZ[5].projected.fZ = (float)iOffsetTmp2;
-          dProjectionDepth18 = 100.0 * fTransformTempZ2 - 100.0 * fTransformTempZ1 + 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dProjectionDepth19 = 100.0 * fTransformTempY2 - 100.0 * fTransformTempY1 + 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dProjectionDepth20 = 100.0 * fTransformTempX2 - 100.0 * fTransformTempX1 + 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[5].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[5].screen.y = (scr_size * (199 - yp)) >> 6;
-          iProjectionIndex5 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dProjectionDepth18 * vk1 + dProjectionDepth19 * vk4 + dProjectionDepth20 * vk7);
-          LightXYZ[5].projected.fX = iProjectionIndex5;
-          fCameraTransformY1 = (float)(dProjectionDepth18 * vk2 + dProjectionDepth19 * vk5 + dProjectionDepth20 * vk8);
-          dProjectionDepth21 = dProjectionDepth18 * vk3 + dProjectionDepth19 * vk6 + dProjectionDepth20 * vk9;
-          fCameraTransformX1 = (float)dProjectionDepth21;
-          dProjectionDepth21 = round(dProjectionDepth21);//_CHP();
-          iOffsetTmp2 = (int)dProjectionDepth21;
-          LightXYZ[5].projected.fY = (float)(int)dProjectionDepth21; //iProjectionIndex6;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dProjectionDepth22 = (double)VIEWDIST;
-          dProjectionDepth23 = 1.0 / fCameraTransformX1;
-          dProjectionDepth24 = dProjectionDepth22 * fCameraTransformZ1 * dProjectionDepth23 + (double)xbase;
-          dProjectionDepth24 = round(dProjectionDepth24);//_CHP();
-          xp = (int)dProjectionDepth24;
-          dProjectionDepth25 = dProjectionDepth23 * (dProjectionDepth22 * fCameraTransformY1) + (double)ybase;
-          dProjectionDepth25 = round(dProjectionDepth25);//_CHP();
-          yp = (int)dProjectionDepth25;
-          LightXYZ[6].projected.fZ = (float)iOffsetTmp2;
-          dProjectionDepth26 = 100.0 * fTransformTempZ2 + 100.0 * fTransformTempZ1 + 100.0 * fRenderDepthTmp9 + fRenderDepthTmp14 - viewx;
-          dProjectionDepth27 = 100.0 * fTransformTempY2 + 100.0 * fTransformTempY1 + 100.0 * fRenderDepthTmp8 + fRenderDepthTmp13 - viewy;
-          dProjectionDepth28 = 100.0 * fTransformTempX2 + 100.0 * fTransformTempX1 + 100.0 * fRenderDepthTmp7 + fRenderDepthTmp12 - viewz;
-          LightXYZ[6].screen.x = (scr_size * xp) >> 6;
-          LightXYZ[6].screen.y = (scr_size * (199 - yp)) >> 6;
-          iProjectionIndex7 = fCameraTransformZ1;
-          fCameraTransformZ1 = (float)(dProjectionDepth26 * vk1 + dProjectionDepth27 * vk4 + dProjectionDepth28 * vk7);
-          LightXYZ[6].projected.fX = iProjectionIndex7;
-          fCameraTransformY1 = (float)(dProjectionDepth26 * vk2 + dProjectionDepth27 * vk5 + dProjectionDepth28 * vk8);
-          dProjectionDepth29 = dProjectionDepth26 * vk3 + dProjectionDepth27 * vk6 + dProjectionDepth28 * vk9;
-          fCameraTransformX1 = (float)dProjectionDepth29;
-          dProjectionDepth29 = round(dProjectionDepth29);//_CHP();
-          iOffsetTmp2 = (int)dProjectionDepth29;
-          LightXYZ[6].projected.fY = (float)(int)dProjectionDepth29; //iProjectionIndex8;
-          if (fCameraTransformX1 < 80.0)
-            fCameraTransformX1 = 80.0;
-          dProjectionDepth30 = (double)VIEWDIST;
-          dProjectionDepth31 = 1.0 / fCameraTransformX1;
-          dProjectionDepth32 = dProjectionDepth30 * fCameraTransformZ1 * dProjectionDepth31 + (double)xbase;
-          dProjectionDepth32 = round(dProjectionDepth32);//_CHP();
-          xp = (int)dProjectionDepth32;
-          dProjectionDepth33 = dProjectionDepth31 * (dProjectionDepth30 * fCameraTransformY1) + (double)ybase;
-          iRenderingIndex1 = scr_size;
-          dProjectionDepth33 = round(dProjectionDepth33);//_CHP();
-          yp = (int)dProjectionDepth33;
-          LightXYZ[7].screen.x = xp * scr_size >> 6;
-          //LightXYZ[7].screen.x = iRenderingIndex2 >> 6;
-          LightXYZ[7].screen.y = (iRenderingIndex1 * (199 - (int)dProjectionDepth33)) >> 6;
-          LightXYZ[7].projected.fX = fCameraTransformZ1;
-          RoadPoly.uiNumVerts = 4;
-          LightXYZ[7].projected.fY = fCameraTransformY1;
-          LightXYZ[7].projected.fZ = (float)iOffsetTmp2;
-          if (countdown >= 0) {
-            if (countdown >= 72)
-              RoadPoly.iSurfaceType = 0x2101;
-            else
-              RoadPoly.iSurfaceType = 0x2102;
-          } else {
-            RoadPoly.iSurfaceType = 0x2103;
-          }
-          iRenderingIndex3 = 0;
-          iRenderingIndex4 = 0;
-          do {
-            dRenderingDepth1 = (LightXYZ[cube_faces[iRenderingIndex4][0]].projected.fZ
-                              + LightXYZ[cube_faces[iRenderingIndex4][1]].projected.fZ
-                              + LightXYZ[cube_faces[iRenderingIndex4][2]].projected.fZ
-                              + LightXYZ[cube_faces[iRenderingIndex4][3]].projected.fZ)
-              * 0.25;
-            ++iRenderingIndex3;
-            ++iRenderingIndex4;
-            fDepthValuesArray[iRenderingIndex3 - 1] = (float)dRenderingDepth1;
-          } while (iRenderingIndex3 != 6);
-          iNextSectionIndex = 0;
-          set_starts(0);
-          do {
-            iRenderingIndex5 = 1;
-            iRenderingIndex6 = 1;
-            iRenderingIndex7 = 0;
-            fLightTmp1 = fDepthValuesArray[0];
-            do {
-              if (fDepthValuesArray[iRenderingIndex6] > (double)fLightTmp1) {
-                iRenderingIndex7 = iRenderingIndex5;
-                fLightTmp1 = fDepthValuesArray[iRenderingIndex6];
-              }
-              ++iRenderingIndex5;
-              ++iRenderingIndex6;
-            } while (iRenderingIndex5 < 6);
-            fDepthValuesArray[iRenderingIndex7] = -9.9999998e17f;
-            iRenderingIndex8 = iRenderingIndex7;
-            iRenderingIndex9 = cube_faces[iRenderingIndex8][0];
-            iRenderingIndex10 = LightXYZ[iRenderingIndex9].screen.x;
-            iRenderingIndex11 = cube_faces[iRenderingIndex8][1];
-            RoadPoly.vertices[0].y = LightXYZ[iRenderingIndex9].screen.y;
-            RoadPoly.vertices[0].x = iRenderingIndex10;
-            iRenderLoopVar = LightXYZ[iRenderingIndex11].screen.x;
-            iRenderingLoopIndex = cube_faces[iRenderingIndex8][2];
-            RoadPoly.vertices[1].y = LightXYZ[iRenderingIndex11].screen.y;
-            RoadPoly.vertices[1].x = iRenderLoopVar;
-            RoadPoly.vertices[2].x = LightXYZ[iRenderingLoopIndex].screen.x;
-            iRenderingIndexTmp = cube_faces[iRenderingIndex8][3];
-            RoadPoly.vertices[2].y = LightXYZ[iRenderingLoopIndex].screen.y;
-            iRenderingCoordIndex = iRenderingIndexTmp;
-            iRenderingDataIndex = LightXYZ[iRenderingIndexTmp].screen.x;
-            RoadPoly.vertices[3].y = LightXYZ[iRenderingCoordIndex].screen.y;
-            RoadPoly.vertices[3].x = iRenderingDataIndex;
-            if ((RoadPoly.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              game_render_quad_screen(g_pGameRenderer, &RoadPoly, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
-            else
-              game_render_quad_screen(g_pGameRenderer, &RoadPoly, TEXTURE_HANDLE_INVALID, NULL);
-            ++iNextSectionIndex;
-          } while (iNextSectionIndex < 6);
+          draw_start_light_cube_world(g_pGameRenderer,
+                                      &SLight[iChaseCamIdx_1][iSectionNum],
+                                      countdown,
+                                      worlddirn,
+                                      camera,
+                                      projection);
           goto LABEL_1271;
         default:
           goto LABEL_1271;                      // Switch on render object type to call appropriate renderer
