@@ -64,6 +64,8 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/menu_render_software.c",
             "PROJECTS/ROLLER/game_render.c",
             "PROJECTS/ROLLER/game_render_software.c",
+            "PROJECTS/ROLLER/scene_render.c",
+            "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/mouse.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
