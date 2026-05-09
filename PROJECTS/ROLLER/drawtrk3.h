@@ -54,12 +54,6 @@ extern int num_bits;
 
 int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx);
-void subdivide(uint8 *pDest, tPolyParams *polyParams,
-               float fX0_3D, float fY0_3D, float fZ0_3D,
-               float fX1_3D, float fY1_3D, float fZ1_3D,
-               float fX2_3D, float fY2_3D, float fZ2_3D,
-               float fX3_3D, float fY3_3D, float fZ3_3D,
-               int iSubpolyType, int bHalfResTex);
 void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               float fX1_3D, float fY1_3D, float fZ1_3D,
               float fX2_3D, float fY2_3D, float fZ2_3D,

@@ -1966,29 +1966,6 @@ LABEL_117:
               uiTextureSurface,
               iSubdivisionParam,
               bCloseToCamera ? 0.0f : 1.0f);
-          } else if (bCloseToCamera) {
-            subdivide(
-              pScrBuf,
-              &CarPol,
-              polygonVertices[0]->view.fX,
-              polygonVertices[0]->view.fY,
-              polygonVertices[0]->view.fZ,
-              polygonVertices[1]->view.fX,
-              polygonVertices[1]->view.fY,
-              polygonVertices[1]->view.fZ,
-              polygonVertices[2]->view.fX,
-              polygonVertices[2]->view.fY,
-              polygonVertices[2]->view.fZ,
-              polygonVertices[3]->view.fX,
-              polygonVertices[3]->view.fY,
-              polygonVertices[3]->view.fZ,
-              iSubdivisionParam,
-              gfx_size);
-          } else if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
-            int iCarTexSlot = car_texmap[uiTextureMapOffset / 4];
-            POLYTEX(cartex_vga[iCarTexSlot - 1], pScrBuf, &CarPol, iCarTexSlot, gfx_size);
-          } else {
-            POLYFLAT(pScrBuf, &CarPol);
           }
         } else {
           CarZOrder[uiRenderLoopOffset / 0xC].iPolygonLink = -1;

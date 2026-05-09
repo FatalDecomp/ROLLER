@@ -45,6 +45,123 @@ struct SceneRendererSoftware {
     SceneTextureHandle texIdxToHandle[32];
 };
 
+static void subdivide(uint8 *pDest, tPolyParams *polyParams,
+                      float fX0_3D, float fY0_3D, float fZ0_3D,
+                      float fX1_3D, float fY1_3D, float fZ1_3D,
+                      float fX2_3D, float fY2_3D, float fZ2_3D,
+                      float fX3_3D, float fY3_3D, float fZ3_3D,
+                      int iSubpolyType,
+                      int bHalfResTex)
+{
+  int iX0; // ebp
+  int iX1; // edi
+  int iX3; // esi
+  int iTexHgt; // ebx
+  int iY3; // [esp+0h] [ebp-28h]
+  int iY0; // [esp+4h] [ebp-24h]
+  int iY1; // [esp+8h] [ebp-20h]
+  int iY2; // [esp+Ch] [ebp-1Ch]
+  int iX2; // [esp+10h] [ebp-18h]
+
+  if ((polyParams->iSurfaceType & SURFACE_FLAG_SKIP_RENDER) != 0)// SURFACE_FLAG_SKIP_RENDER
+    return;
+
+  // setup globals for dodivide
+  subptr = pDest;
+  subpoly = polyParams;
+
+  // Extract screen coords from pol verts
+  iX0 = polyParams->vertices[0].x;
+  iX1 = polyParams->vertices[1].x;
+  iY0 = polyParams->vertices[0].y;
+  iY3 = polyParams->vertices[3].y;
+  iY1 = polyParams->vertices[1].y;
+  subpolytype = iSubpolyType;
+  iX2 = polyParams->vertices[2].x;
+  iY2 = polyParams->vertices[2].y;
+  iX3 = polyParams->vertices[3].x;
+
+  // determine tex flipping mode
+  fliptype = (polyParams->iSurfaceType & SURFACE_FLAG_FLIP_HORIZ) != 0;// SURFACE_FLAG_FLIP_HORIZ
+  if ((polyParams->iSurfaceType & SURFACE_FLAG_FLIP_VERT) != 0)// SURFACE_FLAG_FLIP_VERT
+    fliptype += 2;                              // 0=none, 1=horiz, 2=vert, 3=both
+
+  // set flat pol flag if SURFACE_FLAG_APPLY_TEXTURE is not set
+  // This disables screen-size based subdivision for untextured pol
+  flatpol = ((subpoly->iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0) - 1;// SURFACE_FLAG_APPLY_TEXTURE
+
+  // Determine tex dimensions based on pol type
+  if (subpolytype >= 0) {
+    // Standard pol type
+    iTexHgt = 1024;
+    tex_wid = 1024;
+    goto LABEL_9;
+  }
+  if (subpolytype != -1) {
+    // wide tex
+    iTexHgt = 2048;
+    tex_wid = 1024;
+  LABEL_9:
+    tex_hgt = iTexHgt;
+    goto LABEL_10;
+  }
+  // type -1: tall tex
+  tex_wid = 2048;
+  tex_hgt = 1024;
+LABEL_10:
+  // Apply half-res tex mode if requested
+  if (bHalfResTex) {
+    tex_wid >>= 1;
+    tex_hgt >>= 1;
+  }
+  dodivide(
+    fX0_3D,
+    fY0_3D,
+    fZ0_3D,
+    fX1_3D,
+    fY1_3D,
+    fZ1_3D,
+    fX2_3D,
+    fY2_3D,
+    fZ2_3D,
+    fX3_3D,
+    fY3_3D,
+    fZ3_3D,
+    iX0,
+    iY0,
+    iX1,
+    iY1,
+    iX2,
+    iY2,
+    iX3,
+    iY3,
+    0,
+    0,
+    tex_wid,
+    tex_hgt);
+
+  // Reset tex coords to default values
+  // Clean slate for next pol
+  set_starts(0);
+
+  // Debug mode: draw pol outline if showsub flag is enabled
+  if (showsub) {
+    // Edge 0-1 (top)
+    if (fZ0_3D >= 1.0 && fZ1_3D >= 1.0)
+      compout(subptr, iX0, iY0, iX1, iY1, 0xF3u);// 0xF3 is blue in PALETTE.PAL
+    // Edge 1-2 (right)
+    if (fZ1_3D >= 1.0 && fZ2_3D >= 1.0)
+      compout(subptr, iX1, iY1, iX2, iY2, 0xF3u);
+    // Edge 2-3 (bottom)
+    if (fZ2_3D >= 1.0 && fZ3_3D >= 1.0)
+      compout(subptr, iX2, iY2, iX3, iY3, 0xF3u);
+    // Edge 3-0 (left)
+    if (fZ3_3D >= 1.0 && fZ0_3D >= 1.0)
+      compout(subptr, iX3, iY3, iX0, iY0, 0xF3u);
+  }
+}
+
+
 static void scene_render_sw_bind_target(SceneRendererSoftware *sw) {
     if (!sw || !sw->targetBuffer)
         return;
