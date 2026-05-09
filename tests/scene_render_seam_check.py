@@ -96,6 +96,26 @@ def main() -> int:
         assert_true(forbidden not in game_render_sw, f"{forbidden} still implemented by game_render_software.c")
     assert_true("subdivide(" not in game_render_sw, "game_render_software still owns direct subdivide dispatch")
 
+    drawtrk3_h = read("PROJECTS/ROLLER/drawtrk3.h")
+    drawtrk3 = read("PROJECTS/ROLLER/drawtrk3.c")
+    car = read("PROJECTS/ROLLER/car.c")
+    scene_render_sw = read("PROJECTS/ROLLER/scene_render_software.c")
+    assert_true(
+        not re.search(r"\bvoid\s+subdivide\s*\(", drawtrk3_h),
+        "drawtrk3.h must not expose subdivide",
+    )
+    assert_true(
+        not re.search(r"^void\s+subdivide\s*\(", drawtrk3, re.M),
+        "drawtrk3.c must not define public subdivide",
+    )
+    assert_true("subdivide(" not in car, "car.c must not call subdivide directly")
+    assert_true("POLYTEX(" not in car, "car.c must not use POLYTEX fallback directly")
+    assert_true("POLYFLAT(" not in car, "car.c must not use POLYFLAT fallback directly")
+    assert_true(
+        re.search(r"^static\s+void\s+subdivide\s*\(", scene_render_sw, re.M),
+        "scene_render_software.c must own static subdivide",
+    )
+
     build_zig = read("build.zig")
     assert_true(
         "scene_render_seam_check.py" in build_zig,
