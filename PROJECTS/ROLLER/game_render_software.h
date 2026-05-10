@@ -19,8 +19,8 @@ void game_render_sw_begin_frame(GameRendererSoftware *sw);
 void game_render_sw_end_frame(GameRendererSoftware *sw);
 
 // Viewport
-void game_render_sw_set_viewport(GameRendererSoftware *sw,
-                                 int x, int y, int w, int h);
+void game_render_sw_set_viewport(GameRendererSoftware *sw, int x, int y, int w,
+                                 int h);
 
 // Camera
 void game_render_sw_set_camera(GameRendererSoftware *sw,
@@ -32,13 +32,13 @@ void game_render_sw_set_projection(GameRendererSoftware *sw,
 
 // Asset loading
 TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
-                                          uint8 *pixelData,
-                                          int width, int height,
-                                          int tex_idx, int gfx_size);
+                                          uint8 *pixelData, int width,
+                                          int height, int tex_idx,
+                                          int gfx_size);
 void game_render_sw_free_texture(GameRendererSoftware *sw,
                                  TextureHandle handle);
 TextureHandle game_render_sw_get_texture_handle(GameRendererSoftware *sw,
-                                                 int tex_idx);
+                                                int tex_idx);
 TextureHandle game_render_sw_load_blocks(GameRendererSoftware *sw, int slot,
                                          tBlockHeader *blocks,
                                          const tColor *palette);
@@ -46,14 +46,14 @@ void game_render_sw_free_blocks(GameRendererSoftware *sw, int slot);
 
 // Draw calls
 void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
-                         TextureHandle handle,
-                         const uint8 *palette_remap);
+                                TextureHandle handle,
+                                const uint8 *palette_remap);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
                              const GameRenderCarPose *pose,
                              const GameRenderCarOptions *options);
 void game_render_sw_draw_sky(GameRendererSoftware *sw,
-                              const GameRenderCamera *camera,
-                              const GameRenderProjection *projection);
+                             const GameRenderCamera *camera,
+                             const GameRenderProjection *projection);
 void game_render_sw_sprite(GameRendererSoftware *sw, int slot, int blockIdx,
                            int x, int y, int transparentColorIndex,
                            const tColor *palette);

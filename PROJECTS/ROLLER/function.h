@@ -15,7 +15,8 @@ extern int invulnerable[16];
 
 void finish_race();
 double getbankz(float fInput, int iChunkIdx, tData *pData);
-void calculate_aheadbehindtime(int iCarIdx, float *pfAheadTime, float *pfBehindTime);
+void calculate_aheadbehindtime(int iCarIdx, float *pfAheadTime,
+                               float *pfBehindTime);
 void initnearcars();
 void initpits();
 void dodamage(tCar *pCar, float fDamage);

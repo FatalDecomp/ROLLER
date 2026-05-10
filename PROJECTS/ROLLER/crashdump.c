@@ -58,8 +58,7 @@
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   char szName[CRASHDUMP_MAX_NAME];
   char szPath[CRASHDUMP_MAX_PATH];
 } tCrashFileEntry;
@@ -87,8 +86,7 @@ static int s_iDyldInfoLen = 0;
 
 //-------------------------------------------------------------------------------------------------
 
-static int IsEnvEnabled(const char *szName)
-{
+static int IsEnvEnabled(const char *szName) {
   const char *pszValue = getenv(szName);
   if (!pszValue || !pszValue[0])
     return 0;
@@ -103,8 +101,7 @@ static int IsEnvEnabled(const char *szName)
 
 //-------------------------------------------------------------------------------------------------
 
-static int ShouldEnableCrashHandler(void)
-{
+static int ShouldEnableCrashHandler(void) {
   const char *pszForce = getenv("ROLLER_CRASH_HANDLER");
 
   if (IsEnvEnabled("ROLLER_NO_CRASH_HANDLER"))
@@ -121,8 +118,7 @@ static int ShouldEnableCrashHandler(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static char GetPathSeparator(void)
-{
+static char GetPathSeparator(void) {
 #ifdef IS_WINDOWS
   return '\\';
 #else
@@ -132,8 +128,7 @@ static char GetPathSeparator(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void StripFilename(char *szPath)
-{
+static void StripFilename(char *szPath) {
   char *pszSlash = strrchr(szPath, '/');
   char *pszBackslash = strrchr(szPath, '\\');
   char *pszSep = pszSlash;
@@ -146,8 +141,8 @@ static void StripFilename(char *szPath)
 
 //-------------------------------------------------------------------------------------------------
 
-static void BuildPath(char *szOut, int iOutSize, const char *szDir, const char *szName)
-{
+static void BuildPath(char *szOut, int iOutSize, const char *szDir,
+                      const char *szName) {
   char cSep = GetPathSeparator();
   int iLen = (int)strlen(szDir);
 
@@ -164,15 +159,14 @@ static void BuildPath(char *szOut, int iOutSize, const char *szDir, const char *
 
 //-------------------------------------------------------------------------------------------------
 
-static int IsCrashFileName(const char *szName)
-{
+static int IsCrashFileName(const char *szName) {
   return strncmp(szName, "roller-crash-", 13) == 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void AddCrashFileEntry(tCrashFileEntry *pEntries, int *piCount, const char *szDir, const char *szName)
-{
+static void AddCrashFileEntry(tCrashFileEntry *pEntries, int *piCount,
+                              const char *szDir, const char *szName) {
   int iCount = *piCount;
   int iInsert;
 
@@ -185,24 +179,24 @@ static void AddCrashFileEntry(tCrashFileEntry *pEntries, int *piCount, const cha
     pEntries[iInsert] = pEntries[iInsert - 1];
   }
 
-  snprintf(pEntries[iInsert].szName, sizeof(pEntries[iInsert].szName), "%s", szName);
-  BuildPath(pEntries[iInsert].szPath, sizeof(pEntries[iInsert].szPath), szDir, szName);
+  snprintf(pEntries[iInsert].szName, sizeof(pEntries[iInsert].szName), "%s",
+           szName);
+  BuildPath(pEntries[iInsert].szPath, sizeof(pEntries[iInsert].szPath), szDir,
+            szName);
   *piCount = iCount + 1;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 #ifdef IS_WINDOWS
-static void CreateDirIfNeeded(const char *szDir)
-{
+static void CreateDirIfNeeded(const char *szDir) {
   if (szDir[0])
     CreateDirectoryA(szDir, NULL);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void RotateCrashFiles(const char *szDir)
-{
+static void RotateCrashFiles(const char *szDir) {
   tCrashFileEntry crashFileEntryAy[CRASHDUMP_MAX_ROTATE_FILES];
   WIN32_FIND_DATAA stFindData;
   HANDLE hFind;
@@ -234,8 +228,7 @@ static void RotateCrashFiles(const char *szDir)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveExecutableDir(char *szOut, int iOutSize)
-{
+static void ResolveExecutableDir(char *szOut, int iOutSize) {
   DWORD dwLen = GetModuleFileNameA(NULL, szOut, (DWORD)iOutSize);
   if (dwLen == 0 || dwLen >= (DWORD)iOutSize) {
     snprintf(szOut, iOutSize, ".");
@@ -246,8 +239,7 @@ static void ResolveExecutableDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
-{
+static void ResolveFallbackCrashDir(char *szOut, int iOutSize) {
   const char *pszLocalAppData = getenv("LOCALAPPDATA");
   char szRollerDir[CRASHDUMP_MAX_PATH];
 
@@ -263,8 +255,7 @@ static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static int WriteMiniDump(const char *szPath, EXCEPTION_POINTERS *pException)
-{
+static int WriteMiniDump(const char *szPath, EXCEPTION_POINTERS *pException) {
   HANDLE hFile;
   MINIDUMP_EXCEPTION_INFORMATION stExceptionInfo;
   MINIDUMP_USER_STREAM stUserStream;
@@ -272,7 +263,8 @@ static int WriteMiniDump(const char *szPath, EXCEPTION_POINTERS *pException)
   MINIDUMP_TYPE eDumpType;
   BOOL bOk;
 
-  hFile = CreateFileA(szPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  hFile = CreateFileA(szPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                      FILE_ATTRIBUTE_NORMAL, NULL);
   if (hFile == INVALID_HANDLE_VALUE)
     return 0;
 
@@ -291,8 +283,8 @@ static int WriteMiniDump(const char *szPath, EXCEPTION_POINTERS *pException)
                               MiniDumpWithIndirectlyReferencedMemory |
                               MiniDumpWithThreadInfo);
 
-  bOk = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, eDumpType,
-                          &stExceptionInfo, &stUserStreamInfo, NULL);
+  bOk = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                          eDumpType, &stExceptionInfo, &stUserStreamInfo, NULL);
   CloseHandle(hFile);
 
   return bOk != FALSE;
@@ -300,8 +292,8 @@ static int WriteMiniDump(const char *szPath, EXCEPTION_POINTERS *pException)
 
 //-------------------------------------------------------------------------------------------------
 
-static LONG WINAPI CrashUnhandledExceptionFilter(EXCEPTION_POINTERS *pException)
-{
+static LONG WINAPI
+CrashUnhandledExceptionFilter(EXCEPTION_POINTERS *pException) {
   const char *pszWrittenPath = NULL;
 
   if (InterlockedExchange(&s_lHandlingCrash, 1) != 0)
@@ -309,7 +301,8 @@ static LONG WINAPI CrashUnhandledExceptionFilter(EXCEPTION_POINTERS *pException)
 
   if (WriteMiniDump(s_szCrashPath, pException)) {
     pszWrittenPath = s_szCrashPath;
-  } else if (s_szFallbackCrashPath[0] && WriteMiniDump(s_szFallbackCrashPath, pException)) {
+  } else if (s_szFallbackCrashPath[0] &&
+             WriteMiniDump(s_szFallbackCrashPath, pException)) {
     pszWrittenPath = s_szFallbackCrashPath;
   }
 
@@ -319,7 +312,8 @@ static LONG WINAPI CrashUnhandledExceptionFilter(EXCEPTION_POINTERS *pException)
              "ROLLER has crashed.\n\nA crash dump was saved to:\n%s\n\n"
              "Please attach this file to a GitHub crash report.",
              pszWrittenPath);
-    MessageBoxA(NULL, szMessage, "ROLLER crash", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+    MessageBoxA(NULL, szMessage, "ROLLER crash",
+                MB_OK | MB_ICONERROR | MB_TASKMODAL);
   }
 
   return EXCEPTION_EXECUTE_HANDLER;
@@ -327,16 +321,14 @@ static LONG WINAPI CrashUnhandledExceptionFilter(EXCEPTION_POINTERS *pException)
 
 #else
 
-static void CreateDirIfNeeded(const char *szDir)
-{
+static void CreateDirIfNeeded(const char *szDir) {
   if (szDir[0])
     mkdir(szDir, 0755);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void RotateCrashFiles(const char *szDir)
-{
+static void RotateCrashFiles(const char *szDir) {
   tCrashFileEntry crashFileEntryAy[CRASHDUMP_MAX_ROTATE_FILES];
   DIR *pDir;
   struct dirent *pEntry;
@@ -364,8 +356,7 @@ static void RotateCrashFiles(const char *szDir)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveExecutableDir(char *szOut, int iOutSize)
-{
+static void ResolveExecutableDir(char *szOut, int iOutSize) {
 #ifdef IS_LINUX
   ssize_t llLen = readlink("/proc/self/exe", szOut, (size_t)iOutSize - 1);
   if (llLen > 0 && llLen < iOutSize) {
@@ -387,8 +378,7 @@ static void ResolveExecutableDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
-{
+static void ResolveFallbackCrashDir(char *szOut, int iOutSize) {
   const char *pszHome;
 
   szOut[0] = '\0';
@@ -427,8 +417,7 @@ static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteBuffer(int iFd, const char *pBuf, size_t uiLen)
-{
+static void WriteBuffer(int iFd, const char *pBuf, size_t uiLen) {
   while (uiLen > 0) {
     ssize_t llWritten = write(iFd, pBuf, uiLen);
     if (llWritten < 0) {
@@ -445,8 +434,7 @@ static void WriteBuffer(int iFd, const char *pBuf, size_t uiLen)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteCString(int iFd, const char *szText)
-{
+static void WriteCString(int iFd, const char *szText) {
   const char *pEnd = szText;
   while (*pEnd)
     ++pEnd;
@@ -455,12 +443,12 @@ static void WriteCString(int iFd, const char *szText)
 
 //-------------------------------------------------------------------------------------------------
 
-#define WriteLiteral(iFd, szText) WriteBuffer((iFd), (szText), sizeof(szText) - 1)
+#define WriteLiteral(iFd, szText)                                              \
+  WriteBuffer((iFd), (szText), sizeof(szText) - 1)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteUIntDec(int iFd, uint64 ullVal)
-{
+static void WriteUIntDec(int iFd, uint64 ullVal) {
   char szBuf[32];
   int iPos = (int)sizeof(szBuf);
 
@@ -475,8 +463,7 @@ static void WriteUIntDec(int iFd, uint64 ullVal)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteIntDec(int iFd, int iVal)
-{
+static void WriteIntDec(int iFd, int iVal) {
   if (iVal < 0) {
     WriteLiteral(iFd, "-");
     WriteUIntDec(iFd, (uint64)(-(int64)iVal));
@@ -487,8 +474,7 @@ static void WriteIntDec(int iFd, int iVal)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteHex64(int iFd, uint64 ullVal)
-{
+static void WriteHex64(int iFd, uint64 ullVal) {
   static const char s_szHex[] = "0123456789abcdef";
   char szBuf[18];
 
@@ -504,8 +490,8 @@ static void WriteHex64(int iFd, uint64 ullVal)
 
 //-------------------------------------------------------------------------------------------------
 
-static void GetSignalContextRegisters(void *pContext, uint64 *pullPc, uint64 *pullSp)
-{
+static void GetSignalContextRegisters(void *pContext, uint64 *pullPc,
+                                      uint64 *pullSp) {
   *pullPc = 0;
   *pullSp = 0;
 
@@ -540,8 +526,7 @@ static void GetSignalContextRegisters(void *pContext, uint64 *pullPc, uint64 *pu
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteDescriptorContents(int iOutFd, int iInFd)
-{
+static void WriteDescriptorContents(int iOutFd, int iInFd) {
   char szBuf[2048];
 
   for (;;) {
@@ -559,8 +544,7 @@ static void WriteDescriptorContents(int iOutFd, int iInFd)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteMappings(int iFd)
-{
+static void WriteMappings(int iFd) {
   WriteLiteral(iFd, "\nMappings:\n");
 
 #ifdef IS_LINUX
@@ -585,8 +569,7 @@ static void WriteMappings(int iFd)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WriteBacktrace(int iFd)
-{
+static void WriteBacktrace(int iFd) {
   void *pFrames[64];
   int iFrameCount;
 
@@ -600,8 +583,7 @@ static void WriteBacktrace(int iFd)
 
 //-------------------------------------------------------------------------------------------------
 
-static void RestoreDefaultAndReraise(int iSig)
-{
+static void RestoreDefaultAndReraise(int iSig) {
   struct sigaction stAction;
   sigset_t stSigSet;
 
@@ -620,8 +602,7 @@ static void RestoreDefaultAndReraise(int iSig)
 
 //-------------------------------------------------------------------------------------------------
 
-static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
-{
+static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext) {
   int iFd;
   uint64 ullFaultAddr = 0;
   uint64 ullPc = 0;
@@ -633,7 +614,8 @@ static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
 
   iFd = open(s_szCrashPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
   if (iFd < 0 && s_szFallbackCrashPath[0])
-    iFd = open(s_szFallbackCrashPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    iFd = open(s_szFallbackCrashPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+               0644);
 
   if (iFd >= 0) {
     if (pSigInfo)
@@ -663,8 +645,7 @@ static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
 
 //-------------------------------------------------------------------------------------------------
 
-static void WarmUpBacktrace(void)
-{
+static void WarmUpBacktrace(void) {
   int iFd = open("/dev/null", O_WRONLY | O_CLOEXEC);
   void *pFrames[1];
   int iFrameCount = backtrace(pFrames, 1);
@@ -679,24 +660,22 @@ static void WarmUpBacktrace(void)
 //-------------------------------------------------------------------------------------------------
 
 #ifdef IS_MACOS
-static void CaptureDyldInfo(void)
-{
+static void CaptureDyldInfo(void) {
   uint32 uiCount = _dyld_image_count();
   int iOffset = 0;
 
-  iOffset += snprintf(s_szDyldInfo + iOffset, sizeof(s_szDyldInfo) - (size_t)iOffset,
-                      "Dyld images:\n");
+  iOffset += snprintf(s_szDyldInfo + iOffset,
+                      sizeof(s_szDyldInfo) - (size_t)iOffset, "Dyld images:\n");
 
-  for (uint32 i = 0; i < uiCount && iOffset < (int)sizeof(s_szDyldInfo) - 1; ++i) {
+  for (uint32 i = 0; i < uiCount && iOffset < (int)sizeof(s_szDyldInfo) - 1;
+       ++i) {
     const struct mach_header *pMachHeader = _dyld_get_image_header(i);
     const char *szName = _dyld_get_image_name(i);
     long long llSlide = (long long)_dyld_get_image_vmaddr_slide(i);
-    iOffset += snprintf(s_szDyldInfo + iOffset, sizeof(s_szDyldInfo) - (size_t)iOffset,
-                        "%u header=0x%llx slide=%lld %s\n",
-                        i,
-                        (unsigned long long)(size_t)pMachHeader,
-                        llSlide,
-                        szName ? szName : "");
+    iOffset += snprintf(
+        s_szDyldInfo + iOffset, sizeof(s_szDyldInfo) - (size_t)iOffset,
+        "%u header=0x%llx slide=%lld %s\n", i,
+        (unsigned long long)(size_t)pMachHeader, llSlide, szName ? szName : "");
   }
 
   if (iOffset >= (int)sizeof(s_szDyldInfo))
@@ -708,9 +687,8 @@ static void CaptureDyldInfo(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void InstallPosixCrashHandlers(void)
-{
-  const int iSignalAy[] = { SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS };
+static void InstallPosixCrashHandlers(void) {
+  const int iSignalAy[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS};
   stack_t stAltStack;
   struct sigaction stAction;
 
@@ -731,19 +709,15 @@ static void InstallPosixCrashHandlers(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void BuildCrashBaseName(const char *szExt)
-{
+static void BuildCrashBaseName(const char *szExt) {
 #ifdef IS_WINDOWS
   SYSTEMTIME stSystemTime;
   GetLocalTime(&stSystemTime);
   snprintf(s_szCrashBaseName, sizeof(s_szCrashBaseName),
            "roller-crash-%04u%02u%02u-%02u%02u%02u%s",
-           (unsigned)stSystemTime.wYear,
-           (unsigned)stSystemTime.wMonth,
-           (unsigned)stSystemTime.wDay,
-           (unsigned)stSystemTime.wHour,
-           (unsigned)stSystemTime.wMinute,
-           (unsigned)stSystemTime.wSecond,
+           (unsigned)stSystemTime.wYear, (unsigned)stSystemTime.wMonth,
+           (unsigned)stSystemTime.wDay, (unsigned)stSystemTime.wHour,
+           (unsigned)stSystemTime.wMinute, (unsigned)stSystemTime.wSecond,
            szExt);
 #else
   time_t tNow = time(NULL);
@@ -756,31 +730,22 @@ static void BuildCrashBaseName(const char *szExt)
   }
 
   snprintf(s_szCrashBaseName, sizeof(s_szCrashBaseName),
-           "roller-crash-%04d%02d%02d-%02d%02d%02d%s",
-           stTmNow.tm_year + 1900,
-           stTmNow.tm_mon + 1,
-           stTmNow.tm_mday,
-           stTmNow.tm_hour,
-           stTmNow.tm_min,
-           stTmNow.tm_sec,
-           szExt);
+           "roller-crash-%04d%02d%02d-%02d%02d%02d%s", stTmNow.tm_year + 1900,
+           stTmNow.tm_mon + 1, stTmNow.tm_mday, stTmNow.tm_hour, stTmNow.tm_min,
+           stTmNow.tm_sec, szExt);
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void BuildStaticCrashInfo(void)
-{
+static void BuildStaticCrashInfo(void) {
   snprintf(s_szBuildInfo, sizeof(s_szBuildInfo),
            "ROLLER crash build information\n"
            "Version: %s\n"
            "Git hash: %s\n"
            "Build date: %s\n"
            "Target: %s\n",
-           BUILD_VERSION,
-           BUILD_GIT_HASH,
-           BUILD_DATE,
-           BUILD_TARGET);
+           BUILD_VERSION, BUILD_GIT_HASH, BUILD_DATE, BUILD_TARGET);
 
   snprintf(s_szReportHeader, sizeof(s_szReportHeader),
            "ROLLER crash report\n"
@@ -789,17 +754,13 @@ static void BuildStaticCrashInfo(void)
            "Build date: %s\n"
            "Target: %s\n"
            "Report path: %s\n\n",
-           BUILD_VERSION,
-           BUILD_GIT_HASH,
-           BUILD_DATE,
-           BUILD_TARGET,
+           BUILD_VERSION, BUILD_GIT_HASH, BUILD_DATE, BUILD_TARGET,
            s_szCrashPath);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-void InitCrashHandler(void)
-{
+void InitCrashHandler(void) {
   if (!ShouldEnableCrashHandler())
     return;
 
@@ -812,9 +773,11 @@ void InitCrashHandler(void)
   BuildCrashBaseName(".txt");
 #endif
 
-  BuildPath(s_szCrashPath, sizeof(s_szCrashPath), s_szCrashDir, s_szCrashBaseName);
+  BuildPath(s_szCrashPath, sizeof(s_szCrashPath), s_szCrashDir,
+            s_szCrashBaseName);
   if (s_szFallbackCrashDir[0])
-    BuildPath(s_szFallbackCrashPath, sizeof(s_szFallbackCrashPath), s_szFallbackCrashDir, s_szCrashBaseName);
+    BuildPath(s_szFallbackCrashPath, sizeof(s_szFallbackCrashPath),
+              s_szFallbackCrashDir, s_szCrashBaseName);
 
   BuildStaticCrashInfo();
   RotateCrashFiles(s_szCrashDir);

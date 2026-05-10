@@ -29,133 +29,162 @@
 #else
 #include <inttypes.h>
 #include <unistd.h>
-#define O_BINARY 0 //linux does not differentiate between text and binary
+#define O_BINARY 0 // linux does not differentiate between text and binary
 #endif
 
 //-------------------------------------------------------------------------------------------------
 
-int samplespending = 0;     //000A4690
-int writesample = 0;        //000A4694
-int readsample = 0;         //000A4698
-int lastsample = 0;         //000A469C
-int musicon = -1;           //000A46A0
-int soundon = -1;           //000A46A4
-int allengines = -1;        //000A46A8
-int cheat_samples = 0;      //000A46AC
-int palette_brightness = 32;//000A46B0
-int last_inp[2] = { 0, 0 }; //000A46BC
-void *pal_selector = (void *)-1; //000A46B4
-char SourcePath[64] = { 0 }; //000A46C4
-char DestinationPath[64] = { 0 }; //000A4704
-char languagename[32] = { 0 }; //000A4744
-int writeptr = 0;           //000A476C
-int readptr = 0;            //000A4770
-int SoundCard = 0;          //000A4774
-int SoundPort = 0;          //000A4778
-int SoundIRQ = 0;           //000A477C
-int SoundDMA = 0;           //000A4780
-int EngineVolume = 32;      //000A4784
-int SFXVolume = 56;         //000A4788
-int SpeechVolume = 127;     //000A478C
-int MusicVolume = 108;      //000A4790
-int MusicCard = 0;          //000A4794
-int MusicCD = 0;            //000A4798
-int MusicPort = 0;          //000A479C
-uint8 *SongPtr = NULL;      //000A47A0
-int SongHandle = 0;         //000A47A4
-int CDSong[20] = { 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0 }; //000A47A8
-int GMSong[21] = { 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0 }; //000A47F8
-tSampleData SampleData = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 18176, 0, 0, 0, 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1701995379 } }; //000A484C
-tSampleData SampleFixed = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 256, 0, 0, 0, 0, 0, 0x8000, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } }; //000A48C4 Modified by ROLLER to have center pan
-tSampleData SamplePanned = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 768, 0, 0, 0, 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } }; //000A493C
-uint8 rud_gr[2] = { 0, 0 }; //000A4A08
-uint8 rud_strat[2] = { 0, 0 }; //000A4A0A
-int Joy1used = 0;           //000A4A0C
-int Joy2used = 0;           //000A4A0C
-int fraction = 0;           //000A4A14
-int x1ok = 0;               //000A4A30
-int y1ok = 0;               //000A4A34
-int x2ok = 0;               //000A4A38
-int y2ok = 0;               //000A4A3C
-int bitaccept = 0;          //000A4A40
-uint8 *frontendspeechptr = NULL;//000A4A44
-int frontendspeechhandle = -1;  //000A4A48
+int samplespending = 0;          // 000A4690
+int writesample = 0;             // 000A4694
+int readsample = 0;              // 000A4698
+int lastsample = 0;              // 000A469C
+int musicon = -1;                // 000A46A0
+int soundon = -1;                // 000A46A4
+int allengines = -1;             // 000A46A8
+int cheat_samples = 0;           // 000A46AC
+int palette_brightness = 32;     // 000A46B0
+int last_inp[2] = {0, 0};        // 000A46BC
+void *pal_selector = (void *)-1; // 000A46B4
+char SourcePath[64] = {0};       // 000A46C4
+char DestinationPath[64] = {0};  // 000A4704
+char languagename[32] = {0};     // 000A4744
+int writeptr = 0;                // 000A476C
+int readptr = 0;                 // 000A4770
+int SoundCard = 0;               // 000A4774
+int SoundPort = 0;               // 000A4778
+int SoundIRQ = 0;                // 000A477C
+int SoundDMA = 0;                // 000A4780
+int EngineVolume = 32;           // 000A4784
+int SFXVolume = 56;              // 000A4788
+int SpeechVolume = 127;          // 000A478C
+int MusicVolume = 108;           // 000A4790
+int MusicCard = 0;               // 000A4794
+int MusicCD = 0;                 // 000A4798
+int MusicPort = 0;               // 000A479C
+uint8 *SongPtr = NULL;           // 000A47A0
+int SongHandle = 0;              // 000A47A4
+int CDSong[20] = {10, 10, 10, 2, 3, 4, 5, 6, 7,
+                  8,  0,  0,  0, 0, 0, 0, 0}; // 000A47A8
+int GMSong[21] = {0, 1, 2, 3, 4, 5, 6, 3, 4,
+                  5, 6, 0, 0, 0, 0, 0, 0, 0}; // 000A47F8
+tSampleData SampleData = {
+    NULL, 0u,    0,
+    0,    2,     32767,
+    0,    0,     0,
+    0,    18176, 0,
+    0,    0,     0,
+    0,    0,     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1701995379}}; // 000A484C
+tSampleData SampleFixed = {
+    NULL,
+    0u,
+    0,
+    0,
+    2,
+    32767,
+    0,
+    0,
+    0,
+    0,
+    256,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0x8000,
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+     0}}; // 000A48C4 Modified by ROLLER to have center pan
+tSampleData SamplePanned = {
+    NULL, 0u, 0, 0, 2,   32767,
+    0,    0,  0, 0, 768, 0,
+    0,    0,  0, 0, 0,   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}; // 000A493C
+uint8 rud_gr[2] = {0, 0};                                          // 000A4A08
+uint8 rud_strat[2] = {0, 0};                                       // 000A4A0A
+int Joy1used = 0;                                                  // 000A4A0C
+int Joy2used = 0;                                                  // 000A4A0C
+int fraction = 0;                                                  // 000A4A14
+int x1ok = 0;                                                      // 000A4A30
+int y1ok = 0;                                                      // 000A4A34
+int x2ok = 0;                                                      // 000A4A38
+int y2ok = 0;                                                      // 000A4A3C
+int bitaccept = 0;                                                 // 000A4A40
+uint8 *frontendspeechptr = NULL;                                   // 000A4A44
+int frontendspeechhandle = -1;                                     // 000A4A48
 uint32 frontendlen = 0;
-int holdmusic = 0;          //000A4A4C
-int drivertype = -1;        //000A4A50
-uint8 unmangleinbuf[1024];  //00149EF0
-uint8 *musicbuffer;         //0014EBF8
-int lastvolume[16];         //001603F8
-int lastpitch[16];          //00160438
-int lastpan[16];            //00160478
-int net_time[16];           //001604B8
-int joyvalue[8];            //001604F8
-tJoyPos rud_Joy_pos;        //00160518
-int rud_turn[2];            //00160538
-int rud_swheel[2];          //00160540
-int rud_steer[2];           //00160548
-uint32 SampleLen[120];      //00160560
-uint8 *SamplePtr[120];      //00160750
-tSampleHandleCar SampleHandleCar[120]; //00160930
-char Sample[120][15];       //00162730
-char lang[16][32];          //00162E38
-int TrackMap[32];           //00163038
-char TextExt[64];           //001630CA
-char SampleExt[64];         //0016310A
-int Pending[16];            //0016314C
-tSamplePending SamplePending[16][20];  //0016318C
-int HandleCar[32];          //00163B8C
-int HandleSample[32];       //00163C0C
-tCarSoundData enginedelay[16]; //00163C8C
-int car_to_player[16];    //0016748C
-int player_to_car[16];      //001674CC
-tSpeechInfo speechinfo[16]; //0016750C
-int load_times[16];         //0016760C
-tCopyData copy_multiple[512][16]; //0016764C
-int unmangleinpoff;         //0016F64C
-uint8 *unmangledst;         //0016F650
-int unmangleoverflow;       //0016F654
-FILE *unmanglefile;         //0016F658
-int unmanglebufpos;         //0016F65C
-volatile int s7;            //0016F660
-int network_timeout;        //0016F668
-void *MT32Data;             //0016F66C
-void *FMDrums;              //0016F670
-void *FMInstruments;        //0016F674
-int network_sync_error;     //0016F678
-int ticks_received;         //0016F680
-int network_limit;          //0016F684
-int MIDIHandle;             //0016F68C
-int DIGIHandle;             //0016F690
-volatile int frames;        //0016F694
-char Song[20][15];          //0016F708
-uint32 tickhandle;          //0016F834
-DPMI_RMI RMI;               //0016F838
-tColor *pal_addr;           //0016F86C
-int user_inp;               //0016F87C
-int nummusictracks;         //0016F8A8
-int winchampsong;           //0016F8AC
-int winsong;                //0016F8B0
-int delaywritex;            //0016F8B4
-int delayreadx;             //0016F8B8
-int leaderboardsong;        //0016F8BC
-int optionssong;            //0016F8C0
-int titlesong;              //0016F8C4
-int delaywrite;             //0016F8C8
-int delayread;              //0016F8CC
-int numsamples;             //0016F8D0
-int cheatsample;            //0016F8D4
-int languages;              //0016F8D8
-int net_loading;            //0016F8DC
-int already_quit;           //0016F8E0
-int network_error;          //0017C97C
+int holdmusic = 0;                     // 000A4A4C
+int drivertype = -1;                   // 000A4A50
+uint8 unmangleinbuf[1024];             // 00149EF0
+uint8 *musicbuffer;                    // 0014EBF8
+int lastvolume[16];                    // 001603F8
+int lastpitch[16];                     // 00160438
+int lastpan[16];                       // 00160478
+int net_time[16];                      // 001604B8
+int joyvalue[8];                       // 001604F8
+tJoyPos rud_Joy_pos;                   // 00160518
+int rud_turn[2];                       // 00160538
+int rud_swheel[2];                     // 00160540
+int rud_steer[2];                      // 00160548
+uint32 SampleLen[120];                 // 00160560
+uint8 *SamplePtr[120];                 // 00160750
+tSampleHandleCar SampleHandleCar[120]; // 00160930
+char Sample[120][15];                  // 00162730
+char lang[16][32];                     // 00162E38
+int TrackMap[32];                      // 00163038
+char TextExt[64];                      // 001630CA
+char SampleExt[64];                    // 0016310A
+int Pending[16];                       // 0016314C
+tSamplePending SamplePending[16][20];  // 0016318C
+int HandleCar[32];                     // 00163B8C
+int HandleSample[32];                  // 00163C0C
+tCarSoundData enginedelay[16];         // 00163C8C
+int car_to_player[16];                 // 0016748C
+int player_to_car[16];                 // 001674CC
+tSpeechInfo speechinfo[16];            // 0016750C
+int load_times[16];                    // 0016760C
+tCopyData copy_multiple[512][16];      // 0016764C
+int unmangleinpoff;                    // 0016F64C
+uint8 *unmangledst;                    // 0016F650
+int unmangleoverflow;                  // 0016F654
+FILE *unmanglefile;                    // 0016F658
+int unmanglebufpos;                    // 0016F65C
+volatile int s7;                       // 0016F660
+int network_timeout;                   // 0016F668
+void *MT32Data;                        // 0016F66C
+void *FMDrums;                         // 0016F670
+void *FMInstruments;                   // 0016F674
+int network_sync_error;                // 0016F678
+int ticks_received;                    // 0016F680
+int network_limit;                     // 0016F684
+int MIDIHandle;                        // 0016F68C
+int DIGIHandle;                        // 0016F690
+volatile int frames;                   // 0016F694
+char Song[20][15];                     // 0016F708
+uint32 tickhandle;                     // 0016F834
+DPMI_RMI RMI;                          // 0016F838
+tColor *pal_addr;                      // 0016F86C
+int user_inp;                          // 0016F87C
+int nummusictracks;                    // 0016F8A8
+int winchampsong;                      // 0016F8AC
+int winsong;                           // 0016F8B0
+int delaywritex;                       // 0016F8B4
+int delayreadx;                        // 0016F8B8
+int leaderboardsong;                   // 0016F8BC
+int optionssong;                       // 0016F8C0
+int titlesong;                         // 0016F8C4
+int delaywrite;                        // 0016F8C8
+int delayread;                         // 0016F8CC
+int numsamples;                        // 0016F8D0
+int cheatsample;                       // 0016F8D4
+int languages;                         // 0016F8D8
+int net_loading;                       // 0016F8DC
+int already_quit;                      // 0016F8E0
+int network_error;                     // 0017C97C
 
 //-------------------------------------------------------------------------------------------------
 
 static int frontendspeechgeneration = -1;
 
-static int frontendspeech_current_handle()
-{
+static int frontendspeech_current_handle() {
   int iGeneration;
 
   if (frontendspeechhandle == -1)
@@ -165,23 +194,20 @@ static int frontendspeech_current_handle()
   return iGeneration != -1 && iGeneration == frontendspeechgeneration;
 }
 
-static void clear_frontendspeech_handle()
-{
+static void clear_frontendspeech_handle() {
   frontendspeechhandle = -1;
   frontendspeechgeneration = -1;
 }
 
-static void stop_frontendspeech_handle()
-{
+static void stop_frontendspeech_handle() {
   if (frontendspeech_current_handle())
     DIGIStopSample(frontendspeechhandle);
   clear_frontendspeech_handle();
 }
 
 //-------------------------------------------------------------------------------------------------
-//000394C0
-void realmode(uint8 byRealModeInterrupt)
-{
+// 000394C0
+void realmode(uint8 byRealModeInterrupt) {
   /*union REGS regs; // [esp+0h] [ebp-34h] BYREF
   struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
 
@@ -205,9 +231,8 @@ void realmode(uint8 byRealModeInterrupt)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039520
-bool loadDOS(const char *szFilename, void **out_buffer)
-{
+// 00039520
+bool loadDOS(const char *szFilename, void **out_buffer) {
   FILE *file = ROLLERfopen(szFilename, "rb");
   if (!file) {
     *out_buffer = NULL;
@@ -287,50 +312,49 @@ bool loadDOS(const char *szFilename, void **out_buffer)
 }
 
 //-------------------------------------------------------------------------------------------------
-//000395D0
-int claimDOS(int iSizeParagraphs, uint32 *uiSelectorOut)
-{
-  //int iRequestedParagraphs; // ecx
-  //uint16 ax; // dx
-  //union REGS regs; // [esp+0h] [ebp-34h] BYREF
-  //struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
+// 000395D0
+int claimDOS(int iSizeParagraphs, uint32 *uiSelectorOut) {
+  // int iRequestedParagraphs; // ecx
+  // uint16 ax; // dx
+  // union REGS regs; // [esp+0h] [ebp-34h] BYREF
+  // struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
   //
   //// Calculate adjusted size in paragraphs
-  //iRequestedParagraphs = ((iSizeParagraphs - (__CFSHL__(iSizeParagraphs >> 31, 4) + 16 * (iSizeParagraphs >> 31))) >> 4)
-  //  + 1;
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.w.bx = iRequestedParagraphs;
-  //regs.w.ax = 0x100;                            // AX = 0x100 (Allocate DOS Memory Block)
-  //int386x(0x31, &regs, &regs, &sregs);
+  // iRequestedParagraphs = ((iSizeParagraphs - (__CFSHL__(iSizeParagraphs >>
+  // 31, 4) + 16 * (iSizeParagraphs >> 31))) >> 4)
+  //   + 1;
+  // memset(&sregs, 0, sizeof(sregs));
+  // regs.w.bx = iRequestedParagraphs;
+  // regs.w.ax = 0x100;                            // AX = 0x100 (Allocate DOS
+  // Memory Block) int386x(0x31, &regs, &regs, &sregs);
   //
   //// // Check if allocation failed (carry flag set)
-  //if (regs.x.cflag) {
-    *uiSelectorOut = -1;                        // Return error indicator
-    return 0;                                   // Failed allocation
+  // if (regs.x.cflag) {
+  *uiSelectorOut = -1; // Return error indicator
+  return 0;            // Failed allocation
   //} else {
   //  ax = regs.w.ax;
   //  *uiSelectorOut = regs.w.dx;                 // Store real-mode segment
-  //  return 16 * ax;                             // Return linear address (real-mode segment * 16)
+  //  return 16 * ax;                             // Return linear address
+  //  (real-mode segment * 16)
   //}
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039650
-void releaseDOS(uint16 nSegment)
-{
-  //union REGS regs; // [esp+0h] [ebp-34h] BYREF
-  //struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
+// 00039650
+void releaseDOS(uint16 nSegment) {
+  // union REGS regs; // [esp+0h] [ebp-34h] BYREF
+  // struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
   //
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.w.dx = nSegment;
-  //regs.w.ax = 0x101;                            // EAX = 0x101 (Function: Free DOS Memory Block)
-  //int386x(0x31, &regs, &regs, &sregs);
+  // memset(&sregs, 0, sizeof(sregs));
+  // regs.w.dx = nSegment;
+  // regs.w.ax = 0x101;                            // EAX = 0x101 (Function:
+  // Free DOS Memory Block) int386x(0x31, &regs, &regs, &sregs);
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039690
-bool setpal(const char *szFilename)
-{
+// 00039690
+bool setpal(const char *szFilename) {
   void *pFileData = NULL;
 
   // Free old palette memory, if it was set
@@ -340,7 +364,7 @@ bool setpal(const char *szFilename)
     pal_selector = (void *)-1;
   }
 
-  g_bPaletteSet = false; //added by ROLLER
+  g_bPaletteSet = false; // added by ROLLER
   /*if ( (int)pal_selector >= 0 )
   {
     v4 = (unsigned __int16)pal_selector;
@@ -385,9 +409,8 @@ bool setpal(const char *szFilename)
 }
 
 //-------------------------------------------------------------------------------------------------
-//000397B0
-void blankpal()
-{
+// 000397B0
+void blankpal() {
   if (!pal_addr)
     return;
 
@@ -437,9 +460,8 @@ void blankpal()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039890
-void resetpal()
-{
+// 00039890
+void resetpal() {
   /*
   RMI.eax = 4114;
   RMI.ebx = 0;
@@ -457,10 +479,10 @@ void resetpal()
 }
 
 //-------------------------------------------------------------------------------------------------
-//000398F0
-void Initialise_SOS()
-{
-  //sosTIMERInitSystem(0xFF00, 0);                // 0xFF00 maybe a special case for a slow rate timer?
+// 000398F0
+void Initialise_SOS() {
+  // sosTIMERInitSystem(0xFF00, 0);                // 0xFF00 maybe a special
+  // case for a slow rate timer?
   if (MusicCD)
     SetAudioVolume(MusicVolume);
   if (MusicCard) {
@@ -469,32 +491,32 @@ void Initialise_SOS()
     printf("Initialising MIDI device %4X...", MusicCard);
     fflush(stdout);
     memset(TrackMap, 255, 0x20 * sizeof(unsigned int));
-    //sosMIDIInitSystem(0, 0);
-    //MIDIInitDriver_variable_1 = 0;
-    //MIDIHardware = MusicPort;
-    //MIDIInitDriver_variable_2 = 0;
-    //if (sosMIDIInitDriver(
-    //  MusicCard,
-    //  0,
-    //  (unsigned int)&MIDIHardware,
-    //  __DS__,
-    //  (int)&MIDIInitDriver,
-    //  (unsigned __int16)__DS__,
-    //  (unsigned int)&MIDIHandle,
-    //  (unsigned __int16)__DS__)) {
-    //  MusicCard = 0;
-    //  sosMIDIUnInitSystem();
-    //  printf("Failed\n");
-    //} else {
-    //  printf("OK\n");
-    //  devicespecificinit();
-    //  sosMIDISetMasterVolume(MusicVolume);
-    //}
+    // sosMIDIInitSystem(0, 0);
+    // MIDIInitDriver_variable_1 = 0;
+    // MIDIHardware = MusicPort;
+    // MIDIInitDriver_variable_2 = 0;
+    // if (sosMIDIInitDriver(
+    //   MusicCard,
+    //   0,
+    //   (unsigned int)&MIDIHardware,
+    //   __DS__,
+    //   (int)&MIDIInitDriver,
+    //   (unsigned __int16)__DS__,
+    //   (unsigned int)&MIDIHandle,
+    //   (unsigned __int16)__DS__)) {
+    //   MusicCard = 0;
+    //   sosMIDIUnInitSystem();
+    //   printf("Failed\n");
+    // } else {
+    //   printf("OK\n");
+    //   devicespecificinit();
+    //   sosMIDISetMasterVolume(MusicVolume);
+    // }
   }
   if (SoundCard) {
     printf("Initialising DIGI device %4X...", SoundCard);
     fflush(stdout);
-    //sosDIGIInitSystem(0, 0);
+    // sosDIGIInitSystem(0, 0);
     printf("OK\n");
   }
   select8bitdriver();
@@ -509,21 +531,20 @@ void Initialise_SOS()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039A40
-void updatejoy()
-{
-  int iX1Scaled; // eax
+// 00039A40
+void updatejoy() {
+  int iX1Scaled;   // eax
   int iX1Clamped2; // eax
-  int iX1Clamped; // eax
-  int iY1Scaled; // eax
+  int iX1Clamped;  // eax
+  int iY1Scaled;   // eax
   int iY1Clamped2; // eax
-  int iY1Clamped; // eax
-  int iX2Scaled; // eax
+  int iY1Clamped;  // eax
+  int iX2Scaled;   // eax
   int iX2Clamped2; // eax
-  int iX2Clamped; // eax
-  int iY2Scaled; // eax
+  int iX2Clamped;  // eax
+  int iY2Scaled;   // eax
   int iY2Clamped2; // eax
-  int iY2Clamped; // eax
+  int iY2Clamped;  // eax
 
   memset(joyvalue, 0, sizeof(joyvalue));
   if (Joy1used || Joy2used)
@@ -531,8 +552,9 @@ void updatejoy()
   if (Joy1used) {
     keys[WHIP_SCANCODE_J1B1] = rud_Joy_pos.iJ1Button1;
     keys[WHIP_SCANCODE_J1B2] = rud_Joy_pos.iJ1Button2;
-    iX1Scaled = ((2 * rud_Joy_pos.iJ1XAxis - JAXmax - JAXmin) << 10) / (JAXmax - JAXmin);
-    //apply 100-unit deadzone
+    iX1Scaled = ((2 * rud_Joy_pos.iJ1XAxis - JAXmax - JAXmin) << 10) /
+                (JAXmax - JAXmin);
+    // apply 100-unit deadzone
     if (iX1Scaled >= 0) {
       iX1Clamped = iX1Scaled - 100;
       if (iX1Clamped < 0)
@@ -544,8 +566,9 @@ void updatejoy()
         iX1Clamped2 = 0;
       joyvalue[0] = -iX1Clamped2;
     }
-    iY1Scaled = ((2 * rud_Joy_pos.iJ1YAxis - JAYmax - JAYmin) << 10) / (JAYmax - JAYmin);
-    //apply 100-unit deadzone
+    iY1Scaled = ((2 * rud_Joy_pos.iJ1YAxis - JAYmax - JAYmin) << 10) /
+                (JAYmax - JAYmin);
+    // apply 100-unit deadzone
     if (iY1Scaled >= 0) {
       iY1Clamped = iY1Scaled - 100;
       if (iY1Clamped < 0)
@@ -561,8 +584,9 @@ void updatejoy()
   if (Joy2used) {
     keys[WHIP_SCANCODE_J2B1] = rud_Joy_pos.iJ2Button1;
     keys[WHIP_SCANCODE_J2B2] = rud_Joy_pos.iJ2Button2;
-    iX2Scaled = ((2 * rud_Joy_pos.iJ2XAxis - JBXmax - JBXmin) << 10) / (JBXmax - JBXmin);
-    //apply 100-unit deadzone
+    iX2Scaled = ((2 * rud_Joy_pos.iJ2XAxis - JBXmax - JBXmin) << 10) /
+                (JBXmax - JBXmin);
+    // apply 100-unit deadzone
     if (iX2Scaled >= 0) {
       iX2Clamped = iX2Scaled - 100;
       if (iX2Clamped < 0)
@@ -574,8 +598,9 @@ void updatejoy()
         iX2Clamped2 = 0;
       joyvalue[4] = -iX2Clamped2;
     }
-    iY2Scaled = ((2 * rud_Joy_pos.iJ2YAxis - JBYmax - JBYmin) << 10) / (JBYmax - JBYmin);
-    //apply 100-unit deadzone
+    iY2Scaled = ((2 * rud_Joy_pos.iJ2YAxis - JBYmax - JBYmin) << 10) /
+                (JBYmax - JBYmin);
+    // apply 100-unit deadzone
     if (iY2Scaled >= 0) {
       iY2Clamped = iY2Scaled - 100;
       if (iY2Clamped < 0)
@@ -591,40 +616,39 @@ void updatejoy()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039C20
-void readuserdata(int iPlayer)
-{
-  int iHalfKeyIndex; // esi
-  int iPlayerIdx; // eax
-  tCarEngine *pEngine; // ebx
-  int iKeyIndex; // esi
-  unsigned int uiAccelKey; // eax
-  unsigned int uiBrakeKey; // eax
-  uint8 byLeftKey; // bl
-  int iTurnRate; // ebp
-  int iTurnRate_1; // edx
-  int iPlayerIdx2; // eax
-  int iSteering; // ebx
-  int iMaxSteering; // edi
-  int iTurnRate_2; // edx
-  int iSteering_1; // ebx
-  int iMinSteering_1; // edx
-  int iSteering_2; // eax
-  int iSteering_4; // edx
-  int iSteering_3; // edx
-  unsigned int iJoyLeft; // eax
-  unsigned int iJoyRight; // ebx
-  int iLeftEffect; // eax
-  int iMinSteering; // eax
-  int16 nButtonFlags_1; // bx
-  int16 nButtonFlags; // ax
-  unsigned int uiGearUpKey; // edx
-  int iGearChange; // eax
+// 00039C20
+void readuserdata(int iPlayer) {
+  int iHalfKeyIndex;          // esi
+  int iPlayerIdx;             // eax
+  tCarEngine *pEngine;        // ebx
+  int iKeyIndex;              // esi
+  unsigned int uiAccelKey;    // eax
+  unsigned int uiBrakeKey;    // eax
+  uint8 byLeftKey;            // bl
+  int iTurnRate;              // ebp
+  int iTurnRate_1;            // edx
+  int iPlayerIdx2;            // eax
+  int iSteering;              // ebx
+  int iMaxSteering;           // edi
+  int iTurnRate_2;            // edx
+  int iSteering_1;            // ebx
+  int iMinSteering_1;         // edx
+  int iSteering_2;            // eax
+  int iSteering_4;            // edx
+  int iSteering_3;            // edx
+  unsigned int iJoyLeft;      // eax
+  unsigned int iJoyRight;     // ebx
+  int iLeftEffect;            // eax
+  int iMinSteering;           // eax
+  int16 nButtonFlags_1;       // bx
+  int16 nButtonFlags;         // ax
+  unsigned int uiGearUpKey;   // edx
+  int iGearChange;            // eax
   unsigned int uiGearDownKey; // edx
-  int iStrategyFlags; // eax
-  int iNode; // edx
-  int iMessageIdx; // eax
-  char iAccelState; // [esp+0h] [ebp-1Ch]
+  int iStrategyFlags;         // eax
+  int iNode;                  // edx
+  int iMessageIdx;            // eax
+  char iAccelState;           // [esp+0h] [ebp-1Ch]
 
   // Skip processing during countdown phase
   if (countdown >= 140) {
@@ -653,8 +677,9 @@ void readuserdata(int iPlayer)
   // Process acceleration and brake inputs
   uiAccelKey = userkey[iKeyIndex + 2];
   if (uiAccelKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiAccelKey] <= 0xC8)// joyvalue[uiAccelKey]
-    if ((unsigned int)joyvalue[uiAccelKey- 132] <= 0xC8)// 
+    // if ((unsigned int)musicbuffer_variable_1[uiAccelKey] <= 0xC8)//
+    // joyvalue[uiAccelKey]
+    if ((unsigned int)joyvalue[uiAccelKey - 132] <= 0xC8) //
       goto LABEL_9;
   } else if (!keys[uiAccelKey]) {
     goto LABEL_9;
@@ -663,8 +688,9 @@ void readuserdata(int iPlayer)
 LABEL_9:
   uiBrakeKey = userkey[iKeyIndex + 3];
   if (uiBrakeKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiBrakeKey] <= 0xC8)// joyvalue[uiBrakeKey]
-    if ((unsigned int)joyvalue[uiBrakeKey- 132] <= 0xC8)// 
+    // if ((unsigned int)musicbuffer_variable_1[uiBrakeKey] <= 0xC8)//
+    // joyvalue[uiBrakeKey]
+    if ((unsigned int)joyvalue[uiBrakeKey - 132] <= 0xC8) //
       goto LABEL_14;
   } else if (!keys[uiBrakeKey]) {
     goto LABEL_14;
@@ -676,16 +702,27 @@ LABEL_14:
   byLeftKey = userkey[iKeyIndex];
   if (byLeftKey > 0x83u) {
     // joystick steering processing
-    //iJoyLeft = (unsigned int)(80 * musicbuffer_variable_1[byLeftKey]) >> 8;// joyvalue[byLeftKey]
-    iJoyLeft = (unsigned int)(80 * joyvalue[byLeftKey - 132]) >> 8;// 
+    // iJoyLeft = (unsigned int)(80 * musicbuffer_variable_1[byLeftKey]) >> 8;//
+    // joyvalue[byLeftKey]
+    iJoyLeft = (unsigned int)(80 * joyvalue[byLeftKey - 132]) >> 8; //
     if (iJoyLeft > 0x102)
       iJoyLeft = 0x102;
-    //iJoyRight = (unsigned int)(80 * musicbuffer_variable_1[userkey[iKeyIndex + 1]]) >> 8;// joyvalue[byRightKey]
-    iJoyRight = (unsigned int)(80 * joyvalue[userkey[iKeyIndex + 1] - 132]) >> 8;// 
-    iLeftEffect = (int)(p_joyk1[iPlayer] * ((int)(iJoyLeft * iJoyLeft * iJoyLeft) >> 8) + p_joyk2[iPlayer] * iJoyLeft) >> 16;
+    // iJoyRight = (unsigned int)(80 * musicbuffer_variable_1[userkey[iKeyIndex
+    // + 1]]) >> 8;// joyvalue[byRightKey]
+    iJoyRight =
+        (unsigned int)(80 * joyvalue[userkey[iKeyIndex + 1] - 132]) >> 8; //
+    iLeftEffect =
+        (int)(p_joyk1[iPlayer] * ((int)(iJoyLeft * iJoyLeft * iJoyLeft) >> 8) +
+              p_joyk2[iPlayer] * iJoyLeft) >>
+        16;
     if (iJoyRight > 0x102)
       iJoyRight = 0x102;
-    rud_swheel[iPlayer] = iLeftEffect - ((int)(p_joyk1[iPlayer] * ((int)(iJoyRight * iJoyRight * iJoyRight) >> 8) + p_joyk2[iPlayer] * iJoyRight) >> 16);
+    rud_swheel[iPlayer] =
+        iLeftEffect -
+        ((int)(p_joyk1[iPlayer] *
+                   ((int)(iJoyRight * iJoyRight * iJoyRight) >> 8) +
+               p_joyk2[iPlayer] * iJoyRight) >>
+         16);
 
     // Clamp steering to valid range
     iMinSteering = -rud_steer[iPlayer];
@@ -705,7 +742,10 @@ LABEL_14:
       rud_turn[iPlayer] = 32 * p_eng[iPlayer]->iTurnDecayRate + iTurnRate;
     else
       // calculate new turn rate
-      rud_turn[iPlayer] = (int)(abs(rud_swheel[iPlayer]) * ((p_eng[iPlayer]->iMaxTurnRate << 8) - 32 * p_eng[iPlayer]->iTurnDecayRate)) / rud_steer[iPlayer];
+      rud_turn[iPlayer] = (int)(abs(rud_swheel[iPlayer]) *
+                                ((p_eng[iPlayer]->iMaxTurnRate << 8) -
+                                 32 * p_eng[iPlayer]->iTurnDecayRate)) /
+                          rud_steer[iPlayer];
     iTurnRate_1 = p_eng[iPlayer]->iMaxTurnRate << 8;
     if (iTurnRate_1 < rud_turn[iPlayer])
       rud_turn[iPlayer] = iTurnRate_1;
@@ -716,15 +756,18 @@ LABEL_14:
     iMaxSteering = rud_steer[iPlayer];
     rud_swheel[iPlayer] = iSteering;
     if (iSteering > iMaxSteering)
-      LABEL_43:
-    rud_swheel[iPlayerIdx2] = iMaxSteering;
+    LABEL_43:
+      rud_swheel[iPlayerIdx2] = iMaxSteering;
   }
   // process right steering
   else if (keys[userkey[iKeyIndex + 1]]) {
     if (rud_turn[iPlayer] >= 0)
       rud_turn[iPlayer] += 32 * p_eng[iPlayer]->iTurnDecayRate;
     else
-      rud_turn[iPlayer] = (int)(abs(rud_swheel[iPlayer]) * ((p_eng[iPlayer]->iMaxTurnRate << 8) - 32 * p_eng[iPlayer]->iTurnDecayRate)) / rud_steer[iPlayer];
+      rud_turn[iPlayer] = (int)(abs(rud_swheel[iPlayer]) *
+                                ((p_eng[iPlayer]->iMaxTurnRate << 8) -
+                                 32 * p_eng[iPlayer]->iTurnDecayRate)) /
+                          rud_steer[iPlayer];
     iTurnRate_2 = p_eng[iPlayer]->iMaxTurnRate << 8;
     if (iTurnRate_2 < rud_turn[iPlayer])
       rud_turn[iPlayer] = iTurnRate_2;
@@ -738,12 +781,14 @@ LABEL_14:
     iSteering_2 = rud_swheel[iPlayer];
     rud_turn[iPlayer] = -1;
     if (iSteering_2 <= 0) {
-      iSteering_3 = (p_eng[iPlayer]->iWheelCenteringRate << 8) + rud_swheel[iPlayer];
+      iSteering_3 =
+          (p_eng[iPlayer]->iWheelCenteringRate << 8) + rud_swheel[iPlayer];
       rud_swheel[iPlayer] = iSteering_3;
       if (iSteering_3 > 0)
         rud_swheel[iPlayer] = 0;
     } else {
-      iSteering_4 = rud_swheel[iPlayer] - (p_eng[iPlayer]->iWheelCenteringRate << 8);
+      iSteering_4 =
+          rud_swheel[iPlayer] - (p_eng[iPlayer]->iWheelCenteringRate << 8);
       rud_swheel[iPlayer] = iSteering_4;
       if (iSteering_4 < 0)
         rud_swheel[iPlayer] = 0;
@@ -757,39 +802,42 @@ LABEL_14:
     nButtonFlags_1 |= 2;
   nButtonFlags &= 0x00FF;
   //  LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 2;
-  //HIBYTE(nButtonFlags) = 0;
+  // HIBYTE(nButtonFlags) = 0;
 
   // Process special buttons
   if (iPlayer) {
-    if (userkey[13] > 0x83u)                  // USERKEY_P2CHEAT
+    if (userkey[13] > 0x83u) // USERKEY_P2CHEAT
     {
-      //if ((unsigned int)musicbuffer_variable_1[userkey[13]] <= 0xC8)// joyvalue[userkey[USERKEY_P2CHEAT]]
-      if ((unsigned int)joyvalue[userkey[USERKEY_P2CHEAT]- 132] <= 0xC8)// 
+      // if ((unsigned int)musicbuffer_variable_1[userkey[13]] <= 0xC8)//
+      // joyvalue[userkey[USERKEY_P2CHEAT]]
+      if ((unsigned int)joyvalue[userkey[USERKEY_P2CHEAT] - 132] <= 0xC8) //
         goto LABEL_57;
-    } else if (!keys[userkey[13]])              // USERKEY_P2CHEAT
+    } else if (!keys[userkey[13]]) // USERKEY_P2CHEAT
     {
       goto LABEL_57;
     }
-  } else if (userkey[12] > 0x83u)               // USERKEY_P2DOWNGEAR
+  } else if (userkey[12] > 0x83u) // USERKEY_P2DOWNGEAR
   {
-    //if ((unsigned int)musicbuffer_variable_1[userkey[12]] <= 0xC8)// joyvalue[userkey[USERKEY_P2DOWNGEAR]]
-    if ((unsigned int)joyvalue[userkey[USERKEY_P2DOWNGEAR]- 132] <= 0xC8)// 
+    // if ((unsigned int)musicbuffer_variable_1[userkey[12]] <= 0xC8)//
+    // joyvalue[userkey[USERKEY_P2DOWNGEAR]]
+    if ((unsigned int)joyvalue[userkey[USERKEY_P2DOWNGEAR] - 132] <= 0xC8) //
       goto LABEL_57;
-  } else if (!keys[userkey[12]])                // USERKEY_P2DOWNGEAR
+  } else if (!keys[userkey[12]]) // USERKEY_P2DOWNGEAR
   {
     goto LABEL_57;
   }
-  //TODO look a this again
-  //LOBYTE(nButtonFlags) = nButtonFlags_1 | 0x20;   // special action flag
-  //nButtonFlags_1 = nButtonFlags;
+  // TODO look a this again
+  // LOBYTE(nButtonFlags) = nButtonFlags_1 | 0x20;   // special action flag
+  // nButtonFlags_1 = nButtonFlags;
   nButtonFlags_1 |= 0x20;
 LABEL_57:
   // process gear shifting
   uiGearUpKey = userkey[iKeyIndex + 4];
   iGearChange = 0;
   if (uiGearUpKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiGearUpKey] <= 0xC8)// joyvalue[uiGearUpKey]
-    if ((unsigned int)joyvalue[uiGearUpKey- 132] <= 0xC8)// 
+    // if ((unsigned int)musicbuffer_variable_1[uiGearUpKey] <= 0xC8)//
+    // joyvalue[uiGearUpKey]
+    if ((unsigned int)joyvalue[uiGearUpKey - 132] <= 0xC8) //
       goto LABEL_62;
   } else if (!keys[uiGearUpKey]) {
     goto LABEL_62;
@@ -798,8 +846,9 @@ LABEL_57:
 LABEL_62:
   uiGearDownKey = userkey[iKeyIndex + 5];
   if (uiGearDownKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiGearDownKey] <= 0xC8)// joyvalue[uiGearDownKey]
-    if ((unsigned int)joyvalue[uiGearDownKey- 132] <= 0xC8)// 
+    // if ((unsigned int)musicbuffer_variable_1[uiGearDownKey] <= 0xC8)//
+    // joyvalue[uiGearDownKey]
+    if ((unsigned int)joyvalue[uiGearDownKey - 132] <= 0xC8) //
       goto LABEL_67;
   } else if (!keys[uiGearDownKey]) {
     goto LABEL_67;
@@ -813,31 +862,27 @@ LABEL_67:
 
   // Update gear state
   if (iGearChange > 0) {
-    //LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 4;    // gear up flag
-    nButtonFlags_1 |= 4;    // gear up flag
-    rud_gr[iPlayer] = -1;                       // gear changed
+    // LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 4;    // gear up flag
+    nButtonFlags_1 |= 4;  // gear up flag
+    rud_gr[iPlayer] = -1; // gear changed
   }
   if (iGearChange < 0) {
-    //LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 8;    // gear down flag
-    nButtonFlags_1 |= 8;    // gear down flag
-    rud_gr[iPlayer] = -1;                       // gear changed
+    // LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 8;    // gear down flag
+    nButtonFlags_1 |= 8;  // gear down flag
+    rud_gr[iPlayer] = -1; // gear changed
   }
 
   // Process strategy buttons (F1-F4)
   if (lastsample >= 0)
     goto LABEL_107;
   iStrategyFlags = 0;
-  if (keys[WHIP_SCANCODE_F5])
-  {
+  if (keys[WHIP_SCANCODE_F5]) {
     iStrategyFlags = 0x40;
-  } else if (keys[WHIP_SCANCODE_F6])
-  {
+  } else if (keys[WHIP_SCANCODE_F6]) {
     iStrategyFlags = 0x80;
-  } else if (keys[WHIP_SCANCODE_F7])
-  {
+  } else if (keys[WHIP_SCANCODE_F7]) {
     iStrategyFlags = 0x100;
-  } else if (keys[WHIP_SCANCODE_F8])
-  {
+  } else if (keys[WHIP_SCANCODE_F8]) {
     iStrategyFlags = 0x200;
   }
   if (!iStrategyFlags)
@@ -855,7 +900,7 @@ LABEL_67:
       if (human_control[message_node])
         message_node = car_to_player[message_node];
       else
-        message_node = -2;                      // invalid target
+        message_node = -2; // invalid target
     }
 
     // Send message if valid target and player hasn't finished
@@ -873,7 +918,7 @@ LABEL_67:
           if ((iStrategyFlags & 0x200) == 0) {
           LABEL_105:
             iStrategyFlags &= 0xFFFF0000;
-            //LOWORD(iStrategyFlags) = 0;
+            // LOWORD(iStrategyFlags) = 0;
             goto LABEL_106;
           }
           iNode = message_node;
@@ -888,19 +933,19 @@ LABEL_67:
     }
   }
 LABEL_106:
-  nButtonFlags_1 |= iStrategyFlags;               // add strategy buttons to buttons state
-  rud_strat[iPlayer] = -1;                      // mark strategy button pressed
+  nButtonFlags_1 |= iStrategyFlags; // add strategy buttons to buttons state
+  rud_strat[iPlayer] = -1;          // mark strategy button pressed
 LABEL_107:
   // Handle quit request
   if (I_Want_Out && !already_quit) {
     I_Want_Out = 0;
     already_quit = -1;
     if (wConsoleNode == master)
-      //HIBYTE(nButtonFlags_1) |= 8u;               // master quit flag
-      nButtonFlags_1 |= 0x0800u;               // master quit flag
+      // HIBYTE(nButtonFlags_1) |= 8u;               // master quit flag
+      nButtonFlags_1 |= 0x0800u; // master quit flag
     else
-      //HIBYTE(nButtonFlags_1) |= 4u;               // client quit flag
-      nButtonFlags_1 |= 0x0400u;               // client quit flag
+      // HIBYTE(nButtonFlags_1) |= 4u;               // client quit flag
+      nButtonFlags_1 |= 0x0400u; // client quit flag
   }
 
   // store final input state
@@ -908,9 +953,8 @@ LABEL_107:
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003A270
-void tickhandler()
-{
+// 0003A270
+void tickhandler() {
   if (network_on && syncleft) {
     do_sync_stuff();
     return;
@@ -963,12 +1007,16 @@ void tickhandler()
 
     // Update and clamp tick position
     ticks += iTickAdvance;
-    if (ticks < 0) ticks = 0;
-    if (ticks >= replayframes) ticks = replayframes - 1;
+    if (ticks < 0)
+      ticks = 0;
+    if (ticks >= replayframes)
+      ticks = replayframes - 1;
 
     // Handle boundary conditions
-    if (ticks == 0 && fraction < 0) fraction = 0;
-    if (ticks == replayframes - 1 && fraction > 0) fraction = 0;
+    if (ticks == 0 && fraction < 0)
+      fraction = 0;
+    if (ticks == replayframes - 1 && fraction > 0)
+      fraction = 0;
   }
   // Handle normal game mode
   else {
@@ -1023,40 +1071,65 @@ void tickhandler()
 
                 if (player_type == 2) {
                   // Process both players
-                  tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
+                  tEngineSoundData *pSound =
+                      &enginedelay[ViewType[0]].engineSoundData[delayreadx];
                   if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE,
+                               pSound->iEngineVol, pSound->iEnginePitch,
+                               pSound->iPan);
                   if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2,
+                               pSound->iEngine2Vol, pSound->iEngine2Pitch,
+                               pSound->iPan);
                   if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-                  pSound = &enginedelay[ViewType[1]].engineSoundData[delayreadx];
+                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1,
+                               pSound->iSkid1Vol, pSound->iSkid1Pitch,
+                               pSound->iPan);
+                  pSound =
+                      &enginedelay[ViewType[1]].engineSoundData[delayreadx];
                   if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE,
+                               pSound->iEngineVol, pSound->iEnginePitch,
+                               pSound->iPan);
                   if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE2,
+                               pSound->iEngine2Vol, pSound->iEngine2Pitch,
+                               pSound->iPan);
                   if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+                    loopsample(ViewType[1], SOUND_SAMPLE_SKID1,
+                               pSound->iSkid1Vol, pSound->iSkid1Pitch,
+                               pSound->iPan);
                 } else if (allengines) {
                   // Process all cars
                   for (int i = 0; i < numcars; i++) {
-                    tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
+                    tEngineSoundData *pSound =
+                        &enginedelay[i].engineSoundData[delayreadx];
                     if (pSound->iEngineVol >= 0)
-                      loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                      loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol,
+                                 pSound->iEnginePitch, pSound->iPan);
                     if (pSound->iEngine2Vol >= 0)
-                      loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                      loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol,
+                                 pSound->iEngine2Pitch, pSound->iPan);
                     if (pSound->iSkid1Vol >= 0)
-                      loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+                      loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol,
+                                 pSound->iSkid1Pitch, pSound->iPan);
                   }
                 } else {
                   // Process only player 1
-                  tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
+                  tEngineSoundData *pSound =
+                      &enginedelay[ViewType[0]].engineSoundData[delayreadx];
                   if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE,
+                               pSound->iEngineVol, pSound->iEnginePitch,
+                               pSound->iPan);
                   if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2,
+                               pSound->iEngine2Vol, pSound->iEngine2Pitch,
+                               pSound->iPan);
                   if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1,
+                               pSound->iSkid1Vol, pSound->iSkid1Pitch,
+                               pSound->iPan);
                 }
 
                 // Advance buffer
@@ -1078,8 +1151,7 @@ void tickhandler()
                 net_time[i] = frames;
               }
               if (i != master && net_players[i] &&
-                  (frames > net_time[i] + network_limit) &&
-                  !send_finished) {
+                  (frames > net_time[i] + network_limit) && !send_finished) {
                 network_error = 222;
               }
             }
@@ -1093,7 +1165,8 @@ void tickhandler()
             if (network_on - 1 == start_multiple) {
               // Copy previous frame data
               memcpy(copy_multiple[writeptr],
-                     copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE],
+                     copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) %
+                                   REPLAY_BUFFER_SIZE],
                      sizeof(tCopyData) * MAX_CARS);
 
               // Reset connection flags
@@ -1121,9 +1194,11 @@ void tickhandler()
             if (countdown >= 0) {
               active_nodes = 0;
               for (int i = 0; i < network_on; i++) {
-                if (player_ready[i]) active_nodes++;
+                if (player_ready[i])
+                  active_nodes++;
                 if (player_ready[i] == 666 && net_players[i]) {
-                  copy_multiple[writeptr][player_to_car[i]].data.unFlags |= FLAG_DISCONNECT;
+                  copy_multiple[writeptr][player_to_car[i]].data.unFlags |=
+                      FLAG_DISCONNECT;
                   net_players[i] = 0;
                 }
               }
@@ -1139,17 +1214,19 @@ void tickhandler()
                   }
                 }
                 send_multiple();
-                
+
                 // Handle master transition
                 if (network_on - 1 == start_multiple) {
                   for (int i = 0; i < numcars; i++) {
-                    if (copy_multiple[writeptr][i].data.unFlags & FLAG_DISCONNECT) {
+                    if (copy_multiple[writeptr][i].data.unFlags &
+                        FLAG_DISCONNECT) {
                       net_players[car_to_player[i]] = 0;
                       network_timeout = frames;
                     }
                   }
 
-                  if (copy_multiple[writeptr][player1_car].data.unFlags & FLAG_MASTER_CHANGE) {
+                  if (copy_multiple[writeptr][player1_car].data.unFlags &
+                      FLAG_MASTER_CHANGE) {
                     // Reset network state
                     read_check = -1;
                     write_check = -1;
@@ -1167,9 +1244,12 @@ void tickhandler()
                     }
 
                     // Update flags
-                    uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
+                    uint16 unFlags =
+                        copy_multiple[writeptr][player1_car].data.unFlags;
                     unFlags ^= FLAG_DISCONNECT;
-                    copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE][player1_car].data.unFlags = unFlags;
+                    copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE]
+                                 [player1_car]
+                                     .data.unFlags = unFlags;
 
                     network_timeout = frames;
                   }
@@ -1183,7 +1263,8 @@ void tickhandler()
             if (paused) {
               network_timeout = frames;
             }
-            if (frames > network_timeout + network_limit && human_finishers < players) {
+            if (frames > network_timeout + network_limit &&
+                human_finishers < players) {
               network_error = 123;
             }
 
@@ -1194,7 +1275,10 @@ void tickhandler()
             receive_multiple();
 
             // Handle master change
-            if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
+            if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) %
+                              REPLAY_BUFFER_SIZE][player_to_car[master]]
+                    .uiFullData &
+                0x8000000) {
               read_check = -1;
               write_check = -1;
               memset(player_checks, -1, sizeof(player_checks));
@@ -1215,10 +1299,13 @@ void tickhandler()
 
             // Check for disconnections
             for (int i = 0; i < numcars; i++) {
-              uint32 uiData = copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][i].uiFullData;
+              uint32 uiData =
+                  copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) %
+                                REPLAY_BUFFER_SIZE][i]
+                      .uiFullData;
 
               if (uiData & 0x10000000) {
-                network_error = 0;  // Reset error on valid data
+                network_error = 0; // Reset error on valid data
               }
               if (uiData & 0x4000000) {
                 net_players[car_to_player[i]] = 0;
@@ -1238,35 +1325,46 @@ void tickhandler()
             copy_multiple[writeptr][player1_car].uiFullData = user_inp;
 
             // Set disconnect flag
-            copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
+            copy_multiple[writeptr][player1_car].data.unFlags |=
+                FLAG_DISCONNECT;
 
             writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
           }
 
           // Process sound
           if (soundon && !paused) {
-            if (delayread >= delaywrite) return;
+            if (delayread >= delaywrite)
+              return;
 
             delayreadx = delayread % DELAY_BUFFER_SIZE;
 
             if (allengines) {
               for (int i = 0; i < numcars; i++) {
-                tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
+                tEngineSoundData *pSound =
+                    &enginedelay[i].engineSoundData[delayreadx];
                 if (pSound->iEngineVol >= 0)
-                  loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                  loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol,
+                             pSound->iEnginePitch, pSound->iPan);
                 if (pSound->iEngine2Vol >= 0)
-                  loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                  loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol,
+                             pSound->iEngine2Pitch, pSound->iPan);
                 if (pSound->iSkid1Vol >= 0)
-                  loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+                  loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol,
+                             pSound->iSkid1Pitch, pSound->iPan);
               }
             } else {
-              tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
+              tEngineSoundData *pSound =
+                  &enginedelay[ViewType[0]].engineSoundData[delayreadx];
               if (pSound->iEngineVol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol,
+                           pSound->iEnginePitch, pSound->iPan);
               if (pSound->iEngine2Vol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2,
+                           pSound->iEngine2Vol, pSound->iEngine2Pitch,
+                           pSound->iPan);
               if (pSound->iSkid1Vol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+                loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol,
+                           pSound->iSkid1Pitch, pSound->iPan);
             }
 
             // Advance by ticks received
@@ -1285,11 +1383,14 @@ void tickhandler()
       for (int i = 0; i < numcars; i++) {
         tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
         if (pSound->iEngineVol >= 0)
-          loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+          loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol,
+                     pSound->iEnginePitch, pSound->iPan);
         if (pSound->iEngine2Vol >= 0)
-          loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+          loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol,
+                     pSound->iEngine2Pitch, pSound->iPan);
         if (pSound->iSkid1Vol >= 0)
-          loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+          loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol,
+                     pSound->iSkid1Pitch, pSound->iPan);
       }
 
       if (delaywrite - delayread >= 6) {
@@ -1300,16 +1401,17 @@ void tickhandler()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B0E0
-void claim_ticktimer(unsigned int uiRateHz)
-{
+// 0003B0E0
+void claim_ticktimer(unsigned int uiRateHz) {
   /***
-  * ADDED BY ROLLER
-  ***/
-  tickhandle = ROLLERAddTimer(uiRateHz, SDLTickTimerCallback, NULL); //may as well re-use tickhandle, it is also a uint32
+   * ADDED BY ROLLER
+   ***/
+  tickhandle = ROLLERAddTimer(
+      uiRateHz, SDLTickTimerCallback,
+      NULL); // may as well re-use tickhandle, it is also a uint32
   /***
-  * END ROLLER CODE
-  ***/
+   * END ROLLER CODE
+   ***/
 
   /*
   if (sosTIMERRegisterEvent(
@@ -1325,57 +1427,56 @@ void claim_ticktimer(unsigned int uiRateHz)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B120
-void release_ticktimer()
-{
+// 0003B120
+void release_ticktimer() {
   /***
-  * ADDED BY ROLLER
-  ***/
-  ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+   * ADDED BY ROLLER
+   ***/
+  ROLLERRemoveTimer(
+      tickhandle); // may as well re-use tickhandle, it is also a uint32
   /***
-  * END ROLLER CODE
-  ***/
+   * END ROLLER CODE
+   ***/
 
-  //sosTIMERRemoveEvent(tickhandle);
+  // sosTIMERRemoveEvent(tickhandle);
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B130
-void Uninitialise_SOS()
-{
+// 0003B130
+void Uninitialise_SOS() {
   /***
-  * ADDED BY ROLLER
-  ***/
-  ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+   * ADDED BY ROLLER
+   ***/
+  ROLLERRemoveTimer(
+      tickhandle); // may as well re-use tickhandle, it is also a uint32
   /***
-  * END ROLLER CODE
-  ***/
+   * END ROLLER CODE
+   ***/
 
-  //sosTIMERRemoveEvent(tickhandle);
-  //sosTIMERRemoveEvent(TimerEventHandle);
-  //sosTIMERUnInitSystem(0);
-  //if (SoundCard) {
-  //  sosDIGIUnInitDriver(DIGIHandle, 1, 1);
-  //  sosDIGIUnInitSystem();
-  //}
+  // sosTIMERRemoveEvent(tickhandle);
+  // sosTIMERRemoveEvent(TimerEventHandle);
+  // sosTIMERUnInitSystem(0);
+  // if (SoundCard) {
+  //   sosDIGIUnInitDriver(DIGIHandle, 1, 1);
+  //   sosDIGIUnInitSystem();
+  // }
   if (MusicCard) {
     devicespecificuninit();
-    //sosMIDIUnInitDriver(MIDIHandle, 1);
-    //sosMIDIUnInitSystem();
+    // sosMIDIUnInitDriver(MIDIHandle, 1);
+    // sosMIDIUnInitSystem();
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B1A0
-void loadsamples()
-{
+// 0003B1A0
+void loadsamples() {
   int iWinnerSample; // edx
-  int iDesignCmp; // ecx
-  int iSampleIdx; // ebx
-  int iKills2; // edx
-  int iKillSample; // eax
-  int iWins; // eax
-  int iKills; // edx
+  int iDesignCmp;    // ecx
+  int iSampleIdx;    // ebx
+  int iKills2;       // edx
+  int iKillSample;   // eax
+  int iWins;         // eax
+  int iKills;        // edx
 
   iWinnerSample = winner_mode;
   if (winner_mode) {
@@ -1424,8 +1525,10 @@ void loadsamples()
     iSampleIdx = 0;
     do {
       if (!winner_mode) {
-        if (iWinnerSample >= 71 && (iWinnerSample <= 78 || iWinnerSample >= 89)) {
-          if (Car[ViewType[0]].byCarDesignIdx != iDesignCmp || SamplePtr[iSampleIdx])
+        if (iWinnerSample >= 71 &&
+            (iWinnerSample <= 78 || iWinnerSample >= 89)) {
+          if (Car[ViewType[0]].byCarDesignIdx != iDesignCmp ||
+              SamplePtr[iSampleIdx])
             goto LABEL_13;
         LABEL_12:
           loadasample(iWinnerSample);
@@ -1448,9 +1551,8 @@ LABEL_30:
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B3A0
-void loadfatalsample()
-{
+// 0003B3A0
+void loadfatalsample() {
   if (!SamplePtr[SOUND_SAMPLE_FATAL]) // 88 - Fatal sample
     loadasample(SOUND_SAMPLE_FATAL);
   if (!SamplePtr[SOUND_SAMPLE_BUTTON]) // 83 - Button sample
@@ -1470,126 +1572,120 @@ void loadfatalsample()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B440
-void freefatalsample()
-{
-  fre((void**)&SamplePtr[SOUND_SAMPLE_FATAL]); // 88 - Fatal sample
-  fre((void**)&SamplePtr[SOUND_SAMPLE_BUTTON]); // 83 - Button sample
-  fre((void**)&SamplePtr[SOUND_SAMPLE_START]); // 87 - Start sample
-  fre((void**)&SamplePtr[SOUND_SAMPLE_CARIN]); // 84 - Car in sample
-  fre((void**)&SamplePtr[SOUND_SAMPLE_CAROUT]); // 85 - Car out sample
-  fre((void**)&SamplePtr[SOUND_SAMPLE_TRACK]); // 86 - Track sample
+// 0003B440
+void freefatalsample() {
+  fre((void **)&SamplePtr[SOUND_SAMPLE_FATAL]);  // 88 - Fatal sample
+  fre((void **)&SamplePtr[SOUND_SAMPLE_BUTTON]); // 83 - Button sample
+  fre((void **)&SamplePtr[SOUND_SAMPLE_START]);  // 87 - Start sample
+  fre((void **)&SamplePtr[SOUND_SAMPLE_CARIN]);  // 84 - Car in sample
+  fre((void **)&SamplePtr[SOUND_SAMPLE_CAROUT]); // 85 - Car out sample
+  fre((void **)&SamplePtr[SOUND_SAMPLE_TRACK]);  // 86 - Track sample
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B480
-void releasesamples()
-{
+// 0003B480
+void releasesamples() {
   if (SoundCard) {
     for (int i = 0; i < 120; ++i) {
-      fre((void**)&SamplePtr[i]);
+      fre((void **)&SamplePtr[i]);
       SamplePtr[i] = NULL;
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B4D0
-void play()
-{
+// 0003B4D0
+void play() {
   if (musicon) {
     if (SongPtr) {
       MIDIStartSong();
 
-      //InitSong.nSection = __DS__;
-      //InitSong.pData = (void *)SongPtr;
-      //InitSong.nUnk2 = 0;
-      //InitSong.iUnk1 = 0;
-      //return sosMIDIStartSong(*(int *)&SongHandle);
+      // InitSong.nSection = __DS__;
+      // InitSong.pData = (void *)SongPtr;
+      // InitSong.nUnk2 = 0;
+      // InitSong.iUnk1 = 0;
+      // return sosMIDIStartSong(*(int *)&SongHandle);
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B520
-void stop()
-{
+// 0003B520
+void stop() {
   if (MusicCard) {
     if (SongPtr) {
       MIDIStopSong();
-      //sosMIDIStopSong(SongHandle);
-      //sosMIDIResetSong(SongHandle);
+      // sosMIDIStopSong(SongHandle);
+      // sosMIDIResetSong(SongHandle);
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B580
-void devicespecificinit()
-{
+// 0003B580
+void devicespecificinit() {
   int i; // esi
   unsigned int uiSize;
 
   switch (MusicCard) {
-    case 40961:
-      printf("Resetting SCC-1...");
-      fflush(stdout);
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&SCreset, __DS__);
+  case 40961:
+    printf("Resetting SCC-1...");
+    fflush(stdout);
+    // sosMIDISendMIDIData(MIDIHandle, 11, (int)&SCreset, __DS__);
+    printf("OK\n");
+    break;
+  case 40962:
+  case 40969:
+    printf("Loading Instrument bank file...");
+    fflush(stdout);
+    loadfile("melodic.bnk", &FMInstruments, &uiSize, 0);
+    if (FMInstruments) {
       printf("OK\n");
-      break;
-    case 40962:
-    case 40969:
-      printf("Loading Instrument bank file...");
+      // sosMIDISetInsData(MIDIHandle, 1, (int)FMInstruments, __DS__);
+    } else {
+      printf("Failed\n");
+      MusicCard = 0;
+    }
+    printf("Loading Drums bank file...");
+    fflush(stdout);
+    loadfile("drum.bnk", &FMDrums, &uiSize, 0);
+    if (FMDrums) {
+      printf("OK\n");
+      // sosMIDISetInsData(MIDIHandle, 1, (int)FMDrums, __DS__);
+    } else {
+      printf("Failed\n");
+      MusicCard = 0;
+    }
+    if (!MusicCard) {
+      // sosMIDIUnInitDriver(MIDIHandle, 1);
+      // sosMIDIUnInitSystem();
+    }
+    break;
+  case 40964:
+    printf("Resetting LAPC-1...");
+    // sosMIDISendMIDIData(MIDIHandle, 11, (int)&MT32reset, __DS__);
+    fflush(stdout);
+    loadfile("mt32map.mtx", &MT32Data, &uiSize, 0);
+    if (MT32Data) {
       fflush(stdout);
-      loadfile("melodic.bnk", &FMInstruments, &uiSize, 0);
-      if (FMInstruments) {
-        printf("OK\n");
-        //sosMIDISetInsData(MIDIHandle, 1, (int)FMInstruments, __DS__);
-      } else {
-        printf("Failed\n");
-        MusicCard = 0;
-      }
-      printf("Loading Drums bank file...");
-      fflush(stdout);
-      loadfile("drum.bnk", &FMDrums, &uiSize, 0);
-      if (FMDrums) {
-        printf("OK\n");
-        //sosMIDISetInsData(MIDIHandle, 1, (int)FMDrums, __DS__);
-      } else {
-        printf("Failed\n");
-        MusicCard = 0;
-      }
-      if (!MusicCard) {
-        //sosMIDIUnInitDriver(MIDIHandle, 1);
-        //sosMIDIUnInitSystem();
-      }
-      break;
-    case 40964:
-      printf("Resetting LAPC-1...");
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&MT32reset, __DS__);
-      fflush(stdout);
-      loadfile("mt32map.mtx", &MT32Data, &uiSize, 0);
-      if (MT32Data) {
+      for (i = 0; i != 1104; i += 138) {
+        // sosMIDISendMIDIData(MIDIHandle, 138, (int)MT32Data + i, __DS__);
+        printf(".");
         fflush(stdout);
-        for (i = 0; i != 1104; i += 138) {
-          //sosMIDISendMIDIData(MIDIHandle, 138, (int)MT32Data + i, __DS__);
-          printf(".");
-          fflush(stdout);
-        }
-        printf("OK\n");
-      } else {
-        printf("Failed\n");
       }
-      break;
-    default:
-      return;
+      printf("OK\n");
+    } else {
+      printf("Failed\n");
+    }
+    break;
+  default:
+    return;
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B7B0
-int initgus()
-{
+// 0003B7B0
+int initgus() {
   printf("DownLoading  GRAVIS patches...");
   fflush(stdout);
   system("..\\LOADPATS  -Q -IFATALPAT.INI >NUL");
@@ -1597,37 +1693,34 @@ int initgus()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B810
-void devicespecificuninit()
-{
+// 0003B810
+void devicespecificuninit() {
   switch (MusicCard) {
-    case 40961:
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&SCreset, __DS__);
-      break;
-    case 40962:
-    case 40969:
-      fre(&FMInstruments);
-      fre(&FMDrums);
-      break;
-    case 40964:
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&MT32reset, __DS__);
-      fre(&MT32Data);
-      break;
+  case 40961:
+    // sosMIDISendMIDIData(MIDIHandle, 11, (int)&SCreset, __DS__);
+    break;
+  case 40962:
+  case 40969:
+    fre(&FMInstruments);
+    fre(&FMDrums);
+    break;
+  case 40964:
+    // sosMIDISendMIDIData(MIDIHandle, 11, (int)&MT32reset, __DS__);
+    fre(&MT32Data);
+    break;
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B880
-void readsoundconfig(void)
-{
+// 0003B880
+void readsoundconfig(void) {
   FILE *fp = ROLLERfopen("../config.ini", "rb");
   char *pBuffer = NULL;
   long iSize;
 
-  if (!fp) 
-  {
+  if (!fp) {
     autoselectsoundlanguage(); // Add by ROLLER to auto-select languagename
-    //added by ROLLER to ensure sound is always available
+    // added by ROLLER to ensure sound is always available
     if (!SoundCard)
       SoundCard = -1;
     return;
@@ -1649,7 +1742,8 @@ void readsoundconfig(void)
 
   // Parse Language
   char *szVar = FindConfigVar(pBuffer, "Language");
-  if (szVar) sscanf(szVar, "%s", languagename);
+  if (szVar)
+    sscanf(szVar, "%s", languagename);
 
   // Match language index
   language = 0;
@@ -1662,11 +1756,13 @@ void readsoundconfig(void)
 
   // SourcePath
   szVar = FindConfigVar(pBuffer, "SourcePath");
-  if (szVar) sscanf(szVar, "%s", SourcePath);
+  if (szVar)
+    sscanf(szVar, "%s", SourcePath);
 
   // DestinationPath
   szVar = FindConfigVar(pBuffer, "DestinationPath");
-  if (szVar) sscanf(szVar, "%s", DestinationPath);
+  if (szVar)
+    sscanf(szVar, "%s", DestinationPath);
 
   // Sound settings
   szVar = FindConfigVar(pBuffer, "SoundCard");
@@ -1708,7 +1804,7 @@ void readsoundconfig(void)
   }
 
   // Cleanup
-  fre((void**)&pBuffer);
+  fre((void **)&pBuffer);
   fclose(fp);
 
   // Enable CD Audio
@@ -1716,8 +1812,8 @@ void readsoundconfig(void)
     MusicCard = 0;
     MusicCD = -1;
   }
-  
-  //hack the SoundCard to be available too
+
+  // hack the SoundCard to be available too
   if (!SoundCard)
     SoundCard = -1;
 
@@ -1730,9 +1826,8 @@ void readsoundconfig(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BAF0
-char *FindConfigVar(const char *szConfigText, const char *szVarName)
-{
+// 0003BAF0
+char *FindConfigVar(const char *szConfigText, const char *szVarName) {
   char *szMatch = strstr(szConfigText, szVarName);
   if (!szMatch)
     return NULL;
@@ -1761,11 +1856,11 @@ char *FindConfigVar(const char *szConfigText, const char *szVarName)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BB50
-void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSound)
-{
-  int iFile; // eax
-  void *pBuf2; // eax
+// 0003BB50
+void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize,
+              int iIsSound) {
+  int iFile;        // eax
+  void *pBuf2;      // eax
   uint8 *pUint8Buf; // edx
 
   *pBuf = 0;
@@ -1774,7 +1869,8 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
   if (g_bSnapshotMode && iIsSound == 1 && !soundon) {
     return;
   }
-  iFile = ROLLERopen(szFile, O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
+  iFile = ROLLERopen(
+      szFile, O_RDONLY | O_BINARY); // 0x200 is O_BINARY in WATCOM/h/fcntl.h
   if (iFile == -1) {
     *uiSize = 0;
     *pBuf = 0;
@@ -1795,9 +1891,8 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BBD0
-void ReadJoys(tJoyPos *pJoy)
-{
+// 0003BBD0
+void ReadJoys(tJoyPos *pJoy) {
   // Check joystick 1 (controller 1)
   pJoy->iJ1Button1 = g_rollerJoyPos.iJ1Button1;
   pJoy->iJ1Button2 = g_rollerJoyPos.iJ1Button2;
@@ -1821,24 +1916,24 @@ void ReadJoys(tJoyPos *pJoy)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BDD0
-void check_joystickpresence()
-{
-  //TODO: integrate this with SDL
+// 0003BDD0
+void check_joystickpresence() {
+  // TODO: integrate this with SDL
   int iTimeoutCounter; // ebx
-  int iY1Temp; // esi
-  int iX2Temp; // ecx
-  int iY2Temp; // edi
+  int iY1Temp;         // esi
+  int iX2Temp;         // ecx
+  int iY2Temp;         // edi
   int iGameportStatus; // eax
-  int iX1Temp; // [esp+0h] [ebp-18h]
+  int iX1Temp;         // [esp+0h] [ebp-18h]
 
-  iTimeoutCounter = 0;                          // Initialize timeout counter
-  x1ok = 1;                                     // Initialize joystick axis detection flags (bit masks for port 0x201)
+  iTimeoutCounter = 0; // Initialize timeout counter
+  x1ok =
+      1; // Initialize joystick axis detection flags (bit masks for port 0x201)
   y1ok = 2;
   x2ok = 4;
   y2ok = 8;
   bitaccept = 15;
-  JAXmin = 10000;                               // Initialize joystick axis calibration min/max values
+  JAXmin = 10000; // Initialize joystick axis calibration min/max values
   JAXmax = -10000;
   JAYmin = 10000;
   JAYmax = -10000;
@@ -1846,25 +1941,31 @@ void check_joystickpresence()
   JBXmax = -10000;
   JBYmin = 10000;
   JBYmax = -10000;
-  //__outbyte(0x201u, 0xFFu);                     // Trigger joystick measurement by writing 0xFF to gameport 0x201
+  //__outbyte(0x201u, 0xFFu);                     // Trigger joystick
+  // measurement by writing 0xFF to gameport 0x201
   iX1Temp = x1ok;
   iY1Temp = y1ok;
   iX2Temp = x2ok;
   iY2Temp = y2ok;
   do {
-    iGameportStatus = 0;                        // Main detection loop: read gameport and test axis presence
-    //LOBYTE(iGameportStatus) = __inbyte(0x201u); // Read current status from gameport 0x201
-    if (x1ok)                                 // Test X1 axis (bit 0) - if enabled, check if still active
+    iGameportStatus =
+        0; // Main detection loop: read gameport and test axis presence
+    // LOBYTE(iGameportStatus) = __inbyte(0x201u); // Read current status from
+    // gameport 0x201
+    if (x1ok) // Test X1 axis (bit 0) - if enabled, check if still active
       iX1Temp = iGameportStatus & 1;
-    if (y1ok)                                 // Test Y1 axis (bit 1) - if enabled, check if still active
+    if (y1ok) // Test Y1 axis (bit 1) - if enabled, check if still active
       iY1Temp = iGameportStatus & 2;
-    if (x2ok)                                 // Test X2 axis (bit 2) - if enabled, check if still active
+    if (x2ok) // Test X2 axis (bit 2) - if enabled, check if still active
       iX2Temp = iGameportStatus & 4;
-    if (y2ok)                                 // Test Y2 axis (bit 3) - if enabled, check if still active
+    if (y2ok) // Test Y2 axis (bit 3) - if enabled, check if still active
       iY2Temp = iGameportStatus & 8;
     ++iTimeoutCounter;
-  } while ((iGameportStatus & bitaccept) != 0 && iTimeoutCounter < 10000);// Continue loop while any expected axes are still active and timeout not reached
-  if (iX1Temp)                                // Disable axes that didn't respond (indicating no joystick connected to that axis)
+  } while ((iGameportStatus & bitaccept) != 0 &&
+           iTimeoutCounter < 10000); // Continue loop while any expected axes
+                                     // are still active and timeout not reached
+  if (iX1Temp) // Disable axes that didn't respond (indicating no joystick
+               // connected to that axis)
     x1ok = 0;
   if (iX2Temp)
     x2ok = 0;
@@ -1872,83 +1973,84 @@ void check_joystickpresence()
     y1ok = 0;
   if (iY2Temp)
     y2ok = 0;
-  bitaccept = y2ok | y1ok | x1ok | x2ok;        // Update bitaccept mask with only the axes that are actually present
+  bitaccept = y2ok | y1ok | x1ok | x2ok; // Update bitaccept mask with only the
+                                         // axes that are actually present
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BF20
-void initsounds()
-{
-  //int iNumCars; // ebx
-  //int iLoopItr; // eax
-  //int i; // ecx
-  //int iCar; // edx
-  //int SampleHandleCarOffset; // eax
-  //int iPendingOffset; // eax
+// 0003BF20
+void initsounds() {
+  // int iNumCars; // ebx
+  // int iLoopItr; // eax
+  // int i; // ecx
+  // int iCar; // edx
+  // int SampleHandleCarOffset; // eax
+  // int iPendingOffset; // eax
   //
-  //iNumCars = numcars;
-  //iLoopItr = 2;
+  // iNumCars = numcars;
+  // iLoopItr = 2;
 
   for (int i = 0; i < 32; ++i) {
     HandleSample[i] = -1;
     HandleCar[i] = -1;
   }
-  //HandleSample[0] = -1;
-  //HandleCar[0] = -1;
-  //HandleSample[1] = -1;
-  //HandleCar[1] = -1;
-  //do {
-  //  iLoopItr += 5;
-  //  HandleCar[iLoopItr + 27] = -1;              // offset into HandleSample
-  //  SamplePending_variable_3[iLoopItr] = -1;    // offset into HandleCar
-  //  HandleCar[iLoopItr + 28] = -1;
-  //  SamplePending_variable_4[iLoopItr] = -1;
-  //  HandleCar[iLoopItr + 29] = -1;
-  //  SamplePending_variable_5[iLoopItr] = -1;
-  //  HandleCar[iLoopItr + 30] = -1;
-  //  SamplePending_variable_6[iLoopItr] = -1;
-  //  HandleCar[iLoopItr + 31] = -1;
-  //  SamplePending_variable_7[iLoopItr] = -1;
-  //} while (iLoopItr != 32);
+  // HandleSample[0] = -1;
+  // HandleCar[0] = -1;
+  // HandleSample[1] = -1;
+  // HandleCar[1] = -1;
+  // do {
+  //   iLoopItr += 5;
+  //   HandleCar[iLoopItr + 27] = -1;              // offset into HandleSample
+  //   SamplePending_variable_3[iLoopItr] = -1;    // offset into HandleCar
+  //   HandleCar[iLoopItr + 28] = -1;
+  //   SamplePending_variable_4[iLoopItr] = -1;
+  //   HandleCar[iLoopItr + 29] = -1;
+  //   SamplePending_variable_5[iLoopItr] = -1;
+  //   HandleCar[iLoopItr + 30] = -1;
+  //   SamplePending_variable_6[iLoopItr] = -1;
+  //   HandleCar[iLoopItr + 31] = -1;
+  //   SamplePending_variable_7[iLoopItr] = -1;
+  // } while (iLoopItr != 32);
 
   for (int i = 0; i < 120; ++i) {
     SampleHandleCar[i].handles[0] = -1;
   }
-  //for (i = 0; i != 7680; i += 64) {
-  //  iCar = 0;
-  //  if (iNumCars > 0) {
-  //    SampleHandleCarOffset = i;
-  //    do {
-  //      SampleHandleCarOffset += 4;
-  //      ++iCar;
-  //      *(uint8 **)((char *)&SamplePtr[119] + SampleHandleCarOffset) = (uint8 *)-1;// offsets into SampleHandleCar
-  //    } while (iCar < iNumCars);
-  //  }
-  //}
+  // for (i = 0; i != 7680; i += 64) {
+  //   iCar = 0;
+  //   if (iNumCars > 0) {
+  //     SampleHandleCarOffset = i;
+  //     do {
+  //       SampleHandleCarOffset += 4;
+  //       ++iCar;
+  //       *(uint8 **)((char *)&SamplePtr[119] + SampleHandleCarOffset) = (uint8
+  //       *)-1;// offsets into SampleHandleCar
+  //     } while (iCar < iNumCars);
+  //   }
+  // }
 
   for (int i = 0; i < numcars; ++i) {
     Pending[i] = 0;
   }
-  //if (iNumCars > 0) {
-  //  iPendingOffset = 0;
-  //  do {
-  //    iPendingOffset += 4;
-  //    *(_DWORD *)&SampleExt[iPendingOffset + 62] = 0;// offsets into Pending
-  //  } while (iPendingOffset < 4 * iNumCars);
-  //}
-  //numcars = iNumCars;
+  // if (iNumCars > 0) {
+  //   iPendingOffset = 0;
+  //   do {
+  //     iPendingOffset += 4;
+  //     *(_DWORD *)&SampleExt[iPendingOffset + 62] = 0;// offsets into Pending
+  //   } while (iPendingOffset < 4 * iNumCars);
+  // }
+  // numcars = iNumCars;
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003BFF0
-void stopallsamples()
-{
+// 0003BFF0
+void stopallsamples() {
   //_disable();
 
   // Clear/initialize engine sound volume data for all cars
   for (int iCarIndex = 0; iCarIndex < numcars; ++iCarIndex) {
     for (int iEngineDataIdx = 0; iEngineDataIdx < 32; ++iEngineDataIdx) {
-      tEngineSoundData *pEngineData = &enginedelay[iCarIndex].engineSoundData[iEngineDataIdx];
+      tEngineSoundData *pEngineData =
+          &enginedelay[iCarIndex].engineSoundData[iEngineDataIdx];
 
       pEngineData->iEngineVol = -1;
       pEngineData->iEngine2Vol = -1;
@@ -1959,9 +2061,9 @@ void stopallsamples()
   for (int iSample = 0; iSample < numsamples; ++iSample) {
     for (int iCar = 0; iCar < numcars; ++iCar) {
       int iCurrHandle = SampleHandleCar[iSample].handles[iCar];
-      if ( iCurrHandle != -1 )
+      if (iCurrHandle != -1)
         DIGIStopSample(iCurrHandle);
-        //sosDIGIStopSample(*(int *)&DIGIHandle, iCurrHandle);
+      // sosDIGIStopSample(*(int *)&DIGIHandle, iCurrHandle);
       SampleHandleCar[iSample].handles[iCar] = -1;
     }
   }
@@ -1976,355 +2078,387 @@ void stopallsamples()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003C110
-void pannedsample(int iSampleIdx, int iHandle, int iPan)
-{
+// 0003C110
+void pannedsample(int iSampleIdx, int iHandle, int iPan) {
   int iLocalHandle; // edi
-  //int iSampleOffset; // ebp
-  int iExistingHandle; // ebx
-  uint8 *pSampleData; // eax
-  unsigned int iNewHandle; // eax
+  // int iSampleOffset; // ebp
+  int iExistingHandle;        // ebx
+  uint8 *pSampleData;         // eax
+  unsigned int iNewHandle;    // eax
   unsigned int iOldSampleIdx; // ecx
 
   iLocalHandle = iHandle;
   if (soundon && SamplePtr[iSampleIdx]) {
-    //iSampleOffset = iSampleIdx << 6;
+    // iSampleOffset = iSampleIdx << 6;
     iExistingHandle = SampleHandleCar[iSampleIdx].handles[0];
     if (iExistingHandle != -1) {
       //_disable();
       iHandle = SampleHandleCar[iSampleIdx].handles[0];
-      //if (!sosDIGISampleDone(*(int *)&DIGIHandle, iExistingHandle)) {
+      // if (!sosDIGISampleDone(*(int *)&DIGIHandle, iExistingHandle)) {
       if (!DIGISampleDone(iExistingHandle)) {
         iHandle = iExistingHandle;
         DIGIStopSample(iExistingHandle);
-        //sosDIGIStopSample(*(int *)&DIGIHandle, iExistingHandle);
+        // sosDIGIStopSample(*(int *)&DIGIHandle, iExistingHandle);
         //*(int *)((char *)SampleHandleCar[0].handles + iSampleOffset) = -1;
         SampleHandleCar[iSampleIdx].handles[0] = -1;
         HandleSample[iExistingHandle] = -1;
       }
       //_enable();
     }
-    //SamplePanned.unSegment = __DS__;            // Set up panned sample structure with audio parameters
+    // SamplePanned.unSegment = __DS__;            // Set up panned sample
+    // structure with audio parameters
     SamplePanned.iSampleIndex = iSampleIdx;
     SamplePanned.iVolume = iLocalHandle;
     pSampleData = SamplePtr[iSampleIdx];
     SamplePanned.iPan = iPan;
     SamplePanned.pSample = pSampleData;
     SamplePanned.iLength = SampleLen[iSampleIdx];
-    //_disable();                                 // Start playing the new panned sample and get handle
+    //_disable();                                 // Start playing the new
+    // panned sample and get handle
     iNewHandle = DIGISampleStart(&SamplePanned);
-    //LOWORD(iNewHandle) = sosDIGIStartSample(*(int *)&DIGIHandle, iHandle, &SamplePanned);
+    // LOWORD(iNewHandle) = sosDIGIStartSample(*(int *)&DIGIHandle, iHandle,
+    // &SamplePanned);
     SampleHandleCar[iSampleIdx].handles[0] = iNewHandle;
     //_enable();
-    if (iNewHandle != -1)                     // Update handle tracking tables if sample started successfully
-    {                                           // Validate handle is within expected range (< 32)
-      //if (iNewHandle >= 0x20)
-      //  _assert(0, "s>=0 && s<32", a3, 2071);
-      iOldSampleIdx = HandleSample[iNewHandle]; // Clean up any existing handle mappings before assigning new ones
+    if (iNewHandle !=
+        -1) // Update handle tracking tables if sample started successfully
+    {       // Validate handle is within expected range (< 32)
+      // if (iNewHandle >= 0x20)
+      //   _assert(0, "s>=0 && s<32", a3, 2071);
+      iOldSampleIdx =
+          HandleSample[iNewHandle]; // Clean up any existing handle mappings
+                                    // before assigning new ones
       if (iOldSampleIdx != -1) {
-        //if (iOldSampleIdx >= 0x78)
-        //  _assert(0, "HandleSample[s]>=0 && HandleSample[s]<MAXSAMPLES", a3, 2075);
-        //if ((unsigned int)HandleCar[iNewHandle] >= 16)
-        //  _assert(0, "HandleCar[s]>=0 && HandleCar[s]<MAXCARS", a3, 2076);
-        SampleHandleCar[HandleSample[iNewHandle]].handles[HandleCar[iNewHandle]] = -1;
+        // if (iOldSampleIdx >= 0x78)
+        //   _assert(0, "HandleSample[s]>=0 && HandleSample[s]<MAXSAMPLES", a3,
+        //   2075);
+        // if ((unsigned int)HandleCar[iNewHandle] >= 16)
+        //   _assert(0, "HandleCar[s]>=0 && HandleCar[s]<MAXCARS", a3, 2076);
+        SampleHandleCar[HandleSample[iNewHandle]]
+            .handles[HandleCar[iNewHandle]] = -1;
       }
-      HandleSample[iNewHandle] = iSampleIdx;    // Update handle-to-sample and handle-to-car mapping tables
+      HandleSample[iNewHandle] = iSampleIdx; // Update handle-to-sample and
+                                             // handle-to-car mapping tables
       HandleCar[iNewHandle] = 0;
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003C2B0
-void speechonly(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
-{
+// 0003C2B0
+void speechonly(int iSampleIdx, int iVolume, int iDelay, int iCarIdx) {
   if (readsample == writesample && -iDelay > lastsample)
     speechsample(iSampleIdx, iVolume, iDelay, iCarIdx);
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003C2E0
-void speechsample(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
-{
-  int iWriteIndex; // edi
-  int iGameOverCount; // eax
+// 0003C2E0
+void speechsample(int iSampleIdx, int iVolume, int iDelay, int iCarIdx) {
+  int iWriteIndex;        // edi
+  int iGameOverCount;     // eax
   int iCurrentWriteIndex; // eax
 
-  iWriteIndex = writesample;                    // Get current write position in speech queue
-  if (!disable_messages)                      // Only queue samples if messages are not disabled
-  {                                             // Special handling for game over sample (index 30)
+  iWriteIndex = writesample; // Get current write position in speech queue
+  if (!disable_messages)     // Only queue samples if messages are not disabled
+  {                          // Special handling for game over sample (index 30)
     if (iSampleIdx == 30) {
       iGameOverCount = ++game_overs;
-      if (player_type != 2 || iGameOverCount == 2)// Disable further messages after 2 game overs in multiplayer or any in single player
+      if (player_type != 2 ||
+          iGameOverCount == 2) // Disable further messages after 2 game overs in
+                               // multiplayer or any in single player
         disable_messages = -1;
     }
-    if (!winner_mode || iSampleIdx >= 89)     // Only queue certain samples when in winner mode (samples >= 89)
+    if (!winner_mode || iSampleIdx >= 89) // Only queue certain samples when in
+                                          // winner mode (samples >= 89)
     {
-      iCurrentWriteIndex = writesample;         // Queue speech sample data into the circular buffer
+      iCurrentWriteIndex =
+          writesample; // Queue speech sample data into the circular buffer
       speechinfo[iCurrentWriteIndex].iSampleIdx = iSampleIdx;
       speechinfo[iCurrentWriteIndex].iVolume = iVolume;
       speechinfo[iCurrentWriteIndex].iDelay = iDelay;
       ++iWriteIndex;
       speechinfo[iCurrentWriteIndex].iCarIdx = iCarIdx;
-      if (iWriteIndex == 16)                  // Wrap around queue index when it reaches buffer size (16)
+      if (iWriteIndex ==
+          16) // Wrap around queue index when it reaches buffer size (16)
         iWriteIndex = 0;
     }
   }
-  writesample = iWriteIndex;                    // Update global write position for next sample
+  writesample = iWriteIndex; // Update global write position for next sample
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003C530
-void analysespeechsamples()
-{
-  int iCarIdx; // ecx
-  int iCarIdxUpper; // esi
-  int iIsPlayerCar; // edx
+// 0003C530
+void analysespeechsamples() {
+  int iCarIdx;            // ecx
+  int iCarIdxUpper;       // esi
+  int iIsPlayerCar;       // edx
   const char *pszMessage; // eax
-  char *pszText; // eax
-  int iLap; // eax
-  int iWinCount; // edx
-  int iKillCount; // edi
-  int iResultKills; // ecx
-  int iSampleIdx; // eax
-  int iSampleDuration; // eax
+  char *pszText;          // eax
+  int iLap;               // eax
+  int iWinCount;          // edx
+  int iKillCount;         // edi
+  int iResultKills;       // ecx
+  int iSampleIdx;         // eax
+  int iSampleDuration;    // eax
 
-  --lastsample;                                 // Decrement sample timer
-  if (readsample != writesample && -speechinfo[readsample].iDelay > lastsample)// Check if there are samples to process and timing is right
+  --lastsample; // Decrement sample timer
+  if (readsample != writesample &&
+      -speechinfo[readsample].iDelay >
+          lastsample) // Check if there are samples to process and timing is
+                      // right
   {
-    iCarIdx = (uint8)speechinfo[readsample].iCarIdx;// Extract car index from speech info
+    iCarIdx = (uint8)speechinfo[readsample]
+                  .iCarIdx; // Extract car index from speech info
     iCarIdxUpper = speechinfo[readsample].iCarIdx >> 8;
-    iIsPlayerCar = player_type == 2 && iCarIdx != player1_car;// Check if this is about player car vs other cars
+    iIsPlayerCar =
+        player_type == 2 &&
+        iCarIdx !=
+            player1_car; // Check if this is about player car vs other cars
     switch (speechinfo[readsample].iSampleIdx) {
-      case 0xE:
-        start_zoom(&language_buffer[1920], iIsPlayerCar);// Case 0xE: Handle crash/damage announcement
-        if (Car[iCarIdx].byDamageSourceTimer)
-          goto LABEL_13;
-        goto LABEL_61;
-      case 0xF:
-        iLap = Car[iCarIdx].byLap;              // Case 0xF: Handle lap count announcements
-        if (NoOfLaps == iLap)
-          goto LABEL_15;
-        sprintf(buffer, "%i %s", NoOfLaps + 1 - iLap, &language_buffer[3712]);
-        pszText = buffer;
-        goto LABEL_60;
-      case 0x10:
-      case 0x11:
-      case 0x12:
-      LABEL_15:
-        pszText = &language_buffer[2240];
-        goto LABEL_60;
-      case 0x15:
-        if ((char)Car[Victim].byLives <= 0)   // Case 0x15: Handle player elimination/death announcement
-          pszMessage = &language_buffer[1984];
-        else
-          pszMessage = &language_buffer[1920];
-        start_zoom(pszMessage, iIsPlayerCar);
-        sprintf(buffer, "%s %s", &language_buffer[2048], driver_names[Victim]);
+    case 0xE:
+      start_zoom(&language_buffer[1920],
+                 iIsPlayerCar); // Case 0xE: Handle crash/damage announcement
+      if (Car[iCarIdx].byDamageSourceTimer)
+        goto LABEL_13;
+      goto LABEL_61;
+    case 0xF:
+      iLap = Car[iCarIdx].byLap; // Case 0xF: Handle lap count announcements
+      if (NoOfLaps == iLap)
+        goto LABEL_15;
+      sprintf(buffer, "%i %s", NoOfLaps + 1 - iLap, &language_buffer[3712]);
+      pszText = buffer;
+      goto LABEL_60;
+    case 0x10:
+    case 0x11:
+    case 0x12:
+    LABEL_15:
+      pszText = &language_buffer[2240];
+      goto LABEL_60;
+    case 0x15:
+      if ((char)Car[Victim].byLives <=
+          0) // Case 0x15: Handle player elimination/death announcement
+        pszMessage = &language_buffer[1984];
+      else
+        pszMessage = &language_buffer[1920];
+      start_zoom(pszMessage, iIsPlayerCar);
+      sprintf(buffer, "%s %s", &language_buffer[2048], driver_names[Victim]);
+      subzoom(buffer);
+      goto LABEL_61;
+    case 0x16:
+      pszText = &language_buffer[2560];
+      goto LABEL_60;
+    case 0x17:
+    case 0x18:
+    case 0x19:
+      pszText = &language_buffer[64 * Car[iCarIdx].byRacePosition + 384];
+      goto LABEL_60;
+    case 0x1A:
+      pszText = &language_buffer[2624];
+      goto LABEL_60;
+    case 0x1E:
+      pszText = &language_buffer[2112];
+      goto LABEL_60;
+    case 0x25:
+    case 0x26:
+      start_zoom(
+          &language_buffer[2752],
+          iIsPlayerCar); // Cases 0x25-0x26: Handle best lap time announcements
+      make_time(buffer, Car[iCarIdx].fBestLapTime);
+      subzoom(buffer);
+      goto LABEL_61;
+    case 0x27:
+      start_zoom(&language_buffer[2816], iIsPlayerCar);
+      make_time(buffer, Car[iCarIdx].fBestLapTime);
+      subzoom(buffer);
+      goto LABEL_61;
+    case 0x28:
+      start_zoom(&language_buffer[2880], iIsPlayerCar);
+      make_time(buffer, Car[iCarIdx].fBestLapTime);
+      subzoom(buffer);
+      goto LABEL_61;
+    case 0x2B:
+      pszText = &language_buffer[2944];
+      goto LABEL_60;
+    case 0x2C:
+      pszText = &language_buffer[3008];
+      goto LABEL_60;
+    case 0x2D:
+      start_zoom(&language_buffer[1984], iIsPlayerCar);
+      if (Car[iCarIdx].byDamageSourceTimer) {
+      LABEL_13:
+        sprintf(buffer, "%s %s", &language_buffer[2176],
+                driver_names[Car[iCarIdx].byAttacker]);
         subzoom(buffer);
-        goto LABEL_61;
-      case 0x16:
-        pszText = &language_buffer[2560];
-        goto LABEL_60;
-      case 0x17:
-      case 0x18:
-      case 0x19:
-        pszText = &language_buffer[64 * Car[iCarIdx].byRacePosition + 384];
-        goto LABEL_60;
-      case 0x1A:
-        pszText = &language_buffer[2624];
-        goto LABEL_60;
-      case 0x1E:
-        pszText = &language_buffer[2112];
-        goto LABEL_60;
-      case 0x25:
-      case 0x26:
-        start_zoom(&language_buffer[2752], iIsPlayerCar);// Cases 0x25-0x26: Handle best lap time announcements
-        make_time(buffer, Car[iCarIdx].fBestLapTime);
-        subzoom(buffer);
-        goto LABEL_61;
-      case 0x27:
-        start_zoom(&language_buffer[2816], iIsPlayerCar);
-        make_time(buffer, Car[iCarIdx].fBestLapTime);
-        subzoom(buffer);
-        goto LABEL_61;
-      case 0x28:
-        start_zoom(&language_buffer[2880], iIsPlayerCar);
-        make_time(buffer, Car[iCarIdx].fBestLapTime);
-        subzoom(buffer);
-        goto LABEL_61;
-      case 0x2B:
-        pszText = &language_buffer[2944];
-        goto LABEL_60;
-      case 0x2C:
-        pszText = &language_buffer[3008];
-        goto LABEL_60;
-      case 0x2D:
-        start_zoom(&language_buffer[1984], iIsPlayerCar);
-        if (Car[iCarIdx].byDamageSourceTimer) {
-        LABEL_13:
-          sprintf(buffer, "%s %s", &language_buffer[2176], driver_names[Car[iCarIdx].byAttacker]);
-          subzoom(buffer);
-        }
-        goto LABEL_61;
-      case 0x2E:
-        pszText = &language_buffer[2688];
-        goto LABEL_60;
-      case 0x33:
-        pszText = &language_buffer[6080];
-        goto LABEL_60;
-      case 0x34:
-        pszText = &language_buffer[6144];
-        goto LABEL_60;
-      case 0x35:
-        pszText = &language_buffer[2496];
-        goto LABEL_60;
-      case 0x36:
-        pszText = &language_buffer[2432];
-        goto LABEL_60;
-      case 0x37:
-        pszText = &language_buffer[2368];
-        goto LABEL_60;
-      case 0x38:
-        pszText = &language_buffer[2304];
-        goto LABEL_60;
-      case 0x39:
-      case 0x3A:
-      case 0x3B:
-      case 0x3C:
-        small_zoom(&language_buffer[4992]);
-        subzoom(&language_buffer[64 * speechinfo[readsample].iSampleIdx + 1408]);
-        goto LABEL_61;
-      case 0x41:
-      case 0x42:
-        small_zoom(&language_buffer[4928]);
+      }
+      goto LABEL_61;
+    case 0x2E:
+      pszText = &language_buffer[2688];
+      goto LABEL_60;
+    case 0x33:
+      pszText = &language_buffer[6080];
+      goto LABEL_60;
+    case 0x34:
+      pszText = &language_buffer[6144];
+      goto LABEL_60;
+    case 0x35:
+      pszText = &language_buffer[2496];
+      goto LABEL_60;
+    case 0x36:
+      pszText = &language_buffer[2432];
+      goto LABEL_60;
+    case 0x37:
+      pszText = &language_buffer[2368];
+      goto LABEL_60;
+    case 0x38:
+      pszText = &language_buffer[2304];
+      goto LABEL_60;
+    case 0x39:
+    case 0x3A:
+    case 0x3B:
+    case 0x3C:
+      small_zoom(&language_buffer[4992]);
+      subzoom(&language_buffer[64 * speechinfo[readsample].iSampleIdx + 1408]);
+      goto LABEL_61;
+    case 0x41:
+    case 0x42:
+      small_zoom(&language_buffer[4928]);
+      subzoom(&language_buffer[64 * iCarIdxUpper + 1152]);
+      goto LABEL_61;
+    case 0x47:
+    case 0x48:
+    case 0x49:
+    case 0x4A:
+    case 0x4B:
+    case 0x4C:
+    case 0x4D:
+    case 0x4E:
+      small_zoom(
+          &language_buffer[64 * speechinfo[readsample].iSampleIdx + 768]);
+      switch (iCarIdxUpper) {
+      case '=':
+      case '>':
+      case '?':
+      case '@':
         subzoom(&language_buffer[64 * iCarIdxUpper + 1152]);
-        goto LABEL_61;
-      case 0x47:
-      case 0x48:
-      case 0x49:
-      case 0x4A:
-      case 0x4B:
-      case 0x4C:
-      case 0x4D:
-      case 0x4E:
-        small_zoom(&language_buffer[64 * speechinfo[readsample].iSampleIdx + 768]);
-        switch (iCarIdxUpper) {
-          case '=':
-          case '>':
-          case '?':
-          case '@':
-            subzoom(&language_buffer[64 * iCarIdxUpper + 1152]);
-            break;
-          case 'C':
-            subzoom(&language_buffer[5952]);
-            break;
-          case 'D':
-            subzoom(&language_buffer[6016]);
-            break;
-          case 'E':
-            subzoom(&language_buffer[5888]);
-            break;
-          case 'F':
-            subzoom(&language_buffer[5824]);
-            break;
-          default:
-            goto LABEL_61;
-        }
-        goto LABEL_61;
-      case 0x59:
-      case 0x5A:
-      case 0x5B:
-      case 0x5C:
-      case 0x5D:
-      case 0x5E:
-      case 0x5F:
-      case 0x60:
-        iWinCount = total_wins[champorder[0]];  // Cases 0x59-0x60: Handle championship win count announcements
-        if (iWinCount == 1)
-          sprintf(buffer, "%s", &config_buffer[6784]);
-        else
-          sprintf(buffer, "%s %i %s", &config_buffer[6656], iWinCount, &config_buffer[6720]);
-        pszText = buffer;
-        goto LABEL_59;
-      case 0x61:
-      case 0x62:
-      case 0x63:
-      case 0x64:
-      case 0x65:
-      case 0x66:
-      case 0x67:
-      case 0x68:
-      case 0x69:
-      case 0x6A:
-      case 0x6B:
-      case 0x6C:
-      case 0x6D:
-      case 0x6E:
-      case 0x6F:
-      case 0x70:
-      case 0x71:
-        if (champ_mode)                       // Cases 0x61-0x71: Handle kill count announcements
-        {
-          iKillCount = total_kills[champorder[0]];
-          if (iKillCount == 1)
-            sprintf(buffer, "%s", &config_buffer[6464]);
-          else
-            sprintf(buffer, "%s %i %s", &config_buffer[6528], iKillCount, &config_buffer[6592]);
-          pszText = buffer;
-        } else {
-          iResultKills = result_kills[result_order[0]];
-          if (iResultKills != 1) {
-            sprintf(buffer, "%s %i %s", &config_buffer[6528], iResultKills, &config_buffer[6592]);
-            iIsPlayerCar = 0;
-            pszText = buffer;
-            goto LABEL_60;
-          }
-          pszText = &config_buffer[6464];
-        }
-      LABEL_59:
-        iIsPlayerCar = 0;
-      LABEL_60:
-        start_zoom(pszText, iIsPlayerCar);
-      LABEL_61:
-        if (soundon)                          // Play the actual audio sample if sound is enabled
-        {
-          iSampleIdx = speechinfo[readsample].iSampleIdx;
-          if (SamplePtr[iSampleIdx])
-            dospeechsample(iSampleIdx, speechinfo[readsample].iVolume);
-        }
-        iSampleDuration = (int)(36 * SampleLen[speechinfo[readsample++].iSampleIdx]) / 11025;// Calculate sample duration and advance to next sample in queue
-        lastsample = iSampleDuration;
-        if (readsample == 16)
-          readsample = 0;
         break;
-      case 0x73:
-        if (result_kills[result_order[0]] <= 0 && result_order[0] != FastestLap)
-          goto LABEL_61;
-        pszText = &config_buffer[6080];
-        goto LABEL_59;
-      case 0x74:
-        pszText = &config_buffer[6144];
-        goto LABEL_59;
-      case 0x75:
-        pszText = &config_buffer[6208];
-        goto LABEL_59;
+      case 'C':
+        subzoom(&language_buffer[5952]);
+        break;
+      case 'D':
+        subzoom(&language_buffer[6016]);
+        break;
+      case 'E':
+        subzoom(&language_buffer[5888]);
+        break;
+      case 'F':
+        subzoom(&language_buffer[5824]);
+        break;
       default:
-        goto LABEL_61;                          // Process different types of speech samples based on sample index
+        goto LABEL_61;
+      }
+      goto LABEL_61;
+    case 0x59:
+    case 0x5A:
+    case 0x5B:
+    case 0x5C:
+    case 0x5D:
+    case 0x5E:
+    case 0x5F:
+    case 0x60:
+      iWinCount =
+          total_wins[champorder[0]]; // Cases 0x59-0x60: Handle championship win
+                                     // count announcements
+      if (iWinCount == 1)
+        sprintf(buffer, "%s", &config_buffer[6784]);
+      else
+        sprintf(buffer, "%s %i %s", &config_buffer[6656], iWinCount,
+                &config_buffer[6720]);
+      pszText = buffer;
+      goto LABEL_59;
+    case 0x61:
+    case 0x62:
+    case 0x63:
+    case 0x64:
+    case 0x65:
+    case 0x66:
+    case 0x67:
+    case 0x68:
+    case 0x69:
+    case 0x6A:
+    case 0x6B:
+    case 0x6C:
+    case 0x6D:
+    case 0x6E:
+    case 0x6F:
+    case 0x70:
+    case 0x71:
+      if (champ_mode) // Cases 0x61-0x71: Handle kill count announcements
+      {
+        iKillCount = total_kills[champorder[0]];
+        if (iKillCount == 1)
+          sprintf(buffer, "%s", &config_buffer[6464]);
+        else
+          sprintf(buffer, "%s %i %s", &config_buffer[6528], iKillCount,
+                  &config_buffer[6592]);
+        pszText = buffer;
+      } else {
+        iResultKills = result_kills[result_order[0]];
+        if (iResultKills != 1) {
+          sprintf(buffer, "%s %i %s", &config_buffer[6528], iResultKills,
+                  &config_buffer[6592]);
+          iIsPlayerCar = 0;
+          pszText = buffer;
+          goto LABEL_60;
+        }
+        pszText = &config_buffer[6464];
+      }
+    LABEL_59:
+      iIsPlayerCar = 0;
+    LABEL_60:
+      start_zoom(pszText, iIsPlayerCar);
+    LABEL_61:
+      if (soundon) // Play the actual audio sample if sound is enabled
+      {
+        iSampleIdx = speechinfo[readsample].iSampleIdx;
+        if (SamplePtr[iSampleIdx])
+          dospeechsample(iSampleIdx, speechinfo[readsample].iVolume);
+      }
+      iSampleDuration =
+          (int)(36 * SampleLen[speechinfo[readsample++].iSampleIdx]) /
+          11025; // Calculate sample duration and advance to next sample in
+                 // queue
+      lastsample = iSampleDuration;
+      if (readsample == 16)
+        readsample = 0;
+      break;
+    case 0x73:
+      if (result_kills[result_order[0]] <= 0 && result_order[0] != FastestLap)
+        goto LABEL_61;
+      pszText = &config_buffer[6080];
+      goto LABEL_59;
+    case 0x74:
+      pszText = &config_buffer[6144];
+      goto LABEL_59;
+    case 0x75:
+      pszText = &config_buffer[6208];
+      goto LABEL_59;
+    default:
+      goto LABEL_61; // Process different types of speech samples based on
+                     // sample index
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CAD0
-void dospeechsample(int iSampleIdx, int iVolume)
-{
+// 0003CAD0
+void dospeechsample(int iSampleIdx, int iVolume) {
   int iUseVolume;
   int iHandle, iSampleHandle;
 
   // Check sample pointer is valid
   if (SamplePtr[iSampleIdx] == 0) {
-    SDL_Log("dospeechsample: Sample pointer is NULL for sample index %d", iSampleIdx);
+    SDL_Log("dospeechsample: Sample pointer is NULL for sample index %d",
+            iSampleIdx);
     return;
   }
 
@@ -2352,7 +2486,7 @@ void dospeechsample(int iSampleIdx, int iVolume)
   }
 
   // Setup sample parameters
-  //SampleFixed.unSegment = __DS__;
+  // SampleFixed.unSegment = __DS__;
   SampleFixed.iSampleIndex = iSampleIdx;
   SampleFixed.iVolume = iUseVolume;
   SampleFixed.pSample = SamplePtr[iSampleIdx];
@@ -2376,9 +2510,8 @@ void dospeechsample(int iSampleIdx, int iVolume)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CC00
-void loadfrontendsample(char *fileName)
-{
+// 0003CC00
+void loadfrontendsample(char *fileName) {
   if (!SoundCard)
     return;
 
@@ -2387,7 +2520,7 @@ void loadfrontendsample(char *fileName)
 
   // Free any existing frontend speech pointer
   if (frontendspeechptr)
-    fre((void**)&frontendspeechptr);
+    fre((void **)&frontendspeechptr);
 
   char szFilenameBuf[32];
   // construct sample filename
@@ -2395,7 +2528,8 @@ void loadfrontendsample(char *fileName)
   char *szDst = szFilenameBuf;
   while (*szSrc) {
     *szDst++ = *szSrc++;
-    if (!*szSrc) break;
+    if (!*szSrc)
+      break;
     *szDst++ = *szSrc++;
   }
   *szDst = '\0';
@@ -2404,7 +2538,7 @@ void loadfrontendsample(char *fileName)
   convertname(szFilenameBuf);
   SDL_Log("Loading track sample: %s\n", szFilenameBuf);
   // load file into memory
-  loadfile(szFilenameBuf, (void**)&frontendspeechptr, &frontendlen, 1);
+  loadfile(szFilenameBuf, (void **)&frontendspeechptr, &frontendlen, 1);
 
   if (cheatsample && frontendspeechptr) {
     uint8 *pData = frontendspeechptr;
@@ -2421,7 +2555,7 @@ void loadfrontendsample(char *fileName)
 
   // if using 50Hz timer
   if (frontendspeechptr && (cheat_mode & CHEAT_MODE_50HZ_TIMER)) {
-    if (cheat_mode & CHEAT_MODE_100HZ_TIMER) { //100Hz timer
+    if (cheat_mode & CHEAT_MODE_100HZ_TIMER) { // 100Hz timer
       // halve the sample length, keep only even-indexed bytes
       int iLen = frontendlen;
       uint8 *pData = frontendspeechptr;
@@ -2445,9 +2579,8 @@ void loadfrontendsample(char *fileName)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CD90
-int frontendsample(int iVol)
-{
+// 0003CD90
+int frontendsample(int iVol) {
   int iPrevSample;
 
   if (iVol > 0x7FFF)
@@ -2474,7 +2607,8 @@ int frontendsample(int iVol)
     iPrevSample = HandleSample[frontendspeechhandle];
     if (iPrevSample != -1) {
       if (HandleCar[frontendspeechhandle] != -1)
-        SampleHandleCar[iPrevSample].handles[HandleCar[frontendspeechhandle]] = -1;
+        SampleHandleCar[iPrevSample].handles[HandleCar[frontendspeechhandle]] =
+            -1;
       HandleSample[frontendspeechhandle] = -1;
       HandleCar[frontendspeechhandle] = -1;
     }
@@ -2484,26 +2618,24 @@ int frontendsample(int iVol)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CE20
-void remove_frontendspeech()
-{
+// 0003CE20
+void remove_frontendspeech() {
   // Clear any existing frontend speech sample
   stop_frontendspeech_handle();
 
-// Free any existing frontend speech pointer
+  // Free any existing frontend speech pointer
   if (frontendspeechptr)
-    fre((void**)&frontendspeechptr);
+    fre((void **)&frontendspeechptr);
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CE70
-int sfxplaying(int iSampleIdx)
-{
-  //int iSampleHandleCarOffset; // ecx
+// 0003CE70
+int sfxplaying(int iSampleIdx) {
+  // int iSampleHandleCarOffset; // ecx
   int iCurrHandle; // ebx
-  int iReturn0; // eax
+  int iReturn0;    // eax
 
-  //iSampleHandleCarOffset = iSampleIdx << 6;
+  // iSampleHandleCarOffset = iSampleIdx << 6;
   iCurrHandle = SampleHandleCar[iSampleIdx].handles[0];
   if (iCurrHandle == -1)
     return 0;
@@ -2516,9 +2648,8 @@ int sfxplaying(int iSampleIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CEC0
-int cheatsampleok(int iCarIdx)
-{
+// 0003CEC0
+int cheatsampleok(int iCarIdx) {
   if (iCarIdx == player1_car || iCarIdx == player2_car)
     return -1;
   else
@@ -2526,9 +2657,8 @@ int cheatsampleok(int iCarIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003CEF0
-void sfxsample(int iSample, int iVol)
-{
+// 0003CEF0
+void sfxsample(int iSample, int iVol) {
   if (SamplePtr[iSample] == 0) {
     SDL_Log("sfxsample: Sample pointer is NULL for sample index %d", iSample);
     return;
@@ -2558,7 +2688,7 @@ void sfxsample(int iSample, int iVol)
   }
 
   // Prepare sample data
-  //SampleFixed.unSegment = ds;
+  // SampleFixed.unSegment = ds;
   SampleFixed.iSampleIndex = iSample;
   SampleFixed.iVolume = iScaledVol;
   SampleFixed.pSample = SamplePtr[iSample];
@@ -2566,7 +2696,7 @@ void sfxsample(int iSample, int iVol)
 
   // cli(); Disable interrupts
   // Calculate offset in SampleHandleCar array (64 bytes per element)
-  //int iHandleOffset = iSample << 6;
+  // int iHandleOffset = iSample << 6;
   int iNewHandle = DIGISampleStart(&SampleFixed);
   // Store new handle
   SampleHandleCar[iSample].handles[0] = iNewHandle;
@@ -2585,28 +2715,28 @@ void sfxsample(int iSample, int iVol)
   HandleCar[iNewHandle] = 0; // Always use first slot in handles array
 }
 
-
 //-------------------------------------------------------------------------------------------------
-//0003D020
-void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan, int iByteOffset)
-{
-  //int iOffset; // edi
-  int iHandle; // eax
+// 0003D020
+void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
+             int iByteOffset) {
+  // int iOffset; // edi
+  int iHandle;    // eax
   int iOldHandle; // ecx
   uint8 *pSample; // [esp+0h] [ebp-14h]
 
   if (soundon) {
     if (!paused) {
       // Only proceed if no sample is currently playing in this slot
-      //iOffset = 4 * iCarIndex + (iSampleIndex << 6);
-      if (SampleHandleCar[iSampleIndex].handles[iCarIndex] == -1)// SampleHandleCar[iSampleIndex].handles[iCarIndex]?
+      // iOffset = 4 * iCarIndex + (iSampleIndex << 6);
+      if (SampleHandleCar[iSampleIndex].handles[iCarIndex] ==
+          -1) // SampleHandleCar[iSampleIndex].handles[iCarIndex]?
       {
         // Prepare sample data structure
         SampleData.iSampleIndex = iSampleIndex;
         SampleData.iPitch = iPitch;
         pSample = SamplePtr[iSampleIndex];
         SampleData.iLength = SampleLen[iSampleIndex];
-        //SampleData.unSegment = __DS__;
+        // SampleData.unSegment = __DS__;
         SampleData.iPan = iPan;
         SampleData.pSample = pSample;
         SampleData.iByteOffset = iByteOffset;
@@ -2614,10 +2744,12 @@ void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
 
         // Start sample playback
         iHandle = DIGISampleStart(&SampleData);
-        //LOWORD(iHandle) = sosDIGIStartSample(*(int *)&DIGIHandle, iSampleIndex, &SampleData);
+        // LOWORD(iHandle) = sosDIGIStartSample(*(int *)&DIGIHandle,
+        // iSampleIndex, &SampleData);
 
         // Store new handle
-        SampleHandleCar[iSampleIndex].handles[iCarIndex] = iHandle;// SampleHandleCar[iSampleIndex].handles[iCarIndex]?
+        SampleHandleCar[iSampleIndex].handles[iCarIndex] =
+            iHandle; // SampleHandleCar[iSampleIndex].handles[iCarIndex]?
         if (iHandle != -1) {
           // Clear any previous assignment of this handle
           iOldHandle = HandleSample[iHandle];
@@ -2634,83 +2766,98 @@ void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003D110
-void sfxpend(int iSampleIdx, int iDriverIdx, int iVolume)
-{
-  int iClampedVolume; // edi
+// 0003D110
+void sfxpend(int iSampleIdx, int iDriverIdx, int iVolume) {
+  int iClampedVolume;  // edi
   int iAdjustedVolume; // edi
-  //int iDriverIndex; // ebx
+  // int iDriverIndex; // ebx
   int bSampleFound; // esi
-  //int iArrayIndex; // eax
-  //int iLoopCounter; // edx
-  //int iPendingOffset; // eax
-  //int iNewPendingCount; // ecx
+  // int iArrayIndex; // eax
+  // int iLoopCounter; // edx
+  // int iPendingOffset; // eax
+  // int iNewPendingCount; // ecx
 
-  iClampedVolume = iVolume;                     // Clamp volume to maximum allowed value (32767)
+  iClampedVolume = iVolume; // Clamp volume to maximum allowed value (32767)
   if (iVolume > 0x7FFF)
     iClampedVolume = 0x7FFF;
-  if (replaytype != 2)                        // Store replay information if not in replay playback mode
+  if (replaytype !=
+      2) // Store replay information if not in replay playback mode
   {
     newrepsample[iDriverIdx] = iSampleIdx;
     repvolume[iDriverIdx] = iClampedVolume / 256;
-    //repvolume[iDriverIdx] = (unsigned __int16)(iClampedVolume - (__CFSHL__(iClampedVolume >> 31, 8) + ((unsigned __int16)(iClampedVolume >> 31) << 8))) >> 8;
+    // repvolume[iDriverIdx] = (unsigned __int16)(iClampedVolume -
+    // (__CFSHL__(iClampedVolume >> 31, 8) + ((unsigned __int16)(iClampedVolume
+    // >> 31) << 8))) >> 8;
   }
-  iAdjustedVolume = iClampedVolume * SFXVolume / 127;// Calculate final volume based on global SFX volume setting
-  if (soundon && Pending[iDriverIdx] != 5)    // Only queue sample if sound is enabled and pending queue isn't full
+  iAdjustedVolume =
+      iClampedVolume * SFXVolume /
+      127; // Calculate final volume based on global SFX volume setting
+  if (soundon &&
+      Pending[iDriverIdx] != 5) // Only queue sample if sound is enabled and
+                                // pending queue isn't full
   {
 
     // Check if this sample is already pending for this driver
     bSampleFound = 0;
-    for (int iSampleIndex = 0; iSampleIndex < Pending[iDriverIdx]; iSampleIndex++) {
+    for (int iSampleIndex = 0; iSampleIndex < Pending[iDriverIdx];
+         iSampleIndex++) {
       if (iSampleIdx == SamplePending[iDriverIdx][iSampleIndex].iHandle) {
         bSampleFound = -1;
-        break;  // No need to continue once found
+        break; // No need to continue once found
       }
     }
-    //iDriverIndex = iDriverIdx;
-    //bSampleFound = 0;                           // Initialize duplicate detection flag and array indexing
-    //iArrayIndex = 40 * iDriverIdx;
-    //for (iLoopCounter = 0; iLoopCounter < Pending[iDriverIndex]; iArrayIndex += 2)// Check if this sample is already pending for this driver
+    // iDriverIndex = iDriverIdx;
+    // bSampleFound = 0;                           // Initialize duplicate
+    // detection flag and array indexing iArrayIndex = 40 * iDriverIdx; for
+    // (iLoopCounter = 0; iLoopCounter < Pending[iDriverIndex]; iArrayIndex +=
+    // 2)// Check if this sample is already pending for this driver
     //{
-    //  if (iSampleIdx == SamplePending[0][iArrayIndex])
-    //    bSampleFound = -1;
-    //  ++iLoopCounter;
-    //}
+    //   if (iSampleIdx == SamplePending[0][iArrayIndex])
+    //     bSampleFound = -1;
+    //   ++iLoopCounter;
+    // }
 
     if (!bSampleFound) {
-    // Add sample to pending queue if it's not a duplicate
+      // Add sample to pending queue if it's not a duplicate
       int iNextSlot = Pending[iDriverIdx];
       SamplePending[iDriverIdx][iNextSlot].iHandle = iSampleIdx;
       SamplePending[iDriverIdx][iNextSlot].iVolume = iAdjustedVolume;
-      Pending[iDriverIdx]++;  // Increment pending count for this driver
+      Pending[iDriverIdx]++; // Increment pending count for this driver
     }
-    //if (!bSampleFound)                        // Add sample to pending queue if it's not a duplicate
+    // if (!bSampleFound)                        // Add sample to pending queue
+    // if it's not a duplicate
     //{
-    //  iPendingOffset = 160 * iDriverIdx + 8 * Pending[iDriverIndex];// Calculate offset in pending array and store sample data
-    //  *(int *)((char *)SamplePending[0] + iPendingOffset) = iSampleIdx;
-    //  iNewPendingCount = Pending[iDriverIndex] + 1;
-    //  *(int *)((char *)&SamplePending[0][1] + iPendingOffset) = iAdjustedVolume;
-    //  Pending[iDriverIndex] = iNewPendingCount; // Increment pending count for this driver
-    //}
+    //   iPendingOffset = 160 * iDriverIdx + 8 * Pending[iDriverIndex];//
+    //   Calculate offset in pending array and store sample data
+    //   *(int *)((char *)SamplePending[0] + iPendingOffset) = iSampleIdx;
+    //   iNewPendingCount = Pending[iDriverIndex] + 1;
+    //   *(int *)((char *)&SamplePending[0][1] + iPendingOffset) =
+    //   iAdjustedVolume; Pending[iDriverIndex] = iNewPendingCount; // Increment
+    //   pending count for this driver
+    // }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003D200
-void enginesounds2(int iPlayer1Car, int iPlayer2Car)
-{
+// 0003D200
+void enginesounds2(int iPlayer1Car, int iPlayer2Car) {
   int iEngine1Offset; // ecx
   int iEngine2Offset; // ecx
 
   if (soundon) {
     delaywritex = delaywrite & 0x1F;
     iEngine1Offset = 32 * iPlayer1Car;
-    enginedelay[0].engineSoundData[(delaywrite & 0x1F) + iEngine1Offset].iEngineVol = -1;
-    enginedelay[0].engineSoundData[delaywritex + iEngine1Offset].iEngine2Vol = -1;
+    enginedelay[0]
+        .engineSoundData[(delaywrite & 0x1F) + iEngine1Offset]
+        .iEngineVol = -1;
+    enginedelay[0].engineSoundData[delaywritex + iEngine1Offset].iEngine2Vol =
+        -1;
     enginedelay[0].engineSoundData[delaywritex + iEngine1Offset].iSkid1Vol = -1;
     iEngine2Offset = 32 * iPlayer2Car;
-    enginedelay[0].engineSoundData[delaywritex + iEngine2Offset].iEngineVol = -1;
-    enginedelay[0].engineSoundData[delaywritex + iEngine2Offset].iEngine2Vol = -1;
+    enginedelay[0].engineSoundData[delaywritex + iEngine2Offset].iEngineVol =
+        -1;
+    enginedelay[0].engineSoundData[delaywritex + iEngine2Offset].iEngine2Vol =
+        -1;
     enginedelay[0].engineSoundData[delaywritex + iEngine2Offset].iSkid1Vol = -1;
     enginesound(iPlayer1Car, 0.0, 0.0, 2000.0, 0x8000);
     enginesound(iPlayer2Car, 0.0, 0.0, 2000.0, 0x8000);
@@ -2719,87 +2866,89 @@ void enginesounds2(int iPlayer1Car, int iPlayer2Car)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003D310
-void enginesounds(int iFocusCarIndex)
-{
-  //unsigned int uiInitOffset; // eax
-  //int iTotalOffset; // ebp
-  tCar *pFocusCar; // eax
-  int iCurrChunk; // edx
-  tData *pChunkData; // edx
-  int iCarYaw; // ebx
-  double dSpeedCos; // st7
-  double dSpeedSin; // st6
-  int iChunkIdx; // ebp
-  double dCosRoll; // st7
-  int iCarIndex; // ecx
-  tCar *pCurrentCar; // ebx
-  int iEnableSound; // eax
-  int iCarChunk; // esi
-  int iChunkDiff; // esi
-  int iCurrentCarChunk; // eax
-  tData *pCarChunkData; // eax
-  int iYaw3; // esi
+// 0003D310
+void enginesounds(int iFocusCarIndex) {
+  // unsigned int uiInitOffset; // eax
+  // int iTotalOffset; // ebp
+  tCar *pFocusCar;            // eax
+  int iCurrChunk;             // edx
+  tData *pChunkData;          // edx
+  int iCarYaw;                // ebx
+  double dSpeedCos;           // st7
+  double dSpeedSin;           // st6
+  int iChunkIdx;              // ebp
+  double dCosRoll;            // st7
+  int iCarIndex;              // ecx
+  tCar *pCurrentCar;          // ebx
+  int iEnableSound;           // eax
+  int iCarChunk;              // esi
+  int iChunkDiff;             // esi
+  int iCurrentCarChunk;       // eax
+  tData *pCarChunkData;       // eax
+  int iYaw3;                  // esi
   double dCurrentCarSpeedCos; // st7
   double dCurrentCarSpeedSin; // st6
-  int iHorizontalAngle; // edx
-  int iVerticalAngle; // eax
-  double dVolumeCalc; // st7
-  float fTempVolumeCalc; // [esp+0h] [ebp-9Ch]
-  int iRoll; // [esp+4h] [ebp-98h] BYREF
-  int iYaw; // [esp+8h] [ebp-94h] BYREF
-  int iPitch; // [esp+10h] [ebp-8Ch] BYREF
-  float fHorizontalDistance; // [esp+14h] [ebp-88h]
-  float fTransformedX; // [esp+18h] [ebp-84h]
-  float fOrientMatrix_XX; // [esp+20h] [ebp-7Ch]
-  float fOrientMatrix_ZX; // [esp+24h] [ebp-78h]
-  float fOrientMatrix_ZZ; // [esp+28h] [ebp-74h]
-  float fOrientMatrix_YX; // [esp+2Ch] [ebp-70h]
-  float fOrientMatrix_YY; // [esp+30h] [ebp-6Ch]
-  float fOrientMatrix_XY; // [esp+34h] [ebp-68h]
-  float fListenerDirY; // [esp+38h] [ebp-64h]
-  float fListenerDirX; // [esp+3Ch] [ebp-60h]
-  float fListenerDirZ; // [esp+40h] [ebp-5Ch]
-  float fZ; // [esp+44h] [ebp-58h]
-  float fX; // [esp+48h] [ebp-54h]
-  float fY; // [esp+4Ch] [ebp-50h]
-  float fListenerDopplerVel; // [esp+50h] [ebp-4Ch]
-  float fCarDopplerVel; // [esp+54h] [ebp-48h]
-  float fCarVelY; // [esp+58h] [ebp-44h]
-  float fCarPosX; // [esp+5Ch] [ebp-40h]
-  float fCarVelZ; // [esp+60h] [ebp-3Ch]
-  float fCarPosZ; // [esp+64h] [ebp-38h]
-  float fTotalDistance; // [esp+68h] [ebp-34h]
-  int iStereoVolume; // [esp+6Ch] [ebp-30h]
-  float fRelativeY; // [esp+70h] [ebp-2Ch]
-  float fRelativeZ; // [esp+74h] [ebp-28h]
-  float fRelativeX; // [esp+78h] [ebp-24h]
-  float fCarPosY; // [esp+7Ch] [ebp-20h]
-  float fCarVelX; // [esp+80h] [ebp-1Ch]
+  int iHorizontalAngle;       // edx
+  int iVerticalAngle;         // eax
+  double dVolumeCalc;         // st7
+  float fTempVolumeCalc;      // [esp+0h] [ebp-9Ch]
+  int iRoll;                  // [esp+4h] [ebp-98h] BYREF
+  int iYaw;                   // [esp+8h] [ebp-94h] BYREF
+  int iPitch;                 // [esp+10h] [ebp-8Ch] BYREF
+  float fHorizontalDistance;  // [esp+14h] [ebp-88h]
+  float fTransformedX;        // [esp+18h] [ebp-84h]
+  float fOrientMatrix_XX;     // [esp+20h] [ebp-7Ch]
+  float fOrientMatrix_ZX;     // [esp+24h] [ebp-78h]
+  float fOrientMatrix_ZZ;     // [esp+28h] [ebp-74h]
+  float fOrientMatrix_YX;     // [esp+2Ch] [ebp-70h]
+  float fOrientMatrix_YY;     // [esp+30h] [ebp-6Ch]
+  float fOrientMatrix_XY;     // [esp+34h] [ebp-68h]
+  float fListenerDirY;        // [esp+38h] [ebp-64h]
+  float fListenerDirX;        // [esp+3Ch] [ebp-60h]
+  float fListenerDirZ;        // [esp+40h] [ebp-5Ch]
+  float fZ;                   // [esp+44h] [ebp-58h]
+  float fX;                   // [esp+48h] [ebp-54h]
+  float fY;                   // [esp+4Ch] [ebp-50h]
+  float fListenerDopplerVel;  // [esp+50h] [ebp-4Ch]
+  float fCarDopplerVel;       // [esp+54h] [ebp-48h]
+  float fCarVelY;             // [esp+58h] [ebp-44h]
+  float fCarPosX;             // [esp+5Ch] [ebp-40h]
+  float fCarVelZ;             // [esp+60h] [ebp-3Ch]
+  float fCarPosZ;             // [esp+64h] [ebp-38h]
+  float fTotalDistance;       // [esp+68h] [ebp-34h]
+  int iStereoVolume;          // [esp+6Ch] [ebp-30h]
+  float fRelativeY;           // [esp+70h] [ebp-2Ch]
+  float fRelativeZ;           // [esp+74h] [ebp-28h]
+  float fRelativeX;           // [esp+78h] [ebp-24h]
+  float fCarPosY;             // [esp+7Ch] [ebp-20h]
+  float fCarVelX;             // [esp+80h] [ebp-1Ch]
 
-  if (soundon)                                // Check if sound is enabled globally
+  if (soundon) // Check if sound is enabled globally
   {
-    delaywritex = delaywrite & 0x1F;            // Get current delay buffer write index (0-31)
-    
+    delaywritex =
+        delaywrite & 0x1F; // Get current delay buffer write index (0-31)
 
     for (int iCar = 0; iCar < numcars; ++iCar) {
       enginedelay[iCar].engineSoundData[delaywritex].iEngineVol = -1;
       enginedelay[iCar].engineSoundData[delaywritex].iEngine2Vol = -1;
       enginedelay[iCar].engineSoundData[delaywritex].iSkid1Vol = -1;
     }
-    //if (numcars > 0)                          // Initialize engine sound data for all cars
+    // if (numcars > 0)                          // Initialize engine sound data
+    // for all cars
     //{
-    //  uiInitOffset = 0;
-    //  iTotalOffset = 896 * numcars;
-    //  do {
-    //    enginedelay[0].engineSoundData[delaywritex + uiInitOffset / 0x1C].iEngineVol = -1;
-    //    enginedelay[0].engineSoundData[delaywritex + uiInitOffset / 0x1C].iEngine2Vol = -1;
-    //    uiInitOffset += 896;
-    //    SamplePending[12][7 * delaywritex + 5 + uiInitOffset / 4] = -1;
-    //  } while ((int)uiInitOffset < iTotalOffset);
-    //}
-    if (DriveView[0] == 3 || DriveView[0] == 6)// Check for external camera view (3) or tower view (6)
-    {                                           // Setup listener position for tower view camera
+    //   uiInitOffset = 0;
+    //   iTotalOffset = 896 * numcars;
+    //   do {
+    //     enginedelay[0].engineSoundData[delaywritex + uiInitOffset /
+    //     0x1C].iEngineVol = -1; enginedelay[0].engineSoundData[delaywritex +
+    //     uiInitOffset / 0x1C].iEngine2Vol = -1; uiInitOffset += 896;
+    //     SamplePending[12][7 * delaywritex + 5 + uiInitOffset / 4] = -1;
+    //   } while ((int)uiInitOffset < iTotalOffset);
+    // }
+    if (DriveView[0] == 3 ||
+        DriveView[0] ==
+            6) // Check for external camera view (3) or tower view (6)
+    {          // Setup listener position for tower view camera
       if (DriveView[0] == 6) {
         fX = -localdata[2].pointAy[3].fX;
         fY = -localdata[2].pointAy[3].fY;
@@ -2815,7 +2964,8 @@ void enginesounds(int iFocusCarIndex)
       fListenerDirY = 0.0;
       fListenerDirZ = 0.0;
     } else {
-      enginesound(iFocusCarIndex, 0.0, 0.0, 2000.0, 0x8000);// Process engine sound for focus car (in-car view)
+      enginesound(iFocusCarIndex, 0.0, 0.0, 2000.0,
+                  0x8000); // Process engine sound for focus car (in-car view)
       pFocusCar = &Car[iFocusCarIndex];
       iCurrChunk = pFocusCar->nCurrChunk;
       if (iCurrChunk == -1) {
@@ -2826,25 +2976,30 @@ void enginesounds(int iFocusCarIndex)
         fListenerDirY = pFocusCar->direction.fY;
         fListenerDirZ = pFocusCar->direction.fZ;
       } else {
-        pChunkData = &localdata[iCurrChunk];    // Transform car position from chunk coordinates to world coordinates
-        fX = pChunkData->pointAy[0].fY * pFocusCar->pos.fY
-          + pChunkData->pointAy[0].fX * pFocusCar->pos.fX
-          + pChunkData->pointAy[0].fZ * pFocusCar->pos.fZ
-          - pChunkData->pointAy[3].fX;
-        fY = pChunkData->pointAy[1].fY * pFocusCar->pos.fY
-          + pChunkData->pointAy[1].fX * pFocusCar->pos.fX
-          + pChunkData->pointAy[1].fZ * pFocusCar->pos.fZ
-          - pChunkData->pointAy[3].fY;
-        fZ = pChunkData->pointAy[2].fY * pFocusCar->pos.fY
-          + pChunkData->pointAy[2].fX * pFocusCar->pos.fX
-          + pChunkData->pointAy[2].fZ * pFocusCar->pos.fZ
-          - pChunkData->pointAy[3].fZ;
+        pChunkData =
+            &localdata[iCurrChunk]; // Transform car position from chunk
+                                    // coordinates to world coordinates
+        fX = pChunkData->pointAy[0].fY * pFocusCar->pos.fY +
+             pChunkData->pointAy[0].fX * pFocusCar->pos.fX +
+             pChunkData->pointAy[0].fZ * pFocusCar->pos.fZ -
+             pChunkData->pointAy[3].fX;
+        fY = pChunkData->pointAy[1].fY * pFocusCar->pos.fY +
+             pChunkData->pointAy[1].fX * pFocusCar->pos.fX +
+             pChunkData->pointAy[1].fZ * pFocusCar->pos.fZ -
+             pChunkData->pointAy[3].fY;
+        fZ = pChunkData->pointAy[2].fY * pFocusCar->pos.fY +
+             pChunkData->pointAy[2].fX * pFocusCar->pos.fX +
+             pChunkData->pointAy[2].fZ * pFocusCar->pos.fZ -
+             pChunkData->pointAy[3].fZ;
         iCarYaw = pFocusCar->nActualYaw;
         dSpeedCos = pFocusCar->fFinalSpeed * tcos[iCarYaw];
         dSpeedSin = pFocusCar->fFinalSpeed * tsin[iCarYaw];
-        fListenerDirX = (float)(pChunkData->pointAy[0].fY * dSpeedSin + pChunkData->pointAy[0].fX * dSpeedCos);
-        fListenerDirY = (float)(pChunkData->pointAy[1].fX * dSpeedCos + pChunkData->pointAy[1].fY * dSpeedSin);
-        fListenerDirZ = (float)(dSpeedCos * pChunkData->pointAy[2].fX + dSpeedSin * pChunkData->pointAy[2].fY);
+        fListenerDirX = (float)(pChunkData->pointAy[0].fY * dSpeedSin +
+                                pChunkData->pointAy[0].fX * dSpeedCos);
+        fListenerDirY = (float)(pChunkData->pointAy[1].fX * dSpeedCos +
+                                pChunkData->pointAy[1].fY * dSpeedSin);
+        fListenerDirZ = (float)(dSpeedCos * pChunkData->pointAy[2].fX +
+                                dSpeedSin * pChunkData->pointAy[2].fY);
       }
       iChunkIdx = pFocusCar->nCurrChunk;
       if (iChunkIdx == -1)
@@ -2852,26 +3007,33 @@ void enginesounds(int iFocusCarIndex)
     }
     if (DriveView[0] != 3 && DriveView[0] != 6) {
       if (Car[iFocusCarIndex].iControlType == 3) {
-        getworldangles(Car[iFocusCarIndex].nYaw, Car[iFocusCarIndex].nPitch, Car[iFocusCarIndex].nRoll, Car[iFocusCarIndex].nCurrChunk, &iYaw, &iPitch, &iRoll);
+        getworldangles(Car[iFocusCarIndex].nYaw, Car[iFocusCarIndex].nPitch,
+                       Car[iFocusCarIndex].nRoll,
+                       Car[iFocusCarIndex].nCurrChunk, &iYaw, &iPitch, &iRoll);
       } else {
         iYaw = Car[iFocusCarIndex].nYaw;
         iPitch = Car[iFocusCarIndex].nPitch;
         iRoll = Car[iFocusCarIndex].nRoll;
       }
-      fOrientMatrix_XX = tcos[iYaw] * tcos[iPitch];// Calculate camera orientation matrix from yaw/pitch/roll angles
-      fOrientMatrix_XY = tcos[iYaw] * tsin[iPitch] * tsin[iRoll] - tsin[iYaw] * tcos[iRoll];
+      fOrientMatrix_XX =
+          tcos[iYaw] * tcos[iPitch]; // Calculate camera orientation matrix from
+                                     // yaw/pitch/roll angles
+      fOrientMatrix_XY =
+          tcos[iYaw] * tsin[iPitch] * tsin[iRoll] - tsin[iYaw] * tcos[iRoll];
       fOrientMatrix_YX = tsin[iYaw] * tcos[iPitch];
-      fOrientMatrix_YY = tsin[iYaw] * tsin[iPitch] * tsin[iRoll] + tcos[iYaw] * tcos[iRoll];
+      fOrientMatrix_YY =
+          tsin[iYaw] * tsin[iPitch] * tsin[iRoll] + tcos[iYaw] * tcos[iRoll];
       dCosRoll = -tsin[iRoll] * tcos[iPitch];
       fOrientMatrix_ZZ = tsin[iPitch];
       fOrientMatrix_ZX = (float)dCosRoll;
     }
-    iCarIndex = 0;                              // Main loop: Process engine sounds for each car
+    iCarIndex = 0; // Main loop: Process engine sounds for each car
     if (numcars > 0) {
       pCurrentCar = Car;
       do {
         iEnableSound = -1;
-        if ((Car[iCarIndex].byLives & 0x80u) != 0)// Check if car is alive (bit 7 of byLives indicates death)
+        if ((Car[iCarIndex].byLives & 0x80u) !=
+            0) // Check if car is alive (bit 7 of byLives indicates death)
           iEnableSound = 0;
         if (DriveView[0] == 3 || DriveView[0] == 6) {
           if (iCarIndex == iFocusCarIndex || allengines)
@@ -2890,7 +3052,8 @@ void enginesounds(int iFocusCarIndex)
             iChunkDiff += TRAK_LEN;
           if (iChunkDiff > TRAK_LEN / 2)
             iChunkDiff -= TRAK_LEN;
-          if ((int)abs(iChunkDiff) >= 40)   // Cull car sounds if more than 40 chunks away
+          if ((int)abs(iChunkDiff) >=
+              40) // Cull car sounds if more than 40 chunks away
           {
             enginesound(iCarIndex, 0.0, 0.0, 1048576.0, 0x8000);
           } else {
@@ -2904,81 +3067,115 @@ void enginesounds(int iFocusCarIndex)
               fCarVelZ = pCurrentCar->direction.fZ;
             } else {
               pCarChunkData = &localdata[iCurrentCarChunk];
-              fCarPosX = pCarChunkData->pointAy[0].fY * pCurrentCar->pos.fY
-                + pCarChunkData->pointAy[0].fX * pCurrentCar->pos.fX
-                + pCarChunkData->pointAy[0].fZ * pCurrentCar->pos.fZ
-                - pCarChunkData->pointAy[3].fX;
-              fCarPosY = pCarChunkData->pointAy[1].fY * pCurrentCar->pos.fY
-                + pCarChunkData->pointAy[1].fX * pCurrentCar->pos.fX
-                + pCarChunkData->pointAy[1].fZ * pCurrentCar->pos.fZ
-                - pCarChunkData->pointAy[3].fY;
-              fCarPosZ = pCarChunkData->pointAy[2].fY * pCurrentCar->pos.fY
-                + pCarChunkData->pointAy[2].fX * pCurrentCar->pos.fX
-                + pCarChunkData->pointAy[2].fZ * pCurrentCar->pos.fZ
-                - pCarChunkData->pointAy[3].fZ;
+              fCarPosX = pCarChunkData->pointAy[0].fY * pCurrentCar->pos.fY +
+                         pCarChunkData->pointAy[0].fX * pCurrentCar->pos.fX +
+                         pCarChunkData->pointAy[0].fZ * pCurrentCar->pos.fZ -
+                         pCarChunkData->pointAy[3].fX;
+              fCarPosY = pCarChunkData->pointAy[1].fY * pCurrentCar->pos.fY +
+                         pCarChunkData->pointAy[1].fX * pCurrentCar->pos.fX +
+                         pCarChunkData->pointAy[1].fZ * pCurrentCar->pos.fZ -
+                         pCarChunkData->pointAy[3].fY;
+              fCarPosZ = pCarChunkData->pointAy[2].fY * pCurrentCar->pos.fY +
+                         pCarChunkData->pointAy[2].fX * pCurrentCar->pos.fX +
+                         pCarChunkData->pointAy[2].fZ * pCurrentCar->pos.fZ -
+                         pCarChunkData->pointAy[3].fZ;
               iYaw3 = pCurrentCar->nActualYaw;
               dCurrentCarSpeedCos = pCurrentCar->fFinalSpeed * tcos[iYaw3];
               dCurrentCarSpeedSin = pCurrentCar->fFinalSpeed * tsin[iYaw3];
-              fCarVelX = (float)(pCarChunkData->pointAy[0].fY * dCurrentCarSpeedSin + pCarChunkData->pointAy[0].fX * dCurrentCarSpeedCos);
-              fCarVelY = (float)(pCarChunkData->pointAy[1].fX * dCurrentCarSpeedCos + pCarChunkData->pointAy[1].fY * dCurrentCarSpeedSin);
-              fCarVelZ = (float)(dCurrentCarSpeedCos * pCarChunkData->pointAy[2].fX + dCurrentCarSpeedSin * pCarChunkData->pointAy[2].fY);
+              fCarVelX =
+                  (float)(pCarChunkData->pointAy[0].fY * dCurrentCarSpeedSin +
+                          pCarChunkData->pointAy[0].fX * dCurrentCarSpeedCos);
+              fCarVelY =
+                  (float)(pCarChunkData->pointAy[1].fX * dCurrentCarSpeedCos +
+                          pCarChunkData->pointAy[1].fY * dCurrentCarSpeedSin);
+              fCarVelZ =
+                  (float)(dCurrentCarSpeedCos * pCarChunkData->pointAy[2].fX +
+                          dCurrentCarSpeedSin * pCarChunkData->pointAy[2].fY);
             }
-            fRelativeX = fCarPosX - fX;         // Calculate relative position vector from listener to car
+            fRelativeX =
+                fCarPosX -
+                fX; // Calculate relative position vector from listener to car
             fRelativeY = fCarPosY - fY;
             fRelativeZ = fCarPosZ - fZ;
-            fHorizontalDistance = fRelativeX * fRelativeX + fRelativeY * fRelativeY;// Calculate horizontal and total 3D distances
+            fHorizontalDistance =
+                fRelativeX * fRelativeX +
+                fRelativeY *
+                    fRelativeY; // Calculate horizontal and total 3D distances
             fTotalDistance = fRelativeZ * fRelativeZ + fHorizontalDistance;
             fHorizontalDistance = (float)sqrt(fHorizontalDistance);
             fTotalDistance = (float)sqrt(fTotalDistance);
-            iHorizontalAngle = getangle(fRelativeX, fRelativeY);// Calculate horizontal and vertical angles for 3D positioning
+            iHorizontalAngle = getangle(
+                fRelativeX, fRelativeY); // Calculate horizontal and vertical
+                                         // angles for 3D positioning
             iVerticalAngle = getangle(fHorizontalDistance, fRelativeZ);
-            fListenerDopplerVel = (fListenerDirX * tcos[iHorizontalAngle] + fListenerDirY * tsin[iHorizontalAngle]) * tcos[iVerticalAngle]
-              + fListenerDirZ * tsin[iVerticalAngle];// Calculate Doppler velocities for listener and car
-            fCarDopplerVel = -(fCarVelX * tcos[iHorizontalAngle] + fCarVelY * tsin[iHorizontalAngle]) * tcos[iVerticalAngle] + fCarVelZ * tsin[iVerticalAngle];
+            fListenerDopplerVel =
+                (fListenerDirX * tcos[iHorizontalAngle] +
+                 fListenerDirY * tsin[iHorizontalAngle]) *
+                    tcos[iVerticalAngle] +
+                fListenerDirZ *
+                    tsin[iVerticalAngle]; // Calculate Doppler velocities for
+                                          // listener and car
+            fCarDopplerVel = -(fCarVelX * tcos[iHorizontalAngle] +
+                               fCarVelY * tsin[iHorizontalAngle]) *
+                                 tcos[iVerticalAngle] +
+                             fCarVelZ * tsin[iVerticalAngle];
             if (DriveView[0] == 3 || DriveView[0] == 6) {
               iStereoVolume = 0x8000;
             } else {
-              fTransformedX = fRelativeX * fOrientMatrix_XX + fRelativeY * fOrientMatrix_YX + fRelativeZ * fOrientMatrix_ZZ;// Calculate stereo position using camera orientation matrix
-              fTempVolumeCalc = fRelativeX * fOrientMatrix_XY + fRelativeY * fOrientMatrix_YY + fRelativeZ * fOrientMatrix_ZX;
-              dVolumeCalc = (1.0 - tsin[getangle(fTransformedX, fTempVolumeCalc)]) * 32768.0;
+              fTransformedX =
+                  fRelativeX * fOrientMatrix_XX +
+                  fRelativeY * fOrientMatrix_YX +
+                  fRelativeZ *
+                      fOrientMatrix_ZZ; // Calculate stereo position using
+                                        // camera orientation matrix
+              fTempVolumeCalc = fRelativeX * fOrientMatrix_XY +
+                                fRelativeY * fOrientMatrix_YY +
+                                fRelativeZ * fOrientMatrix_ZX;
+              dVolumeCalc =
+                  (1.0 - tsin[getangle(fTransformedX, fTempVolumeCalc)]) *
+                  32768.0;
               //_CHP();
               iStereoVolume = (int)dVolumeCalc;
               if ((int)dVolumeCalc >= 0x10000)
                 iStereoVolume = 0xFFFF;
             }
-            enginesound(iCarIndex, fListenerDopplerVel, fCarDopplerVel, fTotalDistance, iStereoVolume);// Output final engine sound with calculated parameters
+            enginesound(iCarIndex, fListenerDopplerVel, fCarDopplerVel,
+                        fTotalDistance,
+                        iStereoVolume); // Output final engine sound with
+                                        // calculated parameters
           }
         }
         ++iCarIndex;
         ++pCurrentCar;
       } while (iCarIndex < numcars);
     }
-    ++delaywrite;                               // Advance to next delay buffer frame for next iteration
+    ++delaywrite; // Advance to next delay buffer frame for next iteration
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003D990
-void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan)
-{
-  //int iCarOffset; // ebx
-  //int iCarOffset2; // ebx
+// 0003D990
+void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan) {
+  // int iCarOffset; // ebx
+  // int iCarOffset2; // ebx
   unsigned int iSampleHandle; // edx
-  int iVolumeFixed; // esi
-  int iPitchFixed; // ecx
-  int iCarIdx2; // ebp
-  int iPanFixed; // [esp+14h] [ebp+4h]
+  int iVolumeFixed;           // esi
+  int iPitchFixed;            // ecx
+  int iCarIdx2;               // ebp
+  int iPanFixed;              // [esp+14h] [ebp+4h]
 
   if (soundon && SamplePtr[iSample]) {
-    //iCarOffset = 4 * iCarIdx + (iSample << 6);
-    // *(int *)((char *)SampleHandleCar[0].handles + iCarOffset) = SampleHandleCar[iSampleIdx].handles[iCarIdx];
+    // iCarOffset = 4 * iCarIdx + (iSample << 6);
+    //  *(int *)((char *)SampleHandleCar[0].handles + iCarOffset) =
+    //  SampleHandleCar[iSampleIdx].handles[iCarIdx];
     if (SampleHandleCar[iSample].handles[iCarIdx] == -1 || iVolume) {
-      //iCarOffset2 = (iSample << 6) + 4 * iCarIdx;
+      // iCarOffset2 = (iSample << 6) + 4 * iCarIdx;
       iSampleHandle = SampleHandleCar[iSample].handles[iCarIdx];
       if (iSampleHandle == -1) {
         // Start new sample playback
         if (iVolume)
-          sample2(iCarIdx, iSample, iVolume, iPitch, iPan, SampleHandleCar[iSample].handles[iCarIdx]);
+          sample2(iCarIdx, iSample, iVolume, iPitch, iPan,
+                  SampleHandleCar[iSample].handles[iCarIdx]);
       } else if (iVolume) {
         // Clamp pitch value between 0x800 and 0x80000
         if (iPitch < 0x800)
@@ -2987,26 +3184,29 @@ void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan)
           iPitch = 0x80000;
 
         // Convert parameters to fixed-point format
-        iVolumeFixed = iVolume >> 10;           // convert to 10.6 fixed-point
-        iPitchFixed = iPitch >> 10;             // convert to 10.6 fixed-point
-        iPanFixed = iPan >> 12;                 // convert to 4.12 fixed-point
+        iVolumeFixed = iVolume >> 10; // convert to 10.6 fixed-point
+        iPitchFixed = iPitch >> 10;   // convert to 10.6 fixed-point
+        iPanFixed = iPan >> 12;       // convert to 4.12 fixed-point
 
         // Update volume if changed
         if (iVolumeFixed != lastvolume[iCarIdx]) {
-          DIGISetSampleVolume(SampleHandleCar[iSample].handles[iCarIdx], (int16)iVolumeFixed << 10);
+          DIGISetSampleVolume(SampleHandleCar[iSample].handles[iCarIdx],
+                              (int16)iVolumeFixed << 10);
           lastvolume[iCarIdx] = iVolumeFixed;
         }
 
         // Update pitch if changed
         if (iPitchFixed != lastpitch[iCarIdx]) {
-          DIGISetPitch(SampleHandleCar[iSample].handles[iCarIdx], iPitchFixed << 10);
+          DIGISetPitch(SampleHandleCar[iSample].handles[iCarIdx],
+                       iPitchFixed << 10);
           lastpitch[iCarIdx] = iPitchFixed;
         }
 
         // Update pan if changed
         iCarIdx2 = iCarIdx;
         if (iPanFixed != lastpan[iCarIdx2]) {
-          DIGISetPanLocation(SampleHandleCar[iSample].handles[iCarIdx2], (int16)iPanFixed << 12);
+          DIGISetPanLocation(SampleHandleCar[iSample].handles[iCarIdx2],
+                             (int16)iPanFixed << 12);
           lastpan[iCarIdx2] = iPanFixed;
         }
       } else {
@@ -3024,108 +3224,147 @@ void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003DB40
-void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, float fDistance, int iStereoVolume)
-{
-  double dVolumeCalc; // st7
-  double dBasePitch; // st7
-  double dWheelSpinPitch; // st7
-  double dFinalEnginePitch; // st7
-  int iCurrChunk; // edx
-  int iPrevChunkIdx; // edx
-  int iNextChunkIdx; // edx
-  double dTunnelDistanceTemp; // st7
-  float fMinTunnelDistance; // eax
-  int iCarOffset; // edx
-  int iYaw; // edx
-  int iYaw3; // ebx
-  int iYawDifference; // eax
-  int iAbsYawDifference; // eax
-  double dSkidVolumeBase; // st7
+// 0003DB40
+void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel,
+                 float fDistance, int iStereoVolume) {
+  double dVolumeCalc;          // st7
+  double dBasePitch;           // st7
+  double dWheelSpinPitch;      // st7
+  double dFinalEnginePitch;    // st7
+  int iCurrChunk;              // edx
+  int iPrevChunkIdx;           // edx
+  int iNextChunkIdx;           // edx
+  double dTunnelDistanceTemp;  // st7
+  float fMinTunnelDistance;    // eax
+  int iCarOffset;              // edx
+  int iYaw;                    // edx
+  int iYaw3;                   // ebx
+  int iYawDifference;          // eax
+  int iAbsYawDifference;       // eax
+  double dSkidVolumeBase;      // st7
   double dSkidVolumeWithSpeed; // st7
-  double dFinalSkidVolume; // st7
-  //int iCarStructOffset; // eax
+  double dFinalSkidVolume;     // st7
+  // int iCarStructOffset; // eax
   double dSkidPitchCalc; // st7
-  //int iPendingSampleOffset; // ecx
-  //int iCarIndexCopy; // ebp
-  //int iPendingCounter; // esi
-  //int i; // ecx
-  //double dSampleVolume; // st7
-  float fTunnelDistance; // [esp+Ch] [ebp-4Ch]
-  float fDopplerFactor; // [esp+10h] [ebp-48h]
-  int iTunnelFlag; // [esp+14h] [ebp-44h]
-  int iLaneType; // [esp+18h] [ebp-40h]
-  float fHealthFactor; // [esp+20h] [ebp-38h]
-  int iBaseEngineVolume; // [esp+24h] [ebp-34h]
-  int iCalculatedEngineVolume; // [esp+24h] [ebp-34h]
-  int iFinalEngineVolume; // [esp+24h] [ebp-34h]
-  int iSkidBaseVolume; // [esp+28h] [ebp-30h]
-  int iSkidVolumeWithSpeed; // [esp+28h] [ebp-30h]
-  int iFinalSkidVolume; // [esp+28h] [ebp-30h]
-  int iFinalPitch; // [esp+2Ch] [ebp-2Ch]
-  float fDistanceAttenuation; // [esp+30h] [ebp-28h]
-  float fTunnelDistanceBack; // [esp+34h] [ebp-24h]
+  // int iPendingSampleOffset; // ecx
+  // int iCarIndexCopy; // ebp
+  // int iPendingCounter; // esi
+  // int i; // ecx
+  // double dSampleVolume; // st7
+  float fTunnelDistance;        // [esp+Ch] [ebp-4Ch]
+  float fDopplerFactor;         // [esp+10h] [ebp-48h]
+  int iTunnelFlag;              // [esp+14h] [ebp-44h]
+  int iLaneType;                // [esp+18h] [ebp-40h]
+  float fHealthFactor;          // [esp+20h] [ebp-38h]
+  int iBaseEngineVolume;        // [esp+24h] [ebp-34h]
+  int iCalculatedEngineVolume;  // [esp+24h] [ebp-34h]
+  int iFinalEngineVolume;       // [esp+24h] [ebp-34h]
+  int iSkidBaseVolume;          // [esp+28h] [ebp-30h]
+  int iSkidVolumeWithSpeed;     // [esp+28h] [ebp-30h]
+  int iFinalSkidVolume;         // [esp+28h] [ebp-30h]
+  int iFinalPitch;              // [esp+2Ch] [ebp-2Ch]
+  float fDistanceAttenuation;   // [esp+30h] [ebp-28h]
+  float fTunnelDistanceBack;    // [esp+34h] [ebp-24h]
   float fTunnelDistanceForward; // [esp+38h] [ebp-20h]
-  //int iPendingSampleVolume; // [esp+3Ch] [ebp-1Ch]
+  // int iPendingSampleVolume; // [esp+3Ch] [ebp-1Ch]
 
   if (soundon) {
-    fDopplerFactor = (fListenerDopplerVel + 1476.0f) / (1476.0f - fCarDopplerVel);// Calculate Doppler effect factor (sound speed / (sound speed - source velocity))
-    fDistanceAttenuation = 65536000.0f / (fDistance * fDistance + 65536000.0f);// Calculate distance attenuation factor (inverse square law with minimum)
-    if (Car[iCarIdx].fRPMRatio >= 0.1)        // Calculate base engine volume based on RPM ratio
+    fDopplerFactor =
+        (fListenerDopplerVel + 1476.0f) /
+        (1476.0f - fCarDopplerVel); // Calculate Doppler effect factor (sound
+                                    // speed / (sound speed - source velocity))
+    fDistanceAttenuation =
+        65536000.0f / (fDistance * fDistance +
+                       65536000.0f); // Calculate distance attenuation factor
+                                     // (inverse square law with minimum)
+    if (Car[iCarIdx].fRPMRatio >=
+        0.1) // Calculate base engine volume based on RPM ratio
     {
       iBaseEngineVolume = 258 * EngineVolume;
     } else {
-      dVolumeCalc = Car[iCarIdx].fRPMRatio * 258.0 * 10.0 * (double)EngineVolume;
+      dVolumeCalc =
+          Car[iCarIdx].fRPMRatio * 258.0 * 10.0 * (double)EngineVolume;
       //_CHP();
       iBaseEngineVolume = (int)dVolumeCalc;
     }
 
-    iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume) / 8;
-    //iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume
-    //                         - (__CFSHL__((Car[iCarIdx].iEngineState * iBaseEngineVolume) >> 31, 3)
-    //                            + 8 * ((Car[iCarIdx].iEngineState * iBaseEngineVolume) >> 31))) >> 3;// Apply engine state modifier to volume (divide by 8)
+    iCalculatedEngineVolume =
+        (Car[iCarIdx].iEngineState * iBaseEngineVolume) / 8;
+    // iCalculatedEngineVolume = (Car[iCarIdx].iEngineState * iBaseEngineVolume
+    //                          - (__CFSHL__((Car[iCarIdx].iEngineState *
+    //                          iBaseEngineVolume) >> 31, 3)
+    //                             + 8 * ((Car[iCarIdx].iEngineState *
+    //                             iBaseEngineVolume) >> 31))) >> 3;// Apply
+    //                             engine state modifier to volume (divide by 8)
     if (iCalculatedEngineVolume > 0x7FFF)
       iCalculatedEngineVolume = 0x7FFF;
     //_CHP();
-    iFinalEngineVolume = (int)((double)iCalculatedEngineVolume * fDistanceAttenuation);
+    iFinalEngineVolume =
+        (int)((double)iCalculatedEngineVolume * fDistanceAttenuation);
     if (iFinalEngineVolume < 256)
       iFinalEngineVolume = 0;
     if (fDistance >= 1048576.0)
       iFinalEngineVolume = 0;
-    dBasePitch = Car[iCarIdx].fRPMRatio * 100000.0 + 8192.0;// Calculate engine pitch: base RPM + wheel spin effect
+    dBasePitch = Car[iCarIdx].fRPMRatio * 100000.0 +
+                 8192.0; // Calculate engine pitch: base RPM + wheel spin effect
     //_CHP();
-    dWheelSpinPitch = Car[iCarIdx].fWheelSpinAccumulation * 50000.0 / (Car[iCarIdx].fWheelSpinAccumulation + 2000.0) + (double)(int)dBasePitch;
+    dWheelSpinPitch = Car[iCarIdx].fWheelSpinAccumulation * 50000.0 /
+                          (Car[iCarIdx].fWheelSpinAccumulation + 2000.0) +
+                      (double)(int)dBasePitch;
     //_CHP();
-    fHealthFactor = (Car[iCarIdx].fHealth + 34.0f) * 0.01f;// Calculate health factor for engine roughness (damaged cars sound rougher)
+    fHealthFactor = (Car[iCarIdx].fHealth + 34.0f) *
+                    0.01f; // Calculate health factor for engine roughness
+                           // (damaged cars sound rougher)
     if (fHealthFactor > 1.0)
       fHealthFactor = 1.0;
-    dFinalEnginePitch = tsin[Car[iCarIdx].iEngineVibrateOffset] * (1.0 - fHealthFactor) * 10000.0 + (double)(6 * Car[iCarIdx].iPitchCameraOffset + (int)dWheelSpinPitch);// Add engine vibration/roughness based on health and camera offset
+    dFinalEnginePitch =
+        tsin[Car[iCarIdx].iEngineVibrateOffset] * (1.0 - fHealthFactor) *
+            10000.0 +
+        (double)(6 * Car[iCarIdx].iPitchCameraOffset +
+                 (int)dWheelSpinPitch); // Add engine vibration/roughness based
+                                        // on health and camera offset
     //_CHP();
     //_CHP();
     iTunnelFlag = 0;
     iCurrChunk = Car[iCarIdx].nCurrChunk;
     iLaneType = Car[iCarIdx].iLaneType;
     iFinalPitch = (int)(dFinalEnginePitch * fDopplerFactor);
-    if (iCurrChunk != -1 && (TrakColour[iCurrChunk][iLaneType] & SURFACE_FLAG_ECHO) != 0)// Check if car is in tunnel section (bit 29 of TrakColour)
+    if (iCurrChunk != -1 &&
+        (TrakColour[iCurrChunk][iLaneType] & SURFACE_FLAG_ECHO) !=
+            0) // Check if car is in tunnel section (bit 29 of TrakColour)
     {
       iTunnelFlag = -1;
-      fTunnelDistanceBack = localdata[iCurrChunk].fTrackHalfLength + Car[iCarIdx].pos.fX;// Calculate tunnel distance going backward through track
+      fTunnelDistanceBack =
+          localdata[iCurrChunk].fTrackHalfLength +
+          Car[iCarIdx]
+              .pos.fX; // Calculate tunnel distance going backward through track
       iPrevChunkIdx = iCurrChunk - 1;
       if (!iPrevChunkIdx)
         iPrevChunkIdx = TRAK_LEN - 1;
 
-      //iPrevChunkIdx check added by ROLLER
-      while (iPrevChunkIdx >= 0 && (TrakColour[iPrevChunkIdx][iLaneType] & SURFACE_FLAG_ECHO) != 0 && fTunnelDistanceBack < 6400.0) {
-        fTunnelDistanceBack = 2.0f * localdata[iPrevChunkIdx--].fTrackHalfLength + fTunnelDistanceBack;
+      // iPrevChunkIdx check added by ROLLER
+      while (iPrevChunkIdx >= 0 &&
+             (TrakColour[iPrevChunkIdx][iLaneType] & SURFACE_FLAG_ECHO) != 0 &&
+             fTunnelDistanceBack < 6400.0) {
+        fTunnelDistanceBack =
+            2.0f * localdata[iPrevChunkIdx--].fTrackHalfLength +
+            fTunnelDistanceBack;
         if (!iPrevChunkIdx)
           iPrevChunkIdx = TRAK_LEN - 1;
       }
-      iNextChunkIdx = Car[iCarIdx].nCurrChunk + 1;// Calculate tunnel distance going forward through track
-      fTunnelDistanceForward = localdata[Car[iCarIdx].nCurrChunk].fTrackHalfLength - Car[iCarIdx].pos.fX;
+      iNextChunkIdx =
+          Car[iCarIdx].nCurrChunk +
+          1; // Calculate tunnel distance going forward through track
+      fTunnelDistanceForward =
+          localdata[Car[iCarIdx].nCurrChunk].fTrackHalfLength -
+          Car[iCarIdx].pos.fX;
       if (iNextChunkIdx == TRAK_LEN)
         iNextChunkIdx ^= TRAK_LEN;
-      while ((TrakColour[iNextChunkIdx][iLaneType] & SURFACE_FLAG_ECHO) != 0 && fTunnelDistanceForward < 6400.0) {
-        dTunnelDistanceTemp = 2.0 * localdata[iNextChunkIdx++].fTrackHalfLength + fTunnelDistanceForward;
+      while ((TrakColour[iNextChunkIdx][iLaneType] & SURFACE_FLAG_ECHO) != 0 &&
+             fTunnelDistanceForward < 6400.0) {
+        dTunnelDistanceTemp =
+            2.0 * localdata[iNextChunkIdx++].fTrackHalfLength +
+            fTunnelDistanceForward;
         fTunnelDistanceForward = (float)dTunnelDistanceTemp;
         if (iNextChunkIdx == TRAK_LEN)
           iNextChunkIdx ^= TRAK_LEN;
@@ -3139,49 +3378,72 @@ void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, f
         fTunnelDistance = 6400.0;
     }
     iCarOffset = 32 * iCarIdx;
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iPan = iStereoVolume;// Write engine sound data to delay buffer
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iEnginePitch = iFinalPitch;
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iEngineVol = iFinalEngineVolume;
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iEngine2Pitch = iFinalPitch;
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iPan =
+        iStereoVolume; // Write engine sound data to delay buffer
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iEnginePitch =
+        iFinalPitch;
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iEngineVol =
+        iFinalEngineVolume;
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iEngine2Pitch =
+        iFinalPitch;
     if (iTunnelFlag) {
-      //_CHP();                                   // Apply tunnel reverb effect to secondary engine sound
-      enginedelay[iCarIdx].engineSoundData[delaywritex].iEngine2Vol = (int)(fTunnelDistance * 0.6 * 0.00015625 * (double)iFinalEngineVolume);
+      //_CHP();                                   // Apply tunnel reverb effect
+      // to secondary engine sound
+      enginedelay[iCarIdx].engineSoundData[delaywritex].iEngine2Vol =
+          (int)(fTunnelDistance * 0.6 * 0.00015625 *
+                (double)iFinalEngineVolume);
     } else {
       enginedelay[iCarIdx].engineSoundData[delaywritex].iEngine2Vol = 0;
     }
-    if (Car[iCarIdx].iControlType != 3 || (iYaw = Car[iCarIdx].nYaw, iYaw3 = Car[iCarIdx].nActualYaw, iYaw == iYaw3)) {
+    if (Car[iCarIdx].iControlType != 3 ||
+        (iYaw = Car[iCarIdx].nYaw, iYaw3 = Car[iCarIdx].nActualYaw,
+         iYaw == iYaw3)) {
       iFinalSkidVolume = 0;
     } else {
-      iYawDifference = iYaw - iYaw3 + (iYaw - iYaw3 < 0 ? 0x4000 : 0);// Calculate angular difference between input yaw and actual yaw
+      iYawDifference =
+          iYaw - iYaw3 +
+          (iYaw - iYaw3 < 0 ? 0x4000 : 0); // Calculate angular difference
+                                           // between input yaw and actual yaw
       if (iYawDifference > 0x2000)
         iYawDifference -= 0x4000;
       iAbsYawDifference = abs(iYawDifference);
-      if (iAbsYawDifference >= 200)           // Calculate skid volume based on angular mismatch (understeer/oversteer)
+      if (iAbsYawDifference >= 200) // Calculate skid volume based on angular
+                                    // mismatch (understeer/oversteer)
       {
-        dSkidVolumeBase = (double)(iAbsYawDifference - 400) * 65536.0 * 4.0 * 0.00006103515625;
+        dSkidVolumeBase = (double)(iAbsYawDifference - 400) * 65536.0 * 4.0 *
+                          0.00006103515625;
         //_CHP();
         iSkidBaseVolume = (int)dSkidVolumeBase;
       } else {
         iSkidBaseVolume = 0;
       }
-      dSkidVolumeWithSpeed = (double)iSkidBaseVolume * Car[iCarIdx].fFinalSpeed * 0.0049999999;// Apply speed factor to skid volume (louder at higher speeds)
+      dSkidVolumeWithSpeed = (double)iSkidBaseVolume *
+                             Car[iCarIdx].fFinalSpeed *
+                             0.0049999999; // Apply speed factor to skid volume
+                                           // (louder at higher speeds)
       //_CHP();
       iSkidVolumeWithSpeed = (int)dSkidVolumeWithSpeed;
       if ((int)dSkidVolumeWithSpeed > 0x7FFF)
         iSkidVolumeWithSpeed = 0x7FFF;
-      dFinalSkidVolume = (double)(SFXVolume * iSkidVolumeWithSpeed / 127) * fDistanceAttenuation;
+      dFinalSkidVolume = (double)(SFXVolume * iSkidVolumeWithSpeed / 127) *
+                         fDistanceAttenuation;
       //_CHP();
       iFinalSkidVolume = (int)dFinalSkidVolume;
       if ((int)dFinalSkidVolume < 256)
         iFinalSkidVolume = 0;
-      //_CHP();                                   // DECOMPILER BUG: Missing iCarStructOffset = iCarIdx * 0x134 (sizeof(tCar)=308)
-      dSkidPitchCalc = (Car[iCarIdx].fFinalSpeed + 6400.0) * 0.00015625 * (double)(int)(fDopplerFactor * 65536.0);
-      //dSkidPitchCalc = (*(float *)((char *)&Car[0].fFinalSpeed + iCarStructOffset) + 6400.0) * 0.00015625 * (double)(int)(fDopplerFactor * 65536.0);
-      //_CHP();
+      //_CHP();                                   // DECOMPILER BUG: Missing
+      // iCarStructOffset = iCarIdx * 0x134 (sizeof(tCar)=308)
+      dSkidPitchCalc = (Car[iCarIdx].fFinalSpeed + 6400.0) * 0.00015625 *
+                       (double)(int)(fDopplerFactor * 65536.0);
+      // dSkidPitchCalc = (*(float *)((char *)&Car[0].fFinalSpeed +
+      // iCarStructOffset) + 6400.0) * 0.00015625 * (double)(int)(fDopplerFactor
+      // * 65536.0); _CHP();
       iFinalPitch = (int)dSkidPitchCalc;
     }
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iSkid1Pitch = iFinalPitch;// Write tire skid sound data to delay buffer
-    enginedelay[iCarIdx].engineSoundData[delaywritex].iSkid1Vol = iFinalSkidVolume;
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iSkid1Pitch =
+        iFinalPitch; // Write tire skid sound data to delay buffer
+    enginedelay[iCarIdx].engineSoundData[delaywritex].iSkid1Vol =
+        iFinalSkidVolume;
 
     // Process pending sound effects for this car
     int iPendingCount = Pending[iCarIdx];
@@ -3203,27 +3465,28 @@ void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, f
     // Clear pending sample count for next frame
     Pending[iCarIdx] = 0;
 
-    //iPendingSampleOffset = 5 * iCarIdx;         // Process pending sound effects for this car
-    //iCarIndexCopy = iCarIdx;
-    //iPendingCounter = 0;
-    //for (i = 8 * iPendingSampleOffset; iPendingCounter < Pending[iCarIndexCopy]; i += 2) {
-    //  iPendingSampleVolume = SamplePending[0][i + 1];
-    //  if (iPendingSampleVolume > 0x8000)
-    //    iPendingSampleVolume = 0x8000;
-    //  dSampleVolume = (double)iPendingSampleVolume * fDistanceAttenuation;// Apply distance attenuation to sample and output if loud enough
-    //  //_CHP();
-    //  if ((int)dSampleVolume >= 256)
-    //    pannedsample(SamplePending[0][i], (int)dSampleVolume, iStereoVolume);
-    //  ++iPendingCounter;
-    //}
-    //Pending[iCarIndexCopy] = 0;                 // Clear pending sample count for next frame
+    // iPendingSampleOffset = 5 * iCarIdx;         // Process pending sound
+    // effects for this car iCarIndexCopy = iCarIdx; iPendingCounter = 0; for (i
+    // = 8 * iPendingSampleOffset; iPendingCounter < Pending[iCarIndexCopy]; i
+    // += 2) {
+    //   iPendingSampleVolume = SamplePending[0][i + 1];
+    //   if (iPendingSampleVolume > 0x8000)
+    //     iPendingSampleVolume = 0x8000;
+    //   dSampleVolume = (double)iPendingSampleVolume * fDistanceAttenuation;//
+    //   Apply distance attenuation to sample and output if loud enough
+    //   //_CHP();
+    //   if ((int)dSampleVolume >= 256)
+    //     pannedsample(SamplePending[0][i], (int)dSampleVolume, iStereoVolume);
+    //   ++iPendingCounter;
+    // }
+    // Pending[iCarIndexCopy] = 0;                 // Clear pending sample count
+    // for next frame
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E1C0
-void startmusic(int iSong)
-{
+// 0003E1C0
+void startmusic(int iSong) {
   g_iCurrentSong = iSong;
   int musicOrTitle = 0;
   if (MusicCD && track_playing) {
@@ -3270,13 +3533,14 @@ void startmusic(int iSong)
 
   if (musicon) {
     uint32_t musiclength;
-    loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
+    loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer,
+             &musiclength, 0);
     SongPtr = musicbuffer;
     if (musicbuffer) {
       // Init song in the MIDI system
       tInitSong InitSong = {
-        .pData = (void *)musicbuffer,
-        .iLength = musiclength,
+          .pData = (void *)musicbuffer,
+          .iLength = musiclength,
       };
       MIDIInitSong(&InitSong);
       fre((void **)&musicbuffer);
@@ -3288,34 +3552,33 @@ void startmusic(int iSong)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E370
-void stopmusic()
-{
+// 0003E370
+void stopmusic() {
   if (MusicCD && track_playing) {
     StopTrack();
   } else if (MusicCard && SongPtr) {
     if (MusicCard) {
       if (SongPtr) {
-        //sosMIDIStopSong(SongHandle);
-        //sosMIDIResetSong(SongHandle);
+        // sosMIDIStopSong(SongHandle);
+        // sosMIDIResetSong(SongHandle);
         MIDIStopSong();
       }
     }
-    //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
+    // sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
     SongPtr = 0;
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E3E0
-void load_language_map()
-{
+// 0003E3E0
+void load_language_map() {
   FILE *pFile;
   int i;
 
   // open file
   pFile = ROLLERfopen("LANGUAGE.INI", "r");
-  if (!pFile) return;
+  if (!pFile)
+    return;
 
   // read number of languages into languages
   readline(pFile, "i", &languages);
@@ -3336,8 +3599,8 @@ void load_language_map()
     readline(pFile, "ccc", szLangPtr, szTextExtPtr, szSampleExtPtr);
 
     // Move pointers forward to next slots
-    szLangPtr += 32;        // Each lang entry is 32 bytes
-    szTextExtPtr += 4;       // Each extension is 4 bytes
+    szLangPtr += 32;   // Each lang entry is 32 bytes
+    szTextExtPtr += 4; // Each extension is 4 bytes
     szSampleExtPtr += 4;
   }
 
@@ -3346,11 +3609,11 @@ void load_language_map()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E460
-void initmusic()
-{
+// 0003E460
+void initmusic() {
   FILE *pFile = ROLLERfopen("SOUND.INI", "r");
-  if (!pFile) return;
+  if (!pFile)
+    return;
 
   readline(pFile, "i", &numsamples);
   int iSongCount = 0;
@@ -3364,7 +3627,8 @@ void initmusic()
 
     // add extension ".RAW"
     char *szEnd = &szBuf[strlen(szBuf)];
-    if (szEnd) strcpy(szEnd, ".RAW");
+    if (szEnd)
+      strcpy(szEnd, ".RAW");
 
     strncpy(Sample[i], szBuf, 15);
     Sample[i][14] = '\0';
@@ -3377,7 +3641,8 @@ void initmusic()
 
     // add extension ".HMP"
     char *szEnd = &szBuf[strlen(szBuf)];
-    if (szEnd) strcpy(szEnd, ".HMP");
+    if (szEnd)
+      strcpy(szEnd, ".HMP");
 
     strncpy(Song[i], szBuf, 15);
     Song[i][14] = '\0';
@@ -3399,22 +3664,19 @@ void initmusic()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E670
-void SOSTimerCallbackS7()
-{
-  ++s7;
-}
+// 0003E670
+void SOSTimerCallbackS7() { ++s7; }
 
 //-------------------------------------------------------------------------------------------------
-//0003E680
-void fade_palette(int iTargetBrightness)
-{
+// 0003E680
+void fade_palette(int iTargetBrightness) {
   if (g_bSnapshotMode) {
     // In snapshot capture, fade animations are skipped: PNGs are the raw
     // pixels with the active palette. Keep palette_brightness in sync and
     // signal that the palette is valid so the snapshot hook will write.
     palette_brightness = iTargetBrightness;
-    if (pal_addr) g_bPaletteSet = true;
+    if (pal_addr)
+      g_bPaletteSet = true;
     return;
   }
   int iOriginalTickOn = tick_on;
@@ -3425,7 +3687,7 @@ void fade_palette(int iTargetBrightness)
     disable_keyboard();
 
   if (iTargetBrightness == 32 && soundon) {
-    //sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
+    // sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
     DIGISetMasterVolume(0x7FFF); // Set max volume for sound effects
   }
 
@@ -3438,11 +3700,12 @@ void fade_palette(int iTargetBrightness)
   s7 = 0;
 
   if (current_mode != 0) {
-    uiTimerHandle = ROLLERAddTimer(70, SDLS7TimerCallback, NULL); //added by ROLLER
+    uiTimerHandle =
+        ROLLERAddTimer(70, SDLS7TimerCallback, NULL); // added by ROLLER
   }
 
   if (iTargetBrightness > iCurrentBrightness) {
-      // FADE IN LOOP
+    // FADE IN LOOP
     for (int iStep = iCurrentBrightness; iStep <= iTargetBrightness; iStep++) {
       for (int i = 0; i < 256; i++) {
         pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
@@ -3451,36 +3714,37 @@ void fade_palette(int iTargetBrightness)
       }
 
       if (current_mode != 0 && !g_bSnapshotMode) {
-        //could also do this instead of SDL timer
-        //uint32 uiStartTime = SDL_GetTicks();
-        //while (SDL_GetTicks() - uiStartTime < 70) {
-        //  SDL_Delay(1);
-        //}
+        // could also do this instead of SDL timer
+        // uint32 uiStartTime = SDL_GetTicks();
+        // while (SDL_GetTicks() - uiStartTime < 70) {
+        //   SDL_Delay(1);
+        // }
         int iPrev = s7;
-        while (s7 == iPrev); // Wait for timer tick
+        while (s7 == iPrev)
+          ; // Wait for timer tick
       } else {
-        //wait for retrace
-        //aka VSYNC for DOS
+        // wait for retrace
+        // aka VSYNC for DOS
       }
 
-      //set dac palette
+      // set dac palette
       g_bPaletteSet = true;
       UpdateSDL();
       UpdateSDLWindow();
     }
   } else {
-      // FADE OUT LOOP
+    // FADE OUT LOOP
     int iVolumeStep = (iTargetBrightness << 15) - iTargetBrightness;
 
     for (int iStep = iCurrentBrightness; iStep >= iTargetBrightness; iStep--) {
       if (iTargetBrightness == 0 && !holdmusic) {
         if (musicon) {
-          //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+          // sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
           MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
         }
 
         if (soundon) {
-          //sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
+          // sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
           DIGISetMasterVolume(iVolumeStep >> 5);
         }
 
@@ -3497,13 +3761,14 @@ void fade_palette(int iTargetBrightness)
 
       if (current_mode != 0 && !g_bSnapshotMode) {
         int iPrevS7 = s7;
-        while (s7 == iPrevS7); // Wait for timer tick
+        while (s7 == iPrevS7)
+          ; // Wait for timer tick
       } else {
-        //wait for retrace
-        //aka VSYNC for DOS
+        // wait for retrace
+        // aka VSYNC for DOS
       }
 
-      //set dac palette
+      // set dac palette
       g_bPaletteSet = true;
       UpdateSDL();
       UpdateSDLWindow();
@@ -3513,11 +3778,12 @@ void fade_palette(int iTargetBrightness)
   }
 
   if (current_mode != 0) {
-    ROLLERRemoveTimer(uiTimerHandle); //added by ROLLER
+    ROLLERRemoveTimer(uiTimerHandle); // added by ROLLER
   }
 
-  //memcpy(pal_addr, palette, 768); //REMOVED by ROLLER (why is this here? causes palette change flicker)
-  
+  // memcpy(pal_addr, palette, 768); //REMOVED by ROLLER (why is this here?
+  // causes palette change flicker)
+
   palette_brightness = iTargetBrightness;
   tick_on = iOriginalTickOn;
   ticks = iOriginalTicks;
@@ -3530,7 +3796,7 @@ void fade_palette(int iTargetBrightness)
       StopTrack();
     else if (MusicCard && SongPtr) {
       stop();
-      //sosMIDIUnInitSong(SongHandle);
+      // sosMIDIUnInitSong(SongHandle);
       SongPtr = 0;
     }
   }
@@ -3538,42 +3804,46 @@ void fade_palette(int iTargetBrightness)
 
 //-------------------------------------------------------------------------------------------------
 
-void fade_music_start(int iTargetBrightness)
-{
-    if (iTargetBrightness == 32 && soundon) {
-        DIGISetMasterVolume(0x7FFF);
-    }
+void fade_music_start(int iTargetBrightness) {
+  if (iTargetBrightness == 32 && soundon) {
+    DIGISetMasterVolume(0x7FFF);
+  }
 }
 
-void fade_music_step(int iStep)
-{
-    if (holdmusic) return;
-    if (musicon)
-        MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    if (soundon) {
-        int iVolumeStep = (iStep << 15) - iStep;
-        DIGISetMasterVolume(iVolumeStep >> 5);
-    }
-    if (MusicCD)
-        SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+void fade_music_step(int iStep) {
+  if (holdmusic)
+    return;
+  if (musicon)
+    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+  if (soundon) {
+    int iVolumeStep = (iStep << 15) - iStep;
+    DIGISetMasterVolume(iVolumeStep >> 5);
+  }
+  if (MusicCD)
+    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 }
 
-void fade_music_finish(int iTargetBrightness)
-{
-    if (iTargetBrightness != 0 || holdmusic) return;
-    if (MusicCD && track_playing) StopTrack();
-    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
+void fade_music_finish(int iTargetBrightness) {
+  if (iTargetBrightness != 0 || holdmusic)
+    return;
+  if (MusicCD && track_playing)
+    StopTrack();
+  else if (MusicCard && SongPtr) {
+    stop();
+    SongPtr = 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EA00
-void set_palette(int iBrightness)
-{
+// 0003EA00
+void set_palette(int iBrightness) {
   if (iBrightness == palette_brightness)
     return;
 
-  if (iBrightness < 0) iBrightness = 0;
-  if (iBrightness > 31) iBrightness = 31;
+  if (iBrightness < 0)
+    iBrightness = 0;
+  if (iBrightness > 31)
+    iBrightness = 31;
 
   for (int i = 0; i < 256; ++i) {
     pal_addr[i].byR = (palette[i].byR * iBrightness) / 31;
@@ -3582,24 +3852,23 @@ void set_palette(int iBrightness)
   }
 
   // Update the SDL palette
-  //SDL_Color sdl_colors[256];
+  // SDL_Color sdl_colors[256];
   //
-  //for (int i = 0; i < 256; ++i) {
+  // for (int i = 0; i < 256; ++i) {
   //  sdl_colors[i].r = pal_addr[i].r;
   //  sdl_colors[i].g = pal_addr[i].g;
   //  sdl_colors[i].b = pal_addr[i].b;
   //  sdl_colors[i].a = 255;
   //}
-  //SDL_SetPaletteColors(sdl_palette, sdl_colors, 0, 256);
+  // SDL_SetPaletteColors(sdl_palette, sdl_colors, 0, 256);
 
   palette_brightness = iBrightness;
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EAB0
-void check_joystick_usage()
-{
-  int i; // eax
+// 0003EAB0
+void check_joystick_usage() {
+  int i;        // eax
   uint8 byKey1; // dl
   uint8 byKey2; // cl
 
@@ -3616,9 +3885,8 @@ void check_joystick_usage()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EB20
-void convertname(char *szFilename)
-{
+// 0003EB20
+void convertname(char *szFilename) {
   char szTemp[32];
   char *p = szTemp;
   char *s = szFilename;
@@ -3628,16 +3896,18 @@ void convertname(char *szFilename)
   // copy filename to temp buffer (word-wise copy, handling 2 bytes at a time)
   while (1) {
     *p++ = *s;
-    if (*s++ == '\0') break;
+    if (*s++ == '\0')
+      break;
     *p++ = *s;
-    if (*s++ == '\0') break;
+    if (*s++ == '\0')
+      break;
   }
 
   // check for cheat sample conversion
   if (cheat_samples && language == 0) {
     char *ext = strstr(szFilename, ".RAW");
     if (ext) {
-      ext[1] = 'K';   // Change to ".KC"
+      ext[1] = 'K'; // Change to ".KC"
       ext[2] = 'C';
       ext[3] = '\0';
 
@@ -3670,19 +3940,20 @@ void convertname(char *szFilename)
   p = szFilename;
   while (1) {
     *p++ = *s;
-    if (*s++ == '\0') break;
+    if (*s++ == '\0')
+      break;
     *p++ = *s;
-    if (*s++ == '\0') break;
+    if (*s++ == '\0')
+      break;
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EC40
-void decode(uint8 *pData, int iLength, uint32 uiStep, uint32 uiOffset)
-{
-  int i; // edx
-  uint8 byOriginal; // bh
-  uint8 byXorValue; // bl
+// 0003EC40
+void decode(uint8 *pData, int iLength, uint32 uiStep, uint32 uiOffset) {
+  int i;               // edx
+  uint8 byOriginal;    // bh
+  uint8 byXorValue;    // bl
   uint32 uiNextOffset; // [esp+0h] [ebp-Ch]
 
   for (i = 0; i < iLength; *(pData - 1) = byXorValue ^ byOriginal) {
@@ -3697,9 +3968,8 @@ void decode(uint8 *pData, int iLength, uint32 uiStep, uint32 uiOffset)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EC70
-void loadasample(int iIndex)
-{
+// 0003EC70
+void loadasample(int iIndex) {
   char szFilenameBuf[32];
 
   // construct sample filename
@@ -3707,7 +3977,8 @@ void loadasample(int iIndex)
   char *szDst = szFilenameBuf;
   while (*szSrc) {
     *szDst++ = *szSrc++;
-    if (!*szSrc) break;
+    if (!*szSrc)
+      break;
     *szDst++ = *szSrc++;
   }
   *szDst = '\0';
@@ -3716,7 +3987,7 @@ void loadasample(int iIndex)
   convertname(szFilenameBuf);
   SDL_Log("loadasample: %s\n", szFilenameBuf);
   // load file into memory
-  loadfile(szFilenameBuf, (void**)&SamplePtr[iIndex], &SampleLen[iIndex], 1);
+  loadfile(szFilenameBuf, (void **)&SamplePtr[iIndex], &SampleLen[iIndex], 1);
 
   // check if cheat sample flag is set and process if needed
   if (cheatsample && SamplePtr[iIndex]) {
@@ -3747,7 +4018,7 @@ void loadasample(int iIndex)
 
   // if using 50Hz timer
   if (SamplePtr[iIndex] && (cheat_mode & CHEAT_MODE_50HZ_TIMER)) {
-    if (cheat_mode & CHEAT_MODE_100HZ_TIMER) { //100Hz timer
+    if (cheat_mode & CHEAT_MODE_100HZ_TIMER) { // 100Hz timer
       // halve the sample length, keep only even-indexed bytes
       int iLen = SampleLen[iIndex];
       uint8 *pData = SamplePtr[iIndex];
@@ -3771,59 +4042,68 @@ void loadasample(int iIndex)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EE40
-void select8bitdriver()
-{
-  //TODO: integrate with SDL?
-  if (SoundCard) {                                             // If previous driver was type 1, clean up existing audio resources
+// 0003EE40
+void select8bitdriver() {
+  // TODO: integrate with SDL?
+  if (SoundCard) { // If previous driver was type 1, clean up existing audio
+                   // resources
     if (drivertype == 1) {
-      //sosTIMERRemoveEvent(TimerEventHandle);    // Remove existing timer event from SOS system
-      //sosDIGIUnInitDriver(DIGIHandle, 1, 1);    // Uninitialize existing digital audio driver
+      // sosTIMERRemoveEvent(TimerEventHandle);    // Remove existing timer
+      // event from SOS system sosDIGIUnInitDriver(DIGIHandle, 1, 1);    //
+      // Uninitialize existing digital audio driver
     }
-    resetsamplearray();                         // Reset internal sample array/buffer management
-    if (drivertype)                           // If any driver type was active, proceed with 8-bit driver initialization
+    resetsamplearray(); // Reset internal sample array/buffer management
+    if (drivertype) // If any driver type was active, proceed with 8-bit driver
+                    // initialization
     {
-      drivertype = 0;                           // Set driver type to 0 (8-bit mode) and initialize driver configuration structure
-      //memset(&InitDriver, 0, sizeof(InitDriver));
-      //InitDriver.dwBufferSize = 4096;           // Configure audio parameters: 4096 buffer size, auto-detect (-1), 11025 Hz sample rate
-      //InitDriver.dwParam1 = -1;
-      //InitDriver.dwSampleRateHz = 11025;
-      //Hardware.dwPort = SoundPort;              // Configure hardware settings: I/O port, IRQ, and DMA channel from global settings
-      //Hardware.dwIRQ = SoundIRQ;
-      //Hardware.dwDMA = SoundDMA;
-      //InitDriver.iUnk7 = 0;
-      //if (sosDIGIInitDriver(
-      //  SoundCard,
-      //  0,
-      //  (unsigned int)&Hardware,
-      //  __DS__,
-      //  (unsigned int)&InitDriver,
-      //  (unsigned __int16)__DS__,
-      //  (unsigned int)&DIGIHandle,
-      //  (unsigned __int16)__DS__))        // Initialize SOS digital audio driver with configured parameters
+      drivertype = 0; // Set driver type to 0 (8-bit mode) and initialize driver
+                      // configuration structure
+      // memset(&InitDriver, 0, sizeof(InitDriver));
+      // InitDriver.dwBufferSize = 4096;           // Configure audio
+      // parameters: 4096 buffer size, auto-detect (-1), 11025 Hz sample rate
+      // InitDriver.dwParam1 = -1;
+      // InitDriver.dwSampleRateHz = 11025;
+      // Hardware.dwPort = SoundPort;              // Configure hardware
+      // settings: I/O port, IRQ, and DMA channel from global settings
+      // Hardware.dwIRQ = SoundIRQ;
+      // Hardware.dwDMA = SoundDMA;
+      // InitDriver.iUnk7 = 0;
+      // if (sosDIGIInitDriver(
+      //   SoundCard,
+      //   0,
+      //   (unsigned int)&Hardware,
+      //   __DS__,
+      //   (unsigned int)&InitDriver,
+      //   (unsigned __int16)__DS__,
+      //   (unsigned int)&DIGIHandle,
+      //   (unsigned __int16)__DS__))        // Initialize SOS digital audio
+      //   driver with configured parameters
       //{
-      //  sosDIGIUnInitSystem();                  // If driver initialization failed, cleanup and disable sound card
-      //  SoundCard = 0;
-      //} else {
-      //  sosTIMERRegisterEvent(300u, 0x7FFF, (int)InitDriver.lpDriverMemoryCS, (__int16)InitDriver.lpTimerMemory, (unsigned int)&TimerEventHandle, (unsigned __int16)__DS__);// Driver initialized successfully: register timer event and set maximum volume
-      //  sosDIGISetMasterVolume(DIGIHandle, 0x7FFFu);// Set digital audio master volume to maximum (0x7FFF)
-      //}
+      //   sosDIGIUnInitSystem();                  // If driver initialization
+      //   failed, cleanup and disable sound card SoundCard = 0;
+      // } else {
+      //   sosTIMERRegisterEvent(300u, 0x7FFF, (int)InitDriver.lpDriverMemoryCS,
+      //   (__int16)InitDriver.lpTimerMemory, (unsigned int)&TimerEventHandle,
+      //   (unsigned __int16)__DS__);// Driver initialized successfully:
+      //   register timer event and set maximum volume
+      //   sosDIGISetMasterVolume(DIGIHandle, 0x7FFFu);// Set digital audio
+      //   master volume to maximum (0x7FFF)
+      // }
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003EF50
-void resetsamplearray()
-{
-  //int iNumCars; // ebx
-  //int i; // ecx
-  //int iCar; // edx
-  //int iEngineDelayOffset; // eax
-  //int iSampleOffset; // eax
-  //unsigned int iSampleHandleCarOffset; // esi
-  //int j; // ecx
-  //int iHandleOffset; // eax
+// 0003EF50
+void resetsamplearray() {
+  // int iNumCars; // ebx
+  // int i; // ecx
+  // int iCar; // edx
+  // int iEngineDelayOffset; // eax
+  // int iSampleOffset; // eax
+  // unsigned int iSampleHandleCarOffset; // esi
+  // int j; // ecx
+  // int iHandleOffset; // eax
 
   for (int i = 0; i < numcars; ++i) {
     for (int j = 0; j < 32; ++j) {
@@ -3832,65 +4112,68 @@ void resetsamplearray()
       enginedelay[i].engineSoundData[j].iSkid1Vol = -1;
     }
   }
-  //iNumCars = numcars;
-  //for (i = 0; i != sizeof(tCarSoundData); i += sizeof(tEngineSoundData)) {
-  //  iCar = 0;
-  //  if (iNumCars > 0) {
-  //    iEngineDelayOffset = i;
-  //    do {
-  //      *(int *)((char *)&enginedelay[0].engineSoundData[0].iEngineVol + iEngineDelayOffset) = -1;
-  //      *(int *)((char *)&enginedelay[0].engineSoundData[0].iEngine2Vol + iEngineDelayOffset) = -1;
-  //      *(int *)((char *)&enginedelay[0].engineSoundData[0].iSkid1Vol + iEngineDelayOffset) = -1;
-  //      ++iCar;
-  //      iEngineDelayOffset += sizeof(tCarSoundData);
-  //    } while (iCar < iNumCars);
-  //  }
-  //}
+  // iNumCars = numcars;
+  // for (i = 0; i != sizeof(tCarSoundData); i += sizeof(tEngineSoundData)) {
+  //   iCar = 0;
+  //   if (iNumCars > 0) {
+  //     iEngineDelayOffset = i;
+  //     do {
+  //       *(int *)((char *)&enginedelay[0].engineSoundData[0].iEngineVol +
+  //       iEngineDelayOffset) = -1;
+  //       *(int *)((char *)&enginedelay[0].engineSoundData[0].iEngine2Vol +
+  //       iEngineDelayOffset) = -1;
+  //       *(int *)((char *)&enginedelay[0].engineSoundData[0].iSkid1Vol +
+  //       iEngineDelayOffset) = -1;
+  //       ++iCar;
+  //       iEngineDelayOffset += sizeof(tCarSoundData);
+  //     } while (iCar < iNumCars);
+  //   }
+  // }
 
   for (int i = 0; i < 32; ++i) {
     HandleSample[i] = -1;
     HandleCar[i] = -1;
   }
-  //iSampleOffset = 2;
-  //HandleSample[0] = -1;
-  //HandleCar[0] = -1;
-  //HandleSample[1] = -1;
-  //HandleCar[1] = -1;
-  //do {
-  //  iSampleOffset += 5;
-  //  HandleCar[iSampleOffset + 27] = -1;         // offset into HandleSample
-  //  SamplePending[15][iSampleOffset + 35] = -1; // offset into HandleCar
-  //  HandleCar[iSampleOffset + 28] = -1;
-  //  SamplePending[15][iSampleOffset + 36] = -1;
-  //  HandleCar[iSampleOffset + 29] = -1;
-  //  SamplePending[15][iSampleOffset + 37] = -1;
-  //  HandleCar[iSampleOffset + 30] = -1;
-  //  SamplePending[15][iSampleOffset + 38] = -1;
-  //  HandleCar[iSampleOffset + 31] = -1;
-  //  SamplePending[15][iSampleOffset + 39] = -1;
-  //} while (iSampleOffset != 32);
+  // iSampleOffset = 2;
+  // HandleSample[0] = -1;
+  // HandleCar[0] = -1;
+  // HandleSample[1] = -1;
+  // HandleCar[1] = -1;
+  // do {
+  //   iSampleOffset += 5;
+  //   HandleCar[iSampleOffset + 27] = -1;         // offset into HandleSample
+  //   SamplePending[15][iSampleOffset + 35] = -1; // offset into HandleCar
+  //   HandleCar[iSampleOffset + 28] = -1;
+  //   SamplePending[15][iSampleOffset + 36] = -1;
+  //   HandleCar[iSampleOffset + 29] = -1;
+  //   SamplePending[15][iSampleOffset + 37] = -1;
+  //   HandleCar[iSampleOffset + 30] = -1;
+  //   SamplePending[15][iSampleOffset + 38] = -1;
+  //   HandleCar[iSampleOffset + 31] = -1;
+  //   SamplePending[15][iSampleOffset + 39] = -1;
+  // } while (iSampleOffset != 32);
 
   for (int i = 0; i < 120; ++i) {
     for (int j = 0; j < 16; ++j) {
       SampleHandleCar[i].handles[j] = -1;
     }
   }
-  //iSampleHandleCarOffset = sizeof(tSampleHandleCar);
-  //for (j = 0; j < 120; ++j) {
-  //  iHandleOffset = j << 6;
-  //  do {
-  //    iHandleOffset += 4;
-  //    *(uint8 **)((char *)&SamplePtr[119] + iHandleOffset) = (uint8 *)-1;// offset into SampleHandleCar
-  //  } while (iHandleOffset != iSampleHandleCarOffset);
-  //  iSampleHandleCarOffset += sizeof(tSampleHandleCar);
-  //}
-  //numcars = iNumCars;
+  // iSampleHandleCarOffset = sizeof(tSampleHandleCar);
+  // for (j = 0; j < 120; ++j) {
+  //   iHandleOffset = j << 6;
+  //   do {
+  //     iHandleOffset += 4;
+  //     *(uint8 **)((char *)&SamplePtr[119] + iHandleOffset) = (uint8 *)-1;//
+  //     offset into SampleHandleCar
+  //   } while (iHandleOffset != iSampleHandleCarOffset);
+  //   iSampleHandleCarOffset += sizeof(tSampleHandleCar);
+  // }
+  // numcars = iNumCars;
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F050
-void reinitmusic()
-{
+// 0003F050
+void reinitmusic() {
   int iSong; // eax
 
   if (musicon) {
@@ -3907,16 +4190,15 @@ void reinitmusic()
   } else if (MusicCard) {
     if (SongPtr) {
       stop();
-      //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
+      // sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
       SongPtr = 0;
     }
   }
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F0D0
-void waitsampledone(int iSampleIdx)
-{
+// 0003F0D0
+void waitsampledone(int iSampleIdx) {
   if (!soundon)
     return;
 
@@ -3927,7 +4209,7 @@ void waitsampledone(int iSampleIdx)
   for (int i = 0; i < 16; i++) {
     int iSampleHandle = SampleHandleCar[iSampleIdx].handles[i];
     while (!DIGISampleDone(iSampleHandle)) {
-      UpdateSDL(); //added by ROLLER
+      UpdateSDL(); // added by ROLLER
     }
   }
 
@@ -3935,56 +4217,51 @@ void waitsampledone(int iSampleIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F110
-int getcompactedfilelength(const char *szFile)
-{
+// 0003F110
+int getcompactedfilelength(const char *szFile) {
   FILE *pFile; // esi
   int iLength; // [esp+0h] [ebp-14h] BYREF
 
   pFile = ROLLERfopen(szFile, "rb");
-  if (!pFile) ErrorBoxExit("Could not open file %s", szFile);
+  if (!pFile)
+    ErrorBoxExit("Could not open file %s", szFile);
   fread(&iLength, 1u, 4u, pFile);
   fclose(pFile);
   return iLength;
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F150
-int initmangle(const char *szFile)
-{
+// 0003F150
+int initmangle(const char *szFile) {
   unmangleinpoff = 4;
   unmanglebufpos = 4;
   unmangleoverflow = 0;
   unmanglefile = ROLLERfopen(szFile, "rb");
-  if (!unmanglefile) ErrorBoxExit("Could not open file %s", szFile);
+  if (!unmanglefile)
+    ErrorBoxExit("Could not open file %s", szFile);
   fseek(unmanglefile, unmanglebufpos, 0);
   return (int)fread(unmangleinbuf, 1u, 0x400u, unmanglefile);
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F1B0
-int uninitmangle()
-{
-  return fclose(unmanglefile);
-}
+// 0003F1B0
+int uninitmangle() { return fclose(unmanglefile); }
 
 //-------------------------------------------------------------------------------------------------
-//0003F1C0
-int loadcompactedfile(const char *szFile, uint8 *pBuf)
-{
+// 0003F1C0
+int loadcompactedfile(const char *szFile, uint8 *pBuf) {
   initmangle(szFile);
   loadcompactedfilepart(pBuf, 1000000000u);
   return fclose(unmanglefile);
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F1E0
-void readmangled(uint8 *pBufRet, int iLength)
-{
+// 0003F1E0
+void readmangled(uint8 *pBufRet, int iLength) {
   int iLengthToRead; // ebp
-  uint8 *pBufUnit8; // ebx
-  int iOverflow; // ecx
-  int iDelta; // esi
+  uint8 *pBufUnit8;  // ebx
+  int iOverflow;     // ecx
+  int iDelta;        // esi
 
   iLengthToRead = iLength;
   pBufUnit8 = pBufRet + 40000;
@@ -4007,12 +4284,12 @@ void readmangled(uint8 *pBufRet, int iLength)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F290
-void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
-{
+// 0003F290
+void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength) {
   int c;
   int u, v;
-  unsigned char *pt;;
+  unsigned char *pt;
+  ;
 
   // Do the unmangle
   unmangledst = pDest;
@@ -4021,29 +4298,31 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
       break;
 
     c = *unmangleGet(unmangleinpoff++, 1);
-    if (!c) break;		// done
+    if (!c)
+      break; // done
 
     if (c & 128) {
-            // Bit 7 : 1 : BLOCK
+      // Bit 7 : 1 : BLOCK
       if (c & 64) {
-              // Bit 6 : 1 Block size
+        // Bit 6 : 1 Block size
         if (c & 32) {
-                // Bit 5 : 1 Long
-          pt = unmangledst - ((c & 31) << 8) - *unmangleGet(unmangleinpoff++, 1) - 3;	// offset
-          c = *unmangleGet(unmangleinpoff++, 1) + 5;						// size
+          // Bit 5 : 1 Long
+          pt = unmangledst - ((c & 31) << 8) -
+               *unmangleGet(unmangleinpoff++, 1) - 3; // offset
+          c = *unmangleGet(unmangleinpoff++, 1) + 5;  // size
 
           while (c--)
             *unmangledst++ = *pt++;
         } else {
-        // Bit 5 : 0 Medium
-          pt = unmangledst - ((c & 3) << 8) - *unmangleGet(unmangleinpoff++, 1) - 3;	// offset
-          c = ((c >> 2) & 7) + 4;					// size
+          // Bit 5 : 0 Medium
+          pt = unmangledst - ((c & 3) << 8) -
+               *unmangleGet(unmangleinpoff++, 1) - 3; // offset
+          c = ((c >> 2) & 7) + 4;                     // size
           while (c--)
             *unmangledst++ = *pt++;
-
         }
       } else {
-      // Bit 6 : 0 : Short
+        // Bit 6 : 0 : Short
         pt = unmangledst - (c & 63) - 3;
         *unmangledst = *pt;
         *(unmangledst + 1) = *(pt + 1);
@@ -4051,14 +4330,14 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
         unmangledst += 3;
       }
     } else {
-    // Bit 7 : 0
+      // Bit 7 : 0
       if (c & 64) {
-              // Bit 6 : 1 Seq/Diff or String
+        // Bit 6 : 1 Seq/Diff or String
         if (c & 32) {
-                // Bit 5 : 1 : Sequence
+          // Bit 5 : 1 : Sequence
           if (c & 16) {
-          // Bit 4 : 1 : Word sequence
-            c = (c & 15) + 2;	// bits 3-0 = len 2->17
+            // Bit 4 : 1 : Word sequence
+            c = (c & 15) + 2; // bits 3-0 = len 2->17
             memcpy(&v, unmangledst - 2, 2);
             v = (short)v;
             while (c--) {
@@ -4066,29 +4345,40 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
               unmangledst += 2;
             }
           } else {
-          // Bit 4 : 0 : Byte sequence
-            c = (c & 15) + 3;	// bits 3-0 = len 3->18
+            // Bit 4 : 0 : Byte sequence
+            c = (c & 15) + 3; // bits 3-0 = len 3->18
             v = *(unmangledst - 1);
             while (c--)
               *unmangledst++ = (signed char)v;
           }
         } else {
-        // Bit 5 : 0 : Difference
+          // Bit 5 : 0 : Difference
           if (c & 16) {
-          // Bit 4 : 1 : Word difference
-            c = (c & 15) + 2;			// bits 3-0 = len 2->17
-            { short tmp_s; memcpy(&tmp_s, unmangledst - 2, 2); u = tmp_s; }	// start word
-            { short tmp_s; memcpy(&tmp_s, unmangledst - 4, 2); v = u - tmp_s; }	// dif
+            // Bit 4 : 1 : Word difference
+            c = (c & 15) + 2; // bits 3-0 = len 2->17
+            {
+              short tmp_s;
+              memcpy(&tmp_s, unmangledst - 2, 2);
+              u = tmp_s;
+            } // start word
+            {
+              short tmp_s;
+              memcpy(&tmp_s, unmangledst - 4, 2);
+              v = u - tmp_s;
+            } // dif
             while (c--) {
               u += v;
-              { short tmp_s = (short)u; memcpy(unmangledst, &tmp_s, 2); }
+              {
+                short tmp_s = (short)u;
+                memcpy(unmangledst, &tmp_s, 2);
+              }
               unmangledst += 2;
             }
           } else {
-          // Bit 4 : 0 : Byte difference
-            c = (c & 15) + 3;	// bits 3-0 = len 3->18
-            u = *(unmangledst - 1);		// start byte
-            v = u - *(unmangledst - 2);	// dif
+            // Bit 4 : 0 : Byte difference
+            c = (c & 15) + 3;           // bits 3-0 = len 3->18
+            u = *(unmangledst - 1);     // start byte
+            v = u - *(unmangledst - 2); // dif
 
             while (c--) {
               u += v;
@@ -4097,8 +4387,8 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
           }
         }
       } else {
-      // Bit 6 : 0 : String
-        c &= 63;	// len
+        // Bit 6 : 0 : String
+        c &= 63; // len
         memcpy(unmangledst, unmangleGet(unmangleinpoff, c), c);
         unmangledst += c;
         unmangleinpoff += c;
@@ -4108,17 +4398,17 @@ void loadcompactedfilepart(uint8 *pDest, uint32 uiDestLength)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003F550
-uint8 *unmangleGet(unsigned int uiPos, unsigned int uiLookahead)
-{
+// 0003F550
+uint8 *unmangleGet(unsigned int uiPos, unsigned int uiLookahead) {
   // if what we want to read is not currently in the
   // buffer load it into the buffer from the file
-  if (uiPos < (uint32)unmanglebufpos || uiPos + uiLookahead >(uint32)unmanglebufpos + 1024) {
+  if (uiPos < (uint32)unmanglebufpos ||
+      uiPos + uiLookahead > (uint32)unmanglebufpos + 1024) {
     unmanglebufpos = uiPos;
     fseek(unmanglefile, uiPos, 0);
     fread(unmangleinbuf, 1u, 0x400u, unmanglefile);
   }
-  return &unmangleinbuf[uiPos - (uint32)unmanglebufpos];// return new pos
+  return &unmangleinbuf[uiPos - (uint32)unmanglebufpos]; // return new pos
 }
 
 //-------------------------------------------------------------------------------------------------

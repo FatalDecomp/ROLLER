@@ -4,26 +4,23 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float fPower;
   float fRPM;
 } tRevCurvePoint;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tRevCurvePoint points[4];
 } tRevCurve;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iNumGears;
   tRevCurve *pRevs;
-  float *pSpds;                         ///< maximum speed at each gear
+  float *pSpds; ///< maximum speed at each gear
   float fDragCoefficient;
   int *pChgs;
   int iOscillationFreq;
@@ -53,8 +50,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tCarEngine engines[14];
 } tCarEngines;
 

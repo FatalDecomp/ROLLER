@@ -4,8 +4,7 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float fChaseDistance;
   float fChaseMinDistance;
   float fChasePullNormal;
@@ -16,8 +15,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 pos;
   float fDistance;
 } tCameraPos;

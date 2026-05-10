@@ -8,15 +8,14 @@
 #include <stdlib.h>
 //-------------------------------------------------------------------------------------------------
 
-#define REPLAY_SPEED_MIN      -8192
-#define REPLAY_SPEED_MAX      8192
-#define REPLAY_NORMAL_SPEED   256
+#define REPLAY_SPEED_MIN -8192
+#define REPLAY_SPEED_MAX 8192
+#define REPLAY_NORMAL_SPEED 256
 
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   uint8 byView;
   uint8 byCarIdx;
   int iFrame;
@@ -25,8 +24,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int16 nX;
   int16 nY;
   void *pFunc;
@@ -35,8 +33,7 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   int iPackedPosX;
   int iPackedPosY;
   int iPackedPosZ;
@@ -145,7 +142,9 @@ int compare(const void *szStr1, const void *szStr2);
 void warning(int iX1, int iY1, int iX2, int iY2, char *szWarning);
 void lsd(int iX1, int iY1, int iX2, int iY2);
 void scandirectory(const char *szPattern);
-void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int iTextY, const char *szText, const char *szPattern, int iFileIdx);
+void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX,
+                int iTextY, const char *szText, const char *szPattern,
+                int iFileIdx);
 void previouscut();
 void nextcut();
 void loadreplay();
@@ -163,7 +162,8 @@ void rremoveview();
 void rpreviouscut();
 void rnextcut();
 void rstartassemble();
-void replayicon(uint8 *pDest, tBlockHeader *pBlockHeader, int iBlockIdx, int iX, int iY, int iScreenWidth, int byTransparentColor);
+void replayicon(uint8 *pDest, tBlockHeader *pBlockHeader, int iBlockIdx, int iX,
+                int iY, int iScreenWidth, int byTransparentColor);
 void replaypanelletter(char c, int *piX, int *piY, int iScreenWidth);
 void replaypanelstring(const char *szStr, int iX, int iY, int iScreenWidth);
 void displaypaneltime(int iTime, int iX, int iY, int iScreenWidth);

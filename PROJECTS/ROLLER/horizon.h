@@ -4,8 +4,7 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float matrix[4][3];
   tVec3 world;
   int iSurfaceType;

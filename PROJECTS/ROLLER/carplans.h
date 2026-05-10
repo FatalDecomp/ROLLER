@@ -4,16 +4,14 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint32 uiCount;
   uint32 framesAy[16];
 } tAnimation;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint8 verts[4];
   uint32 uiTex;
   int16 nNextPolIdx;
@@ -22,8 +20,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint8 byNumPols;
   uint8 byNumCoords;
   uint8 byUnk3;
@@ -38,8 +35,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint32 uiColorFrom;
   uint32 uiColorTo;
 } tCarColorRemap;
@@ -120,10 +116,12 @@ extern tAnimation xreise_anms[];
 
 extern char CarNames[14][20];
 extern char CompanyNames[14][20];
-extern tCarDesign CarDesigns[]; 
+extern tCarDesign CarDesigns[];
 extern char car_texture_names[11][256];
 extern int Drivers_Car[16];
-extern tCarColorRemap car_flat_remap[]; //this is used to remap the palette indices used to color the mirrors for the advanced car set
- 
+extern tCarColorRemap
+    car_flat_remap[]; // this is used to remap the palette indices used to color
+                      // the mirrors for the advanced car set
+
 //-------------------------------------------------------------------------------------------------
 #endif

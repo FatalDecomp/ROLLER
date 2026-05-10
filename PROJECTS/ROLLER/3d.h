@@ -7,27 +7,24 @@
 #include "game_render.h"
 //-------------------------------------------------------------------------------------------------
 
-enum eTrakColour
-{
-  TRAK_COLOUR_LEFT_LANE  = 0,
-  TRAK_COLOUR_CENTER     = 1,
+enum eTrakColour {
+  TRAK_COLOUR_LEFT_LANE = 0,
+  TRAK_COLOUR_CENTER = 1,
   TRAK_COLOUR_RIGHT_LANE = 2,
-  TRAK_COLOUR_LEFT_WALL  = 3,
+  TRAK_COLOUR_LEFT_WALL = 3,
   TRAK_COLOUR_RIGHT_WALL = 4,
-  TRAK_COLOUR_ROOF       = 5,
+  TRAK_COLOUR_ROOF = 5,
 };
 
-enum eGroundColour
-{
-  GROUND_COLOUR_LUOWALL  = 0,
-  GROUND_COLOUR_LLOWALL  = 1,
-  GROUND_COLOUR_OFLOOR   = 2,
-  GROUND_COLOUR_RLOWALL  = 3,
-  GROUND_COLOUR_RUOWALL  = 4,
+enum eGroundColour {
+  GROUND_COLOUR_LUOWALL = 0,
+  GROUND_COLOUR_LLOWALL = 1,
+  GROUND_COLOUR_OFLOOR = 2,
+  GROUND_COLOUR_RLOWALL = 3,
+  GROUND_COLOUR_RUOWALL = 4,
 };
 
-enum eWhipKeyScancodes
-{
+enum eWhipKeyScancodes {
   WHIP_SCANCODE_ESCAPE = 0x01,
   WHIP_SCANCODE_1 = 0x02,
   WHIP_SCANCODE_2 = 0x03,
@@ -125,20 +122,18 @@ enum eWhipKeyScancodes
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   void *pBuf;
   uint32 uiSize;
-  void *pAlsoBuf; //seems to be set to the same thing as pBuf in W95
-  int iRegsDi;    //unused by W95
+  void *pAlsoBuf; // seems to be set to the same thing as pBuf in W95
+  int iRegsDi;    // unused by W95
 } tMemBlock;
 
 #define MEM_BLOCK_COUNT 128
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 pointAy[4];
   float fTrackHalfLength;
   float fTrackHalfWidth;
@@ -162,23 +157,20 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 pointAy[6];
 } tGroundPt;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tPoint screen;
   tVec3 projected;
 } tScreenPt;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iUnk1;
   int iClipCount;
   tScreenPt screenPtAy[6];
@@ -186,8 +178,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int16 nRenderPriority;
   int16 nChunkIdx;
   float fZDepth;
@@ -418,7 +409,8 @@ void fre(void **ppData);
 void doexit();
 void firework_screen();
 void updatescreen();
-void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyImmediately, int iChaseCamIdx);
+void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode,
+               int iCopyImmediately, int iChaseCamIdx);
 int main(int argc, const char **argv, const char **envp);
 void play_game_init();
 void play_game_uninit();

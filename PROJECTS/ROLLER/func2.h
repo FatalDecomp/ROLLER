@@ -5,8 +5,7 @@
 #include "func3.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef enum
-{
+typedef enum {
   USERKEY_P1LEFT = 0,
   USERKEY_P1RIGHT = 1,
   USERKEY_P1UP = 2,
@@ -23,11 +22,9 @@ typedef enum
   USERKEY_P2CHEAT = 13
 } eUserKey;
 
-
 //-------------------------------------------------------------------------------------------------
 
-struct DPMI_MemInfo
-{
+struct DPMI_MemInfo {
   uint32 largestFreeBlock;
   uint32 maxUnlockedPages;
   uint32 maxLockedPages;
@@ -64,9 +61,12 @@ extern int lots_of_mem;
 
 void draw_smoke(uint8 *pScrBuf, int iPlayerCarIdx);
 void test_panel(uint8 *pScrBuf, int iPlayerCarIdx);
-void ZoomString(const char *szStr, const char *mappingTable, tBlockHeader *pBlockHeader, int iPlayerIdx, int *pCharVOffsets);
-void ZoomSub(const char *szText, const char *mappingTable, tBlockHeader *pBlockHeader, int iPlayerIdx, int *pCharVOffsets);
-void zoom_letter(tBlockHeader *pBlockHeader, uint8 byCharCode, int *puiXPos, int *puiYPos, const char *mappingTable, float fZoomFactor);
+void ZoomString(const char *szStr, const char *mappingTable,
+                tBlockHeader *pBlockHeader, int iPlayerIdx, int *pCharVOffsets);
+void ZoomSub(const char *szText, const char *mappingTable,
+             tBlockHeader *pBlockHeader, int iPlayerIdx, int *pCharVOffsets);
+void zoom_letter(tBlockHeader *pBlockHeader, uint8 byCharCode, int *puiXPos,
+                 int *puiYPos, const char *mappingTable, float fZoomFactor);
 void print_block(uint8 *pDest, tBlockHeader *pBlockHeader, int iBlockIdx);
 void print_damage(uint8 *pDest, tBlockHeader *pBlockHeader, int iCarIdx);
 void print_pos(int iX, int iY, int iDriverIdx);
@@ -83,25 +83,37 @@ void setdirectory(const char *szAppPath);
 void FindShades();
 int nearest_colour(int iR, int iB, int iG);
 void select_view(int iPlayer);
-void mini_prt_string(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY);
-void mini_prt_string_rev(tBlockHeader *pBlockHeader, const char *szText, int iX, int iY);
-void mini_prt_right(tBlockHeader *pBlockHeader, const char *szText, int iX, int iY);
-void mini_prt_centre(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY);
+void mini_prt_string(tBlockHeader *pBlockHeader, const char *szStr, int iX,
+                     int iY);
+void mini_prt_string_rev(tBlockHeader *pBlockHeader, const char *szText, int iX,
+                         int iY);
+void mini_prt_right(tBlockHeader *pBlockHeader, const char *szText, int iX,
+                    int iY);
+void mini_prt_centre(tBlockHeader *pBlockHeader, const char *szStr, int iX,
+                     int iY);
 void prt_right(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY);
 void prt_string(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY);
-void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPos, int iFontType);
-void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPos, int iFontType);
-void prt_stringcol(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY, uint8 byColor);
-void prt_rightcol(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY, uint8 byColor);
-void prt_centrecol(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY, uint8 byColor);
-void prt_lettercol(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPos, uint8 byColor);
+void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos,
+                int *piYPos, int iFontType);
+void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos,
+                    int *piYPos, int iFontType);
+void prt_stringcol(tBlockHeader *pBlockHeader, const char *szStr, int iX,
+                   int iY, uint8 byColor);
+void prt_rightcol(tBlockHeader *pBlockHeader, const char *szStr, int iX, int iY,
+                  uint8 byColor);
+void prt_centrecol(tBlockHeader *pBlockHeader, const char *szStr, int iX,
+                   int iY, uint8 byColor);
+void prt_lettercol(tBlockHeader *pBlockHeader, char byChar, int *piXPos,
+                   int *piYPos, uint8 byColor);
 void display_paused();
 void enable_keyboard();
 void disable_keyboard();
 void save_fatal_config();
 void load_fatal_config();
-void getconfigvalue(const char *szConfigText, const char *szVarName, int *piOutVal, int iMin, int iMax);
-void getconfigvalueuc(const char *szConfigText, const char *szVarName, uint8 *pbyOutVal, int iMin, int iMax);
+void getconfigvalue(const char *szConfigText, const char *szVarName,
+                    int *piOutVal, int iMin, int iMax);
+void getconfigvalueuc(const char *szConfigText, const char *szVarName,
+                      uint8 *pbyOutVal, int iMin, int iMax);
 void displaycalibrationbar(int iX, int iY, int iValue);
 void blankwindow(int iX1, int iY1, int iX2, int iY2);
 void volumebar(int iX, int iVolume);

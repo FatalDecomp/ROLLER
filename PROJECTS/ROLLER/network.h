@@ -5,29 +5,28 @@
 //-------------------------------------------------------------------------------------------------
 
 #define PACKET_ID_TRANSMIT_INIT 0x686C6361
-#define PACKET_ID_SEND_MES      0x686C6363
-#define PACKET_ID_QUIT          0x686C6364
-#define PACKET_ID_SINGLE        0x686C6365
-#define PACKET_ID_PLAYER_CARS   0x686C6366
-#define PACKET_ID_READY         0x686C6367
-#define PACKET_ID_SEED          0x686C6368
-#define PACKET_ID_PAUSE         0x686C6369
-#define PACKET_ID_PLAYER_INFO   0x686C636A
-#define PACKET_ID_RECORD        0x686C636B
-#define PACKET_ID_NET_ERROR     0x686C636C
-#define PACKET_ID_SYNC_ERROR    0x686C636D
-#define PACKET_ID_GAME_ERROR    0x686C636E
-#define PACKET_ID_NOCD          0x686C636F
-#define PACKET_ID_RESYNC        0x686C6370
-#define PACKET_ID_SLOT          0x686C6371
-#define PACKET_ID_SEND_HERE     0x686C6372
-#define PACKET_ID_MESSAGE       0x686C6373
-#define PACKET_ID_MULTIPLE      0x686C6374
+#define PACKET_ID_SEND_MES 0x686C6363
+#define PACKET_ID_QUIT 0x686C6364
+#define PACKET_ID_SINGLE 0x686C6365
+#define PACKET_ID_PLAYER_CARS 0x686C6366
+#define PACKET_ID_READY 0x686C6367
+#define PACKET_ID_SEED 0x686C6368
+#define PACKET_ID_PAUSE 0x686C6369
+#define PACKET_ID_PLAYER_INFO 0x686C636A
+#define PACKET_ID_RECORD 0x686C636B
+#define PACKET_ID_NET_ERROR 0x686C636C
+#define PACKET_ID_SYNC_ERROR 0x686C636D
+#define PACKET_ID_GAME_ERROR 0x686C636E
+#define PACKET_ID_NOCD 0x686C636F
+#define PACKET_ID_RESYNC 0x686C6370
+#define PACKET_ID_SLOT 0x686C6371
+#define PACKET_ID_SEND_HERE 0x686C6372
+#define PACKET_ID_MESSAGE 0x686C6373
+#define PACKET_ID_MULTIPLE 0x686C6374
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint32 uiUnk1;
   uint32 uiId;
   uint8 byConsoleNode;
@@ -39,9 +38,9 @@ typedef struct
 typedef struct {
   int32 address[4];
   char szPlayerName[9];
-  //padding byte
-  //padding byte
-  //padding byte
+  // padding byte
+  // padding byte
+  // padding byte
   int32 iNetworkOn;
   int32 iMyAge;
   int32 iCarIdx;
@@ -62,22 +61,20 @@ typedef struct {
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float fRecordLap;
   char szRecordName[9];
-  //padding byte
+  // padding byte
   uint16 unRecordCar;
 } tRecordPacket;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   char szPlayerName[9];
-  //padding byte
-  //padding byte
-  //padding byte
+  // padding byte
+  // padding byte
+  // padding byte
   int iPlayerCar;
   int iTrackLoad;
   int iGameType;
@@ -89,21 +86,19 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   char szMessage[32];
   char szPlayerName[9];
-  //padding byte
-  //padding byte
-  //padding byte
+  // padding byte
+  // padding byte
+  // padding byte
   int iNetworkSlot;
 } tMessagePacket;
 
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   uint32 uiData;
   int16 nChecksum;
 } tDataPacket;
@@ -111,25 +106,21 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint8 bNode[16];
 } _NETBIOS_LOCAL_TARGET;
 
-typedef struct
-{
+typedef struct {
   uint8 bNetwork[4];
   uint8 bNode[6];
 } _IPX_INTERNET_ADDR;
 
-typedef struct
-{
+typedef struct {
   _IPX_INTERNET_ADDR sInternetAddr;
   uint8 bImmediate[6];
 } _IPX_LOCAL_TARGET;
 
-typedef union
-{
+typedef union {
   _IPX_LOCAL_TARGET sIPX;
   _NETBIOS_LOCAL_TARGET sNETBIOS;
 } _NETNOW_NODE_ADDR;

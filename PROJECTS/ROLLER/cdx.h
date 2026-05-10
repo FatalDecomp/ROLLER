@@ -6,8 +6,7 @@
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   uint8 byCommand;
   uint8 byFlags1;
   uint8 bySubCommand;
@@ -25,8 +24,7 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   uint8 byCommand;
   uint8 byParam0;
   uint8 bySubcommand;
@@ -40,8 +38,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint8 byCommand;
   uint8 byChannelBase;
   uint8 byVolChMaster;
@@ -56,8 +53,7 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 #pragma pack(push, 1)
-typedef struct
-{
+typedef struct {
   uint8 byCommand;
   uint8 byFlags1;
   uint8 bySubCommand;

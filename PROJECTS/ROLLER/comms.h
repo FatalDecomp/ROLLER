@@ -4,16 +4,14 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   char *bufPtr;
   char buffer[100];
 } tModemBuffer2;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iKeycode;
   int iCharacter;
 } tKeycodePair;

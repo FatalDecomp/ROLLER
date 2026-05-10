@@ -6,29 +6,27 @@
 #include "polyf.h"
 //-------------------------------------------------------------------------------------------------
 
-#define CAR_STATUS_DEATH  0x02
+#define CAR_STATUS_DEATH 0x02
 #define CAR_STATUS_ACTIVE 0x04
-#define CAR_STATUS_PIT    0x08
+#define CAR_STATUS_PIT 0x08
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 hitboxAy[16][8];
 } tCarBox;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 pos;
   int16 nCurrChunk;
   int16 nReferenceChunk;
   int16 nRoll;
   int16 nPitch;
   int16 nYaw;
-  //padding byte
-  //padding byte
+  // padding byte
+  // padding byte
   float fFinalSpeed;
   float fHealth;
   int iDriverIdx;
@@ -48,7 +46,7 @@ typedef struct
   uint8 byCarDesignIdx;
   uint8 byLives;
   uint8 byLapNumber;
-  //padding byte
+  // padding byte
   int16 nExplosionSoundTimer;
   float fLastAnimationSpeed;
   float fBaseSpeed;
@@ -95,9 +93,9 @@ typedef struct
   uint8 byAIThrottleControl;
   uint8 byEngineStartTimer;
   uint8 byPitLaneActiveFlag;
-  //padding byte
-  //padding byte
-  //padding byte
+  // padding byte
+  // padding byte
+  // padding byte
   int iLeftTargetIdx;
   float fLeftTargetTime;
   int iRightTargetIdx;
@@ -111,7 +109,7 @@ typedef struct
   uint8 byCheatAmmo;
   uint8 byCheatCooldown;
   uint8 byWheelAnimationFrame;
-  //padding byte
+  // padding byte
   int iDamageState;
   int16 nLastCommentaryChunk;
   int16 nReverseWarnCooldown;
@@ -122,20 +120,18 @@ typedef struct
   uint8 byRepairSpeechPlayed;
   uint8 byLappedStatus;
   uint8 bySfxCooldown;
-  //padding byte
+  // padding byte
 } tCar;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float speeds[6];
 } tStoreEngine;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tPoint screen;
   tVec3 world;
   tVec3 view;
@@ -143,8 +139,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iPolygonLink;
   int iPolygonIndex;
   float fZDepth;
@@ -152,8 +147,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 position;
   tVec3 velocity;
   float fSize;
@@ -163,24 +157,21 @@ typedef struct
   int iType;
 } tCarSpray;
 
-typedef struct CarRenderPose
-{
+typedef struct CarRenderPose {
   tVec3 position;
   int yaw;
   int pitch;
   int roll;
 } CarRenderPose;
 
-typedef struct CarRenderOptions
-{
+typedef struct CarRenderOptions {
   int anim_frame;
   const uint8 *color_remap;
 } CarRenderOptions;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iChunkIdx;
   int iCarIdx;
   float fMinZDepth;
@@ -188,8 +179,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tVec3 currentPos;
   tVec3 targetPos;
   tVec3 speed;
@@ -238,8 +228,8 @@ void InitCars();
 void placecars();
 void DrawCars(int iCarIdx, int iViewMode);
 void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar);
-void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar,
-                        const CarRenderPose *pose,
+void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer,
+                        float fDistanceToCar, const CarRenderPose *pose,
                         const CarRenderOptions *options);
 int carZcmp(const void *pCar1, const void *pCar2);
 

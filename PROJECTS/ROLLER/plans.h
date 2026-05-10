@@ -4,8 +4,7 @@
 #include "carplans.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint8 byNumPols;
   uint8 byNumCoords;
   uint8 byPadding1;

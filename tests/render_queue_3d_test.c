@@ -2,8 +2,7 @@
 #include <assert.h>
 #include <stddef.h>
 
-static void test_sort_matches_legacy_zcmp(void)
-{
+static void test_sort_matches_legacy_zcmp(void) {
   RenderQueue3D queue;
   render_queue_3d_clear(&queue);
 
@@ -21,8 +20,7 @@ static void test_sort_matches_legacy_zcmp(void)
   assert(queue.entries[3].nChunkIdx == 100);
 }
 
-static void test_building_priority_mapping_and_legacy_guard(void)
-{
+static void test_building_priority_mapping_and_legacy_guard(void) {
   RenderQueue3D queue;
   tTrackZOrderEntry *entry;
   render_queue_3d_clear(&queue);
@@ -34,16 +32,13 @@ static void test_building_priority_mapping_and_legacy_guard(void)
   assert(entry->fZDepth == 123.0f);
   assert(render_queue_3d_count(&queue) == 1);
 
-  assert(render_queue_3d_add_legacy_priority(&queue,
-                                             RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY,
-                                             7,
-                                             123.0f) == NULL);
+  assert(render_queue_3d_add_legacy_priority(
+             &queue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY, 7, 123.0f) ==
+         NULL);
   assert(render_queue_3d_count(&queue) == 1);
 }
 
-
-static void test_start_light_priority_mapping_and_legacy_guard(void)
-{
+static void test_start_light_priority_mapping_and_legacy_guard(void) {
   RenderQueue3D queue;
   tTrackZOrderEntry *entry;
   render_queue_3d_clear(&queue);
@@ -55,28 +50,26 @@ static void test_start_light_priority_mapping_and_legacy_guard(void)
   assert(entry->fZDepth == 42.0f);
   assert(render_queue_3d_count(&queue) == 1);
 
-  assert(render_queue_3d_add_legacy_priority(&queue,
-                                             RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY,
-                                             7,
-                                             42.0f) == NULL);
+  assert(render_queue_3d_add_legacy_priority(
+             &queue, RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY, 7, 42.0f) ==
+         NULL);
   assert(render_queue_3d_count(&queue) == 1);
 }
 
-static void test_car_priority_mapping_payload_and_legacy_guard(void)
-{
+static void test_car_priority_mapping_payload_and_legacy_guard(void) {
   RenderQueue3D queue;
   tTrackZOrderEntry *entry;
   const RenderCommand3D *command;
   const uint8 color_remap[2] = {3, 9};
   const GameRenderCarPose pose = {
-    .position = {10.0f, 20.0f, 30.0f},
-    .yaw = 100,
-    .pitch = 200,
-    .roll = 300,
+      .position = {10.0f, 20.0f, 30.0f},
+      .yaw = 100,
+      .pitch = 200,
+      .roll = 300,
   };
   const GameRenderCarOptions options = {
-    .anim_frame = 7,
-    .color_remap = color_remap,
+      .anim_frame = 7,
+      .color_remap = color_remap,
   };
   render_queue_3d_clear(&queue);
 
@@ -101,26 +94,23 @@ static void test_car_priority_mapping_payload_and_legacy_guard(void)
   assert(command->payload.car.options.anim_frame == 7);
   assert(command->payload.car.options.color_remap == color_remap);
 
-  assert(render_queue_3d_add_legacy_priority(&queue,
-                                             RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY,
-                                             7,
-                                             321.0f) == NULL);
+  assert(render_queue_3d_add_legacy_priority(
+             &queue, RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY, 7, 321.0f) == NULL);
   assert(render_queue_3d_count(&queue) == 1);
 }
 
-static void test_sort_keeps_typed_car_payload_with_sorted_entry(void)
-{
+static void test_sort_keeps_typed_car_payload_with_sorted_entry(void) {
   RenderQueue3D queue;
   const RenderCommand3D *command;
   const GameRenderCarPose pose = {
-    .position = {1.0f, 2.0f, 3.0f},
-    .yaw = 4,
-    .pitch = 5,
-    .roll = 6,
+      .position = {1.0f, 2.0f, 3.0f},
+      .yaw = 4,
+      .pitch = 5,
+      .roll = 6,
   };
   const GameRenderCarOptions options = {
-    .anim_frame = 8,
-    .color_remap = NULL,
+      .anim_frame = 8,
+      .color_remap = NULL,
   };
   render_queue_3d_clear(&queue);
 
@@ -132,7 +122,8 @@ static void test_sort_keeps_typed_car_payload_with_sorted_entry(void)
   assert(render_queue_3d_count(&queue) == 2);
   assert(queue.entries[0].nChunkIdx == 101);
   assert(render_queue_3d_command_at(&queue, 0) == NULL);
-  assert(queue.entries[1].nRenderPriority == RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY);
+  assert(queue.entries[1].nRenderPriority ==
+         RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY);
   assert(queue.entries[1].nChunkIdx == 4);
   command = render_queue_3d_command_at(&queue, 1);
   assert(command != NULL);
@@ -143,9 +134,7 @@ static void test_sort_keeps_typed_car_payload_with_sorted_entry(void)
   assert(command->payload.car.options.anim_frame == 8);
 }
 
-
-int main(int argc, const char **argv, const char **envp)
-{
+int main(int argc, const char **argv, const char **envp) {
   (void)argc;
   (void)argv;
   (void)envp;

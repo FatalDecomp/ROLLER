@@ -6,16 +6,14 @@
 #include "polyf.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iBuildingIdx;
   float fDepth;
 } tVisibleBuilding;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float fZDepth;
   int iPolygonLink;
   int iPolygonIndex;
@@ -23,8 +21,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iX;
   int iY;
   int iClipped;

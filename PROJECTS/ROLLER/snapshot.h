@@ -6,15 +6,13 @@
 
 #define SNAPSHOT_MAX_FRAMES 64
 
-typedef enum
-{
+typedef enum {
   SNAPSHOT_KIND_NONE = 0,
   SNAPSHOT_KIND_REPLAY,
   SNAPSHOT_KIND_SCENE,
 } eSnapshotKind;
 
-typedef struct
-{
+typedef struct {
   eSnapshotKind eKind;
   char szReplayName[64];
   char szSceneName[64];

@@ -4,16 +4,13 @@
 
 //-------------------------------------------------------------------------------------------------
 
-int RollerWriteIndexedPng(const char *szPath,
-                          const uint8 *pIndexedBuf,
-                          const tColor *pPalette,
-                          int iWidth,
-                          int iHeight)
-{
+int RollerWriteIndexedPng(const char *szPath, const uint8 *pIndexedBuf,
+                          const tColor *pPalette, int iWidth, int iHeight) {
   if (!szPath || !pIndexedBuf || !pPalette || iWidth <= 0 || iHeight <= 0)
     return 1;
 
-  SDL_Surface *surface = SDL_CreateSurface(iWidth, iHeight, SDL_PIXELFORMAT_INDEX8);
+  SDL_Surface *surface =
+      SDL_CreateSurface(iWidth, iHeight, SDL_PIXELFORMAT_INDEX8);
   if (!surface)
     return 1;
 

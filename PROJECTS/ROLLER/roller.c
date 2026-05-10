@@ -39,7 +39,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#define O_BINARY 0 //linux does not differentiate between text and binary
+#define O_BINARY 0 // linux does not differentiate between text and binary
 #endif
 #ifdef IS_LINUX
 #include <linux/cdrom.h>
@@ -48,16 +48,14 @@
 #endif
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint32 uiHandle;
   uint64 ullTargetSDLTicksNS;
   uint64 ullLastSDLTicksNS;
   uint64 ullCurrSDLTicksNS;
 } tTimerData;
 
-typedef struct
-{
+typedef struct {
   char szPath[ROLLER_MAX_PATH];
   bool bFolder;
   bool bDone;
@@ -76,8 +74,10 @@ tJoyPos g_rollerJoyPos;
 SDL_JoystickID g_joyId1 = 0;
 SDL_JoystickID g_joyId2 = 0;
 bool g_bPaletteSet = false;
-bool g_bForceMaxDraw = false; //TODO: figure out why this causes some flickering, also load from INI file
-bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
+bool g_bForceMaxDraw = false; // TODO: figure out why this causes some
+                              // flickering, also load from INI file
+bool g_bAINoCheatStart =
+    false; //  Set true to not give AI cars an advantage during race start
 int g_iCurrentSong = 0;
 uint8 testbuf[4096];
 uint64 g_ullTimer150Ms = 0;
@@ -88,8 +88,7 @@ SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 static MenuRenderer *s_pMenuRenderer = NULL;
 MenuRenderer *GetMenuRenderer(void) { return s_pMenuRenderer; }
 
-void SnapshotEnsureMenuRenderer(void)
-{
+void SnapshotEnsureMenuRenderer(void) {
   if (!s_pMenuRenderer)
     s_pMenuRenderer = menu_render_create(NULL, NULL);
 }
@@ -98,7 +97,7 @@ static DebugOverlay *s_pDebugOverlay = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 
 SDL_Mutex *g_pTimerMutex = NULL;
-tTimerData timerDataAy[MAX_TIMERS] = { 0 };
+tTimerData timerDataAy[MAX_TIMERS] = {0};
 static SDL_Mutex *s_pDigiMutex = NULL;
 
 // Scancode translation table (SDL scancode -> PC set1 scancode)
@@ -195,9 +194,9 @@ uint8 sdl_to_set1[] = {
 //-------------------------------------------------------------------------------------------------
 
 static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
-                                  uint8 *pRGBA, int width, int height)
-{
-  if (!pIndexed || !pPalette || !pRGBA) return;
+                                 uint8 *pRGBA, int width, int height) {
+  if (!pIndexed || !pPalette || !pRGBA)
+    return;
 
   for (int i = 0; i < width * height; ++i) {
     const tColor *c = &pPalette[pIndexed[i]];
@@ -210,21 +209,23 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
 
 //-------------------------------------------------------------------------------------------------
 
-void UpdateSDLWindow()
-{
+void UpdateSDLWindow() {
   if (g_bSnapshotMode) {
     SnapshotPresent();
     return;
   }
 
-  if (!g_bPaletteSet) return;
+  if (!g_bPaletteSet)
+    return;
 
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
-  if (!cmdBuf) return;
+  if (!cmdBuf)
+    return;
 
   // Convert indexed framebuffer directly into mapped transfer buffer
-  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
+  void *mapped =
+      SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
   ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
   SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
 
@@ -245,8 +246,9 @@ void UpdateSDLWindow()
   // Acquire swapchain and blit
   SDL_GPUTexture *swapchainTex;
   Uint32 swW, swH;
-  if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
-          &swapchainTex, &swW, &swH) || !swapchainTex) {
+  if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmdBuf, s_pWindow, &swapchainTex,
+                                             &swW, &swH) ||
+      !swapchainTex) {
     SDL_CancelGPUCommandBuffer(cmdBuf);
     return;
   }
@@ -286,17 +288,16 @@ void UpdateSDLWindow()
 
 //-------------------------------------------------------------------------------------------------
 
-void ToggleFullscreen()
-{
+void ToggleFullscreen() {
   static bool s_bIsFullscreen = false;
   s_bIsFullscreen = !s_bIsFullscreen;
-  SDL_SetWindowFullscreen(s_pWindow, s_bIsFullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+  SDL_SetWindowFullscreen(s_pWindow,
+                          s_bIsFullscreen ? SDL_WINDOW_FULLSCREEN : 0);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int InitSDL(char *whiplash_root, const char *midi_root)
-{
+int InitSDL(char *whiplash_root, const char *midi_root) {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 
   Uint32 uiSdlInitFlags = SDL_INIT_VIDEO;
@@ -309,7 +310,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
-      ErrorBoxExit("Could not changed working directory to '%s'", whiplash_root);
+      ErrorBoxExit("Could not changed working directory to '%s'",
+                   whiplash_root);
       return 1;
     }
   } else {
@@ -336,9 +338,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
-  s_pGPUDevice = SDL_CreateGPUDevice(
-    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
-    false, NULL);
+  s_pGPUDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV |
+                                         SDL_GPU_SHADERFORMAT_MSL |
+                                         SDL_GPU_SHADERFORMAT_DXIL,
+                                     false, NULL);
   if (!s_pGPUDevice) {
     ErrorBoxExit("Couldn't create GPU device: %s", SDL_GetError());
     return 1;
@@ -383,7 +386,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   // Move the window to the display where the mouse is currently located
   float mouseX, mouseY;
   SDL_GetGlobalMouseState(&mouseX, &mouseY);
-  int displayIndex = SDL_GetDisplayForPoint(&(SDL_Point) { (int)mouseX, (int)mouseY });
+  int displayIndex =
+      SDL_GetDisplayForPoint(&(SDL_Point){(int)mouseX, (int)mouseY});
   int sdl_window_centered = SDL_WINDOWPOS_CENTERED_DISPLAY(displayIndex);
   SDL_SetWindowPosition(s_pWindow, sdl_window_centered, sdl_window_centered);
 
@@ -407,9 +411,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (midi_root) {
     strcpy(localMidiPath, midi_root);
     size_t lenMidiPath = strlen(localMidiPath);
-    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' || localMidiPath[lenMidiPath - 1] != '\\')) {
+    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' ||
+                            localMidiPath[lenMidiPath - 1] != '\\')) {
       localMidiPath[lenMidiPath] = '/';
-      localMidiPath[lenMidiPath+1] = '\0';
+      localMidiPath[lenMidiPath + 1] = '\0';
     }
   } else {
     midi_root = SDL_GetBasePath();
@@ -422,7 +427,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   strcat(localMidiPath, "midi/wildmidi.cfg");
   // Initialize MIDI with WildMidi
   if (!MIDI_Init(localMidiPath)) {
-    SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
+    SDL_Log("Failed to initialize WildMidi. Please check your configuration "
+            "file '%s'.",
+            localMidiPath);
   }
 
   return 0;
@@ -430,8 +437,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
 //-------------------------------------------------------------------------------------------------
 
-void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFilter)
-{
+void SDLCALL FileCallback(void *pUserData, const char *const *filelist,
+                          int iFilter) {
   tDialogResult *pResult = (tDialogResult *)pUserData;
 
   if (!filelist || !filelist[0]) {
@@ -444,16 +451,15 @@ void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFil
 
 //-------------------------------------------------------------------------------------------------
 
-void InitFATDATA(const char *szDataRoot)
-{
+void InitFATDATA(const char *szDataRoot) {
   if (!szDataRoot)
     return;
 
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
     SDL_MessageBoxButtonData buttons[] = {
-      { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image" },
-      { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel" },
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image"},
+        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel"},
     };
 
     SDL_MessageBoxData msgbox = {
@@ -463,19 +469,20 @@ void InitFATDATA(const char *szDataRoot)
         "Choose a CD image (ISO, BIN/CUE) to extract the game data:",
         SDL_arraysize(buttons),
         buttons,
-        NULL
-    };
+        NULL};
 
     int iButtonID;
-    tDialogResult result = { 0 };
+    tDialogResult result = {0};
     if (SDL_ShowMessageBox(&msgbox, &iButtonID) && iButtonID == 0) {
-      #ifdef IS_WINDOWS
-        SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue" } };
-      #else
-        SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
-      #endif
+#ifdef IS_WINDOWS
+      SDL_DialogFileFilter filters[] = {{"CD Images", "iso;bin;cue"}};
+#else
+      SDL_DialogFileFilter filters[] = {
+          {"CD Images", "iso;bin;cue;ISO;BIN;CUE"}};
+#endif
 
-      SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
+      SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1,
+                             szDataRoot, false);
 
       SDL_Event event;
       while (!result.bDone) {
@@ -489,17 +496,20 @@ void InitFATDATA(const char *szDataRoot)
       }
 
       if (!result.bCancelled) {
-        ExtractFATDATA(result.szPath, szDataRoot);        
-        SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
+        ExtractFATDATA(result.szPath, szDataRoot);
+        SaveDefaultFatalIni(
+            szDataRoot); // save default config after extraction so all users
+                         // will have svga, sfx, and music on by default
       }
     }
   }
 
-  //check if extraction was successful
+  // check if extraction was successful
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
-    ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the FATDATA folder assets from a retail copy of the game.");
+    ErrorBoxExit("The folder FATDATA does not exist.\nROLLER requires the "
+                 "FATDATA folder assets from a retail copy of the game.");
   }
-  
+
   // if the extracted audio tracks are present, enable CD music.
   FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
   if (pTrack) {
@@ -511,24 +521,24 @@ void InitFATDATA(const char *szDataRoot)
 
 //-------------------------------------------------------------------------------------------------
 
-void InitREPLAYS(const char *szDataRoot)
-{
-  #ifdef IS_WINDOWS
+void InitREPLAYS(const char *szDataRoot) {
+#ifdef IS_WINDOWS
   mkdir("./REPLAYS");
-  #else
+#else
   mkdir("./REPLAYS", 0755);
-  #endif
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-void ShutdownSDL()
-{
+void ShutdownSDL() {
   if (!g_bSnapshotMode) {
     MIDI_Shutdown();
 
-    if (g_pController1) SDL_CloseGamepad(g_pController1);
-    if (g_pController2) SDL_CloseGamepad(g_pController2);
+    if (g_pController1)
+      SDL_CloseGamepad(g_pController1);
+    if (g_pController2)
+      SDL_CloseGamepad(g_pController2);
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 
     debug_overlay_destroy(s_pDebugOverlay);
@@ -554,8 +564,7 @@ void ShutdownSDL()
 }
 
 uint8 songId = 4;
-void playMusic()
-{
+void playMusic() {
   MIDIDigi_ClearBuffer();
   MIDISetMasterVolume(127);
   uint8 *songBuffer;
@@ -570,8 +579,7 @@ void playMusic()
 //-------------------------------------------------------------------------------------------------
 #if _DEBUG
 bool debugEnable = false;
-void UpdateDebugLoop()
-{
+void UpdateDebugLoop() {
   if (debugEnable) {
 
     void *front_vga_font1 = load_picture("font1.bm");
@@ -583,15 +591,15 @@ void UpdateDebugLoop()
     void *font_ascii = &font1_ascii;
     void *font_offsets = &font1_offsets;
 
-    char buffer[256] = { 0 };
-    char text[32] = { 0 };
+    char buffer[256] = {0};
+    char text[32] = {0};
     int value = 0;
     int font = 0;
 
     int _scr_size = scr_size; // Backup scr_size
 
-    LoadPanel(); // Load rev_vga array
-    scr_size = 64; // scale text size
+    LoadPanel();             // Load rev_vga array
+    scr_size = 64;           // scale text size
     screen_pointer = scrbuf; // Set screen pointer to scrbuf
 
     strcpy(text, "Debug font ascii");
@@ -600,9 +608,12 @@ void UpdateDebugLoop()
 
       uint8 size = 24; // Font size
 
-      if (value < 0) value = 0;
-      if (font < 0) font = 0;
-      if (font > 3) font = 3;
+      if (value < 0)
+        value = 0;
+      if (font < 0)
+        font = 0;
+      if (font > 3)
+        font = 3;
 
       // Set font
       if (font == 0) {
@@ -636,31 +647,41 @@ void UpdateDebugLoop()
       mini_prt_centre(rev_vga[0], "0123456789", 320, 240 - 8);
       prt_centrecol(rev_vga[1], "0123456789", 320, 240, color_white);
       scr_size = 128; // scale text size
-      mini_prt_centre(rev_vga[0], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 320 / 2, (240 + 8) / 2);
-      prt_centrecol(rev_vga[1], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 320 / 2, (240 + 24) / 2, color_white);
+      mini_prt_centre(rev_vga[0], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 320 / 2,
+                      (240 + 8) / 2);
+      prt_centrecol(rev_vga[1], "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 320 / 2,
+                    (240 + 24) / 2, color_white);
 
       // Mini text print with config_buffer
-      //mini_prt_centre(rev_vga[0], &config_buffer[value * 64], 320 / 2, (240 + 40) / 2); // This fail with `-`
+      // mini_prt_centre(rev_vga[0], &config_buffer[value * 64], 320 / 2, (240 +
+      // 40) / 2); // This fail with `-`
 
-      prt_centrecol(rev_vga[1], &config_buffer[value * 64], 320 / 2, (240 + 56) / 2, color_white);
+      prt_centrecol(rev_vga[1], &config_buffer[value * 64], 320 / 2,
+                    (240 + 56) / 2, color_white);
       scr_size = 256; // scale text size
-      prt_centrecol(rev_vga[1], &config_buffer[value * 64], 320 / 4, (240 + 72) / 4, color_white);
-
+      prt_centrecol(rev_vga[1], &config_buffer[value * 64], 320 / 4,
+                    (240 + 72) / 4, color_white);
 
       sprintf(buffer, "%s", text);
-      front_text((tBlockHeader *)front_vga_font, buffer, font_ascii, font_offsets, 0, size / 2, color_white, 0);
+      front_text((tBlockHeader *)front_vga_font, buffer, font_ascii,
+                 font_offsets, 0, size / 2, color_white, 0);
 
       sprintf(buffer, "%i-%i", value, font);
-      front_text((tBlockHeader *)front_vga_font, buffer, font_ascii, font_offsets, 640 - size / 2, size / 2, color_white, 2);
+      front_text((tBlockHeader *)front_vga_font, buffer, font_ascii,
+                 font_offsets, 640 - size / 2, size / 2, color_white, 2);
 
-      front_text((tBlockHeader *)front_vga_font, &config_buffer[value * 64], font_ascii, font_offsets, 0, 0 + size + size / 2, color_white, 0);
+      front_text((tBlockHeader *)front_vga_font, &config_buffer[value * 64],
+                 font_ascii, font_offsets, 0, 0 + size + size / 2, color_white,
+                 0);
 
       for (size_t j = 0; j < 8; j++) {
         for (size_t i = 0; i < 32; i++) {
           buffer[i] = (char)(i + 32 * j);
         }
         buffer[32] = '\0';
-        front_text((tBlockHeader *)front_vga_font, buffer, font_ascii, font_offsets, 640 - size / 2, size / 2 + size * ((int)j + 1), color_white, 2);
+        front_text((tBlockHeader *)front_vga_font, buffer, font_ascii,
+                   font_offsets, 640 - size / 2, size / 2 + size * ((int)j + 1),
+                   color_white, 2);
       }
 
       SDL_Event e;
@@ -708,8 +729,7 @@ void UpdateDebugLoop()
 #endif
 //-------------------------------------------------------------------------------------------------
 
-void UpdateSDL()
-{
+void UpdateSDL() {
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     UpdateSDLAudioEvents(e);
@@ -728,7 +748,8 @@ void UpdateSDL()
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER
         if (SDL_GetModState() & (SDL_KMOD_LCTRL | SDL_KMOD_RCTRL)) {
-          if (front_vga[2] != NULL) { // Check if front_vga is loaded, loaded in main menu.
+          if (front_vga[2] !=
+              NULL) { // Check if front_vga is loaded, loaded in main menu.
             debugEnable = !debugEnable;
             continue;
           }
@@ -736,19 +757,20 @@ void UpdateSDL()
       }
 #endif // _DEBUG
 
-      //if (e.key.key == SDLK_ESCAPE) {
-      //  quit_game = 1;
-      //} else if (e.key.key == SDLK_F11) {
-      //  ToggleFullscreen();
-      //  continue;
+      // if (e.key.key == SDLK_ESCAPE) {
+      //   quit_game = 1;
+      // } else if (e.key.key == SDLK_F11) {
+      //   ToggleFullscreen();
+      //   continue;
       if (e.key.key == SDLK_F10) {
         if (frontend_on) {
           MenuRenderer *mr = GetMenuRenderer();
           MenuRenderMode mode = menu_render_get_mode(mr);
           menu_render_set_mode(mr, mode == MENU_RENDER_GPU
-            ? MENU_RENDER_SOFTWARE : MENU_RENDER_GPU);
+                                       ? MENU_RENDER_SOFTWARE
+                                       : MENU_RENDER_GPU);
           SDL_Log("Menu render mode: %s",
-            mode == MENU_RENDER_GPU ? "software" : "GPU");
+                  mode == MENU_RENDER_GPU ? "software" : "GPU");
         }
         continue;
       } else if (e.key.key == SDLK_RETURN) {
@@ -781,7 +803,7 @@ void UpdateSDL()
       if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc]) {
         uint8 byRawCode = sdl_to_set1[sc];
         if (e.type == SDL_EVENT_KEY_UP) {
-          byRawCode |= 0x80;  // Set high bit for release
+          byRawCode |= 0x80; // Set high bit for release
         }
         key_handler(byRawCode);
       }
@@ -825,10 +847,10 @@ void UpdateSDL()
       }
     }
   }
-  //UpdateSDLWindow();
+  // UpdateSDLWindow();
 #if _DEBUG
   UpdateDebugLoop(); // Add by ROLLER
-#endif // _DEBUG
+#endif               // _DEBUG
   uint64 ullCurTicksMs = SDL_GetTicks();
   if (ullCurTicksMs > g_ullTimer150Ms) {
     g_ullTimer150Ms = ullCurTicksMs + 150;
@@ -844,12 +866,13 @@ SDL_AudioStream *midi_stream;
 float midi_volume;
 midi *midi_music;
 
-void MIDI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
-{
-  //int available = SDL_GetAudioStreamAvailable(stream);
-  //SDL_Log("MIDI_AudioStreamCallback[%i]: %i - %i", available, additional_amount, total_amount);
+void MIDI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream,
+                              int additional_amount, int total_amount) {
+  // int available = SDL_GetAudioStreamAvailable(stream);
+  // SDL_Log("MIDI_AudioStreamCallback[%i]: %i - %i", available,
+  // additional_amount, total_amount);
 
-  //if (available != 0) return;
+  // if (available != 0) return;
 
   if (midi_music) {
     void *output_buffer;
@@ -868,13 +891,10 @@ void MIDI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
   }
 }
 
-bool MIDI_Init(const char *config_file)
-{
+bool MIDI_Init(const char *config_file) {
   long version = WildMidi_GetVersion();
   SDL_Log("MIDI_Init: Initializing libWildMidi %ld.%ld.%ld",
-                      (version >> 16) & 255,
-                      (version >> 8) & 255,
-                      (version) & 255);
+          (version >> 16) & 255, (version >> 8) & 255, (version) & 255);
 
   uint16_t rate = MIDI_RATE;
   uint16_t mixer_options = 0;
@@ -890,15 +910,17 @@ bool MIDI_Init(const char *config_file)
   wav_spec.freq = MIDI_RATE;
   wav_spec.format = SDL_AUDIO_S16;
 
-  midi_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec, MIDI_AudioStreamCallback, NULL);
+  midi_stream =
+      SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec,
+                                MIDI_AudioStreamCallback, NULL);
   midi_volume = 1.0f; // Default volume
 
   return true;
 }
 
-void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
-{
-  if (g_bSnapshotMode) return;
+void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length) {
+  if (g_bSnapshotMode)
+    return;
   midi *midi_ptr = WildMidi_OpenBuffer(midi_buffer, midi_length);
   if (!midi_ptr) {
     SDL_Log("WildMidi_OpenBuffer failed: %s", WildMidi_GetError());
@@ -914,21 +936,28 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
   if (wm_info) {
 
     int apr_mins = wm_info->approx_total_samples / (MIDI_RATE * 60);
-    int apr_secs = (wm_info->approx_total_samples % (MIDI_RATE * 60)) / MIDI_RATE;
+    int apr_secs =
+        (wm_info->approx_total_samples % (MIDI_RATE * 60)) / MIDI_RATE;
 
-    SDL_Log("MIDIDigi_PlayBuffer: [Approx %2um %2us Total]", apr_mins, apr_secs);
+    SDL_Log("MIDIDigi_PlayBuffer: [Approx %2um %2us Total]", apr_mins,
+            apr_secs);
 
-    SDL_Log("MIDIDigi_PlayBuffer: Total Samples %i", wm_info->approx_total_samples);
+    SDL_Log("MIDIDigi_PlayBuffer: Total Samples %i",
+            wm_info->approx_total_samples);
     SDL_Log("MIDIDigi_PlayBuffer: Current Samples %i", wm_info->current_sample);
-    SDL_Log("MIDIDigi_PlayBuffer: Total Midi time %i", wm_info->total_midi_time);
+    SDL_Log("MIDIDigi_PlayBuffer: Total Midi time %i",
+            wm_info->total_midi_time);
     SDL_Log("MIDIDigi_PlayBuffer: Mix Options %i", wm_info->mixer_options);
   }
 
   SDL_AudioStream *stream = midi_stream;
 
   if (stream != NULL) {
-    float master_volume = (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
-    SDL_SetAudioStreamGain(stream, midi_volume * master_volume); // Set the gain for the audio stream
+    float master_volume =
+        (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
+    SDL_SetAudioStreamGain(
+        stream,
+        midi_volume * master_volume); // Set the gain for the audio stream
     SDL_Log("MIDIDigi_PlayBuffer: Volume: %f", midi_volume * master_volume);
 
     void *output_buffer;
@@ -946,7 +975,8 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
       SDL_PutAudioStreamData(stream, output_buffer, res);
       total_pcm_bytes += res;
       if (total_pcm_bytes > 64e6) {
-        SDL_Log("MIDIDigi_PlayBuffer: Stopping put audio stream due to large buffer size.");
+        SDL_Log("MIDIDigi_PlayBuffer: Stopping put audio stream due to large "
+                "buffer size.");
         break;
       }
     }
@@ -961,8 +991,7 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
   WildMidi_Close(midi_ptr);
 }
 
-void MIDIDigi_ClearBuffer()
-{
+void MIDIDigi_ClearBuffer() {
   if (midi_stream) {
     SDL_PauseAudioStreamDevice(midi_stream);
     SDL_ClearAudioStream(midi_stream);
@@ -970,8 +999,7 @@ void MIDIDigi_ClearBuffer()
   MIDI_CloseMidiBuffer();
 }
 
-void MIDI_Shutdown()
-{
+void MIDI_Shutdown() {
   if (midi_stream) {
     SDL_PauseAudioStreamDevice(midi_stream);
     SDL_DestroyAudioStream(midi_stream);
@@ -984,8 +1012,7 @@ void MIDI_Shutdown()
 /// <summary>
 /// Close midi buffer
 /// </summary>
-void MIDI_CloseMidiBuffer()
-{
+void MIDI_CloseMidiBuffer() {
   if (midi_music) {
     WildMidi_Close(midi_music);
     midi_music = NULL;
@@ -995,25 +1022,28 @@ void MIDI_CloseMidiBuffer()
 /// <summary>
 /// Initializes the MIDI audio stream if it hasn't been initialized yet.
 /// </summary>
-void MIDIInitStream()
-{
+void MIDIInitStream() {
   if (!midi_stream) {
     SDL_Log("MIDIInitStream: initialize 'midi_stream'.");
     SDL_AudioSpec wav_spec;
     wav_spec.channels = 2;
     wav_spec.freq = MIDI_RATE;
     wav_spec.format = SDL_AUDIO_S16;
-    midi_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec, MIDI_AudioStreamCallback, NULL);
+    midi_stream =
+        SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec,
+                                  MIDI_AudioStreamCallback, NULL);
   }
 
   // Set Volume Stream
-  float master_volume = (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
-  SDL_SetAudioStreamGain(midi_stream, midi_volume * master_volume); // Set the gain for the audio stream
+  float master_volume =
+      (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
+  SDL_SetAudioStreamGain(
+      midi_stream,
+      midi_volume * master_volume); // Set the gain for the audio stream
   SDL_Log("MIDIInitSong: Volume: %f", midi_volume * master_volume);
 }
 
-void MIDIClearStream()
-{
+void MIDIClearStream() {
   if (midi_stream) {
     SDL_PauseAudioStreamDevice(midi_stream);
     SDL_ClearAudioStream(midi_stream);
@@ -1023,13 +1053,15 @@ void MIDIClearStream()
 
 /// <summary>
 /// Initializes a MIDI song for playback using the provided song data.
-/// This function closes any currently loaded MIDI song, opens the new song buffer,
-/// enables looping, logs song information, and sets the audio stream volume.
+/// This function closes any currently loaded MIDI song, opens the new song
+/// buffer, enables looping, logs song information, and sets the audio stream
+/// volume.
 /// </summary>
-/// <param name="data">Pointer to a tInitSong structure containing the MIDI song data and its length.</param>
-void MIDIInitSong(tInitSong *data)
-{
-  if (g_bSnapshotMode) return;
+/// <param name="data">Pointer to a tInitSong structure containing the MIDI song
+/// data and its length.</param>
+void MIDIInitSong(tInitSong *data) {
+  if (g_bSnapshotMode)
+    return;
   MIDIStopSong();
 
   SDL_Log("MIDIInitSong: Midi - Length: %i", data->iLength);
@@ -1038,7 +1070,8 @@ void MIDIInitSong(tInitSong *data)
 
   midi_music = WildMidi_OpenBuffer(((uint8 *)data->pData), data->iLength);
   if (!midi_music) {
-    SDL_Log("MIDIInitSong: WildMidi_OpenBuffer failed: %s", WildMidi_GetError());
+    SDL_Log("MIDIInitSong: WildMidi_OpenBuffer failed: %s",
+            WildMidi_GetError());
     return;
   }
   // Enable WildMidi_GetOutput Loop
@@ -1049,7 +1082,8 @@ void MIDIInitSong(tInitSong *data)
   if (wm_info) {
 
     int apr_mins = wm_info->approx_total_samples / (MIDI_RATE * 60);
-    int apr_secs = (wm_info->approx_total_samples % (MIDI_RATE * 60)) / MIDI_RATE;
+    int apr_secs =
+        (wm_info->approx_total_samples % (MIDI_RATE * 60)) / MIDI_RATE;
 
     SDL_Log("MIDIInitSong: Approx %2um %2us Total", apr_mins, apr_secs);
 
@@ -1062,8 +1096,7 @@ void MIDIInitSong(tInitSong *data)
   MIDIInitStream();
 }
 
-void MIDIStartSong()
-{
+void MIDIStartSong() {
   if (!midi_stream) {
     SDL_Log("MIDIStartSong: 'midi_stream' is not initialized.");
     return;
@@ -1073,8 +1106,7 @@ void MIDIStartSong()
   SDL_ResumeAudioStreamDevice(midi_stream);
 }
 
-void MIDIStopSong()
-{
+void MIDIStopSong() {
   if (!midi_stream) {
     SDL_Log("MIDIStopSong: 'midi_stream' is not initialized.");
     return;
@@ -1088,10 +1120,11 @@ int8 MIDIMasterVolume = 127; // Default master volume (0-127)
 /// <summary>
 /// Set the master volume for MIDI playback. (0-127)
 /// </summary>
-void MIDISetMasterVolume(int8 volume)
-{
-  if (volume > 127) volume = 127;
-  if (volume < 0) volume = 0;
+void MIDISetMasterVolume(int8 volume) {
+  if (volume > 127)
+    volume = 127;
+  if (volume < 0)
+    volume = 0;
   MIDIMasterVolume = volume;
 
   float master_volume = (float)volume / 127.0f; // Normalize to [0.0, 1.0] range
@@ -1103,10 +1136,7 @@ void MIDISetMasterVolume(int8 volume)
 /// <summary>
 /// Get the current master volume level for MIDI playback. (0-127)
 /// </summary>
-int MIDIGetMasterVolume()
-{
-  return MIDIMasterVolume;
-}
+int MIDIGetMasterVolume() { return MIDIMasterVolume; }
 
 #pragma endregion
 //-------------------------------------------------------------------------------------------------
@@ -1114,40 +1144,45 @@ int MIDIGetMasterVolume()
 #define NUM_DIGI_STREAMS 32
 SDL_AudioStream *digi_stream[NUM_DIGI_STREAMS];
 float digi_volume[NUM_DIGI_STREAMS];
-float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
+float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 =
+                                  // center
 int digi_generation[NUM_DIGI_STREAMS];
 tSampleData digi_sample_data[NUM_DIGI_STREAMS];
 
-static void DIGILock(void)
-{
+static void DIGILock(void) {
   if (s_pDigiMutex)
     SDL_LockMutex(s_pDigiMutex);
 }
 
-static void DIGIUnlock(void)
-{
+static void DIGIUnlock(void) {
   if (s_pDigiMutex)
     SDL_UnlockMutex(s_pDigiMutex);
 }
 
-// Convert mono U8 to stereo U8 with panning applied. out must be in_length * 2 bytes.
-static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out, float pan)
-{
-  float left_gain  = (pan <= 0.0f) ? 1.0f : 1.0f - pan;
+// Convert mono U8 to stereo U8 with panning applied. out must be in_length * 2
+// bytes.
+static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out,
+                                  float pan) {
+  float left_gain = (pan <= 0.0f) ? 1.0f : 1.0f - pan;
   float right_gain = (pan >= 0.0f) ? 1.0f : 1.0f + pan;
   for (int i = 0; i < in_length; i++) {
     int s = (int)in[i] - 128;
     int l = (int)(s * left_gain);
     int r = (int)(s * right_gain);
-    if (l >  127) l =  127; if (l < -128) l = -128;
-    if (r >  127) r =  127; if (r < -128) r = -128;
-    out[2 * i]     = (Uint8)(l + 128);
+    if (l > 127)
+      l = 127;
+    if (l < -128)
+      l = -128;
+    if (r > 127)
+      r = 127;
+    if (r < -128)
+      r = -128;
+    out[2 * i] = (Uint8)(l + 128);
     out[2 * i + 1] = (Uint8)(r + 128);
   }
 }
 
-static int DIGISampleAvailableUnlocked(int iHandle)
-{
+static int DIGISampleAvailableUnlocked(int iHandle) {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return 0;
   if (digi_stream[iHandle])
@@ -1155,8 +1190,7 @@ static int DIGISampleAvailableUnlocked(int iHandle)
   return 0;
 }
 
-static bool DIGISampleDoneUnlocked(int iHandle)
-{
+static bool DIGISampleDoneUnlocked(int iHandle) {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return true;
   if (!digi_stream[iHandle])
@@ -1166,8 +1200,8 @@ static bool DIGISampleDoneUnlocked(int iHandle)
   return DIGISampleAvailableUnlocked(iHandle) == 0;
 }
 
-void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
-{
+void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream,
+                              int additional_amount, int total_amount) {
   tSampleData *data = (tSampleData *)userdata;
   if (!data || !data->pSample || additional_amount <= 0)
     return;
@@ -1175,15 +1209,17 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
   float pan = (index >= 0 && index < NUM_DIGI_STREAMS) ? digi_pan[index] : 0.0f;
   int stereo_len = data->iLength * 2;
   Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
-  if (!stereo_buf) return;
-  mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, pan);
+  if (!stereo_buf)
+    return;
+  mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf,
+                        pan);
   SDL_PutAudioStreamData(stream, stereo_buf, stereo_len);
   SDL_free(stereo_buf);
 }
 
-int DIGISampleStart(tSampleData *data)
-{
-  if (g_bSnapshotMode) return -1;
+int DIGISampleStart(tSampleData *data) {
+  if (g_bSnapshotMode)
+    return -1;
   DIGILock();
 
   int index = -1;
@@ -1194,17 +1230,19 @@ int DIGISampleStart(tSampleData *data)
     }
   }
   if (index < 0) {
-    //SDL_Log("DIGISampleStart: No available audio stream slots for digital sample.");
+    // SDL_Log("DIGISampleStart: No available audio stream slots for digital
+    // sample.");
     DIGIUnlock();
     return index; // No available stream slots
   }
 
-  float volume = (float)data->iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
+  float volume =
+      (float)data->iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
   int iFlags = data->iFlags;
   int iPan = data->iPan;
 
   if (digi_stream[index]) {
-    //audio stream is available but needs to be destroyed
+    // audio stream is available but needs to be destroyed
     SDL_PauseAudioStreamDevice(digi_stream[index]);
     SDL_DestroyAudioStream(digi_stream[index]);
     digi_stream[index] = NULL;
@@ -1214,51 +1252,60 @@ int DIGISampleStart(tSampleData *data)
 
   // Compute initial pan: raw iPan [0, 0x10000], 0x8000 = center → [-1.0, 1.0]
   float fInitialPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
-  if (fInitialPan < -1.0f) fInitialPan = -1.0f;
-  if (fInitialPan >  1.0f) fInitialPan =  1.0f;
+  if (fInitialPan < -1.0f)
+    fInitialPan = -1.0f;
+  if (fInitialPan > 1.0f)
+    fInitialPan = 1.0f;
   digi_pan[index] = fInitialPan;
 
   if (!digi_stream[index]) {
     SDL_AudioSpec spec;
-    spec.channels = 2; // Stereo (panning applied manually per-sample)
-    spec.freq = 11025; // Sample rate
+    spec.channels = 2;          // Stereo (panning applied manually per-sample)
+    spec.freq = 11025;          // Sample rate
     spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
-    if (iFlags != 18176) //one of these means loop the audio
-      digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (iFlags != 18176)        // one of these means loop the audio
+      digi_stream[index] = SDL_OpenAudioDeviceStream(
+          SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
     else {
-      //need to copy what's in SampleData first
+      // need to copy what's in SampleData first
       digi_sample_data[index].pSample = data->pSample;
       digi_sample_data[index].iLength = data->iLength;
       digi_sample_data[index].iSampleIndex = data->iSampleIndex;
 
-      digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DIGI_AudioStreamCallback, &digi_sample_data[index]);
+      digi_stream[index] = SDL_OpenAudioDeviceStream(
+          SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DIGI_AudioStreamCallback,
+          &digi_sample_data[index]);
     }
   } else {
-    assert(0); //should never happen
+    assert(0); // should never happen
   }
 
   if (!digi_stream[index]) {
-    //SDL_Log("DIGISampleStart: Couldn't create audio stream: %s", SDL_GetError());
+    // SDL_Log("DIGISampleStart: Couldn't create audio stream: %s",
+    // SDL_GetError());
     DIGIUnlock();
     return -1;
   }
 
   // Set pitch in the stream
   SDL_SetAudioStreamFrequencyRatio(digi_stream[index], 1.0); // pitch
-  SDL_SetAudioStreamFrequencyRatio(digi_stream[index], (float)data->iPitch / 0x10000);
+  SDL_SetAudioStreamFrequencyRatio(digi_stream[index],
+                                   (float)data->iPitch / 0x10000);
 
   // Remember the volume for this stream
   digi_volume[index] = volume;
 
   // Set the gain for the audio stream
-  float master_volume = (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
+  float master_volume =
+      (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
   SDL_SetAudioStreamGain(digi_stream[index], volume * master_volume);
 
   // Convert mono to stereo with pan applied and push to stream
   int stereo_len = data->iLength * 2;
   Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
   if (stereo_buf) {
-    mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fInitialPan);
+    mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength,
+                          stereo_buf, fInitialPan);
     SDL_PutAudioStreamData(digi_stream[index], stereo_buf, stereo_len);
     SDL_free(stereo_buf);
   }
@@ -1272,24 +1319,21 @@ int DIGISampleStart(tSampleData *data)
 /// Check if a digital sample is done playing.
 /// </summary>
 /// <param name="index"></param>
-bool DIGISampleDone(int index)
-{
+bool DIGISampleDone(int index) {
   DIGILock();
   bool bDone = DIGISampleDoneUnlocked(index);
   DIGIUnlock();
   return bDone;
 }
 
-int DIGISampleAvailable(int index)
-{
+int DIGISampleAvailable(int index) {
   DIGILock();
   int iAvailable = DIGISampleAvailableUnlocked(index);
   DIGIUnlock();
   return iAvailable;
 }
 
-int DIGISampleGeneration(int index)
-{
+int DIGISampleGeneration(int index) {
   if (index < 0 || index >= NUM_DIGI_STREAMS)
     return -1;
 
@@ -1304,18 +1348,21 @@ int DIGIMasterVolume = 0x7FFF; // Default master volume (0-0x7FFF)
 /// Set the master volume for all digital audio streams.
 /// </summary>
 /// <param name="volume">Volume level (0-0x7FFF).</param>
-void DIGISetMasterVolume(int volume)
-{
-  if (volume > 0x7FFF) volume = 0x7FFF;
-  if (volume < 0) volume = 0;
+void DIGISetMasterVolume(int volume) {
+  if (volume > 0x7FFF)
+    volume = 0x7FFF;
+  if (volume < 0)
+    volume = 0;
   DIGIMasterVolume = volume;
-  
-  float normalized_volume = (float)volume / 0x7FFF; // Normalize to [0.0, 1.0] range
+
+  float normalized_volume =
+      (float)volume / 0x7FFF; // Normalize to [0.0, 1.0] range
 
   DIGILock();
   for (size_t i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
-      SDL_SetAudioStreamGain(digi_stream[i], digi_volume[i] * normalized_volume);
+      SDL_SetAudioStreamGain(digi_stream[i],
+                             digi_volume[i] * normalized_volume);
     }
   }
   DIGIUnlock();
@@ -1325,13 +1372,9 @@ void DIGISetMasterVolume(int volume)
 /// Get the current master volume level.
 /// </summary>
 /// <returns>The master volume level (0-0x7FFF).</returns>
-int DIGIGetMasterVolume()
-{
-  return DIGIMasterVolume;
-}
+int DIGIGetMasterVolume() { return DIGIMasterVolume; }
 
-void DIGIStopSample(int index)
-{
+void DIGIStopSample(int index) {
   if (index < 0 || index >= NUM_DIGI_STREAMS) {
     SDL_Log("DIGIStopSample: Invalid stream index: %d", index);
     return;
@@ -1348,8 +1391,7 @@ void DIGIStopSample(int index)
   DIGIUnlock();
 }
 
-void DIGIClearAllStream()
-{
+void DIGIClearAllStream() {
   DIGILock();
   for (int i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
@@ -1364,45 +1406,45 @@ void DIGIClearAllStream()
   DIGIUnlock();
 }
 
-void PlayAudioSampleWait(int iIndex)
-{
-  if (iIndex >= 120) return;
+void PlayAudioSampleWait(int iIndex) {
+  if (iIndex >= 120)
+    return;
   SDL_Log("Play Sample[%i]: %s", iIndex, Sample[iIndex]);
   loadasample(iIndex);
   PlayAudioDataWait(SamplePtr[iIndex], SampleLen[iIndex]);
 }
 
-void DIGISetSampleVolume(int iHandle, int iVolume)
-{
+void DIGISetSampleVolume(int iHandle, int iVolume) {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return;
 
   DIGILock();
   if (!digi_stream[iHandle]) {
     DIGIUnlock();
-    return; //DIGI stream not found
+    return; // DIGI stream not found
   }
 
-  float fStreamVolume = (float)iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
+  float fStreamVolume =
+      (float)iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
 
   // udpate saved volume
   digi_volume[iHandle] = fStreamVolume;
 
   // Set the gain for the audio stream
-  float fMasterVolume = (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
+  float fMasterVolume =
+      (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
   SDL_SetAudioStreamGain(digi_stream[iHandle], fStreamVolume * fMasterVolume);
   DIGIUnlock();
 }
 
-void DIGISetPitch(int iHandle, int iPitch)
-{
+void DIGISetPitch(int iHandle, int iPitch) {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return;
 
   DIGILock();
   if (!digi_stream[iHandle]) {
     DIGIUnlock();
-    return; //DIGI stream not found
+    return; // DIGI stream not found
   }
 
   float fStreamPitch = (float)iPitch / 0x10000;
@@ -1410,8 +1452,7 @@ void DIGISetPitch(int iHandle, int iPitch)
   DIGIUnlock();
 }
 
-void DIGISetPanLocation(int iHandle, int iPan)
-{
+void DIGISetPanLocation(int iHandle, int iPan) {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
     return;
   DIGILock();
@@ -1420,8 +1461,10 @@ void DIGISetPanLocation(int iHandle, int iPan)
     return;
   }
   float fNewPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
-  if (fNewPan < -1.0f) fNewPan = -1.0f;
-  if (fNewPan >  1.0f) fNewPan =  1.0f;
+  if (fNewPan < -1.0f)
+    fNewPan = -1.0f;
+  if (fNewPan > 1.0f)
+    fNewPan = 1.0f;
   digi_pan[iHandle] = fNewPan;
   // For looping samples (callback-driven), flush queued audio so the new pan
   // takes effect immediately rather than after the current loop finishes.
@@ -1431,7 +1474,8 @@ void DIGISetPanLocation(int iHandle, int iPan)
     int stereo_len = data->iLength * 2;
     Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
     if (stereo_buf) {
-      mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fNewPan);
+      mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength,
+                            stereo_buf, fNewPan);
       SDL_PutAudioStreamData(digi_stream[iHandle], stereo_buf, stereo_len);
       SDL_free(stereo_buf);
     }
@@ -1439,15 +1483,15 @@ void DIGISetPanLocation(int iHandle, int iPan)
   DIGIUnlock();
 }
 
-void PlayAudioDataWait(Uint8 *buffer, Uint32 length)
-{
+void PlayAudioDataWait(Uint8 *buffer, Uint32 length) {
   // https://wiki.libsdl.org/SDL3/QuickReference
   SDL_AudioSpec wav_spec;
-  wav_spec.channels = 1; // Stereo
-  wav_spec.freq = 11025; // Sample rate
+  wav_spec.channels = 1;          // Stereo
+  wav_spec.freq = 11025;          // Sample rate
   wav_spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
 
-  SDL_AudioStream *stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec, NULL, NULL);
+  SDL_AudioStream *stream = SDL_OpenAudioDeviceStream(
+      SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec, NULL, NULL);
   if (!stream) {
     SDL_Log("Couldn't create audio stream: %s", SDL_GetError());
     return;
@@ -1471,8 +1515,7 @@ void PlayAudioDataWait(Uint8 *buffer, Uint32 length)
 /// Handle SDL audio device events for MIDI and digital audio streams.
 /// </summary>
 /// <param name="e"></param>
-void UpdateSDLAudioEvents(SDL_Event e)
-{
+void UpdateSDLAudioEvents(SDL_Event e) {
   if (e.type == SDL_EVENT_AUDIO_DEVICE_REMOVED) {
     SDL_AudioDeviceEvent *ade = (SDL_AudioDeviceEvent *)&e;
     SDL_Log("UpdateSDLAudioEvents: Audio device removed: %d", ade->which);
@@ -1491,28 +1534,30 @@ void UpdateSDLAudioEvents(SDL_Event e)
 //-------------------------------------------------------------------------------------------------
 
 #ifndef IS_WINDOWS
-static int s_findpath_append(char *szPath, int iCurLen, int iMaxLen, const char *szComp)
-{
+static int s_findpath_append(char *szPath, int iCurLen, int iMaxLen,
+                             const char *szComp) {
   int iCompLen = (int)strlen(szComp);
   if (iCurLen == 0) {
-    if (iCompLen >= iMaxLen) return -1;
+    if (iCompLen >= iMaxLen)
+      return -1;
     memcpy(szPath, szComp, iCompLen + 1);
     return iCompLen;
   }
   if (iCurLen == 1 && szPath[0] == '/') {
-    if (1 + iCompLen >= iMaxLen) return -1;
+    if (1 + iCompLen >= iMaxLen)
+      return -1;
     memcpy(szPath + 1, szComp, iCompLen + 1);
     return 1 + iCompLen;
   }
-  if (iCurLen + 1 + iCompLen >= iMaxLen) return -1;
+  if (iCurLen + 1 + iCompLen >= iMaxLen)
+    return -1;
   szPath[iCurLen] = '/';
   memcpy(szPath + iCurLen + 1, szComp, iCompLen + 1);
   return iCurLen + 1 + iCompLen;
 }
 #endif
 
-const char *ROLLERfindpath(const char *szFile)
-{
+const char *ROLLERfindpath(const char *szFile) {
 #ifdef IS_WINDOWS
   return szFile;
 #else
@@ -1532,7 +1577,8 @@ const char *ROLLERfindpath(const char *szFile)
 
   char *pSave = NULL;
   char *pToken = strtok_r(szInput, "/", &pSave);
-  if (!pToken) return NULL;
+  if (!pToken)
+    return NULL;
 
   while (pToken) {
     const char *szScanDir = (iResolvedLen == 0) ? "." : szResolved;
@@ -1544,20 +1590,25 @@ const char *ROLLERfindpath(const char *szFile)
     else if (iResolvedLen == 1 && szResolved[0] == '/')
       iExactLen = snprintf(szExact, sizeof(szExact), "/%s", pToken);
     else
-      iExactLen = snprintf(szExact, sizeof(szExact), "%s/%s", szResolved, pToken);
+      iExactLen =
+          snprintf(szExact, sizeof(szExact), "%s/%s", szResolved, pToken);
 
     struct stat sb;
-    if (iExactLen > 0 && iExactLen < (int)sizeof(szExact) && stat(szExact, &sb) == 0) {
-      iResolvedLen = s_findpath_append(szResolved, iResolvedLen, sizeof(szResolved), pToken);
-      if (iResolvedLen < 0) return NULL;
+    if (iExactLen > 0 && iExactLen < (int)sizeof(szExact) &&
+        stat(szExact, &sb) == 0) {
+      iResolvedLen = s_findpath_append(szResolved, iResolvedLen,
+                                       sizeof(szResolved), pToken);
+      if (iResolvedLen < 0)
+        return NULL;
       pToken = strtok_r(NULL, "/", &pSave);
       continue;
     }
 
     DIR *pDir = opendir(szScanDir);
-    if (!pDir) return NULL;
+    if (!pDir)
+      return NULL;
 
-    char szFound[256] = { 0 };
+    char szFound[256] = {0};
     struct dirent *pEntry;
     while ((pEntry = readdir(pDir)) != NULL) {
       if (strcasecmp(pEntry->d_name, pToken) == 0) {
@@ -1567,10 +1618,13 @@ const char *ROLLERfindpath(const char *szFile)
     }
     closedir(pDir);
 
-    if (szFound[0] == '\0') return NULL;
+    if (szFound[0] == '\0')
+      return NULL;
 
-    iResolvedLen = s_findpath_append(szResolved, iResolvedLen, sizeof(szResolved), szFound);
-    if (iResolvedLen < 0) return NULL;
+    iResolvedLen = s_findpath_append(szResolved, iResolvedLen,
+                                     sizeof(szResolved), szFound);
+    if (iResolvedLen < 0)
+      return NULL;
 
     pToken = strtok_r(NULL, "/", &pSave);
   }
@@ -1581,8 +1635,7 @@ const char *ROLLERfindpath(const char *szFile)
 
 //-------------------------------------------------------------------------------------------------
 
-bool ROLLERfexists(const char *szFile)
-{
+bool ROLLERfexists(const char *szFile) {
   FILE *pFile = fopen(szFile, "r");
   if (pFile) {
     fclose(pFile);
@@ -1590,8 +1643,8 @@ bool ROLLERfexists(const char *szFile)
   }
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szFile);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1614,7 +1667,10 @@ bool ROLLERfexists(const char *szFile)
   const char *szResolved = ROLLERfindpath(szFile);
   if (szResolved) {
     pFile = fopen(szResolved, "r");
-    if (pFile) { fclose(pFile); return true; }
+    if (pFile) {
+      fclose(pFile);
+      return true;
+    }
   }
 #endif
 
@@ -1623,16 +1679,15 @@ bool ROLLERfexists(const char *szFile)
 
 //-------------------------------------------------------------------------------------------------
 
-bool ROLLERdirexists(const char *szDir)
-{
+bool ROLLERdirexists(const char *szDir) {
   struct stat sb;
   if (stat(szDir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
     return true;
   }
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szDir);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1659,14 +1714,14 @@ bool ROLLERdirexists(const char *szDir)
 
 //-------------------------------------------------------------------------------------------------
 
-FILE *ROLLERfopen(const char *szFile, const char *szMode)
-{
+FILE *ROLLERfopen(const char *szFile, const char *szMode) {
   FILE *pFile = fopen(szFile, szMode);
-  if (pFile) return pFile;
+  if (pFile)
+    return pFile;
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szFile);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1675,27 +1730,29 @@ FILE *ROLLERfopen(const char *szFile, const char *szMode)
   }
 
   pFile = fopen(szUpper, szMode);
-  if (pFile) return pFile;
+  if (pFile)
+    return pFile;
 
   pFile = fopen(szLower, szMode);
   return pFile;
 #else
   const char *szResolved = ROLLERfindpath(szFile);
-  if (szResolved) return fopen(szResolved, szMode);
+  if (szResolved)
+    return fopen(szResolved, szMode);
   return NULL;
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERopen(const char *szFile, int iOpenFlags)
-{
+int ROLLERopen(const char *szFile, int iOpenFlags) {
   int iHandle = open(szFile, iOpenFlags);
-  if (iHandle != -1) return iHandle;
+  if (iHandle != -1)
+    return iHandle;
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szFile);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1704,27 +1761,29 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
   }
 
   iHandle = open(szUpper, iOpenFlags);
-  if (iHandle != -1) return iHandle;
+  if (iHandle != -1)
+    return iHandle;
 
   iHandle = open(szLower, iOpenFlags);
   return iHandle;
 #else
   const char *szResolved = ROLLERfindpath(szFile);
-  if (szResolved) return open(szResolved, iOpenFlags);
+  if (szResolved)
+    return open(szResolved, iOpenFlags);
   return -1;
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERremove(const char *szFile)
-{
+int ROLLERremove(const char *szFile) {
   int iSuccess = remove(szFile);
-  if (iSuccess == 0) return 0;
+  if (iSuccess == 0)
+    return 0;
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szFile);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1733,27 +1792,29 @@ int ROLLERremove(const char *szFile)
   }
 
   iSuccess = remove(szUpper);
-  if (iSuccess == 0) return 0;
+  if (iSuccess == 0)
+    return 0;
 
   iSuccess = remove(szLower);
   return iSuccess;
 #else
   const char *szResolved = ROLLERfindpath(szFile);
-  if (szResolved) return remove(szResolved);
+  if (szResolved)
+    return remove(szResolved);
   return iSuccess;
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERrename(const char *szOldName, const char *szNewName)
-{
+int ROLLERrename(const char *szOldName, const char *szNewName) {
   int iSuccess = rename(szOldName, szNewName);
-  if (iSuccess == 0) return 0;
+  if (iSuccess == 0)
+    return 0;
 
 #ifdef IS_WINDOWS
-  char szUpper[260] = { 0 };
-  char szLower[260] = { 0 };
+  char szUpper[260] = {0};
+  char szLower[260] = {0};
   int iLength = (int)strlen(szOldName);
 
   for (int i = 0; i < iLength && i < (int)sizeof(szUpper); ++i) {
@@ -1762,25 +1823,27 @@ int ROLLERrename(const char *szOldName, const char *szNewName)
   }
 
   iSuccess = rename(szUpper, szNewName);
-  if (iSuccess == 0) return 0;
+  if (iSuccess == 0)
+    return 0;
 
   iSuccess = rename(szLower, szNewName);
   return iSuccess;
 #else
   const char *szResolved = ROLLERfindpath(szOldName);
-  if (szResolved) return rename(szResolved, szNewName);
+  if (szResolved)
+    return rename(szResolved, szNewName);
   return iSuccess;
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
-uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback, void *userdata)
-{
+uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback,
+                      void *userdata) {
   SDL_LockMutex(g_pTimerMutex);
   uint32 uiHandle = SDL_AddTimerNS(HZ_TO_NS(uiFrequencyHz), callback, userdata);
 
-  //find empty timer slot
+  // find empty timer slot
   bool bFoundSlot = false;
   for (int i = 0; i < MAX_TIMERS; ++i) {
     if (timerDataAy[i].uiHandle == 0) {
@@ -1794,7 +1857,7 @@ uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback, void *
   SDL_UnlockMutex(g_pTimerMutex);
 
   if (!bFoundSlot) {
-    //too many timers!
+    // too many timers!
     assert(0);
     ErrorBoxExit("Too many timers!");
   }
@@ -1804,12 +1867,11 @@ uint32 ROLLERAddTimer(Uint32 uiFrequencyHz, SDL_NSTimerCallback callback, void *
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERRemoveTimer(uint32 uiHandle)
-{
+void ROLLERRemoveTimer(uint32 uiHandle) {
   SDL_RemoveTimer(uiHandle);
 
   SDL_LockMutex(g_pTimerMutex);
-  //clear timer data
+  // clear timer data
   for (int i = 0; i < MAX_TIMERS; ++i) {
     if (timerDataAy[i].uiHandle == uiHandle) {
       memset(&timerDataAy[i], 0, sizeof(tTimerData));
@@ -1820,10 +1882,10 @@ void ROLLERRemoveTimer(uint32 uiHandle)
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERfilelength(const char *szFile)
-{
+int ROLLERfilelength(const char *szFile) {
 #ifdef IS_WINDOWS
-  int iFileHandle = ROLLERopen(szFile, O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
+  int iFileHandle = ROLLERopen(
+      szFile, O_RDONLY | O_BINARY); // 0x200 is O_BINARY in WATCOM/h/fcntl.h
 
   if (iFileHandle == -1)
     return -1;
@@ -1849,30 +1911,22 @@ int ROLLERfilelength(const char *szFile)
 
 static uint32 g_uiRandState = 1;
 
-void ROLLERsrand(unsigned int uiSeed)
-{
-  g_uiRandState = (uint32)uiSeed;
-}
+void ROLLERsrand(unsigned int uiSeed) { g_uiRandState = (uint32)uiSeed; }
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERrandRaw(void)
-{
+int ROLLERrandRaw(void) {
   g_uiRandState = g_uiRandState * 1103515245u + 12345u;
   return (int)((g_uiRandState >> 16) & 0x7FFFu);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERrand()
-{
-  return GetHighOrderRand(0x7FFF, ROLLERrandRaw());
-}
+int ROLLERrand() { return GetHighOrderRand(0x7FFF, ROLLERrandRaw()); }
 
 //-------------------------------------------------------------------------------------------------
-//g_pTimerMutex MUST BE LOCKED before calling this function
-tTimerData *GetTimerData(SDL_TimerID timerID)
-{
+// g_pTimerMutex MUST BE LOCKED before calling this function
+tTimerData *GetTimerData(SDL_TimerID timerID) {
   for (int i = 0; i < MAX_TIMERS; ++i) {
     if (timerDataAy[i].uiHandle == timerID) {
       return &timerDataAy[i];
@@ -1883,8 +1937,7 @@ tTimerData *GetTimerData(SDL_TimerID timerID)
 
 //-------------------------------------------------------------------------------------------------
 
-static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval)
-{
+static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval) {
   SDL_LockMutex(g_pTimerMutex);
   tTimerData *pTimerData = GetTimerData(timerID);
   if (!pTimerData) {
@@ -1893,7 +1946,8 @@ static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval)
   }
 
   pTimerData->ullCurrSDLTicksNS = SDL_GetTicksNS();
-  int64 llNSSinceLast = (int64)pTimerData->ullCurrSDLTicksNS - (int64)pTimerData->ullLastSDLTicksNS;
+  int64 llNSSinceLast = (int64)pTimerData->ullCurrSDLTicksNS -
+                        (int64)pTimerData->ullLastSDLTicksNS;
   int64 llDelta = llNSSinceLast - (int64)pTimerData->ullTargetSDLTicksNS;
   if (llDelta < 0)
     llDelta = 0;
@@ -1906,8 +1960,8 @@ static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval)
 
 //-------------------------------------------------------------------------------------------------
 
-Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
-{
+Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID,
+                            Uint64 interval) {
   tickhandler();
   uint64 ullRet = 0;
 
@@ -1919,8 +1973,8 @@ Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval
 
 //-------------------------------------------------------------------------------------------------
 
-Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
-{
+Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID,
+                          Uint64 interval) {
   SOSTimerCallbackS7();
   uint64 ullRet = 0;
 
@@ -1932,8 +1986,7 @@ Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
 
 //-------------------------------------------------------------------------------------------------
 
-int IsCDROMDevice(const char *szPath)
-{
+int IsCDROMDevice(const char *szPath) {
 #if CDROM_SUPPORT
   int fd = open(szPath, O_RDONLY | O_NONBLOCK);
   if (fd < 0)
@@ -1949,8 +2002,7 @@ int IsCDROMDevice(const char *szPath)
 
 //-------------------------------------------------------------------------------------------------
 
-void ReplaceExtension(char *szFilename, const char *szNewExt)
-{
+void ReplaceExtension(char *szFilename, const char *szNewExt) {
   char *szDot = strrchr(szFilename, '.');
   char *szSlash = strrchr(szFilename, '/');
   char *szBackslash = strrchr(szFilename, '\\');
@@ -1966,26 +2018,28 @@ void ReplaceExtension(char *szFilename, const char *szNewExt)
 
 //-------------------------------------------------------------------------------------------------
 
-void ErrorBoxExit(const char *szErrorMsgFormat, ...)
-{
+void ErrorBoxExit(const char *szErrorMsgFormat, ...) {
   va_list args;
   va_start(args, szErrorMsgFormat);
   char szErrorMsg[2048];
-  int iLen = vsnprintf(szErrorMsg, sizeof(szErrorMsg) - 1, szErrorMsgFormat, args);
+  int iLen =
+      vsnprintf(szErrorMsg, sizeof(szErrorMsg) - 1, szErrorMsgFormat, args);
   if (iLen >= 0)
     szErrorMsg[iLen] = '\0';
   va_end(args);
 
-  SDL_ShowMessageBox(&(SDL_MessageBoxData)
-  {
-    .title = "ROLLER",
-      .message = szErrorMsg,
-      .flags = SDL_MESSAGEBOX_ERROR,
-      .numbuttons = 1,
-      .buttons = (SDL_MessageBoxButtonData[]){
-        {.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, .text = "OK" }
-    },
-  }, NULL);
+  SDL_ShowMessageBox(
+      &(SDL_MessageBoxData){
+          .title = "ROLLER",
+          .message = szErrorMsg,
+          .flags = SDL_MESSAGEBOX_ERROR,
+          .numbuttons = 1,
+          .buttons =
+              (SDL_MessageBoxButtonData[]){
+                  {.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,
+                   .text = "OK"}},
+      },
+      NULL);
 
   ShutdownSDL();
   exit(0);
@@ -1993,7 +2047,8 @@ void ErrorBoxExit(const char *szErrorMsgFormat, ...)
 
 //-------------------------------------------------------------------------------------------------
 
-void autoselectsoundlanguage() // Add by ROLLER to auto-select languagename when config.ini is not found
+void autoselectsoundlanguage() // Add by ROLLER to auto-select languagename when
+                               // config.ini is not found
 {
   SDL_Log("autoselectsoundlanguage: config.ini not found");
 
@@ -2008,16 +2063,20 @@ void autoselectsoundlanguage() // Add by ROLLER to auto-select languagename when
     const char *szTextExt = (char *)TextExt + i * 4;
     const char *szLangExt = (const char *)SampleExt + i * 4;
 
-    snprintf(textFileName, sizeof(textFileName), "./CONFIG.%s", szTextExt); // e.g., CONFIG.ENG, CONFIG.FRA, CONFIG.GER, CONFIG.BPO, CONFIG.SAS.
-    snprintf(audioFileName, sizeof(audioFileName), "./GO.%s", szLangExt); // e.g., GO.RAW, GO.RFR, GO.RGE, GO.RBP, GO.RSS.
+    snprintf(textFileName, sizeof(textFileName), "./CONFIG.%s",
+             szTextExt); // e.g., CONFIG.ENG, CONFIG.FRA, CONFIG.GER,
+                         // CONFIG.BPO, CONFIG.SAS.
+    snprintf(audioFileName, sizeof(audioFileName), "./GO.%s",
+             szLangExt); // e.g., GO.RAW, GO.RFR, GO.RGE, GO.RBP, GO.RSS.
 
-    //SDL_Log("lang[%i]: %s", i, lang[i]);
-    //SDL_Log("textFileName[%i]: %s", i, textFileName);
-    //SDL_Log("audioFileName[%i]: %s", i, audioFileName);
+    // SDL_Log("lang[%i]: %s", i, lang[i]);
+    // SDL_Log("textFileName[%i]: %s", i, textFileName);
+    // SDL_Log("audioFileName[%i]: %s", i, audioFileName);
     if (ROLLERfexists(textFileName) && ROLLERfexists(audioFileName)) {
       sscanf(lang[i], "%s", languagename);
       language = i;
-      SDL_Log("autoselectsoundlanguage: select language[%i]: %s - %s %s", language, languagename, szTextExt, szLangExt);
+      SDL_Log("autoselectsoundlanguage: select language[%i]: %s - %s %s",
+              language, languagename, szTextExt, szLangExt);
       break;
     }
   }
@@ -2025,25 +2084,24 @@ void autoselectsoundlanguage() // Add by ROLLER to auto-select languagename when
 
 //-------------------------------------------------------------------------------------------------
 
-int GetHighOrderRand(int iRange, int iRandValue)
-{
+int GetHighOrderRand(int iRange, int iRandValue) {
   int64 llProduct = (int64)iRange * iRandValue;
   return (int)(llProduct >> ROLLER_RAND_BITS);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-int ReadUnalignedInt(const void *pData)
-{
-  const uint8 *pBytes = (const uint8*)pData;
-  return (uint32)pBytes[0] | ((uint32)pBytes[1] << 8) | ((uint32)pBytes[2] << 16) | ((uint32)pBytes[3] << 24);
+int ReadUnalignedInt(const void *pData) {
+  const uint8 *pBytes = (const uint8 *)pData;
+  return (uint32)pBytes[0] | ((uint32)pBytes[1] << 8) |
+         ((uint32)pBytes[2] << 16) | ((uint32)pBytes[3] << 24);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-void LBAToMSF(uint32 uiLBA, uint8 *pbyMinute, uint8 *pbySecond, uint8 *pbyFrame)
-{
-  uint32 uiAdjustedLBA = uiLBA + 150;  // Add CD lead-in offset
+void LBAToMSF(uint32 uiLBA, uint8 *pbyMinute, uint8 *pbySecond,
+              uint8 *pbyFrame) {
+  uint32 uiAdjustedLBA = uiLBA + 150; // Add CD lead-in offset
   *pbyFrame = uiAdjustedLBA % 75;
   *pbySecond = (uiAdjustedLBA / 75) % 60;
   *pbyMinute = (uiAdjustedLBA / 75) / 60;
@@ -2054,8 +2112,8 @@ void LBAToMSF(uint32 uiLBA, uint8 *pbyMinute, uint8 *pbySecond, uint8 *pbyFrame)
 // Globals for CD audio management
 int g_iNumTracks = 0;
 int g_iCurrentTrack = -1;
-int g_iStartTrack = -1;   // For PlayTrack4
-int g_iTrackCount = 0;    // For PlayTrack4
+int g_iStartTrack = -1; // For PlayTrack4
+int g_iTrackCount = 0;  // For PlayTrack4
 int g_iCDVolume = 0;
 bool g_bRepeat = false;
 bool g_bUsingRealCD = false;
@@ -2073,9 +2131,8 @@ static MCIDEVICEID g_wDeviceID = 0;
 static int g_iCDHandle = -1;
 #endif
 
-void ROLLERGetAudioInfo()
-{
-  //only get info once
+void ROLLERGetAudioInfo() {
+  // only get info once
   if (g_bGotAudioInfo)
     return;
   g_bGotAudioInfo = true;
@@ -2084,7 +2141,7 @@ void ROLLERGetAudioInfo()
   g_bUsingRealCD = false;
 
 #ifdef IS_WINDOWS
-    // Windows: Use MCI (Media Control Interface)
+  // Windows: Use MCI (Media Control Interface)
   MCI_OPEN_PARMS mciOpenParms;
   MCI_SET_PARMS mciSetParms;
   MCI_STATUS_PARMS mciStatusParms;
@@ -2098,7 +2155,7 @@ void ROLLERGetAudioInfo()
     // Set time format to tracks
     mciSetParms.dwTimeFormat = MCI_FORMAT_TMSF;
     mciSendCommand(g_wDeviceID, MCI_SET, MCI_SET_TIME_FORMAT,
-                  (DWORD_PTR)&mciSetParms);
+                   (DWORD_PTR)&mciSetParms);
 
     // Get number of tracks
     mciStatusParms.dwItem = MCI_STATUS_NUMBER_OF_TRACKS;
@@ -2110,21 +2167,17 @@ void ROLLERGetAudioInfo()
   }
 
 #elif defined(IS_LINUX)
-    // Linux: Try to open CD device
-  const char *szCDDevices[] = {
-      "/dev/cdrom",
-      "/dev/sr0",
-      "/dev/sr1",
-      "/dev/dvd"
-  };
+  // Linux: Try to open CD device
+  const char *szCDDevices[] = {"/dev/cdrom", "/dev/sr0", "/dev/sr1",
+                               "/dev/dvd"};
 
   for (int i = 0; i < sizeof(szCDDevices) / sizeof(szCDDevices[0]); i++) {
     g_iCDHandle = open(szCDDevices[i], O_RDONLY | O_NONBLOCK);
     if (g_iCDHandle >= 0) {
       struct cdrom_tochdr tochdr;
       if (ioctl(g_iCDHandle, CDROMREADTOCHDR, &tochdr) == 0) {
-          // First track is usually data (track 1), audio starts at track 2
-        g_iNumTracks = tochdr.cdth_trk1;  // Last track number
+        // First track is usually data (track 1), audio starts at track 2
+        g_iNumTracks = tochdr.cdth_trk1; // Last track number
         g_bUsingRealCD = true;
         break;
       }
@@ -2134,7 +2187,7 @@ void ROLLERGetAudioInfo()
   }
 #endif
 
-    // If no real CD found, check for ripped tracks
+  // If no real CD found, check for ripped tracks
   if (!g_bUsingRealCD) {
     char szTrackFile[256];
     FILE *fp;
@@ -2146,9 +2199,9 @@ void ROLLERGetAudioInfo()
 
       if (fp) {
         fclose(fp);
-        g_iNumTracks = iTrack;  // Keep counting up
+        g_iNumTracks = iTrack; // Keep counting up
       } else if (iTrack > 2) {
-        break;  // Stop at first missing track after track 2
+        break; // Stop at first missing track after track 2
       }
     }
   }
@@ -2156,8 +2209,7 @@ void ROLLERGetAudioInfo()
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERStopTrack()
-{
+void ROLLERStopTrack() {
   SDL_Log("ROLLERStopTrack %d", g_iCurrentTrack);
 
   if (g_bUsingRealCD) {
@@ -2171,7 +2223,7 @@ void ROLLERStopTrack()
     }
 #endif
   } else {
-      // Stop file playback
+    // Stop file playback
     if (g_pCurrentStream) {
       SDL_DestroyAudioStream(g_pCurrentStream);
       g_pCurrentStream = NULL;
@@ -2185,9 +2237,8 @@ void ROLLERStopTrack()
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERPlayTrack(int iTrack)
-{
-// CD audio tracks start at 2 (track 1 is data)
+void ROLLERPlayTrack(int iTrack) {
+  // CD audio tracks start at 2 (track 1 is data)
   if (iTrack < 2 || iTrack > g_iNumTracks) {
     return;
   }
@@ -2202,7 +2253,7 @@ void ROLLERPlayTrack(int iTrack)
       mciPlayParms.dwFrom = MCI_MAKE_TMSF(iTrack, 0, 0, 0);
       mciPlayParms.dwTo = MCI_MAKE_TMSF(iTrack + 1, 0, 0, 0);
       mciSendCommand(g_wDeviceID, MCI_PLAY, MCI_FROM | MCI_TO,
-                    (DWORD_PTR)&mciPlayParms);
+                     (DWORD_PTR)&mciPlayParms);
     }
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
@@ -2215,7 +2266,7 @@ void ROLLERPlayTrack(int iTrack)
     }
 #endif
   } else {
-      // Play from file
+    // Play from file
     char szTrackFile[256];
     SDL_AudioSpec spec;
 
@@ -2229,11 +2280,11 @@ void ROLLERPlayTrack(int iTrack)
         if (SDL_LoadWAV_IO(io, true, &spec, &g_pAudioData, &g_uiAudioLen)) {
 
           g_pCurrentStream = SDL_OpenAudioDeviceStream(
-              SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-              &spec, NULL, NULL);
+              SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 
           if (g_pCurrentStream) {
-            SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData, g_uiAudioLen);
+            SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData,
+                                   g_uiAudioLen);
             SDL_ResumeAudioStreamDevice(g_pCurrentStream);
             float fGain = g_iCDVolume / 255.0f;
             SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
@@ -2249,8 +2300,7 @@ void ROLLERPlayTrack(int iTrack)
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERPlayTrack4(int iStartTrack)
-{
+void ROLLERPlayTrack4(int iStartTrack) {
   g_iStartTrack = iStartTrack;
   g_iTrackCount = 4;
   g_bRepeat = false;
@@ -2260,21 +2310,21 @@ void ROLLERPlayTrack4(int iStartTrack)
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERSetAudioVolume(int iVolume)
-{
+void ROLLERSetAudioVolume(int iVolume) {
   g_iCDVolume = iVolume;
 
   if (g_bUsingRealCD) {
 #ifdef IS_WINDOWS
     if (g_wDeviceID != 0) {
-        // Method 1: Using MCI
+      // Method 1: Using MCI
       MCI_DGV_SETAUDIO_PARMS mciSetAudioParms;
       mciSetAudioParms.dwItem = MCI_DGV_SETAUDIO_VOLUME;
-      mciSetAudioParms.dwValue = (iVolume * 1000) / 255;  // MCI uses 0-1000
+      mciSetAudioParms.dwValue = (iVolume * 1000) / 255; // MCI uses 0-1000
 
-      DWORD dwResult = mciSendCommand(g_wDeviceID, MCI_SETAUDIO,
-                                      MCI_DGV_SETAUDIO_VALUE | MCI_DGV_SETAUDIO_ITEM,
-                                      (DWORD_PTR)&mciSetAudioParms);
+      DWORD dwResult =
+          mciSendCommand(g_wDeviceID, MCI_SETAUDIO,
+                         MCI_DGV_SETAUDIO_VALUE | MCI_DGV_SETAUDIO_ITEM,
+                         (DWORD_PTR)&mciSetAudioParms);
       if (dwResult != 0) {
         if (!g_bSentCDVolWarning) {
           SDL_Log("CD volume control not supported on this system");
@@ -2284,7 +2334,7 @@ void ROLLERSetAudioVolume(int iVolume)
     }
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
-        // Linux CD-ROM volume control
+      // Linux CD-ROM volume control
       struct cdrom_volctrl volume;
 
       // All channels set to same volume (0-255 range)
@@ -2298,9 +2348,9 @@ void ROLLERSetAudioVolume(int iVolume)
     }
 #endif
   } else {
-      // Set volume for SDL audio stream
+    // Set volume for SDL audio stream
     if (g_pCurrentStream) {
-        // SDL3 gain: 1.0 = normal, 0.0 = silence
+      // SDL3 gain: 1.0 = normal, 0.0 = silence
       float fGain = iVolume / 255.0f;
       SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
     }
@@ -2309,8 +2359,7 @@ void ROLLERSetAudioVolume(int iVolume)
 
 //-------------------------------------------------------------------------------------------------
 // Call this periodically to handle track transitions and repeat
-void UpdateAudioTracks(void)
-{
+void UpdateAudioTracks(void) {
   bool bTrackFinished = false;
 
   if (g_iCurrentTrack < 0) {
@@ -2329,11 +2378,11 @@ void UpdateAudioTracks(void)
         if (mciStatusParms.dwReturn == MCI_MODE_STOP) {
           bTrackFinished = true;
         } else if (mciStatusParms.dwReturn == MCI_MODE_PLAY) {
-            // Check if we're still on the same track
+          // Check if we're still on the same track
           mciStatusParms.dwItem = MCI_STATUS_CURRENT_TRACK;
           if (mciSendCommand(g_wDeviceID, MCI_STATUS, MCI_STATUS_ITEM,
                              (DWORD_PTR)&mciStatusParms) == 0) {
-               // If we've moved past our track, it finished
+            // If we've moved past our track, it finished
             if (mciStatusParms.dwReturn != g_iCurrentTrack) {
               bTrackFinished = true;
             }
@@ -2366,7 +2415,7 @@ void UpdateAudioTracks(void)
     }
 #endif
   } else if (g_pCurrentStream) {
-      // Check file playback
+    // Check file playback
     int iQueued = SDL_GetAudioStreamQueued(g_pCurrentStream);
     if (iQueued == 0) {
       bTrackFinished = true;
@@ -2376,11 +2425,11 @@ void UpdateAudioTracks(void)
   if (bTrackFinished) {
     if (g_bRepeat) {
       SDL_Log("Repeat track %d", g_iCurrentTrack);
-        // Repeat current track
+      // Repeat current track
       ROLLERPlayTrack(g_iCurrentTrack);
     } else if (g_iTrackCount > 1) {
       SDL_Log("Advance track");
-        // PlayTrack4 sequence
+      // PlayTrack4 sequence
       g_iTrackCount--;
       int iNextTrack = g_iCurrentTrack + 1;
       ROLLERPlayTrack(iNextTrack);
@@ -2393,8 +2442,7 @@ void UpdateAudioTracks(void)
 
 //-------------------------------------------------------------------------------------------------
 
-void CleanupAudioCD(void)
-{
+void CleanupAudioCD(void) {
   ROLLERStopTrack();
 
 #if defined(IS_LINUX)

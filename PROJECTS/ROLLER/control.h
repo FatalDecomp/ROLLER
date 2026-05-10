@@ -7,8 +7,7 @@
 #include "3d.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int strategyAy[5];
   float fSteerSensitivity;
   float fSteerDamping;
@@ -67,7 +66,8 @@ void Accelerate(tCar *pCar);
 void Decelerate(tCar *pCar);
 void FreeWheel(tCar *pCar);
 void SetEngine(tCar *pCar, float fThrottle);
-double change_gear(int iCurrentGear, int iNextGear, tCar *pCar, int iCarDesignIdx);
+double change_gear(int iCurrentGear, int iNextGear, tCar *pCar,
+                   int iCarDesignIdx);
 void updatecar2(tCar *pCar);
 void check_crossed_line(tCar *pCar);
 void checkplacement(tCar *pCar);
@@ -79,11 +79,20 @@ void scansection(tCar *pCar);
 double getgroundz(float fXPos, float fYOffset, int iChunkIdx);
 double getroadz(float fX, float fY, int iChunkIdx);
 void putflat(tCar *pCar);
-void findnearcars(tCar *pCar, int *piLeftCarIdx, float *pfLeftTime, int *piRightCarIdx, float *pfRightTime, float *pfTargetX, float *pfTargetY);
-void findnearcarsforce(tCar *pCar, int *piLeftCarIdx, float *pfLeftTime, int *piRightCarIdx, float *pfRightTime, float *pfTargetX, float *pfTargetY);
-double interpolatesteer(float fSteeringInput, float fSaturationThreshold, float fDeadzoneThreshold, float fMaxOutput, float fMinOutput);
-double avoid(int iCurrentCarIdx, int iTargetCarIdx, float fSteeringInput, float fMaxOutput, float fSaturationThreshold, float fDeadzoneThreshold, int *piOvertakeFlag);
-double block(int iCarIdx, float fSteeringInput, float fMaxOutput, float fSaturationThreshold, float fDeadzoneThreshold);
+void findnearcars(tCar *pCar, int *piLeftCarIdx, float *pfLeftTime,
+                  int *piRightCarIdx, float *pfRightTime, float *pfTargetX,
+                  float *pfTargetY);
+void findnearcarsforce(tCar *pCar, int *piLeftCarIdx, float *pfLeftTime,
+                       int *piRightCarIdx, float *pfRightTime, float *pfTargetX,
+                       float *pfTargetY);
+double interpolatesteer(float fSteeringInput, float fSaturationThreshold,
+                        float fDeadzoneThreshold, float fMaxOutput,
+                        float fMinOutput);
+double avoid(int iCurrentCarIdx, int iTargetCarIdx, float fSteeringInput,
+             float fMaxOutput, float fSaturationThreshold,
+             float fDeadzoneThreshold, int *piOvertakeFlag);
+double block(int iCarIdx, float fSteeringInput, float fMaxOutput,
+             float fSaturationThreshold, float fDeadzoneThreshold);
 void autocar2(tCar *pCar);
 void changestrategy(tCar *pCar);
 int getangle(float fX, float fY);

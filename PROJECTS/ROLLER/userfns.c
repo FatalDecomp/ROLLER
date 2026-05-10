@@ -1,9 +1,8 @@
 #include "userfns.h"
 #include <math.h>
 //-------------------------------------------------------------------------------------------------
-//00075D50
-double getdirection(double x, double y)
-{
+// 00075D50
+double getdirection(double x, double y) {
   if (x == 0.0 && y == 0.0) {
     return -1.0;
   }

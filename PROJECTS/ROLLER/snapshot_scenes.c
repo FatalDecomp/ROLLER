@@ -5,14 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static int SnapshotSceneCapturedAll(void)
-{
+static int SnapshotSceneCapturedAll(void) {
   return g_SnapshotConfig.iCapturedCount == g_SnapshotConfig.iNumFrames ? 0 : 1;
 }
 
-
-int SnapshotRunScene(void)
-{
+int SnapshotRunScene(void) {
   if (strcmp(g_SnapshotConfig.szSceneName, "menu-main") == 0) {
     snapshot_render_menu_main();
     return SnapshotSceneCapturedAll();
@@ -42,6 +39,7 @@ int SnapshotRunScene(void)
     return SnapshotSceneCapturedAll();
   }
 
-  fprintf(stderr, "ERROR: unknown snapshot scene '%s'\n", g_SnapshotConfig.szSceneName);
+  fprintf(stderr, "ERROR: unknown snapshot scene '%s'\n",
+          g_SnapshotConfig.szSceneName);
   return 1;
 }

@@ -4,8 +4,7 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iLocalX;
   int iLocalY;
   int iLocalZ;
@@ -13,8 +12,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tStuntLocalPoint localPtAy[6];
   tVec3 refPoint;
   float fTrackHalfLength;
@@ -22,8 +20,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iGeometryIdx;
   int iChunkCount;
   int iNumTicks;
@@ -51,17 +48,10 @@ extern int replaytype;
 
 //-------------------------------------------------------------------------------------------------
 
-tStuntData *initramp(
-        int iGeometryIdx,
-        int iChunkCount,
-        int iNumTicks,
-        int iTickStartIdx,
-        int iTimingGroup,
-        int iHeight,
-        int iTimeBulging,
-        int iTimeFlat,
-        int iRampSideLength,
-        int iFlags);
+tStuntData *initramp(int iGeometryIdx, int iChunkCount, int iNumTicks,
+                     int iTickStartIdx, int iTimingGroup, int iHeight,
+                     int iTimeBulging, int iTimeFlat, int iRampSideLength,
+                     int iFlags);
 void reinitramp(tStuntData *pStunt);
 void updateramp(tStuntData *pStunt);
 void updatestunts();

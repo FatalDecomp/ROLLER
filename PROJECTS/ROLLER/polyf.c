@@ -9,9 +9,8 @@
 #include <float.h>
 #include <stdbool.h>
 //-------------------------------------------------------------------------------------------------
-//000706B0
-void twpoly(tPoint *vertices, int16 nColor)
-{
+// 000706B0
+void twpoly(tPoint *vertices, int16 nColor) {
   int16 nEdge1Dx;
   int16 nEdge2Dx;
   int16 nEdge2Dy;
@@ -69,59 +68,65 @@ void twpoly(tPoint *vertices, int16 nColor)
       pTempPoint = *vertices;
       if (iCrossProductResult1 <= 0) {
         // Case 1: Split into triangles P2-P3-P* and P0-P*-P3
-        *vertices = vertices[2];                // move P2 to P0 position
+        *vertices = vertices[2]; // move P2 to P0 position
 
         // Calculate intersection point P*
-        dIntersectionX = (double)nEdge3Dx * dIntersectionParam + (double)vertices[2].x;
-        //CHP
+        dIntersectionX =
+            (double)nEdge3Dx * dIntersectionParam + (double)vertices[2].x;
+        // CHP
         vertices[2].x = (int)dIntersectionX;
-        dIntersectionY = dIntersectionParam * (double)nEdge3Dy + (double)vertices[2].y;
-        //CHP
+        dIntersectionY =
+            dIntersectionParam * (double)nEdge3Dy + (double)vertices[2].y;
+        // CHP
         vertices[2].y = (int)dIntersectionY;
 
         // Render first triangle (P2, P3, P*)
         poly(vertices, 3, nColor);
 
         // Prepare second triangle (P0, P*, P3)
-        *vertices = vertices[3];                // Original P3
-        vertices[1] = pTempPoint;               // Original P0
+        *vertices = vertices[3];  // Original P3
+        vertices[1] = pTempPoint; // Original P0
         poly(vertices, 3, nColor);
         return;
       }
       // Case 2: Split into triangles P1-P2-P* and P0-P*-P3
-      *vertices = vertices[1];                  // Move P1 to P0 position
-      vertices[1] = vertices[2];                // Move P2 to P1 position
+      *vertices = vertices[1];   // Move P1 to P0 position
+      vertices[1] = vertices[2]; // Move P2 to P1 position
 
       // Calculate intersection point P*
-      dIntersectionX2 = (double)nEdge3Dx * dIntersectionParam + (double)vertices[2].x;
-      //CHP
+      dIntersectionX2 =
+          (double)nEdge3Dx * dIntersectionParam + (double)vertices[2].x;
+      // CHP
       vertices[2].x = (int)dIntersectionX2;
-      dIntersectionY2 = dIntersectionParam * (double)nEdge3Dy + (double)vertices[2].y;
-      //CHP
+      dIntersectionY2 =
+          dIntersectionParam * (double)nEdge3Dy + (double)vertices[2].y;
+      // CHP
       vertices[2].y = (int)dIntersectionY2;
 
       // Render first triangle (P1, P2, P*)
       poly(vertices, 3, nColor);
 
       // Prepare second triangle (P0, P*, P3)
-      *vertices = vertices[3];                  // Original P3
+      *vertices = vertices[3]; // Original P3
       iNumVerts = 3;
       vertices2 = vertices;
       nColor2 = nColor;
-      vertices[1] = pTempPoint;                 // Original P0
+      vertices[1] = pTempPoint; // Original P0
       goto LABEL_18;
     }
   }
 
   // Secondary concave test using different edge combination
-  fCrossProduct2 = (float)(SumEdge23Dy2 * nSumEdge23Dx - nSumEdge23Dy * nSumEdge23Dx2);
+  fCrossProduct2 =
+      (float)(SumEdge23Dy2 * nSumEdge23Dx - nSumEdge23Dy * nSumEdge23Dx2);
 
-  if (fabsf(fCrossProduct2) <= FLT_EPSILON
-    || (iCrossProductResult2 = nEdge2Dx * nSumEdge23Dy - nEdge2Dy * nSumEdge23Dx,
-        iCrossProductResult2_2 = iCrossProductResult2,
-        fIntersectionParam2 = (float)((double)iCrossProductResult2 / (double)fCrossProduct2),
-        fIntersectionParam2 <= 0.0)             // Valid intersection point found (0 < t < 1)
-    || fIntersectionParam2 >= 1.0) {
+  if (fabsf(fCrossProduct2) <= FLT_EPSILON ||
+      (iCrossProductResult2 = nEdge2Dx * nSumEdge23Dy - nEdge2Dy * nSumEdge23Dx,
+       iCrossProductResult2_2 = iCrossProductResult2,
+       fIntersectionParam2 =
+           (float)((double)iCrossProductResult2 / (double)fCrossProduct2),
+       fIntersectionParam2 <= 0.0) // Valid intersection point found (0 < t < 1)
+      || fIntersectionParam2 >= 1.0) {
 
     // Convex quadrilateral handling
     if (iCrossProductResult1 < 0 || iCrossProductResult2_2 > 0) {
@@ -142,14 +147,16 @@ void twpoly(tPoint *vertices, int16 nColor)
   if (iCrossProductResult2 <= 0) {
     // Case 3: Swap vertices and split
     pTempPoint3 = *vertices;
-    *vertices = vertices[1];                    // Swap P0 and P1
+    *vertices = vertices[1]; // Swap P0 and P1
     vertices[1] = pTempPoint3;
     pTempPoint4 = vertices[2];
 
     // Calculate intersection point P*
-    vertices[2].x = (int)((double)nSumEdge23Dx2 * fIntersectionParam2 + (double)pTempPoint4.x);
-    dIntersectionY4 = fIntersectionParam2 * (double)SumEdge23Dy2 + (double)pTempPoint4.y;
-    //CHP
+    vertices[2].x = (int)((double)nSumEdge23Dx2 * fIntersectionParam2 +
+                          (double)pTempPoint4.x);
+    dIntersectionY4 =
+        fIntersectionParam2 * (double)SumEdge23Dy2 + (double)pTempPoint4.y;
+    // CHP
     vertices[2].y = (int)dIntersectionY4;
     nColor3 = nColor;
 
@@ -164,9 +171,11 @@ void twpoly(tPoint *vertices, int16 nColor)
     pTempPoint5 = vertices[2];
 
     // Calculate intersection point P*
-    vertices[2].x = (int)((double)nSumEdge23Dx2 * fIntersectionParam2 + (double)pTempPoint5.x);
-    dIntersectionY3 = fIntersectionParam2 * (double)SumEdge23Dy2 + (double)vertices[2].y;
-    //CHP
+    vertices[2].x = (int)((double)nSumEdge23Dx2 * fIntersectionParam2 +
+                          (double)pTempPoint5.x);
+    dIntersectionY3 =
+        fIntersectionParam2 * (double)SumEdge23Dy2 + (double)vertices[2].y;
+    // CHP
     vertices[2].y = (int)dIntersectionY3;
     nColor3 = nColor;
 
@@ -174,27 +183,26 @@ void twpoly(tPoint *vertices, int16 nColor)
     poly(vertices, 3, nColor);
 
     // Prepare second triangle
-    *vertices = vertices[3];                    // Original P3
-    vertices[1] = pTempPoint5;                  // Original P2
+    *vertices = vertices[3];   // Original P3
+    vertices[1] = pTempPoint5; // Original P2
   }
   poly(vertices, 3, nColor3);
 }
 
 //-------------------------------------------------------------------------------------------------
-//00070A40
-void POLYFLAT(uint8 *pScrBuf, tPolyParams *polyParams)
-{
+// 00070A40
+void POLYFLAT(uint8 *pScrBuf, tPolyParams *polyParams) {
   uint32 uiSurfaceType; // ebx
-  int iX0; // edx
-  int iY0; // ecx
-  int iY1; // ebp
-  int iDx; // edx
-  int iDy; // ecx
-  int iX0_1; // edx
-  int iY0_1; // ecx
-  int iX1_1; // edx
-  int iY1_1; // ecx
-  int iX1; // [esp+0h] [ebp-18h]
+  int iX0;              // edx
+  int iY0;              // ecx
+  int iY1;              // ebp
+  int iDx;              // edx
+  int iDy;              // ecx
+  int iX0_1;            // edx
+  int iY0_1;            // ecx
+  int iX1_1;            // edx
+  int iY1_1;            // ecx
+  int iX1;              // [esp+0h] [ebp-18h]
 
   uiSurfaceType = polyParams->iSurfaceType;
   if ((polyParams->iSurfaceType & SURFACE_FLAG_SKIP_RENDER) == 0) {
@@ -205,8 +213,8 @@ void POLYFLAT(uint8 *pScrBuf, tPolyParams *polyParams)
       iY1 = iY0 - polyParams->vertices[1].y;
 
       // Determine comparison points (p2 or p3)
-      if (polyParams->vertices[1].x == polyParams->vertices[2].x
-        && polyParams->vertices[1].y == polyParams->vertices[2].y) {
+      if (polyParams->vertices[1].x == polyParams->vertices[2].x &&
+          polyParams->vertices[1].y == polyParams->vertices[2].y) {
         iDx = iX0 - polyParams->vertices[3].x;
         iDy = iY0 - polyParams->vertices[3].y;
       } else {
@@ -235,12 +243,14 @@ void POLYFLAT(uint8 *pScrBuf, tPolyParams *polyParams)
     }
     scrptr = pScrBuf;
     ++num_pols;
-    if ((uiSurfaceType & SURFACE_FLAG_TRANSPARENT) != 0)      // shadow polygon
+    if ((uiSurfaceType & SURFACE_FLAG_TRANSPARENT) != 0) // shadow polygon
     {
-      shadow_poly(polyParams->vertices, polyParams->uiNumVerts, (uint8)uiSurfaceType);
+      shadow_poly(polyParams->vertices, polyParams->uiNumVerts,
+                  (uint8)uiSurfaceType);
     } else if ((uiSurfaceType & SURFACE_FLAG_CONCAVE) != 0) {
-      twpoly(polyParams->vertices, (uint8)uiSurfaceType);// potentially concave quad
-    } else                                        // solid polygon
+      twpoly(polyParams->vertices,
+             (uint8)uiSurfaceType); // potentially concave quad
+    } else                          // solid polygon
     {
       poly(polyParams->vertices, polyParams->uiNumVerts, (uint8)uiSurfaceType);
     }
@@ -248,9 +258,8 @@ void POLYFLAT(uint8 *pScrBuf, tPolyParams *polyParams)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00070B40
-void poly(tPoint *vertices, int iNumVerts, int16 nColor)
-{
+// 00070B40
+void poly(tPoint *vertices, int iNumVerts, int16 nColor) {
   // Find polygon bounds and top vertex
   int iMinX = vertices[0].x;
   int iMaxX = vertices[0].x;
@@ -262,14 +271,17 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
     int x = vertices[i].x;
     int y = vertices[i].y;
 
-    if (x < iMinX) iMinX = x;
-    if (x > iMaxX) iMaxX = x;
+    if (x < iMinX)
+      iMinX = x;
+    if (x > iMaxX)
+      iMaxX = x;
 
     if (y < iMinY) {
       iMinY = y;
       iMinYIdx = i;
     }
-    if (y > iMaxY) iMaxY = y;
+    if (y > iMaxY)
+      iMaxY = y;
   }
 
   // Early exit if polygon is completely outside screen
@@ -281,7 +293,8 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
   int iSignedArea = 0;
   for (int i = 0; i < iNumVerts; i++) {
     int j = (i + 1) % iNumVerts;
-    iSignedArea += (vertices[j].x - vertices[i].x) * (vertices[j].y + vertices[i].y);
+    iSignedArea +=
+        (vertices[j].x - vertices[i].x) * (vertices[j].y + vertices[i].y);
   }
 
   // Determine edge walking directions based on winding order
@@ -297,10 +310,10 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
   }
 
   // Edge walking variables (floating-point)
-  float fLeftEdgeX = 0.0f;          // Left edge X position
-  float fRightEdgeX = 0.0f;         // Right edge X position  
-  float fLeftEdgeStep = 0.0f;       // Left edge X step per scanline
-  float fRightEdgeStep = 0.0f;      // Right edge X step per scanline
+  float fLeftEdgeX = 0.0f;     // Left edge X position
+  float fRightEdgeX = 0.0f;    // Right edge X position
+  float fLeftEdgeStep = 0.0f;  // Left edge X step per scanline
+  float fRightEdgeStep = 0.0f; // Right edge X step per scanline
 
   // Vertex indices for edge walking
   int iLeftVertexIdx = iMinYIdx;
@@ -386,11 +399,13 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
 
     if (iLeftRemain > 0) {
       int iTotalHeight = iEndY - iStartY;
-      float fDeltaX = (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftIdx].x);
+      float fDeltaX =
+          (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftIdx].x);
       fLeftEdgeStep = fDeltaX / (float)iTotalHeight;
 
       // Adjust for clipping
-      fLeftEdgeX = (float)vertices[iPrevLeftIdx].x + fLeftEdgeStep * (float)(0 - iStartY);
+      fLeftEdgeX = (float)vertices[iPrevLeftIdx].x +
+                   fLeftEdgeStep * (float)(0 - iStartY);
 
       if (fLeftEdgeStep < 0.0f) {
         fLeftEdgeX += fLeftEdgeStep;
@@ -411,11 +426,13 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
 
     if (iRightRemain > 0) {
       int iTotalHeight = iEndY - iStartY;
-      float fDeltaX = (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightIdx].x);
+      float fDeltaX =
+          (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightIdx].x);
       fRightEdgeStep = fDeltaX / (float)iTotalHeight;
 
       // Adjust for clipping
-      fRightEdgeX = (float)vertices[iPrevRightIdx].x + fRightEdgeStep * (float)(0 - iStartY);
+      fRightEdgeX = (float)vertices[iPrevRightIdx].x +
+                    fRightEdgeStep * (float)(0 - iStartY);
 
       if (fRightEdgeStep > 0.0f) {
         fRightEdgeX += fRightEdgeStep;
@@ -466,7 +483,8 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
           // Setup new left edge
           fLeftEdgeX = (float)vertices[iPrevLeftVertexIdx].x;
 
-          float fDeltaX = (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftVertexIdx].x);
+          float fDeltaX = (float)(vertices[iLeftVertexIdx].x -
+                                  vertices[iPrevLeftVertexIdx].x);
           fLeftEdgeStep = fDeltaX / (float)iLeftRemain;
 
           if (fLeftEdgeStep < 0.0f) {
@@ -496,7 +514,8 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
           // Setup new right edge
           fRightEdgeX = (float)vertices[iPrevRightVertexIdx].x;
 
-          float fDeltaX = (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightVertexIdx].x);
+          float fDeltaX = (float)(vertices[iRightVertexIdx].x -
+                                  vertices[iPrevRightVertexIdx].x);
           fRightEdgeStep = fDeltaX / (float)iRightRemain;
 
           if (fRightEdgeStep > 0.0f) {
@@ -513,9 +532,8 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00071D70
-void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
-{
+// 00071D70
+void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex) {
   // Find polygon bounds and top vertex
   int iMinX = vertices[0].x;
   int iMaxX = vertices[0].x;
@@ -527,14 +545,17 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
     int x = vertices[i].x;
     int y = vertices[i].y;
 
-    if (x < iMinX) iMinX = x;
-    if (x > iMaxX) iMaxX = x;
+    if (x < iMinX)
+      iMinX = x;
+    if (x > iMaxX)
+      iMaxX = x;
 
     if (y < iMinY) {
       iMinY = y;
       iMinYIdx = i;
     }
-    if (y > iMaxY) iMaxY = y;
+    if (y > iMaxY)
+      iMaxY = y;
   }
 
   // Early exit if polygon is completely outside screen
@@ -546,7 +567,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
   int iSignedArea = 0;
   for (int i = 0; i < iNumVerts; i++) {
     int j = (i + 1) % iNumVerts;
-    iSignedArea += (vertices[j].x - vertices[i].x) * (vertices[j].y + vertices[i].y);
+    iSignedArea +=
+        (vertices[j].x - vertices[i].x) * (vertices[j].y + vertices[i].y);
   }
 
   // Determine edge walking directions based on winding order
@@ -565,10 +587,10 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
   uint8 *pShadePalette = &shade_palette[256 * iPaletteIndex];
 
   // Edge walking variables (floating-point)
-  float fLeftEdgeX = 0.0f;          // Left edge X position
-  float fRightEdgeX = 0.0f;         // Right edge X position  
-  float fLeftEdgeStep = 0.0f;       // Left edge X step per scanline
-  float fRightEdgeStep = 0.0f;      // Right edge X step per scanline
+  float fLeftEdgeX = 0.0f;     // Left edge X position
+  float fRightEdgeX = 0.0f;    // Right edge X position
+  float fLeftEdgeStep = 0.0f;  // Left edge X step per scanline
+  float fRightEdgeStep = 0.0f; // Right edge X step per scanline
 
   // Vertex indices for edge walking
   int iLeftVertexIdx = iMinYIdx;
@@ -654,11 +676,13 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
 
     if (iLeftRemain > 0) {
       int iTotalHeight = iEndY - iStartY;
-      float fDeltaX = (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftIdx].x);
+      float fDeltaX =
+          (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftIdx].x);
       fLeftEdgeStep = fDeltaX / (float)iTotalHeight;
 
       // Adjust for clipping
-      fLeftEdgeX = (float)vertices[iPrevLeftIdx].x + fLeftEdgeStep * (float)(0 - iStartY);
+      fLeftEdgeX = (float)vertices[iPrevLeftIdx].x +
+                   fLeftEdgeStep * (float)(0 - iStartY);
 
       if (fLeftEdgeStep < 0.0f) {
         fLeftEdgeX += fLeftEdgeStep;
@@ -679,11 +703,13 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
 
     if (iRightRemain > 0) {
       int iTotalHeight = iEndY - iStartY;
-      float fDeltaX = (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightIdx].x);
+      float fDeltaX =
+          (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightIdx].x);
       fRightEdgeStep = fDeltaX / (float)iTotalHeight;
 
       // Adjust for clipping
-      fRightEdgeX = (float)vertices[iPrevRightIdx].x + fRightEdgeStep * (float)(0 - iStartY);
+      fRightEdgeX = (float)vertices[iPrevRightIdx].x +
+                    fRightEdgeStep * (float)(0 - iStartY);
 
       if (fRightEdgeStep > 0.0f) {
         fRightEdgeX += fRightEdgeStep;
@@ -737,7 +763,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
           // Setup new left edge
           fLeftEdgeX = (float)vertices[iPrevLeftVertexIdx].x;
 
-          float fDeltaX = (float)(vertices[iLeftVertexIdx].x - vertices[iPrevLeftVertexIdx].x);
+          float fDeltaX = (float)(vertices[iLeftVertexIdx].x -
+                                  vertices[iPrevLeftVertexIdx].x);
           fLeftEdgeStep = fDeltaX / (float)iLeftRemain;
 
           if (fLeftEdgeStep < 0.0f) {
@@ -767,7 +794,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
           // Setup new right edge
           fRightEdgeX = (float)vertices[iPrevRightVertexIdx].x;
 
-          float fDeltaX = (float)(vertices[iRightVertexIdx].x - vertices[iPrevRightVertexIdx].x);
+          float fDeltaX = (float)(vertices[iRightVertexIdx].x -
+                                  vertices[iPrevRightVertexIdx].x);
           fRightEdgeStep = fDeltaX / (float)iRightRemain;
 
           if (fRightEdgeStep > 0.0f) {
@@ -784,7 +812,7 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00070B40
+// 00070B40
 /*void poly(tPoint *vertices, int iVertexCount, int16 nColor)
 {
   int iOldWinW; // ebp
@@ -949,10 +977,10 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
     // Initialize left edge with top vertex X (16.16 fixed point format)
     SET_HIWORD(iLeftXFixed, pTopVertex->x);
     SET_HIWORD(v114, pTopVertex->x);
-    SET_LOWORD(iLeftXFixed, -1);                   // Initialize fraction to -1 for correct rounding
-    SET_LOWORD(v114, 0);                           // Initialize fraction to 0
-    SET_LOWORD(v105, 0);                           // Clear loword
-    SET_LOWORD(v97, 0);                            // Clear loword
+    SET_LOWORD(iLeftXFixed, -1);                   // Initialize fraction to -1
+for correct rounding SET_LOWORD(v114, 0);                           //
+Initialize fraction to 0 SET_LOWORD(v105, 0);                           // Clear
+loword SET_LOWORD(v97, 0);                            // Clear loword
 
     // Initialize left edge
     while (1) {
@@ -988,10 +1016,9 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
 
     // Initialize right edge
     while (1) {
-      v22 = --iMinYIdx2;                        // Move to previous vertex clockwise
-      if ((int16)iMinYIdx2 == -1)           // Wrap vertex idx
-        iMinYIdx2 = iVertexCount - 1;
-      pVertex = &vertices[(int16)iMinYIdx2];
+      v22 = --iMinYIdx2;                        // Move to previous vertex
+clockwise if ((int16)iMinYIdx2 == -1)           // Wrap vertex idx iMinYIdx2 =
+iVertexCount - 1; pVertex = &vertices[(int16)iMinYIdx2];
       // Calculate scanlines until next vertex
       SET_LOWORD(v22, GET_LOWORD(pVertex->y) - iScanlineY);
       iLeftRemaining_1 = v22;
@@ -1026,7 +1053,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
     SET_LOWORD(v103, 0);                           // Clear loword
     SET_LOWORD(v95, 0);                            // Clear loword
     SET_LOWORD(v113, 0);                           // Clear loword
-    SET_LOWORD(iLeftX, -1);                        // Initialize fraction for right edge
+    SET_LOWORD(iLeftX, -1);                        // Initialize fraction for
+right edge
 
     // Find first vertex at or below screen top
     do {
@@ -1091,10 +1119,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
         goto CLEANUP_AND_RETURN;                // All vertices above screen
     }
     // Calculate right edge slope (dx/dy)
-    SET_HIWORD(v103, GET_LOWORD(vertices[(int16)iMinYIdx2].x) - GET_HIWORD(iLeftX));
-    iLeftRemaining_1 = iY;
-    if (v103 <= 0) {
-      DEC_HIWORD(v103);
+    SET_HIWORD(v103, GET_LOWORD(vertices[(int16)iMinYIdx2].x) -
+GET_HIWORD(iLeftX)); iLeftRemaining_1 = iY; if (v103 <= 0) { DEC_HIWORD(v103);
       v104 = v103 / ((int16)iY - v16 + 1);    // dx/dy
       INC_HIWORD(iLeftX);                         // Adjust for rounding
     } else {
@@ -1177,17 +1203,14 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
         iLeftRemaining_1 = v26;
         if ((int16)v26 > 0)                 // Valid edge segment
         {
-          SET_HIWORD(v106, GET_LOWORD(pVertex_2->x) - GET_HIWORD(iLeftXFixed));// dx
-          SET_LOWORD(v106, 0);                     // clear fraction
-          SET_LOWORD(iLeftXFixed, -1);             // reset fraction
-          if (v106 <= 0) {
-            DEC_HIWORD(v106);                     // Adjust for negative slope
-            v104 = v106 / ((int16)v26 + 1);   // dx/dy
-            INC_HIWORD(iLeftXFixed);              // Adjust for rounding
-          } else {
-            INC_HIWORD(v106);                     // Adjust for positive slope
-            v104 = v106 / ((int16)v26 + 1);   // dx/dy
-            iLeftXFixed += v104;                // Udpate X
+          SET_HIWORD(v106, GET_LOWORD(pVertex_2->x) -
+GET_HIWORD(iLeftXFixed));// dx SET_LOWORD(v106, 0);                     // clear
+fraction SET_LOWORD(iLeftXFixed, -1);             // reset fraction if (v106 <=
+0) { DEC_HIWORD(v106);                     // Adjust for negative slope v104 =
+v106 / ((int16)v26 + 1);   // dx/dy INC_HIWORD(iLeftXFixed);              //
+Adjust for rounding } else { INC_HIWORD(v106);                     // Adjust for
+positive slope v104 = v106 / ((int16)v26 + 1);   // dx/dy iLeftXFixed += v104;
+// Udpate X
           }
           break;
         }
@@ -1197,8 +1220,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
     }
     if (iScanlineY >= winh)                   // Past bottom of screen
       goto CLEANUP_AND_RETURN;
-  }                                             // 
-                                                // 
+  }                                             //
+                                                //
   while (1) {
     // Main drawing loop
 
@@ -1225,9 +1248,9 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
       {
         winw = iOldWinW;
         // Fill entire scanline segment
-        memset(&scrptr[iOldWinW * iScanlineY], nColor, GET_SHIWORD(iLeftXFixed));
-        iOldWinW = winw;
-      } else if (iLeftXFixed < 0)               // Right edge off left
+        memset(&scrptr[iOldWinW * iScanlineY], nColor,
+GET_SHIWORD(iLeftXFixed)); iOldWinW = winw; } else if (iLeftXFixed < 0) // Right
+edge off left
       {
         goto CLEANUP_AND_RETURN;
       }
@@ -1272,9 +1295,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
             goto CLEANUP_AND_RETURN;            // nothing to draw
           }
         LABEL_253:
-          if (GET_SHIWORD(iLeftXFixed) <= 0)      // Right edge beyond screen right
-            goto CLEANUP_AND_RETURN;
-          goto FILL_FULL_WIDTH;
+          if (GET_SHIWORD(iLeftXFixed) <= 0)      // Right edge beyond screen
+right goto CLEANUP_AND_RETURN; goto FILL_FULL_WIDTH;
         }
         // Continue processing left edge after completion
         while (1) {
@@ -1349,8 +1371,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
             goto CLEANUP_AND_RETURN;
         }
         // Calcualte new right edge slope
-        SET_HIWORD(v108, GET_LOWORD(pVertex_4->x) - GET_HIWORD(iLeftXFixed));// dx
-        SET_LOWORD(v108, 0);                       // clear fraction
+        SET_HIWORD(v108, GET_LOWORD(pVertex_4->x) - GET_HIWORD(iLeftXFixed));//
+dx SET_LOWORD(v108, 0);                       // clear fraction
         SET_LOWORD(iLeftXFixed, -1);               // reset fraction
         if (v108 <= 0) {
           DEC_HIWORD(v108);                       // adjust for negative slope
@@ -1528,17 +1550,16 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
       break;
     // check if right edge beyond right
     if (GET_SHIWORD(iLeftXFixed) > winw)
-      goto FILL_RIGHT_CLIPPED;                  // fill from left to screen right
-  DRAW_SCANLINE:                                  // draw between left and right edges
-    if (GET_SHIWORD(iLeftXFixed) <= 0)            // right edge not visible
-      goto CLEANUP_AND_RETURN;
-  DRAW_SCANLINE_SEGMENT:
+      goto FILL_RIGHT_CLIPPED;                  // fill from left to screen
+right DRAW_SCANLINE:                                  // draw between left and
+right edges if (GET_SHIWORD(iLeftXFixed) <= 0)            // right edge not
+visible goto CLEANUP_AND_RETURN; DRAW_SCANLINE_SEGMENT:
       // calculate span between edges
     if ((int16)(GET_HIWORD(iLeftXFixed) - GET_HIWORD(v114)) > 0) {
       winw = iOldWinW;
       // fill between edges
-      memset(&scrptr[GET_SHIWORD(v114) + iOldWinW * iScanlineY], nColor, (int16)(GET_HIWORD(iLeftXFixed) - GET_HIWORD(v114)));
-      iOldWinW = winw;
+      memset(&scrptr[GET_SHIWORD(v114) + iOldWinW * iScanlineY], nColor,
+(int16)(GET_HIWORD(iLeftXFixed) - GET_HIWORD(v114))); iOldWinW = winw;
     }
     // Handle inverted edges (shouldn't happen)
     else if ((int16)(GET_HIWORD(iLeftXFixed) - GET_HIWORD(v114)) < 0) {
@@ -1784,8 +1805,8 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
           goto CLEANUP_AND_RETURN;
       }
       // calculate new right edge slope
-      SET_HIWORD(v110, GET_LOWORD(pVertex_10->x) - GET_HIWORD(iLeftXFixed));// dx
-      SET_LOWORD(v110, 0);                         // clear fraction
+      SET_HIWORD(v110, GET_LOWORD(pVertex_10->x) - GET_HIWORD(iLeftXFixed));//
+dx SET_LOWORD(v110, 0);                         // clear fraction
       SET_LOWORD(iLeftXFixed, -1);                 // reset fraction
       if (v110 <= 0) {
         DEC_HIWORD(v110);                         // adjust negative slope
@@ -1847,7 +1868,7 @@ CLEANUP_AND_RETURN:
 }*/
 
 //-------------------------------------------------------------------------------------------------
-//00071D70
+// 00071D70
 /*void shadow_poly(tPoint *vertices, int iNumVertices, int iPaletteIndex)
 {
   int iOldWinW; // ebp
@@ -2037,13 +2058,11 @@ CLEANUP_AND_RETURN:
     }
 
     // Calculate left edge step
-    SET_HIWORD(iLeftEdgeDxTemp2, GET_LOWORD(pVertex->x) - GET_HIWORD(iLeftEdgeX));
-    iStep = iLeftEdgeDxTemp2 / (int16)iStep_3;
-    iRemainder_1 = iLeftEdgeDxTemp2 % (int16)iLeftRemain;
-    iLeftEdgeDx_1 = iStep;
-    if (iStep < 0)
+    SET_HIWORD(iLeftEdgeDxTemp2, GET_LOWORD(pVertex->x) -
+GET_HIWORD(iLeftEdgeX)); iStep = iLeftEdgeDxTemp2 / (int16)iStep_3; iRemainder_1
+= iLeftEdgeDxTemp2 % (int16)iLeftRemain; iLeftEdgeDx_1 = iStep; if (iStep < 0)
       iLeftEdgeX += iStep;                      // adjust for negative slope
-                                                // 
+                                                //
     while (1) {
       // Process right edge
       if ((int16)--iBackwardIdx == -1)
@@ -2100,14 +2119,12 @@ CLEANUP_AND_RETURN:
     }
 
     // Calculate left edge parameters for clipped start
-    SET_HIWORD(iLeftEdgeDxTemp, GET_LOWORD(vertices[(int16)iMinYIdx].x) - GET_HIWORD(iLeftEdgeXTemp));
-    iLeftRemain = iTempY2;
-    iCalculatedStep = iLeftEdgeDxTemp / ((int16)iTempY2 - iTempY_2);
-    iStepOffset = (int)((long long)iLeftEdgeXTemp - (long long)iCalculatedStep * iTempY_2);
-    iLeftEdgeDx_1 = iCalculatedStep;
-    iLeftEdgeX = iStepOffset;
-    if (iCalculatedStep < 0)
-      iLeftEdgeX = iCalculatedStep + iStepOffset;
+    SET_HIWORD(iLeftEdgeDxTemp, GET_LOWORD(vertices[(int16)iMinYIdx].x) -
+GET_HIWORD(iLeftEdgeXTemp)); iLeftRemain = iTempY2; iCalculatedStep =
+iLeftEdgeDxTemp / ((int16)iTempY2 - iTempY_2); iStepOffset = (int)((long
+long)iLeftEdgeXTemp - (long long)iCalculatedStep * iTempY_2); iLeftEdgeDx_1 =
+iCalculatedStep; iLeftEdgeX = iStepOffset; if (iCalculatedStep < 0) iLeftEdgeX =
+iCalculatedStep + iStepOffset;
 
     // Find first visible right vertex
     do {
@@ -2136,19 +2153,18 @@ CLEANUP_AND_RETURN:
     }
 
     // Calculate right edge parameters for clipped start
-    SET_HIWORD(iRemainder, GET_LOWORD(vertices[(int16)iBackwardIdx].x) - GET_HIWORD(iRightEdgeXTemp));
-    iRightRemain = iTempY;
-    iRightCalculatedStep = iRemainder / ((int16)iTempY - iTempY_4);
-    iRightStepOffset = (int)((long long)iRightEdgeXTemp - (long long)iRightCalculatedStep * iTempY_4);
-    iRightEdgeDx = iRightCalculatedStep;
-    iRightEdgeX = iRightStepOffset;
-    if (iRightCalculatedStep > 0)
-      iRightEdgeX = iRightCalculatedStep + iRightStepOffset;
-    iCurrScanline = 0;                          // Start rendering at top of screen
+    SET_HIWORD(iRemainder, GET_LOWORD(vertices[(int16)iBackwardIdx].x) -
+GET_HIWORD(iRightEdgeXTemp)); iRightRemain = iTempY; iRightCalculatedStep =
+iRemainder / ((int16)iTempY - iTempY_4); iRightStepOffset = (int)((long
+long)iRightEdgeXTemp - (long long)iRightCalculatedStep * iTempY_4); iRightEdgeDx
+= iRightCalculatedStep; iRightEdgeX = iRightStepOffset; if (iRightCalculatedStep
+> 0) iRightEdgeX = iRightCalculatedStep + iRightStepOffset; iCurrScanline = 0;
+// Start rendering at top of screen
   }
 
   // Edge processing and clipping
-  while (((iLeftEdgeX >> 16) & 0xFFFF) >= winw || iRightEdgeX < 0 || iLeftEdgeX > iRightEdgeX) {
+  while (((iLeftEdgeX >> 16) & 0xFFFF) >= winw || iRightEdgeX < 0 || iLeftEdgeX
+> iRightEdgeX) {
     // Advance edges
     iLeftEdgeX += iLeftEdgeDx_1;
     ++iCurrScanline;
@@ -2171,15 +2187,11 @@ CLEANUP_AND_RETURN:
         SET_LOWORD(iVertexX, pVertex_10->y);
         iLeftRemain = iVertexX - iCurrScanline;
         if ((int16)(iVertexX - iCurrScanline) > 0) {
-          SET_HIWORD(iLeftEdgeDxTemp3, GET_LOWORD(pVertex_10->x) - GET_HIWORD(iLeftEdgeX));
-          SET_LOWORD(iLeftEdgeX, 0);
-          SET_LOWORD(iLeftEdgeDxTemp3, 0);
-          iNewStep = iLeftEdgeDxTemp3 / (int16)iLeftRemain;
-          iRightEdgeUpdate = iLeftEdgeDxTemp3 % (int16)iLeftRemain;
-          iLeftEdgeDx_1 = iNewStep;
-          if (iNewStep < 0)
-            iLeftEdgeX += iNewStep;
-          goto EDGE_ADVANCE_1;
+          SET_HIWORD(iLeftEdgeDxTemp3, GET_LOWORD(pVertex_10->x) -
+GET_HIWORD(iLeftEdgeX)); SET_LOWORD(iLeftEdgeX, 0); SET_LOWORD(iLeftEdgeDxTemp3,
+0); iNewStep = iLeftEdgeDxTemp3 / (int16)iLeftRemain; iRightEdgeUpdate =
+iLeftEdgeDxTemp3 % (int16)iLeftRemain; iLeftEdgeDx_1 = iNewStep; if (iNewStep <
+0) iLeftEdgeX += iNewStep; goto EDGE_ADVANCE_1;
         }
       }
       goto RESTORE_AND_RETURN;
@@ -2202,14 +2214,10 @@ CLEANUP_AND_RETURN:
         iRightEdgeUpdate -= iCurrScanline;
         iRightRemain = iRightEdgeUpdate;
         if ((int16)iRightEdgeUpdate > 0) {
-          SET_HIWORD(iTempEdgeDx, GET_LOWORD(pVertex_2->x) - GET_HIWORD(iRightEdgeX));
-          SET_LOWORD(iRightEdgeX, 0);
-          SET_LOWORD(iTempEdgeDx, 0);
-          iStep_4 = iTempEdgeDx / (int16)iRightEdgeUpdate;
-          iRightEdgeDx = iStep_4;
-          if (iStep_4 > 0)
-            iRightEdgeX += iStep_4;
-          goto EDGE_ADVANCE_2;
+          SET_HIWORD(iTempEdgeDx, GET_LOWORD(pVertex_2->x) -
+GET_HIWORD(iRightEdgeX)); SET_LOWORD(iRightEdgeX, 0); SET_LOWORD(iTempEdgeDx,
+0); iStep_4 = iTempEdgeDx / (int16)iRightEdgeUpdate; iRightEdgeDx = iStep_4; if
+(iStep_4 > 0) iRightEdgeX += iStep_4; goto EDGE_ADVANCE_2;
         }
       }
       goto RESTORE_AND_RETURN;
@@ -2260,15 +2268,11 @@ CLEANUP_AND_RETURN:
             SET_LOWORD(iVertexIdx_1, pVertex_11->y);
             iLeftRemain = iVertexIdx_1 - iCurrScanline;
             if ((int16)(iVertexIdx_1 - iCurrScanline) > 0) {
-              SET_HIWORD(iLeftEdgeDxTemp7, GET_LOWORD(pVertex_11->x) - GET_HIWORD(iLeftEdgeX));
-              SET_LOWORD(iLeftEdgeX, 0);
-              SET_LOWORD(iLeftEdgeDxTemp7, 0);
-              iNewStep_1 = iLeftEdgeDxTemp7 / (int16)iLeftRemain;
-              iRightEdgeTemp = iLeftEdgeDxTemp7 % (int16)iLeftRemain;
-              iLeftEdgeDx_1 = iNewStep_1;
-              if (iNewStep_1 < 0)
-                iLeftEdgeX += iNewStep_1;
-              goto LEFT_EDGE_COMPLETE;
+              SET_HIWORD(iLeftEdgeDxTemp7, GET_LOWORD(pVertex_11->x) -
+GET_HIWORD(iLeftEdgeX)); SET_LOWORD(iLeftEdgeX, 0); SET_LOWORD(iLeftEdgeDxTemp7,
+0); iNewStep_1 = iLeftEdgeDxTemp7 / (int16)iLeftRemain; iRightEdgeTemp =
+iLeftEdgeDxTemp7 % (int16)iLeftRemain; iLeftEdgeDx_1 = iNewStep_1; if
+(iNewStep_1 < 0) iLeftEdgeX += iNewStep_1; goto LEFT_EDGE_COMPLETE;
             }
           }
           goto RESTORE_AND_RETURN;
@@ -2291,14 +2295,10 @@ CLEANUP_AND_RETURN:
             iRightEdgeTemp -= iCurrScanline;
             iRightRemain = iRightEdgeTemp;
             if ((int16)iRightEdgeTemp > 0) {
-              SET_HIWORD(iTempEdgeDx5, GET_LOWORD(pVertex_3->x) - GET_HIWORD(iRightEdgeX));
-              SET_LOWORD(iRightEdgeX, 0);
-              SET_LOWORD(iTempEdgeDx5, 0);
-              iStep_5 = iTempEdgeDx5 / (int16)iRightEdgeTemp;
-              iRightEdgeDx = iStep_5;
-              if (iStep_5 > 0)
-                iRightEdgeX += iStep_5;
-              goto SCANLINE_CHECK;
+              SET_HIWORD(iTempEdgeDx5, GET_LOWORD(pVertex_3->x) -
+GET_HIWORD(iRightEdgeX)); SET_LOWORD(iRightEdgeX, 0); SET_LOWORD(iTempEdgeDx5,
+0); iStep_5 = iTempEdgeDx5 / (int16)iRightEdgeTemp; iRightEdgeDx = iStep_5; if
+(iStep_5 > 0) iRightEdgeX += iStep_5; goto SCANLINE_CHECK;
             }
           }
           goto RESTORE_AND_RETURN;
@@ -2333,8 +2333,8 @@ CLEANUP_AND_RETURN:
           // Right clipped scanline processing
         RIGHT_CLIPPED_RENDER:
           pDest3 = &scrptr[GET_SHIWORD(iLeftEdgeX) + iOldWinW * iCurrScanline];
-          for (iPixelIdx_1 = 0; iOldWinW - GET_SHIWORD(iLeftEdgeX) > iPixelIdx_1; ++iPixelIdx_1) {
-            *pDest3 = pShadePalette[*pDest3];
+          for (iPixelIdx_1 = 0; iOldWinW - GET_SHIWORD(iLeftEdgeX) >
+iPixelIdx_1; ++iPixelIdx_1) { *pDest3 = pShadePalette[*pDest3];
             ++pDest3;
           }
           // Advance to next scanline
@@ -2359,15 +2359,11 @@ CLEANUP_AND_RETURN:
               SET_LOWORD(iTempY_5, pVertex_4->y);
               iLeftRemain = iTempY_5 - iCurrScanline;
               if ((int16)(iTempY_5 - iCurrScanline) > 0) {
-                SET_HIWORD(iLeftEdgeDxTemp6, GET_LOWORD(pVertex_4->x) - GET_HIWORD(iLeftEdgeX));
-                SET_LOWORD(iLeftEdgeX, 0);
-                SET_LOWORD(iLeftEdgeDxTemp6, 0);
-                iNewStep_2 = iLeftEdgeDxTemp6 / (int16)iLeftRemain;
-                iRightEdgeTemp_1 = iLeftEdgeDxTemp6 % (int16)iLeftRemain;
-                iLeftEdgeDx_1 = iNewStep_2;
-                if (iNewStep_2 < 0)
-                  iLeftEdgeX += iNewStep_2;
-                goto LEFT_EDGE_COMPLETE_2;
+                SET_HIWORD(iLeftEdgeDxTemp6, GET_LOWORD(pVertex_4->x) -
+GET_HIWORD(iLeftEdgeX)); SET_LOWORD(iLeftEdgeX, 0); SET_LOWORD(iLeftEdgeDxTemp6,
+0); iNewStep_2 = iLeftEdgeDxTemp6 / (int16)iLeftRemain; iRightEdgeTemp_1 =
+iLeftEdgeDxTemp6 % (int16)iLeftRemain; iLeftEdgeDx_1 = iNewStep_2; if
+(iNewStep_2 < 0) iLeftEdgeX += iNewStep_2; goto LEFT_EDGE_COMPLETE_2;
               }
             }
             goto RESTORE_AND_RETURN;
@@ -2390,14 +2386,10 @@ CLEANUP_AND_RETURN:
               iRightEdgeTemp_1 -= iCurrScanline;
               iRightRemain = iRightEdgeTemp_1;
               if ((int16)iRightEdgeTemp_1 > 0) {
-                SET_HIWORD(iTempEdgeDx4, GET_LOWORD(pVertex_5->x) - GET_HIWORD(iRightEdgeX));
-                SET_LOWORD(iRightEdgeX, 0);
-                SET_LOWORD(iTempEdgeDx4, 0);
-                iStep_6 = iTempEdgeDx4 / (int16)iRightEdgeTemp_1;
-                iRightEdgeDx = iStep_6;
-                if (iStep_6 > 0)
-                  iRightEdgeX += iStep_6;
-                goto SCANLINE_CHECK_2;
+                SET_HIWORD(iTempEdgeDx4, GET_LOWORD(pVertex_5->x) -
+GET_HIWORD(iRightEdgeX)); SET_LOWORD(iRightEdgeX, 0); SET_LOWORD(iTempEdgeDx4,
+0); iStep_6 = iTempEdgeDx4 / (int16)iRightEdgeTemp_1; iRightEdgeDx = iStep_6; if
+(iStep_6 > 0) iRightEdgeX += iStep_6; goto SCANLINE_CHECK_2;
               }
             }
             goto RESTORE_AND_RETURN;
@@ -2428,8 +2420,8 @@ CLEANUP_AND_RETURN:
           // Left-visible scanline processing
         RENDER_LEFT_VISIBLE_SEGMENT:
           pDest2 = &scrptr[iOldWinW * iCurrScanline];
-          for (iPixelIdx_2 = 0; GET_SHIWORD(iRightEdgeX) + 1 > iPixelIdx_2; ++iPixelIdx_2) {
-            *pDest2 = pShadePalette[*pDest2];
+          for (iPixelIdx_2 = 0; GET_SHIWORD(iRightEdgeX) + 1 > iPixelIdx_2;
+++iPixelIdx_2) { *pDest2 = pShadePalette[*pDest2];
             ++pDest2;
           }
 
@@ -2454,15 +2446,11 @@ CLEANUP_AND_RETURN:
               SET_LOWORD(nTempX_10, pVertex_6->y);
               iLeftRemain = nTempX_10 - iCurrScanline;
               if ((int16)(nTempX_10 - iCurrScanline) > 0) {
-                SET_HIWORD(iLeftEdgeDxTemp5, GET_LOWORD(pVertex_6->x) - GET_HIWORD(iLeftEdgeX));
-                SET_LOWORD(iLeftEdgeX, 0);
-                SET_LOWORD(iLeftEdgeDxTemp5, 0);
-                iNewStep_3 = iLeftEdgeDxTemp5 / (int16)iLeftRemain;
-                iStep_2 = iLeftEdgeDxTemp5 % (int16)iLeftRemain;
-                iLeftEdgeDx_1 = iNewStep_3;
-                if (iNewStep_3 < 0)
-                  iLeftEdgeX += iNewStep_3;
-                goto LEFT_EDGE_COMPLETE_3;
+                SET_HIWORD(iLeftEdgeDxTemp5, GET_LOWORD(pVertex_6->x) -
+GET_HIWORD(iLeftEdgeX)); SET_LOWORD(iLeftEdgeX, 0); SET_LOWORD(iLeftEdgeDxTemp5,
+0); iNewStep_3 = iLeftEdgeDxTemp5 / (int16)iLeftRemain; iStep_2 =
+iLeftEdgeDxTemp5 % (int16)iLeftRemain; iLeftEdgeDx_1 = iNewStep_3; if
+(iNewStep_3 < 0) iLeftEdgeX += iNewStep_3; goto LEFT_EDGE_COMPLETE_3;
               }
             }
             goto RESTORE_AND_RETURN;
@@ -2485,14 +2473,10 @@ CLEANUP_AND_RETURN:
               iStep_2 -= iCurrScanline;
               iRightRemain = iStep_2;
               if ((int16)iStep_2 > 0) {
-                SET_HIWORD(iTempEdgeDx3, GET_LOWORD(pVertex_7->x) - GET_HIWORD(iRightEdgeX));
-                SET_LOWORD(iRightEdgeX, 0);
-                SET_LOWORD(iTempEdgeDx3, 0);
-                iStep_8 = iTempEdgeDx3 / (int16)iStep_2;
-                iRightEdgeDx = iStep_8;
-                if (iStep_8 > 0)
-                  iRightEdgeX += iStep_8;
-                goto SCANLINE_CHECK_3;
+                SET_HIWORD(iTempEdgeDx3, GET_LOWORD(pVertex_7->x) -
+GET_HIWORD(iRightEdgeX)); SET_LOWORD(iRightEdgeX, 0); SET_LOWORD(iTempEdgeDx3,
+0); iStep_8 = iTempEdgeDx3 / (int16)iStep_2; iRightEdgeDx = iStep_8; if (iStep_8
+> 0) iRightEdgeX += iStep_8; goto SCANLINE_CHECK_3;
               }
             }
             goto RESTORE_AND_RETURN;
@@ -2517,9 +2501,9 @@ CLEANUP_AND_RETURN:
     }
 
     // Calculate visible segment width
-    nSegmentWidth = (int16)(GET_HIWORD(iRightEdgeX) - GET_HIWORD(iLeftEdgeX) + 1);
-    if (nSegmentWidth < 0)                    // Negative width check
-      goto RESTORE_AND_RETURN;
+    nSegmentWidth = (int16)(GET_HIWORD(iRightEdgeX) - GET_HIWORD(iLeftEdgeX) +
+1); if (nSegmentWidth < 0)                    // Negative width check goto
+RESTORE_AND_RETURN;
 
     // Process visible scanline segment
     pDest4 = &scrptr[GET_SHIWORD(iLeftEdgeX) + iOldWinW * iCurrScanline];
@@ -2559,14 +2543,10 @@ CLEANUP_AND_RETURN:
         iStepOffset_1 -= iCurrScanline;
         iRightRemain = iStepOffset_1;
         if ((int16)iStepOffset_1 > 0) {
-          SET_HIWORD(iTempEdgeDx2, GET_LOWORD(pVertex_8->x) - GET_HIWORD(iRightEdgeX));
-          SET_LOWORD(iRightEdgeX, 0);
-          SET_LOWORD(iTempEdgeDx2, 0);
-          iStep_7 = iTempEdgeDx2 / (int16)iStepOffset_1;
-          iRightEdgeDx = iStep_7;
-          if (iStep_7 > 0)
-            iRightEdgeX += iStep_7;
-          goto NEXT_SCANLINE;
+          SET_HIWORD(iTempEdgeDx2, GET_LOWORD(pVertex_8->x) -
+GET_HIWORD(iRightEdgeX)); SET_LOWORD(iRightEdgeX, 0); SET_LOWORD(iTempEdgeDx2,
+0); iStep_7 = iTempEdgeDx2 / (int16)iStepOffset_1; iRightEdgeDx = iStep_7; if
+(iStep_7 > 0) iRightEdgeX += iStep_7; goto NEXT_SCANLINE;
         }
       }
       goto RESTORE_AND_RETURN;
@@ -2590,15 +2570,11 @@ CLEANUP_AND_RETURN:
     SET_LOWORD(iVertexIdx_2, pVertex_9->y);
     iLeftRemain = iVertexIdx_2 - iCurrScanline;
     if ((int16)(iVertexIdx_2 - iCurrScanline) > 0) {
-      SET_HIWORD(iLeftEdgeDxTemp4, GET_LOWORD(pVertex_9->x) - GET_HIWORD(iLeftEdgeX));
-      SET_LOWORD(iLeftEdgeX, 0);
-      SET_LOWORD(iLeftEdgeDxTemp4, 0);
-      iNewStep_4 = iLeftEdgeDxTemp4 / (int16)iLeftRemain;
-      iStepOffset_1 = iLeftEdgeDxTemp4 % (int16)iLeftRemain;
-      iLeftEdgeDx_1 = iNewStep_4;
-      if (iNewStep_4 < 0)
-        iLeftEdgeX += iNewStep_4;
-      goto PROCESS_RIGHT_EDGE;
+      SET_HIWORD(iLeftEdgeDxTemp4, GET_LOWORD(pVertex_9->x) -
+GET_HIWORD(iLeftEdgeX)); SET_LOWORD(iLeftEdgeX, 0); SET_LOWORD(iLeftEdgeDxTemp4,
+0); iNewStep_4 = iLeftEdgeDxTemp4 / (int16)iLeftRemain; iStepOffset_1 =
+iLeftEdgeDxTemp4 % (int16)iLeftRemain; iLeftEdgeDx_1 = iNewStep_4; if
+(iNewStep_4 < 0) iLeftEdgeX += iNewStep_4; goto PROCESS_RIGHT_EDGE;
     }
   }
 RESTORE_AND_RETURN:

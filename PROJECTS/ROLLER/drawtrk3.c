@@ -16,122 +16,122 @@
 #include <assert.h>
 //-------------------------------------------------------------------------------------------------
 
-int showsub = 0;    //000A34A0
-int view_limit = 0; //000A41B8
-int divtype = 0;    //000A41BC
-int NextSect[MAX_TRACK_CHUNKS];  //00143BF4
-int tex_hgt;        //00144464
-int polyysize;      //00144468
-int polyxsize;      //0014446C
-uint8 *subptr;      //00144474
-int fliptype;       //00144478
-int subpolytype;    //0014447C
-tPolyParams *subpoly; //00144480
-int tex_wid;        //00144484
-int flatpol;        //00144488
-tPolyParams RoofPoly; //0014448C
-tPolyParams G5Poly;   //001444B8
-tPolyParams G4Poly;   //001444E4
-tPolyParams G3Poly;   //00144510
-tPolyParams G2Poly;   //0014453C
-tPolyParams G1Poly;   //00144568
-tPolyParams RWallPoly;//00144594
-tPolyParams LWallPoly;//001445C0
-tPolyParams RightPoly;//001445EC
-tPolyParams LeftPoly; //00144618
-tPolyParams RoadPoly; //00144644
-int start_sect;     //00144670
-int gap_size;       //00144674
-int first_size;     //00144678
-int TrackSize;      //0014467C
-int backwards;      //00144684
-int next_front;     //00144684
-int mid_sec;        //00144688
-int back_sec;       //0014468C
-int front_sec;      //00144690
-int VisibleHumans;  //00144694
-int min_sub_size;   //00144698
-int NamesLeft;      //0014469C
-int CarsLeft;       //001446A0
-int VisibleCars;    //001446A4
-int num_pols;       //001446A8
-int small_poly;     //001446AC
-int num_bits;       //001446B0
+int showsub = 0;                // 000A34A0
+int view_limit = 0;             // 000A41B8
+int divtype = 0;                // 000A41BC
+int NextSect[MAX_TRACK_CHUNKS]; // 00143BF4
+int tex_hgt;                    // 00144464
+int polyysize;                  // 00144468
+int polyxsize;                  // 0014446C
+uint8 *subptr;                  // 00144474
+int fliptype;                   // 00144478
+int subpolytype;                // 0014447C
+tPolyParams *subpoly;           // 00144480
+int tex_wid;                    // 00144484
+int flatpol;                    // 00144488
+tPolyParams RoofPoly;           // 0014448C
+tPolyParams G5Poly;             // 001444B8
+tPolyParams G4Poly;             // 001444E4
+tPolyParams G3Poly;             // 00144510
+tPolyParams G2Poly;             // 0014453C
+tPolyParams G1Poly;             // 00144568
+tPolyParams RWallPoly;          // 00144594
+tPolyParams LWallPoly;          // 001445C0
+tPolyParams RightPoly;          // 001445EC
+tPolyParams LeftPoly;           // 00144618
+tPolyParams RoadPoly;           // 00144644
+int start_sect;                 // 00144670
+int gap_size;                   // 00144674
+int first_size;                 // 00144678
+int TrackSize;                  // 0014467C
+int backwards;                  // 00144684
+int next_front;                 // 00144684
+int mid_sec;                    // 00144688
+int back_sec;                   // 0014468C
+int front_sec;                  // 00144690
+int VisibleHumans;              // 00144694
+int min_sub_size;               // 00144698
+int NamesLeft;                  // 0014469C
+int CarsLeft;                   // 001446A0
+int VisibleCars;                // 001446A4
+int num_pols;                   // 001446A8
+int small_poly;                 // 001446AC
+int num_bits;                   // 001446B0
 
 //-------------------------------------------------------------------------------------------------
-//0001D740
-int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
-{
-  int iCurrChunk; // esi
-  int iSearchRadius; // edi
-  int iDefaultOffset; // ebp
-  int iSearchIdx; // ebx
-  int iChunkIdx2; // edx
-  tData *pDataAy; // eax
-  double dDeltaX; // st4
-  double dDeltaXSquared; // st7
-  double dDeltaY; // st4
-  double dDeltaZ; // st6
-  double dLengthSquared; // st7
-  int iNextChunk; // eax
+// 0001D740
+int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode) {
+  int iCurrChunk;          // esi
+  int iSearchRadius;       // edi
+  int iDefaultOffset;      // ebp
+  int iSearchIdx;          // ebx
+  int iChunkIdx2;          // edx
+  tData *pDataAy;          // eax
+  double dDeltaX;          // st4
+  double dDeltaXSquared;   // st7
+  double dDeltaY;          // st4
+  double dDeltaZ;          // st6
+  double dLengthSquared;   // st7
+  int iNextChunk;          // eax
   tData *pNextChunkDataAy; // edx
   tData *pCurrChunkDataAy; // eax
-  double fDeltaX; // st7
-  double fDeltaY; // st6
-  uint8 byExtraChunks; // al
-  int iFrontWithOffset; // esi
-  int result; // eax
-  float fViewAlignment; // [esp+20h] [ebp-38h]
-  int iHasExtraView; // [esp+28h] [ebp-30h]
-  int iViewOffset; // [esp+2Ch] [ebp-2Ch]
-  int iExtraViewStart; // [esp+30h] [ebp-28h]
-  int iChunkIdx; // [esp+34h] [ebp-24h]
-  float fMinDistSq; // [esp+38h] [ebp-20h]
-  float fLengthSquared; // [esp+3Ch] [ebp-1Ch]
+  double fDeltaX;          // st7
+  double fDeltaY;          // st6
+  uint8 byExtraChunks;     // al
+  int iFrontWithOffset;    // esi
+  int result;              // eax
+  float fViewAlignment;    // [esp+20h] [ebp-38h]
+  int iHasExtraView;       // [esp+28h] [ebp-30h]
+  int iViewOffset;         // [esp+2Ch] [ebp-2Ch]
+  int iExtraViewStart;     // [esp+30h] [ebp-28h]
+  int iChunkIdx;           // [esp+34h] [ebp-24h]
+  float fMinDistSq;        // [esp+38h] [ebp-20h]
+  float fLengthSquared;    // [esp+3Ch] [ebp-1Ch]
 
   // Init tex coords
   set_starts(0);
 
   // Init rendering params
-  TrackSize = -1;                               // number of track chunks to render
-  iExtraViewStart = -1;                         // start of extra view range (for tunnels?)
-  iCurrChunk = Car[iCarIdx].nCurrChunk;         // current track chunk the car is on
+  TrackSize = -1;       // number of track chunks to render
+  iExtraViewStart = -1; // start of extra view range (for tunnels?)
+  iCurrChunk = Car[iCarIdx].nCurrChunk; // current track chunk the car is on
   iHasExtraView = 0;
 
   // Set starting chunk idx based on whether the car is on track
   if (iCurrChunk == -1)
-    iChunkIdx = Car[iCarIdx].iLastValidChunk;   // use last valid chunk if off-track
+    iChunkIdx =
+        Car[iCarIdx].iLastValidChunk; // use last valid chunk if off-track
   else
     iChunkIdx = Car[iCarIdx].nCurrChunk;
-  alltrackflag = 0;                             // flag for rendering entire track
+  alltrackflag = 0; // flag for rendering entire track
 
   // Set view params based on view mode
   switch (uiViewMode) {
-    case 2u:                                    // near view (chase cam close)
-      iSearchRadius = 24;
-      iDefaultOffset = -4;
-      iCurrChunk = -1;                          // force search for nearest chunk
-      goto LABEL_10;
-    case 3u:                                    // far view (chase cam far)
-      iSearchRadius = 96;
-      iViewOffset = -8;
-      iCurrChunk = -1;                          // force search for nearest chunk
-      break;
-    case 4u:                                    // in-car view
-      iSearchRadius = 32;
-      iViewOffset = -16;
-      break;
-    case 6u:                                    // helicopter/top-down view
-      iSearchRadius = 96;
-      iCurrChunk = -1;                          // force search for nearest chunk
-      iViewOffset = -4;
-      break;
-    default:                                    // default view
-      iDefaultOffset = -1;
-      iSearchRadius = 4;
-    LABEL_10:
-      iViewOffset = iDefaultOffset;
-      break;
+  case 2u: // near view (chase cam close)
+    iSearchRadius = 24;
+    iDefaultOffset = -4;
+    iCurrChunk = -1; // force search for nearest chunk
+    goto LABEL_10;
+  case 3u: // far view (chase cam far)
+    iSearchRadius = 96;
+    iViewOffset = -8;
+    iCurrChunk = -1; // force search for nearest chunk
+    break;
+  case 4u: // in-car view
+    iSearchRadius = 32;
+    iViewOffset = -16;
+    break;
+  case 6u: // helicopter/top-down view
+    iSearchRadius = 96;
+    iCurrChunk = -1; // force search for nearest chunk
+    iViewOffset = -4;
+    break;
+  default: // default view
+    iDefaultOffset = -1;
+    iSearchRadius = 4;
+  LABEL_10:
+    iViewOffset = iDefaultOffset;
+    break;
   }
 
   // Calculate view alignment with track direction
@@ -141,7 +141,8 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   } else {
     // Search for nearest track chunk to camera pos
     iSearchIdx = -iSearchRadius;
-    for (fMinDistSq = 9.9999998e17f; iSearchIdx <= iSearchRadius; ++iSearchIdx) {
+    for (fMinDistSq = 9.9999998e17f; iSearchIdx <= iSearchRadius;
+         ++iSearchIdx) {
       // Wrap chunk idx around track
       iChunkIdx2 = iSearchIdx + iChunkIdx;
       if (iSearchIdx + iChunkIdx < 0)
@@ -151,7 +152,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 
       // Calculate distance from camera to chunk center point
       pDataAy = &localdata[iChunkIdx2];
-      dDeltaX = -pDataAy->pointAy[3].fX - viewx;// point 3 is center of chunk
+      dDeltaX = -pDataAy->pointAy[3].fX - viewx; // point 3 is center of chunk
       dDeltaXSquared = dDeltaX * dDeltaX;
       dDeltaY = -pDataAy->pointAy[3].fY - viewy;
       dDeltaZ = -pDataAy->pointAy[3].fZ - viewz;
@@ -178,47 +179,50 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
     fDeltaY = pCurrChunkDataAy->pointAy[3].fY - pNextChunkDataAy->pointAy[3].fY;
 
     // Calculate dot product of track dir with world view dir (normalized)
-    fViewAlignment = (float)((fDeltaX * tcos[worlddirn] + fDeltaY * tsin[worlddirn])
-      / (sqrt(tcos[worlddirn] * tcos[worlddirn] + tsin[worlddirn] * tsin[worlddirn])
-       + sqrt(fDeltaY * fDeltaY + fDeltaX * fDeltaX)));
+    fViewAlignment =
+        (float)((fDeltaX * tcos[worlddirn] + fDeltaY * tsin[worlddirn]) /
+                (sqrt(tcos[worlddirn] * tcos[worlddirn] +
+                      tsin[worlddirn] * tsin[worlddirn]) +
+                 sqrt(fDeltaY * fDeltaY + fDeltaX * fDeltaX)));
   }
 
   // Check if view is perpendicular to track (inside corner or similar)
   // This triggers special rendering for better visibility
-  if (fViewAlignment < 0.3
-    && fViewAlignment >= -0.3
-    && ((TrakColour[iCurrChunk][TRAK_COLOUR_LEFT_LANE] & SURFACE_FLAG_SKIP_RENDER) == 0// SURFACE_FLAG_SKIP_RENDER
-        || (TrakColour[iCurrChunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) == 0
-        || (TrakColour[iCurrChunk][TRAK_COLOUR_RIGHT_LANE] & SURFACE_FLAG_SKIP_RENDER) == 0)) {
-       // Extend view range when looking perpendicular to track
+  if (fViewAlignment < 0.3 && fViewAlignment >= -0.3 &&
+      ((TrakColour[iCurrChunk][TRAK_COLOUR_LEFT_LANE] &
+        SURFACE_FLAG_SKIP_RENDER) == 0 // SURFACE_FLAG_SKIP_RENDER
+       || (TrakColour[iCurrChunk][TRAK_COLOUR_CENTER] &
+           SURFACE_FLAG_SKIP_RENDER) == 0 ||
+       (TrakColour[iCurrChunk][TRAK_COLOUR_RIGHT_LANE] &
+        SURFACE_FLAG_SKIP_RENDER) == 0)) {
+    // Extend view range when looking perpendicular to track
     if (uiViewMode >= 3 && (uiViewMode <= 3 || uiViewMode == 6)) {
-      TrackSize = 48;                           // render 48 chunks
-      iViewOffset = -24;                        // center view 24 chunks back
+      TrackSize = 48;    // render 48 chunks
+      iViewOffset = -24; // center view 24 chunks back
     } else {
-      TrackSize = 24;                           // render 24 chunks
-      iViewOffset = -12;                        // center view 12 chunks back
+      TrackSize = 24;    // render 24 chunks
+      iViewOffset = -12; // center view 12 chunks back
     }
   }
 
-  test_y1 = iCurrChunk;                         // debug variable
+  test_y1 = iCurrChunk; // debug variable
   backwards = (fViewAlignment >= 0.0) - 1;
 
-
-  //added by ROLLER to force maximum draw distance
-  //if (g_bForceMaxDraw) {
-  //  byForwardMainChunks = 255;
-  //  nForwardExtraStart = -1;
-  //  byForwardExtraChunks = 0;
-  //  byBackwardMainChunks = 255;
-  //  nBackwardExtraStart = -1;
-  //  byBackwardExtraChunks = 0;
-  //}
+  // added by ROLLER to force maximum draw distance
+  // if (g_bForceMaxDraw) {
+  //   byForwardMainChunks = 255;
+  //   nForwardExtraStart = -1;
+  //   byForwardExtraChunks = 0;
+  //   byBackwardMainChunks = 255;
+  //   nBackwardExtraStart = -1;
+  //   byBackwardExtraChunks = 0;
+  // }
 
   // Load pre-calculated view ranges from track data
   if (iCurrChunk >= 0 && TrackSize < 0) {
-    if (backwards)                            // looking backward along track
+    if (backwards) // looking backward along track
     {
-      if (g_bForceMaxDraw) { //added by ROLLER for max draw distance
+      if (g_bForceMaxDraw) { // added by ROLLER for max draw distance
         TrackSize = 255 - iViewOffset;
         iExtraViewStart = -1;
         byExtraChunks = 0;
@@ -227,7 +231,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
         iExtraViewStart = TrakView[iCurrChunk].nBackwardExtraStart;
         byExtraChunks = TrakView[iCurrChunk].byBackwardExtraChunks;
       }
-    } else                                        // looking forward along track
+    } else // looking forward along track
     {
       if (g_bForceMaxDraw) {
         TrackSize = 255 - iViewOffset;
@@ -243,20 +247,21 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   }
 
   // Apply view distance limits for certain game modes
-  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode && !g_bForceMaxDraw) {
+  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode &&
+      !g_bForceMaxDraw) {
     iHasExtraView = 0;
     iExtraViewStart = -1;
     if (player_type == 2) {
       if (TrackSize > 28)
         TrackSize = 28;
     } else if (TrackSize > view_limit) {
-      TrackSize = view_limit;                   // user-defined limit?
+      TrackSize = view_limit; // user-defined limit?
     }
   }
 
   // Handle mirror view or special view mode
   if (mirror || uiViewMode == 1)
-    backwards = backwards == 0;                 // flip view direction
+    backwards = backwards == 0; // flip view direction
 
   // Calculate track section ranges for rendering
   if (backwards) {
@@ -293,7 +298,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
         next_front = -1;
         test_y1 = -2;
         mid_sec = -1;
-        gap_size = 6 * TRAK_LEN;                // large value to disable gap
+        gap_size = 6 * TRAK_LEN; // large value to disable gap
       }
 
       // Recalculate total track size
@@ -310,9 +315,9 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
       mid_sec = -1;
       first_size = TrackSize;
       next_front = -1;
-      gap_size = 6 * TRAK_LEN;                  // large value to disable gap
+      gap_size = 6 * TRAK_LEN; // large value to disable gap
     }
-  } else                                          // looking forward
+  } else // looking forward
   {
     // Calculate front section with offset
     front_sec = iCurrChunk + iViewOffset;
@@ -336,7 +341,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
         next_front = iExtraViewStart;
       } else {
         // Overlap detected, merge ranges
-        gap_size = 6 * TRAK_LEN;                // large value to disable gap
+        gap_size = 6 * TRAK_LEN; // large value to disable gap
         next_front = -1;
         front_sec = iExtraViewStart;
         test_y1 = -1;
@@ -363,7 +368,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
       mid_sec = -1;
       first_size = TrackSize;
       next_front = -1;
-      gap_size = 6 * TRAK_LEN;                  // large value to disable gap
+      gap_size = 6 * TRAK_LEN; // large value to disable gap
     }
   }
 
@@ -380,673 +385,746 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-// World-space vertex builders — three winding patterns (forward, cross_first, reverse)
-// reading from the caller-provided point array (tGroundPt or tTrakPt).
+// World-space vertex builders — three winding patterns (forward, cross_first,
+// reverse) reading from the caller-provided point array (tGroundPt or tTrakPt).
 
 // Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
-static void world_verts_forward(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
-    verts[1].x = c->pointAy[ptA].fX; verts[1].y = c->pointAy[ptA].fY; verts[1].z = c->pointAy[ptA].fZ;
-    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
-    verts[3].x = n->pointAy[ptB].fX; verts[3].y = n->pointAy[ptB].fY; verts[3].z = n->pointAy[ptB].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_forward(GameRenderVertex *verts, const tGroundPt *src,
+                                int nextSec, int curSec, int ptA, int ptB) {
+  const tGroundPt *n = &src[nextSec];
+  const tGroundPt *c = &src[curSec];
+  verts[0].x = n->pointAy[ptA].fX;
+  verts[0].y = n->pointAy[ptA].fY;
+  verts[0].z = n->pointAy[ptA].fZ;
+  verts[1].x = c->pointAy[ptA].fX;
+  verts[1].y = c->pointAy[ptA].fY;
+  verts[1].z = c->pointAy[ptA].fZ;
+  verts[2].x = c->pointAy[ptB].fX;
+  verts[2].y = c->pointAy[ptB].fY;
+  verts[2].z = c->pointAy[ptB].fZ;
+  verts[3].x = n->pointAy[ptB].fX;
+  verts[3].y = n->pointAy[ptB].fY;
+  verts[3].z = n->pointAy[ptB].fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
 // Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
 static void world_verts_cross_first(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
-    verts[1].x = n->pointAy[ptB].fX; verts[1].y = n->pointAy[ptB].fY; verts[1].z = n->pointAy[ptB].fZ;
-    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
-    verts[3].x = c->pointAy[ptA].fX; verts[3].y = c->pointAy[ptA].fY; verts[3].z = c->pointAy[ptA].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+                                    const tGroundPt *src, int nextSec,
+                                    int curSec, int ptA, int ptB) {
+  const tGroundPt *n = &src[nextSec];
+  const tGroundPt *c = &src[curSec];
+  verts[0].x = n->pointAy[ptA].fX;
+  verts[0].y = n->pointAy[ptA].fY;
+  verts[0].z = n->pointAy[ptA].fZ;
+  verts[1].x = n->pointAy[ptB].fX;
+  verts[1].y = n->pointAy[ptB].fY;
+  verts[1].z = n->pointAy[ptB].fZ;
+  verts[2].x = c->pointAy[ptB].fX;
+  verts[2].y = c->pointAy[ptB].fY;
+  verts[2].z = c->pointAy[ptB].fZ;
+  verts[3].x = c->pointAy[ptA].fX;
+  verts[3].y = c->pointAy[ptA].fY;
+  verts[3].z = c->pointAy[ptA].fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
 // Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
-static void world_verts_reverse(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = c->pointAy[ptA].fX; verts[0].y = c->pointAy[ptA].fY; verts[0].z = c->pointAy[ptA].fZ;
-    verts[1].x = n->pointAy[ptA].fX; verts[1].y = n->pointAy[ptA].fY; verts[1].z = n->pointAy[ptA].fZ;
-    verts[2].x = n->pointAy[ptB].fX; verts[2].y = n->pointAy[ptB].fY; verts[2].z = n->pointAy[ptB].fZ;
-    verts[3].x = c->pointAy[ptB].fX; verts[3].y = c->pointAy[ptB].fY; verts[3].z = c->pointAy[ptB].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_reverse(GameRenderVertex *verts, const tGroundPt *src,
+                                int nextSec, int curSec, int ptA, int ptB) {
+  const tGroundPt *n = &src[nextSec];
+  const tGroundPt *c = &src[curSec];
+  verts[0].x = c->pointAy[ptA].fX;
+  verts[0].y = c->pointAy[ptA].fY;
+  verts[0].z = c->pointAy[ptA].fZ;
+  verts[1].x = n->pointAy[ptA].fX;
+  verts[1].y = n->pointAy[ptA].fY;
+  verts[1].z = n->pointAy[ptA].fZ;
+  verts[2].x = n->pointAy[ptB].fX;
+  verts[2].y = n->pointAy[ptB].fY;
+  verts[2].z = n->pointAy[ptB].fZ;
+  verts[3].x = c->pointAy[ptB].fX;
+  verts[3].y = c->pointAy[ptB].fY;
+  verts[3].z = c->pointAy[ptB].fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
-static const tVec3 *ground_world_point(int sec, int pt)
-{
-    if (GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2 && TrackScreenXYZ[sec].iClipCount != 99) {
-        if (pt == 2) return &TrakPt[sec].pointAy[0];
-        if (pt == 3) return &TrakPt[sec].pointAy[4];
-    }
-    return &GroundPt[sec].pointAy[pt];
+static const tVec3 *ground_world_point(int sec, int pt) {
+  if (GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2 &&
+      TrackScreenXYZ[sec].iClipCount != 99) {
+    if (pt == 2)
+      return &TrakPt[sec].pointAy[0];
+    if (pt == 3)
+      return &TrakPt[sec].pointAy[4];
+  }
+  return &GroundPt[sec].pointAy[pt];
 }
 
-static void world_verts_ground_forward(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
-{
-    const tVec3 *nA = ground_world_point(nextSec, ptA);
-    const tVec3 *cA = ground_world_point(curSec, ptA);
-    const tVec3 *cB = ground_world_point(curSec, ptB);
-    const tVec3 *nB = ground_world_point(nextSec, ptB);
-    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
-    verts[1].x = cA->fX; verts[1].y = cA->fY; verts[1].z = cA->fZ;
-    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
-    verts[3].x = nB->fX; verts[3].y = nB->fY; verts[3].z = nB->fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_ground_forward(GameRenderVertex *verts, int nextSec,
+                                       int curSec, int ptA, int ptB) {
+  const tVec3 *nA = ground_world_point(nextSec, ptA);
+  const tVec3 *cA = ground_world_point(curSec, ptA);
+  const tVec3 *cB = ground_world_point(curSec, ptB);
+  const tVec3 *nB = ground_world_point(nextSec, ptB);
+  verts[0].x = nA->fX;
+  verts[0].y = nA->fY;
+  verts[0].z = nA->fZ;
+  verts[1].x = cA->fX;
+  verts[1].y = cA->fY;
+  verts[1].z = cA->fZ;
+  verts[2].x = cB->fX;
+  verts[2].y = cB->fY;
+  verts[2].z = cB->fZ;
+  verts[3].x = nB->fX;
+  verts[3].y = nB->fY;
+  verts[3].z = nB->fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
-static void world_verts_ground_cross_first(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
-{
-    const tVec3 *nA = ground_world_point(nextSec, ptA);
-    const tVec3 *nB = ground_world_point(nextSec, ptB);
-    const tVec3 *cB = ground_world_point(curSec, ptB);
-    const tVec3 *cA = ground_world_point(curSec, ptA);
-    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
-    verts[1].x = nB->fX; verts[1].y = nB->fY; verts[1].z = nB->fZ;
-    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
-    verts[3].x = cA->fX; verts[3].y = cA->fY; verts[3].z = cA->fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_ground_cross_first(GameRenderVertex *verts, int nextSec,
+                                           int curSec, int ptA, int ptB) {
+  const tVec3 *nA = ground_world_point(nextSec, ptA);
+  const tVec3 *nB = ground_world_point(nextSec, ptB);
+  const tVec3 *cB = ground_world_point(curSec, ptB);
+  const tVec3 *cA = ground_world_point(curSec, ptA);
+  verts[0].x = nA->fX;
+  verts[0].y = nA->fY;
+  verts[0].z = nA->fZ;
+  verts[1].x = nB->fX;
+  verts[1].y = nB->fY;
+  verts[1].z = nB->fZ;
+  verts[2].x = cB->fX;
+  verts[2].y = cB->fY;
+  verts[2].z = cB->fZ;
+  verts[3].x = cA->fX;
+  verts[3].y = cA->fY;
+  verts[3].z = cA->fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
-// Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a 3-way
-// conditional on adjacent left-wall presence: pointAy[1] when both current and
-// previous sections have a left wall, else pointAy[0] when both wall types are
-// non-negative, else pointAy[2]. The fallback collapses the wall top to the
-// wall base at discontinuities so no stray geometry is drawn.
-static int left_wall_top_pt_idx(int sec)
-{
-    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
-    int curLW  = TrakColour[sec][TRAK_COLOUR_LEFT_WALL];
-    int prevLW = TrakColour[prevSec][TRAK_COLOUR_LEFT_WALL];
-    if (curLW && prevLW) return 1;
-    if (curLW >= 0 && prevLW >= 0) return 0;
-    return 2;
+// Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a
+// 3-way conditional on adjacent left-wall presence: pointAy[1] when both
+// current and previous sections have a left wall, else pointAy[0] when both
+// wall types are non-negative, else pointAy[2]. The fallback collapses the wall
+// top to the wall base at discontinuities so no stray geometry is drawn.
+static int left_wall_top_pt_idx(int sec) {
+  int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+  int curLW = TrakColour[sec][TRAK_COLOUR_LEFT_WALL];
+  int prevLW = TrakColour[prevSec][TRAK_COLOUR_LEFT_WALL];
+  if (curLW && prevLW)
+    return 1;
+  if (curLW >= 0 && prevLW >= 0)
+    return 0;
+  return 2;
 }
 
 // Left-wall forward quad: top vertex (v[0], v[1]) is chosen per-section by
 // left_wall_top_pt_idx; bottom vertex (v[2], v[3]) uses ptBottom (0 = low wall,
 // 2 = high wall). Mirrors master's case 0/8 LWallPoly construction.
-static void world_verts_left_wall(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptBottom)
-{
-    int nextTop = left_wall_top_pt_idx(nextSec);
-    int curTop  = left_wall_top_pt_idx(curSec);
-    const tGroundPt *n = &TrakPt[nextSec];
-    const tGroundPt *c = &TrakPt[curSec];
-    verts[0].x = n->pointAy[nextTop].fX;  verts[0].y = n->pointAy[nextTop].fY;  verts[0].z = n->pointAy[nextTop].fZ;
-    verts[1].x = c->pointAy[curTop].fX;   verts[1].y = c->pointAy[curTop].fY;   verts[1].z = c->pointAy[curTop].fZ;
-    verts[2].x = c->pointAy[ptBottom].fX; verts[2].y = c->pointAy[ptBottom].fY; verts[2].z = c->pointAy[ptBottom].fZ;
-    verts[3].x = n->pointAy[ptBottom].fX; verts[3].y = n->pointAy[ptBottom].fY; verts[3].z = n->pointAy[ptBottom].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_left_wall(GameRenderVertex *verts, int nextSec,
+                                  int curSec, int ptBottom) {
+  int nextTop = left_wall_top_pt_idx(nextSec);
+  int curTop = left_wall_top_pt_idx(curSec);
+  const tGroundPt *n = &TrakPt[nextSec];
+  const tGroundPt *c = &TrakPt[curSec];
+  verts[0].x = n->pointAy[nextTop].fX;
+  verts[0].y = n->pointAy[nextTop].fY;
+  verts[0].z = n->pointAy[nextTop].fZ;
+  verts[1].x = c->pointAy[curTop].fX;
+  verts[1].y = c->pointAy[curTop].fY;
+  verts[1].z = c->pointAy[curTop].fZ;
+  verts[2].x = c->pointAy[ptBottom].fX;
+  verts[2].y = c->pointAy[ptBottom].fY;
+  verts[2].z = c->pointAy[ptBottom].fZ;
+  verts[3].x = n->pointAy[ptBottom].fX;
+  verts[3].y = n->pointAy[ptBottom].fY;
+  verts[3].z = n->pointAy[ptBottom].fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
-// Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source
-// for the right wall: pointAy[5] when both adjacent RW types are non-zero, else
-// pointAy[4] when both are non-negative, else pointAy[3].
-static int right_wall_top_pt_idx(int sec)
-{
-    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
-    int curRW  = TrakColour[sec][TRAK_COLOUR_RIGHT_WALL];
-    int prevRW = TrakColour[prevSec][TRAK_COLOUR_RIGHT_WALL];
-    if (curRW && prevRW) return 5;
-    if (curRW >= 0 && prevRW >= 0) return 4;
-    return 3;
+// Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space
+// source for the right wall: pointAy[5] when both adjacent RW types are
+// non-zero, else pointAy[4] when both are non-negative, else pointAy[3].
+static int right_wall_top_pt_idx(int sec) {
+  int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+  int curRW = TrakColour[sec][TRAK_COLOUR_RIGHT_WALL];
+  int prevRW = TrakColour[prevSec][TRAK_COLOUR_RIGHT_WALL];
+  if (curRW && prevRW)
+    return 5;
+  if (curRW >= 0 && prevRW >= 0)
+    return 4;
+  return 3;
 }
 
 // Right-wall reverse quad: top vertex (v[0], v[1]) chosen per-section; bottom
 // vertex (v[2], v[3]) uses ptBottom (4 = low wall, 3 = high wall). Mirrors
 // master's case 1/9 RWallPoly construction with reverse winding.
-static void world_verts_right_wall(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptBottom)
-{
-    int nextTop = right_wall_top_pt_idx(nextSec);
-    int curTop  = right_wall_top_pt_idx(curSec);
-    const tGroundPt *n = &TrakPt[nextSec];
-    const tGroundPt *c = &TrakPt[curSec];
-    verts[0].x = c->pointAy[curTop].fX;   verts[0].y = c->pointAy[curTop].fY;   verts[0].z = c->pointAy[curTop].fZ;
-    verts[1].x = n->pointAy[nextTop].fX;  verts[1].y = n->pointAy[nextTop].fY;  verts[1].z = n->pointAy[nextTop].fZ;
-    verts[2].x = n->pointAy[ptBottom].fX; verts[2].y = n->pointAy[ptBottom].fY; verts[2].z = n->pointAy[ptBottom].fZ;
-    verts[3].x = c->pointAy[ptBottom].fX; verts[3].y = c->pointAy[ptBottom].fY; verts[3].z = c->pointAy[ptBottom].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
+static void world_verts_right_wall(GameRenderVertex *verts, int nextSec,
+                                   int curSec, int ptBottom) {
+  int nextTop = right_wall_top_pt_idx(nextSec);
+  int curTop = right_wall_top_pt_idx(curSec);
+  const tGroundPt *n = &TrakPt[nextSec];
+  const tGroundPt *c = &TrakPt[curSec];
+  verts[0].x = c->pointAy[curTop].fX;
+  verts[0].y = c->pointAy[curTop].fY;
+  verts[0].z = c->pointAy[curTop].fZ;
+  verts[1].x = n->pointAy[nextTop].fX;
+  verts[1].y = n->pointAy[nextTop].fY;
+  verts[1].z = n->pointAy[nextTop].fZ;
+  verts[2].x = n->pointAy[ptBottom].fX;
+  verts[2].y = n->pointAy[ptBottom].fY;
+  verts[2].z = n->pointAy[ptBottom].fZ;
+  verts[3].x = c->pointAy[ptBottom].fX;
+  verts[3].y = c->pointAy[ptBottom].fY;
+  verts[3].z = c->pointAy[ptBottom].fZ;
+  verts[0].u = 0;
+  verts[0].v = 0;
+  verts[1].u = 0;
+  verts[1].v = 0;
+  verts[2].u = 0;
+  verts[2].v = 0;
+  verts[3].u = 0;
+  verts[3].v = 0;
 }
 
-static void draw_start_light_cube_world(GameRenderer *renderer,
-                                        const tSLight *light,
-                                        int countdownValue,
-                                        int worldDirection,
-                                        const GameRenderCamera *camera,
-                                        const GameRenderProjection *projection)
-{
-    static const int cubeFaces[6][4] = {
-        { 0, 1, 2, 3 },
-        { 4, 5, 6, 7 },
-        { 3, 2, 6, 7 },
-        { 0, 3, 7, 4 },
-        { 1, 2, 6, 5 },
-        { 0, 1, 5, 4 },
+static void
+draw_start_light_cube_world(GameRenderer *renderer, const tSLight *light,
+                            int countdownValue, int worldDirection,
+                            const GameRenderCamera *camera,
+                            const GameRenderProjection *projection) {
+  static const int cubeFaces[6][4] = {
+      {0, 1, 2, 3}, {4, 5, 6, 7}, {3, 2, 6, 7},
+      {0, 3, 7, 4}, {1, 2, 6, 5}, {0, 1, 5, 4},
+  };
+  static const float cubeCorners[8][3] = {
+      {-100.0f, 100.0f, -100.0f}, {-100.0f, -100.0f, -100.0f},
+      {100.0f, -100.0f, -100.0f}, {100.0f, 100.0f, -100.0f},
+      {-100.0f, 100.0f, 100.0f},  {-100.0f, -100.0f, 100.0f},
+      {100.0f, -100.0f, 100.0f},  {100.0f, 100.0f, 100.0f},
+  };
+
+  if (!renderer || !light || !camera || !projection)
+    return;
+
+  int lightYaw = ((int16)light->uiRotation + (int16)worldDirection) & 0x3FFF;
+  float sinZero = tsin[0];
+  float cosZero = tcos[0];
+  float basisX0 = tcos[lightYaw] * cosZero;
+  float basisY0 = tsin[lightYaw] * cosZero;
+  double cosYaw = tcos[lightYaw];
+  float basisZ0 = sinZero;
+  double cosYawSinZero = cosYaw * sinZero;
+  float basisX1 = (float)cosYawSinZero * sinZero - basisY0;
+  double sinYawSinZero = tsin[lightYaw] * sinZero;
+  float basisY1 = (float)sinYawSinZero * sinZero + basisX0;
+  float basisZ1 = -sinZero * cosZero;
+  float basisX2 = -tcos[lightYaw] * sinZero * cosZero - (float)sinYawSinZero;
+  float basisY2 = (float)cosYawSinZero + -tsin[lightYaw] * sinZero * cosZero;
+  float basisZ2 = cosZero * cosZero;
+
+  GameRenderVertex cubeVerts[8];
+  float cubeDepth[8];
+  for (int i = 0; i < 8; i++) {
+    float sx = cubeCorners[i][0];
+    float sy = cubeCorners[i][1];
+    float sz = cubeCorners[i][2];
+    cubeVerts[i].x =
+        sx * basisX0 + sy * basisX1 + sz * basisX2 + light->currentPos.fX;
+    cubeVerts[i].y =
+        sx * basisY0 + sy * basisY1 + sz * basisY2 + light->currentPos.fY;
+    cubeVerts[i].z =
+        sx * basisZ0 + sy * basisZ1 + sz * basisZ2 + light->currentPos.fZ;
+    cubeVerts[i].u = 0.0f;
+    cubeVerts[i].v = 0.0f;
+
+    double depth = (cubeVerts[i].x - camera->viewX) * projection->view[0][2] +
+                   (cubeVerts[i].y - camera->viewY) * projection->view[1][2] +
+                   (cubeVerts[i].z - camera->viewZ) * projection->view[2][2];
+    cubeDepth[i] = (float)(int)round(depth);
+  }
+
+  int surfaceFlags;
+  if (countdownValue >= 0) {
+    surfaceFlags = countdownValue >= 72 ? 0x2101 : 0x2102;
+  } else {
+    surfaceFlags = 0x2103;
+  }
+
+  TextureHandle texture =
+      (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE)
+          ? game_render_get_texture_handle(renderer, TEXTURE_BANK_CARGEN)
+          : TEXTURE_HANDLE_INVALID;
+
+  float faceDepth[6];
+  for (int i = 0; i < 6; i++) {
+    faceDepth[i] = (cubeDepth[cubeFaces[i][0]] + cubeDepth[cubeFaces[i][1]] +
+                    cubeDepth[cubeFaces[i][2]] + cubeDepth[cubeFaces[i][3]]) *
+                   0.25f;
+  }
+
+  set_starts(0);
+  for (int drawCount = 0; drawCount < 6; drawCount++) {
+    int face = 0;
+    float maxDepth = faceDepth[0];
+    for (int i = 1; i < 6; i++) {
+      if (faceDepth[i] > (double)maxDepth) {
+        face = i;
+        maxDepth = faceDepth[i];
+      }
+    }
+    faceDepth[face] = -9.9999998e17f;
+
+    GameRenderVertex faceVerts[4] = {
+        cubeVerts[cubeFaces[face][0]],
+        cubeVerts[cubeFaces[face][1]],
+        cubeVerts[cubeFaces[face][2]],
+        cubeVerts[cubeFaces[face][3]],
     };
-    static const float cubeCorners[8][3] = {
-        { -100.0f,  100.0f, -100.0f },
-        { -100.0f, -100.0f, -100.0f },
-        {  100.0f, -100.0f, -100.0f },
-        {  100.0f,  100.0f, -100.0f },
-        { -100.0f,  100.0f,  100.0f },
-        { -100.0f, -100.0f,  100.0f },
-        {  100.0f, -100.0f,  100.0f },
-        {  100.0f,  100.0f,  100.0f },
-    };
-
-    if (!renderer || !light || !camera || !projection)
-        return;
-
-    int lightYaw = ((int16)light->uiRotation + (int16)worldDirection) & 0x3FFF;
-    float sinZero = tsin[0];
-    float cosZero = tcos[0];
-    float basisX0 = tcos[lightYaw] * cosZero;
-    float basisY0 = tsin[lightYaw] * cosZero;
-    double cosYaw = tcos[lightYaw];
-    float basisZ0 = sinZero;
-    double cosYawSinZero = cosYaw * sinZero;
-    float basisX1 = (float)cosYawSinZero * sinZero - basisY0;
-    double sinYawSinZero = tsin[lightYaw] * sinZero;
-    float basisY1 = (float)sinYawSinZero * sinZero + basisX0;
-    float basisZ1 = -sinZero * cosZero;
-    float basisX2 = -tcos[lightYaw] * sinZero * cosZero - (float)sinYawSinZero;
-    float basisY2 = (float)cosYawSinZero + -tsin[lightYaw] * sinZero * cosZero;
-    float basisZ2 = cosZero * cosZero;
-
-    GameRenderVertex cubeVerts[8];
-    float cubeDepth[8];
-    for (int i = 0; i < 8; i++) {
-        float sx = cubeCorners[i][0];
-        float sy = cubeCorners[i][1];
-        float sz = cubeCorners[i][2];
-        cubeVerts[i].x = sx * basisX0 + sy * basisX1 + sz * basisX2 + light->currentPos.fX;
-        cubeVerts[i].y = sx * basisY0 + sy * basisY1 + sz * basisY2 + light->currentPos.fY;
-        cubeVerts[i].z = sx * basisZ0 + sy * basisZ1 + sz * basisZ2 + light->currentPos.fZ;
-        cubeVerts[i].u = 0.0f;
-        cubeVerts[i].v = 0.0f;
-
-        double depth = (cubeVerts[i].x - camera->viewX) * projection->view[0][2]
-                     + (cubeVerts[i].y - camera->viewY) * projection->view[1][2]
-                     + (cubeVerts[i].z - camera->viewZ) * projection->view[2][2];
-        cubeDepth[i] = (float)(int)round(depth);
-    }
-
-    int surfaceFlags;
-    if (countdownValue >= 0) {
-        surfaceFlags = countdownValue >= 72 ? 0x2101 : 0x2102;
-    } else {
-        surfaceFlags = 0x2103;
-    }
-
-    TextureHandle texture = (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE)
-        ? game_render_get_texture_handle(renderer, TEXTURE_BANK_CARGEN)
-        : TEXTURE_HANDLE_INVALID;
-
-    float faceDepth[6];
-    for (int i = 0; i < 6; i++) {
-        faceDepth[i] = (cubeDepth[cubeFaces[i][0]]
-                      + cubeDepth[cubeFaces[i][1]]
-                      + cubeDepth[cubeFaces[i][2]]
-                      + cubeDepth[cubeFaces[i][3]]) * 0.25f;
-    }
-
-    set_starts(0);
-    for (int drawCount = 0; drawCount < 6; drawCount++) {
-        int face = 0;
-        float maxDepth = faceDepth[0];
-        for (int i = 1; i < 6; i++) {
-            if (faceDepth[i] > (double)maxDepth) {
-                face = i;
-                maxDepth = faceDepth[i];
-            }
-        }
-        faceDepth[face] = -9.9999998e17f;
-
-        GameRenderVertex faceVerts[4] = {
-            cubeVerts[cubeFaces[face][0]],
-            cubeVerts[cubeFaces[face][1]],
-            cubeVerts[cubeFaces[face][2]],
-            cubeVerts[cubeFaces[face][3]],
-        };
-        game_render_quad_world(renderer, faceVerts, texture, surfaceFlags, 1.0f);
-    }
+    game_render_quad_world(renderer, faceVerts, texture, surfaceFlags, 1.0f);
+  }
 }
-
 
 //-------------------------------------------------------------------------------------------------
-//0001DE40
+// 0001DE40
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 const GameRenderCamera *camera,
-                const GameRenderProjection *projection)
-{
-  tTrackScreenXYZ *pScreenCoord; // ebp
-  tTrackScreenXYZ *pScreenCoord_1; // edi
-  int iCurrentTrackIndex; // ecx
-  tVec3 *pCurrentTrackPt; // eax
+                const GameRenderProjection *projection) {
+  tTrackScreenXYZ *pScreenCoord;           // ebp
+  tTrackScreenXYZ *pScreenCoord_1;         // edi
+  int iCurrentTrackIndex;                  // ecx
+  tVec3 *pCurrentTrackPt;                  // eax
   tTrackScreenXYZ *pCurrentTrackScreenXYZ; // edx
-  tVec3 *pTrackPoint4; // esi
-  tVec3 *pTrackPoint3; // ebx
-  double dDeltaX1; // st7
-  double dDeltaY1; // st6
-  double dDeltaZ1; // st5
-  double dCameraZ1; // st7
-  double dViewDistance1; // st7
-  double dInvZ1; // st6
-  double dScreenX1; // st5
-  double dScreenY1; // st7
-  //int iScreenX1; // eax
-  int iScreenY1; // eax
-  double dDeltaX2; // st7
-  double dDeltaY2; // st6
-  double dDeltaZ2; // st5
-  double dCameraZ2; // st7
+  tVec3 *pTrackPoint4;                     // esi
+  tVec3 *pTrackPoint3;                     // ebx
+  double dDeltaX1;                         // st7
+  double dDeltaY1;                         // st6
+  double dDeltaZ1;                         // st5
+  double dCameraZ1;                        // st7
+  double dViewDistance1;                   // st7
+  double dInvZ1;                           // st6
+  double dScreenX1;                        // st5
+  double dScreenY1;                        // st7
+  // int iScreenX1; // eax
+  int iScreenY1;         // eax
+  double dDeltaX2;       // st7
+  double dDeltaY2;       // st6
+  double dDeltaZ2;       // st5
+  double dCameraZ2;      // st7
   double dViewDistance2; // st7
-  double dInvZ2; // st6
-  double dScreenX2; // st5
-  double dScreenY2; // st7
-  ///int iScreenX2; // eax
-  int iScreenY2; // eax
-  double dDeltaX3; // st7
-  double dDeltaY3; // st6
-  double dDeltaZ3; // st5
-  double dCameraZ3; // st7
-  int iClipIncrement3; // eax
+  double dInvZ2;         // st6
+  double dScreenX2;      // st5
+  double dScreenY2;      // st7
+  /// int iScreenX2; // eax
+  int iScreenY2;         // eax
+  double dDeltaX3;       // st7
+  double dDeltaY3;       // st6
+  double dDeltaZ3;       // st5
+  double dCameraZ3;      // st7
+  int iClipIncrement3;   // eax
   double dViewDistance3; // st7
-  double dInvZ3; // st6
-  double dScreenX3; // st5
-  double dScreenY3; // st7
-  //int iScreenX3; // eax
-  int iScreenY3; // eax
-  double dDeltaX4; // st7
-  double dDeltaY4; // st6
-  double dDeltaZ4; // st5
-  double dCameraZ4; // st7
-  int iClipIncrement4; // eax
+  double dInvZ3;         // st6
+  double dScreenX3;      // st5
+  double dScreenY3;      // st7
+  // int iScreenX3; // eax
+  int iScreenY3;         // eax
+  double dDeltaX4;       // st7
+  double dDeltaY4;       // st6
+  double dDeltaZ4;       // st5
+  double dCameraZ4;      // st7
+  int iClipIncrement4;   // eax
   double dViewDistance4; // st7
-  double dInvZ4; // st6
-  double dScreenX4; // st5
-  double dScreenY4; // st7
-  int iScrSize; // ebx
-  //int iScreenX4; // eax
-  int *pLeftWallTypePtr; // esi
-  int iPrevSectionIndex; // eax
+  double dInvZ4;         // st6
+  double dScreenX4;      // st5
+  double dScreenY4;      // st7
+  int iScrSize;          // ebx
+  // int iScreenX4; // eax
+  int *pLeftWallTypePtr;     // esi
+  int iPrevSectionIndex;     // eax
   int *pPrevLeftWallTypePtr; // ebx
-  tGroundPt *pGroundPt; // eax
-  double dLeftWallDeltaX; // st7
-  double dLeftWallDeltaY; // st6
-  double dLeftWallDeltaZ; // st5
-  double dLeftWallCameraZ; // st7
-  double dLeftWallViewDist; // st7
-  double dLeftWallInvZ; // st6
-  double dLeftWallScreenX; // st5
-  double dLeftWallScreenY; // st7
-  //int iLeftWallScreenX; // eax
-  int iLeftWallScreenY; // eax
-  double dLeftWallCopyZ; // st7
-  int iLeftWallCopyY; // eax
-  tGroundPt *pGroundPt2; // eax
-  double dRightWallDeltaX; // st7
-  double dRightWallDeltaY; // st6
-  double dRightWallDeltaZ; // st5
-  double dRightWallCameraZ; // st7
+  tGroundPt *pGroundPt;      // eax
+  double dLeftWallDeltaX;    // st7
+  double dLeftWallDeltaY;    // st6
+  double dLeftWallDeltaZ;    // st5
+  double dLeftWallCameraZ;   // st7
+  double dLeftWallViewDist;  // st7
+  double dLeftWallInvZ;      // st6
+  double dLeftWallScreenX;   // st5
+  double dLeftWallScreenY;   // st7
+  // int iLeftWallScreenX; // eax
+  int iLeftWallScreenY;      // eax
+  double dLeftWallCopyZ;     // st7
+  int iLeftWallCopyY;        // eax
+  tGroundPt *pGroundPt2;     // eax
+  double dRightWallDeltaX;   // st7
+  double dRightWallDeltaY;   // st6
+  double dRightWallDeltaZ;   // st5
+  double dRightWallCameraZ;  // st7
   double dRightWallViewDist; // st7
-  double dRightWallInvZ; // st6
-  double dRightWallScreenX; // st5
-  double dRightWallScreenY; // st7
-  int iRightWallScrSize; // ebx
-  //int iRightWallScreenX; // eax
-  int iRightWallScreenY; // eax
-  double dRightWallDepthCopy; // st7
-  int iRightWallCopy; // eax
+  double dRightWallInvZ;     // st6
+  double dRightWallScreenX;  // st5
+  double dRightWallScreenY;  // st7
+  int iRightWallScrSize;     // ebx
+  // int iRightWallScreenX; // eax
+  int iRightWallScreenY;             // eax
+  double dRightWallDepthCopy;        // st7
+  int iRightWallCopy;                // eax
   tTrackScreenXYZ *pGroundScreenXYZ; // eax
-  tScreenPt *pScreenPoint; // esi
-  tGroundPt *pCurrentGroundPt; // edx
-  int iPrevGroundIndex; // eax
-  int iGroundPointIndex; // ebx
-  double dGroundDeltaX; // st7
-  double dGroundDeltaY; // st6
-  float *pGroundPointZ; // edx
-  double dGroundDeltaZ; // st5
-  double dGroundCameraZ; // st7
-  double dGroundViewDist; // st7
-  double dGroundInvZ; // st6
-  double dGroundScreenX; // st5
-  double dGroundScreenY; // st7
-  //int iGroundScreenX; // eax
+  tScreenPt *pScreenPoint;           // esi
+  tGroundPt *pCurrentGroundPt;       // edx
+  int iPrevGroundIndex;              // eax
+  int iGroundPointIndex;             // ebx
+  double dGroundDeltaX;              // st7
+  double dGroundDeltaY;              // st6
+  float *pGroundPointZ;              // edx
+  double dGroundDeltaZ;              // st5
+  double dGroundCameraZ;             // st7
+  double dGroundViewDist;            // st7
+  double dGroundInvZ;                // st6
+  double dGroundScreenX;             // st5
+  double dGroundScreenY;             // st7
+  // int iGroundScreenX; // eax
   int iGroundScreenY; // eax
-  //int iGroundSectionOffset; // eax
+  // int iGroundSectionOffset; // eax
   float fGroundProjectedZ; // ecx
-  //int iGroundSectionOffset2; // eax
+  // int iGroundSectionOffset2; // eax
   int iTrackLoopCounter; // ecx
-  int iCurrentSect; // esi
-  //int iSectionOffset; // edx
-  int iOFloorType; // edx
-  bool bFloorVisible; // eax
-  int iCurrentFloorType; // ebx
-  float fGroundDepthMax1; // eax
-  float fGroundDepthMax2; // eax
-  float fGroundDepthSelected; // eax
-  int iTrackIndexPlus2; // eax
-  tTrackScreenXYZ *pTrackScreenPlus2; // edx
-  float fTrackDepthChoice1; // eax
-  float fTrackDepthChoice2; // eax
-  float fTrackDepthFinal; // eax
-  tTrackZOrderEntry *pGroundRenderCmd; // eax
-  float fGroundRenderDepth; // edx
-  int iGroundRenderIndex; // ebx
-  float fRoadCenterDepthMax1; // eax
-  float fRoadCenterDepthMax2; // eax
-  float fRoadCenterDepthSelected; // eax
-  tTrackZOrderEntry *pRoadCenterCmd; // eax
-  float fRoadCenterCmdDepth; // edx
-  int iRoadCenterCmdIndex; // ebx
-  float fLeftRoadDepthMax1; // eax
-  float fLeftRoadDepthMax2; // eax
-  float fLeftRoadDepthSelected; // eax
-  tTrackZOrderEntry *pLeftRoadCmd; // eax
-  float fLeftRoadCmdDepth; // edx
-  int iLeftRoadCmdIndex; // ebx
-  float fRightRoadDepthMax1; // eax
-  float fRightRoadDepthMax2; // eax
-  float fRightRoadDepthSelected; // eax
-  tTrackZOrderEntry *pRightRoadCmd; // eax
-  float fRightRoadCmdDepth; // edx
-  int iRightRoadCmdIndex; // ebx
-  int iRoofTypeCheck; // eax
-  float fRoof1OuterDepth; // eax
-  float fRoof1InnerDepth; // eax
-  float fRoof1SelectedDepth; // eax
-  tTrackZOrderEntry *pRoof1RenderCmd; // eax
-  float fRoof1CmdDepth; // edx
-  int iRoofType; // ebx
-  double dRoof2WallDepth1; // st7
-  double dRoof2WallDepth2; // st7
-  float fRoof2WallMinDepth; // eax
-  float fRoof2SelectedDepth; // eax
-  tTrackZOrderEntry *pRoof2RenderCmd; // eax
-  float fRoof2CmdDepth; // edx
-  float fRoof3OuterDepth; // eax
-  float fRoof3InnerDepth; // eax
-  float fRoof3SelectedDepth; // eax
-  int iRoof3CmdIndex; // ebx
-  float fLeftLowerWallDepth1; // eax
-  float fLeftLowerWallDepth2; // eax
-  float fLeftLowerWallSelected; // eax
-  tTrackZOrderEntry *pLeftLowerWallCmd; // eax
-  float fLeftLowerWallCmdDepth; // edx
-  float fRightLowerWallDepth1; // eax
-  float fRightLowerWallDepth2; // eax
-  float fRightLowerWallSelected; // eax
-  tTrackZOrderEntry *pRightLowerWallCmd; // eax
-  float fRightLowerWallCmdDepth; // edx
-  float fLeftWallDepthMax1; // eax
-  float fLeftWallDepthMax2; // eax
-  float fLeftWallDepthSelected; // eax
-  tTrackZOrderEntry *pLeftWallCmd; // eax
-  int iLeftWallCmdIndex; // edx
-  float fRightWallDepthMax1; // eax
-  float fRightWallDepthMax2; // eax
-  float fRightWallDepthSelected; // eax
-  tTrackZOrderEntry *pRightWallCmd; // eax
-  float fRightWallCmdDepth; // edx
-  float fRightWallBasicDepth1; // eax
-  float fRightWallBasicDepth2; // eax
-  float fRightWallBasicSelected; // eax
-  tTrackZOrderEntry *pRightWallBasicCmd; // eax
-  float fRightWallBasicCmdDepth; // edx
-  int iRightWallBasicCmdIndex; // ebx
-  float fRightWallRoofDepth1; // eax
-  float fRightWallRoofDepth2; // eax
-  float fRightWallRoofSelected; // eax
-  tTrackZOrderEntry *pRightWallRoofCmd; // eax
-  int iRightWallRoofCmdIndex; // edx
-  int iCarIndex; // esi
-  int iCarArrayIndex; // ebx
-  tTrackZOrderEntry *pCarRenderCmd; // eax
-  int iCarDrawOrderStatus; // edx
-  float iCarDrawOrderIndex; // edx
-  int iCarCommandIdx; // edx
-  int iCarProcessingFlag; // ecx
-  int iCarsRenderedCount; // esi
-  int iCarLoopIndex; // ebx
-  unsigned int uiCarIndexOffset; // edx
-  int iCarStatusFlag; // ecx
-  int iCarVisibilityCount; // esi
-  int iNamesDisplayCount; // eax
-  tVisibleBuilding *pVisibleBuildingsPtr; // ebx
-  tTrackZOrderEntry *pBuildingRenderCmd; // edx
-  int iLightIndex; // ebx
-  tTrackZOrderEntry *pLightRenderCmd; // ecx
-  int iLightArrayOffset; // edx
-  float fLightDepth; // eax
-  int iLightCmdIndex; // esi
-  tTrackZOrderEntry *pRenderCommand; // eax
+  int iCurrentSect;      // esi
+  // int iSectionOffset; // edx
+  int iOFloorType;                            // edx
+  bool bFloorVisible;                         // eax
+  int iCurrentFloorType;                      // ebx
+  float fGroundDepthMax1;                     // eax
+  float fGroundDepthMax2;                     // eax
+  float fGroundDepthSelected;                 // eax
+  int iTrackIndexPlus2;                       // eax
+  tTrackScreenXYZ *pTrackScreenPlus2;         // edx
+  float fTrackDepthChoice1;                   // eax
+  float fTrackDepthChoice2;                   // eax
+  float fTrackDepthFinal;                     // eax
+  tTrackZOrderEntry *pGroundRenderCmd;        // eax
+  float fGroundRenderDepth;                   // edx
+  int iGroundRenderIndex;                     // ebx
+  float fRoadCenterDepthMax1;                 // eax
+  float fRoadCenterDepthMax2;                 // eax
+  float fRoadCenterDepthSelected;             // eax
+  tTrackZOrderEntry *pRoadCenterCmd;          // eax
+  float fRoadCenterCmdDepth;                  // edx
+  int iRoadCenterCmdIndex;                    // ebx
+  float fLeftRoadDepthMax1;                   // eax
+  float fLeftRoadDepthMax2;                   // eax
+  float fLeftRoadDepthSelected;               // eax
+  tTrackZOrderEntry *pLeftRoadCmd;            // eax
+  float fLeftRoadCmdDepth;                    // edx
+  int iLeftRoadCmdIndex;                      // ebx
+  float fRightRoadDepthMax1;                  // eax
+  float fRightRoadDepthMax2;                  // eax
+  float fRightRoadDepthSelected;              // eax
+  tTrackZOrderEntry *pRightRoadCmd;           // eax
+  float fRightRoadCmdDepth;                   // edx
+  int iRightRoadCmdIndex;                     // ebx
+  int iRoofTypeCheck;                         // eax
+  float fRoof1OuterDepth;                     // eax
+  float fRoof1InnerDepth;                     // eax
+  float fRoof1SelectedDepth;                  // eax
+  tTrackZOrderEntry *pRoof1RenderCmd;         // eax
+  float fRoof1CmdDepth;                       // edx
+  int iRoofType;                              // ebx
+  double dRoof2WallDepth1;                    // st7
+  double dRoof2WallDepth2;                    // st7
+  float fRoof2WallMinDepth;                   // eax
+  float fRoof2SelectedDepth;                  // eax
+  tTrackZOrderEntry *pRoof2RenderCmd;         // eax
+  float fRoof2CmdDepth;                       // edx
+  float fRoof3OuterDepth;                     // eax
+  float fRoof3InnerDepth;                     // eax
+  float fRoof3SelectedDepth;                  // eax
+  int iRoof3CmdIndex;                         // ebx
+  float fLeftLowerWallDepth1;                 // eax
+  float fLeftLowerWallDepth2;                 // eax
+  float fLeftLowerWallSelected;               // eax
+  tTrackZOrderEntry *pLeftLowerWallCmd;       // eax
+  float fLeftLowerWallCmdDepth;               // edx
+  float fRightLowerWallDepth1;                // eax
+  float fRightLowerWallDepth2;                // eax
+  float fRightLowerWallSelected;              // eax
+  tTrackZOrderEntry *pRightLowerWallCmd;      // eax
+  float fRightLowerWallCmdDepth;              // edx
+  float fLeftWallDepthMax1;                   // eax
+  float fLeftWallDepthMax2;                   // eax
+  float fLeftWallDepthSelected;               // eax
+  tTrackZOrderEntry *pLeftWallCmd;            // eax
+  int iLeftWallCmdIndex;                      // edx
+  float fRightWallDepthMax1;                  // eax
+  float fRightWallDepthMax2;                  // eax
+  float fRightWallDepthSelected;              // eax
+  tTrackZOrderEntry *pRightWallCmd;           // eax
+  float fRightWallCmdDepth;                   // edx
+  float fRightWallBasicDepth1;                // eax
+  float fRightWallBasicDepth2;                // eax
+  float fRightWallBasicSelected;              // eax
+  tTrackZOrderEntry *pRightWallBasicCmd;      // eax
+  float fRightWallBasicCmdDepth;              // edx
+  int iRightWallBasicCmdIndex;                // ebx
+  float fRightWallRoofDepth1;                 // eax
+  float fRightWallRoofDepth2;                 // eax
+  float fRightWallRoofSelected;               // eax
+  tTrackZOrderEntry *pRightWallRoofCmd;       // eax
+  int iRightWallRoofCmdIndex;                 // edx
+  int iCarIndex;                              // esi
+  int iCarArrayIndex;                         // ebx
+  tTrackZOrderEntry *pCarRenderCmd;           // eax
+  int iCarDrawOrderStatus;                    // edx
+  float iCarDrawOrderIndex;                   // edx
+  int iCarCommandIdx;                         // edx
+  int iCarProcessingFlag;                     // ecx
+  int iCarsRenderedCount;                     // esi
+  int iCarLoopIndex;                          // ebx
+  unsigned int uiCarIndexOffset;              // edx
+  int iCarStatusFlag;                         // ecx
+  int iCarVisibilityCount;                    // esi
+  int iNamesDisplayCount;                     // eax
+  tVisibleBuilding *pVisibleBuildingsPtr;     // ebx
+  tTrackZOrderEntry *pBuildingRenderCmd;      // edx
+  int iLightIndex;                            // ebx
+  tTrackZOrderEntry *pLightRenderCmd;         // ecx
+  int iLightArrayOffset;                      // edx
+  float fLightDepth;                          // eax
+  int iLightCmdIndex;                         // esi
+  tTrackZOrderEntry *pRenderCommand;          // eax
   const RenderCommand3D *pTypedRenderCommand; // eax
-  int iSectionNum; // esi
-  int iSectionCommand; // eax
-  float iSectionTypeIndex; // eax
-  float fSurfaceDepth1; // eax
-  float fSurfaceDepth2; // eax
-  float fSurfaceDepth3; // eax
-  float fSurfaceDepth4; // eax
-  float fSurfaceDepth5; // eax
-  int iCenterSurfType; // eax
-  float fObjectDepth1; // eax
-  float fObjectDepth2; // eax
-  float fObjectDepth3; // eax
-  float fObjectDepth4; // eax
-  float fObjectDepth5; // eax
-  float fObjectDepth6; // eax
-  int iLeftSurfType; // eax
-  //int iObjectCommandType; // edx
+  int iSectionNum;                            // esi
+  int iSectionCommand;                        // eax
+  float iSectionTypeIndex;                    // eax
+  float fSurfaceDepth1;                       // eax
+  float fSurfaceDepth2;                       // eax
+  float fSurfaceDepth3;                       // eax
+  float fSurfaceDepth4;                       // eax
+  float fSurfaceDepth5;                       // eax
+  int iCenterSurfType;                        // eax
+  float fObjectDepth1;                        // eax
+  float fObjectDepth2;                        // eax
+  float fObjectDepth3;                        // eax
+  float fObjectDepth4;                        // eax
+  float fObjectDepth5;                        // eax
+  float fObjectDepth6;                        // eax
+  int iLeftSurfType;                          // eax
+  // int iObjectCommandType; // edx
   float fMiddleDepth1; // eax
   float fMiddleDepth2; // eax
   float fMiddleDepth3; // eax
   float fMiddleDepth4; // eax
   float fMiddleDepth5; // eax
   float fMiddleDepth6; // eax
-  int iRightSurfType; // eax
-  //int iMiddleCommandType; // edx
+  int iRightSurfType;  // eax
+  // int iMiddleCommandType; // edx
   float fRightDepth1; // eax
   float fRightDepth2; // eax
   float fRightDepth3; // eax
   float fRightDepth4; // eax
   float fRightDepth5; // eax
   float fRightDepth6; // eax
-  int iLeftWallType; // eax
-  //char byLeftWallFlag; // dl
+  int iLeftWallType;  // eax
+  // char byLeftWallFlag; // dl
   float fRoof1InnerDepthAlt; // eax
-  float fWallDepthZ; // eax
-  float fWallZDepthAlt; // eax
-  float fWallInnerDepth; // eax
-  float fWallDepthZ_1; // eax
-  float fWallLeftDepth1; // eax
-  float fWallLeftDepth2; // eax
-  float fWallLeftDepth3; // eax
-  float fWallLeftDepth4; // eax
-  float fWallLeftDepth5; // eax
-  float fWallLeftDepth6; // eax
-  float fWallLeftDepth7; // eax
-  int iRightWallType; // eax
-  //char byRightWallFlag; // bl
+  float fWallDepthZ;         // eax
+  float fWallZDepthAlt;      // eax
+  float fWallInnerDepth;     // eax
+  float fWallDepthZ_1;       // eax
+  float fWallLeftDepth1;     // eax
+  float fWallLeftDepth2;     // eax
+  float fWallLeftDepth3;     // eax
+  float fWallLeftDepth4;     // eax
+  float fWallLeftDepth5;     // eax
+  float fWallLeftDepth6;     // eax
+  float fWallLeftDepth7;     // eax
+  int iRightWallType;        // eax
+  // char byRightWallFlag; // bl
   float fRightWallGeomDepth1; // eax
   float fRightWallGeomDepth2; // eax
   float fRightWallGeomDepth3; // eax
   float fRightWallGeomDepth4; // eax
   float fRightWallGeomDepth5; // eax
   float fRightWallGeomDepth6; // eax
-  //char byWallTypeFlag; // bh
-  float fGeometryDepth1; // eax
-  float fGeometryDepth2; // eax
-  float fGeometryDepth3; // eax
-  float fGeometryDepth4; // eax
-  float fGeometryDepth5; // eax
-  float fGeometryDepth6; // eax
-  int iGeometryIndex; // eax
-  int iProcessingIndex; // edx
-  float fComputedDepth1; // eax
-  float fRenderValue1; // eax
-  float fRenderValue2; // eax
-  float fRenderValue3; // eax
-  float fRenderValue4; // eax
-  float fRenderValue5; // eax
-  int iRenderCommandIndex; // ebx
-  int iScreenYCoord; // eax
-  float fTrackDepth1; // eax
-  float fTrackDepth2; // eax
-  float fTrackDepth3; // eax
-  float fTrackDepth4; // eax
-  float fTrackDepth5; // eax
-  float fTrackDepth6; // eax
-  float fTrackDepth7; // eax
-  float fTrackDepth8; // eax
-  float fTrackDepth9; // eax
-  float fTrackDepth10; // eax
-  float fTrackDepth11; // eax
-  float fTrackDepth12; // eax
-  float fTrackDepth13; // eax
-  float fTrackDepth14; // eax
-  float fTrackDepth15; // eax
-  float fTrackDepth16; // eax
-  float fTrackDepth17; // eax
-  float fTrackDepth18; // eax
-  float fTrackDepth19; // eax
-  float fTrackDepth20; // eax
-  float fTrackDepth21; // eax
-  tTrackScreenXYZ *pTrackScreenPtr1; // eax
-  tTrackScreenXYZ *pTrackScreenPtr2; // eax
-  tTrackScreenXYZ *pTrackScreenPtr3; // eax
-  float fScreenDepth1; // eax
-  tTrackScreenXYZ *pTrackScreenPtr4; // eax
-  tTrackScreenXYZ *pTrackScreenPtr5; // eax
-  tTrackScreenXYZ *pTrackScreenPtr6; // eax
-  tTrackScreenXYZ *pTrackScreenPtr7; // eax
-  float fScreenDepth2; // eax
-  tTrackScreenXYZ *pTrackScreenPtr8; // eax
-  tTrackScreenXYZ *pTrackScreenPtr9; // eax
+  // char byWallTypeFlag; // bh
+  float fGeometryDepth1;              // eax
+  float fGeometryDepth2;              // eax
+  float fGeometryDepth3;              // eax
+  float fGeometryDepth4;              // eax
+  float fGeometryDepth5;              // eax
+  float fGeometryDepth6;              // eax
+  int iGeometryIndex;                 // eax
+  int iProcessingIndex;               // edx
+  float fComputedDepth1;              // eax
+  float fRenderValue1;                // eax
+  float fRenderValue2;                // eax
+  float fRenderValue3;                // eax
+  float fRenderValue4;                // eax
+  float fRenderValue5;                // eax
+  int iRenderCommandIndex;            // ebx
+  int iScreenYCoord;                  // eax
+  float fTrackDepth1;                 // eax
+  float fTrackDepth2;                 // eax
+  float fTrackDepth3;                 // eax
+  float fTrackDepth4;                 // eax
+  float fTrackDepth5;                 // eax
+  float fTrackDepth6;                 // eax
+  float fTrackDepth7;                 // eax
+  float fTrackDepth8;                 // eax
+  float fTrackDepth9;                 // eax
+  float fTrackDepth10;                // eax
+  float fTrackDepth11;                // eax
+  float fTrackDepth12;                // eax
+  float fTrackDepth13;                // eax
+  float fTrackDepth14;                // eax
+  float fTrackDepth15;                // eax
+  float fTrackDepth16;                // eax
+  float fTrackDepth17;                // eax
+  float fTrackDepth18;                // eax
+  float fTrackDepth19;                // eax
+  float fTrackDepth20;                // eax
+  float fTrackDepth21;                // eax
+  tTrackScreenXYZ *pTrackScreenPtr1;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr2;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr3;  // eax
+  float fScreenDepth1;                // eax
+  tTrackScreenXYZ *pTrackScreenPtr4;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr5;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr6;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr7;  // eax
+  float fScreenDepth2;                // eax
+  tTrackScreenXYZ *pTrackScreenPtr8;  // eax
+  tTrackScreenXYZ *pTrackScreenPtr9;  // eax
   tTrackScreenXYZ *pTrackScreenPtr10; // eax
   tTrackScreenXYZ *pTrackScreenPtr11; // eax
-  float fScreenDepth3; // eax
+  float fScreenDepth3;                // eax
   tTrackScreenXYZ *pTrackScreenPtr12; // eax
   tTrackScreenXYZ *pTrackScreenPtr13; // eax
   tTrackScreenXYZ *pTrackScreenPtr14; // eax
   tTrackScreenXYZ *pTrackScreenPtr15; // eax
-  float fScreenDepth4; // eax
+  float fScreenDepth4;                // eax
   tTrackScreenXYZ *pTrackScreenPtr16; // eax
   tTrackScreenXYZ *pTrackScreenPtr17; // eax
   tTrackScreenXYZ *pTrackScreenPtr18; // eax
   tTrackScreenXYZ *pTrackScreenPtr19; // eax
-  float fScreenDepth5; // eax
+  float fScreenDepth5;                // eax
   tTrackScreenXYZ *pTrackScreenPtr20; // eax
   tTrackScreenXYZ *pTrackScreenPtr21; // eax
   tTrackScreenXYZ *pTrackScreenPtr22; // eax
   tTrackScreenXYZ *pTrackScreenPtr23; // eax
-  float fScreenDepth6; // eax
-  tTrackScreenXYZ *pTrackScreen1; // eax
-  tTrackScreenXYZ *pTrackScreen2; // eax
-  tTrackScreenXYZ *pTrackScreen3; // eax
-  tTrackScreenXYZ *pTrackScreen4; // eax
-  float fTrackScreenDepth7; // eax
-  tTrackScreenXYZ *pTrackScreen5; // eax
-  tTrackScreenXYZ *pTrackScreen6; // eax
-  tTrackScreenXYZ *pTrackScreen7; // eax
-  tTrackScreenXYZ *pTrackScreen8; // eax
-  float fTrackScreenDepth8; // eax
-  tTrackScreenXYZ *pTrackScreen9; // eax
-  int iScreenIndex1; // edx
-  int iScreenIndex2; // esi
-  int iScreenIndex3; // edx
-  double dTransform1; // st7
-  double dTransform2; // st7
-  double dTransform3; // st6
-  double dTransform4; // st7
-  double dTransform5; // st6
-  double dTransform6; // st5
-  double dTransform7; // st7
-  double dTransform8; // st7
-  double dTransform9; // st6
-  double dTransform10; // st5
-  double dTransform11; // st7
-  double dTransform12; // st6
-  double dTransform13; // st7
-  double dTransform14; // st5
-  float iTransformInt1; // eax
-  double dTransform15; // st7
-  //float iTransformInt2; // eax
-  double dTransform16; // st7
-  double dTransform17; // st6
-  double dTransform18; // st5
-  double dTransform19; // st7
-  double dTransform20; // st6
-  double dTransform21; // st7
-  double dTransform22; // st5
+  float fScreenDepth6;                // eax
+  tTrackScreenXYZ *pTrackScreen1;     // eax
+  tTrackScreenXYZ *pTrackScreen2;     // eax
+  tTrackScreenXYZ *pTrackScreen3;     // eax
+  tTrackScreenXYZ *pTrackScreen4;     // eax
+  float fTrackScreenDepth7;           // eax
+  tTrackScreenXYZ *pTrackScreen5;     // eax
+  tTrackScreenXYZ *pTrackScreen6;     // eax
+  tTrackScreenXYZ *pTrackScreen7;     // eax
+  tTrackScreenXYZ *pTrackScreen8;     // eax
+  float fTrackScreenDepth8;           // eax
+  tTrackScreenXYZ *pTrackScreen9;     // eax
+  int iScreenIndex1;                  // edx
+  int iScreenIndex2;                  // esi
+  int iScreenIndex3;                  // edx
+  double dTransform1;                 // st7
+  double dTransform2;                 // st7
+  double dTransform3;                 // st6
+  double dTransform4;                 // st7
+  double dTransform5;                 // st6
+  double dTransform6;                 // st5
+  double dTransform7;                 // st7
+  double dTransform8;                 // st7
+  double dTransform9;                 // st6
+  double dTransform10;                // st5
+  double dTransform11;                // st7
+  double dTransform12;                // st6
+  double dTransform13;                // st7
+  double dTransform14;                // st5
+  float iTransformInt1;               // eax
+  double dTransform15;                // st7
+  // float iTransformInt2; // eax
+  double dTransform16;  // st7
+  double dTransform17;  // st6
+  double dTransform18;  // st5
+  double dTransform19;  // st7
+  double dTransform20;  // st6
+  double dTransform21;  // st7
+  double dTransform22;  // st5
   float iTransformInt3; // eax
-  double dTransform23; // st7
-  //float iTransformInt4; // eax
-  double dTransform24; // st7
-  double dTransform25; // st6
-  double dTransform26; // st5
-  double dTransform27; // st7
-  double dTransform28; // st6
-  double dTransform29; // st7
-  double dTransform30; // st5
+  double dTransform23;  // st7
+  // float iTransformInt4; // eax
+  double dTransform24;  // st7
+  double dTransform25;  // st6
+  double dTransform26;  // st5
+  double dTransform27;  // st7
+  double dTransform28;  // st6
+  double dTransform29;  // st7
+  double dTransform30;  // st5
   float iTransformInt5; // eax
-  double dTransform31; // st7
-  //float iTransformInt6; // eax
-  double dTransform32; // st7
-  double dTransform33; // st6
-  double dTransform34; // st5
+  double dTransform31;  // st7
+  // float iTransformInt6; // eax
+  double dTransform32;      // st7
+  double dTransform33;      // st6
+  double dTransform34;      // st5
   double dProjectionDepth1; // st7
   double dProjectionDepth2; // st6
   double dProjectionDepth3; // st7
   double dProjectionDepth4; // st5
-  float iProjectionIndex1; // eax
+  float iProjectionIndex1;  // eax
   double dProjectionDepth5; // st7
-  //float iProjectionIndex2; // eax
-  double dProjectionDepth6; // st7
-  double dProjectionDepth7; // st6
-  double dProjectionDepth8; // st5
-  double dProjectionDepth9; // st7
+  // float iProjectionIndex2; // eax
+  double dProjectionDepth6;  // st7
+  double dProjectionDepth7;  // st6
+  double dProjectionDepth8;  // st5
+  double dProjectionDepth9;  // st7
   double dProjectionDepth10; // st6
   double dProjectionDepth11; // st7
   double dProjectionDepth12; // st5
-  float iProjectionIndex3; // eax
+  float iProjectionIndex3;   // eax
   double dProjectionDepth13; // st7
-  //float iProjectionIndex4; // eax
+  // float iProjectionIndex4; // eax
   double dProjectionDepth14; // st7
   double dProjectionDepth15; // st6
   double dProjectionDepth16; // st5
@@ -1054,9 +1132,9 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   double dProjectionDepth18; // st6
   double dProjectionDepth19; // st7
   double dProjectionDepth20; // st5
-  float iProjectionIndex5; // eax
+  float iProjectionIndex5;   // eax
   double dProjectionDepth21; // st7
-  //float iProjectionIndex6; // eax
+  // float iProjectionIndex6; // eax
   double dProjectionDepth22; // st7
   double dProjectionDepth23; // st6
   double dProjectionDepth24; // st5
@@ -1064,338 +1142,344 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   double dProjectionDepth26; // st6
   double dProjectionDepth27; // st7
   double dProjectionDepth28; // st5
-  float iProjectionIndex7; // eax
+  float iProjectionIndex7;   // eax
   double dProjectionDepth29; // st7
-  //float iProjectionIndex8; // eax
+  // float iProjectionIndex8; // eax
   double dProjectionDepth30; // st7
   double dProjectionDepth31; // st6
   double dProjectionDepth32; // st5
   double dProjectionDepth33; // st7
-  int iRenderingIndex1; // edx
-  //int iRenderingIndex2; // eax
-  int iRenderingIndex3; // edx
-  int iRenderingIndex4; // eax
-  double dRenderingDepth1; // st6
-  int iRenderingIndex5; // esi
-  int iRenderingIndex6; // edx
-  int iRenderingIndex7; // ebx
-  int iRenderingIndex8; // ebx
-  int iRenderingIndex9; // eax
-  int iRenderingIndex10; // edx
-  int iRenderingIndex11; // ecx
-  int iRenderLoopVar; // edx
-  int iRenderingLoopIndex; // esi
-  int iRenderingIndexTmp; // edx
-  int iRenderingCoordIndex; // eax
-  int iRenderingDataIndex; // edx
-  float fDepthValuesArray[9]; // [esp+4h] [ebp-4F0h]
-  float fRoadCenterDepth1; // [esp+28h] [ebp-4CCh]
-  float fRoadCenterDepth2; // [esp+2Ch] [ebp-4C8h]
-  float fRoadCenterFinalDepth; // [esp+30h] [ebp-4C4h]
-  float fRoadCenterDepthNear; // [esp+34h] [ebp-4C0h]
-  float fRoadCenterDepthFar; // [esp+38h] [ebp-4BCh]
-  float fRightRoadDepth2; // [esp+3Ch] [ebp-4B8h]
-  float fRightRoadFinalDepth; // [esp+40h] [ebp-4B4h]
-  float fRightRoadDepthNear; // [esp+44h] [ebp-4B0h]
-  float fRightRoadDepthFar; // [esp+48h] [ebp-4ACh]
-  float fRoof1OuterDepthTmp; // [esp+4Ch] [ebp-4A8h]
-  float fRoof1InnerDepthTmp; // [esp+50h] [ebp-4A4h]
-  float fRoof1DepthSelected; // [esp+54h] [ebp-4A0h]
-  float fRoof1DepthOuter; // [esp+58h] [ebp-49Ch]
-  float fRoof1DepthInner; // [esp+5Ch] [ebp-498h]
-  float fRoof2WallMinDepthTmp; // [esp+60h] [ebp-494h]
-  int iRoof2WallDepthMin; // [esp+64h] [ebp-490h]
-  float fRoof2DepthSelected; // [esp+68h] [ebp-48Ch]
-  int iRoof2WallDepthChoice; // [esp+6Ch] [ebp-488h]
-  float fRoof2DepthWall; // [esp+70h] [ebp-484h]
-  float fRoof3OuterDepthTmp; // [esp+74h] [ebp-480h]
-  float fRoof3InnerDepthTmp; // [esp+78h] [ebp-47Ch]
-  float fRoof3DepthSelected; // [esp+7Ch] [ebp-478h]
-  float fRoof3DepthOuter; // [esp+80h] [ebp-474h]
-  float fRoof3DepthInner; // [esp+84h] [ebp-470h]
-  float fLeftLowerWallDepthNear; // [esp+88h] [ebp-46Ch]
-  float fLeftLowerWallDepthFar; // [esp+8Ch] [ebp-468h]
-  float fLeftLowerWallDepthSelected; // [esp+90h] [ebp-464h]
-  float fLeftLowerWallDepthTmp1; // [esp+94h] [ebp-460h]
-  float fLeftLowerWallDepthTmp2; // [esp+98h] [ebp-45Ch]
-  float fRightLowerWallDepthNear; // [esp+9Ch] [ebp-458h]
-  float fRightLowerWallDepthFar; // [esp+A0h] [ebp-454h]
+  int iRenderingIndex1;      // edx
+  // int iRenderingIndex2; // eax
+  int iRenderingIndex3;               // edx
+  int iRenderingIndex4;               // eax
+  double dRenderingDepth1;            // st6
+  int iRenderingIndex5;               // esi
+  int iRenderingIndex6;               // edx
+  int iRenderingIndex7;               // ebx
+  int iRenderingIndex8;               // ebx
+  int iRenderingIndex9;               // eax
+  int iRenderingIndex10;              // edx
+  int iRenderingIndex11;              // ecx
+  int iRenderLoopVar;                 // edx
+  int iRenderingLoopIndex;            // esi
+  int iRenderingIndexTmp;             // edx
+  int iRenderingCoordIndex;           // eax
+  int iRenderingDataIndex;            // edx
+  float fDepthValuesArray[9];         // [esp+4h] [ebp-4F0h]
+  float fRoadCenterDepth1;            // [esp+28h] [ebp-4CCh]
+  float fRoadCenterDepth2;            // [esp+2Ch] [ebp-4C8h]
+  float fRoadCenterFinalDepth;        // [esp+30h] [ebp-4C4h]
+  float fRoadCenterDepthNear;         // [esp+34h] [ebp-4C0h]
+  float fRoadCenterDepthFar;          // [esp+38h] [ebp-4BCh]
+  float fRightRoadDepth2;             // [esp+3Ch] [ebp-4B8h]
+  float fRightRoadFinalDepth;         // [esp+40h] [ebp-4B4h]
+  float fRightRoadDepthNear;          // [esp+44h] [ebp-4B0h]
+  float fRightRoadDepthFar;           // [esp+48h] [ebp-4ACh]
+  float fRoof1OuterDepthTmp;          // [esp+4Ch] [ebp-4A8h]
+  float fRoof1InnerDepthTmp;          // [esp+50h] [ebp-4A4h]
+  float fRoof1DepthSelected;          // [esp+54h] [ebp-4A0h]
+  float fRoof1DepthOuter;             // [esp+58h] [ebp-49Ch]
+  float fRoof1DepthInner;             // [esp+5Ch] [ebp-498h]
+  float fRoof2WallMinDepthTmp;        // [esp+60h] [ebp-494h]
+  int iRoof2WallDepthMin;             // [esp+64h] [ebp-490h]
+  float fRoof2DepthSelected;          // [esp+68h] [ebp-48Ch]
+  int iRoof2WallDepthChoice;          // [esp+6Ch] [ebp-488h]
+  float fRoof2DepthWall;              // [esp+70h] [ebp-484h]
+  float fRoof3OuterDepthTmp;          // [esp+74h] [ebp-480h]
+  float fRoof3InnerDepthTmp;          // [esp+78h] [ebp-47Ch]
+  float fRoof3DepthSelected;          // [esp+7Ch] [ebp-478h]
+  float fRoof3DepthOuter;             // [esp+80h] [ebp-474h]
+  float fRoof3DepthInner;             // [esp+84h] [ebp-470h]
+  float fLeftLowerWallDepthNear;      // [esp+88h] [ebp-46Ch]
+  float fLeftLowerWallDepthFar;       // [esp+8Ch] [ebp-468h]
+  float fLeftLowerWallDepthSelected;  // [esp+90h] [ebp-464h]
+  float fLeftLowerWallDepthTmp1;      // [esp+94h] [ebp-460h]
+  float fLeftLowerWallDepthTmp2;      // [esp+98h] [ebp-45Ch]
+  float fRightLowerWallDepthNear;     // [esp+9Ch] [ebp-458h]
+  float fRightLowerWallDepthFar;      // [esp+A0h] [ebp-454h]
   float fRightLowerWallDepthSelected; // [esp+A4h] [ebp-450h]
-  float fRightLowerWallDepthTmp1; // [esp+A8h] [ebp-44Ch]
-  float fRightLowerWallDepthTmp2; // [esp+ACh] [ebp-448h]
-  float fLeftWallDepth1; // [esp+B0h] [ebp-444h]
-  float fLeftWallDepth2; // [esp+B4h] [ebp-440h]
-  float fLeftWallFinalDepth; // [esp+B8h] [ebp-43Ch]
-  float fLeftWallDepthTmp1; // [esp+BCh] [ebp-438h]
-  float fLeftWallDepthTmp2; // [esp+C0h] [ebp-434h]
-  float fLeftWallDepthTmp3; // [esp+C4h] [ebp-430h]
-  float fLeftWallDepthTmp4; // [esp+C8h] [ebp-42Ch]
-  float fLeftWallDepthTmp5; // [esp+CCh] [ebp-428h]
-  float fLeftWallDepthTmp6; // [esp+D0h] [ebp-424h]
-  float fLeftWallDepthTmp7; // [esp+D4h] [ebp-420h]
-  float fRightWallDepth2; // [esp+D8h] [ebp-41Ch]
-  float fRightWallFinalDepth; // [esp+DCh] [ebp-418h]
-  float fRightWallDepthTmp1; // [esp+E0h] [ebp-414h]
-  float fRightWallDepthTmp2; // [esp+E4h] [ebp-410h]
-  float fRightWallDepthTmp3; // [esp+E8h] [ebp-40Ch]
-  float fRightWallDepthTmp4; // [esp+ECh] [ebp-408h]
-  float fRightWallDepthTmp5; // [esp+F0h] [ebp-404h]
-  float fRightWallDepthTmp6; // [esp+F4h] [ebp-400h]
-  float fRightWallDepthTmp7; // [esp+F8h] [ebp-3FCh]
-  unsigned int uiCarArrayOffset; // [esp+FCh] [ebp-3F8h]
-  float fGeometryDepthTmp1; // [esp+100h] [ebp-3F4h]
-  float fGeometryDepthTmp2; // [esp+104h] [ebp-3F0h]
-  float fGeometryDepthTmp3; // [esp+108h] [ebp-3ECh]
-  float fGeometryDepthTmp4; // [esp+10Ch] [ebp-3E8h]
-  float fGeometryDepthTmp5; // [esp+110h] [ebp-3E4h]
-  float fGeometryDepthTmp6; // [esp+114h] [ebp-3E0h]
-  float fGeometryDepthTmp7; // [esp+118h] [ebp-3DCh]
-  float fRenderDepthTmp1; // [esp+11Ch] [ebp-3D8h]
-  float fRenderDepthTmp2; // [esp+120h] [ebp-3D4h]
-  float fRenderDepthTmp3; // [esp+124h] [ebp-3D0h]
-  float fRenderDepthTmp4; // [esp+128h] [ebp-3CCh]
-  float fRenderDepthTmp5; // [esp+12Ch] [ebp-3C8h]
-  float fRenderDepthTmp6; // [esp+130h] [ebp-3C4h]
-  tVec3 *pTrackVec3Array; // [esp+134h] [ebp-3C0h]
-  tVec3 *pTrackGeomFloats; // [esp+138h] [ebp-3BCh]
-  float fRenderDepthTmp7; // [esp+13Ch] [ebp-3B8h]
-  float fRenderDepthTmp8; // [esp+140h] [ebp-3B4h]
-  float fRenderDepthTmp9; // [esp+144h] [ebp-3B0h]
-  float fRenderDepthTmp10; // [esp+148h] [ebp-3ACh]
-  float fRightWallDepth1; // [esp+14Ch] [ebp-3A8h]
-  float fRenderDepthTmp11; // [esp+150h] [ebp-3A4h]
-  float fRenderDepthTmp12; // [esp+154h] [ebp-3A0h]
-  float fRenderDepthTmp13; // [esp+158h] [ebp-39Ch]
-  float fRenderDepthTmp14; // [esp+15Ch] [ebp-398h]
-  int iTrackSectionIndex; // [esp+160h] [ebp-394h]
-  int iProjectedZ; // [esp+164h] [ebp-390h]
-  int iNextSectionIndex; // [esp+168h] [ebp-38Ch]
-  int iRightWallFlags; // [esp+16Ch] [ebp-388h]
-  int iLeftWallFlags; // [esp+170h] [ebp-384h]
-  bool bGroundVisible; // [esp+174h] [ebp-380h]
-  float fScreenTempX1; // [esp+178h] [ebp-37Ch]
-  float fScreenTempY1; // [esp+17Ch] [ebp-378h]
-  float fScreenTempZ1; // [esp+180h] [ebp-374h]
-  float fScreenTempX2; // [esp+184h] [ebp-370h]
-  float fScreenTempY2; // [esp+188h] [ebp-36Ch]
-  float fScreenTempZ2; // [esp+18Ch] [ebp-368h]
-  float fScreenTempX3; // [esp+190h] [ebp-364h]
-  float fScreenTempY3; // [esp+194h] [ebp-360h]
-  float fScreenTempZ3; // [esp+198h] [ebp-35Ch]
-  float fScreenTempX4; // [esp+19Ch] [ebp-358h]
-  float fScreenTempY4; // [esp+1A0h] [ebp-354h]
-  float fScreenTempZ4; // [esp+1A4h] [ebp-350h]
-  float fScreenTempX5; // [esp+1A8h] [ebp-34Ch]
-  float fScreenTempY5; // [esp+1ACh] [ebp-348h]
-  float fScreenTempZ5; // [esp+1B0h] [ebp-344h]
-  float fScreenTempX6; // [esp+1B4h] [ebp-340h]
-  float fScreenTempY6; // [esp+1B8h] [ebp-33Ch]
-  float fScreenTempZ6; // [esp+1BCh] [ebp-338h]
-  float fScreenTempX7; // [esp+1C0h] [ebp-334h]
-  float fScreenTempY7; // [esp+1C4h] [ebp-330h]
-  float fScreenTempZ7; // [esp+1C8h] [ebp-32Ch]
-  float fScreenTempX8; // [esp+1CCh] [ebp-328h]
-  float fScreenTempY8; // [esp+1D0h] [ebp-324h]
-  float fScreenTempZ8; // [esp+1D4h] [ebp-320h]
-  float fScreenTempX9; // [esp+1D8h] [ebp-31Ch]
-  float fScreenTempY9; // [esp+1DCh] [ebp-318h]
-  float fScreenTempZ9; // [esp+1E0h] [ebp-314h]
-  float fScreenTempX10; // [esp+1E4h] [ebp-310h]
-  float fScreenTempX11; // [esp+1F4h] [ebp-300h]
-  float fScreenTempY11; // [esp+1F8h] [ebp-2FCh]
-  float fScreenTempZ11; // [esp+1FCh] [ebp-2F8h]
-  float fScreenTempX12; // [esp+200h] [ebp-2F4h]
-  float fScreenTempY12; // [esp+204h] [ebp-2F0h]
-  float fScreenTempZ12; // [esp+208h] [ebp-2ECh]
-  float fGroundDepth1; // [esp+20Ch] [ebp-2E8h]
-  float fGroundDepthTmp1; // [esp+210h] [ebp-2E4h]
-  float fGroundDepthTmp2; // [esp+214h] [ebp-2E0h]
-  float fGroundDepthTmp3; // [esp+218h] [ebp-2DCh]
-  float fGroundDepthTmp4; // [esp+21Ch] [ebp-2D8h]
-  float fTrackDepthTmp1; // [esp+220h] [ebp-2D4h]
-  float fTrackDepthTmp2; // [esp+224h] [ebp-2D0h]
-  float fProjectionTmp1; // [esp+228h] [ebp-2CCh]
-  float fProjectionTmp2; // [esp+22Ch] [ebp-2C8h]
-  float fProjectionTmp3; // [esp+230h] [ebp-2C4h]
-  float fProjectionTmp4; // [esp+234h] [ebp-2C0h]
-  float fLeftRoadDepth1; // [esp+238h] [ebp-2BCh]
-  float fLeftRoadDepth2; // [esp+23Ch] [ebp-2B8h]
-  float fLeftRoadFinalDepth; // [esp+240h] [ebp-2B4h]
-  float fLeftRoadTmp1; // [esp+244h] [ebp-2B0h]
-  float fLeftRoadTmp2; // [esp+248h] [ebp-2ACh]
-  float fRightRoadDepth1; // [esp+24Ch] [ebp-2A8h]
-  float fRightRoadTmp1; // [esp+250h] [ebp-2A4h]
-  float fRightRoadTmp2; // [esp+254h] [ebp-2A0h]
-  float fSurfaceTmp1; // [esp+258h] [ebp-29Ch]
-  float fSurfaceTmp2; // [esp+25Ch] [ebp-298h]
-  float fSurfaceTmp3; // [esp+260h] [ebp-294h]
-  float fSurfaceTmp4; // [esp+264h] [ebp-290h]
-  float fSurfaceTmp5; // [esp+268h] [ebp-28Ch]
-  float fSurfaceTmp6; // [esp+26Ch] [ebp-288h]
-  float fSurfaceTmp7; // [esp+270h] [ebp-284h]
-  float fSurfaceTmp8; // [esp+274h] [ebp-280h]
-  float fSurfaceTmp9; // [esp+278h] [ebp-27Ch]
-  float fSurfaceTmp10; // [esp+27Ch] [ebp-278h]
-  float fSurfaceTmp11; // [esp+280h] [ebp-274h]
-  float fSurfaceTmp12; // [esp+284h] [ebp-270h]
-  float fSurfaceTmp13; // [esp+288h] [ebp-26Ch]
-  float fSurfaceTmp14; // [esp+28Ch] [ebp-268h]
-  float fSurfaceTmp15; // [esp+290h] [ebp-264h]
-  float fSurfaceTmp16; // [esp+294h] [ebp-260h]
-  float fSurfaceTmp17; // [esp+298h] [ebp-25Ch]
-  float fSurfaceTmp18; // [esp+29Ch] [ebp-258h]
-  float fSurfaceTmp19; // [esp+2A0h] [ebp-254h]
-  float fSurfaceTmp20; // [esp+2A4h] [ebp-250h]
-  float fSurfaceTmp21; // [esp+2A8h] [ebp-24Ch]
-  float fSurfaceTmp22; // [esp+2ACh] [ebp-248h]
-  float fSurfaceTmp23; // [esp+2B0h] [ebp-244h]
-  float fSurfaceTmp24; // [esp+2B4h] [ebp-240h]
-  float fSurfaceTmp25; // [esp+2B8h] [ebp-23Ch]
-  float fSurfaceTmp26; // [esp+2BCh] [ebp-238h]
-  float fSurfaceTmp27; // [esp+2C0h] [ebp-234h]
-  float fSurfaceTmp28; // [esp+2C4h] [ebp-230h]
-  float fSurfaceTmp29; // [esp+2C8h] [ebp-22Ch]
-  float fSurfaceTmp30; // [esp+2CCh] [ebp-228h]
-  float fSurfaceTmp31; // [esp+2D0h] [ebp-224h]
-  float fSurfaceTmp32; // [esp+2D4h] [ebp-220h]
-  float fSurfaceTmp33; // [esp+2D8h] [ebp-21Ch]
-  int iIndexTmp1; // [esp+2DCh] [ebp-218h]
-  //int iIndexTmp2; // [esp+2E0h] [ebp-214h]
-  int iIndexTmp3; // [esp+2E4h] [ebp-210h]
-  float fRenderDepth; // [esp+2E8h] [ebp-20Ch]
-  float fLightZ; // [esp+2ECh] [ebp-208h]
-  float fRightWallRoofDepth; // [esp+2F0h] [ebp-204h]
-  float fLeftWallRoofDepth; // [esp+2F4h] [ebp-200h]
-  int *pPrevGroundColour; // [esp+2F8h] [ebp-1FCh]
-  float fLightTmp1; // [esp+2FCh] [ebp-1F8h]
-  float fOffsetTmp1; // [esp+300h] [ebp-1F4h]
-  int iOffsetTmp2; // [esp+308h] [ebp-1ECh]
-  int iGroundProjectedZ; // [esp+30Ch] [ebp-1E8h]
-  int iRightWallProjectedZ; // [esp+310h] [ebp-1E4h]
-  int iLeftWallProjectedZ; // [esp+314h] [ebp-1E0h]
-  float fCameraTransformX1; // [esp+318h] [ebp-1DCh]
-  float fGroundCameraZ; // [esp+31Ch] [ebp-1D8h]
-  float fRightWallCameraZ; // [esp+320h] [ebp-1D4h]
-  float fLeftWallCameraZ; // [esp+324h] [ebp-1D0h]
-  float fCameraTransformY1; // [esp+328h] [ebp-1CCh]
-  float fGroundCameraY; // [esp+32Ch] [ebp-1C8h]
-  float fRightWallCameraY; // [esp+330h] [ebp-1C4h]
-  float fLeftWallCameraY; // [esp+334h] [ebp-1C0h]
-  float fCameraTransformZ1; // [esp+338h] [ebp-1BCh]
-  float fGroundCameraX; // [esp+33Ch] [ebp-1B8h]
-  float fRightWallCameraX; // [esp+340h] [ebp-1B4h]
-  float fLeftWallCameraX; // [esp+344h] [ebp-1B0h]
-  int iRenderObjectIndex; // [esp+348h] [ebp-1ACh]
-  float fObjectDepthA1; // [esp+34Ch] [ebp-1A8h]
-  float fObjectDepthA2; // [esp+350h] [ebp-1A4h]
-  float fObjectDepthA3; // [esp+354h] [ebp-1A0h]
-  float fObjectDepthA4; // [esp+358h] [ebp-19Ch]
-  float fObjectDepthA5; // [esp+35Ch] [ebp-198h]
-  float fObjectDepthA6; // [esp+360h] [ebp-194h]
-  float fObjectDepthB1; // [esp+364h] [ebp-190h]
-  float fObjectDepthB2; // [esp+368h] [ebp-18Ch]
-  float fObjectDepthB3; // [esp+36Ch] [ebp-188h]
-  float fObjectDepthB4; // [esp+370h] [ebp-184h]
-  float fObjectDepthB5; // [esp+374h] [ebp-180h]
-  float fObjectDepthB6; // [esp+378h] [ebp-17Ch]
-  float fObjectDepthC1; // [esp+37Ch] [ebp-178h]
-  float fObjectDepthC2; // [esp+380h] [ebp-174h]
-  float fObjectDepthC3; // [esp+384h] [ebp-170h]
-  float fObjectDepthC4; // [esp+388h] [ebp-16Ch]
-  float fObjectDepthC5; // [esp+38Ch] [ebp-168h]
-  float fObjectDepthC6; // [esp+390h] [ebp-164h]
-  float fObjectDepthD1; // [esp+394h] [ebp-160h]
-  float fObjectDepthD2; // [esp+398h] [ebp-15Ch]
-  float fObjectDepthD3; // [esp+39Ch] [ebp-158h]
-  float fObjectDepthD4; // [esp+3A0h] [ebp-154h]
-  float fObjectDepthD5; // [esp+3A4h] [ebp-150h]
-  float fObjectDepthD6; // [esp+3A8h] [ebp-14Ch]
-  float fObjectDepthE1; // [esp+3ACh] [ebp-148h]
-  float fObjectDepthE2; // [esp+3B0h] [ebp-144h]
-  float fObjectDepthE3; // [esp+3B4h] [ebp-140h]
-  float fObjectDepthE4; // [esp+3B8h] [ebp-13Ch]
-  float fObjectDepthE5; // [esp+3BCh] [ebp-138h]
-  float fObjectDepthE6; // [esp+3C0h] [ebp-134h]
-  float fObjectDepthF1; // [esp+3C4h] [ebp-130h]
-  float fObjectDepthF2; // [esp+3C8h] [ebp-12Ch]
-  float fObjectDepthF3; // [esp+3CCh] [ebp-128h]
-  float fObjectDepthF4; // [esp+3D0h] [ebp-124h]
-  float fObjectDepthF5; // [esp+3D4h] [ebp-120h]
-  float fObjectDepthF6; // [esp+3D8h] [ebp-11Ch]
-  float fObjectDepthG1; // [esp+3DCh] [ebp-118h]
-  float fObjectDepthG2; // [esp+3E0h] [ebp-114h]
-  float fObjectDepthG3; // [esp+3E4h] [ebp-110h]
-  float fProjectionTempX1; // [esp+3E8h] [ebp-10Ch]
-  float fProjectionTempY1; // [esp+3ECh] [ebp-108h]
-  float fProjectionTempZ1; // [esp+3F0h] [ebp-104h]
-  float fProjectionTempX2; // [esp+3F4h] [ebp-100h]
-  float fProjectionTempY2; // [esp+3F8h] [ebp-FCh]
-  float fProjectionTempZ2; // [esp+3FCh] [ebp-F8h]
-  float fProjectionTempX3; // [esp+400h] [ebp-F4h]
-  float fProjectionTempY3; // [esp+404h] [ebp-F0h]
-  float fProjectionTempZ3; // [esp+408h] [ebp-ECh]
-  float fProjectionTempX4; // [esp+40Ch] [ebp-E8h]
-  float fProjectionTempY4; // [esp+410h] [ebp-E4h]
-  float fProjectionTempZ4; // [esp+414h] [ebp-E0h]
-  float fProjectionTempX5; // [esp+418h] [ebp-DCh]
-  float fProjectionTempY5; // [esp+41Ch] [ebp-D8h]
-  float fProjectionTempZ5; // [esp+420h] [ebp-D4h]
-  float fProjectionTempX6; // [esp+424h] [ebp-D0h]
-  float fProjectionTempY6; // [esp+428h] [ebp-CCh]
-  float fProjectionTempZ6; // [esp+42Ch] [ebp-C8h]
-  float fProjectionTempX7; // [esp+430h] [ebp-C4h]
-  float fProjectionTempY7; // [esp+434h] [ebp-C0h]
-  float fProjectionTempZ7; // [esp+438h] [ebp-BCh]
-  float fProjectionTempX8; // [esp+43Ch] [ebp-B8h]
-  float fProjectionTempY8; // [esp+440h] [ebp-B4h]
-  float fProjectionTempZ8; // [esp+444h] [ebp-B0h]
-  float fProjectionTempX9; // [esp+448h] [ebp-ACh]
-  float fProjectionTempY9; // [esp+44Ch] [ebp-A8h]
-  float fProjectionTempZ9; // [esp+450h] [ebp-A4h]
-  float fProjectionTempX10; // [esp+454h] [ebp-A0h]
-  float fProjectionTempY10; // [esp+458h] [ebp-9Ch]
-  float fProjectionTempX11; // [esp+464h] [ebp-90h]
-  float fProjectionTempY11; // [esp+468h] [ebp-8Ch]
-  float fProjectionTempZ11; // [esp+46Ch] [ebp-88h]
-  float fProjectionTempX12; // [esp+470h] [ebp-84h]
-  float fProjectionTempY12; // [esp+474h] [ebp-80h]
-  float fProjectionTempZ12; // [esp+478h] [ebp-7Ch]
-  float fProjectionTempX13; // [esp+47Ch] [ebp-78h]
-  float fProjectionTempY13; // [esp+480h] [ebp-74h]
-  float fProjectionTempZ13; // [esp+484h] [ebp-70h]
-  float fProjectionTempFinal; // [esp+488h] [ebp-6Ch]
-  uint8 *pScrPtr_1; // [esp+48Ch] [ebp-68h]
-  int iChaseCamIdx_1; // [esp+490h] [ebp-64h]
-  int iCarIdx_1; // [esp+494h] [ebp-60h]
-  float fProjectionZ; // [esp+498h] [ebp-5Ch]
-  tTrackScreenXYZ *pNextGroundScreen; // [esp+49Ch] [ebp-58h]
+  float fRightLowerWallDepthTmp1;     // [esp+A8h] [ebp-44Ch]
+  float fRightLowerWallDepthTmp2;     // [esp+ACh] [ebp-448h]
+  float fLeftWallDepth1;              // [esp+B0h] [ebp-444h]
+  float fLeftWallDepth2;              // [esp+B4h] [ebp-440h]
+  float fLeftWallFinalDepth;          // [esp+B8h] [ebp-43Ch]
+  float fLeftWallDepthTmp1;           // [esp+BCh] [ebp-438h]
+  float fLeftWallDepthTmp2;           // [esp+C0h] [ebp-434h]
+  float fLeftWallDepthTmp3;           // [esp+C4h] [ebp-430h]
+  float fLeftWallDepthTmp4;           // [esp+C8h] [ebp-42Ch]
+  float fLeftWallDepthTmp5;           // [esp+CCh] [ebp-428h]
+  float fLeftWallDepthTmp6;           // [esp+D0h] [ebp-424h]
+  float fLeftWallDepthTmp7;           // [esp+D4h] [ebp-420h]
+  float fRightWallDepth2;             // [esp+D8h] [ebp-41Ch]
+  float fRightWallFinalDepth;         // [esp+DCh] [ebp-418h]
+  float fRightWallDepthTmp1;          // [esp+E0h] [ebp-414h]
+  float fRightWallDepthTmp2;          // [esp+E4h] [ebp-410h]
+  float fRightWallDepthTmp3;          // [esp+E8h] [ebp-40Ch]
+  float fRightWallDepthTmp4;          // [esp+ECh] [ebp-408h]
+  float fRightWallDepthTmp5;          // [esp+F0h] [ebp-404h]
+  float fRightWallDepthTmp6;          // [esp+F4h] [ebp-400h]
+  float fRightWallDepthTmp7;          // [esp+F8h] [ebp-3FCh]
+  unsigned int uiCarArrayOffset;      // [esp+FCh] [ebp-3F8h]
+  float fGeometryDepthTmp1;           // [esp+100h] [ebp-3F4h]
+  float fGeometryDepthTmp2;           // [esp+104h] [ebp-3F0h]
+  float fGeometryDepthTmp3;           // [esp+108h] [ebp-3ECh]
+  float fGeometryDepthTmp4;           // [esp+10Ch] [ebp-3E8h]
+  float fGeometryDepthTmp5;           // [esp+110h] [ebp-3E4h]
+  float fGeometryDepthTmp6;           // [esp+114h] [ebp-3E0h]
+  float fGeometryDepthTmp7;           // [esp+118h] [ebp-3DCh]
+  float fRenderDepthTmp1;             // [esp+11Ch] [ebp-3D8h]
+  float fRenderDepthTmp2;             // [esp+120h] [ebp-3D4h]
+  float fRenderDepthTmp3;             // [esp+124h] [ebp-3D0h]
+  float fRenderDepthTmp4;             // [esp+128h] [ebp-3CCh]
+  float fRenderDepthTmp5;             // [esp+12Ch] [ebp-3C8h]
+  float fRenderDepthTmp6;             // [esp+130h] [ebp-3C4h]
+  tVec3 *pTrackVec3Array;             // [esp+134h] [ebp-3C0h]
+  tVec3 *pTrackGeomFloats;            // [esp+138h] [ebp-3BCh]
+  float fRenderDepthTmp7;             // [esp+13Ch] [ebp-3B8h]
+  float fRenderDepthTmp8;             // [esp+140h] [ebp-3B4h]
+  float fRenderDepthTmp9;             // [esp+144h] [ebp-3B0h]
+  float fRenderDepthTmp10;            // [esp+148h] [ebp-3ACh]
+  float fRightWallDepth1;             // [esp+14Ch] [ebp-3A8h]
+  float fRenderDepthTmp11;            // [esp+150h] [ebp-3A4h]
+  float fRenderDepthTmp12;            // [esp+154h] [ebp-3A0h]
+  float fRenderDepthTmp13;            // [esp+158h] [ebp-39Ch]
+  float fRenderDepthTmp14;            // [esp+15Ch] [ebp-398h]
+  int iTrackSectionIndex;             // [esp+160h] [ebp-394h]
+  int iProjectedZ;                    // [esp+164h] [ebp-390h]
+  int iNextSectionIndex;              // [esp+168h] [ebp-38Ch]
+  int iRightWallFlags;                // [esp+16Ch] [ebp-388h]
+  int iLeftWallFlags;                 // [esp+170h] [ebp-384h]
+  bool bGroundVisible;                // [esp+174h] [ebp-380h]
+  float fScreenTempX1;                // [esp+178h] [ebp-37Ch]
+  float fScreenTempY1;                // [esp+17Ch] [ebp-378h]
+  float fScreenTempZ1;                // [esp+180h] [ebp-374h]
+  float fScreenTempX2;                // [esp+184h] [ebp-370h]
+  float fScreenTempY2;                // [esp+188h] [ebp-36Ch]
+  float fScreenTempZ2;                // [esp+18Ch] [ebp-368h]
+  float fScreenTempX3;                // [esp+190h] [ebp-364h]
+  float fScreenTempY3;                // [esp+194h] [ebp-360h]
+  float fScreenTempZ3;                // [esp+198h] [ebp-35Ch]
+  float fScreenTempX4;                // [esp+19Ch] [ebp-358h]
+  float fScreenTempY4;                // [esp+1A0h] [ebp-354h]
+  float fScreenTempZ4;                // [esp+1A4h] [ebp-350h]
+  float fScreenTempX5;                // [esp+1A8h] [ebp-34Ch]
+  float fScreenTempY5;                // [esp+1ACh] [ebp-348h]
+  float fScreenTempZ5;                // [esp+1B0h] [ebp-344h]
+  float fScreenTempX6;                // [esp+1B4h] [ebp-340h]
+  float fScreenTempY6;                // [esp+1B8h] [ebp-33Ch]
+  float fScreenTempZ6;                // [esp+1BCh] [ebp-338h]
+  float fScreenTempX7;                // [esp+1C0h] [ebp-334h]
+  float fScreenTempY7;                // [esp+1C4h] [ebp-330h]
+  float fScreenTempZ7;                // [esp+1C8h] [ebp-32Ch]
+  float fScreenTempX8;                // [esp+1CCh] [ebp-328h]
+  float fScreenTempY8;                // [esp+1D0h] [ebp-324h]
+  float fScreenTempZ8;                // [esp+1D4h] [ebp-320h]
+  float fScreenTempX9;                // [esp+1D8h] [ebp-31Ch]
+  float fScreenTempY9;                // [esp+1DCh] [ebp-318h]
+  float fScreenTempZ9;                // [esp+1E0h] [ebp-314h]
+  float fScreenTempX10;               // [esp+1E4h] [ebp-310h]
+  float fScreenTempX11;               // [esp+1F4h] [ebp-300h]
+  float fScreenTempY11;               // [esp+1F8h] [ebp-2FCh]
+  float fScreenTempZ11;               // [esp+1FCh] [ebp-2F8h]
+  float fScreenTempX12;               // [esp+200h] [ebp-2F4h]
+  float fScreenTempY12;               // [esp+204h] [ebp-2F0h]
+  float fScreenTempZ12;               // [esp+208h] [ebp-2ECh]
+  float fGroundDepth1;                // [esp+20Ch] [ebp-2E8h]
+  float fGroundDepthTmp1;             // [esp+210h] [ebp-2E4h]
+  float fGroundDepthTmp2;             // [esp+214h] [ebp-2E0h]
+  float fGroundDepthTmp3;             // [esp+218h] [ebp-2DCh]
+  float fGroundDepthTmp4;             // [esp+21Ch] [ebp-2D8h]
+  float fTrackDepthTmp1;              // [esp+220h] [ebp-2D4h]
+  float fTrackDepthTmp2;              // [esp+224h] [ebp-2D0h]
+  float fProjectionTmp1;              // [esp+228h] [ebp-2CCh]
+  float fProjectionTmp2;              // [esp+22Ch] [ebp-2C8h]
+  float fProjectionTmp3;              // [esp+230h] [ebp-2C4h]
+  float fProjectionTmp4;              // [esp+234h] [ebp-2C0h]
+  float fLeftRoadDepth1;              // [esp+238h] [ebp-2BCh]
+  float fLeftRoadDepth2;              // [esp+23Ch] [ebp-2B8h]
+  float fLeftRoadFinalDepth;          // [esp+240h] [ebp-2B4h]
+  float fLeftRoadTmp1;                // [esp+244h] [ebp-2B0h]
+  float fLeftRoadTmp2;                // [esp+248h] [ebp-2ACh]
+  float fRightRoadDepth1;             // [esp+24Ch] [ebp-2A8h]
+  float fRightRoadTmp1;               // [esp+250h] [ebp-2A4h]
+  float fRightRoadTmp2;               // [esp+254h] [ebp-2A0h]
+  float fSurfaceTmp1;                 // [esp+258h] [ebp-29Ch]
+  float fSurfaceTmp2;                 // [esp+25Ch] [ebp-298h]
+  float fSurfaceTmp3;                 // [esp+260h] [ebp-294h]
+  float fSurfaceTmp4;                 // [esp+264h] [ebp-290h]
+  float fSurfaceTmp5;                 // [esp+268h] [ebp-28Ch]
+  float fSurfaceTmp6;                 // [esp+26Ch] [ebp-288h]
+  float fSurfaceTmp7;                 // [esp+270h] [ebp-284h]
+  float fSurfaceTmp8;                 // [esp+274h] [ebp-280h]
+  float fSurfaceTmp9;                 // [esp+278h] [ebp-27Ch]
+  float fSurfaceTmp10;                // [esp+27Ch] [ebp-278h]
+  float fSurfaceTmp11;                // [esp+280h] [ebp-274h]
+  float fSurfaceTmp12;                // [esp+284h] [ebp-270h]
+  float fSurfaceTmp13;                // [esp+288h] [ebp-26Ch]
+  float fSurfaceTmp14;                // [esp+28Ch] [ebp-268h]
+  float fSurfaceTmp15;                // [esp+290h] [ebp-264h]
+  float fSurfaceTmp16;                // [esp+294h] [ebp-260h]
+  float fSurfaceTmp17;                // [esp+298h] [ebp-25Ch]
+  float fSurfaceTmp18;                // [esp+29Ch] [ebp-258h]
+  float fSurfaceTmp19;                // [esp+2A0h] [ebp-254h]
+  float fSurfaceTmp20;                // [esp+2A4h] [ebp-250h]
+  float fSurfaceTmp21;                // [esp+2A8h] [ebp-24Ch]
+  float fSurfaceTmp22;                // [esp+2ACh] [ebp-248h]
+  float fSurfaceTmp23;                // [esp+2B0h] [ebp-244h]
+  float fSurfaceTmp24;                // [esp+2B4h] [ebp-240h]
+  float fSurfaceTmp25;                // [esp+2B8h] [ebp-23Ch]
+  float fSurfaceTmp26;                // [esp+2BCh] [ebp-238h]
+  float fSurfaceTmp27;                // [esp+2C0h] [ebp-234h]
+  float fSurfaceTmp28;                // [esp+2C4h] [ebp-230h]
+  float fSurfaceTmp29;                // [esp+2C8h] [ebp-22Ch]
+  float fSurfaceTmp30;                // [esp+2CCh] [ebp-228h]
+  float fSurfaceTmp31;                // [esp+2D0h] [ebp-224h]
+  float fSurfaceTmp32;                // [esp+2D4h] [ebp-220h]
+  float fSurfaceTmp33;                // [esp+2D8h] [ebp-21Ch]
+  int iIndexTmp1;                     // [esp+2DCh] [ebp-218h]
+  // int iIndexTmp2; // [esp+2E0h] [ebp-214h]
+  int iIndexTmp3;                        // [esp+2E4h] [ebp-210h]
+  float fRenderDepth;                    // [esp+2E8h] [ebp-20Ch]
+  float fLightZ;                         // [esp+2ECh] [ebp-208h]
+  float fRightWallRoofDepth;             // [esp+2F0h] [ebp-204h]
+  float fLeftWallRoofDepth;              // [esp+2F4h] [ebp-200h]
+  int *pPrevGroundColour;                // [esp+2F8h] [ebp-1FCh]
+  float fLightTmp1;                      // [esp+2FCh] [ebp-1F8h]
+  float fOffsetTmp1;                     // [esp+300h] [ebp-1F4h]
+  int iOffsetTmp2;                       // [esp+308h] [ebp-1ECh]
+  int iGroundProjectedZ;                 // [esp+30Ch] [ebp-1E8h]
+  int iRightWallProjectedZ;              // [esp+310h] [ebp-1E4h]
+  int iLeftWallProjectedZ;               // [esp+314h] [ebp-1E0h]
+  float fCameraTransformX1;              // [esp+318h] [ebp-1DCh]
+  float fGroundCameraZ;                  // [esp+31Ch] [ebp-1D8h]
+  float fRightWallCameraZ;               // [esp+320h] [ebp-1D4h]
+  float fLeftWallCameraZ;                // [esp+324h] [ebp-1D0h]
+  float fCameraTransformY1;              // [esp+328h] [ebp-1CCh]
+  float fGroundCameraY;                  // [esp+32Ch] [ebp-1C8h]
+  float fRightWallCameraY;               // [esp+330h] [ebp-1C4h]
+  float fLeftWallCameraY;                // [esp+334h] [ebp-1C0h]
+  float fCameraTransformZ1;              // [esp+338h] [ebp-1BCh]
+  float fGroundCameraX;                  // [esp+33Ch] [ebp-1B8h]
+  float fRightWallCameraX;               // [esp+340h] [ebp-1B4h]
+  float fLeftWallCameraX;                // [esp+344h] [ebp-1B0h]
+  int iRenderObjectIndex;                // [esp+348h] [ebp-1ACh]
+  float fObjectDepthA1;                  // [esp+34Ch] [ebp-1A8h]
+  float fObjectDepthA2;                  // [esp+350h] [ebp-1A4h]
+  float fObjectDepthA3;                  // [esp+354h] [ebp-1A0h]
+  float fObjectDepthA4;                  // [esp+358h] [ebp-19Ch]
+  float fObjectDepthA5;                  // [esp+35Ch] [ebp-198h]
+  float fObjectDepthA6;                  // [esp+360h] [ebp-194h]
+  float fObjectDepthB1;                  // [esp+364h] [ebp-190h]
+  float fObjectDepthB2;                  // [esp+368h] [ebp-18Ch]
+  float fObjectDepthB3;                  // [esp+36Ch] [ebp-188h]
+  float fObjectDepthB4;                  // [esp+370h] [ebp-184h]
+  float fObjectDepthB5;                  // [esp+374h] [ebp-180h]
+  float fObjectDepthB6;                  // [esp+378h] [ebp-17Ch]
+  float fObjectDepthC1;                  // [esp+37Ch] [ebp-178h]
+  float fObjectDepthC2;                  // [esp+380h] [ebp-174h]
+  float fObjectDepthC3;                  // [esp+384h] [ebp-170h]
+  float fObjectDepthC4;                  // [esp+388h] [ebp-16Ch]
+  float fObjectDepthC5;                  // [esp+38Ch] [ebp-168h]
+  float fObjectDepthC6;                  // [esp+390h] [ebp-164h]
+  float fObjectDepthD1;                  // [esp+394h] [ebp-160h]
+  float fObjectDepthD2;                  // [esp+398h] [ebp-15Ch]
+  float fObjectDepthD3;                  // [esp+39Ch] [ebp-158h]
+  float fObjectDepthD4;                  // [esp+3A0h] [ebp-154h]
+  float fObjectDepthD5;                  // [esp+3A4h] [ebp-150h]
+  float fObjectDepthD6;                  // [esp+3A8h] [ebp-14Ch]
+  float fObjectDepthE1;                  // [esp+3ACh] [ebp-148h]
+  float fObjectDepthE2;                  // [esp+3B0h] [ebp-144h]
+  float fObjectDepthE3;                  // [esp+3B4h] [ebp-140h]
+  float fObjectDepthE4;                  // [esp+3B8h] [ebp-13Ch]
+  float fObjectDepthE5;                  // [esp+3BCh] [ebp-138h]
+  float fObjectDepthE6;                  // [esp+3C0h] [ebp-134h]
+  float fObjectDepthF1;                  // [esp+3C4h] [ebp-130h]
+  float fObjectDepthF2;                  // [esp+3C8h] [ebp-12Ch]
+  float fObjectDepthF3;                  // [esp+3CCh] [ebp-128h]
+  float fObjectDepthF4;                  // [esp+3D0h] [ebp-124h]
+  float fObjectDepthF5;                  // [esp+3D4h] [ebp-120h]
+  float fObjectDepthF6;                  // [esp+3D8h] [ebp-11Ch]
+  float fObjectDepthG1;                  // [esp+3DCh] [ebp-118h]
+  float fObjectDepthG2;                  // [esp+3E0h] [ebp-114h]
+  float fObjectDepthG3;                  // [esp+3E4h] [ebp-110h]
+  float fProjectionTempX1;               // [esp+3E8h] [ebp-10Ch]
+  float fProjectionTempY1;               // [esp+3ECh] [ebp-108h]
+  float fProjectionTempZ1;               // [esp+3F0h] [ebp-104h]
+  float fProjectionTempX2;               // [esp+3F4h] [ebp-100h]
+  float fProjectionTempY2;               // [esp+3F8h] [ebp-FCh]
+  float fProjectionTempZ2;               // [esp+3FCh] [ebp-F8h]
+  float fProjectionTempX3;               // [esp+400h] [ebp-F4h]
+  float fProjectionTempY3;               // [esp+404h] [ebp-F0h]
+  float fProjectionTempZ3;               // [esp+408h] [ebp-ECh]
+  float fProjectionTempX4;               // [esp+40Ch] [ebp-E8h]
+  float fProjectionTempY4;               // [esp+410h] [ebp-E4h]
+  float fProjectionTempZ4;               // [esp+414h] [ebp-E0h]
+  float fProjectionTempX5;               // [esp+418h] [ebp-DCh]
+  float fProjectionTempY5;               // [esp+41Ch] [ebp-D8h]
+  float fProjectionTempZ5;               // [esp+420h] [ebp-D4h]
+  float fProjectionTempX6;               // [esp+424h] [ebp-D0h]
+  float fProjectionTempY6;               // [esp+428h] [ebp-CCh]
+  float fProjectionTempZ6;               // [esp+42Ch] [ebp-C8h]
+  float fProjectionTempX7;               // [esp+430h] [ebp-C4h]
+  float fProjectionTempY7;               // [esp+434h] [ebp-C0h]
+  float fProjectionTempZ7;               // [esp+438h] [ebp-BCh]
+  float fProjectionTempX8;               // [esp+43Ch] [ebp-B8h]
+  float fProjectionTempY8;               // [esp+440h] [ebp-B4h]
+  float fProjectionTempZ8;               // [esp+444h] [ebp-B0h]
+  float fProjectionTempX9;               // [esp+448h] [ebp-ACh]
+  float fProjectionTempY9;               // [esp+44Ch] [ebp-A8h]
+  float fProjectionTempZ9;               // [esp+450h] [ebp-A4h]
+  float fProjectionTempX10;              // [esp+454h] [ebp-A0h]
+  float fProjectionTempY10;              // [esp+458h] [ebp-9Ch]
+  float fProjectionTempX11;              // [esp+464h] [ebp-90h]
+  float fProjectionTempY11;              // [esp+468h] [ebp-8Ch]
+  float fProjectionTempZ11;              // [esp+46Ch] [ebp-88h]
+  float fProjectionTempX12;              // [esp+470h] [ebp-84h]
+  float fProjectionTempY12;              // [esp+474h] [ebp-80h]
+  float fProjectionTempZ12;              // [esp+478h] [ebp-7Ch]
+  float fProjectionTempX13;              // [esp+47Ch] [ebp-78h]
+  float fProjectionTempY13;              // [esp+480h] [ebp-74h]
+  float fProjectionTempZ13;              // [esp+484h] [ebp-70h]
+  float fProjectionTempFinal;            // [esp+488h] [ebp-6Ch]
+  uint8 *pScrPtr_1;                      // [esp+48Ch] [ebp-68h]
+  int iChaseCamIdx_1;                    // [esp+490h] [ebp-64h]
+  int iCarIdx_1;                         // [esp+494h] [ebp-60h]
+  float fProjectionZ;                    // [esp+498h] [ebp-5Ch]
+  tTrackScreenXYZ *pNextGroundScreen;    // [esp+49Ch] [ebp-58h]
   tTrackScreenXYZ *pCurrentGroundScreen; // [esp+4A0h] [ebp-54h]
-  int *pCurrentGroundColour; // [esp+4A4h] [ebp-50h]
-  float fTransformTempX1; // [esp+4A8h] [ebp-4Ch]
-  float fTransformTempY1; // [esp+4ACh] [ebp-48h]
-  float fTransformTempZ1; // [esp+4B0h] [ebp-44h]
-  float fTransformTempX2; // [esp+4B4h] [ebp-40h]
-  float fTransformTempY2; // [esp+4B8h] [ebp-3Ch]
-  float fTransformTempZ2; // [esp+4BCh] [ebp-38h]
-  float fTransformTempFinal; // [esp+4C0h] [ebp-34h]
-  float fWorldZ; // [esp+4C8h] [ebp-2Ch]
-  float fWorldY; // [esp+4CCh] [ebp-28h]
-  float fWorldX; // [esp+4D0h] [ebp-24h]
-  int iRenderingTemp; // [esp+4E0h] [ebp-14h]
+  int *pCurrentGroundColour;             // [esp+4A4h] [ebp-50h]
+  float fTransformTempX1;                // [esp+4A8h] [ebp-4Ch]
+  float fTransformTempY1;                // [esp+4ACh] [ebp-48h]
+  float fTransformTempZ1;                // [esp+4B0h] [ebp-44h]
+  float fTransformTempX2;                // [esp+4B4h] [ebp-40h]
+  float fTransformTempY2;                // [esp+4B8h] [ebp-3Ch]
+  float fTransformTempZ2;                // [esp+4BCh] [ebp-38h]
+  float fTransformTempFinal;             // [esp+4C0h] [ebp-34h]
+  float fWorldZ;                         // [esp+4C8h] [ebp-2Ch]
+  float fWorldY;                         // [esp+4CCh] [ebp-28h]
+  float fWorldX;                         // [esp+4D0h] [ebp-24h]
+  int iRenderingTemp;                    // [esp+4E0h] [ebp-14h]
 
-  pScrPtr_1 = pScrPtr;                          // Store function parameters
+  pScrPtr_1 = pScrPtr; // Store function parameters
   iChaseCamIdx_1 = iChaseCamIdx;
   iCarIdx_1 = iCarIdx;
-  cars_drawn = 0;                               // Initialize global counters for rendering
+  cars_drawn = 0; // Initialize global counters for rendering
   num_pols = 0;
-  for (iTrackSectionIndex = 0; TrackSize + 1 >= iTrackSectionIndex; ++iTrackSectionIndex) {
-    if (first_size + 1 >= iTrackSectionIndex || iTrackSectionIndex >= gap_size) {
-      iCurrentTrackIndex = start_sect + iTrackSectionIndex;// Calculate current track section index with wraparound
+  for (iTrackSectionIndex = 0; TrackSize + 1 >= iTrackSectionIndex;
+       ++iTrackSectionIndex) {
+    if (first_size + 1 >= iTrackSectionIndex ||
+        iTrackSectionIndex >= gap_size) {
+      iCurrentTrackIndex =
+          start_sect + iTrackSectionIndex; // Calculate current track section
+                                           // index with wraparound
       if (start_sect + iTrackSectionIndex >= TRAK_LEN)
         iCurrentTrackIndex -= TRAK_LEN;
       if (iCurrentTrackIndex < 0)
         iCurrentTrackIndex += TRAK_LEN;
-      pCurrentTrackPt = TrakPt[iCurrentTrackIndex].pointAy;// Get track geometry data and screen projection structures
+      pCurrentTrackPt =
+          TrakPt[iCurrentTrackIndex].pointAy; // Get track geometry data and
+                                              // screen projection structures
       pCurrentTrackScreenXYZ = &TrackScreenXYZ[iCurrentTrackIndex];
       pTrackGeomFloats = pCurrentTrackPt;
       pTrackPoint4 = pCurrentTrackPt + 4;
@@ -1403,30 +1487,33 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       pTrackPoint3 = pCurrentTrackPt + 3;
       pCurrentTrackPt += 2;
       pCurrentTrackScreenXYZ->iClipCount = 0;
-      dDeltaX1 = pCurrentTrackPt->fX - viewx;   // Transform track point 1 from world to camera space
+      dDeltaX1 = pCurrentTrackPt->fX -
+                 viewx; // Transform track point 1 from world to camera space
       dDeltaY1 = pCurrentTrackPt->fY - viewy;
       dDeltaZ1 = pCurrentTrackPt->fZ - viewz;
       fWorldX = (float)(dDeltaX1 * vk1 + dDeltaY1 * vk4 + dDeltaZ1 * vk7);
       fWorldY = (float)(dDeltaX1 * vk2 + dDeltaY1 * vk5 + dDeltaZ1 * vk8);
       dCameraZ1 = dDeltaX1 * vk3 + dDeltaY1 * vk6 + dDeltaZ1 * vk9;
       fWorldZ = (float)dCameraZ1;
-      dCameraZ1 = round(dCameraZ1);//_CHP();
+      dCameraZ1 = round(dCameraZ1); //_CHP();
       iProjectedZ = (int)dCameraZ1;
-      if (fWorldZ < 80.0)                     // Apply near clipping plane (min Z = 80.0)
+      if (fWorldZ < 80.0) // Apply near clipping plane (min Z = 80.0)
       {
         fWorldZ = 80.0;
         ++pCurrentTrackScreenXYZ->iClipCount;
       }
       dViewDistance1 = (double)VIEWDIST;
-      dInvZ1 = 1.0 / fWorldZ;                   // Project to screen coordinates using perspective division
+      dInvZ1 =
+          1.0 /
+          fWorldZ; // Project to screen coordinates using perspective division
       dScreenX1 = dViewDistance1 * fWorldX * dInvZ1 + (double)xbase;
-      dScreenX1 = round(dScreenX1);//_CHP();
+      dScreenX1 = round(dScreenX1); //_CHP();
       xp = (int)dScreenX1;
       dScreenY1 = dInvZ1 * (dViewDistance1 * fWorldY) + (double)ybase;
-      dScreenY1 = round(dScreenY1);//_CHP();
+      dScreenY1 = round(dScreenY1); //_CHP();
       yp = (int)dScreenY1;
       pCurrentTrackScreenXYZ->screenPtAy[1].screen.x = xp * scr_size >> 6;
-      //pCurrentTrackScreenXYZ->screenPtAy[1].screen.x = iScreenX1 >> 6;
+      // pCurrentTrackScreenXYZ->screenPtAy[1].screen.x = iScreenX1 >> 6;
       iScreenY1 = scr_size * (199 - yp);
       pCurrentTrackScreenXYZ->screenPtAy[1].projected.fZ = (float)iProjectedZ;
       pCurrentTrackScreenXYZ->screenPtAy[1].screen.y = iScreenY1 >> 6;
@@ -1439,7 +1526,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       fWorldY = (float)(dDeltaX2 * vk2 + dDeltaY2 * vk5 + dDeltaZ2 * vk8);
       dCameraZ2 = dDeltaX2 * vk3 + dDeltaY2 * vk6 + dDeltaZ2 * vk9;
       fWorldZ = (float)dCameraZ2;
-      dCameraZ2 = round(dCameraZ2);//_CHP();
+      dCameraZ2 = round(dCameraZ2); //_CHP();
       iProjectedZ = (int)dCameraZ2;
       if (fWorldZ < 80.0) {
         fWorldZ = 80.0;
@@ -1448,13 +1535,13 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       dViewDistance2 = (double)VIEWDIST;
       dInvZ2 = 1.0 / fWorldZ;
       dScreenX2 = dViewDistance2 * fWorldX * dInvZ2 + (double)xbase;
-      dScreenX2 = round(dScreenX2);//_CHP();
+      dScreenX2 = round(dScreenX2); //_CHP();
       xp = (int)dScreenX2;
       dScreenY2 = dInvZ2 * (dViewDistance2 * fWorldY) + (double)ybase;
-      dScreenY2 = round(dScreenY2);//_CHP();
+      dScreenY2 = round(dScreenY2); //_CHP();
       yp = (int)dScreenY2;
       pCurrentTrackScreenXYZ->screenPtAy[0].screen.x = xp * scr_size >> 6;
-      //pCurrentTrackScreenXYZ->screenPtAy[0].screen.x = iScreenX2 >> 6;
+      // pCurrentTrackScreenXYZ->screenPtAy[0].screen.x = iScreenX2 >> 6;
       iScreenY2 = scr_size * (199 - yp);
       pCurrentTrackScreenXYZ->screenPtAy[0].projected.fZ = (float)iProjectedZ;
       pCurrentTrackScreenXYZ->screenPtAy[0].screen.y = iScreenY2 >> 6;
@@ -1467,7 +1554,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       fWorldY = (float)(dDeltaX3 * vk2 + dDeltaY3 * vk5 + dDeltaZ3 * vk8);
       dCameraZ3 = dDeltaX3 * vk3 + dDeltaY3 * vk6 + dDeltaZ3 * vk9;
       fWorldZ = (float)dCameraZ3;
-      dCameraZ3 = round(dCameraZ3);//_CHP();
+      dCameraZ3 = round(dCameraZ3); //_CHP();
       iProjectedZ = (int)dCameraZ3;
       if (fWorldZ < 80.0) {
         iClipIncrement3 = pCurrentTrackScreenXYZ->iClipCount + 1;
@@ -1477,13 +1564,13 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       dViewDistance3 = (double)VIEWDIST;
       dInvZ3 = 1.0 / fWorldZ;
       dScreenX3 = dViewDistance3 * fWorldX * dInvZ3 + (double)xbase;
-      dScreenX3 = round(dScreenX3);//_CHP();
+      dScreenX3 = round(dScreenX3); //_CHP();
       xp = (int)dScreenX3;
       dScreenY3 = dInvZ3 * (dViewDistance3 * fWorldY) + (double)ybase;
-      dScreenY3 = round(dScreenY3);//_CHP();
+      dScreenY3 = round(dScreenY3); //_CHP();
       yp = (int)dScreenY3;
       pCurrentTrackScreenXYZ->screenPtAy[2].screen.x = xp * scr_size >> 6;
-      //pCurrentTrackScreenXYZ->screenPtAy[2].screen.x = iScreenX3 >> 6;
+      // pCurrentTrackScreenXYZ->screenPtAy[2].screen.x = iScreenX3 >> 6;
       iScreenY3 = scr_size * (199 - yp);
       pCurrentTrackScreenXYZ->screenPtAy[2].projected.fZ = (float)iProjectedZ;
       pCurrentTrackScreenXYZ->screenPtAy[2].screen.y = iScreenY3 >> 6;
@@ -1496,7 +1583,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       fWorldY = (float)(dDeltaX4 * vk2 + dDeltaY4 * vk5 + dDeltaZ4 * vk8);
       dCameraZ4 = dDeltaX4 * vk3 + dDeltaY4 * vk6 + dDeltaZ4 * vk9;
       fWorldZ = (float)dCameraZ4;
-      dCameraZ4 = round(dCameraZ4);//_CHP();
+      dCameraZ4 = round(dCameraZ4); //_CHP();
       iProjectedZ = (int)dCameraZ4;
       if (fWorldZ < 80.0) {
         iClipIncrement4 = pCurrentTrackScreenXYZ->iClipCount + 1;
@@ -1506,153 +1593,216 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       dViewDistance4 = (double)VIEWDIST;
       dInvZ4 = 1.0 / fWorldZ;
       dScreenX4 = dViewDistance4 * fWorldX * dInvZ4 + (double)xbase;
-      dScreenX4 = round(dScreenX4);//_CHP();
+      dScreenX4 = round(dScreenX4); //_CHP();
       xp = (int)dScreenX4;
       dScreenY4 = dInvZ4 * (dViewDistance4 * fWorldY) + (double)ybase;
       iScrSize = scr_size;
-      dScreenY4 = round(dScreenY4);//_CHP();
+      dScreenY4 = round(dScreenY4); //_CHP();
       yp = (int)dScreenY4;
       pCurrentTrackScreenXYZ->screenPtAy[3].screen.x = xp * scr_size >> 6;
-      //pCurrentTrackScreenXYZ->screenPtAy[3].screen.x = iScreenX4 >> 6;
-      pCurrentTrackScreenXYZ->screenPtAy[3].screen.y = (iScrSize * (199 - yp)) >> 6;
+      // pCurrentTrackScreenXYZ->screenPtAy[3].screen.x = iScreenX4 >> 6;
+      pCurrentTrackScreenXYZ->screenPtAy[3].screen.y =
+          (iScrSize * (199 - yp)) >> 6;
       pCurrentTrackScreenXYZ->screenPtAy[3].projected.fX = fWorldX;
       pCurrentTrackScreenXYZ->screenPtAy[3].projected.fY = fWorldY;
       pCurrentTrackScreenXYZ->screenPtAy[3].projected.fZ = (float)iProjectedZ;
       pLeftWallTypePtr = &TrakColour[iCurrentTrackIndex][TRAK_COLOUR_LEFT_WALL];
-      iPrevSectionIndex = iCurrentTrackIndex ? iCurrentTrackIndex - 1 : TRAK_LEN - 1;
-      pPrevLeftWallTypePtr = &TrakColour[iPrevSectionIndex][TRAK_COLOUR_LEFT_WALL];
+      iPrevSectionIndex =
+          iCurrentTrackIndex ? iCurrentTrackIndex - 1 : TRAK_LEN - 1;
+      pPrevLeftWallTypePtr =
+          &TrakColour[iPrevSectionIndex][TRAK_COLOUR_LEFT_WALL];
       if (*pLeftWallTypePtr && *pPrevLeftWallTypePtr) {
-        //LODWORD(fOffsetTmp1) = 72 * iCurrentTrackIndex;//unused here?
+        // LODWORD(fOffsetTmp1) = 72 * iCurrentTrackIndex;//unused here?
         pGroundPt = &TrakPt[iCurrentTrackIndex];
-        dLeftWallDeltaX = pGroundPt->pointAy[1].fX - viewx;// Calculate left wall point (point 5) projection to screen coordinates
+        dLeftWallDeltaX = pGroundPt->pointAy[1].fX -
+                          viewx; // Calculate left wall point (point 5)
+                                 // projection to screen coordinates
         dLeftWallDeltaY = pGroundPt->pointAy[1].fY - viewy;
         dLeftWallDeltaZ = pGroundPt->pointAy[1].fZ - viewz;
-        fLeftWallCameraX = (float)(dLeftWallDeltaX * vk1 + dLeftWallDeltaY * vk4 + dLeftWallDeltaZ * vk7);
-        fLeftWallCameraY = (float)(dLeftWallDeltaX * vk2 + dLeftWallDeltaY * vk5 + dLeftWallDeltaZ * vk8);
-        dLeftWallCameraZ = dLeftWallDeltaX * vk3 + dLeftWallDeltaY * vk6 + dLeftWallDeltaZ * vk9;
+        fLeftWallCameraX =
+            (float)(dLeftWallDeltaX * vk1 + dLeftWallDeltaY * vk4 +
+                    dLeftWallDeltaZ * vk7);
+        fLeftWallCameraY =
+            (float)(dLeftWallDeltaX * vk2 + dLeftWallDeltaY * vk5 +
+                    dLeftWallDeltaZ * vk8);
+        dLeftWallCameraZ = dLeftWallDeltaX * vk3 + dLeftWallDeltaY * vk6 +
+                           dLeftWallDeltaZ * vk9;
         fLeftWallCameraZ = (float)dLeftWallCameraZ;
-        dLeftWallCameraZ = round(dLeftWallCameraZ);//_CHP();
+        dLeftWallCameraZ = round(dLeftWallCameraZ); //_CHP();
         iLeftWallProjectedZ = (int)dLeftWallCameraZ;
         if (fLeftWallCameraZ < 80.0)
           fLeftWallCameraZ = 80.0;
         dLeftWallViewDist = (double)VIEWDIST;
         dLeftWallInvZ = 1.0 / fLeftWallCameraZ;
-        dLeftWallScreenX = dLeftWallViewDist * fLeftWallCameraX * dLeftWallInvZ + (double)xbase;
-        dLeftWallScreenX = round(dLeftWallScreenX);//_CHP();
+        dLeftWallScreenX =
+            dLeftWallViewDist * fLeftWallCameraX * dLeftWallInvZ +
+            (double)xbase;
+        dLeftWallScreenX = round(dLeftWallScreenX); //_CHP();
         xp = (int)dLeftWallScreenX;
-        dLeftWallScreenY = dLeftWallInvZ * (dLeftWallViewDist * fLeftWallCameraY) + (double)ybase;
-        dLeftWallScreenY = round(dLeftWallScreenY);//_CHP();
+        dLeftWallScreenY =
+            dLeftWallInvZ * (dLeftWallViewDist * fLeftWallCameraY) +
+            (double)ybase;
+        dLeftWallScreenY = round(dLeftWallScreenY); //_CHP();
         yp = (int)dLeftWallScreenY;
         pCurrentTrackScreenXYZ->screenPtAy[4].screen.x = xp * scr_size >> 6;
-        //pCurrentTrackScreenXYZ->screenPtAy[4].screen.x = iLeftWallScreenX >> 6;
+        // pCurrentTrackScreenXYZ->screenPtAy[4].screen.x = iLeftWallScreenX >>
+        // 6;
         iLeftWallScreenY = scr_size * (199 - yp);
-        pCurrentTrackScreenXYZ->screenPtAy[4].projected.fZ = (float)iLeftWallProjectedZ;
+        pCurrentTrackScreenXYZ->screenPtAy[4].projected.fZ =
+            (float)iLeftWallProjectedZ;
         pCurrentTrackScreenXYZ->screenPtAy[4].screen.y = iLeftWallScreenY >> 6;
         pCurrentTrackScreenXYZ->screenPtAy[4].projected.fX = fLeftWallCameraX;
         pCurrentTrackScreenXYZ->screenPtAy[4].projected.fY = fLeftWallCameraY;
-      } else {                                         // Copy coordinates from existing points when walls are not present
+      } else { // Copy coordinates from existing points when walls are not
+               // present
         if (*pLeftWallTypePtr >= 0 && *pPrevLeftWallTypePtr >= 0) {
-          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fX = pCurrentTrackScreenXYZ->screenPtAy[0].projected.fX;
-          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fY = pCurrentTrackScreenXYZ->screenPtAy[0].projected.fY;
+          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fX =
+              pCurrentTrackScreenXYZ->screenPtAy[0].projected.fX;
+          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fY =
+              pCurrentTrackScreenXYZ->screenPtAy[0].projected.fY;
           dLeftWallCopyZ = pCurrentTrackScreenXYZ->screenPtAy[0].projected.fZ;
-          pCurrentTrackScreenXYZ->screenPtAy[4].screen.x = pCurrentTrackScreenXYZ->screenPtAy[0].screen.x;
+          pCurrentTrackScreenXYZ->screenPtAy[4].screen.x =
+              pCurrentTrackScreenXYZ->screenPtAy[0].screen.x;
           iLeftWallCopyY = pCurrentTrackScreenXYZ->screenPtAy[0].screen.y;
         } else {
-          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fX = pCurrentTrackScreenXYZ->screenPtAy[1].projected.fX;
-          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fY = pCurrentTrackScreenXYZ->screenPtAy[1].projected.fY;
+          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fX =
+              pCurrentTrackScreenXYZ->screenPtAy[1].projected.fX;
+          pCurrentTrackScreenXYZ->screenPtAy[4].projected.fY =
+              pCurrentTrackScreenXYZ->screenPtAy[1].projected.fY;
           dLeftWallCopyZ = pCurrentTrackScreenXYZ->screenPtAy[1].projected.fZ;
-          pCurrentTrackScreenXYZ->screenPtAy[4].screen.x = pCurrentTrackScreenXYZ->screenPtAy[1].screen.x;
+          pCurrentTrackScreenXYZ->screenPtAy[4].screen.x =
+              pCurrentTrackScreenXYZ->screenPtAy[1].screen.x;
           iLeftWallCopyY = pCurrentTrackScreenXYZ->screenPtAy[1].screen.y;
         }
         pCurrentTrackScreenXYZ->screenPtAy[4].screen.y = iLeftWallCopyY;
-        pCurrentTrackScreenXYZ->screenPtAy[4].projected.fZ = (float)dLeftWallCopyZ;
+        pCurrentTrackScreenXYZ->screenPtAy[4].projected.fZ =
+            (float)dLeftWallCopyZ;
       }
-      if (TrakColour[iCurrentTrackIndex][TRAK_COLOUR_RIGHT_WALL] && pPrevLeftWallTypePtr[1]) {
+      if (TrakColour[iCurrentTrackIndex][TRAK_COLOUR_RIGHT_WALL] &&
+          pPrevLeftWallTypePtr[1]) {
         pGroundPt2 = &TrakPt[iCurrentTrackIndex];
-        dRightWallDeltaX = pGroundPt2->pointAy[5].fX - viewx;// Calculate right wall point (point 6) projection to screen coordinates
+        dRightWallDeltaX = pGroundPt2->pointAy[5].fX -
+                           viewx; // Calculate right wall point (point 6)
+                                  // projection to screen coordinates
         dRightWallDeltaY = pGroundPt2->pointAy[5].fY - viewy;
         dRightWallDeltaZ = pGroundPt2->pointAy[5].fZ - viewz;
-        fRightWallCameraX = (float)(dRightWallDeltaX * vk1 + dRightWallDeltaY * vk4 + dRightWallDeltaZ * vk7);
-        fRightWallCameraY = (float)(dRightWallDeltaX * vk2 + dRightWallDeltaY * vk5 + dRightWallDeltaZ * vk8);
-        dRightWallCameraZ = dRightWallDeltaX * vk3 + dRightWallDeltaY * vk6 + dRightWallDeltaZ * vk9;
+        fRightWallCameraX =
+            (float)(dRightWallDeltaX * vk1 + dRightWallDeltaY * vk4 +
+                    dRightWallDeltaZ * vk7);
+        fRightWallCameraY =
+            (float)(dRightWallDeltaX * vk2 + dRightWallDeltaY * vk5 +
+                    dRightWallDeltaZ * vk8);
+        dRightWallCameraZ = dRightWallDeltaX * vk3 + dRightWallDeltaY * vk6 +
+                            dRightWallDeltaZ * vk9;
         fRightWallCameraZ = (float)dRightWallCameraZ;
-        dRightWallCameraZ = round(dRightWallCameraZ);//_CHP();
+        dRightWallCameraZ = round(dRightWallCameraZ); //_CHP();
         iRightWallProjectedZ = (int)dRightWallCameraZ;
         if (fRightWallCameraZ < 80.0)
           fRightWallCameraZ = 80.0;
         dRightWallViewDist = (double)VIEWDIST;
         dRightWallInvZ = 1.0 / fRightWallCameraZ;
-        dRightWallScreenX = dRightWallViewDist * fRightWallCameraX * dRightWallInvZ + (double)xbase;
-        dRightWallScreenX = round(dRightWallScreenX);//_CHP();
+        dRightWallScreenX =
+            dRightWallViewDist * fRightWallCameraX * dRightWallInvZ +
+            (double)xbase;
+        dRightWallScreenX = round(dRightWallScreenX); //_CHP();
         xp = (int)dRightWallScreenX;
-        dRightWallScreenY = dRightWallInvZ * (dRightWallViewDist * fRightWallCameraY) + (double)ybase;
+        dRightWallScreenY =
+            dRightWallInvZ * (dRightWallViewDist * fRightWallCameraY) +
+            (double)ybase;
         iRightWallScrSize = scr_size;
-        dRightWallScreenY = round(dRightWallScreenY);//_CHP();
+        dRightWallScreenY = round(dRightWallScreenY); //_CHP();
         yp = (int)dRightWallScreenY;
         pCurrentTrackScreenXYZ->screenPtAy[5].screen.x = xp * scr_size >> 6;
-        //pCurrentTrackScreenXYZ->screenPtAy[5].screen.x = iRightWallScreenX >> 6;
+        // pCurrentTrackScreenXYZ->screenPtAy[5].screen.x = iRightWallScreenX >>
+        // 6;
         iRightWallScreenY = iRightWallScrSize * (199 - yp);
-        pCurrentTrackScreenXYZ->screenPtAy[5].projected.fZ = (float)iRightWallProjectedZ;
+        pCurrentTrackScreenXYZ->screenPtAy[5].projected.fZ =
+            (float)iRightWallProjectedZ;
         pCurrentTrackScreenXYZ->screenPtAy[5].screen.y = iRightWallScreenY >> 6;
         pCurrentTrackScreenXYZ->screenPtAy[5].projected.fX = fRightWallCameraX;
         pCurrentTrackScreenXYZ->screenPtAy[5].projected.fY = fRightWallCameraY;
-      } else {                                         // Copy right wall coordinates from existing points when walls are not present
-        if (TrakColour[iCurrentTrackIndex][TRAK_COLOUR_RIGHT_WALL] >= 0 && pPrevLeftWallTypePtr[1] >= 0) {
-          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fX = pCurrentTrackScreenXYZ->screenPtAy[3].projected.fX;
-          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fY = pCurrentTrackScreenXYZ->screenPtAy[3].projected.fY;
-          dRightWallDepthCopy = pCurrentTrackScreenXYZ->screenPtAy[3].projected.fZ;
-          pCurrentTrackScreenXYZ->screenPtAy[5].screen.x = pCurrentTrackScreenXYZ->screenPtAy[3].screen.x;
+      } else { // Copy right wall coordinates from existing points when walls
+               // are not present
+        if (TrakColour[iCurrentTrackIndex][TRAK_COLOUR_RIGHT_WALL] >= 0 &&
+            pPrevLeftWallTypePtr[1] >= 0) {
+          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fX =
+              pCurrentTrackScreenXYZ->screenPtAy[3].projected.fX;
+          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fY =
+              pCurrentTrackScreenXYZ->screenPtAy[3].projected.fY;
+          dRightWallDepthCopy =
+              pCurrentTrackScreenXYZ->screenPtAy[3].projected.fZ;
+          pCurrentTrackScreenXYZ->screenPtAy[5].screen.x =
+              pCurrentTrackScreenXYZ->screenPtAy[3].screen.x;
           iRightWallCopy = pCurrentTrackScreenXYZ->screenPtAy[3].screen.y;
         } else {
-          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fX = pCurrentTrackScreenXYZ->screenPtAy[2].projected.fX;
-          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fY = pCurrentTrackScreenXYZ->screenPtAy[2].projected.fY;
-          dRightWallDepthCopy = pCurrentTrackScreenXYZ->screenPtAy[2].projected.fZ;
-          pCurrentTrackScreenXYZ->screenPtAy[5].screen.x = pCurrentTrackScreenXYZ->screenPtAy[2].screen.x;
+          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fX =
+              pCurrentTrackScreenXYZ->screenPtAy[2].projected.fX;
+          pCurrentTrackScreenXYZ->screenPtAy[5].projected.fY =
+              pCurrentTrackScreenXYZ->screenPtAy[2].projected.fY;
+          dRightWallDepthCopy =
+              pCurrentTrackScreenXYZ->screenPtAy[2].projected.fZ;
+          pCurrentTrackScreenXYZ->screenPtAy[5].screen.x =
+              pCurrentTrackScreenXYZ->screenPtAy[2].screen.x;
           iRightWallCopy = pCurrentTrackScreenXYZ->screenPtAy[2].screen.y;
         }
         pCurrentTrackScreenXYZ->screenPtAy[5].screen.y = iRightWallCopy;
-        pCurrentTrackScreenXYZ->screenPtAy[5].projected.fZ = (float)dRightWallDepthCopy;
+        pCurrentTrackScreenXYZ->screenPtAy[5].projected.fZ =
+            (float)dRightWallDepthCopy;
       }
       if (Banks_On) {
         pGroundScreenXYZ = &GroundScreenXYZ[iCurrentTrackIndex];
         pScreenPoint = pGroundScreenXYZ->screenPtAy;
         pGroundScreenXYZ->iClipCount = 0;
         pCurrentGroundPt = &GroundPt[iCurrentTrackIndex];
-        pCurrentGroundColour = &GroundColour[iCurrentTrackIndex][GROUND_COLOUR_LUOWALL];
+        pCurrentGroundColour =
+            &GroundColour[iCurrentTrackIndex][GROUND_COLOUR_LUOWALL];
         if (iCurrentTrackIndex)
           iPrevGroundIndex = iCurrentTrackIndex - 1;
         else
           iPrevGroundIndex = TRAK_LEN - 1;
-        pPrevGroundColour = &GroundColour[iPrevGroundIndex][GROUND_COLOUR_LUOWALL];
+        pPrevGroundColour =
+            &GroundColour[iPrevGroundIndex][GROUND_COLOUR_LUOWALL];
         iGroundPointIndex = 0;
-        //iIndexTmp2 = iCurrentTrackIndex << 7;
+        // iIndexTmp2 = iCurrentTrackIndex << 7;
         do {
           if (*pCurrentGroundColour != -1 || *pPrevGroundColour != -1) {
-            if (iGroundPointIndex < 2 || iGroundPointIndex > 3 || *pCurrentGroundColour != -2 || TrackScreenXYZ[iCurrentTrackIndex].iClipCount == 99) {
-            //if (iGroundPointIndex < 2 || iGroundPointIndex > 3 || *pCurrentGroundColour != -2 || *(_DWORD *)(iIndexTmp2 + 0xF03D4) == 99) {
+            if (iGroundPointIndex < 2 || iGroundPointIndex > 3 ||
+                *pCurrentGroundColour != -2 ||
+                TrackScreenXYZ[iCurrentTrackIndex].iClipCount == 99) {
+              // if (iGroundPointIndex < 2 || iGroundPointIndex > 3 ||
+              // *pCurrentGroundColour != -2 || *(_DWORD *)(iIndexTmp2 +
+              // 0xF03D4) == 99) {
               dGroundDeltaX = pCurrentGroundPt->pointAy[0].fX - viewx;
               dGroundDeltaY = pCurrentGroundPt->pointAy[0].fY - viewy;
               pGroundPointZ = &pCurrentGroundPt->pointAy[0].fZ;
               dGroundDeltaZ = *pGroundPointZ - viewz;
-              fGroundCameraX = (float)(dGroundDeltaX * vk1 + dGroundDeltaY * vk4 + dGroundDeltaZ * vk7);
-              fGroundCameraY = (float)(dGroundDeltaX * vk2 + dGroundDeltaY * vk5 + dGroundDeltaZ * vk8);
-              dGroundCameraZ = dGroundDeltaX * vk3 + dGroundDeltaY * vk6 + dGroundDeltaZ * vk9;
+              fGroundCameraX =
+                  (float)(dGroundDeltaX * vk1 + dGroundDeltaY * vk4 +
+                          dGroundDeltaZ * vk7);
+              fGroundCameraY =
+                  (float)(dGroundDeltaX * vk2 + dGroundDeltaY * vk5 +
+                          dGroundDeltaZ * vk8);
+              dGroundCameraZ = dGroundDeltaX * vk3 + dGroundDeltaY * vk6 +
+                               dGroundDeltaZ * vk9;
               fGroundCameraZ = (float)dGroundCameraZ;
-              dGroundCameraZ = round(dGroundCameraZ);//_CHP();
+              dGroundCameraZ = round(dGroundCameraZ); //_CHP();
               iGroundProjectedZ = (int)dGroundCameraZ;
               pCurrentGroundPt = (tGroundPt *)(pGroundPointZ + 1);
               if (fGroundCameraZ < 80.0)
                 fGroundCameraZ = 80.0;
               dGroundViewDist = (double)VIEWDIST;
               dGroundInvZ = 1.0 / fGroundCameraZ;
-              dGroundScreenX = dGroundViewDist * fGroundCameraX * dGroundInvZ + (double)xbase;
-              dGroundScreenX = round(dGroundScreenX);//_CHP();
+              dGroundScreenX = dGroundViewDist * fGroundCameraX * dGroundInvZ +
+                               (double)xbase;
+              dGroundScreenX = round(dGroundScreenX); //_CHP();
               xp = (int)dGroundScreenX;
-              dGroundScreenY = dGroundInvZ * (dGroundViewDist * fGroundCameraY) + (double)ybase;
-              dGroundScreenY = round(dGroundScreenY);//_CHP();
+              dGroundScreenY =
+                  dGroundInvZ * (dGroundViewDist * fGroundCameraY) +
+                  (double)ybase;
+              dGroundScreenY = round(dGroundScreenY); //_CHP();
               yp = (int)dGroundScreenY;
               pScreenPoint->screen.x = xp * scr_size >> 6;
-              //pScreenPoint->screen.x = iGroundScreenX >> 6;
+              // pScreenPoint->screen.x = iGroundScreenX >> 6;
               iGroundScreenY = scr_size * (199 - yp);
               pScreenPoint->projected.fZ = (float)iGroundProjectedZ;
               pScreenPoint->screen.y = iGroundScreenY >> 6;
@@ -1661,29 +1811,51 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
               goto LABEL_58;
             }
             if (iGroundPointIndex == 2) {
-              pScreenPoint->screen.x = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].screen.x;
-              pScreenPoint->screen.y = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].screen.y;
-              pScreenPoint->projected.fX = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fX;
-              pScreenPoint->projected.fY = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fY;
-              fGroundProjectedZ = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fZ;
-              //pScreenPoint->screen.x = *(int *)((char *)&TrackScreenXYZ[0].screenPtAy[0].screen.x + iIndexTmp2);
-              //pScreenPoint->screen.y = *(int *)((char *)&TrackScreenXYZ[0].screenPtAy[0].screen.y + iIndexTmp2);
-              //iGroundSectionOffset = iIndexTmp2;
-              //pScreenPoint->projected.fX = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[0].projected.fX + iIndexTmp2);
-              //pScreenPoint->projected.fY = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[0].projected.fY + iGroundSectionOffset);
-              //fGroundProjectedZ = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[0].projected.fZ + iGroundSectionOffset);
+              pScreenPoint->screen.x =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].screen.x;
+              pScreenPoint->screen.y =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].screen.y;
+              pScreenPoint->projected.fX =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fX;
+              pScreenPoint->projected.fY =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fY;
+              fGroundProjectedZ =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[0].projected.fZ;
+              // pScreenPoint->screen.x = *(int *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[0].screen.x + iIndexTmp2);
+              // pScreenPoint->screen.y = *(int *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[0].screen.y + iIndexTmp2);
+              // iGroundSectionOffset = iIndexTmp2;
+              // pScreenPoint->projected.fX = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[0].projected.fX + iIndexTmp2);
+              // pScreenPoint->projected.fY = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[0].projected.fY +
+              // iGroundSectionOffset); fGroundProjectedZ = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[0].projected.fZ +
+              // iGroundSectionOffset);
             } else {
-              pScreenPoint->screen.x = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].screen.x;
-              pScreenPoint->screen.y = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].screen.y;
-              pScreenPoint->projected.fX = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fX;
-              pScreenPoint->projected.fY = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fY;
-              fGroundProjectedZ = TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fZ;
-              //pScreenPoint->screen.x = *(int *)((char *)&TrackScreenXYZ[0].screenPtAy[3].screen.x + iIndexTmp2);
-              //pScreenPoint->screen.y = *(int *)((char *)&TrackScreenXYZ[0].screenPtAy[3].screen.y + iIndexTmp2);
-              //iGroundSectionOffset2 = iIndexTmp2;
-              //pScreenPoint->projected.fX = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[3].projected.fX + iIndexTmp2);
-              //pScreenPoint->projected.fY = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[3].projected.fY + iGroundSectionOffset2);
-              //fGroundProjectedZ = *(float *)((char *)&TrackScreenXYZ[0].screenPtAy[3].projected.fZ + iGroundSectionOffset2);
+              pScreenPoint->screen.x =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].screen.x;
+              pScreenPoint->screen.y =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].screen.y;
+              pScreenPoint->projected.fX =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fX;
+              pScreenPoint->projected.fY =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fY;
+              fGroundProjectedZ =
+                  TrackScreenXYZ[iCurrentTrackIndex].screenPtAy[3].projected.fZ;
+              // pScreenPoint->screen.x = *(int *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[3].screen.x + iIndexTmp2);
+              // pScreenPoint->screen.y = *(int *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[3].screen.y + iIndexTmp2);
+              // iGroundSectionOffset2 = iIndexTmp2;
+              // pScreenPoint->projected.fX = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[3].projected.fX + iIndexTmp2);
+              // pScreenPoint->projected.fY = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[3].projected.fY +
+              // iGroundSectionOffset2); fGroundProjectedZ = *(float *)((char
+              // *)&TrackScreenXYZ[0].screenPtAy[3].projected.fZ +
+              // iGroundSectionOffset2);
             }
             pScreenPoint->projected.fZ = fGroundProjectedZ;
           }
@@ -1699,7 +1871,8 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
     }
   }
-  iTrackLoopCounter = TrackSize;                // Second phase: Build render list by traversing track backwards
+  iTrackLoopCounter = TrackSize; // Second phase: Build render list by
+                                 // traversing track backwards
   num_bits = 0;
   render_queue_3d_clear(render_queue_3d_global());
   if (TrackSize >= 0) {
@@ -1718,17 +1891,23 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       iNextSectionIndex += TRAK_LEN;
     if (iNextSectionIndex >= TRAK_LEN)
       iNextSectionIndex -= TRAK_LEN;
-    //iSectionOffset = iNextSectionIndex;
+    // iSectionOffset = iNextSectionIndex;
     NextSect[iCurrentSect] = iNextSectionIndex;
-    //iSectionOffset <<= 7;
+    // iSectionOffset <<= 7;
     pScreenCoord_1 = &TrackScreenXYZ[iCurrentSect];
     pNextGroundScreen = &GroundScreenXYZ[iNextSectionIndex];
     pScreenCoord = &TrackScreenXYZ[iNextSectionIndex];
-    //pNextGroundScreen = (tTrackScreenXYZ *)((char *)GroundScreenXYZ + iSectionOffset);
-    //pScreenCoord = (tTrackScreenXYZ *)((char *)TrackScreenXYZ + iSectionOffset);
-    iOFloorType = GroundColour[iCurrentSect][GROUND_COLOUR_OFLOOR];// Check if ground floor is visible and banks are enabled
+    // pNextGroundScreen = (tTrackScreenXYZ *)((char *)GroundScreenXYZ +
+    // iSectionOffset); pScreenCoord = (tTrackScreenXYZ *)((char
+    // *)TrackScreenXYZ + iSectionOffset);
+    iOFloorType =
+        GroundColour[iCurrentSect]
+                    [GROUND_COLOUR_OFLOOR]; // Check if ground floor is visible
+                                            // and banks are enabled
     pCurrentGroundScreen = &GroundScreenXYZ[iCurrentSect];
-    bFloorVisible = iOFloorType != -1 && GroundColour[iNextSectionIndex][GROUND_COLOUR_OFLOOR] != -1 && Banks_On;
+    bFloorVisible =
+        iOFloorType != -1 &&
+        GroundColour[iNextSectionIndex][GROUND_COLOUR_OFLOOR] != -1 && Banks_On;
     iCurrentFloorType = GroundColour[iCurrentSect][GROUND_COLOUR_OFLOOR];
     bGroundVisible = bFloorVisible;
     if (iCurrentFloorType != -2 && bFloorVisible) {
@@ -1737,24 +1916,28 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
         if (iNextSectionIndex + 2 >= TRAK_LEN)
           iTrackIndexPlus2 -= TRAK_LEN;
         pTrackScreenPlus2 = &TrackScreenXYZ[iTrackIndexPlus2];
-        if (pTrackScreenPlus2->screenPtAy[2].projected.fZ <= (double)pTrackScreenPlus2->screenPtAy[1].projected.fZ)
+        if (pTrackScreenPlus2->screenPtAy[2].projected.fZ <=
+            (double)pTrackScreenPlus2->screenPtAy[1].projected.fZ)
           fTrackDepthChoice1 = pTrackScreenPlus2->screenPtAy[1].projected.fZ;
         else
           fTrackDepthChoice1 = pTrackScreenPlus2->screenPtAy[2].projected.fZ;
         fTrackDepthTmp1 = fTrackDepthChoice1;
-        if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+        if (pScreenCoord->screenPtAy[2].projected.fZ <=
+            (double)pScreenCoord->screenPtAy[1].projected.fZ)
           fTrackDepthChoice2 = pScreenCoord->screenPtAy[1].projected.fZ;
         else
           fTrackDepthChoice2 = pScreenCoord->screenPtAy[2].projected.fZ;
         fTrackDepthTmp2 = fTrackDepthChoice2;
         if (fTrackDepthTmp1 <= (double)fTrackDepthChoice2) {
-          if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+          if (pScreenCoord->screenPtAy[2].projected.fZ <=
+              (double)pScreenCoord->screenPtAy[1].projected.fZ)
             fTrackDepthFinal = pScreenCoord->screenPtAy[1].projected.fZ;
           else
             fTrackDepthFinal = pScreenCoord->screenPtAy[2].projected.fZ;
           fDepthValuesArray[8] = fTrackDepthFinal;
         } else {
-          if (pTrackScreenPlus2->screenPtAy[2].projected.fZ <= (double)pTrackScreenPlus2->screenPtAy[1].projected.fZ)
+          if (pTrackScreenPlus2->screenPtAy[2].projected.fZ <=
+              (double)pTrackScreenPlus2->screenPtAy[1].projected.fZ)
             fTrackDepthFinal = pTrackScreenPlus2->screenPtAy[1].projected.fZ;
           else
             fTrackDepthFinal = pTrackScreenPlus2->screenPtAy[2].projected.fZ;
@@ -1764,33 +1947,42 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
         fProjectionZ = fTrackDepthFinal;
         pScreenCoord_1 = &TrackScreenXYZ[iCurrentSect];
       } else {
-        if (pNextGroundScreen->screenPtAy[2].projected.fZ <= (double)pNextGroundScreen->screenPtAy[3].projected.fZ)
+        if (pNextGroundScreen->screenPtAy[2].projected.fZ <=
+            (double)pNextGroundScreen->screenPtAy[3].projected.fZ)
           fGroundDepthMax1 = pNextGroundScreen->screenPtAy[3].projected.fZ;
         else
           fGroundDepthMax1 = pNextGroundScreen->screenPtAy[2].projected.fZ;
         fGroundDepth1 = fGroundDepthMax1;
-        if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[3].projected.fZ)
+        if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <=
+            (double)pCurrentGroundScreen->screenPtAy[3].projected.fZ)
           fGroundDepthMax2 = pCurrentGroundScreen->screenPtAy[3].projected.fZ;
         else
           fGroundDepthMax2 = pCurrentGroundScreen->screenPtAy[2].projected.fZ;
         fGroundDepthTmp1 = fGroundDepthMax2;
         if (fGroundDepth1 <= (double)fGroundDepthMax2) {
-          if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[3].projected.fZ)
-            fGroundDepthSelected = pCurrentGroundScreen->screenPtAy[3].projected.fZ;
+          if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <=
+              (double)pCurrentGroundScreen->screenPtAy[3].projected.fZ)
+            fGroundDepthSelected =
+                pCurrentGroundScreen->screenPtAy[3].projected.fZ;
           else
-            fGroundDepthSelected = pCurrentGroundScreen->screenPtAy[2].projected.fZ;
+            fGroundDepthSelected =
+                pCurrentGroundScreen->screenPtAy[2].projected.fZ;
           fGroundDepthTmp4 = fGroundDepthSelected;
         } else {
-          if (pNextGroundScreen->screenPtAy[2].projected.fZ <= (double)pNextGroundScreen->screenPtAy[3].projected.fZ)
-            fGroundDepthSelected = pNextGroundScreen->screenPtAy[3].projected.fZ;
+          if (pNextGroundScreen->screenPtAy[2].projected.fZ <=
+              (double)pNextGroundScreen->screenPtAy[3].projected.fZ)
+            fGroundDepthSelected =
+                pNextGroundScreen->screenPtAy[3].projected.fZ;
           else
-            fGroundDepthSelected = pNextGroundScreen->screenPtAy[2].projected.fZ;
+            fGroundDepthSelected =
+                pNextGroundScreen->screenPtAy[2].projected.fZ;
           fGroundDepthTmp3 = fGroundDepthSelected;
         }
         fGroundDepthTmp2 = fGroundDepthSelected;
         fProjectionZ = fGroundDepthSelected;
       }
-      pGroundRenderCmd = &TrackView[num_bits];  // Add ground floor polygon to render list
+      pGroundRenderCmd =
+          &TrackView[num_bits]; // Add ground floor polygon to render list
       fGroundRenderDepth = fProjectionZ;
       iGroundRenderIndex = num_bits;
       pGroundRenderCmd->nRenderPriority = 2;
@@ -1798,32 +1990,38 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       num_bits = iGroundRenderIndex + 1;
       pGroundRenderCmd->fZDepth = fGroundRenderDepth;
     }
-    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
-      if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 &&
+        Road_On) {
+      if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+          (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
         fRoadCenterDepthMax1 = pScreenCoord_1->screenPtAy[1].projected.fZ;
       else
         fRoadCenterDepthMax1 = pScreenCoord_1->screenPtAy[2].projected.fZ;
       fRoadCenterDepth1 = fRoadCenterDepthMax1;
-      if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+      if (pScreenCoord->screenPtAy[2].projected.fZ <=
+          (double)pScreenCoord->screenPtAy[1].projected.fZ)
         fRoadCenterDepthMax2 = pScreenCoord->screenPtAy[1].projected.fZ;
       else
         fRoadCenterDepthMax2 = pScreenCoord->screenPtAy[2].projected.fZ;
       fRoadCenterDepth2 = fRoadCenterDepthMax2;
       if (fRoadCenterDepth1 <= (double)fRoadCenterDepthMax2) {
-        if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+        if (pScreenCoord->screenPtAy[2].projected.fZ <=
+            (double)pScreenCoord->screenPtAy[1].projected.fZ)
           fRoadCenterDepthSelected = pScreenCoord->screenPtAy[1].projected.fZ;
         else
           fRoadCenterDepthSelected = pScreenCoord->screenPtAy[2].projected.fZ;
         fRoadCenterDepthFar = fRoadCenterDepthSelected;
       } else {
-        if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+        if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+            (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
           fRoadCenterDepthSelected = pScreenCoord_1->screenPtAy[1].projected.fZ;
         else
           fRoadCenterDepthSelected = pScreenCoord_1->screenPtAy[2].projected.fZ;
         fRoadCenterDepthNear = fRoadCenterDepthSelected;
       }
       fRoadCenterFinalDepth = fRoadCenterDepthSelected;
-      pRoadCenterCmd = &TrackView[num_bits];    // Add road center polygon to render list
+      pRoadCenterCmd =
+          &TrackView[num_bits]; // Add road center polygon to render list
       fRoadCenterCmdDepth = fRoadCenterFinalDepth;
       iRoadCenterCmdIndex = num_bits;
       pRoadCenterCmd->nRenderPriority = 5;
@@ -1831,32 +2029,38 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       num_bits = iRoadCenterCmdIndex + 1;
       pRoadCenterCmd->fZDepth = fRoadCenterCmdDepth;
     }
-    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
-      if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 &&
+        Road_On) {
+      if (pScreenCoord_1->screenPtAy[0].projected.fZ <=
+          (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
         fLeftRoadDepthMax1 = pScreenCoord_1->screenPtAy[1].projected.fZ;
       else
         fLeftRoadDepthMax1 = pScreenCoord_1->screenPtAy[0].projected.fZ;
       fLeftRoadDepth1 = fLeftRoadDepthMax1;
-      if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+      if (pScreenCoord->screenPtAy[0].projected.fZ <=
+          (double)pScreenCoord->screenPtAy[1].projected.fZ)
         fLeftRoadDepthMax2 = pScreenCoord->screenPtAy[1].projected.fZ;
       else
         fLeftRoadDepthMax2 = pScreenCoord->screenPtAy[0].projected.fZ;
       fLeftRoadDepth2 = fLeftRoadDepthMax2;
       if (fLeftRoadDepth1 <= (double)fLeftRoadDepthMax2) {
-        if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+        if (pScreenCoord->screenPtAy[0].projected.fZ <=
+            (double)pScreenCoord->screenPtAy[1].projected.fZ)
           fLeftRoadDepthSelected = pScreenCoord->screenPtAy[1].projected.fZ;
         else
           fLeftRoadDepthSelected = pScreenCoord->screenPtAy[0].projected.fZ;
         fLeftRoadTmp2 = fLeftRoadDepthSelected;
       } else {
-        if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+        if (pScreenCoord_1->screenPtAy[0].projected.fZ <=
+            (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
           fLeftRoadDepthSelected = pScreenCoord_1->screenPtAy[1].projected.fZ;
         else
           fLeftRoadDepthSelected = pScreenCoord_1->screenPtAy[0].projected.fZ;
         fLeftRoadTmp1 = fLeftRoadDepthSelected;
       }
       fLeftRoadFinalDepth = fLeftRoadDepthSelected;
-      pLeftRoadCmd = &TrackView[num_bits];      // Add road left side polygon to render list
+      pLeftRoadCmd =
+          &TrackView[num_bits]; // Add road left side polygon to render list
       fLeftRoadCmdDepth = fLeftRoadFinalDepth;
       iLeftRoadCmdIndex = num_bits;
       pLeftRoadCmd->nRenderPriority = 6;
@@ -1864,32 +2068,38 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       num_bits = iLeftRoadCmdIndex + 1;
       pLeftRoadCmd->fZDepth = fLeftRoadCmdDepth;
     }
-    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
-      if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
+    if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 &&
+        Road_On) {
+      if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+          (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
         fRightRoadDepthMax1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
       else
         fRightRoadDepthMax1 = pScreenCoord_1->screenPtAy[2].projected.fZ;
       fRightRoadDepth1 = fRightRoadDepthMax1;
-      if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
+      if (pScreenCoord->screenPtAy[2].projected.fZ <=
+          (double)pScreenCoord->screenPtAy[3].projected.fZ)
         fRightRoadDepthMax2 = pScreenCoord->screenPtAy[3].projected.fZ;
       else
         fRightRoadDepthMax2 = pScreenCoord->screenPtAy[2].projected.fZ;
       fRightRoadDepth2 = fRightRoadDepthMax2;
       if (fRightRoadDepth1 <= (double)fRightRoadDepthMax2) {
-        if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
+        if (pScreenCoord->screenPtAy[2].projected.fZ <=
+            (double)pScreenCoord->screenPtAy[3].projected.fZ)
           fRightRoadDepthSelected = pScreenCoord->screenPtAy[3].projected.fZ;
         else
           fRightRoadDepthSelected = pScreenCoord->screenPtAy[2].projected.fZ;
         fRightRoadDepthFar = fRightRoadDepthSelected;
       } else {
-        if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
+        if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+            (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
           fRightRoadDepthSelected = pScreenCoord_1->screenPtAy[3].projected.fZ;
         else
           fRightRoadDepthSelected = pScreenCoord_1->screenPtAy[2].projected.fZ;
         fRightRoadDepthNear = fRightRoadDepthSelected;
       }
       fRightRoadFinalDepth = fRightRoadDepthSelected;
-      pRightRoadCmd = &TrackView[num_bits];     // Add road right side polygon to render list
+      pRightRoadCmd =
+          &TrackView[num_bits]; // Add road right side polygon to render list
       fRightRoadCmdDepth = fRightRoadFinalDepth;
       iRightRoadCmdIndex = num_bits;
       pRightRoadCmd->nRenderPriority = 7;
@@ -1900,35 +2110,46 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99) {
       if (Walls_On) {
         iRoofTypeCheck = TrakColour[iCurrentSect][TRAK_COLOUR_ROOF];
-        //TODO look at this line
-        if (iRoofTypeCheck != -1 && TrakColour[iCurrentSect][TRAK_COLOUR_LEFT_WALL] && TrakColour[iCurrentSect][TRAK_COLOUR_RIGHT_WALL]) {
-        //if (iRoofTypeCheck != -1 && iLeftWallFlags && iRightWallFlags) {
+        // TODO look at this line
+        if (iRoofTypeCheck != -1 &&
+            TrakColour[iCurrentSect][TRAK_COLOUR_LEFT_WALL] &&
+            TrakColour[iCurrentSect][TRAK_COLOUR_RIGHT_WALL]) {
+          // if (iRoofTypeCheck != -1 && iLeftWallFlags && iRightWallFlags) {
           if (iRoofTypeCheck < 0) {
-            if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
+            if (pNextGroundScreen->screenPtAy[5].projected.fZ >=
+                (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
               fRoof1OuterDepth = pNextGroundScreen->screenPtAy[0].projected.fZ;
             else
               fRoof1OuterDepth = pNextGroundScreen->screenPtAy[5].projected.fZ;
             fRoof1OuterDepthTmp = fRoof1OuterDepth;
-            if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
+            if (pNextGroundScreen->screenPtAy[1].projected.fZ >=
+                (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
               fRoof1InnerDepth = pNextGroundScreen->screenPtAy[4].projected.fZ;
             else
               fRoof1InnerDepth = pNextGroundScreen->screenPtAy[1].projected.fZ;
             fRoof1InnerDepthTmp = fRoof1InnerDepth;
             if (fRoof1OuterDepthTmp >= (double)fRoof1InnerDepth) {
-              if (pNextGroundScreen->screenPtAy[1].projected.fZ >= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-                fRoof1SelectedDepth = pNextGroundScreen->screenPtAy[4].projected.fZ;
+              if (pNextGroundScreen->screenPtAy[1].projected.fZ >=
+                  (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
+                fRoof1SelectedDepth =
+                    pNextGroundScreen->screenPtAy[4].projected.fZ;
               else
-                fRoof1SelectedDepth = pNextGroundScreen->screenPtAy[1].projected.fZ;
+                fRoof1SelectedDepth =
+                    pNextGroundScreen->screenPtAy[1].projected.fZ;
               fRoof1DepthInner = fRoof1SelectedDepth;
             } else {
-              if (pNextGroundScreen->screenPtAy[5].projected.fZ >= (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
-                fRoof1SelectedDepth = pNextGroundScreen->screenPtAy[0].projected.fZ;
+              if (pNextGroundScreen->screenPtAy[5].projected.fZ >=
+                  (double)pNextGroundScreen->screenPtAy[0].projected.fZ)
+                fRoof1SelectedDepth =
+                    pNextGroundScreen->screenPtAy[0].projected.fZ;
               else
-                fRoof1SelectedDepth = pNextGroundScreen->screenPtAy[5].projected.fZ;
+                fRoof1SelectedDepth =
+                    pNextGroundScreen->screenPtAy[5].projected.fZ;
               fRoof1DepthOuter = fRoof1SelectedDepth;
             }
             fRoof1DepthSelected = fRoof1SelectedDepth;
-            pRoof1RenderCmd = &TrackView[num_bits];// Add roof/ceiling polygon to render list
+            pRoof1RenderCmd =
+                &TrackView[num_bits]; // Add roof/ceiling polygon to render list
             pRoof1RenderCmd->nRenderPriority = 10;
             fRoof1CmdDepth = fRoof1DepthSelected;
             pRoof1RenderCmd->nChunkIdx = iCurrentSect;
@@ -1940,27 +2161,39 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
           if (iRoofType <= 0) {
             if (iRoofType >= -1)
               goto LABEL_238;
-            if (pCurrentGroundScreen->screenPtAy[5].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[0].projected.fZ)
-              fRoof3OuterDepth = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
+            if (pCurrentGroundScreen->screenPtAy[5].projected.fZ >=
+                (double)pCurrentGroundScreen->screenPtAy[0].projected.fZ)
+              fRoof3OuterDepth =
+                  pCurrentGroundScreen->screenPtAy[0].projected.fZ;
             else
-              fRoof3OuterDepth = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
+              fRoof3OuterDepth =
+                  pCurrentGroundScreen->screenPtAy[5].projected.fZ;
             fRoof3OuterDepthTmp = fRoof3OuterDepth;
-            if (pCurrentGroundScreen->screenPtAy[1].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
-              fRoof3InnerDepth = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
+            if (pCurrentGroundScreen->screenPtAy[1].projected.fZ >=
+                (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
+              fRoof3InnerDepth =
+                  pCurrentGroundScreen->screenPtAy[4].projected.fZ;
             else
-              fRoof3InnerDepth = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
+              fRoof3InnerDepth =
+                  pCurrentGroundScreen->screenPtAy[1].projected.fZ;
             fRoof3InnerDepthTmp = fRoof3InnerDepth;
             if (fRoof3OuterDepthTmp >= (double)fRoof3InnerDepth) {
-              if (pCurrentGroundScreen->screenPtAy[1].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
-                fRoof3SelectedDepth = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
+              if (pCurrentGroundScreen->screenPtAy[1].projected.fZ >=
+                  (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
+                fRoof3SelectedDepth =
+                    pCurrentGroundScreen->screenPtAy[4].projected.fZ;
               else
-                fRoof3SelectedDepth = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
+                fRoof3SelectedDepth =
+                    pCurrentGroundScreen->screenPtAy[1].projected.fZ;
               fRoof3DepthInner = fRoof3SelectedDepth;
             } else {
-              if (pCurrentGroundScreen->screenPtAy[5].projected.fZ >= (double)pCurrentGroundScreen->screenPtAy[0].projected.fZ)
-                fRoof3SelectedDepth = pCurrentGroundScreen->screenPtAy[0].projected.fZ;
+              if (pCurrentGroundScreen->screenPtAy[5].projected.fZ >=
+                  (double)pCurrentGroundScreen->screenPtAy[0].projected.fZ)
+                fRoof3SelectedDepth =
+                    pCurrentGroundScreen->screenPtAy[0].projected.fZ;
               else
-                fRoof3SelectedDepth = pCurrentGroundScreen->screenPtAy[5].projected.fZ;
+                fRoof3SelectedDepth =
+                    pCurrentGroundScreen->screenPtAy[5].projected.fZ;
               fRoof3DepthOuter = fRoof3SelectedDepth;
             }
             fRoof3DepthSelected = fRoof3SelectedDepth;
@@ -1971,15 +2204,16 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
               dRoof2WallDepth1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
             else
               dRoof2WallDepth1 = pScreenCoord_1->screenPtAy[2].projected.fZ;
-            dRoof2WallDepth1 = round(dRoof2WallDepth1);//_CHP();
+            dRoof2WallDepth1 = round(dRoof2WallDepth1); //_CHP();
             iRightWallFlags = (int)dRoof2WallDepth1;
             if (TrakColour[iCurrentSect][TRAK_COLOUR_LEFT_WALL] >= 0)
               dRoof2WallDepth2 = pScreenCoord_1->screenPtAy[0].projected.fZ;
             else
               dRoof2WallDepth2 = pScreenCoord_1->screenPtAy[1].projected.fZ;
-            dRoof2WallDepth2 = round(dRoof2WallDepth2);//_CHP();
+            dRoof2WallDepth2 = round(dRoof2WallDepth2); //_CHP();
             iLeftWallFlags = (int)dRoof2WallDepth2;
-            if (pScreenCoord_1->screenPtAy[4].projected.fZ >= (double)pScreenCoord_1->screenPtAy[5].projected.fZ)
+            if (pScreenCoord_1->screenPtAy[4].projected.fZ >=
+                (double)pScreenCoord_1->screenPtAy[5].projected.fZ)
               fRoof2WallMinDepth = pScreenCoord_1->screenPtAy[5].projected.fZ;
             else
               fRoof2WallMinDepth = pScreenCoord_1->screenPtAy[4].projected.fZ;
@@ -1989,10 +2223,13 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             else
               iRoof2WallDepthMin = iRightWallFlags;
             if ((double)iRoof2WallDepthMin >= fRoof2WallMinDepthTmp) {
-              if (pScreenCoord_1->screenPtAy[4].projected.fZ >= (double)pScreenCoord_1->screenPtAy[5].projected.fZ)
-                fRoof2SelectedDepth = pScreenCoord_1->screenPtAy[5].projected.fZ;
+              if (pScreenCoord_1->screenPtAy[4].projected.fZ >=
+                  (double)pScreenCoord_1->screenPtAy[5].projected.fZ)
+                fRoof2SelectedDepth =
+                    pScreenCoord_1->screenPtAy[5].projected.fZ;
               else
-                fRoof2SelectedDepth = pScreenCoord_1->screenPtAy[4].projected.fZ;
+                fRoof2SelectedDepth =
+                    pScreenCoord_1->screenPtAy[4].projected.fZ;
               fRoof2DepthWall = fRoof2SelectedDepth;
               fRoof2DepthSelected = fRoof2SelectedDepth;
             } else {
@@ -2014,64 +2251,86 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
     }
   LABEL_238:
-    if (GroundColour[iCurrentSect][GROUND_COLOUR_LLOWALL] != -1 && bGroundVisible) {
-      if (pNextGroundScreen->screenPtAy[2].projected.fZ <= (double)pNextGroundScreen->screenPtAy[1].projected.fZ)
+    if (GroundColour[iCurrentSect][GROUND_COLOUR_LLOWALL] != -1 &&
+        bGroundVisible) {
+      if (pNextGroundScreen->screenPtAy[2].projected.fZ <=
+          (double)pNextGroundScreen->screenPtAy[1].projected.fZ)
         fLeftLowerWallDepth1 = pNextGroundScreen->screenPtAy[1].projected.fZ;
       else
         fLeftLowerWallDepth1 = pNextGroundScreen->screenPtAy[2].projected.fZ;
       fLeftLowerWallDepthNear = fLeftLowerWallDepth1;
-      if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
+      if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <=
+          (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
         fLeftLowerWallDepth2 = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
       else
         fLeftLowerWallDepth2 = pCurrentGroundScreen->screenPtAy[2].projected.fZ;
       fLeftLowerWallDepthFar = fLeftLowerWallDepth2;
       if (fLeftLowerWallDepthNear <= (double)fLeftLowerWallDepth2) {
-        if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
-          fLeftLowerWallSelected = pCurrentGroundScreen->screenPtAy[1].projected.fZ;
+        if (pCurrentGroundScreen->screenPtAy[2].projected.fZ <=
+            (double)pCurrentGroundScreen->screenPtAy[1].projected.fZ)
+          fLeftLowerWallSelected =
+              pCurrentGroundScreen->screenPtAy[1].projected.fZ;
         else
-          fLeftLowerWallSelected = pCurrentGroundScreen->screenPtAy[2].projected.fZ;
+          fLeftLowerWallSelected =
+              pCurrentGroundScreen->screenPtAy[2].projected.fZ;
         fLeftLowerWallDepthTmp2 = fLeftLowerWallSelected;
       } else {
-        if (pNextGroundScreen->screenPtAy[2].projected.fZ <= (double)pNextGroundScreen->screenPtAy[1].projected.fZ)
-          fLeftLowerWallSelected = pNextGroundScreen->screenPtAy[1].projected.fZ;
+        if (pNextGroundScreen->screenPtAy[2].projected.fZ <=
+            (double)pNextGroundScreen->screenPtAy[1].projected.fZ)
+          fLeftLowerWallSelected =
+              pNextGroundScreen->screenPtAy[1].projected.fZ;
         else
-          fLeftLowerWallSelected = pNextGroundScreen->screenPtAy[2].projected.fZ;
+          fLeftLowerWallSelected =
+              pNextGroundScreen->screenPtAy[2].projected.fZ;
         fLeftLowerWallDepthTmp1 = fLeftLowerWallSelected;
       }
       fLeftLowerWallDepthSelected = fLeftLowerWallSelected;
-      pLeftLowerWallCmd = &TrackView[num_bits]; // Add left lower wall polygon to render list
+      pLeftLowerWallCmd =
+          &TrackView[num_bits]; // Add left lower wall polygon to render list
       pLeftLowerWallCmd->nRenderPriority = 3;
       fLeftLowerWallCmdDepth = fLeftLowerWallDepthSelected;
       pLeftLowerWallCmd->nChunkIdx = iCurrentSect;
       pLeftLowerWallCmd->fZDepth = fLeftLowerWallCmdDepth;
       ++num_bits;
     }
-    if (GroundColour[iCurrentSect][GROUND_COLOUR_RLOWALL] != -1 && bGroundVisible) {
-      if (pNextGroundScreen->screenPtAy[3].projected.fZ <= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
+    if (GroundColour[iCurrentSect][GROUND_COLOUR_RLOWALL] != -1 &&
+        bGroundVisible) {
+      if (pNextGroundScreen->screenPtAy[3].projected.fZ <=
+          (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
         fRightLowerWallDepth1 = pNextGroundScreen->screenPtAy[4].projected.fZ;
       else
         fRightLowerWallDepth1 = pNextGroundScreen->screenPtAy[3].projected.fZ;
       fRightLowerWallDepthNear = fRightLowerWallDepth1;
-      if (pCurrentGroundScreen->screenPtAy[3].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
-        fRightLowerWallDepth2 = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
+      if (pCurrentGroundScreen->screenPtAy[3].projected.fZ <=
+          (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
+        fRightLowerWallDepth2 =
+            pCurrentGroundScreen->screenPtAy[4].projected.fZ;
       else
-        fRightLowerWallDepth2 = pCurrentGroundScreen->screenPtAy[3].projected.fZ;
+        fRightLowerWallDepth2 =
+            pCurrentGroundScreen->screenPtAy[3].projected.fZ;
       fRightLowerWallDepthFar = fRightLowerWallDepth2;
       if (fRightLowerWallDepthNear <= (double)fRightLowerWallDepth2) {
-        if (pCurrentGroundScreen->screenPtAy[3].projected.fZ <= (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
-          fRightLowerWallSelected = pCurrentGroundScreen->screenPtAy[4].projected.fZ;
+        if (pCurrentGroundScreen->screenPtAy[3].projected.fZ <=
+            (double)pCurrentGroundScreen->screenPtAy[4].projected.fZ)
+          fRightLowerWallSelected =
+              pCurrentGroundScreen->screenPtAy[4].projected.fZ;
         else
-          fRightLowerWallSelected = pCurrentGroundScreen->screenPtAy[3].projected.fZ;
+          fRightLowerWallSelected =
+              pCurrentGroundScreen->screenPtAy[3].projected.fZ;
         fRightLowerWallDepthTmp2 = fRightLowerWallSelected;
       } else {
-        if (pNextGroundScreen->screenPtAy[3].projected.fZ <= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
-          fRightLowerWallSelected = pNextGroundScreen->screenPtAy[4].projected.fZ;
+        if (pNextGroundScreen->screenPtAy[3].projected.fZ <=
+            (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
+          fRightLowerWallSelected =
+              pNextGroundScreen->screenPtAy[4].projected.fZ;
         else
-          fRightLowerWallSelected = pNextGroundScreen->screenPtAy[3].projected.fZ;
+          fRightLowerWallSelected =
+              pNextGroundScreen->screenPtAy[3].projected.fZ;
         fRightLowerWallDepthTmp1 = fRightLowerWallSelected;
       }
       fRightLowerWallDepthSelected = fRightLowerWallSelected;
-      pRightLowerWallCmd = &TrackView[num_bits];// Add right lower wall polygon to render list
+      pRightLowerWallCmd =
+          &TrackView[num_bits]; // Add right lower wall polygon to render list
       pRightLowerWallCmd->nRenderPriority = 4;
       fRightLowerWallCmdDepth = fRightLowerWallDepthSelected;
       pRightLowerWallCmd->nChunkIdx = iCurrentSect;
@@ -2082,39 +2341,51 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       if (Walls_On) {
         iLeftWallFlags = TrakColour[iCurrentSect][TRAK_COLOUR_LEFT_WALL];
         if (iLeftWallFlags) {
-          if (TrackInfo[iCurrentSect].fRoofHeight >= 0.0 && TrackInfo[iNextSectionIndex].fRoofHeight >= 0.0) {
+          if (TrackInfo[iCurrentSect].fRoofHeight >= 0.0 &&
+              TrackInfo[iNextSectionIndex].fRoofHeight >= 0.0) {
             if (iLeftWallFlags >= 0) {
-              if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[0].projected.fZ)
-                fRightWallDepthMax1 = pScreenCoord_1->screenPtAy[0].projected.fZ;
+              if (pScreenCoord->screenPtAy[0].projected.fZ <=
+                  (double)pScreenCoord_1->screenPtAy[0].projected.fZ)
+                fRightWallDepthMax1 =
+                    pScreenCoord_1->screenPtAy[0].projected.fZ;
               else
                 fRightWallDepthMax1 = pScreenCoord->screenPtAy[0].projected.fZ;
               fLeftWallDepthTmp3 = fRightWallDepthMax1;
-              if (pScreenCoord->screenPtAy[4].projected.fZ <= (double)pScreenCoord_1->screenPtAy[4].projected.fZ)
-                fRightWallDepthMax2 = pScreenCoord_1->screenPtAy[4].projected.fZ;
+              if (pScreenCoord->screenPtAy[4].projected.fZ <=
+                  (double)pScreenCoord_1->screenPtAy[4].projected.fZ)
+                fRightWallDepthMax2 =
+                    pScreenCoord_1->screenPtAy[4].projected.fZ;
               else
                 fRightWallDepthMax2 = pScreenCoord->screenPtAy[4].projected.fZ;
               fLeftWallDepthTmp4 = fRightWallDepthMax2;
               if (fLeftWallDepthTmp3 <= (double)fRightWallDepthMax2) {
-                if (pScreenCoord->screenPtAy[4].projected.fZ <= (double)pScreenCoord_1->screenPtAy[4].projected.fZ)
-                  fRightWallDepthSelected = pScreenCoord_1->screenPtAy[4].projected.fZ;
+                if (pScreenCoord->screenPtAy[4].projected.fZ <=
+                    (double)pScreenCoord_1->screenPtAy[4].projected.fZ)
+                  fRightWallDepthSelected =
+                      pScreenCoord_1->screenPtAy[4].projected.fZ;
                 else
-                  fRightWallDepthSelected = pScreenCoord->screenPtAy[4].projected.fZ;
+                  fRightWallDepthSelected =
+                      pScreenCoord->screenPtAy[4].projected.fZ;
                 fLeftWallDepthTmp7 = fRightWallDepthSelected;
               } else {
-                if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[0].projected.fZ)
-                  fRightWallDepthSelected = pScreenCoord_1->screenPtAy[0].projected.fZ;
+                if (pScreenCoord->screenPtAy[0].projected.fZ <=
+                    (double)pScreenCoord_1->screenPtAy[0].projected.fZ)
+                  fRightWallDepthSelected =
+                      pScreenCoord_1->screenPtAy[0].projected.fZ;
                 else
-                  fRightWallDepthSelected = pScreenCoord->screenPtAy[0].projected.fZ;
+                  fRightWallDepthSelected =
+                      pScreenCoord->screenPtAy[0].projected.fZ;
                 fLeftWallDepthTmp6 = fRightWallDepthSelected;
               }
               fLeftWallDepthTmp5 = fRightWallDepthSelected;
               fLeftWallRoofDepth = fRightWallDepthSelected;
             } else {
-              fLeftWallRoofDepth = (pScreenCoord->screenPtAy[1].projected.fZ
-                                  + pScreenCoord_1->screenPtAy[1].projected.fZ
-                                  + pScreenCoord->screenPtAy[4].projected.fZ
-                                  + pScreenCoord_1->screenPtAy[4].projected.fZ)
-                * 0.25f;
+              fLeftWallRoofDepth =
+                  (pScreenCoord->screenPtAy[1].projected.fZ +
+                   pScreenCoord_1->screenPtAy[1].projected.fZ +
+                   pScreenCoord->screenPtAy[4].projected.fZ +
+                   pScreenCoord_1->screenPtAy[4].projected.fZ) *
+                  0.25f;
             }
             pRightWallCmd = &TrackView[num_bits];
             pRightWallCmd->nRenderPriority = 8;
@@ -2123,31 +2394,40 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             pRightWallCmd->fZDepth = fRightWallCmdDepth;
             ++num_bits;
           } else {
-            if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+            if (pScreenCoord_1->screenPtAy[0].projected.fZ <=
+                (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
               fLeftWallDepthMax1 = pScreenCoord_1->screenPtAy[1].projected.fZ;
             else
               fLeftWallDepthMax1 = pScreenCoord_1->screenPtAy[0].projected.fZ;
             fLeftWallDepth1 = fLeftWallDepthMax1;
-            if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
+            if (pScreenCoord->screenPtAy[0].projected.fZ <=
+                (double)pScreenCoord->screenPtAy[1].projected.fZ)
               fLeftWallDepthMax2 = pScreenCoord->screenPtAy[1].projected.fZ;
             else
               fLeftWallDepthMax2 = pScreenCoord->screenPtAy[0].projected.fZ;
             fLeftWallDepth2 = fLeftWallDepthMax2;
             if (fLeftWallDepth1 <= (double)fLeftWallDepthMax2) {
-              if (pScreenCoord->screenPtAy[0].projected.fZ <= (double)pScreenCoord->screenPtAy[1].projected.fZ)
-                fLeftWallDepthSelected = pScreenCoord->screenPtAy[1].projected.fZ;
+              if (pScreenCoord->screenPtAy[0].projected.fZ <=
+                  (double)pScreenCoord->screenPtAy[1].projected.fZ)
+                fLeftWallDepthSelected =
+                    pScreenCoord->screenPtAy[1].projected.fZ;
               else
-                fLeftWallDepthSelected = pScreenCoord->screenPtAy[0].projected.fZ;
+                fLeftWallDepthSelected =
+                    pScreenCoord->screenPtAy[0].projected.fZ;
               fLeftWallDepthTmp2 = fLeftWallDepthSelected;
             } else {
-              if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
-                fLeftWallDepthSelected = pScreenCoord_1->screenPtAy[1].projected.fZ;
+              if (pScreenCoord_1->screenPtAy[0].projected.fZ <=
+                  (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
+                fLeftWallDepthSelected =
+                    pScreenCoord_1->screenPtAy[1].projected.fZ;
               else
-                fLeftWallDepthSelected = pScreenCoord_1->screenPtAy[0].projected.fZ;
+                fLeftWallDepthSelected =
+                    pScreenCoord_1->screenPtAy[0].projected.fZ;
               fLeftWallDepthTmp1 = fLeftWallDepthSelected;
             }
             fLeftWallFinalDepth = fLeftWallDepthSelected;
-            pLeftWallCmd = &TrackView[num_bits];// Add left wall polygon to render list
+            pLeftWallCmd =
+                &TrackView[num_bits]; // Add left wall polygon to render list
             pLeftWallCmd->fZDepth = fLeftWallFinalDepth;
             iLeftWallCmdIndex = num_bits;
             pLeftWallCmd->nRenderPriority = 0;
@@ -2161,39 +2441,51 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       if (Walls_On) {
         iRightWallFlags = TrakColour[iCurrentSect][TRAK_COLOUR_RIGHT_WALL];
         if (iRightWallFlags) {
-          if (TrackInfo[iCurrentSect].fRoofHeight >= 0.0 && TrackInfo[iNextSectionIndex].fRoofHeight >= 0.0) {
+          if (TrackInfo[iCurrentSect].fRoofHeight >= 0.0 &&
+              TrackInfo[iNextSectionIndex].fRoofHeight >= 0.0) {
             if (iRightWallFlags >= 0) {
-              if (pScreenCoord_1->screenPtAy[3].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
+              if (pScreenCoord_1->screenPtAy[3].projected.fZ <=
+                  (double)pScreenCoord->screenPtAy[3].projected.fZ)
                 fRightWallRoofDepth1 = pScreenCoord->screenPtAy[3].projected.fZ;
               else
-                fRightWallRoofDepth1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
+                fRightWallRoofDepth1 =
+                    pScreenCoord_1->screenPtAy[3].projected.fZ;
               fRightWallDepthTmp3 = fRightWallRoofDepth1;
-              if (pScreenCoord_1->screenPtAy[5].projected.fZ <= (double)pScreenCoord->screenPtAy[5].projected.fZ)
+              if (pScreenCoord_1->screenPtAy[5].projected.fZ <=
+                  (double)pScreenCoord->screenPtAy[5].projected.fZ)
                 fRightWallRoofDepth2 = pScreenCoord->screenPtAy[5].projected.fZ;
               else
-                fRightWallRoofDepth2 = pScreenCoord_1->screenPtAy[5].projected.fZ;
+                fRightWallRoofDepth2 =
+                    pScreenCoord_1->screenPtAy[5].projected.fZ;
               fRightWallDepthTmp4 = fRightWallRoofDepth2;
               if (fRightWallDepthTmp3 <= (double)fRightWallRoofDepth2) {
-                if (pScreenCoord_1->screenPtAy[5].projected.fZ <= (double)pScreenCoord->screenPtAy[5].projected.fZ)
-                  fRightWallRoofSelected = pScreenCoord->screenPtAy[5].projected.fZ;
+                if (pScreenCoord_1->screenPtAy[5].projected.fZ <=
+                    (double)pScreenCoord->screenPtAy[5].projected.fZ)
+                  fRightWallRoofSelected =
+                      pScreenCoord->screenPtAy[5].projected.fZ;
                 else
-                  fRightWallRoofSelected = pScreenCoord_1->screenPtAy[5].projected.fZ;
+                  fRightWallRoofSelected =
+                      pScreenCoord_1->screenPtAy[5].projected.fZ;
                 fRightWallDepthTmp7 = fRightWallRoofSelected;
               } else {
-                if (pScreenCoord_1->screenPtAy[3].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
-                  fRightWallRoofSelected = pScreenCoord->screenPtAy[3].projected.fZ;
+                if (pScreenCoord_1->screenPtAy[3].projected.fZ <=
+                    (double)pScreenCoord->screenPtAy[3].projected.fZ)
+                  fRightWallRoofSelected =
+                      pScreenCoord->screenPtAy[3].projected.fZ;
                 else
-                  fRightWallRoofSelected = pScreenCoord_1->screenPtAy[3].projected.fZ;
+                  fRightWallRoofSelected =
+                      pScreenCoord_1->screenPtAy[3].projected.fZ;
                 fRightWallDepthTmp6 = fRightWallRoofSelected;
               }
               fRightWallDepthTmp5 = fRightWallRoofSelected;
               fRightWallRoofDepth = fRightWallRoofSelected;
             } else {
-              fRightWallRoofDepth = (pScreenCoord_1->screenPtAy[2].projected.fZ
-                                   + pScreenCoord->screenPtAy[2].projected.fZ
-                                   + pScreenCoord_1->screenPtAy[5].projected.fZ
-                                   + pScreenCoord->screenPtAy[5].projected.fZ)
-                * 0.25f;
+              fRightWallRoofDepth =
+                  (pScreenCoord_1->screenPtAy[2].projected.fZ +
+                   pScreenCoord->screenPtAy[2].projected.fZ +
+                   pScreenCoord_1->screenPtAy[5].projected.fZ +
+                   pScreenCoord->screenPtAy[5].projected.fZ) *
+                  0.25f;
             }
             pRightWallRoofCmd = &TrackView[num_bits];
             pRightWallRoofCmd->fZDepth = fRightWallRoofDepth;
@@ -2202,31 +2494,42 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             pRightWallRoofCmd->nChunkIdx = iCurrentSect;
             num_bits = iRightWallRoofCmdIndex + 1;
           } else {
-            if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-              fRightWallBasicDepth1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
+            if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+                (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
+              fRightWallBasicDepth1 =
+                  pScreenCoord_1->screenPtAy[3].projected.fZ;
             else
-              fRightWallBasicDepth1 = pScreenCoord_1->screenPtAy[2].projected.fZ;
+              fRightWallBasicDepth1 =
+                  pScreenCoord_1->screenPtAy[2].projected.fZ;
             fRightWallDepth1 = fRightWallBasicDepth1;
-            if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
+            if (pScreenCoord->screenPtAy[2].projected.fZ <=
+                (double)pScreenCoord->screenPtAy[3].projected.fZ)
               fRightWallBasicDepth2 = pScreenCoord->screenPtAy[3].projected.fZ;
             else
               fRightWallBasicDepth2 = pScreenCoord->screenPtAy[2].projected.fZ;
             fRightWallDepth2 = fRightWallBasicDepth2;
             if (fRightWallDepth1 <= (double)fRightWallBasicDepth2) {
-              if (pScreenCoord->screenPtAy[2].projected.fZ <= (double)pScreenCoord->screenPtAy[3].projected.fZ)
-                fRightWallBasicSelected = pScreenCoord->screenPtAy[3].projected.fZ;
+              if (pScreenCoord->screenPtAy[2].projected.fZ <=
+                  (double)pScreenCoord->screenPtAy[3].projected.fZ)
+                fRightWallBasicSelected =
+                    pScreenCoord->screenPtAy[3].projected.fZ;
               else
-                fRightWallBasicSelected = pScreenCoord->screenPtAy[2].projected.fZ;
+                fRightWallBasicSelected =
+                    pScreenCoord->screenPtAy[2].projected.fZ;
               fRightWallDepthTmp2 = fRightWallBasicSelected;
             } else {
-              if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
-                fRightWallBasicSelected = pScreenCoord_1->screenPtAy[3].projected.fZ;
+              if (pScreenCoord_1->screenPtAy[2].projected.fZ <=
+                  (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
+                fRightWallBasicSelected =
+                    pScreenCoord_1->screenPtAy[3].projected.fZ;
               else
-                fRightWallBasicSelected = pScreenCoord_1->screenPtAy[2].projected.fZ;
+                fRightWallBasicSelected =
+                    pScreenCoord_1->screenPtAy[2].projected.fZ;
               fRightWallDepthTmp1 = fRightWallBasicSelected;
             }
             fRightWallFinalDepth = fRightWallBasicSelected;
-            pRightWallBasicCmd = &TrackView[num_bits];// Add right wall polygon to render list
+            pRightWallBasicCmd =
+                &TrackView[num_bits]; // Add right wall polygon to render list
             fRightWallBasicCmdDepth = fRightWallFinalDepth;
             iRightWallBasicCmdIndex = num_bits;
             pRightWallBasicCmd->nRenderPriority = 1;
@@ -2241,7 +2544,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   }
 LABEL_357:
   render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
-  iCarIndex = 0;                                // Third phase: Process car objects for rendering
+  iCarIndex = 0; // Third phase: Process car objects for rendering
   if (numcars > 0) {
     iCarArrayIndex = 0;
     do {
@@ -2253,16 +2556,18 @@ LABEL_357:
         iCarCommandIdx = car_draw_order[iCarArrayIndex].iCarIdx;
         {
           GameRenderCarPose pose = {
-            .position = Car[iCarCommandIdx].pos,
-            .yaw = Car[iCarCommandIdx].nYaw,
-            .pitch = Car[iCarCommandIdx].nPitch,
-            .roll = Car[iCarCommandIdx].nRoll,
+              .position = Car[iCarCommandIdx].pos,
+              .yaw = Car[iCarCommandIdx].nYaw,
+              .pitch = Car[iCarCommandIdx].nPitch,
+              .roll = Car[iCarCommandIdx].nRoll,
           };
           GameRenderCarOptions options = {
-            .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
-            .color_remap = NULL,
+              .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
+              .color_remap = NULL,
           };
-          pCarRenderCmd = render_queue_3d_add_car(render_queue_3d_global(), iCarCommandIdx, fOffsetTmp1, &pose, &options);
+          pCarRenderCmd =
+              render_queue_3d_add_car(render_queue_3d_global(), iCarCommandIdx,
+                                      fOffsetTmp1, &pose, &options);
         }
         if (pCarRenderCmd != NULL) {
           cars_drawn = iCarProcessingFlag + 1;
@@ -2273,7 +2578,8 @@ LABEL_357:
       ++iCarArrayIndex;
     } while (iCarIndex < numcars);
   }
-  iCarsRenderedCount = 0;                       // Fourth phase: Count visible cars and determine names display
+  iCarsRenderedCount =
+      0; // Fourth phase: Count visible cars and determine names display
   iCarLoopIndex = 0;
   NamesLeft = 0;
   VisibleCars = 0;
@@ -2284,8 +2590,10 @@ LABEL_357:
     iIndexTmp3 = 12 * numcars;
     do {
       iCarStatusFlag = car_draw_order[uiCarIndexOffset / 0xC].iChunkIdx;
-      if ((iCarStatusFlag == -3 || iCarStatusFlag >= 0) && iCarIdx_1 != car_draw_order[uiCarIndexOffset / 0xC].iCarIdx) {
-        if (car_draw_order[uiCarIndexOffset / 0xC].fMinZDepth < (double)car_draw_order[uiCarArrayOffset / 0xC].fMinZDepth) {
+      if ((iCarStatusFlag == -3 || iCarStatusFlag >= 0) &&
+          iCarIdx_1 != car_draw_order[uiCarIndexOffset / 0xC].iCarIdx) {
+        if (car_draw_order[uiCarIndexOffset / 0xC].fMinZDepth <
+            (double)car_draw_order[uiCarArrayOffset / 0xC].fMinZDepth) {
           if (human_control[car_draw_order[uiCarIndexOffset / 0xC].iCarIdx])
             ++VisibleCars;
           ++NamesLeft;
@@ -2328,28 +2636,32 @@ LABEL_357:
     goto LABEL_392;
   }
 LABEL_393:
-  pVisibleBuildingsPtr = &VisibleBuildings[0];     // Process building objects for rendering
+  pVisibleBuildingsPtr =
+      &VisibleBuildings[0]; // Process building objects for rendering
   if (VisibleBuildings[0].iBuildingIdx != -1) {
     do {
-      pBuildingRenderCmd = render_queue_3d_add_building(render_queue_3d_global(),
-                                                        pVisibleBuildingsPtr->iBuildingIdx,
-                                                        pVisibleBuildingsPtr->fDepth);
+      pBuildingRenderCmd = render_queue_3d_add_building(
+          render_queue_3d_global(), pVisibleBuildingsPtr->iBuildingIdx,
+          pVisibleBuildingsPtr->fDepth);
       if (pBuildingRenderCmd != NULL)
         num_bits = render_queue_3d_count(render_queue_3d_global());
       ++pVisibleBuildingsPtr;
     } while (pVisibleBuildingsPtr->iBuildingIdx != -1);
   }
-  if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
+  if (countdown > -72 && replaytype != 2 && game_type != 2 &&
+      !winner_mode) // Process starting lights for rendering (if countdown
+                    // active)
   {
     iLightIndex = 0;
     iLightArrayOffset = 3 * iChaseCamIdx_1;
     do {
-      fLightZ = (SLight[0][iLightArrayOffset].currentPos.fX - viewx) * vk3
-        + (SLight[0][iLightArrayOffset].currentPos.fY - viewy) * vk6
-        + (SLight[0][iLightArrayOffset].currentPos.fZ - viewz) * vk9;
+      fLightZ = (SLight[0][iLightArrayOffset].currentPos.fX - viewx) * vk3 +
+                (SLight[0][iLightArrayOffset].currentPos.fY - viewy) * vk6 +
+                (SLight[0][iLightArrayOffset].currentPos.fZ - viewz) * vk9;
       if (fLightZ > 0.0) {
         fLightDepth = fLightZ;
-        pLightRenderCmd = render_queue_3d_add_start_light(render_queue_3d_global(), iLightIndex, fLightDepth);
+        pLightRenderCmd = render_queue_3d_add_start_light(
+            render_queue_3d_global(), iLightIndex, fLightDepth);
         if (pLightRenderCmd != NULL)
           num_bits = render_queue_3d_count(render_queue_3d_global());
       }
@@ -2357,22 +2669,26 @@ LABEL_393:
       ++iLightArrayOffset;
     } while (iLightIndex < 3);
   }
-  render_queue_3d_sort(render_queue_3d_global());// Fifth phase: Sort render list by Z-depth and render objects
+  render_queue_3d_sort(
+      render_queue_3d_global()); // Fifth phase: Sort render list by Z-depth and
+                                 // render objects
   iRenderObjectIndex = 0;
   if (num_bits > 0) {
     iIndexTmp1 = 144 * iChaseCamIdx_1;
     while (1) {
       pRenderCommand = &TrackView[num_bits - 1 - iRenderObjectIndex];
-      pTypedRenderCommand = render_queue_3d_command_at(render_queue_3d_global(), num_bits - 1 - iRenderObjectIndex);
+      pTypedRenderCommand = render_queue_3d_command_at(
+          render_queue_3d_global(), num_bits - 1 - iRenderObjectIndex);
       fRenderDepth = pRenderCommand->fZDepth;
       iSectionNum = pRenderCommand->nChunkIdx;
       pScreenCoord_1 = NULL;
       pScreenCoord = NULL;
       pCurrentGroundScreen = NULL;
       pNextGroundScreen = NULL;
-      if (pRenderCommand->nRenderPriority != 11 && pRenderCommand->nRenderPriority != 14 
-        && iSectionNum >= 0 && iSectionNum < MAX_TRACK_CHUNKS //index checks added by ROLLER
-        && iNextSectionIndex >= 0 && iNextSectionIndex < MAX_TRACK_CHUNKS) {
+      if (pRenderCommand->nRenderPriority != 11 &&
+          pRenderCommand->nRenderPriority != 14 && iSectionNum >= 0 &&
+          iSectionNum < MAX_TRACK_CHUNKS // index checks added by ROLLER
+          && iNextSectionIndex >= 0 && iNextSectionIndex < MAX_TRACK_CHUNKS) {
 
         iNextSectionIndex = NextSect[iSectionNum];
         pScreenCoord_1 = &TrackScreenXYZ[iSectionNum];
@@ -2381,387 +2697,450 @@ LABEL_393:
         pNextGroundScreen = &GroundScreenXYZ[iNextSectionIndex];
       }
       switch (pRenderCommand->nRenderPriority) {
-        case 0:
-        case 8:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL];
-            int highWall = (sf < 0);
-            if (highWall) sf = -sf;
-            sf |= SURFACE_FLAG_FLIP_BACKFACE;
-            if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
-              if (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-              else
-                sf = SURFACE_FLAG_SKIP_RENDER;
-            } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
-              sf = SURFACE_FLAG_SKIP_RENDER;
-            }
-            if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
-              GameRenderVertex v[4];
-              world_verts_left_wall(v, iNextSectionIndex, iSectionNum, highWall ? 2 : 0);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[3] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 1:
-        case 9:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL];
-            int highWall = (sf < 0);
-            if (highWall) sf = -sf;
-            sf |= SURFACE_FLAG_FLIP_BACKFACE;
-            if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
-              if (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-              else
-                sf = SURFACE_FLAG_SKIP_RENDER;
-            } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
-              sf = SURFACE_FLAG_SKIP_RENDER;
-            }
-            if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
-              GameRenderVertex v[4];
-              world_verts_right_wall(v, iNextSectionIndex, iSectionNum, highWall ? 3 : 4);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[4] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        LABEL_1271:
-          if (++iRenderObjectIndex >= num_bits)
-            return;
-          break;
-        case 2:
-          {
-            int sf = GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR];
-            if (!facing_ok(
-              pNextGroundScreen->screenPtAy[2].projected.fX,
-              pNextGroundScreen->screenPtAy[2].projected.fY,
-              pNextGroundScreen->screenPtAy[2].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[2].projected.fX,
-              pCurrentGroundScreen->screenPtAy[2].projected.fY,
-              pCurrentGroundScreen->screenPtAy[2].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[3].projected.fX,
-              pCurrentGroundScreen->screenPtAy[3].projected.fY,
-              pCurrentGroundScreen->screenPtAy[3].projected.fZ,
-              pNextGroundScreen->screenPtAy[3].projected.fX,
-              pNextGroundScreen->screenPtAy[3].projected.fY,
-              pNextGroundScreen->screenPtAy[3].projected.fZ))
-              goto LABEL_1271;
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_ground_cross_first(v, iNextSectionIndex, iSectionNum, 3, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[8] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 3:
-          {
-            int sf = GroundColour[iSectionNum][GROUND_COLOUR_LUOWALL];
-            if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
-              goto LABEL_1068;
-            if (!facing_ok(
-              pNextGroundScreen->screenPtAy[0].projected.fX,
-              pNextGroundScreen->screenPtAy[0].projected.fY,
-              pNextGroundScreen->screenPtAy[0].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[0].projected.fX,
-              pCurrentGroundScreen->screenPtAy[0].projected.fY,
-              pCurrentGroundScreen->screenPtAy[0].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[1].projected.fX,
-              pCurrentGroundScreen->screenPtAy[1].projected.fY,
-              pCurrentGroundScreen->screenPtAy[1].projected.fZ,
-              pNextGroundScreen->screenPtAy[1].projected.fX,
-              pNextGroundScreen->screenPtAy[1].projected.fY,
-              pNextGroundScreen->screenPtAy[1].projected.fZ)
-              && (sf & SURFACE_FLAG_CONCAVE) == 0)
-              goto LABEL_1068;
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[6] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1068;
-        LABEL_1068:
-          {
-            int sf = GroundColour[iSectionNum][GROUND_COLOUR_LLOWALL];
-            if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
-              goto LABEL_1271;
-            if (!facing_ok(
-              pNextGroundScreen->screenPtAy[1].projected.fX,
-              pNextGroundScreen->screenPtAy[1].projected.fY,
-              pNextGroundScreen->screenPtAy[1].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[1].projected.fX,
-              pCurrentGroundScreen->screenPtAy[1].projected.fY,
-              pCurrentGroundScreen->screenPtAy[1].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[2].projected.fX,
-              pCurrentGroundScreen->screenPtAy[2].projected.fY,
-              pCurrentGroundScreen->screenPtAy[2].projected.fZ,
-              pNextGroundScreen->screenPtAy[2].projected.fX,
-              pNextGroundScreen->screenPtAy[2].projected.fY,
-              pNextGroundScreen->screenPtAy[2].projected.fZ)
-              && (sf & SURFACE_FLAG_CONCAVE) == 0)
-              goto LABEL_1271;
-            if (sf == 65854)
-              sf += 1;
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 1, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[7] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 4:
-          {
-            int sf = GroundColour[iSectionNum][GROUND_COLOUR_RUOWALL];
-            if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
-              goto LABEL_1174;
-            if (!facing_ok(
-              pNextGroundScreen->screenPtAy[4].projected.fX,
-              pNextGroundScreen->screenPtAy[4].projected.fY,
-              pNextGroundScreen->screenPtAy[4].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[4].projected.fX,
-              pCurrentGroundScreen->screenPtAy[4].projected.fY,
-              pCurrentGroundScreen->screenPtAy[4].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[5].projected.fX,
-              pCurrentGroundScreen->screenPtAy[5].projected.fY,
-              pCurrentGroundScreen->screenPtAy[5].projected.fZ,
-              pNextGroundScreen->screenPtAy[5].projected.fX,
-              pNextGroundScreen->screenPtAy[5].projected.fY,
-              pNextGroundScreen->screenPtAy[5].projected.fZ)
-              && (sf & SURFACE_FLAG_CONCAVE) == 0)
-              goto LABEL_1174;
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 4, 5);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[10] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1174;
-        LABEL_1174:
-          {
-            int sf = GroundColour[iSectionNum][GROUND_COLOUR_RLOWALL];
-            if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
-              goto LABEL_1271;
-            if (!facing_ok(
-              pNextGroundScreen->screenPtAy[3].projected.fX,
-              pNextGroundScreen->screenPtAy[3].projected.fY,
-              pNextGroundScreen->screenPtAy[3].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[3].projected.fX,
-              pCurrentGroundScreen->screenPtAy[3].projected.fY,
-              pCurrentGroundScreen->screenPtAy[3].projected.fZ,
-              pCurrentGroundScreen->screenPtAy[4].projected.fX,
-              pCurrentGroundScreen->screenPtAy[4].projected.fY,
-              pCurrentGroundScreen->screenPtAy[4].projected.fZ,
-              pNextGroundScreen->screenPtAy[4].projected.fX,
-              pNextGroundScreen->screenPtAy[4].projected.fY,
-              pNextGroundScreen->screenPtAy[4].projected.fZ)
-              && (sf & SURFACE_FLAG_CONCAVE) == 0)
-              goto LABEL_1271;
-            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 3, 4);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[9] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 5:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_CENTER];
-            if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 3, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[1] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        LABEL_1203:
-          goto LABEL_1271;
-        case 6:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_LEFT_LANE];
-            if (sf < 0)
-              sf = -sf;
-            if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 2, 0);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[0] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 7:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_LANE];
-            if (sf < 0)
-              sf = -sf;
-            if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-            {
-              GameRenderVertex v[4];
-              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 4, 3);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[2] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
-          }
-          goto LABEL_1271;
-        case 0xA:
-          {
-            int sf = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
-            /* Single-section roof from NEXT section (negative surface type) */
-            if (sf < 0) {
-              int renderSf = -sf;
-              if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-              {
-                GameRenderVertex v[4];
-                tGroundPt *g = &GroundPt[iNextSectionIndex];
-                v[0].x = g->pointAy[1].fX; v[0].y = g->pointAy[1].fY; v[0].z = g->pointAy[1].fZ;
-                v[1].x = g->pointAy[4].fX; v[1].y = g->pointAy[4].fY; v[1].z = g->pointAy[4].fZ;
-                v[2].x = g->pointAy[5].fX; v[2].y = g->pointAy[5].fY; v[2].z = g->pointAy[5].fZ;
-                v[3].x = g->pointAy[0].fX; v[3].y = g->pointAy[0].fY; v[3].z = g->pointAy[0].fZ;
-                v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
-                v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
-                TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
+      case 0:
+      case 8: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL];
+        int highWall = (sf < 0);
+        if (highWall)
+          sf = -sf;
+        sf |= SURFACE_FLAG_FLIP_BACKFACE;
+        if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
+          if (sf & SURFACE_FLAG_APPLY_TEXTURE)
+            sf = remap_tex[(uint8)sf] +
+                 (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+          else
+            sf = SURFACE_FLAG_SKIP_RENDER;
+        } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 &&
+                   (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
+          sf = SURFACE_FLAG_SKIP_RENDER;
+        }
+        if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
+          GameRenderVertex v[4];
+          world_verts_left_wall(v, iNextSectionIndex, iSectionNum,
+                                highWall ? 2 : 0);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
                   ? game_render_get_texture_handle(g_pGameRenderer, 0)
                   : TEXTURE_HANDLE_INVALID;
-                float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-                game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
-              }
-            }
-            /* Single-section roof from CUR section (very negative surface) */
-            if (TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL]
-                && TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL]) {
-              int idx = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
-              if (idx < -1) {
-                int renderSf = -idx;
-                if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                  renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
-                {
-                  GameRenderVertex v[4];
-                  tGroundPt *g = &GroundPt[iSectionNum];
-                  v[0].x = g->pointAy[4].fX; v[0].y = g->pointAy[4].fY; v[0].z = g->pointAy[4].fZ;
-                  v[1].x = g->pointAy[1].fX; v[1].y = g->pointAy[1].fY; v[1].z = g->pointAy[1].fZ;
-                  v[2].x = g->pointAy[0].fX; v[2].y = g->pointAy[0].fY; v[2].z = g->pointAy[0].fZ;
-                  v[3].x = g->pointAy[5].fX; v[3].y = g->pointAy[5].fY; v[3].z = g->pointAy[5].fZ;
-                  v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
-                  v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
-                  TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[3] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 1:
+      case 9: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL];
+        int highWall = (sf < 0);
+        if (highWall)
+          sf = -sf;
+        sf |= SURFACE_FLAG_FLIP_BACKFACE;
+        if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
+          if (sf & SURFACE_FLAG_APPLY_TEXTURE)
+            sf = remap_tex[(uint8)sf] +
+                 (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+          else
+            sf = SURFACE_FLAG_SKIP_RENDER;
+        } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 &&
+                   (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
+          sf = SURFACE_FLAG_SKIP_RENDER;
+        }
+        if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
+          GameRenderVertex v[4];
+          world_verts_right_wall(v, iNextSectionIndex, iSectionNum,
+                                 highWall ? 3 : 4);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[4] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      LABEL_1271:
+        if (++iRenderObjectIndex >= num_bits)
+          return;
+        break;
+      case 2: {
+        int sf = GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR];
+        if (!facing_ok(pNextGroundScreen->screenPtAy[2].projected.fX,
+                       pNextGroundScreen->screenPtAy[2].projected.fY,
+                       pNextGroundScreen->screenPtAy[2].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fZ,
+                       pNextGroundScreen->screenPtAy[3].projected.fX,
+                       pNextGroundScreen->screenPtAy[3].projected.fY,
+                       pNextGroundScreen->screenPtAy[3].projected.fZ))
+          goto LABEL_1271;
+        if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_ground_cross_first(v, iNextSectionIndex, iSectionNum, 3,
+                                         2);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[8] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 3: {
+        int sf = GroundColour[iSectionNum][GROUND_COLOUR_LUOWALL];
+        if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
+          goto LABEL_1068;
+        if (!facing_ok(pNextGroundScreen->screenPtAy[0].projected.fX,
+                       pNextGroundScreen->screenPtAy[0].projected.fY,
+                       pNextGroundScreen->screenPtAy[0].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[0].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[0].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[0].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fZ,
+                       pNextGroundScreen->screenPtAy[1].projected.fX,
+                       pNextGroundScreen->screenPtAy[1].projected.fY,
+                       pNextGroundScreen->screenPtAy[1].projected.fZ) &&
+            (sf & SURFACE_FLAG_CONCAVE) == 0)
+          goto LABEL_1068;
+        if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[6] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1068;
+      LABEL_1068: {
+        int sf = GroundColour[iSectionNum][GROUND_COLOUR_LLOWALL];
+        if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
+          goto LABEL_1271;
+        if (!facing_ok(pNextGroundScreen->screenPtAy[1].projected.fX,
+                       pNextGroundScreen->screenPtAy[1].projected.fY,
+                       pNextGroundScreen->screenPtAy[1].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[1].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[2].projected.fZ,
+                       pNextGroundScreen->screenPtAy[2].projected.fX,
+                       pNextGroundScreen->screenPtAy[2].projected.fY,
+                       pNextGroundScreen->screenPtAy[2].projected.fZ) &&
+            (sf & SURFACE_FLAG_CONCAVE) == 0)
+          goto LABEL_1271;
+        if (sf == 65854)
+          sf += 1;
+        if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 1, 2);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[7] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 4: {
+        int sf = GroundColour[iSectionNum][GROUND_COLOUR_RUOWALL];
+        if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
+          goto LABEL_1174;
+        if (!facing_ok(pNextGroundScreen->screenPtAy[4].projected.fX,
+                       pNextGroundScreen->screenPtAy[4].projected.fY,
+                       pNextGroundScreen->screenPtAy[4].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[5].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[5].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[5].projected.fZ,
+                       pNextGroundScreen->screenPtAy[5].projected.fX,
+                       pNextGroundScreen->screenPtAy[5].projected.fY,
+                       pNextGroundScreen->screenPtAy[5].projected.fZ) &&
+            (sf & SURFACE_FLAG_CONCAVE) == 0)
+          goto LABEL_1174;
+        if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 4, 5);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[10] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1174;
+      LABEL_1174: {
+        int sf = GroundColour[iSectionNum][GROUND_COLOUR_RLOWALL];
+        if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
+          goto LABEL_1271;
+        if (!facing_ok(pNextGroundScreen->screenPtAy[3].projected.fX,
+                       pNextGroundScreen->screenPtAy[3].projected.fY,
+                       pNextGroundScreen->screenPtAy[3].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[3].projected.fZ,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fX,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fY,
+                       pCurrentGroundScreen->screenPtAy[4].projected.fZ,
+                       pNextGroundScreen->screenPtAy[4].projected.fX,
+                       pNextGroundScreen->screenPtAy[4].projected.fY,
+                       pNextGroundScreen->screenPtAy[4].projected.fZ) &&
+            (sf & SURFACE_FLAG_CONCAVE) == 0)
+          goto LABEL_1271;
+        if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 3, 4);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[9] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 5: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_CENTER];
+        if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 3,
+                                  2);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[1] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      LABEL_1203:
+        goto LABEL_1271;
+      case 6: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_LEFT_LANE];
+        if (sf < 0)
+          sf = -sf;
+        if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 2,
+                                  0);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[0] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 7: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_LANE];
+        if (sf < 0)
+          sf = -sf;
+        if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 4,
+                                  3);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[2] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 0xA: {
+        int sf = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
+        /* Single-section roof from NEXT section (negative surface type) */
+        if (sf < 0) {
+          int renderSf = -sf;
+          if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+              (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+            renderSf =
+                remap_tex[(uint8)renderSf] +
+                (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+          {
+            GameRenderVertex v[4];
+            tGroundPt *g = &GroundPt[iNextSectionIndex];
+            v[0].x = g->pointAy[1].fX;
+            v[0].y = g->pointAy[1].fY;
+            v[0].z = g->pointAy[1].fZ;
+            v[1].x = g->pointAy[4].fX;
+            v[1].y = g->pointAy[4].fY;
+            v[1].z = g->pointAy[4].fZ;
+            v[2].x = g->pointAy[5].fX;
+            v[2].y = g->pointAy[5].fY;
+            v[2].z = g->pointAy[5].fZ;
+            v[3].x = g->pointAy[0].fX;
+            v[3].y = g->pointAy[0].fY;
+            v[3].z = g->pointAy[0].fZ;
+            v[0].u = 0;
+            v[0].v = 0;
+            v[1].u = 0;
+            v[1].v = 0;
+            v[2].u = 0;
+            v[2].v = 0;
+            v[3].u = 0;
+            v[3].v = 0;
+            TextureHandle h =
+                (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
                     ? game_render_get_texture_handle(g_pGameRenderer, 0)
                     : TEXTURE_HANDLE_INVALID;
-                  float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-                  game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
-                }
-              }
-            }
-            /* Two-section roof quad (TrakPt source, always rendered) */
-            if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+            float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
+            game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
+          }
+        }
+        /* Single-section roof from CUR section (very negative surface) */
+        if (TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL] &&
+            TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL]) {
+          int idx = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
+          if (idx < -1) {
+            int renderSf = -idx;
+            if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 &&
+                (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+              renderSf = remap_tex[(uint8)renderSf] +
+                         (renderSf &
+                          (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
             {
               GameRenderVertex v[4];
-              world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 5);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              tGroundPt *g = &GroundPt[iSectionNum];
+              v[0].x = g->pointAy[4].fX;
+              v[0].y = g->pointAy[4].fY;
+              v[0].z = g->pointAy[4].fZ;
+              v[1].x = g->pointAy[1].fX;
+              v[1].y = g->pointAy[1].fY;
+              v[1].z = g->pointAy[1].fZ;
+              v[2].x = g->pointAy[0].fX;
+              v[2].y = g->pointAy[0].fY;
+              v[2].z = g->pointAy[0].fZ;
+              v[3].x = g->pointAy[5].fX;
+              v[3].y = g->pointAy[5].fY;
+              v[3].z = g->pointAy[5].fZ;
+              v[0].u = 0;
+              v[0].v = 0;
+              v[1].u = 0;
+              v[1].v = 0;
+              v[2].u = 0;
+              v[2].v = 0;
+              v[3].u = 0;
+              v[3].v = 0;
+              TextureHandle h =
+                  (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
+                      ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                      : TEXTURE_HANDLE_INVALID;
+              float subT =
+                  (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
+              game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
             }
           }
-          goto LABEL_1271;
-        case 0xB:
-          {
-            int iCarRenderIdx = iSectionNum;
-            GameRenderCarPose pose;
-            GameRenderCarOptions options;
-            const GameRenderCarPose *pCarPose;
-            const GameRenderCarOptions *pCarOptions;
-            if (pTypedRenderCommand != NULL && pTypedRenderCommand->kind == RENDER_COMMAND_3D_KIND_CAR) {
-              iCarRenderIdx = pTypedRenderCommand->payload.car.car_idx;
-              pCarPose = &pTypedRenderCommand->payload.car.pose;
-              pCarOptions = &pTypedRenderCommand->payload.car.options;
-            } else {
-              pose.position = Car[iSectionNum].pos;
-              pose.yaw = Car[iSectionNum].nYaw;
-              pose.pitch = Car[iSectionNum].nPitch;
-              pose.roll = Car[iSectionNum].nRoll;
-              options.anim_frame = Car[iSectionNum].byWheelAnimationFrame;
-              options.color_remap = NULL;
-              pCarPose = &pose;
-              pCarOptions = &options;
-            }
-            if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw)
-              game_render_draw_car(g_pGameRenderer, iCarRenderIdx, pCarPose, pCarOptions);
-            --CarsLeft;
-            if (names_on && (names_on == 1 || human_control[iCarRenderIdx]))
-              --NamesLeft;
-          }
-          goto LABEL_1271;
-        case 0xC:
-          DrawTower(iSectionNum, pScrPtr_1);
-          goto LABEL_1271;
-        case 0xD:
-          DrawBuilding(iSectionNum, pScrPtr_1);
-          goto LABEL_1271;
-        case 0xE:
-          draw_start_light_cube_world(g_pGameRenderer,
-                                      &SLight[iChaseCamIdx_1][iSectionNum],
-                                      countdown,
-                                      worlddirn,
-                                      camera,
-                                      projection);
-          goto LABEL_1271;
-        default:
-          goto LABEL_1271;                      // Switch on render object type to call appropriate renderer
+        }
+        /* Two-section roof quad (TrakPt source, always rendered) */
+        if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 &&
+            (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+          sf = remap_tex[(uint8)sf] +
+               (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+        {
+          GameRenderVertex v[4];
+          world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1,
+                                  5);
+          TextureHandle h =
+              (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+          float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
+          game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+        }
+      }
+        goto LABEL_1271;
+      case 0xB: {
+        int iCarRenderIdx = iSectionNum;
+        GameRenderCarPose pose;
+        GameRenderCarOptions options;
+        const GameRenderCarPose *pCarPose;
+        const GameRenderCarOptions *pCarOptions;
+        if (pTypedRenderCommand != NULL &&
+            pTypedRenderCommand->kind == RENDER_COMMAND_3D_KIND_CAR) {
+          iCarRenderIdx = pTypedRenderCommand->payload.car.car_idx;
+          pCarPose = &pTypedRenderCommand->payload.car.pose;
+          pCarOptions = &pTypedRenderCommand->payload.car.options;
+        } else {
+          pose.position = Car[iSectionNum].pos;
+          pose.yaw = Car[iSectionNum].nYaw;
+          pose.pitch = Car[iSectionNum].nPitch;
+          pose.roll = Car[iSectionNum].nRoll;
+          options.anim_frame = Car[iSectionNum].byWheelAnimationFrame;
+          options.color_remap = NULL;
+          pCarPose = &pose;
+          pCarOptions = &options;
+        }
+        if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 ||
+            g_bForceMaxDraw)
+          game_render_draw_car(g_pGameRenderer, iCarRenderIdx, pCarPose,
+                               pCarOptions);
+        --CarsLeft;
+        if (names_on && (names_on == 1 || human_control[iCarRenderIdx]))
+          --NamesLeft;
+      }
+        goto LABEL_1271;
+      case 0xC:
+        DrawTower(iSectionNum, pScrPtr_1);
+        goto LABEL_1271;
+      case 0xD:
+        DrawBuilding(iSectionNum, pScrPtr_1);
+        goto LABEL_1271;
+      case 0xE:
+        draw_start_light_cube_world(g_pGameRenderer,
+                                    &SLight[iChaseCamIdx_1][iSectionNum],
+                                    countdown, worlddirn, camera, projection);
+        goto LABEL_1271;
+      default:
+        goto LABEL_1271; // Switch on render object type to call appropriate
+                         // renderer
       }
     }
   }
@@ -2771,47 +3150,47 @@ LABEL_393:
 
 //-------------------------------------------------------------------------------------------------
 // Backface culling — expects VIEW-SPACE coordinates (camera at origin).
-// Pass TrackScreenXYZ[].screenPtAy[n].projected.fX/fY/fZ, not world-space TrakPt[].
-// Returns 0 when polygon faces away (cull), -1 when facing toward (render).
-//00027980
-int facing_ok(float fX0, float fY0, float fZ0,
-              float fX1, float fY1, float fZ1,
-              float fX2, float fY2, float fZ2,
-              float fX3, float fY3, float fZ3)
-{
+// Pass TrackScreenXYZ[].screenPtAy[n].projected.fX/fY/fZ, not world-space
+// TrakPt[]. Returns 0 when polygon faces away (cull), -1 when facing toward
+// (render).
+// 00027980
+int facing_ok(float fX0, float fY0, float fZ0, float fX1, float fY1, float fZ1,
+              float fX2, float fY2, float fZ2, float fX3, float fY3,
+              float fZ3) {
   float fDeltaX20; // [esp+20h] [ebp-4h]
 
   // Calculate X component of edge vector from vertex 0 to vertex 2
   fDeltaX20 = fX2 - fX0;
 
-  // Compute the signed volume of the tetrahedron formed by the origin and three vertices
-  // This is equivalent to computing the triple scalar product: (V1-V0) \B7 ((V2-V0) \D7 (V3-V0))
-  // Where V0=(fX0,fY0,fZ0), V1=(fX1,fY1,fZ1), V2=(fX2,fY2,fZ2), V3=(fX3,fY3,fZ3)
+  // Compute the signed volume of the tetrahedron formed by the origin and three
+  // vertices This is equivalent to computing the triple scalar product: (V1-V0)
+  // \B7 ((V2-V0) \D7 (V3-V0)) Where V0=(fX0,fY0,fZ0), V1=(fX1,fY1,fZ1),
+  // V2=(fX2,fY2,fZ2), V3=(fX3,fY3,fZ3)
 
   // The formula expands to a 3x3 determinant:
   //  | (fX1-fX0)  (fY1-fY0)  (fZ1-fZ0) |
   //  | (fX2-fX0)  (fY2-fY0)  (fZ2-fZ0) |
   //  | (fX3-fX0)  (fY3-fY0)  (fZ3-fZ0) |
 
-  // Positive determinant = vertices ordered counter-clockwise when viewed from origin
-  // Negative determinant = vertices ordered clockwise when viewed from origin
-  return (((fY2 - fY0) * (fZ1 - fZ3) - (fZ2 - fZ0) * (fY1 - fY3)) * fX1
-        + ((fZ2 - fZ0) * (fX1 - fX3) - (fZ1 - fZ3) * fDeltaX20) * fY1
-        + ((fY1 - fY3) * fDeltaX20 - (fX1 - fX3) * (fY2 - fY0)) * fZ1 >= 0.0)
-    - 1;
+  // Positive determinant = vertices ordered counter-clockwise when viewed from
+  // origin Negative determinant = vertices ordered clockwise when viewed from
+  // origin
+  return (((fY2 - fY0) * (fZ1 - fZ3) - (fZ2 - fZ0) * (fY1 - fY3)) * fX1 +
+              ((fZ2 - fZ0) * (fX1 - fX3) - (fZ1 - fZ3) * fDeltaX20) * fY1 +
+              ((fY1 - fY3) * fDeltaX20 - (fX1 - fX3) * (fY2 - fY0)) * fZ1 >=
+          0.0) -
+         1;
 }
 
 //-------------------------------------------------------------------------------------------------
-//00027A10
-int Zcmp(const void *pTrackView1, const void *pTrackView2)
-{
+// 00027A10
+int Zcmp(const void *pTrackView1, const void *pTrackView2) {
   return render_queue_3d_compare_legacy_z_order(pTrackView1, pTrackView2);
 }
 
 //-------------------------------------------------------------------------------------------------
-//00027A60
-void set_starts(unsigned int uiType)
-{
+// 00027A60
+void set_starts(unsigned int uiType) {
   startsx[1] = 0;
   startsx[2] = 0;
   startsy[0] = 0;
@@ -2819,39 +3198,39 @@ void set_starts(unsigned int uiType)
   if (gfx_size) {
     if (uiType) {
       if (uiType <= 1) {
-        startsx[0] = 0x3FF000; //64.0
-        startsx[3] = 0x3FF000; //64.0
-        startsy[2] = 0x1FF000; //31.875
-        startsy[3] = 0x1FF000; //31.875
+        startsx[0] = 0x3FF000; // 64.0
+        startsx[3] = 0x3FF000; // 64.0
+        startsy[2] = 0x1FF000; // 31.875
+        startsy[3] = 0x1FF000; // 31.875
       } else if (uiType == 2) {
-        startsx[0] = 0x1FF000; //31.875
-        startsx[3] = 0x1FF000; //31.875
-        startsy[2] = 0x3FF000; //64.0
-        startsy[3] = 0x3FF000; //64.0
+        startsx[0] = 0x1FF000; // 31.875
+        startsx[3] = 0x1FF000; // 31.875
+        startsy[2] = 0x3FF000; // 64.0
+        startsy[3] = 0x3FF000; // 64.0
       }
     } else {
-      startsx[0] = 0x1FF000; //31.875
-      startsx[3] = 0x1FF000; //31.875
-      startsy[2] = 0x1FF000; //31.875
-      startsy[3] = 0x1FF000; //31.875
+      startsx[0] = 0x1FF000; // 31.875
+      startsx[3] = 0x1FF000; // 31.875
+      startsy[2] = 0x1FF000; // 31.875
+      startsy[3] = 0x1FF000; // 31.875
     }
   } else if (uiType) {
     if (uiType <= 1) {
-      startsx[0] = 0x7FF000; //128.0
-      startsx[3] = 0x7FF000; //128.0
-      startsy[2] = 0x3FF000; //64.0
-      startsy[3] = 0x3FF000; //64.0
+      startsx[0] = 0x7FF000; // 128.0
+      startsx[3] = 0x7FF000; // 128.0
+      startsy[2] = 0x3FF000; // 64.0
+      startsy[3] = 0x3FF000; // 64.0
     } else if (uiType == 2) {
-      startsx[0] = 0x3FF000; //64.0
-      startsx[3] = 0x3FF000; //64.0
-      startsy[2] = 0x7FF000; //128.0
-      startsy[3] = 0x7FF000; //128.0
+      startsx[0] = 0x3FF000; // 64.0
+      startsx[3] = 0x3FF000; // 64.0
+      startsy[2] = 0x7FF000; // 128.0
+      startsy[3] = 0x7FF000; // 128.0
     }
   } else {
-    startsx[0] = 0x3FF000; //64.0
-    startsx[3] = 0x3FF000; //64.0
-    startsy[2] = 0x3FF000; //64.0
-    startsy[3] = 0x3FF000; //64.0
+    startsx[0] = 0x3FF000; // 64.0
+    startsx[3] = 0x3FF000; // 64.0
+    startsy[2] = 0x3FF000; // 64.0
+    startsy[3] = 0x3FF000; // 64.0
   }
 }
 

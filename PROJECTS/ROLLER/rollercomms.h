@@ -10,19 +10,18 @@
 #define ROLLER_MAX_PACKET_SIZE 1024
 #define ROLLER_MAX_IFACES 8
 
-typedef struct
-{
+typedef struct {
   char szIP[16];   // dotted-decimal IPv4
   char szName[48]; // interface / adapter friendly name
 } tROLLERNetIface;
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
-  uint32 uiIPAddress;      // IPv4 address in network byte order
-  uint16 unPort;           // Port number
+typedef struct {
+  uint32 uiIPAddress; // IPv4 address in network byte order
+  uint16 unPort;      // Port number
   uint16 unPadding;
-  uint64 ullReserved;    // Must be zero — pads to 16 bytes to match _NETNOW_NODE_ADDR
+  uint64
+      ullReserved; // Must be zero — pads to 16 bytes to match _NETNOW_NODE_ADDR
 } tROLLERNetAddr;
 
 //-------------------------------------------------------------------------------------------------
@@ -49,22 +48,15 @@ int ROLLERCommsNetAddrToNode(const int *pAddress);
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
 void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
 void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
-void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen);
-int  ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
+void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf,
+                           int iBufLen);
+int ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
 
 // Data transmission
-int ROLLERCommsSendData(
-    const void *pHeader,
-    int iHeaderSize,
-    const void *pData,
-    int iDataSize,
-    int iDestNode);
-int ROLLERCommsBroadcastData(
-    const void *pHeader,
-    int iHeaderSize,
-    const void *pData,
-    int iDataSize,
-    uint16_t unPort);
+int ROLLERCommsSendData(const void *pHeader, int iHeaderSize, const void *pData,
+                        int iDataSize, int iDestNode);
+int ROLLERCommsBroadcastData(const void *pHeader, int iHeaderSize,
+                             const void *pData, int iDataSize, uint16_t unPort);
 
 // Data reception
 int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut);
@@ -84,10 +76,12 @@ void ROLLERclrtx(void); // Clear transmit buffer
 
 // Modem emulation (for compatibility)
 int ROLLERModemHangUp(void);
-int ROLLERModemInit(const char *szInitString, int iParam1, int iParam2, int iParam3);
+int ROLLERModemInit(const char *szInitString, int iParam1, int iParam2,
+                    int iParam3);
 int ROLLERModemDial(const char *szPhoneNumber, int iToneMode);
 int ROLLERModemAnswer(void);
-int ROLLERModemCheckResponse(int iParam1, int iParam2, int iParam3, int iParam4);
+int ROLLERModemCheckResponse(int iParam1, int iParam2, int iParam3,
+                             int iParam4);
 
 //-------------------------------------------------------------------------------------------------
 #endif // _ROLLER_ROLLERCOMMS_H

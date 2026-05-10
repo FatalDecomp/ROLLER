@@ -8,7 +8,8 @@
 typedef struct MenuRendererSoftware MenuRendererSoftware;
 
 // Lifecycle
-MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device, SDL_Window *window);
+MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device,
+                                            SDL_Window *window);
 void menu_render_sw_destroy(MenuRendererSoftware *sw);
 
 // Asset conversion
@@ -38,9 +39,8 @@ void menu_render_sw_fade_wait(MenuRendererSoftware *sw,
 // Text rendering
 void menu_render_sw_text(MenuRendererSoftware *sw, int fontSlot,
                          const char *text, const char *mappingTable,
-                         int *charVOffsets, int x, int y,
-                         uint8 colorReplace, int alignment,
-                         const tColor *palette);
+                         int *charVOffsets, int x, int y, uint8 colorReplace,
+                         int alignment, const tColor *palette);
 void menu_render_sw_scaled_text(MenuRendererSoftware *sw, int fontSlot,
                                 const char *text, const char *mappingTable,
                                 int *charVOffsets, int x, int y,
@@ -53,16 +53,14 @@ void menu_render_sw_load_car_mesh(MenuRendererSoftware *sw, int carIdx,
                                   const tColor *palette);
 void menu_render_sw_free_car_mesh(MenuRendererSoftware *sw);
 void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,
-                                     float distance, int carYaw,
-                                     int destX, int destY,
-                                     int destW, int destH);
+                                     float distance, int carYaw, int destX,
+                                     int destY, int destW, int destH);
 
 void menu_render_sw_load_track_mesh(MenuRendererSoftware *sw,
                                     const tColor *palette);
 void menu_render_sw_free_track_mesh(MenuRendererSoftware *sw);
 void menu_render_sw_draw_track_preview(MenuRendererSoftware *sw, float cameraZ,
-                                       int elevation, int yaw,
-                                       int destX, int destY,
-                                       int destW, int destH);
+                                       int elevation, int yaw, int destX,
+                                       int destY, int destW, int destH);
 
 #endif

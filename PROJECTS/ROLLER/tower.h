@@ -4,8 +4,7 @@
 #include "polyf.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iChunkIdx;
   int iHOffset;
   int iVOffset;

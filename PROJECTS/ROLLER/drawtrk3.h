@@ -54,10 +54,8 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 const GameRenderCamera *camera,
                 const GameRenderProjection *projection);
-int facing_ok(float fX0, float fY0, float fZ0,
-              float fX1, float fY1, float fZ1,
-              float fX2, float fY2, float fZ2,
-              float fX3, float fY3, float fZ3);
+int facing_ok(float fX0, float fY0, float fZ0, float fX1, float fY1, float fZ1,
+              float fX2, float fY2, float fZ2, float fX3, float fY3, float fZ3);
 int Zcmp(const void *pTrackView1, const void *pTrackView2);
 void set_starts(unsigned int uiType);
 

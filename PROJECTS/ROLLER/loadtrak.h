@@ -5,8 +5,7 @@
 #include <stdio.h>
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int16 nForwardExtraStart;
   uint8 byForwardMainChunks;
   uint8 byForwardExtraChunks;
@@ -17,8 +16,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct 
-{
+typedef struct {
   float fLShoulderWidth;
   float fLShoulderHeight;
   float fRShoulderWidth;
@@ -32,15 +30,13 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct 
-{
+typedef struct {
   char subdivides[11];
 } tSubdivide;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   float fBaseGrip;
   int iGripModifier;
   float fGripMultiplier;
@@ -83,7 +79,8 @@ void ReadAnimData(FILE *pFile, uint8 **ppFileData);
 void readline(FILE *pFile, const char *szFmt, ...);
 uint8 *memgets(uint8 *pDst, uint8 **ppSrc);
 void readline2(uint8 **ppFileData, const char *pszFormat, ...);
-void rotatepoint(double dX, double dY, double dZ, double dYaw, double dPitch, double dRoll, double *pdOutX, double *pdOutY, double *pdOutZ);
+void rotatepoint(double dX, double dY, double dZ, double dYaw, double dPitch,
+                 double dRoll, double *pdOutX, double *pdOutY, double *pdOutZ);
 void setpoint(int iChunkIdx, int iPointIdx, double dX, double dY, double dZ);
 void setgpoint(int iChunkIdx, int iPointIdx, double dX, double dY, double dZ);
 void resetcars();

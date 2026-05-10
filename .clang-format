@@ -254,7 +254,7 @@ SeparateDefinitionBlocks: Leave
 ShortNamespaceLines: 1
 SkipMacroDefinitionBody: false
 SortIncludes:
-  Enabled:         true
+  Enabled:         false
   IgnoreCase:      false
   IgnoreExtension: false
 SortJavaStaticImport: Before
@@ -318,4 +318,3 @@ WhitespaceSensitiveMacros:
   - STRINGIZE
 WrapNamespaceBodyWithEmptyLines: Leave
 ...
-

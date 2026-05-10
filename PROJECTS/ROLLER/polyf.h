@@ -5,8 +5,7 @@
 #include "frontend.h"
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iSurfaceType;
   uint32 uiNumVerts;
   tPoint vertices[4];

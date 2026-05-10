@@ -132,55 +132,52 @@
 
 //-------------------------------------------------------------------------------------------------
 
-#define BUTTON_FLAG_ACCEL       0x0001
-#define BUTTON_FLAG_BRAKE       0x0002
-#define BUTTON_FLAG_UPGEAR      0x0004
-#define BUTTON_FLAG_DOWNGEAR    0x0008
-#define BUTTON_FLAG_SPECIAL     0x0020
-#define BUTTON_FLAG_F1          0x0040
-#define BUTTON_FLAG_F2          0x0080
-#define BUTTON_FLAG_F3          0x0100
-#define BUTTON_FLAG_F4          0x0200
-#define BUTTON_FLAG_SLAVE_QUIT  0x0400
+#define BUTTON_FLAG_ACCEL 0x0001
+#define BUTTON_FLAG_BRAKE 0x0002
+#define BUTTON_FLAG_UPGEAR 0x0004
+#define BUTTON_FLAG_DOWNGEAR 0x0008
+#define BUTTON_FLAG_SPECIAL 0x0020
+#define BUTTON_FLAG_F1 0x0040
+#define BUTTON_FLAG_F2 0x0080
+#define BUTTON_FLAG_F3 0x0100
+#define BUTTON_FLAG_F4 0x0200
+#define BUTTON_FLAG_SLAVE_QUIT 0x0400
 #define BUTTON_FLAG_MASTER_QUIT 0x0800
 
 //-------------------------------------------------------------------------------------------------
 
-#define REPLAY_BUFFER_SIZE  512
-#define DELAY_BUFFER_SIZE   32
+#define REPLAY_BUFFER_SIZE 512
+#define DELAY_BUFFER_SIZE 32
 
 //-------------------------------------------------------------------------------------------------
 
 // Flag constants for copy_multiple data
-#define FLAG_DISCONNECT      0x0400
-#define FLAG_MASTER_CHANGE   0x0800
-#define FLAG_FINISHED        0x1000
+#define FLAG_DISCONNECT 0x0400
+#define FLAG_MASTER_CHANGE 0x0800
+#define FLAG_FINISHED 0x1000
 
 //-------------------------------------------------------------------------------------------------
 
-#define SAMPLE_FLAG_PLAYING   0x0020
-#define SAMPLE_FLAG_LOOP      0x0040
-#define SAMPLE_FLAG_ACTIVE    0x0080
+#define SAMPLE_FLAG_PLAYING 0x0020
+#define SAMPLE_FLAG_LOOP 0x0040
+#define SAMPLE_FLAG_ACTIVE 0x0080
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   DWORD edi, esi, ebp, reserved, ebx, edx, ecx, eax;
-  WORD  flags, es, ds, fs, gs, ip, cs, sp, ss;
+  WORD flags, es, ds, fs, gs, ip, cs, sp, ss;
 } DPMI_RMI;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int handles[16];
 } tSampleHandleCar;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   void *pSample;
   uint16 unSegment;
   int iLength;
@@ -203,8 +200,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   void *pData;
   int nUnk2;
   int iUnk1;
@@ -213,28 +209,25 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
-  int iEnginePitch;   //ENGINE.RAW
+typedef struct {
+  int iEnginePitch; // ENGINE.RAW
   int iEngineVol;
-  int iEngine2Pitch;  //ENGINE2.RAW
+  int iEngine2Pitch; // ENGINE2.RAW
   int iEngine2Vol;
-  int iSkid1Pitch;    //SKID1.RAW
+  int iSkid1Pitch; // SKID1.RAW
   int iSkid1Vol;
   int iPan;
 } tEngineSoundData;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   tEngineSoundData engineSoundData[32];
 } tCarSoundData;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iJ1Button1;
   int iJ1Button2;
   int iJ1XAxis;
@@ -247,22 +240,19 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   uint16 unInput;
   uint16 unFlags;
 } tCarInputData;
 
-typedef union
-{
+typedef union {
   tCarInputData data;
   uint32 uiFullData;
 } tCopyData;
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iSampleIdx;
   int iVolume;
   int iDelay;
@@ -271,8 +261,7 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-typedef struct
-{
+typedef struct {
   int iHandle;
   int iVolume;
 } tSamplePending;
@@ -420,7 +409,8 @@ int initgus();
 void devicespecificuninit();
 void readsoundconfig();
 char *FindConfigVar(const char *szConfigText, const char *szVarName);
-void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSound);
+void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize,
+              int iIsSound);
 void ReadJoys(tJoyPos *pJoy);
 void check_joystickpresence();
 void initsounds();
@@ -436,12 +426,14 @@ void remove_frontendspeech();
 int sfxplaying(int iSampleIdx);
 int cheatsampleok(int iCarIdx);
 void sfxsample(int iSample, int iVol);
-void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan, int iByteOffset);
+void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
+             int iByteOffset);
 void sfxpend(int iSampleIdx, int iDriverIdx, int iVolume);
 void enginesounds2(int iPlayer1Car, int iPlayer2Car);
 void enginesounds(int iFocusCarIndex);
 void loopsample(int iCarIdx, int iSampleIdx, int iVolume, int iPitch, int iPan);
-void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, float fDistance, int iStereoVolume);
+void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel,
+                 float fDistance, int iStereoVolume);
 void startmusic(int iSong);
 void stopmusic();
 void load_language_map();
