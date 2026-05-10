@@ -185,6 +185,19 @@ def main() -> int:
         "scene_render_software.c must own static subdivide",
     )
 
+    assert_true(
+        not re.search(r"\bdodivide\s*\(", drawtrk3_h),
+        "drawtrk3.h must not expose dodivide",
+    )
+    assert_true(
+        not re.search(r"^void\s+dodivide\s*\(", drawtrk3, re.M),
+        "drawtrk3.c must not define public dodivide",
+    )
+    assert_true(
+        re.search(r"^static\s+void\s+dodivide\s*\(", scene_render_sw, re.M),
+        "scene_render_software.c must own static dodivide",
+    )
+
 
     building = read("PROJECTS/ROLLER/building.c")
     draw_building = extract_function(building, "DrawBuilding")

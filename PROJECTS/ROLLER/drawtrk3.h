@@ -54,12 +54,6 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 const GameRenderCamera *camera,
                 const GameRenderProjection *projection);
-void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
-              float fX1_3D, float fY1_3D, float fZ1_3D,
-              float fX2_3D, float fY2_3D, float fZ2_3D,
-              float fX3_3D, float fY3_3D, float fZ3_3D,
-              int iScreenX0, int iScreenY0, int iScreenX1, int iScreenY1, int iScreenX2, int iScreenY2, int iScreenX3, int iScreenY3,
-              int iTexU, int iTexV, int iTexWid, int iTexHgt);
 int facing_ok(float fX0, float fY0, float fZ0,
               float fX1, float fY1, float fZ1,
               float fX2, float fY2, float fZ2,
