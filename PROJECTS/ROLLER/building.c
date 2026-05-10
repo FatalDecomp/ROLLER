@@ -729,6 +729,10 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             verts[vi].u = 0.0f;
             verts[vi].v = 0.0f;
           }
+          // Building surface flag 0x100 means sample from the shared building
+          // texture atlas; unflagged surfaces are flat colors encoded directly
+          // in uiTex and should use an invalid texture handle.
+
           TextureHandle th = ((uiTex & 0x100) != 0)
             ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
             : TEXTURE_HANDLE_INVALID;
