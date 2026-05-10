@@ -2,6 +2,7 @@
 #include "snapshot.h"
 #include "3d.h"
 #include "frontend.h"
+#include "func3.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -55,6 +56,10 @@ int SnapshotRunScene(void)
   }
   if (strcmp(g_SnapshotConfig.szSceneName, "race-result") == 0) {
     snapshot_render_race_result();
+    return SnapshotSceneCapturedAll();
+  }
+  if (strcmp(g_SnapshotConfig.szSceneName, "championship-standings") == 0) {
+    snapshot_render_championship_standings();
     return SnapshotSceneCapturedAll();
   }
 

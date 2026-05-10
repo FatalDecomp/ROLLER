@@ -21,6 +21,7 @@
 #include "scene_render.h"
 #include "snapshot.h"
 #include <memory.h>
+#include <string.h>
 #include <fcntl.h>
 #include <math.h>
 #include <float.h>
@@ -314,6 +315,73 @@ void snapshot_render_winner_race(void)
     name_copy(driver_names[iWinnerCar], "HUMAN");
 
   (void)winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+}
+
+static void snapshot_copy_driver_name(int iDriver, const char *szName)
+{
+  strncpy(driver_names[iDriver], szName, sizeof(driver_names[iDriver]) - 1);
+  driver_names[iDriver][sizeof(driver_names[iDriver]) - 1] = '\0';
+}
+
+static void snapshot_setup_championship_standings_fixture(void)
+{
+  static const char *const szNames[16] = {
+    "SAL", "HAL", "BETH", "MAX", "KAI", "ZED", "NIA", "OTTO",
+    "RAY", "UMA", "IVY", "NOX", "LUX", "JET", "BO", "SKY"
+  };
+  static const int iOrder[16] = { 4, 1, 8, 0, 15, 2, 6, 11, 3, 7, 13, 10, 5, 9, 12, 14 };
+  static const int iInitialChampPoints[16] = { 22, 34, 17, 9, 28, 3, 13, 15, 21, 6, 8, 12, 1, 10, 0, 14 };
+  static const int iInitialKills[16] = { 3, 7, 4, 1, 12, 2, 5, 0, 6, 1, 2, 3, 0, 4, 1, 5 };
+  static const int iInitialWins[16] = { 1, 2, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1 };
+  static const int iInitialFasts[16] = { 0, 1, 0, 0, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 0, 0 };
+  static const int iRaceKills[16] = { 1, 2, 0, 2, 5, 5, 6, 0, 4, 0, 1, 1, 2, 3, 7, 3 };
+
+  competitors = 16;
+  racers = 16;
+  numcars = 16;
+  players = 2;
+  local_players = 2;
+  game_type = 1;
+  Race = 3;
+  network_champ_on = 0;
+  champ_mode = 0;
+  cheat_mode &= ~CHEAT_MODE_CLONES;
+  FastestLap = 8;
+
+  memset(result_order, 0, sizeof(result_order));
+  memset(result_design, 0, sizeof(result_design));
+  memset(result_control, 0, sizeof(result_control));
+  memset(result_competing, 0, sizeof(result_competing));
+  memset(result_kills, 0, sizeof(result_kills));
+  memset(total_kills, 0, sizeof(total_kills));
+  memset(total_wins, 0, sizeof(total_wins));
+  memset(total_fasts, 0, sizeof(total_fasts));
+  memset(championship_points, 0, sizeof(championship_points));
+  memset(champorder, 0, sizeof(champorder));
+  memset(human_control, 0, sizeof(human_control));
+  memset(non_competitors, 0, sizeof(non_competitors));
+
+  for (int i = 0; i < 16; ++i) {
+    snapshot_copy_driver_name(i, szNames[i]);
+    result_order[i] = iOrder[i];
+    result_design[i] = i / 2;
+    result_kills[i] = iRaceKills[i];
+    championship_points[i] = iInitialChampPoints[i];
+    total_kills[i] = iInitialKills[i];
+    total_wins[i] = iInitialWins[i];
+    total_fasts[i] = iInitialFasts[i];
+  }
+
+  result_control[0] = 1;
+  result_control[4] = 1;
+  human_control[0] = 1;
+  human_control[4] = 1;
+}
+
+void snapshot_render_championship_standings(void)
+{
+  snapshot_setup_championship_standings_fixture();
+  ChampionshipStandings();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1154,7 +1222,14 @@ void ChampionshipStandings()
   ticks = 0;
 
   // Different wait behavior: single race mode waits indefinitely, championship mode waits 2160 ticks
-  if (game_type == 3) {
+  if (g_bSnapshotMode) {
+    while (!SnapshotShouldStop()) {
+      UpdateSDL();
+      UpdateSDLWindow();
+      if (!SnapshotShouldStop())
+        SnapshotAdvanceTick();
+    }
+  } else if (game_type == 3) {
     while (!fatkbhit())
       UpdateSDL();
   } else {

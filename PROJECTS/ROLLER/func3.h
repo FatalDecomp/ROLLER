@@ -62,6 +62,7 @@ void RaceResult();
 void TimeTrials(int iDriverIdx);
 void ChampionshipStandings();
 void TeamStandings();
+void snapshot_render_championship_standings(void);
 void ShowLapRecords();
 void show_3dmap(float fZ, int iElevation, int iYaw);
 void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
