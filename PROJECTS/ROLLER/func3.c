@@ -588,9 +588,14 @@ void RaceResult()
   // Display completed result screen and wait for input
   copypic(scrbuf, screen);
   fade_palette(32);
+  if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE)
+    UpdateSDLWindow();
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
+  while (!fatkbhit() && ticks < 2160) {
+    if (SnapshotShouldStop())
+      break;
     UpdateSDL();
+  }
 
   // cleanup
   fre((void **)&front_vga[0]);
@@ -600,6 +605,88 @@ void RaceResult()
   scr_size = iSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+}
+
+void snapshot_render_race_result(void)
+{
+  static char szNames[8][9] = {
+    "HUMAN",
+    "VIPER",
+    "RHINO",
+    "MANTA",
+    "BANSHEE",
+    "WRAITH",
+    "FALCON",
+    "TEMPEST",
+  };
+  static const int iOrder[8] = { 0, 3, 1, 5, 2, 6, 4, 7 };
+  static const float fTimes[8] = {
+    187.34f,
+    190.82f,
+    193.15f,
+    199.47f,
+    205.90f,
+    0.0f,
+    0.0f,
+    0.0f,
+  };
+  static const int iKills[8] = { 2, 0, 4, 1, 3, 2, 0, 1 };
+  static const int iLives[8] = { 3, 2, 1, 2, 1, 0, 2, 0 };
+  static const int iLaps[8] = { 4, 4, 4, 4, 4, 2, 3, 1 };
+  static const int iPoints[8] = { 10, 8, 6, 5, 4, 3, 2, 1 };
+
+  numcars = 8;
+  racers = 8;
+  competitors = 8;
+  players = 1;
+  player_type = 1;
+  NoOfLaps = 3;
+  FastestLap = 1;
+  result_p1 = 0;
+  result_p2 = 1;
+  result_p1_pos = 0;
+  result_p2_pos = 2;
+  textures_off &= ~TEX_OFF_ADVANCED_CARS;
+
+  memset(result_order, 0, sizeof(result_order));
+  memset(result_control, 0, sizeof(result_control));
+  memset(result_competing, 0, sizeof(result_competing));
+  memset(result_design, 0, sizeof(result_design));
+  memset(result_time, 0, sizeof(result_time));
+  memset(result_best, 0, sizeof(result_best));
+  memset(result_lap, 0, sizeof(result_lap));
+  memset(result_lives, 0, sizeof(result_lives));
+  memset(result_kills, 0, sizeof(result_kills));
+  memset(carorder, 0, sizeof(carorder));
+  memset(human_control, 0, sizeof(human_control));
+  memset(non_competitors, 0, sizeof(non_competitors));
+
+  for (int i = 0; i < racers; ++i) {
+    int iDriver = iOrder[i];
+    carorder[i] = iDriver;
+    result_order[i] = iDriver;
+    result_control[iDriver] = (iDriver == result_p1 || iDriver == result_p2) ? -1 : 0;
+    human_control[iDriver] = result_control[iDriver];
+    result_competing[iDriver] = 0;
+    result_design[iDriver] = iDriver & 7;
+    result_time[iDriver] = fTimes[iDriver];
+    result_best[iDriver] = iDriver == FastestLap ? 61.24f : 64.0f + (float)iDriver;
+    result_lap[iDriver] = iLaps[iDriver];
+    result_lives[iDriver] = iLives[iDriver];
+    result_kills[iDriver] = iKills[iDriver];
+    points[i] = iPoints[i];
+    Car[iDriver].byCarDesignIdx = (uint8)result_design[iDriver];
+    Car[iDriver].fBestLapTime = result_best[iDriver];
+    Car[iDriver].fTotalRaceTime = result_time[iDriver];
+    Car[iDriver].byKills = (uint8)result_kills[iDriver];
+    Car[iDriver].byLap = (char)result_lap[iDriver];
+    Car[iDriver].byLives = (uint8)result_lives[iDriver];
+    name_copy(driver_names[iDriver], szNames[iDriver]);
+  }
+
+  // RaceResult() is the real post-race screen. It presents once after its
+  // snapshot-mode fade skip, then exits through the snapshot stop check.
+  RaceResult();
 }
 
 //-------------------------------------------------------------------------------------------------
