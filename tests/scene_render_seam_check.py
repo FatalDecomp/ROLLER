@@ -81,6 +81,7 @@ def main() -> int:
     assert_true("DrawCar(sw->scene" in menu_sw, "menu car preview must pass SceneRenderer to DrawCar")
     assert_true("DrawCar(scrbuf +" not in menu_sw, "menu car preview still uses magic pointer offset")
 
+    game_render_h = read("PROJECTS/ROLLER/game_render.h")
     game_render = read("PROJECTS/ROLLER/game_render.c")
     assert_true("SceneRenderer *scene" in game_render, "game renderer must own a SceneRenderer")
     assert_true("scene_render_quad_world_legacy" in game_render, "game renderer must delegate world quads to scene_render")
@@ -94,6 +95,26 @@ def main() -> int:
         "game_render_set_target" in game_render,
         "game renderer must expose an explicit target binding API",
     )
+    assert_true("typedef struct GameRenderCarPose" in game_render_h, "public API must name the grouped car pose")
+    assert_true("typedef struct GameRenderCarOptions" in game_render_h, "public API must name grouped car options")
+    assert_true("tVec3 position" in game_render_h, "car pose position field must use idiomatic C naming")
+    assert_true("int anim_frame" in game_render_h, "car options animation field must use idiomatic C naming")
+    assert_true("const GameRenderCarPose *pose" in game_render_h, "game_render_draw_car must receive a grouped pose")
+    assert_true("const GameRenderCarOptions *options" in game_render_h, "game_render_draw_car must receive grouped options")
+    assert_true("worldX" not in game_render_h and "animFrame" not in game_render_h,
+                "game_render_draw_car must not expose raw/camelCase car render arguments")
+
+    assert_true("game_render_draw_horizon" not in game_render_h, "public API must replace game_render_draw_horizon")
+    assert_true("game_render_draw_sky(GameRenderer *renderer," in game_render_h, "public API must expose game_render_draw_sky")
+    assert_true(
+        "const GameRenderCamera *camera" in game_render_h and "const GameRenderProjection *projection" in game_render_h,
+        "game_render_draw_sky must receive explicit camera/projection",
+    )
+    draw_sky = extract_function(game_render, "game_render_draw_sky")
+    assert_true(
+        "game_render_sw_draw_sky(renderer->sw, camera, projection)" in draw_sky,
+        "game_render_draw_sky must pass explicit camera/projection to software backend",
+    )
 
     game_render_sw_h = read("PROJECTS/ROLLER/game_render_software.h")
     game_render_sw = read("PROJECTS/ROLLER/game_render_software.c")
@@ -105,6 +126,25 @@ def main() -> int:
         assert_true(forbidden not in game_render_sw_h, f"{forbidden} still exposed by game_render_software.h")
         assert_true(forbidden not in game_render_sw, f"{forbidden} still implemented by game_render_software.c")
     assert_true("subdivide(" not in game_render_sw, "game_render_software still owns direct subdivide dispatch")
+    assert_true("game_render_sw_draw_horizon" not in game_render_sw_h, "software API must replace draw_horizon")
+    assert_true("game_render_sw_draw_horizon" not in game_render_sw, "software backend must replace draw_horizon")
+    assert_true("game_render_sw_draw_sky(GameRendererSoftware *sw," in game_render_sw_h, "software API must expose draw_sky")
+    assert_true(
+        "const GameRenderCamera *camera" in game_render_sw_h and "const GameRenderProjection *projection" in game_render_sw_h,
+        "software draw_sky must receive camera/projection",
+    )
+    sw_draw_sky = extract_function(game_render_sw, "game_render_sw_draw_sky")
+    assert_true("game_render_sw_set_camera(sw, camera)" in sw_draw_sky, "software sky draw must install supplied camera before DrawHorizon")
+    assert_true("game_render_sw_set_projection(sw, projection)" in sw_draw_sky, "software sky draw must install supplied projection before DrawHorizon")
+
+    assert_true("const GameRenderCarPose *pose" in game_render_sw_h,
+                "software car draw must receive grouped public pose")
+    assert_true("const GameRenderCarOptions *options" in game_render_sw_h,
+                "software car draw must receive grouped public options")
+    sw_draw_car = extract_function(game_render_sw, "game_render_sw_draw_car")
+    for used in ["pose", "options"]:
+        assert_true(f"(void){used}" not in sw_draw_car, f"game_render_sw_draw_car still discards {used}")
+    assert_true("DisplayCarWithPose" in sw_draw_car, "software car draw must pass explicit pose to legacy car renderer")
 
     drawtrk3_h = read("PROJECTS/ROLLER/drawtrk3.h")
     drawtrk3 = read("PROJECTS/ROLLER/drawtrk3.c")
@@ -121,6 +161,25 @@ def main() -> int:
     assert_true("subdivide(" not in car, "car.c must not call subdivide directly")
     assert_true("POLYTEX(" not in car, "car.c must not use POLYTEX fallback directly")
     assert_true("POLYFLAT(" not in car, "car.c must not use POLYFLAT fallback directly")
+    car_h = read("PROJECTS/ROLLER/car.h")
+    assert_true("typedef struct CarRenderPose" in car_h,
+                "legacy car API must name the grouped render pose")
+    assert_true("typedef struct CarRenderOptions" in car_h,
+                "legacy car API must name grouped render options")
+    assert_true("tVec3 position" in car_h and "int anim_frame" in car_h,
+                "legacy grouped car render fields must use idiomatic C naming")
+    assert_true("const CarRenderPose *pose" in car_h,
+                "DisplayCarWithPose must receive grouped car pose")
+    assert_true("const CarRenderOptions *options" in car_h,
+                "DisplayCarWithPose must receive grouped car options")
+    display_car_pose_start = car.find("void DisplayCarWithPose")
+    assert_true(display_car_pose_start >= 0, "car.c must define DisplayCarWithPose")
+    display_car_pose_end = car.find("\nvoid DisplayCar(", display_car_pose_start)
+    assert_true(display_car_pose_end > display_car_pose_start, "DisplayCar wrapper must remain separate from DisplayCarWithPose")
+    display_car_pose = car[display_car_pose_start:display_car_pose_end]
+    for forbidden_pose_read in ["pCar->pos", "pCar->nYaw", "pCar->nPitch", "pCar->nRoll", "pCar->byWheelAnimationFrame"]:
+        assert_true(forbidden_pose_read not in display_car_pose,
+                    f"DisplayCarWithPose still reads pose from Car[] via {forbidden_pose_read}")
     assert_true(
         re.search(r"^static\s+void\s+subdivide\s*\(", scene_render_sw, re.M),
         "scene_render_software.c must own static subdivide",

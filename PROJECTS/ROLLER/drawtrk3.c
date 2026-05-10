@@ -2716,11 +2716,19 @@ LABEL_393:
           }
           goto LABEL_1271;
         case 0xB:
-          if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw)
-            game_render_draw_car(g_pGameRenderer, iSectionNum,
-                                 Car[iSectionNum].nYaw, Car[iSectionNum].nPitch, Car[iSectionNum].nRoll,
-                                 Car[iSectionNum].pos.fX, Car[iSectionNum].pos.fY, Car[iSectionNum].pos.fZ,
-                                 0, NULL);
+          if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw) {
+            GameRenderCarPose pose = {
+              .position = Car[iSectionNum].pos,
+              .yaw = Car[iSectionNum].nYaw,
+              .pitch = Car[iSectionNum].nPitch,
+              .roll = Car[iSectionNum].nRoll,
+            };
+            GameRenderCarOptions options = {
+              .anim_frame = Car[iSectionNum].byWheelAnimationFrame,
+              .color_remap = NULL,
+            };
+            game_render_draw_car(g_pGameRenderer, iSectionNum, &pose, &options);
+          }
           --CarsLeft;
           if (names_on && (names_on == 1 || human_control[iSectionNum]))
             --NamesLeft;
