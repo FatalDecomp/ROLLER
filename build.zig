@@ -258,6 +258,7 @@ const snapshot_scenes = [_]SnapshotScene{
     .{ .name = "menu-select-track", .frames = "30" },
     .{ .name = "menu-select-type", .frames = "30" },
     .{ .name = "menu-select-disk", .frames = "30" },
+    .{ .name = "menu-configure", .frames = "30" },
     .{ .name = "winner-race", .frames = "30" },
     .{ .name = "winner-championship", .frames = "30" },
 };

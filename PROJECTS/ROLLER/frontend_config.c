@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -1059,6 +1060,8 @@ void select_configure()
 
         // render (GPU)
         menu_render_end_frame(mr);
+        if (SnapshotShouldStop())
+          return;
 
         // Handle CHEAT_MODE_CLONES
         if (switch_same > 0) {
@@ -2459,6 +2462,12 @@ void select_configure()
         goto RENDER_FRAME;
     }
   }
+}
+
+void snapshot_render_menu_configure(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  select_configure();
 }
 
 //-------------------------------------------------------------------------------------------------

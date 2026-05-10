@@ -128,6 +128,7 @@ void snapshot_render_menu_select_disk(void);
 void select_car();
 void snapshot_render_menu_select_car(void);
 void select_configure();
+void snapshot_render_menu_configure(void);
 void front_displaycalibrationbar(int iY, int iX, int iValue);
 void front_volumebar(int iY, int iVolumeLevel, int iFillColor);
 void select_players();

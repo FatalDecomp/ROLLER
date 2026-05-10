@@ -3,7 +3,7 @@
 This directory holds the byte-exact PNG baselines that gate the rendering
 pipeline. The harness runs the existing `roller` binary in a headless
 snapshot mode across the seven intro replays in `fatdata/` and a small
-set of deterministic named frontend scenes, captures the indexed
+set of deterministic named frontend/winner scenes, captures the indexed
 framebuffer to PNGs, writes them straight here, and uses `git diff` to
 detect any drift.
 
@@ -133,6 +133,7 @@ tests/snapshots/
     ├── menu-select-track_30.png
     ├── menu-select-type_30.png
     ├── menu-select-disk_30.png
+    ├── menu-configure_30.png
     ├── winner-race_30.png
     └── winner-championship_30.png
 ```
