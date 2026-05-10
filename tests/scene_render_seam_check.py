@@ -214,6 +214,16 @@ def main() -> int:
         "DrawBuilding must preserve BuildingSub[uiBuildingType] * subscale subdivision threshold",
     )
 
+    scene_quad = extract_function(scene_render_sw, "scene_render_sw_quad_world_legacy")
+    assert_true(
+        "float directVz[4]" in scene_quad and "directVz[i] = (float)iVz[i];" in scene_quad,
+        "building world-quads must keep unclamped view Z for subdivision threshold decisions",
+    )
+    assert_true(
+        "options.subThreshold > 0.0f || subpolyType == SUBPOLY_BUILDING" in scene_quad,
+        "building zero subdivision thresholds must remain valid direct-render thresholds",
+    )
+
     assert_true(
         "const GameRenderCamera *camera" in drawtrk3_h
         and "const GameRenderProjection *projection" in drawtrk3_h,

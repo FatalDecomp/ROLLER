@@ -1541,6 +1541,7 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
     poly.uiNumVerts = 4;
 
     float subVx[4], subVy[4], subVz[4];
+    float directVz[4];
 
     if (subpolyType == SUBPOLY_BUILDING) {
         int iVx[4], iVy[4], iVz[4];
@@ -1552,6 +1553,7 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
             iVx[i] = (int)(dx * proj->view[0][0] + dy * proj->view[1][0] + dz * proj->view[2][0]);
             iVy[i] = (int)(dx * proj->view[0][1] + dy * proj->view[1][1] + dz * proj->view[2][1]);
             iVz[i] = (int)(dx * proj->view[0][2] + dy * proj->view[1][2] + dz * proj->view[2][2]);
+            directVz[i] = (float)iVz[i];
         }
         int viewDist = (int)cam->fovScale;
         for (int i = 0; i < 4; i++) {
@@ -1597,17 +1599,18 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
             subVx[i] = fVx;
             subVy[i] = fVy;
             subVz[i] = (useCarProjection || useCloudProjection) ? fVz : (float)((int)round(dCameraZ));
+            directVz[i] = subVz[i];
         }
     }
 
     if (subpolyType == SUBPOLY_WALL) set_starts(1u);
 
     int useDirect = 0;
-    if (options.subThreshold > 0.0f) {
-        float minZ = subVz[0];
-        if (subVz[1] < minZ) minZ = subVz[1];
-        if (subVz[2] < minZ) minZ = subVz[2];
-        if (subVz[3] < minZ) minZ = subVz[3];
+    if (options.subThreshold > 0.0f || subpolyType == SUBPOLY_BUILDING) {
+        float minZ = directVz[0];
+        if (directVz[1] < minZ) minZ = directVz[1];
+        if (directVz[2] < minZ) minZ = directVz[2];
+        if (directVz[3] < minZ) minZ = directVz[3];
         if (options.subThreshold <= minZ)
             useDirect = 1;
     }
