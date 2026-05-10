@@ -848,9 +848,6 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   int iNamesDisplayCount; // eax
   tVisibleBuilding *pVisibleBuildingsPtr; // ebx
   tTrackZOrderEntry *pBuildingRenderCmd; // edx
-  int iBuildingCmdIndex; // ecx
-  //int iBuildingValue; // eax
-  int iBuildingNext; // esi
   int iLightIndex; // ebx
   tTrackZOrderEntry *pLightRenderCmd; // ecx
   int iLightArrayOffset; // edx
@@ -2316,26 +2313,18 @@ LABEL_357:
     goto LABEL_392;
   }
 LABEL_393:
+  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   pVisibleBuildingsPtr = &VisibleBuildings[0];     // Process building objects for rendering
   if (VisibleBuildings[0].iBuildingIdx != -1) {
-    pBuildingRenderCmd = &TrackView[num_bits];
     do {
-      iBuildingCmdIndex = num_bits;
-      //iBuildingValue = pVisibleBuildingsPtr->fDepth;
-      pBuildingRenderCmd->nRenderPriority = 13;
-      //fOffsetTmp1 = iBuildingValue;
-      //LOWORD(iBuildingValue) = pVisibleBuildingsPtr->iBuildingIdx;
-      pBuildingRenderCmd->nChunkIdx = pVisibleBuildingsPtr->iBuildingIdx;
-      //pBuildingRenderCmd->nChunkIdx = LOWORD(iBuildingValue);
-      pBuildingRenderCmd->fZDepth = pVisibleBuildingsPtr->fDepth;
-      //pBuildingRenderCmd->fZDepth = fOffsetTmp1;
+      pBuildingRenderCmd = render_queue_3d_add_building(render_queue_3d_global(),
+                                                        pVisibleBuildingsPtr->iBuildingIdx,
+                                                        pVisibleBuildingsPtr->fDepth);
+      if (pBuildingRenderCmd != NULL)
+        num_bits = render_queue_3d_count(render_queue_3d_global());
       ++pVisibleBuildingsPtr;
-      ++pBuildingRenderCmd;
-      iBuildingNext = pVisibleBuildingsPtr->iBuildingIdx;
-      num_bits = iBuildingCmdIndex + 1;
-    } while (iBuildingNext != -1);
+    } while (pVisibleBuildingsPtr->iBuildingIdx != -1);
   }
-  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
     iLightIndex = 0;

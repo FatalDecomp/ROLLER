@@ -67,10 +67,23 @@ tTrackZOrderEntry *render_queue_3d_add_legacy_priority(RenderQueue3D *pQueue,
                                                        int iChunkIdx,
                                                        float fZDepth)
 {
-  if (iLegacyPriority == RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY)
+  switch (iLegacyPriority) {
+  case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
     return NULL;
+  }
 
   return render_queue_3d_add(pQueue, iLegacyPriority, iChunkIdx, fZDepth);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+tTrackZOrderEntry *render_queue_3d_add_building(RenderQueue3D *pQueue,
+                                                int iBuildingIdx,
+                                                float fZDepth)
+{
+  (void)RENDER_COMMAND_3D_KIND_BUILDING;
+  return render_queue_3d_add(pQueue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY, iBuildingIdx, fZDepth);
 }
 
 //-------------------------------------------------------------------------------------------------

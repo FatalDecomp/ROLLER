@@ -9,7 +9,7 @@ static void test_sort_matches_legacy_zcmp(void)
 
   assert(render_queue_3d_add_legacy_priority(&queue, 5, 100, 10.0f) != NULL);
   assert(render_queue_3d_add_legacy_priority(&queue, 2, 101, 4.0f) != NULL);
-  assert(render_queue_3d_add_legacy_priority(&queue, 13, 102, 10.0f) != NULL);
+  assert(render_queue_3d_add_building(&queue, 102, 10.0f) != NULL);
   assert(render_queue_3d_add_legacy_priority(&queue, 6, 103, 10.0f) != NULL);
 
   render_queue_3d_sort(&queue);
@@ -20,6 +20,27 @@ static void test_sort_matches_legacy_zcmp(void)
   assert(queue.entries[2].nChunkIdx == 103);
   assert(queue.entries[3].nChunkIdx == 100);
 }
+
+static void test_building_priority_mapping_and_legacy_guard(void)
+{
+  RenderQueue3D queue;
+  tTrackZOrderEntry *entry;
+  render_queue_3d_clear(&queue);
+
+  entry = render_queue_3d_add_building(&queue, 17, 123.0f);
+  assert(entry != NULL);
+  assert(entry->nRenderPriority == RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY);
+  assert(entry->nChunkIdx == 17);
+  assert(entry->fZDepth == 123.0f);
+  assert(render_queue_3d_count(&queue) == 1);
+
+  assert(render_queue_3d_add_legacy_priority(&queue,
+                                             RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY,
+                                             7,
+                                             123.0f) == NULL);
+  assert(render_queue_3d_count(&queue) == 1);
+}
+
 
 static void test_start_light_priority_mapping_and_legacy_guard(void)
 {
@@ -47,6 +68,7 @@ int main(int argc, const char **argv, const char **envp)
   (void)argv;
   (void)envp;
   test_sort_matches_legacy_zcmp();
+  test_building_priority_mapping_and_legacy_guard();
   test_start_light_priority_mapping_and_legacy_guard();
   return 0;
 }
