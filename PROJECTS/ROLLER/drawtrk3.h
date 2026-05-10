@@ -7,11 +7,9 @@
 //-------------------------------------------------------------------------------------------------
 
 extern int showsub;
-extern int cube_faces[6][4];
 extern int view_limit;
 extern int divtype;
 extern int NextSect[MAX_TRACK_CHUNKS];
-extern tScreenPt LightXYZ[8];
 extern int tex_hgt;
 extern int polyysize;
 extern int polyxsize;
@@ -53,19 +51,9 @@ extern int num_bits;
 //-------------------------------------------------------------------------------------------------
 
 int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
-void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx);
-void subdivide(uint8 *pDest, tPolyParams *polyParams,
-               float fX0_3D, float fY0_3D, float fZ0_3D,
-               float fX1_3D, float fY1_3D, float fZ1_3D,
-               float fX2_3D, float fY2_3D, float fZ2_3D,
-               float fX3_3D, float fY3_3D, float fZ3_3D,
-               int iSubpolyType, int bHalfResTex);
-void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
-              float fX1_3D, float fY1_3D, float fZ1_3D,
-              float fX2_3D, float fY2_3D, float fZ2_3D,
-              float fX3_3D, float fY3_3D, float fZ3_3D,
-              int iScreenX0, int iScreenY0, int iScreenX1, int iScreenY1, int iScreenX2, int iScreenY2, int iScreenX3, int iScreenY3,
-              int iTexU, int iTexV, int iTexWid, int iTexHgt);
+void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
+                const GameRenderCamera *camera,
+                const GameRenderProjection *projection);
 int facing_ok(float fX0, float fY0, float fZ0,
               float fX1, float fY1, float fZ1,
               float fX2, float fY2, float fZ2,

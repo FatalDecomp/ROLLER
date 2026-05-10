@@ -4,13 +4,23 @@
 #include "roller.h"
 #include "sound.h"
 #include "carplans.h"
+#include "car.h"
+#include "graphics.h"
+#include "scene_render.h"
 #include <stdlib.h>
 #include <string.h>
 
 struct MenuRendererSoftware {
+    SceneRenderer *scene;
     int loadedCarIdx; // stored by _sw_load_car_mesh for DrawCar()
     int fadeInPending; // deferred fade-in (so content is drawn before the fade)
 };
+
+// Legacy software preview origin: old code rendered at scrbuf + 34640,
+// i.e. row 54, column 80 in the 640-wide frontend buffer. Keep the placement
+// explicit at the scene seam instead of smuggling it as a destination pointer.
+#define MENU_SW_CAR_PREVIEW_X 80
+#define MENU_SW_CAR_PREVIEW_Y 54
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -18,13 +28,18 @@ struct MenuRendererSoftware {
 
 MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device,
                                             SDL_Window *window) {
-    (void)device;
-    (void)window;
     MenuRendererSoftware *sw = calloc(1, sizeof(MenuRendererSoftware));
+    if (!sw)
+        return NULL;
+    sw->loadedCarIdx = -1;
+    sw->scene = scene_render_create(device, window);
     return sw;
 }
 
 void menu_render_sw_destroy(MenuRendererSoftware *sw) {
+    if (!sw)
+        return;
+    scene_render_destroy(sw->scene);
     free(sw);
 }
 
@@ -162,6 +177,13 @@ void menu_render_sw_load_car_mesh(MenuRendererSoftware *sw, int carIdx,
                                   const tColor *palette) {
     (void)palette;
     sw->loadedCarIdx = carIdx;
+    if (!sw->scene || carIdx < 0 || carIdx > CAR_DESIGN_DEATH)
+        return;
+    int texIdx = car_texmap[carIdx];
+    if (texIdx > 0 && cartex_vga[texIdx - 1]) {
+        scene_render_load_texture(sw->scene, cartex_vga[texIdx - 1],
+                                  256, 0, texIdx, gfx_size);
+    }
 }
 
 void menu_render_sw_free_car_mesh(MenuRendererSoftware *sw) {
@@ -176,12 +198,12 @@ void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,
     (void)carYaw;
     (void)destX;
     (void)destY;
-    (void)destW;
-    (void)destH;
-    // Original code: DrawCar(scrbuf + 34640, ...) — offset 34640 = row 54, col 80 in 640-wide buffer
     if (sw->loadedCarIdx < 0 || sw->loadedCarIdx > CAR_DESIGN_DEATH) return;
     if (!CarDesigns[sw->loadedCarIdx].pCoords) return;
-    DrawCar(scrbuf + 34640, sw->loadedCarIdx, distance, (int)angle, 0);
+    scene_render_set_target(sw->scene, scrbuf, winw, winw, winh);
+    scene_render_set_viewport(sw->scene, MENU_SW_CAR_PREVIEW_X,
+                              MENU_SW_CAR_PREVIEW_Y, destW, destH);
+    DrawCar(sw->scene, sw->loadedCarIdx, distance, (int)angle, 0);
 }
 
 // ---------------------------------------------------------------------------

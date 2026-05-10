@@ -62,6 +62,10 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/menu_render.c",
             "PROJECTS/ROLLER/menu_render_gpu.c",
             "PROJECTS/ROLLER/menu_render_software.c",
+            "PROJECTS/ROLLER/game_render.c",
+            "PROJECTS/ROLLER/game_render_software.c",
+            "PROJECTS/ROLLER/scene_render.c",
+            "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/mouse.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
@@ -109,6 +113,12 @@ pub fn build(b: *std.Build) void {
     }
 
     b.installArtifact(exe);
+
+    const scene_render_seam_check = b.addSystemCommand(&.{
+        "python3",
+        "tests/scene_render_seam_check.py",
+    });
+    exe.step.dependOn(&scene_render_seam_check.step);
 
     configureDependencies(b, exe, target, optimize);
 
@@ -174,7 +184,7 @@ const snapshot_replays = [_]SnapshotReplay{
     .{ .name = "intro1", .frames = "60,240,480,720" },
     .{ .name = "intro2", .frames = "60,300,720,1200" },
     .{ .name = "intro3", .frames = "30,60,120,180" },
-    .{ .name = "intro4", .frames = "60,180,360,540" },
+    .{ .name = "intro4", .frames = "60,100,180,360,540" },
     .{ .name = "intro5", .frames = "60,300,720,1200" },
     .{ .name = "intro6", .frames = "60,300,720,1200" },
     // intro7 frame 900 currently produces non-deterministic pixels across
@@ -204,6 +214,23 @@ fn configureSnapshotTests(
         "test-snapshots",
         "Run rendering snapshot regression tests across the intro replays",
     );
+
+
+    const assets_abs = assets_path.getPath2(b, null);
+    const assets_available = blk: {
+        var assets_dir = std.fs.cwd().openDir(assets_abs, .{}) catch break :blk false;
+        assets_dir.close();
+        break :blk true;
+    };
+    if (!assets_available) {
+        const missing_assets = b.addFail(b.fmt(
+            "snapshot assets directory not found: {s}\n" ++
+                "Run `mise run link-worktree-data` or pass `-Dassets-path=/path/to/fatdata` before `zig build test-snapshots`.",
+            .{assets_abs},
+        ));
+        test_snapshots.dependOn(&missing_assets.step);
+        return;
+    }
 
     // Drive the snapshot binary serially. Parallel invocations introduced
     // non-deterministic pixels at long-running replay frames (suspected:

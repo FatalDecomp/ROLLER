@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#MISE description="Symlink data folders (fatdata) from project root into a worktree root"
+#USAGE arg "[name]" help="Worktree name under .worktrees/ (defaults to current worktree if run from inside one)"
+#USAGE complete "name" run="ls \"$(dirname \"$(git rev-parse --git-common-dir 2>/dev/null)\")/.worktrees\" 2>/dev/null"
+set -euo pipefail
+
+DATA_FOLDERS=(fatdata)
+
+git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -z "$git_common_dir" ]; then
+  echo "error: not inside a git repository" >&2
+  exit 1
+fi
+git_common_dir="$(cd "$git_common_dir" && pwd)"
+root="$(dirname "$git_common_dir")"
+
+name="${usage_name:-}"
+if [ -z "$name" ]; then
+  candidate="$(cd "${MISE_PROJECT_ROOT:-$PWD}" && pwd)"
+  case "$candidate" in
+    "$root"/.worktrees/*)
+      rest="${candidate#"$root"/.worktrees/}"
+      name="${rest%%/*}"
+      echo "auto-detected worktree: $name"
+      ;;
+    *)
+      echo "error: no <name> given and not inside $root/.worktrees/<name>" >&2
+      exit 1
+      ;;
+  esac
+fi
+
+worktree="$root/.worktrees/$name"
+if [ ! -d "$worktree" ]; then
+  echo "error: worktree not found at $worktree" >&2
+  exit 1
+fi
+
+for folder in "${DATA_FOLDERS[@]}"; do
+  s="$root/$folder"
+  d="$worktree/$folder"
+  if [ ! -d "$s" ]; then
+    echo "skip $folder: $s missing at project root"
+    continue
+  fi
+  if [ -L "$d" ]; then
+    rm "$d"
+  elif [ -e "$d" ]; then
+    echo "skip $folder: $d exists and is not a symlink"
+    continue
+  fi
+  ln -s "$s" "$d"
+  echo "linked $folder -> $s"
+done

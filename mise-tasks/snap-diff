@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#MISE description="Generate diff images for snapshot baselines that diverged from master"
+set -euo pipefail
+
+# Prefer IM7's 'magick compare', fall back to legacy 'compare'
+if command -v magick &>/dev/null; then
+  CMP=(magick compare)
+elif command -v compare &>/dev/null; then
+  CMP=(compare)
+else
+  echo "ERROR: ImageMagick not found." >&2
+  echo "  Download: https://imagemagick.org/script/download.php" >&2
+  exit 1
+fi
+
+BASELINE_DIR="tests/snapshots/baselines"
+SCRATCH_DIR="zig-out/snapshot-scratch"
+SNAPSHOT_PNGS="$SCRATCH_DIR/snapshots"
+DIFF_DIR="$SCRATCH_DIR/diffs"
+
+echo "=== snapshot diff: comparing baselines vs master ==="
+
+# 1. Ensure LFS objects for master are fetched
+echo "[1/4] fetching LFS objects from master..."
+git lfs fetch origin master 2>/dev/null || true
+
+# 2. Find changed PNGs between master and HEAD
+echo "[2/4] finding changed baselines..."
+changed=$(git diff --name-only master...HEAD -- "$BASELINE_DIR" 2>/dev/null || true)
+
+if [ -z "$changed" ]; then
+  echo "No baseline PNGs differ from master."
+  echo ""
+  echo "To compare scratch captures instead:"
+  echo "  mise run snap-diff --scratch"
+  echo "  (run 'zig build test-snapshots -Dscratch' first)"
+  exit 0
+fi
+
+echo "Changed baseline PNGs:"
+echo "$changed" | while read -r f; do echo "  $f"; done
+echo ""
+
+# 3. Extract master versions and generate diffs
+echo "[3/4] generating diff images..."
+mkdir -p "$DIFF_DIR"
+
+count=0
+while IFS= read -r relpath; do
+  fname=$(basename "$relpath")
+  master_file="$DIFF_DIR/master_${fname}"
+  cur_file="$BASELINE_DIR/$fname"
+  diff_file="$DIFF_DIR/${fname%.png}_diff.png"
+
+  # Extract actual PNG from master via LFS smudge
+  git show "master:$relpath" 2>/dev/null | git lfs smudge -- "$relpath" > "$master_file" 2>/dev/null || {
+    echo "  SKIP $fname (LFS extract failed)"
+    continue
+  }
+
+  if [ ! -s "$master_file" ] || file "$master_file" | grep -q "ASCII"; then
+    echo "  SKIP $fname (not a valid PNG in master)"
+    rm -f "$master_file"
+    continue
+  fi
+
+  if [ ! -f "$cur_file" ]; then
+    echo "  SKIP $fname (removed in current branch)"
+    rm -f "$master_file"
+    continue
+  fi
+
+  # Compare and generate highlighted diff
+  diff_pixels=$("${CMP[@]}" -metric AE "$master_file" "$cur_file" "$diff_file" 2>&1) || true
+  echo "  $fname: $diff_pixels pixels differ -> $diff_file"
+  count=$((count + 1))
+
+  # Clean up master temp
+  rm -f "$master_file"
+done <<< "$changed"
+
+# 4. Summary
+echo ""
+echo "[4/4] done: $count diff image(s) in $DIFF_DIR/"

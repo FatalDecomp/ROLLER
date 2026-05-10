@@ -19,6 +19,7 @@ static inline int d2i(double d) {
 }
 #include "func2.h"
 #include "function.h"
+#include "polyf.h"
 #include "polytex.h"
 #include "roller.h"
 #include <math.h>
@@ -752,7 +753,9 @@ void DrawCars(int iCarIdx, int iViewMode)
 
 //-------------------------------------------------------------------------------------------------
 //000534A0
-void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
+void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar,
+                        const CarRenderPose *pose,
+                        const CarRenderOptions *options)
 {
   int iMotionX; // ebx
   int iMotionY; // esi
@@ -1074,6 +1077,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   float fRotMat00; // [esp+24Ch] [ebp-4Ch]
   int iYaw; // [esp+250h] [ebp-48h]
   tCar *pCar; // [esp+254h] [ebp-44h]
+  tVec3 renderPosePos;
   float fPolygonVertex1Z; // [esp+264h] [ebp-34h]
   float fPolygonVertex1X; // [esp+268h] [ebp-30h]
   tAnimation *pAnms; // [esp+278h] [ebp-20h]
@@ -1084,6 +1088,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   pScrBuf = pScreenBuffer;
   set_starts(0);
   pCar = &Car[iCarIndex];                       // Get pointer to car data structure
+  renderPosePos = pose->position;
   carDesignIndex = pCar->byCarDesignIdx;        // Get car design index from car data
   iNumCoords = CarDesigns[carDesignIndex].byNumCoords;
   pCarDesign = &CarDesigns[carDesignIndex];
@@ -1099,9 +1104,9 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
     iMotionY = pCar->iPitchMotion;
     iMotionZ = pCar->iYawMotion;
   }
-  nRoll = pCar->iRollCameraOffset + iMotionX + pCar->nRoll + pCar->iRollDynamicOffset;
-  iYawAngle = ((int16)iMotionZ + pCar->nYaw) & 0x3FFF;
-  iPitch = ((uint16)pCar->iPitchCameraOffset + (int16)iMotionY + (uint16)pCar->iPitchDynamicOffset + pCar->nPitch) & 0x3FFF;
+  nRoll = pCar->iRollCameraOffset + iMotionX + pose->roll + pCar->iRollDynamicOffset;
+  iYawAngle = ((int16)iMotionZ + pose->yaw) & 0x3FFF;
+  iPitch = ((uint16)pCar->iPitchCameraOffset + (int16)iMotionY + (uint16)pCar->iPitchDynamicOffset + pose->pitch) & 0x3FFF;
 
   fRotMat00 = tcos[iYawAngle] * tcos[iPitch];   // Calculate 3x3 rotation matrix from car orientation angles
   fRotMat01 = tsin[iYawAngle] * tcos[iPitch];
@@ -1115,14 +1120,15 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   fRotMat20 = -tcos[iYawAngle] * fRotMat02 * tcos[iRoll] - tsin[iYawAngle] * tsin[iRoll];
   fRotMat11 = -tsin[iYawAngle] * fRotMat02 * tcos[iRoll] + tcos[iYawAngle] * tsin[iRoll];
   dRotMat22 = tcos[iPitch] * tcos[iRoll];
-  fCarPosX = pCar->pos.fX;
-  fCarPosY = pCar->pos.fY;
-  fZ = pCar->pos.fZ;
+  fCarPosX = renderPosePos.fX;
+  fCarPosY = renderPosePos.fY;
+  fZ = renderPosePos.fZ;
   fRotMat22Copy = (float)dRotMat22;
   fCarPosZ = fZ;
   iCurrChunk = pCar->nCurrChunk;
-  uiColorFrom = car_flat_remap[carDesignIndex].uiColorFrom;
-  uiColorTo = car_flat_remap[carDesignIndex].uiColorTo;
+  const uint8 *color_remap = options ? options->color_remap : NULL;
+  uiColorFrom = color_remap ? color_remap[0] : car_flat_remap[carDesignIndex].uiColorFrom;
+  uiColorTo = color_remap ? color_remap[1] : car_flat_remap[carDesignIndex].uiColorTo;
   pAnms = CarDesigns[carDesignIndex].pAnms;
   if (fDistanceToCar >= 8000.0 && VisibleCars >= 4 || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
     goto LABEL_117;                             // Early exit if car is too far, invisible, or textures disabled
@@ -1216,7 +1222,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   carpoint[3].fY = (float)dY;
 LABEL_28:
   if (pCar->nCurrChunk == -1) {
-    p_fX = &pCar->pos.fX;
+    p_fX = &renderPosePos.fX;
     uiCarWorldOffset = 0;
     dTransformMat22 = fRotMat22Copy;
     dTransformMat02 = fRotMat02;
@@ -1255,7 +1261,7 @@ LABEL_28:
       //++i;                                      // replace carpoint assignment with this in for loop
     }
   } else {
-    pCarPosPtr = &pCar->pos.fX;
+    pCarPosPtr = &renderPosePos.fX;
     iCornerIndex = 0;
     dTransformMat22_2 = fRotMat22Copy;
     dTransformMat02_2 = fRotMat02;
@@ -1493,7 +1499,7 @@ LABEL_105:
     CarPol.uiNumVerts = 4;
     CarPol.iSurfaceType = 0x202002;
     CarPol.vertices[3].y = d2i(dShadowCorner3Y);
-    POLYFLAT(pScrBuf, &CarPol);
+    game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
   }
 LABEL_117:
   pCoords = CarDesigns[carDesignIndex].pCoords;
@@ -1927,7 +1933,7 @@ LABEL_117:
             if (byTextureIndex >= 4)
               uiTextureSurface = pAnimation->framesAy[iAnimationOffset / 4u];
             else
-              uiTextureSurface = pAnimation->framesAy[(char)pCar->byWheelAnimationFrame];
+              uiTextureSurface = pAnimation->framesAy[(char)(options ? options->anim_frame : 0)];
           }
           // SURFACE_FLAG_BACK
           if ((uiTextureSurface & SURFACE_FLAG_BACK) != 0)
@@ -1944,31 +1950,27 @@ LABEL_117:
           if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 && (uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) == 0 && (uint8)uiTextureSurface == uiColorFrom)
             uiTextureSurface = uiColorTo;
           CarPol.iSurfaceType = uiTextureSurface;
-          if (bCloseToCamera) {
-            subdivide(
-              pScrBuf,
-              &CarPol,
-              polygonVertices[0]->view.fX,
-              polygonVertices[0]->view.fY,
-              polygonVertices[0]->view.fZ,
-              polygonVertices[1]->view.fX,
-              polygonVertices[1]->view.fY,
-              polygonVertices[1]->view.fZ,
-              polygonVertices[2]->view.fX,
-              polygonVertices[2]->view.fY,
-              polygonVertices[2]->view.fZ,
-              polygonVertices[3]->view.fX,
-              polygonVertices[3]->view.fY,
-              polygonVertices[3]->view.fZ,
-              iSubdivisionParam,
-              gfx_size);                        // Subdivide polygon if too close to camera for better quality
-          } else {
-            // SURFACE_FLAG_APPLY_TEXTURE
-            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
-              POLYTEX(cartex_vga[car_texmap[uiTextureMapOffset / 4] - 1], pScrBuf, &CarPol, car_texmap[uiTextureMapOffset / 4], gfx_size);
-            } else {
-              goto LABEL_267;  // No texture - render flat polygon
+          GameRenderer *renderer = g_pGameRenderer;
+          if (renderer) {
+            GameRenderVertex verts[4];
+            for (int vi = 0; vi < 4; vi++) {
+              verts[vi].x = polygonVertices[vi]->world.fX;
+              verts[vi].y = polygonVertices[vi]->world.fY;
+              verts[vi].z = polygonVertices[vi]->world.fZ;
+              verts[vi].u = 0.0f;
+              verts[vi].v = 0.0f;
             }
+            TextureHandle carPolyTexture = TEXTURE_HANDLE_INVALID;
+            if ((uiTextureSurface & SURFACE_FLAG_APPLY_TEXTURE) != 0 && iTextureDisabled) {
+              carPolyTexture = game_render_get_texture_handle(renderer, car_texmap[uiTextureMapOffset / 4]);
+            }
+            game_render_quad_world_subdivide_type(
+              renderer,
+              verts,
+              carPolyTexture,
+              uiTextureSurface,
+              iSubdivisionParam,
+              bCloseToCamera ? 0.0f : 1.0f);
           }
         } else {
           CarZOrder[uiRenderLoopOffset / 0xC].iPolygonLink = -1;
@@ -2028,11 +2030,11 @@ LABEL_117:
               // SURFACE_FLAG_APPLY_TEXTURE
               if ((CarPol.iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) == 0) {
               LABEL_267:
-                POLYFLAT(pScrBuf, &CarPol);
+                game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
                 goto LABEL_268;
               }
             }
-            POLYTEX(cargen_vga, pScrBuf, &CarPol, 18, gfx_size);
+            game_render_quad_screen(g_pGameRenderer, &CarPol, game_render_get_texture_handle(g_pGameRenderer, 18), NULL);
           }
         }
       LABEL_268:
@@ -2124,9 +2126,25 @@ LABEL_117:
       scr_size = iPrevScrSize;
       CarPol.iSurfaceType = team_col[iTeamColIdx];
       CarPol.uiNumVerts = 4;
-      POLYFLAT(pScrBuf, &CarPol);
+      game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
     }
   }
+}
+
+void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
+{
+  tCar *pCar = &Car[iCarIndex];
+  CarRenderPose pose = {
+    .position = pCar->pos,
+    .yaw = pCar->nYaw,
+    .pitch = pCar->nPitch,
+    .roll = pCar->nRoll,
+  };
+  CarRenderOptions options = {
+    .anim_frame = pCar->byWheelAnimationFrame,
+    .color_remap = NULL,
+  };
+  DisplayCarWithPose(iCarIndex, pScreenBuffer, fDistanceToCar, &pose, &options);
 }
 
 //-------------------------------------------------------------------------------------------------

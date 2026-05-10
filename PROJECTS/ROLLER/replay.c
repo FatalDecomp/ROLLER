@@ -2572,7 +2572,7 @@ void warning(int iX1, int iY1, int iX2, int iY2, char *szWarning)
   poly.vertices[3].y = iY2;
   poly.iSurfaceType = SURFACE_FLAG_TRANSPARENT | 0x3;// 0x200003;
   poly.uiNumVerts = 4;
-  POLYFLAT(scrbuf, &poly);
+  game_render_quad_screen(g_pGameRenderer, &poly, TEXTURE_HANDLE_INVALID, NULL);
   prt_centrecol(rev_vga[1], szWarning, (iX1Scaled + iX2) / 2, iY1_1 + 10, 231);
   if (fatkbhit()) {
     while (fatkbhit())
@@ -2616,7 +2616,7 @@ void lsd(int iX1, int iY1, int iX2, int iY2)
   poly.vertices[3].y = iY2;
   poly.iSurfaceType = 0x200003;                 // = SURFACE_FLAG_TRANSPARENT | 0x3;
   poly.uiNumVerts = 4;
-  POLYFLAT(scrbuf, &poly);
+  game_render_quad_screen(g_pGameRenderer, &poly, TEXTURE_HANDLE_INVALID, NULL);
   prt_centrecol(rev_vga[1], &language_buffer[3072], 160, iOriginalY1 + 10, 231);// Display menu title text centered
   while (fatkbhit())                          // Main input loop - process keyboard input
   {
@@ -2846,7 +2846,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
   params.uiNumVerts = 4;
   params.vertices[1].x = iLeftEdge;
   params.vertices[2].x = iLeftEdge;
-  POLYFLAT(scrbuf, &params);
+  game_render_quad_screen(g_pGameRenderer, &params, TEXTURE_HANDLE_INVALID, NULL);
   prt_centrecol(rev_vga[1], szText, iTextX, iTextY, 231);
   if (iFileIdx != lastfile)                   // If different directory selected, rescan files and reset selection
   {

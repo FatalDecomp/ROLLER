@@ -98,6 +98,7 @@ int jpressed = 0;           //000A352D
 int start_time = 0;         //000A3534
 uint8 *screen = NULL; //= 0xA0000; //000A3538
 uint8 *scrbuf = NULL;       //000A353C
+GameRenderer *g_pGameRenderer = NULL;
 uint8 *mirbuf = NULL;       //000A3540
 uint8 *texture_vga = NULL;   //000A3544
 uint8 *building_vga = NULL;  //000A3548
@@ -172,6 +173,8 @@ float ext_z;                //0013F9A0
 float viewx;                //0013F9A4
 float viewy;                //0013F9A8
 float viewz;                //0013F9AC
+float fcos;
+float fsin;
 int worlddirn;              //0013F9B0
 char keys[140];             //0013F9B4
 int oldmode;                //0013FA40
@@ -259,7 +262,9 @@ int player1_car;            //0013FB80
 void copypic(uint8 *pSrc, uint8 *pDest)
 {
   //added by ROLLER
-  UpdateSDLWindow();
+  // During gameplay, game_render_end_frame handles presentation
+  if (!g_pGameRenderer)
+    UpdateSDLWindow();
   return;
 
   int iRowIdx; // edx
@@ -797,6 +802,7 @@ void updatescreen()
   int iMirrorYOffset; // [esp+0h] [ebp-24h]
   int iShowRearView; // [esp+4h] [ebp-20h]
 
+  game_render_begin_frame(g_pGameRenderer);
   mirror = 0;                                   // Initialize global screen state variables
   shown_panel = 0;
   screenready = -1;
@@ -934,6 +940,7 @@ void updatescreen()
     LABEL_14:
       game_copypic(scrbuf, screen, ViewType[0]);// Copy screen buffer to final display and initialize animated elements
       init_animate_ads();
+      game_render_end_frame(g_pGameRenderer);
       return;
     }
     goto LABEL_59;
@@ -1020,6 +1027,7 @@ LABEL_30:
   {
   LABEL_59:
     init_animate_ads();                         // Initialize animated advertisements and return
+    game_render_end_frame(g_pGameRenderer);
     return;
   }
   if (SVGA_ON)
@@ -1029,6 +1037,7 @@ LABEL_30:
   winw = XMAX;
   winh = YMAX;
   init_animate_ads();
+  game_render_end_frame(g_pGameRenderer);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1064,12 +1073,36 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
     subscale = (float)dTextureSubscaleMultiplier;
   }
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
-  calculateview(uiViewMode, iCarIdx, iChaseCamIdx);// Calculate camera view matrix and projection parameters
-  DrawHorizon(pScrPtr);                         // Draw sky/horizon background
+  game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
+  calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
+  extern float viewx, viewy, viewz;
+  extern int worlddirn, VIEWDIST;
+  GameRenderCamera cam = {
+      .viewX = viewx,
+      .viewY = viewy,
+      .viewZ = viewz,
+      .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
+      .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
+      .fovScale = (float)VIEWDIST,
+  };
+  game_render_set_camera(g_pGameRenderer, &cam);
+
+  extern float vk1, vk2, vk3, vk4, vk5, vk6, vk7, vk8, vk9;
+  GameRenderProjection proj = {
+      .view = {{vk1, vk2, vk3},
+               {vk4, vk5, vk6},
+               {vk7, vk8, vk9}},
+      .screenScale = scr_size,
+      .centerX = xbase,
+      .centerY = ybase,
+      .texHalfRes = gfx_size,
+  };
+  game_render_set_projection(g_pGameRenderer, &proj);
+  game_render_draw_sky(g_pGameRenderer, &cam, &proj); // Draw sky/horizon background
   CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
   DrawCars(iCarIdx, uiViewMode);                // Render all visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
-  DrawTrack3(pScrPtr, iChaseCamIdx, iCarIdx);   // Render track surface, buildings, and track-side objects
+  DrawTrack3(pScrPtr, iChaseCamIdx, iCarIdx, &cam, &proj); // Render track surface, buildings, and track-side objects
   if (iCopyImmediately)                       // Check if immediate screen copy is requested
   {                                             // Copy rendered frame to display if screen is ready
     if (screenready)
@@ -1718,7 +1751,7 @@ void play_game_init()
   loadsamples();                                // Initialize audio system - load samples, setup collisions and sounds
   initcollisions();
   initsounds();
-  fade_palette(0);                              // Initialize graphics system - fade palette and setup screen
+  fade_palette(0); // Before game renderer exists — use direct call
   init_screen();
   if (intro || replaytype == 2)               // Set screen size based on intro mode or replay
   {
@@ -1818,6 +1851,34 @@ void play_game_init()
     race_started = -1;
   }
   network_mes_mode = iSavedNetworkMesMode;
+
+  g_pGameRenderer = game_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
+
+  // Register already-loaded pixel textures with the renderer.
+  // These were loaded before the renderer existed, so the NULL-guarded
+  // calls in graphics.c were skipped.
+  if (texture_vga)
+    game_render_load_texture(g_pGameRenderer, texture_vga, 256, 0,
+                              0, gfx_size);
+  if (building_vga)
+    game_render_load_texture(g_pGameRenderer, building_vga, 256, 0,
+                              17, gfx_size);
+  if (cargen_vga)
+    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, 0,
+                              18, gfx_size);
+  for (int i = 0; i < 16; i++) {
+    if (cartex_vga[i])
+      game_render_load_texture(g_pGameRenderer, cartex_vga[i], 256, 0,
+                                i + 1, gfx_size ? 1 : 0);
+  }
+
+  // Register HUD sprite blocks (rev_vga) with the game renderer.
+  // Slot 0: minitext font, 1: font6, 2: panel2 HUD sprites,
+  // 3: font3 zoom text, 4: pancar life/kill icons.
+  for (int i = 0; i < 5; i++) {
+    if (rev_vga[i])
+      game_render_load_blocks(g_pGameRenderer, i, rev_vga[i], pal_addr);
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1828,6 +1889,11 @@ void play_game_uninit()
   int iView; // eax
   //int iMaxOffset; // ebx
   //unsigned int iOffset; // eax
+
+  if (g_pGameRenderer) {
+    game_render_destroy(g_pGameRenderer);
+    g_pGameRenderer = NULL;
+  }
 
   //_disable();
   if (!winner_mode && replaytype != 2 && network_on) {
@@ -1883,7 +1949,7 @@ void play_game_uninit()
   }
   network_error = 0;
   network_sync_error = 0;
-  fade_palette(0);
+  fade_palette(0); // After game renderer destroyed — use direct call
   if (!loading_replay)
     stopmusic();
   stopallsamples();
@@ -2237,10 +2303,10 @@ void play_game(int iTrack)
           if (champ_mode == 3 && lastsample < -72 && readsample == writesample)// Initialize fireworks sequence with fade out/in
           {
             holdmusic = -1;
-            fade_palette((unsigned int)writesample ^ readsample);
+            game_render_begin_fade(g_pGameRenderer, 0, 0); // writesample ^ readsample == 0 when readsample == writesample
             ++champ_mode;
             firework_screen();
-            fade_palette(32);
+            game_render_begin_fade(g_pGameRenderer, 1, 0);
             champ_count = 720;
             champ_zoom = 3;
             champ_mode = 16;
@@ -2357,7 +2423,7 @@ void play_game(int iTrack)
     if (screenready)                          // Handle screen fade-in and music startup
     {
       if (!fadedin) {
-        fade_palette(32);
+        game_render_begin_fade(g_pGameRenderer, 1, 0);
         fadedin = -1;
         holdmusic = 0;
         if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)

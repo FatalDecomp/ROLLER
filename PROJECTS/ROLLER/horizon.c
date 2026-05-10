@@ -628,9 +628,21 @@ void displayclouds(uint8 *pScrBuf)
               iBehindCamera = 1;
             }
             if (!iBehindCamera) {
-              poly.iSurfaceType = cloud[iCloudIdx].iSurfaceType;// Set polygon surface type and vertex count (quad = 4 vertices)
-              poly.uiNumVerts = -4;
-              POLYTEX(cargen_vga, pScrBuf, &poly, 18, gfx_size);// Render textured polygon to screen buffer
+              GameRenderVertex verts[4];
+              for (int vi = 0; vi < 4; vi++) {
+                verts[vi].x = cloud[iCloudIdx].matrix[vi][0];
+                verts[vi].y = cloud[iCloudIdx].matrix[vi][1];
+                verts[vi].z = cloud[iCloudIdx].matrix[vi][2] * 0.5f;
+                verts[vi].u = 0.0f;
+                verts[vi].v = 0.0f;
+              }
+              game_render_quad_world_subdivide_type(
+                g_pGameRenderer,
+                verts,
+                game_render_get_texture_handle(g_pGameRenderer, 18),
+                cloud[iCloudIdx].iSurfaceType,
+                GAME_RENDER_SUBDIVIDE_TYPE_CLOUD,
+                1.0f);// Render textured polygon through world-space renderer
             }
           }
         }

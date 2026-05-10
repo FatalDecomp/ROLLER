@@ -484,14 +484,20 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
   float fMatrix21; // [esp+1B4h] [ebp-24h]
   uint8 byNumPols; // [esp+1BCh] [ebp-1Ch]
   uint8 byNumCoords; // [esp+1C0h] [ebp-18h]
+  tVec3 worldCoords[32];
+  float sortDepths[32];
+  int viewIntX[32];
+  int viewIntY[32];
+  int viewIntZ[32];
+  int screenX[32];
+  int screenY[32];
+  int screenClipped[32];
 
   if (iBuildingIdx < 0)
     return; //added by ROLLER
 
   set_starts(0);                                // Initialize rendering system
   uiBuildingType = BuildingBase[iBuildingIdx][0];// Get building plan data (polygons, coordinates, etc.)
-  pScreenPt = BuildingCoords;
-  pBuildingView = BuildingView;
   byNumPols = BuildingPlans[uiBuildingType].byNumPols;
   pPols = BuildingPlans[uiBuildingType].pPols;
   byNumCoords = BuildingPlans[uiBuildingType].byNumCoords;
@@ -519,7 +525,6 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
   dCosRoll = cos(fRollRad);
   fBuildingY = BuildingY[iBuildingIdx];
   for (i = 0; byNumCoords > i; ++i) {
-    iClipped = 0;
     p_fY = &pCoords->fY;
     p_fZ = &pCoords->fZ;
     // CHEAT_MODE_DOUBLE_TRACK
@@ -538,46 +543,48 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
     fMatrix01 = (float)(dCosYaw * dSinPitch * dSinRoll - dSinYaw * dCosRoll);// Build 3x3 rotation matrix elements from yaw/pitch/roll
     fMatrix00 = (float)(dCosYaw * dCosPitch);
     fMatrix02 = (float)(-dCosYaw * dSinPitch * dCosRoll - dSinYaw * dSinRoll);
-    dTransformedX = fX * fMatrix00 + fCoordY * fMatrix01 + v109 * fMatrix02 + fBuildingX - viewx;// Apply 3D rotation and translation to building coordinates
-    dTransformedX = floor(dTransformedX);//_CHP();
+    dTransformedX = fX * fMatrix00 + fCoordY * fMatrix01 + v109 * fMatrix02 + fBuildingX;// Apply 3D rotation and translation to building coordinates
     dTempX = dTransformedX;
     fMatrix10 = (float)(dSinYaw * dCosPitch);
     fMatrix12 = (float)(-dSinYaw * dSinPitch * dCosRoll + dCosYaw * dSinRoll);
     fMatrix11 = (float)(dSinYaw * dSinPitch * dSinRoll + dCosYaw * dCosRoll);
-    dTransformedY = fX * fMatrix10 + fCoordY * fMatrix11 + v109 * fMatrix12 + fBuildingY - viewy;
-    dTransformedY = floor(dTransformedY);//_CHP();
+    dTransformedY = fX * fMatrix10 + fCoordY * fMatrix11 + v109 * fMatrix12 + fBuildingY;
     dTempY = dTransformedY;
     fVert2X = (float)(dCosPitch * dCosRoll);
     fMatrix20 = (float)dSinPitch;
     fMatrix21 = (float)(-dSinRoll * dCosPitch);
-    dTransformedZ = fX * fMatrix20 + fCoordY * fMatrix21 + v109 * fVert2X + fBuildingZ - viewz;
-    dTransformedZ = floor(dTransformedZ);//_CHP();
-    dViewX = dTempX * vk1 + dTempY * vk4 + dTransformedZ * vk7;// Transform world coordinates to view space
-    //_CHP();
-    iViewX = (int)dViewX;
-    dViewY = dTempX * vk2 + dTempY * vk5 + dTransformedZ * vk8;
-    //_CHP();
-    iViewY = (int)dViewY;
-    dViewZ = dTempX * vk3 + dTempY * vk6 + dTransformedZ * vk9;
-    //_CHP();
-    iViewZ = (int)dViewZ;
-    if ((int)dViewZ < 80)                     // Clip Z coordinate to prevent division by zero
+    dTransformedZ = fX * fMatrix20 + fCoordY * fMatrix21 + v109 * fVert2X + fBuildingZ;
+    // Store raw (un-floored, un-translated) world coords for game_render_quad_world.
+    // sw_quad_world performs floor(world − viewer) and the view-matrix multiply
+    // itself, matching legacy precision.
+    worldCoords[i].fX = (float)dTempX;
+    worldCoords[i].fY = (float)dTempY;
+    worldCoords[i].fZ = (float)dTransformedZ;
+    // Bit-exact mirror of legacy view-space transform: subtract viewer in
+    // double, floor, matrix-multiply, integer-truncate.
     {
-      iClipped = 1;
-      iViewZ = 80;
+      double dx = floor(dTempX - viewx);
+      double dy = floor(dTempY - viewy);
+      double dz = floor(dTransformedZ - viewz);
+      viewIntX[i] = (int)(dx * vk1 + dy * vk4 + dz * vk7);
+      viewIntY[i] = (int)(dx * vk2 + dy * vk5 + dz * vk8);
+      viewIntZ[i] = (int)(dx * vk3 + dy * vk6 + dz * vk9);
+      sortDepths[i] = (float)viewIntZ[i];
+      // Project to screen-space using legacy integer math for culling and
+      // depth sorting; building polygons are submitted through world-space
+      // scene rendering below.
+      int iClipped = 0;
+      int iVz = viewIntZ[i];
+      if (iVz < 80) {
+        iVz = 80;
+        iClipped = 1;
+      }
+      int xp = viewIntX[i] * VIEWDIST / iVz + xbase;
+      int yp = viewIntY[i] * VIEWDIST / iVz + ybase;
+      screenX[i] = (scr_size * xp) >> 6;
+      screenY[i] = (scr_size * (199 - yp)) >> 6;
+      screenClipped[i] = iClipped;
     }
-    xp = iViewX * VIEWDIST / iViewZ + xbase;    // Project 3D coordinates to 2D screen coordinates
-    yp = iViewY * VIEWDIST / iViewZ + ybase;
-    iScreenY = iViewY * VIEWDIST / iViewZ + ybase;
-    pScreenPt->iX = (scr_size * (iViewX * VIEWDIST / iViewZ + xbase)) >> 6;
-    pScreenPt->iY = (scr_size * (199 - iScreenY)) >> 6;
-    pBuildingView->fX = (float)iViewX;
-    pBuildingView->fY = (float)iViewY;
-    pBuildingView->fZ = (float)(int)dViewZ;
-    p_iUnk3 = &pScreenPt->iClipped;
-    *p_iUnk3 = iClipped;
-    ++pBuildingView;
-    pScreenPt = (tBuildingCoord *)(p_iUnk3 + 1);
   }
   iPolygonLoop = 0;
   iZOrderIdx = 0;
@@ -586,44 +593,44 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
     BuildingZOrder[iZOrderIdx].iPolygonLink = pPols->nNextPolIdx;
     if ((pPols->uiTex & 0x8000) == 0)         // Calculate polygon Z depth for sorting (front-to-back vs back-to-front)
     {                                           // Find maximum Z (farthest) for back-to-front rendering order
-      if (BuildingView[pPols->verts[2]].fZ <= (double)BuildingView[pPols->verts[3]].fZ)
-        fZ = BuildingView[pPols->verts[3]].fZ;
+      if (sortDepths[pPols->verts[2]] <= (double)sortDepths[pPols->verts[3]])
+        fZ = sortDepths[pPols->verts[3]];
       else
-        fZ = BuildingView[pPols->verts[2]].fZ;
+        fZ = sortDepths[pPols->verts[2]];
       fTempZ2 = fZ;
-      if (BuildingView[pPols->verts[0]].fZ <= (double)BuildingView[pPols->verts[1]].fZ)
-        fMaxZ = BuildingView[pPols->verts[1]].fZ;
+      if (sortDepths[pPols->verts[0]] <= (double)sortDepths[pPols->verts[1]])
+        fMaxZ = sortDepths[pPols->verts[1]];
       else
-        fMaxZ = BuildingView[pPols->verts[0]].fZ;
+        fMaxZ = sortDepths[pPols->verts[0]];
       if (fMaxZ <= (double)fTempZ2) {
-        if (BuildingView[pPols->verts[2]].fZ <= (double)BuildingView[pPols->verts[3]].fZ)
-          fPolygonZ = BuildingView[pPols->verts[3]].fZ;
+        if (sortDepths[pPols->verts[2]] <= (double)sortDepths[pPols->verts[3]])
+          fPolygonZ = sortDepths[pPols->verts[3]];
         else
-          fPolygonZ = BuildingView[pPols->verts[2]].fZ;
-      } else if (BuildingView[pPols->verts[0]].fZ <= (double)BuildingView[pPols->verts[1]].fZ) {
-        fPolygonZ = BuildingView[pPols->verts[1]].fZ;
+          fPolygonZ = sortDepths[pPols->verts[2]];
+      } else if (sortDepths[pPols->verts[0]] <= (double)sortDepths[pPols->verts[1]]) {
+        fPolygonZ = sortDepths[pPols->verts[1]];
       } else {
-        fPolygonZ = BuildingView[pPols->verts[0]].fZ;
+        fPolygonZ = sortDepths[pPols->verts[0]];
       }
     } else {                                           // Find minimum Z (closest) for front-to-back rendering order
-      if (BuildingView[pPols->verts[2]].fZ >= (double)BuildingView[pPols->verts[3]].fZ)
-        fMinZ1 = BuildingView[pPols->verts[3]].fZ;
+      if (sortDepths[pPols->verts[2]] >= (double)sortDepths[pPols->verts[3]])
+        fMinZ1 = sortDepths[pPols->verts[3]];
       else
-        fMinZ1 = BuildingView[pPols->verts[2]].fZ;
+        fMinZ1 = sortDepths[pPols->verts[2]];
       fTempZ = fMinZ1;
-      if (BuildingView[pPols->verts[0]].fZ >= (double)BuildingView[pPols->verts[1]].fZ)
-        fMinZ2 = BuildingView[pPols->verts[1]].fZ;
+      if (sortDepths[pPols->verts[0]] >= (double)sortDepths[pPols->verts[1]])
+        fMinZ2 = sortDepths[pPols->verts[1]];
       else
-        fMinZ2 = BuildingView[pPols->verts[0]].fZ;
+        fMinZ2 = sortDepths[pPols->verts[0]];
       if (fMinZ2 >= (double)fTempZ) {
-        if (BuildingView[pPols->verts[2]].fZ >= (double)BuildingView[pPols->verts[3]].fZ)
-          fPolygonZ = BuildingView[pPols->verts[3]].fZ;
+        if (sortDepths[pPols->verts[2]] >= (double)sortDepths[pPols->verts[3]])
+          fPolygonZ = sortDepths[pPols->verts[3]];
         else
-          fPolygonZ = BuildingView[pPols->verts[2]].fZ;
-      } else if (BuildingView[pPols->verts[0]].fZ >= (double)BuildingView[pPols->verts[1]].fZ) {
-        fPolygonZ = BuildingView[pPols->verts[1]].fZ;
+          fPolygonZ = sortDepths[pPols->verts[2]];
+      } else if (sortDepths[pPols->verts[0]] >= (double)sortDepths[pPols->verts[1]]) {
+        fPolygonZ = sortDepths[pPols->verts[1]];
       } else {
-        fPolygonZ = BuildingView[pPols->verts[0]].fZ;
+        fPolygonZ = sortDepths[pPols->verts[0]];
       }
     }
     BuildingZOrder[iZOrderIdx].fZDepth = fPolygonZ;
@@ -659,115 +666,82 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
         BuildingZOrder[iCurrentZOrderIdx].iPolygonLink = -1;
         pPolygon = &BuildingPlans[uiBuildingType].pPols[iPolygonIndex];
         uiTex = pPolygon->uiTex;
-        iVert2 = pPolygon->verts[2];
-        v75 = BuildingView[iVert2].fX;
-        fY = BuildingView[iVert2].fY;
-        fVert2Z = BuildingView[iVert2].fZ;
-        iVert1 = pPolygon->verts[1];
-        fVert2Y = fY;
-        fVert1X = BuildingView[iVert1].fX;
-        fYCoord1 = BuildingView[iVert1].fY;
-        fVert1Z = BuildingView[iVert1].fZ;
-        iVert0 = pPolygon->verts[0];
-        fCoordZ = BuildingView[iVert0].fX;
-        fDeltaX2 = v75 - fCoordZ;
-        fVert0Y = BuildingView[iVert0].fY;
-        fDeltaY1 = fVert2Y - fVert0Y;
-        fVert0Z = BuildingView[iVert0].fZ;
-        iVert3 = pPolygon->verts[3];
-        fDeltaZ1 = fVert2Z - fVert0Z;
-        fVert1Y = fVert1X - BuildingView[iVert3].fX;
-        fDeltaY2 = fYCoord1 - BuildingView[iVert3].fY;
-        fDeltaZ2 = fVert1Z - BuildingView[iVert3].fZ;
-        fNormalDot = (fDeltaY1 * fDeltaZ2 - fDeltaZ1 * fDeltaY2) * fCoordZ
-          + (fDeltaZ1 * fVert1Y - fDeltaX2 * fDeltaZ2) * fVert0Y
-          + (fDeltaX2 * fDeltaY2 - fDeltaY1 * fVert1Y) * fVert0Z;// Calculate polygon normal dot product for backface culling
-        if (fNormalDot < 0.0 || (uiTex & 0x2000) != 0)// Render polygon if visible (negative normal = back-facing, or special flag)
+        // Backface culling — render only if polygon faces camera, or if
+        // SURFACE_FLAG_FLIP_BACKFACE forces it visible from both sides. Mirrors
+        // the legacy (d1 × d2) · V0 test using int-truncated view-space coords.
         {
-          pEndVerts = (uint8 *)&pPolygon->uiTex;
-          iProjectedSum = 0;
-          if (fNormalDot < 0.0)               // Copy vertices in reverse order for back-facing polygons
-          {
-            pVertices = BuildingPol.vertices;   // Copy vertices in forward order for front-facing polygons
-            pVerts = (uint8 *)pPolygon;
-            do {
-              pScreenCoord = &BuildingCoords[*pVerts];
-              p_y = &pVertices->y;
-              *(p_y - 1) = pScreenCoord->iX;
-              ++pVerts;
-              *p_y = pScreenCoord->iY;
-              pVertices = (tPoint *)(p_y + 1);
-              iProjectedSum += pScreenCoord->iClipped;
-            } while (pVerts != pEndVerts);
-          } else {
-            pVerticesRev = &BuildingPol.vertices[3];
-            pVerts_1 = (uint8 *)pPolygon;
-            do {
-              pScreenCoordRev = &BuildingCoords[*pVerts_1];
-              pVerticesRev->x = pScreenCoordRev->iX;
-              --pVerticesRev;
-              pVerticesRev[1].y = pScreenCoordRev->iY;
-              ++pVerts_1;
-              iProjectedSum += pScreenCoordRev->iClipped;
-            } while (pVerts_1 != pEndVerts);
-          }
-          if ((uiTex & 0x200) != 0)           // Handle special textures (advertisements, building remapping)
+          int iV0 = pPolygon->verts[0];
+          int iV1 = pPolygon->verts[1];
+          int iV2 = pPolygon->verts[2];
+          int iV3 = pPolygon->verts[3];
+          float fX0 = (float)viewIntX[iV0];
+          float fY0 = (float)viewIntY[iV0];
+          float fZ0 = (float)viewIntZ[iV0];
+          float fDx02 = (float)viewIntX[iV2] - fX0;
+          float fDy02 = (float)viewIntY[iV2] - fY0;
+          float fDz02 = (float)viewIntZ[iV2] - fZ0;
+          float fDx13 = (float)viewIntX[iV1] - (float)viewIntX[iV3];
+          float fDy13 = (float)viewIntY[iV1] - (float)viewIntY[iV3];
+          float fDz13 = (float)viewIntZ[iV1] - (float)viewIntZ[iV3];
+          double fNormalDot = (fDy02 * fDz13 - fDz02 * fDy13) * fX0
+                            + (fDz02 * fDx13 - fDx02 * fDz13) * fY0
+                            + (fDx02 * fDy13 - fDy02 * fDx13) * fZ0;
+          int isBackFace = (fNormalDot >= 0.0);
+          if (isBackFace && (uiTex & SURFACE_FLAG_FLIP_BACKFACE) == 0)
+            goto skip_polygon;
+
+          // Sum per-vertex clip flags; skip if entire poly is behind near plane.
+          int iProjectedSum = screenClipped[iV0] + screenClipped[iV1]
+                            + screenClipped[iV2] + screenClipped[iV3];
+          if (iProjectedSum >= 4)
+            goto skip_polygon;
+
+          // Handle special textures (advertisements, building remapping)
+          if ((uiTex & 0x200) != 0)
             uiTex = advert_list[iBuildingIdx];
-          if ((textures_off & 0x80) != 0 && (uiTex & 0x100) != 0)
+          if ((textures_off & TEX_OFF_BUILDING_TEXTURES) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             uiTex = (uiTex & 0xFFFFFE00) + bld_remap[(uint8)uiTex];
-          BuildingPol.iSurfaceType = uiTex;
-          BuildingPol.uiNumVerts = 4;
-          if (iProjectedSum < 4) {
-            iFinalVert0 = pPolygon->verts[0];
-            iFinalVert1 = pPolygon->verts[1];
-            iFinalVert2 = pPolygon->verts[2];
-            iFinalVert3 = pPolygon->verts[3];
-            if (BuildingView[iFinalVert0].fZ >= (double)BuildingView[iFinalVert1].fZ)
-              fClosestZ1 = BuildingView[iFinalVert1].fZ;
-            else
-              fClosestZ1 = BuildingView[iFinalVert0].fZ;
-            fTempClosestZ = fClosestZ1;
-            if (BuildingView[iFinalVert2].fZ >= (double)BuildingView[iFinalVert3].fZ)
-              fClosestZ2 = BuildingView[iFinalVert3].fZ;
-            else
-              fClosestZ2 = BuildingView[iFinalVert2].fZ;
-            if (fTempClosestZ >= (double)fClosestZ2) {
-              if (BuildingView[iFinalVert2].fZ >= (double)BuildingView[iFinalVert3].fZ)
-                fClosestZ = BuildingView[iFinalVert3].fZ;
-              else
-                fClosestZ = BuildingView[iFinalVert2].fZ;
-            } else if (BuildingView[iFinalVert0].fZ >= (double)BuildingView[iFinalVert1].fZ) {
-              fClosestZ = BuildingView[iFinalVert1].fZ;
-            } else {
-              fClosestZ = BuildingView[iFinalVert0].fZ;
-            }
-            if ((double)BuildingSub[uiBuildingType] * subscale <= fClosestZ)// Check if polygon needs subdivision based on distance
-            {                                   // Render textured or flat polygon
-              if ((BuildingPol.iSurfaceType & 0x100) != 0)
-                POLYTEX(building_vga, pScrPtr, &BuildingPol, 17, gfx_size);
-              else
-                POLYFLAT(pScrPtr, &BuildingPol);
-            } else {
-              subdivide(
-                pScrPtr,
-                &BuildingPol,
-                BuildingView[iFinalVert0].fX,
-                BuildingView[iFinalVert0].fY,
-                BuildingView[iFinalVert0].fZ,
-                BuildingView[iFinalVert1].fX,
-                BuildingView[iFinalVert1].fY,
-                BuildingView[iFinalVert1].fZ,
-                BuildingView[iFinalVert2].fX,
-                BuildingView[iFinalVert2].fY,
-                BuildingView[iFinalVert2].fZ,
-                BuildingView[iFinalVert3].fX,
-                BuildingView[iFinalVert3].fY,
-                BuildingView[iFinalVert3].fZ,
-                666,
-                gfx_size);                      // Subdivide polygon for better quality when close to camera
-            }
+
+          // Vertex order: forward for front-facing, reversed for the
+          // back-facing SURFACE_FLAG_FLIP_BACKFACE case so texture mapping stays correct.
+          int iOrder[4];
+          if (isBackFace) {
+            iOrder[0] = iV3; iOrder[1] = iV2; iOrder[2] = iV1; iOrder[3] = iV0;
+          } else {
+            iOrder[0] = iV0; iOrder[1] = iV1; iOrder[2] = iV2; iOrder[3] = iV3;
           }
+
+          // Closest-Z determines whether the legacy path subdivided.
+          int iZ0 = viewIntZ[iV0];
+          int iZ1 = viewIntZ[iV1];
+          int iZ2 = viewIntZ[iV2];
+          int iZ3 = viewIntZ[iV3];
+          float fClosestZ = (float)((iZ0 < iZ1) ? iZ0 : iZ1);
+          if ((float)iZ2 < fClosestZ) fClosestZ = (float)iZ2;
+          if ((float)iZ3 < fClosestZ) fClosestZ = (float)iZ3;
+
+          GameRenderVertex verts[4];
+          for (int vi = 0; vi < 4; vi++) {
+            tVec3 *wc = &worldCoords[iOrder[vi]];
+            verts[vi].x = wc->fX;
+            verts[vi].y = wc->fY;
+            verts[vi].z = wc->fZ;
+            verts[vi].u = 0.0f;
+            verts[vi].v = 0.0f;
+          }
+          // Textured building surfaces sample from the shared building texture
+          // atlas; unflagged surfaces are flat colors encoded directly in uiTex
+          // and should use an invalid texture handle.
+
+          TextureHandle th = ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+            ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
+            : TEXTURE_HANDLE_INVALID;
+          game_render_quad_world_subdivide_type(
+            g_pGameRenderer, verts, th, (int)uiTex,
+            GAME_RENDER_SUBDIVIDE_TYPE_BUILDING,
+            (float)BuildingSub[uiBuildingType] * subscale);
         }
+        skip_polygon:;
         iZOrderOffset = iCurrentZOrderIdx * 12 + 12;
         ++iCurrentZOrderIdx;
         ++iBestZOrderIdx;
