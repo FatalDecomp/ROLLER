@@ -264,6 +264,7 @@ const snapshot_scenes = [_]SnapshotScene{
     .{ .name = "winner-championship", .frames = "30" },
     .{ .name = "championship-over", .frames = "30" },
     .{ .name = "race-result", .frames = "1" },
+    .{ .name = "championship-standings", .frames = "30" },
 };
 
 fn configureSnapshotTests(
