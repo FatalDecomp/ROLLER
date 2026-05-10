@@ -635,6 +635,11 @@ void snapshot_render_race_result(void)
   static const int iLaps[8] = { 4, 4, 4, 4, 4, 2, 3, 1 };
   static const int iPoints[8] = { 10, 8, 6, 5, 4, 3, 2, 1 };
 
+  char szSnapshotIngameEng[11] = "ingame.eng";
+  char szSnapshotConfigEng[11] = "config.eng";
+  load_language_file(szSnapshotIngameEng, 0);
+  load_language_file(szSnapshotConfigEng, 1);
+
   numcars = 8;
   racers = 8;
   competitors = 8;
