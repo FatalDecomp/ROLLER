@@ -64,6 +64,97 @@ static void test_road_lane_priority_mapping_payloads(void)
   assert(command->payload.road_surface.depth == 125.0f);
 }
 
+
+static void test_wall_priority_mapping_payloads(void)
+{
+  RenderQueue3D queue;
+  const RenderCommand3D *command;
+  render_queue_3d_clear(&queue);
+
+  render_queue_3d_add_left_wall(&queue, 20, 200.0f);
+  render_queue_3d_add_right_wall(&queue, 21, 201.0f);
+  render_queue_3d_add_left_high_wall(&queue, 22, 202.0f);
+  render_queue_3d_add_right_high_wall(&queue, 23, 203.0f);
+
+  assert(render_queue_3d_count(&queue) == 4);
+
+  assert(queue.entries[0].nRenderPriority == RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[0].nChunkIdx == 20);
+  assert(queue.entries[0].fZDepth == 200.0f);
+  command = render_queue_3d_command_at(&queue, 0);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_WALL_SURFACE);
+  assert(command->payload.wall_surface.section_idx == 20);
+  assert(command->payload.wall_surface.depth == 200.0f);
+  assert(command->payload.wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_LEFT);
+  assert(command->payload.wall_surface.variant == RENDER_COMMAND_3D_WALL_SURFACE_BASIC);
+
+  assert(queue.entries[1].nRenderPriority == RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[1].nChunkIdx == 21);
+  assert(queue.entries[1].fZDepth == 201.0f);
+  command = render_queue_3d_command_at(&queue, 1);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_WALL_SURFACE);
+  assert(command->payload.wall_surface.section_idx == 21);
+  assert(command->payload.wall_surface.depth == 201.0f);
+  assert(command->payload.wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_RIGHT);
+  assert(command->payload.wall_surface.variant == RENDER_COMMAND_3D_WALL_SURFACE_BASIC);
+
+  assert(queue.entries[2].nRenderPriority == RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[2].nChunkIdx == 22);
+  assert(queue.entries[2].fZDepth == 202.0f);
+  command = render_queue_3d_command_at(&queue, 2);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_WALL_SURFACE);
+  assert(command->payload.wall_surface.section_idx == 22);
+  assert(command->payload.wall_surface.depth == 202.0f);
+  assert(command->payload.wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_LEFT);
+  assert(command->payload.wall_surface.variant == RENDER_COMMAND_3D_WALL_SURFACE_HIGH);
+
+  assert(queue.entries[3].nRenderPriority == RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[3].nChunkIdx == 23);
+  assert(queue.entries[3].fZDepth == 203.0f);
+  command = render_queue_3d_command_at(&queue, 3);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_WALL_SURFACE);
+  assert(command->payload.wall_surface.section_idx == 23);
+  assert(command->payload.wall_surface.depth == 203.0f);
+  assert(command->payload.wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_RIGHT);
+  assert(command->payload.wall_surface.variant == RENDER_COMMAND_3D_WALL_SURFACE_HIGH);
+}
+
+static void test_lower_wall_priority_mapping_payloads(void)
+{
+  RenderQueue3D queue;
+  const RenderCommand3D *command;
+  render_queue_3d_clear(&queue);
+
+  render_queue_3d_add_left_lower_wall(&queue, 30, 300.0f);
+  render_queue_3d_add_right_lower_wall(&queue, 31, 301.0f);
+
+  assert(render_queue_3d_count(&queue) == 2);
+
+  assert(queue.entries[0].nRenderPriority == RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[0].nChunkIdx == 30);
+  assert(queue.entries[0].fZDepth == 300.0f);
+  command = render_queue_3d_command_at(&queue, 0);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_LOWER_WALL_SURFACE);
+  assert(command->payload.lower_wall_surface.section_idx == 30);
+  assert(command->payload.lower_wall_surface.depth == 300.0f);
+  assert(command->payload.lower_wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_LEFT);
+
+  assert(queue.entries[1].nRenderPriority == RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY);
+  assert(queue.entries[1].nChunkIdx == 31);
+  assert(queue.entries[1].fZDepth == 301.0f);
+  command = render_queue_3d_command_at(&queue, 1);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_LOWER_WALL_SURFACE);
+  assert(command->payload.lower_wall_surface.section_idx == 31);
+  assert(command->payload.lower_wall_surface.depth == 301.0f);
+  assert(command->payload.lower_wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_RIGHT);
+}
+
 static void test_building_priority_mapping(void)
 {
   RenderQueue3D queue;
@@ -180,6 +271,8 @@ int main(int argc, const char **argv, const char **envp)
   (void)envp;
   test_sort_matches_legacy_zcmp();
   test_road_lane_priority_mapping_payloads();
+  test_wall_priority_mapping_payloads();
+  test_lower_wall_priority_mapping_payloads();
   test_building_priority_mapping();
   test_start_light_priority_mapping();
   test_car_priority_mapping_payload();

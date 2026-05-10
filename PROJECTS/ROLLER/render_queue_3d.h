@@ -5,9 +5,15 @@
 //-------------------------------------------------------------------------------------------------
 
 #define RENDER_QUEUE_3D_CAPACITY 6500
+#define RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY 0
+#define RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY 1
+#define RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY 3
+#define RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY 4
 #define RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY 5
 #define RENDER_QUEUE_3D_LEFT_LANE_LEGACY_PRIORITY 6
 #define RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY 7
+#define RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY 8
+#define RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY 9
 #define RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY 11
 #define RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY 13
 #define RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY 14
@@ -18,8 +24,10 @@ typedef enum
 {
   RENDER_COMMAND_3D_KIND_BUILDING = 0,
   RENDER_COMMAND_3D_KIND_CAR,
+  RENDER_COMMAND_3D_KIND_LOWER_WALL_SURFACE,
   RENDER_COMMAND_3D_KIND_ROAD_SURFACE,
-  RENDER_COMMAND_3D_KIND_START_LIGHT
+  RENDER_COMMAND_3D_KIND_START_LIGHT,
+  RENDER_COMMAND_3D_KIND_WALL_SURFACE
 } RenderCommand3DKind;
 
 typedef struct
@@ -35,6 +43,33 @@ typedef struct
   GameRenderCarPose pose;
   GameRenderCarOptions options;
 } RenderCommand3DCar;
+
+typedef enum
+{
+  RENDER_COMMAND_3D_WALL_SURFACE_LEFT = 0,
+  RENDER_COMMAND_3D_WALL_SURFACE_RIGHT
+} RenderCommand3DWallSurfaceSide;
+
+typedef enum
+{
+  RENDER_COMMAND_3D_WALL_SURFACE_BASIC = 0,
+  RENDER_COMMAND_3D_WALL_SURFACE_HIGH
+} RenderCommand3DWallSurfaceVariant;
+
+typedef struct
+{
+  int section_idx;
+  float depth;
+  RenderCommand3DWallSurfaceSide side;
+  RenderCommand3DWallSurfaceVariant variant;
+} RenderCommand3DWallSurface;
+
+typedef struct
+{
+  int section_idx;
+  float depth;
+  RenderCommand3DWallSurfaceSide side;
+} RenderCommand3DLowerWallSurface;
 
 typedef enum
 {
@@ -63,8 +98,10 @@ typedef struct
   {
     RenderCommand3DBuilding building;
     RenderCommand3DCar car;
+    RenderCommand3DLowerWallSurface lower_wall_surface;
     RenderCommand3DRoadSurface road_surface;
     RenderCommand3DStartLight start_light;
+    RenderCommand3DWallSurface wall_surface;
   } payload;
 } RenderCommand3D;
 
@@ -91,6 +128,30 @@ void render_queue_3d_add_unmigrated_legacy_priority(RenderQueue3D *pQueue,
                                                      int iLegacyPriority,
                                                      int iChunkIdx,
                                                      float fZDepth);
+
+void render_queue_3d_add_left_wall(RenderQueue3D *pQueue,
+                                    int iSectionIdx,
+                                    float fZDepth);
+
+void render_queue_3d_add_right_wall(RenderQueue3D *pQueue,
+                                     int iSectionIdx,
+                                     float fZDepth);
+
+void render_queue_3d_add_left_high_wall(RenderQueue3D *pQueue,
+                                         int iSectionIdx,
+                                         float fZDepth);
+
+void render_queue_3d_add_right_high_wall(RenderQueue3D *pQueue,
+                                          int iSectionIdx,
+                                          float fZDepth);
+
+void render_queue_3d_add_left_lower_wall(RenderQueue3D *pQueue,
+                                          int iSectionIdx,
+                                          float fZDepth);
+
+void render_queue_3d_add_right_lower_wall(RenderQueue3D *pQueue,
+                                           int iSectionIdx,
+                                           float fZDepth);
 
 void render_queue_3d_add_road_center(RenderQueue3D *pQueue,
                                       int iSectionIdx,
