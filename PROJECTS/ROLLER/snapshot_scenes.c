@@ -1,5 +1,6 @@
 #include "snapshot_scenes.h"
 #include "snapshot.h"
+#include "3d.h"
 #include "frontend.h"
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +40,18 @@ static int SnapshotRenderMenuSelectDisk(void)
   return SnapshotSceneCapturedAll();
 }
 
+static int SnapshotRenderWinnerRace(void)
+{
+  snapshot_render_winner_race();
+  return SnapshotSceneCapturedAll();
+}
+
+static int SnapshotRenderWinnerChampionship(void)
+{
+  snapshot_render_winner_championship();
+  return SnapshotSceneCapturedAll();
+}
+
 int SnapshotRunScene(void)
 {
   if (strcmp(g_SnapshotConfig.szSceneName, "menu-main") == 0)
@@ -51,6 +64,10 @@ int SnapshotRunScene(void)
     return SnapshotRenderMenuSelectType();
   if (strcmp(g_SnapshotConfig.szSceneName, "menu-select-disk") == 0)
     return SnapshotRenderMenuSelectDisk();
+  if (strcmp(g_SnapshotConfig.szSceneName, "winner-race") == 0)
+    return SnapshotRenderWinnerRace();
+  if (strcmp(g_SnapshotConfig.szSceneName, "winner-championship") == 0)
+    return SnapshotRenderWinnerChampionship();
 
   fprintf(stderr, "ERROR: unknown snapshot scene '%s'\n", g_SnapshotConfig.szSceneName);
   return 1;

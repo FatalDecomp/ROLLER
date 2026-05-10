@@ -294,6 +294,66 @@ int winner_screen(int carDesign, char byFlags)
   return iRetVal;
 }
 
+void snapshot_render_winner_race(void)
+{
+  int carDesign = CAR_DESIGN_AUTO;
+  char byFlags = 0;
+
+  tick_on = -1;
+  frontend_on = -1;
+  SVGA_ON = -1;
+  front_fade = -1;
+  init_screen();
+  winx = 0;
+  winy = 0;
+  winw = XMAX;
+  mirror = 0;
+  winh = YMAX;
+  setpal("winner.pal");
+  fade_palette(32);
+  FindShades();
+
+  front_vga[0] = (tBlockHeader *)load_picture("winner.bm");
+  front_vga[1] = (tBlockHeader *)load_picture("font3.bm");
+
+  frames = 0;
+  ticks = 0;
+  Car[0].pos.fX = 0.0;
+  Car[0].pos.fY = 0.0;
+  Car[0].pos.fZ = 0.0;
+  gfx_size = 0;
+  Car[0].nYaw = 0;
+  Car[0].nRoll = 0;
+  Car[0].nPitch = 0;
+  set_starts(0);
+
+  for (int i = 0; i < 16; ++i)
+    car_texs_loaded[i] = -1;
+
+  eCarType carType = CarDesigns[carDesign].carType;
+  LoadCarTexture(carType, 1u);
+  car_texmap[carDesign] = 1;
+  car_texs_loaded[carType] = 1;
+  LoadCarTextures = 2;
+  NoOfTextures = 255;
+  scr_size = SVGA_ON ? 128 : 64;
+
+  result_order[0] = 0;
+  if (!driver_names[result_order[0]][0])
+    name_copy(driver_names[result_order[0]], "HUMAN");
+
+  memcpy(scrbuf, front_vga[0], SVGA_ON ? 256000 : 64000);
+  DrawCar(scrbuf + 73600, carDesign, 2200.0, 512, byFlags & 1);
+  front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
+  copypic(scrbuf, screen);
+
+  fre((void **)&front_vga[0]);
+  fre((void **)&front_vga[1]);
+  for (int i = 0; i < 16; ++i)
+    fre((void**)&cartex_vga[i]);
+  remove_mapsels();
+}
+
 //-------------------------------------------------------------------------------------------------
 //000563E0
 void StoreResult()
@@ -2911,6 +2971,27 @@ void championship_winner()
     UpdateSDL();
   } while (ticks < iDuration);                  // Continue animation until timeout or user input
   fre((void **)front_vga);                      // Clean up championship image resources
+}
+
+void snapshot_render_winner_championship(void)
+{
+  SVGA_ON = -1;
+  init_screen();
+  winx = 0;
+  winw = XMAX;
+  winy = 0;
+  winh = YMAX;
+  mirror = 0;
+  setpal("champ.pal");
+  fade_palette(32);
+
+  front_vga[0] = (tBlockHeader *)try_load_picture("champ.bm");
+  if (!front_vga[0])
+    front_vga[0] = (tBlockHeader *)load_picture("chump.bm");
+
+  memcpy(scrbuf, front_vga[0], SVGA_ON ? 256000 : 64000);
+  copypic(scrbuf, screen);
+  fre((void **)&front_vga[0]);
 }
 
 //-------------------------------------------------------------------------------------------------
