@@ -16,6 +16,11 @@ pub fn build(b: *std.Build) void {
         &.{ "-fwrapv", "-fno-omit-frame-pointer" }
     else
         &.{"-fwrapv"};
+    const python_checks = b.option(
+        bool,
+        "python-checks",
+        "Run optional Python-based seam checks",
+    ) orelse false;
 
     const exe_mod = b.createModule(.{
         .target = target,
@@ -116,11 +121,13 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    const scene_render_seam_check = b.addSystemCommand(&.{
-        "python3",
-        "tests/scene_render_seam_check.py",
-    });
-    exe.step.dependOn(&scene_render_seam_check.step);
+    if (python_checks) {
+        const scene_render_seam_check = b.addSystemCommand(&.{
+            pythonExe(),
+            "tests/scene_render_seam_check.py",
+        });
+        exe.step.dependOn(&scene_render_seam_check.step);
+    }
 
     configureDependencies(b, exe, target, optimize);
 
@@ -164,7 +171,7 @@ pub fn build(b: *std.Build) void {
     });
     run_step.dependOn(&wildmidi_config_install.step);
 
-    configureRenderQueue3DTests(b, target, optimize, c_flags);
+    configureRenderQueue3DTests(b, target, optimize, c_flags, python_checks);
 
     // Snapshot regression harness: drive the snapshot binary serially across
     // every configured intro replay, writing PNGs straight into the
@@ -181,6 +188,7 @@ fn configureRenderQueue3DTests(
     target: ResolvedTarget,
     optimize: OptimizeMode,
     c_flags: []const []const u8,
+    python_checks: bool,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -208,19 +216,21 @@ fn configureRenderQueue3DTests(
     });
     const run_unit = b.addRunArtifact(test_exe);
 
-    const seam_check = b.addSystemCommand(&.{
-        "python3",
-        "tools/check_render_queue_3d_seams.py",
-    });
-
     const render_queue_tests = b.step(
         "test-render-queue-3d",
-        "Run render_queue_3d sort/mapping tests and seam checks",
+        "Run render_queue_3d sort/mapping tests",
     );
     render_queue_tests.dependOn(&run_unit.step);
-    render_queue_tests.dependOn(&seam_check.step);
 
-    const test_step = b.step("test", "Run focused unit and seam tests");
+    if (python_checks) {
+        const seam_check = b.addSystemCommand(&.{
+            pythonExe(),
+            "tools/check_render_queue_3d_seams.py",
+        });
+        render_queue_tests.dependOn(&seam_check.step);
+    }
+
+    const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
 }
 
@@ -421,8 +431,13 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     cflags_step.dependOn(&cflags.step);
 }
 
+fn pythonExe() []const u8 {
+    return if (host_builtin.os.tag == .windows) "python" else "python3";
+}
+
 const compile_flagz = @import("compile_flagz");
 
+const host_builtin = @import("builtin");
 const std = @import("std");
 const ArrayList = std.ArrayListUnmanaged;
 const Build = std.Build;
