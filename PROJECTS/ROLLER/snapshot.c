@@ -8,6 +8,7 @@
 #include "control.h"
 #include "drawtrk3.h"
 #include "colision.h"
+#include "func2.h"
 #include <SDL3/SDL_filesystem.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -179,6 +180,23 @@ void SnapshotPresent(void)
     quit_game = 1;
     racing = 0;
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int SnapshotShouldStop(void)
+{
+  return g_bSnapshotMode &&
+         g_SnapshotConfig.iCapturedCount >= g_SnapshotConfig.iNumFrames;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SnapshotQueueRawKey(uint8 byRawKey)
+{
+  if (!g_bSnapshotMode) return;
+  key_buffer[write_key] = byRawKey;
+  write_key = (write_key + 1) & 0x3F;
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -55,55 +56,8 @@ static void snapshot_setup_frontend_scene(void)
 
 void snapshot_render_menu_select_car(void)
 {
-  snapshot_setup_frontend_scene();
-  front_vga[0] = (tBlockHeader*)load_picture("frontend.bm");
-  front_vga[1] = (tBlockHeader*)load_picture("selhead.bm");
-  front_vga[2] = (tBlockHeader*)load_picture("font2.bm");
-  front_vga[3] = (tBlockHeader*)load_picture("carnames.bm");
-  front_vga[4] = (tBlockHeader*)load_picture("opticon2.bm");
-  front_vga[5] = (tBlockHeader*)load_picture("selicons.bm");
-  front_vga[6] = (tBlockHeader*)load_picture("selexit.bm");
-  front_vga[15] = (tBlockHeader*)load_picture("font1.bm");
-
-  Car[0].nYaw = 0;
-  Car[0].nRoll = 0;
-  Car[0].nPitch = 0;
-  Car[0].pos.fX = 0.0;
-  Car[0].pos.fY = 0.0;
-  Car[0].pos.fZ = 0.0;
-  set_starts(0);
-  for (int i = 0; i < 16; ++i) car_texs_loaded[i] = -1;
-  LoadCarTexture(CarDesigns[CAR_DESIGN_AUTO].carType, 1u);
-  car_texmap[CAR_DESIGN_AUTO] = 1;
-  car_texs_loaded[CarDesigns[CAR_DESIGN_AUTO].carType] = 1;
-  LoadCarTextures = 2;
-  NoOfTextures = 255;
-  scr_size = SVGA_ON ? 128 : 64;
-
-  MenuRenderer *mr = GetMenuRenderer();
-  for (int i = 0; i < 16; ++i)
-    if (front_vga[i]) menu_render_load_blocks(mr, i, front_vga[i], palette);
-
-  menu_render_begin_frame(mr);
-  menu_render_background(mr, 0);
-  menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
-  menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
-  menu_render_sprite(mr, 6, 1, 52, 334, 0, pal_addr);
-  menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[0].x, sel_posns[0].y, 0x8Fu, 0, pal_addr);
-  menu_render_text(mr, 2, "SELECT CAR", font2_ascii, font2_offsets, 320, 60, 0x8Fu, 1u, pal_addr);
-  menu_render_text(mr, 15, CompanyNames[CAR_DESIGN_AUTO], font1_ascii, font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
-  menu_render_load_car_mesh(mr, CAR_DESIGN_AUTO, palette);
-  menu_render_draw_car_preview(mr, 1280.0f, 2200.0f, Car[0].nYaw, PREVIEW_X, CAR_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
-  menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
-  menu_render_sprite(mr, 4, 0, 76, 257, -1, pal_addr);
-  menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
-  menu_render_end_frame(mr);
-
-  menu_render_free_car_mesh(mr);
-  for (int i = 0; i < 16; ++i) menu_render_free_blocks(mr, i);
-  for (int i = 0; i < 16; ++i) fre((void**)&front_vga[i]);
-  for (int i = 0; i < 16; ++i) fre((void**)&cartex_vga[i]);
-  remove_mapsels();
+  snapshot_setup_frontend_menu_state(0);
+  select_car();
 }
 
 
@@ -350,6 +304,8 @@ void select_car()
       }
       show_received_mesage();
       menu_render_end_frame(mr);
+      if (SnapshotShouldStop())
+        return;
       }
       iAnimationCounter = iDelayBeforeRotation; // ANIMATION UPDATE: Rotate pie chart segments during delay period
       if (iDelayBeforeRotation) {

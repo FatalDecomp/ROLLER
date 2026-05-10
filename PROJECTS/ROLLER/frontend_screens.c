@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -169,7 +170,7 @@ void fade_redraw_bg(void *ctx)
   menu_render_background((MenuRenderer *)ctx, 0);
 }
 
-void snapshot_render_menu_main(void)
+void snapshot_setup_frontend_menu_state(int iGameType)
 {
   load_language_file(szSelectEng, 0);
   load_language_file(szConfigEng, 1);
@@ -179,10 +180,12 @@ void snapshot_render_menu_main(void)
   restart_net = 0;
   network_on = 0;
   players = 1;
+  player_type = 0;
   player1_car = 0;
   player2_car = 1;
   Players_Cars[player1_car] = CAR_DESIGN_AUTO;
-  game_type = 0;
+  Players_Cars[player2_car] = CAR_DESIGN_DESILVA;
+  game_type = iGameType;
   last_type = 0;
   replaytype = 0;
   Race = 0;
@@ -231,31 +234,11 @@ void snapshot_render_menu_main(void)
     if (front_vga[i])
       menu_render_load_blocks(mr, i, front_vga[i], palette);
   }
+}
 
-  menu_render_begin_frame(mr);
-  menu_render_background(mr, 0);
-  menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
-  menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
-  menu_render_sprite(mr, 6, 3, 52, 334, 0, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[192], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, config_buffer, font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[320], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[384], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[448], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &language_buffer[512], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_text(mr, 2, &config_buffer[640], font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
-  menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
-  menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
-  menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
-  menu_render_sprite(mr, 4, 7, 76, 257, -1, pal_addr);
-  show_received_mesage();
-  menu_render_end_frame(mr);
-
-  for (int i = 0; i < 16; ++i)
-    menu_render_free_blocks(mr, i);
-  for (int i = 0; i < 16; ++i)
-    fre((void**)&front_vga[i]);
+void snapshot_render_menu_main(void)
+{
+  select_screen();
 }
 
 
@@ -769,6 +752,8 @@ void select_screen()
       menu_render_text(mr, 15, &language_buffer[3456], font1_ascii, font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
     show_received_mesage();
     menu_render_end_frame(mr);
+    if (SnapshotShouldStop())
+      return;
     if (switch_same > 0) {
       if (game_type != 1 && switch_same - 666 != iBlockIdx) {
         if (iBlockIdx >= CAR_DESIGN_AUTO) {

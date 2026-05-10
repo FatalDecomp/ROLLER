@@ -53,6 +53,13 @@ void SnapshotZeroScreen(void);
 // every requested frame has been captured.
 void SnapshotPresent(void);
 
+// Returns non-zero once snapshot mode has captured all requested frames.
+int SnapshotShouldStop(void);
+
+// Queues one raw set-1 keyboard scancode for scene snapshots that need to
+// reach a real submenu state through the normal input handler.
+void SnapshotQueueRawKey(uint8 byRawKey);
+
 // Drives the replay one tick per loop iteration in lieu of the SDL tick timer.
 // No-op outside snapshot mode.
 void SnapshotAdvanceTick(void);

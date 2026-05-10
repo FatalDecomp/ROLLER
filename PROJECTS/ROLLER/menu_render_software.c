@@ -7,6 +7,7 @@
 #include "car.h"
 #include "graphics.h"
 #include "scene_render.h"
+#include "snapshot.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -73,6 +74,13 @@ void menu_render_sw_begin_frame(MenuRendererSoftware *sw) {
 void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
     if (sw->fadeInPending) {
         sw->fadeInPending = 0;
+        if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
+            g_bPaletteSet = true;
+            UpdateSDLWindow();
+            if (!SnapshotShouldStop())
+                SnapshotAdvanceTick();
+            return;
+        }
         // Content has been drawn to scrbuf; fade from black to full brightness.
         // palette_brightness may have been set to 32 by GPU init code, so
         // reset to 0 to ensure the fade actually animates.
@@ -87,6 +95,8 @@ void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
     }
     g_bPaletteSet = true;
     UpdateSDLWindow();
+    if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE && !SnapshotShouldStop())
+        SnapshotAdvanceTick();
 }
 
 // ---------------------------------------------------------------------------
