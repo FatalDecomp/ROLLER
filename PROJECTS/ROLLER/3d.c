@@ -20,6 +20,7 @@
 #include "rollercomms.h"
 #include "crashdump.h"
 #include "snapshot.h"
+#include "snapshot_scenes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -1121,6 +1122,7 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
   fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
+  fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
   fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
   fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
@@ -1212,6 +1214,15 @@ int main(int argc, const char **argv, const char **envp)
         fprintf(stderr, "ERROR: '--snapshot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--snapshot-scene") == 0) {
+      if (i + 1 < argc) {
+        SnapshotSetScene(argv[i + 1]);
+        g_bSnapshotMode = 1;
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--snapshot-scene' needs an argument\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "--frames") == 0) {
       if (i + 1 < argc) {
         if (SnapshotParseFrames(argv[i + 1]) != 0) {
@@ -1241,16 +1252,24 @@ int main(int argc, const char **argv, const char **envp)
   }
 
   if (g_bSnapshotMode) {
-    if (g_SnapshotConfig.szReplayName[0] == '\0') {
+    if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_REPLAY && g_SnapshotConfig.szReplayName[0] == '\0') {
       fprintf(stderr, "ERROR: '--snapshot' requires a replay filename\n");
       return 1;
     }
+    if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE && g_SnapshotConfig.szSceneName[0] == '\0') {
+      fprintf(stderr, "ERROR: '--snapshot-scene' requires a scene name\n");
+      return 1;
+    }
+    if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_NONE) {
+      fprintf(stderr, "ERROR: snapshot mode requires '--snapshot' or '--snapshot-scene'\n");
+      return 1;
+    }
     if (g_SnapshotConfig.iNumFrames == 0) {
-      fprintf(stderr, "ERROR: '--snapshot' requires '--frames N[,M,...]'\n");
+      fprintf(stderr, "ERROR: snapshot mode requires '--frames N[,M,...]'\n");
       return 1;
     }
     if (g_SnapshotConfig.szOutDir[0] == '\0') {
-      fprintf(stderr, "ERROR: '--snapshot' requires '--out DIR'\n");
+      fprintf(stderr, "ERROR: snapshot mode requires '--out DIR'\n");
       return 1;
     }
     iCrashHandlerEnabled = 0;
@@ -1387,6 +1406,12 @@ int main(int argc, const char **argv, const char **envp)
   }
   InitCarStructs();                             // Initialize car data structures
   init();
+  if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
+    SnapshotEnsureMenuRenderer();
+    int iSceneRc = SnapshotRunScene();
+    doexit();
+    return iSceneRc;
+  }
   print_data = 0;
   tick_on = 0;
   if (!g_bSnapshotMode) {

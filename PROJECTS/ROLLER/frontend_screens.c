@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -168,6 +169,78 @@ void fade_redraw_bg(void *ctx)
 {
   menu_render_background((MenuRenderer *)ctx, 0);
 }
+
+void snapshot_setup_frontend_menu_state(int iGameType)
+{
+  load_language_file(szSelectEng, 0);
+  load_language_file(szConfigEng, 1);
+
+  time_to_start = 0;
+  StartPressed = 0;
+  restart_net = 0;
+  network_on = 0;
+  players = 1;
+  player_type = 0;
+  player1_car = 0;
+  player2_car = 1;
+  Players_Cars[player1_car] = CAR_DESIGN_AUTO;
+  Players_Cars[player2_car] = CAR_DESIGN_DESILVA;
+  game_type = iGameType;
+  last_type = 0;
+  replaytype = 0;
+  Race = 0;
+  TrackLoad = 1;
+  front_fade = -1;
+  frontend_on = -1;
+  p_tex_size = gfx_size;
+
+  SVGA_ON = -1;
+  init_screen();
+  winx = 0;
+  winw = XMAX;
+  winy = 0;
+  winh = YMAX;
+  mirror = 0;
+  setpal("frontend.pal");
+
+  front_vga[0] = (tBlockHeader*)load_picture("frontend.bm");
+  front_vga[1] = (tBlockHeader*)load_picture("selhead.bm");
+  front_vga[2] = (tBlockHeader*)load_picture("font2.bm");
+  front_vga[4] = (tBlockHeader*)load_picture("opticon2.bm");
+  front_vga[5] = (tBlockHeader*)load_picture("selicons.bm");
+  front_vga[6] = (tBlockHeader*)load_picture("selexit.bm");
+  front_vga[15] = (tBlockHeader*)load_picture("font1.bm");
+
+  FindShades();
+  check_cars();
+  Car[0].nYaw = 0;
+  Car[0].nRoll = 0;
+  Car[0].nPitch = 0;
+  Car[0].pos.fX = 0.0;
+  Car[0].pos.fY = 0.0;
+  Car[0].pos.fZ = 0.0;
+  set_starts(0);
+  for (int i = 0; i < 16; ++i)
+    car_texs_loaded[i] = -1;
+  car_texs_loaded[0] = 0;
+  LoadCarTextures = 0;
+  NoOfTextures = 255;
+  scr_size = SVGA_ON ? 128 : 64;
+  ticks = 0;
+  frames = 0;
+
+  MenuRenderer *mr = GetMenuRenderer();
+  for (int i = 0; i <= 15; i++) {
+    if (front_vga[i])
+      menu_render_load_blocks(mr, i, front_vga[i], palette);
+  }
+}
+
+void snapshot_render_menu_main(void)
+{
+  select_screen();
+}
+
 
 //-------------------------------------------------------------------------------------------------
 //0003F7B0
@@ -679,6 +752,8 @@ void select_screen()
       menu_render_text(mr, 15, &language_buffer[3456], font1_ascii, font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
     show_received_mesage();
     menu_render_end_frame(mr);
+    if (SnapshotShouldStop())
+      return;
     if (switch_same > 0) {
       if (game_type != 1 && switch_same - 666 != iBlockIdx) {
         if (iBlockIdx >= CAR_DESIGN_AUTO) {

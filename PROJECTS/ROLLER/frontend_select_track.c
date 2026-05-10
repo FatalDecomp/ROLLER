@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -27,6 +28,13 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+
+void snapshot_render_menu_select_track(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  select_track();
+}
+
 
 //-------------------------------------------------------------------------------------------------
 //00049070
@@ -216,6 +224,8 @@ void select_track()
     }
     show_received_mesage();
     menu_render_end_frame(mr);
+    if (SnapshotShouldStop())
+      return;
     }
     if (switch_same > 0)                      // Handle same-car mode activation/deactivation
     {

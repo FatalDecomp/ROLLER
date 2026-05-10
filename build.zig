@@ -79,6 +79,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/snapshot.c",
+            "PROJECTS/ROLLER/snapshot_scenes.c",
             "PROJECTS/ROLLER/sound.c",
             "PROJECTS/ROLLER/svgacpy.c",
             "PROJECTS/ROLLER/tower.c",
@@ -229,6 +230,11 @@ const SnapshotReplay = struct {
     frames: []const u8,
 };
 
+const SnapshotScene = struct {
+    name: []const u8,
+    frames: []const u8,
+};
+
 // Hand-picked frames per intro replay. Spread across each replay's length
 // (intro3 is ~200 frames; the others are 800+ frames). Pinned to single-host
 // pixels per the ADR.
@@ -244,6 +250,16 @@ const snapshot_replays = [_]SnapshotReplay{
     // replay path). Track via the "flaky deep-frame determinism" follow-up;
     // for now capture three earlier frames so the harness stays green.
     .{ .name = "intro7", .frames = "60,300,600" },
+};
+
+const snapshot_scenes = [_]SnapshotScene{
+    .{ .name = "menu-main", .frames = "30" },
+    .{ .name = "menu-select-car", .frames = "30" },
+    .{ .name = "menu-select-track", .frames = "30" },
+    .{ .name = "menu-select-type", .frames = "30" },
+    .{ .name = "menu-select-disk", .frames = "30" },
+    .{ .name = "winner-race", .frames = "30" },
+    .{ .name = "winner-championship", .frames = "30" },
 };
 
 fn configureSnapshotTests(
@@ -298,6 +314,22 @@ fn configureSnapshotTests(
         run_capture.addArg(b.fmt("{s}.gss", .{replay.name}));
         run_capture.addArg("--frames");
         run_capture.addArg(replay.frames);
+        run_capture.addArg("--out");
+        run_capture.addArg(out_abs);
+        run_capture.has_side_effects = true;
+        if (prev_run) |p| run_capture.step.dependOn(p);
+        prev_run = &run_capture.step;
+    }
+
+    for (snapshot_scenes) |scene| {
+        const run_capture = b.addRunArtifact(roller_exe);
+        run_capture.addArg("--no-crash-handler");
+        run_capture.addArg("--whiplash-root");
+        run_capture.addDirectoryArg(assets_path);
+        run_capture.addArg("--snapshot-scene");
+        run_capture.addArg(scene.name);
+        run_capture.addArg("--frames");
+        run_capture.addArg(scene.frames);
         run_capture.addArg("--out");
         run_capture.addArg(out_abs);
         run_capture.has_side_effects = true;

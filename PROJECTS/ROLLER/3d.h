@@ -423,6 +423,8 @@ int main(int argc, const char **argv, const char **envp);
 void play_game_init();
 void play_game_uninit();
 void winner_race();
+void snapshot_render_winner_race(void);
+void snapshot_render_winner_championship(void);
 void champion_race();
 void play_game(int iTrack);
 void game_keys();

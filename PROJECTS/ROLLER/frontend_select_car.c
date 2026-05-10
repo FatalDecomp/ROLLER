@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -27,6 +28,38 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+
+static void snapshot_setup_frontend_scene(void)
+{
+  load_language_file(szSelectEng, 0);
+  load_language_file(szConfigEng, 1);
+  frontend_on = -1;
+  network_on = 0;
+  players = 1;
+  player1_car = 0;
+  player2_car = 1;
+  Players_Cars[player1_car] = CAR_DESIGN_AUTO;
+  game_type = 0;
+  TrackLoad = 1;
+  Race = 0;
+  front_fade = -1;
+  SVGA_ON = -1;
+  init_screen();
+  winx = 0;
+  winw = XMAX;
+  winy = 0;
+  winh = YMAX;
+  mirror = 0;
+  setpal("frontend.pal");
+  FindShades();
+}
+
+void snapshot_render_menu_select_car(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  select_car();
+}
+
 
 //-------------------------------------------------------------------------------------------------
 //00041CA0
@@ -271,6 +304,8 @@ void select_car()
       }
       show_received_mesage();
       menu_render_end_frame(mr);
+      if (SnapshotShouldStop())
+        return;
       }
       iAnimationCounter = iDelayBeforeRotation; // ANIMATION UPDATE: Rotate pie chart segments during delay period
       if (iDelayBeforeRotation) {

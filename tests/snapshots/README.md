@@ -2,9 +2,10 @@
 
 This directory holds the byte-exact PNG baselines that gate the rendering
 pipeline. The harness runs the existing `roller` binary in a headless
-`--snapshot` mode across the seven intro replays in `fatdata/`, captures
-the indexed framebuffer to PNGs, writes them straight here, and uses
-`git diff` to detect any drift.
+snapshot mode across the seven intro replays in `fatdata/` and a small
+set of deterministic named frontend scenes, captures the indexed
+framebuffer to PNGs, writes them straight here, and uses `git diff` to
+detect any drift.
 
 **Why this matters:** any change that alters a rasterizer, a palette
 path, or replay-driven game logic shows up as a tracked-file diff in
@@ -42,7 +43,9 @@ On the canonical host (Apple Silicon macOS at the time of writing) this:
 
 1. Builds the `roller` binary if needed.
 2. Runs `roller --snapshot introN.gss --frames ... --out
-   tests/snapshots/baselines/` once per intro replay, serially.
+   tests/snapshots/baselines/` once per intro replay, serially, then
+   runs `roller --snapshot-scene NAME --frames 30 --out
+   tests/snapshots/baselines/` once per named scene.
 3. Runs `git diff --exit-code --stat -- tests/snapshots/baselines/`.
 
 If the captures match HEAD, exit 0. If anything diverged, the build
@@ -105,19 +108,33 @@ tracked separately in a future ADR.
 The list of replays and which frames are captured per replay live in
 `build.zig`'s `snapshot_replays` table.
 
+Named scene snapshots live in `build.zig`'s `snapshot_scenes` table. Each
+scene currently captures frame `30`, meaning the thirtieth `SnapshotPresent()`
+call made by that scene's render driver. This gives frontend and winner
+screens a settle period before capture. Scene PNG names use
+`<scene-name>_<present-index>.png`, for example `menu-main_30.png` and
+`winner-race_30.png`.
+
 ## File layout
 
 ```
 tests/snapshots/
 ├── README.md                  ← this file
-└── baselines/                 ← 27 indexed PNGs, LFS-tracked
+└── baselines/                 ← indexed PNGs, LFS-tracked
     ├── intro1_60.png          ← <replay-stem>_<frame-index>.png
     ├── intro1_240.png
     ├── intro1_480.png
     ├── intro1_720.png
     ├── intro2_60.png
     ├── ...
-    └── intro7_600.png
+    ├── intro7_600.png
+    ├── menu-main_30.png       ← <scene-name>_<present-index>.png
+    ├── menu-select-car_30.png
+    ├── menu-select-track_30.png
+    ├── menu-select-type_30.png
+    ├── menu-select-disk_30.png
+    ├── winner-race_30.png
+    └── winner-championship_30.png
 ```
 
 Each PNG is a 640x400 8-bit indexed image with the active 256-entry
@@ -172,5 +189,5 @@ plain git).
 - `PROJECTS/ROLLER/snapshot.{c,h}` — snapshot-mode state, CLI parsing,
   per-tick zero-screen hook, present hook, manual tick driver, fixed
   settings application
-- `build.zig` — `test-snapshots` step, `snapshot_replays` table,
-  `-Dscratch` flag
+- `build.zig` — `test-snapshots` step, `snapshot_replays` and
+  `snapshot_scenes` tables, `-Dscratch` flag

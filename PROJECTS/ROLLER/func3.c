@@ -19,6 +19,7 @@
 #include "loadtrak.h"
 #include "rollercomms.h"
 #include "scene_render.h"
+#include "snapshot.h"
 #include <memory.h>
 #include <fcntl.h>
 #include <math.h>
@@ -244,6 +245,10 @@ int winner_screen(int carDesign, char byFlags)
     DrawCar(scene, carDesign, 2200.0, 512, byAnimFrame);
     front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
     copypic(scrbuf, screen);
+    if (SnapshotShouldStop()) {
+      iExit = -1;
+      break;
+    }
     if ( !front_fade )
     {
       front_fade = -1;
@@ -265,6 +270,10 @@ int winner_screen(int carDesign, char byFlags)
     Car[0].nYaw = nNewYaw;
     frames = 0;
     UpdateSDL();
+    if (SnapshotShouldStop())
+      iExit = -1;
+    else
+      SnapshotAdvanceTick();
   }
   while ( !iExit );
 
@@ -292,6 +301,19 @@ int winner_screen(int carDesign, char byFlags)
     front_fade = 0;
   }
   return iRetVal;
+}
+
+void snapshot_render_winner_race(void)
+{
+  int iWinnerCar = 0;
+
+  carorder[0] = iWinnerCar;
+  result_order[0] = iWinnerCar;
+  Car[iWinnerCar].byCarDesignIdx = CAR_DESIGN_AUTO;
+  if (!driver_names[iWinnerCar][0])
+    name_copy(driver_names[iWinnerCar], "HUMAN");
+
+  (void)winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2876,6 +2898,10 @@ void championship_winner()
   memcpy(scrbuf, front_vga[0], 4 * uiDwordCopyCount);
   memcpy(&pbyScreenBuffer[4 * uiDwordCopyCount], &pChampImageData->iWidth + uiDwordCopyCount, byBufferSizeRemainder & 3);
   copypic(scrbuf, screen);                      // Display initial frame and start championship music
+  if (SnapshotShouldStop()) {
+    fre((void **)front_vga);
+    return;
+  }
   iFrameTimer = 0;
   startmusic(winchampsong);
   enable_keyboard();
@@ -2901,16 +2927,28 @@ void championship_winner()
       memcpy(scrbuf, pszCurrentFrameData, 4 * uiAnimDwordCount);// Copy current frame to screen buffer and display
       memcpy(&pbyAnimScreenBuf[4 * uiAnimDwordCount], &pszCurrentFrameData[4 * uiAnimDwordCount], byAnimRemainder & 3);
       copypic(scrbuf, screen);
+      if (SnapshotShouldStop())
+        break;
       do {                                         // Advance to next frame, wrap around at end of animation
         if (++iCurrentFrame == iNumAnimFrames)
           iCurrentFrame ^= iNumAnimFrames;      // Reset to frame 0 when reaching end of animation cycle
         iFrameTimer += 2;                       // Add 2 ticks to frame timer for next frame timing
         UpdateSDL();
+        if (!SnapshotShouldStop())
+          SnapshotAdvanceTick();
       } while (iFrameTimer < 0);
     }
     UpdateSDL();
+    if (SnapshotShouldStop())
+      break;
+    SnapshotAdvanceTick();
   } while (ticks < iDuration);                  // Continue animation until timeout or user input
   fre((void **)front_vga);                      // Clean up championship image resources
+}
+
+void snapshot_render_winner_championship(void)
+{
+  championship_winner();
 }
 
 //-------------------------------------------------------------------------------------------------

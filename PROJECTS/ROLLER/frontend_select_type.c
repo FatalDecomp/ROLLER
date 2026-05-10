@@ -16,6 +16,7 @@
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "snapshot.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -27,6 +28,15 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+
+void snapshot_render_menu_select_type(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  for (int i = 0; i < 5; ++i)
+    SnapshotQueueRawKey(0x48); // Up arrow: real input path from Exit to Game Type.
+  select_type();
+}
+
 
 //-------------------------------------------------------------------------------------------------
 //00047AE0
@@ -362,6 +372,8 @@ void select_type()
     }
     show_received_mesage();
     menu_render_end_frame(mr);
+    if (SnapshotShouldStop())
+      return;
     }
     if (switch_same > 0)                      // CHEAT MODE HANDLING: Process switch_same command for player synchronization
     {
