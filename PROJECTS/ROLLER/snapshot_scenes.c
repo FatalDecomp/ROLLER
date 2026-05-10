@@ -10,46 +10,54 @@ static int SnapshotSceneCapturedAll(void)
   return g_SnapshotConfig.iCapturedCount == g_SnapshotConfig.iNumFrames ? 0 : 1;
 }
 
+static int SnapshotRenderSettled(void (*render_scene)(void))
+{
+  int iMaxPresents = g_SnapshotConfig.iMaxFrame;
+  if (iMaxPresents < 1)
+    iMaxPresents = 1;
+
+  for (int i = g_SnapshotConfig.iPresentFrame; i < iMaxPresents; ++i) {
+    render_scene();
+    if (g_SnapshotConfig.iCapturedCount >= g_SnapshotConfig.iNumFrames)
+      break;
+  }
+
+  return SnapshotSceneCapturedAll();
+}
+
 static int SnapshotRenderMenuMain(void)
 {
-  snapshot_render_menu_main();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_menu_main);
 }
 
 static int SnapshotRenderMenuSelectCar(void)
 {
-  snapshot_render_menu_select_car();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_menu_select_car);
 }
 
 static int SnapshotRenderMenuSelectTrack(void)
 {
-  snapshot_render_menu_select_track();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_menu_select_track);
 }
 
 static int SnapshotRenderMenuSelectType(void)
 {
-  snapshot_render_menu_select_type();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_menu_select_type);
 }
 
 static int SnapshotRenderMenuSelectDisk(void)
 {
-  snapshot_render_menu_select_disk();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_menu_select_disk);
 }
 
 static int SnapshotRenderWinnerRace(void)
 {
-  snapshot_render_winner_race();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_winner_race);
 }
 
 static int SnapshotRenderWinnerChampionship(void)
 {
-  snapshot_render_winner_championship();
-  return SnapshotSceneCapturedAll();
+  return SnapshotRenderSettled(snapshot_render_winner_championship);
 }
 
 int SnapshotRunScene(void)
