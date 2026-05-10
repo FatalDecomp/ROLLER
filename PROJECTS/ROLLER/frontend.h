@@ -131,6 +131,7 @@ void select_configure();
 void front_displaycalibrationbar(int iY, int iX, int iValue);
 void front_volumebar(int iY, int iVolumeLevel, int iFillColor);
 void select_players();
+void snapshot_render_menu_select_players(void);
 void select_type();
 void snapshot_render_menu_select_type(void);
 void select_track();
