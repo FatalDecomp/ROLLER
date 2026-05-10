@@ -185,6 +185,22 @@ def main() -> int:
         "scene_render_software.c must own static subdivide",
     )
 
+
+    building = read("PROJECTS/ROLLER/building.c")
+    draw_building = extract_function(building, "DrawBuilding")
+    assert_true(
+        "game_render_quad_screen" not in draw_building,
+        "DrawBuilding must route building scene geometry through game_render_quad_world, not screen-space overlay quads",
+    )
+    assert_true(
+        "game_render_quad_world" in draw_building,
+        "DrawBuilding must submit building polygons through the world-space scene seam",
+    )
+    assert_true(
+        "(float)BuildingSub[uiBuildingType] * subscale" in draw_building,
+        "DrawBuilding must preserve BuildingSub[uiBuildingType] * subscale subdivision threshold",
+    )
+
     assert_true(
         "const GameRenderCamera *camera" in drawtrk3_h
         and "const GameRenderProjection *projection" in drawtrk3_h,
