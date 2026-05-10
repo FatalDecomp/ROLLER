@@ -425,6 +425,7 @@ void play_game_uninit();
 void winner_race();
 void snapshot_render_winner_race(void);
 void snapshot_render_winner_championship(void);
+void snapshot_render_championship_over(void);
 void champion_race();
 void play_game(int iTrack);
 void game_keys();

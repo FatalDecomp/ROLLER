@@ -2951,6 +2951,92 @@ void snapshot_render_winner_championship(void)
   championship_winner();
 }
 
+void snapshot_render_championship_over(void)
+{
+  static char szSnapshotNames[16][9] = {
+    "HUMAN", "PLAYER 2", "VIRTUE", "MAX", "JANE", "ZERO", "MACE", "DUKE",
+    "NOVA", "ROOK", "JET", "BOLT", "ACE", "VOID", "KANE", "RAY"
+  };
+  static const int iSnapshotChampOrder[16] = {
+    2, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+  };
+
+  char szSnapshotIngameEng[11] = "ingame.eng";
+  char szSnapshotConfigEng[11] = "config.eng";
+  load_language_file(szSnapshotIngameEng, 0);
+  load_language_file(szSnapshotConfigEng, 1);
+
+  network_on = 0;
+  network_champ_on = 0;
+  players = 1;
+  player_type = 0;
+  player1_car = 0;
+  player2_car = 1;
+  result_p1 = player1_car;
+  result_p2 = player2_car;
+  result_p1_pos = 1;
+  result_p2_pos = 2;
+  my_car = player1_car;
+  my_number = player1_car;
+  my_control = 0;
+  my_invul = 0;
+
+  game_type = 1;
+  competitors = 16;
+  racers = 16;
+  numcars = 16;
+  Race = 8;
+  TrackLoad = 8;
+  level = 1;
+  damage_level = 0;
+  death_race = 0;
+  cup_won = 0;
+  front_fade = 0;
+  frontend_on = 0;
+  tick_on = 0;
+  holdmusic = 0;
+  quit_game = 0;
+  StartPressed = 0;
+  I_Quit = 0;
+
+  for (int i = 0; i < 16; ++i) {
+    int iDriver = iSnapshotChampOrder[i];
+    champorder[i] = iDriver;
+    carorder[i] = iDriver;
+    result_order[i] = iDriver;
+    championship_points[iDriver] = 160 - (i * 7);
+    team_points[i >> 1] = 0;
+    team_wins[i] = 0;
+    team_kills[i] = 0;
+    team_fasts[i] = 0;
+    total_wins[i] = 0;
+    total_kills[i] = 0;
+    total_fasts[i] = 0;
+    result_time[iDriver] = 180.0f + (float)(i * 3);
+    result_best[iDriver] = 22.0f + (float)i;
+    result_lap[iDriver] = 8;
+    result_lives[iDriver] = 3;
+    result_kills[iDriver] = i & 3;
+    result_competing[iDriver] = 0;
+    result_control[iDriver] = iDriver == player1_car ? 0 : 3;
+    human_control[iDriver] = iDriver == player1_car ? 0 : 3;
+    non_competitors[iDriver] = 0;
+    player_started[iDriver] = iDriver == player1_car ? -1 : 0;
+    player_invul[iDriver] = 0;
+    Players_Cars[iDriver] = iDriver % 14;
+    result_design[iDriver] = Players_Cars[iDriver];
+    Car[iDriver].byCarDesignIdx = (uint8)Players_Cars[iDriver];
+    Car[iDriver].iDriverIdx = iDriver;
+    name_copy(driver_names[iDriver], szSnapshotNames[iDriver]);
+  }
+  team_points[0] = championship_points[0] + championship_points[1];
+  team_points[1] = championship_points[2] + championship_points[3];
+  FastestLap = champorder[0];
+  BestTime = result_best[FastestLap];
+
+  ChampionshipOver();
+}
+
 //-------------------------------------------------------------------------------------------------
 //0005B660
 void print_mem_used(const char *szMsg)
@@ -4137,14 +4223,29 @@ LABEL_30:
 LABEL_36:
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
   fade_palette(32);
+  if (g_bSnapshotMode) {
+    while (!SnapshotShouldStop() && g_SnapshotConfig.iPresentFrame < g_SnapshotConfig.iMaxFrame) {
+      UpdateSDLWindow();
+      if (!SnapshotShouldStop())
+        SnapshotAdvanceTick();
+    }
+  }
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
+  while (!fatkbhit() && ticks < 2160) {
     UpdateSDL();
+    if (SnapshotShouldStop())
+      break;
+    SnapshotAdvanceTick();
+  }
   fre(&title_vga);                              // Clean up resources and show end sequence
   fre(&font_vga);
   fre((void **)front_vga);
   scr_size = id;
+  if (SnapshotShouldStop())
+    return;
   fade_palette(0);
+  if (SnapshotShouldStop())
+    return;
   EndChampSequence();                           // Run championship end sequence and credits
   RollCredits();
   if (TrackLoad >= 17)                        // Reset track selection if at maximum
