@@ -62,6 +62,14 @@ int SnapshotRunScene(void)
     snapshot_render_championship_standings();
     return SnapshotSceneCapturedAll();
   }
+  if (strcmp(g_SnapshotConfig.szSceneName, "lap-records") == 0) {
+    snapshot_render_lap_records();
+    return SnapshotSceneCapturedAll();
+  }
+  if (strcmp(g_SnapshotConfig.szSceneName, "time-trials") == 0) {
+    snapshot_render_time_trials();
+    return SnapshotSceneCapturedAll();
+  }
 
   fprintf(stderr, "ERROR: unknown snapshot scene '%s'\n", g_SnapshotConfig.szSceneName);
   return 1;

@@ -1036,6 +1036,90 @@ void TimeTrials(int iDriverIdx)
   fade_palette(0);
 }
 
+static void snapshot_copy_name9(char szDest[9], const char *szSrc)
+{
+  memset(szDest, 0, 9);
+  for (int i = 0; i < 8 && szSrc[i]; ++i)
+    szDest[i] = szSrc[i];
+}
+
+static void snapshot_setup_record_fixtures(void)
+{
+  static const char *szNames[16] = {
+    "ACE", "BLAZE", "CORA", "DUKE", "ECHO", "FLINT", "GALE", "HEX",
+    "IVY", "JAX", "KATE", "LYNX", "MARA", "NOVA", "ONYX", "PIKE"
+  };
+  static const int iCars[16] = {
+    CAR_DESIGN_AUTO, CAR_DESIGN_DESILVA, CAR_DESIGN_PULSE, CAR_DESIGN_GLOBAL,
+    CAR_DESIGN_MILLION, CAR_DESIGN_MISSION, CAR_DESIGN_ZIZIN, CAR_DESIGN_REISE,
+    CAR_DESIGN_AUTO, CAR_DESIGN_DESILVA, CAR_DESIGN_PULSE, CAR_DESIGN_GLOBAL,
+    CAR_DESIGN_MILLION, CAR_DESIGN_MISSION, CAR_DESIGN_ZIZIN, CAR_DESIGN_REISE
+  };
+  static const float fLapTimes[16] = {
+    58.42f, 61.07f, 64.55f, 128.0f, 62.34f, 69.91f, 73.18f, 77.77f,
+    82.05f, 86.49f, 91.23f, 95.68f, 101.11f, 108.42f, 115.90f, 124.75f
+  };
+  static const int iKills[16] = {
+    7, 3, 12, 0, 5, 9, 1, 6, 2, 4, 8, 11, 0, 10, 13, 15
+  };
+
+  for (int i = 0; i < 25; ++i) {
+    snapshot_copy_name9(RecordNames[i], "-----");
+    RecordLaps[i] = 128.0f;
+    RecordCars[i] = -1;
+    RecordKills[i] = 0;
+  }
+
+  for (int i = 0; i < 16; ++i) {
+    int iTrack = i + 1;
+    snapshot_copy_name9(RecordNames[iTrack], szNames[i]);
+    RecordCars[iTrack] = iCars[i];
+    RecordLaps[iTrack] = fLapTimes[i];
+    RecordKills[iTrack] = iKills[i];
+  }
+}
+
+void snapshot_render_lap_records(void)
+{
+  snapshot_setup_record_fixtures();
+  game_type = 0;
+  textures_off &= ~TEX_OFF_BONUS_CUP_AVAILABLE;
+
+  // The real screen path blocks until keypress/timeout after presenting its
+  // static page. Queue a key so the snapshot exits through the normal input
+  // condition, then capture the rendered framebuffer directly.
+  SnapshotQueueRawKey(0x1C);
+  ShowLapRecords();
+  if (!SnapshotShouldStop())
+    SnapshotPresent();
+}
+
+void snapshot_render_time_trials(void)
+{
+  const int iDriverIdx = 0;
+
+  snapshot_setup_record_fixtures();
+  game_type = 2;
+  TrackLoad = 5;
+  FastestLap = iDriverIdx;
+  BestTime = 62.34f;
+
+  snapshot_copy_name9(driver_names[iDriverIdx], "PLAYER1");
+  result_design[iDriverIdx] = CAR_DESIGN_AUTO;
+  Car[iDriverIdx].byCarDesignIdx = CAR_DESIGN_AUTO;
+  Car[iDriverIdx].byLap = 5;
+  Car[iDriverIdx].fBestLapTime = 62.34f;
+  trial_times[0] = 65.20f;
+  trial_times[1] = 62.34f;
+  trial_times[2] = 64.08f;
+  trial_times[3] = 63.50f;
+
+  SnapshotQueueRawKey(0x1C);
+  TimeTrials(iDriverIdx);
+  if (!SnapshotShouldStop())
+    SnapshotPresent();
+}
+
 //-------------------------------------------------------------------------------------------------
 //00057AD0
 void ChampionshipStandings()
