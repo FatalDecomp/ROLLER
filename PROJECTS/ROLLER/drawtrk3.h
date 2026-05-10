@@ -7,11 +7,9 @@
 //-------------------------------------------------------------------------------------------------
 
 extern int showsub;
-extern int cube_faces[6][4];
 extern int view_limit;
 extern int divtype;
 extern int NextSect[MAX_TRACK_CHUNKS];
-extern tScreenPt LightXYZ[8];
 extern int tex_hgt;
 extern int polyysize;
 extern int polyxsize;
@@ -53,7 +51,9 @@ extern int num_bits;
 //-------------------------------------------------------------------------------------------------
 
 int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
-void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx);
+void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
+                const GameRenderCamera *camera,
+                const GameRenderProjection *projection);
 void dodivide(float fX0_3D, float fY0_3D, float fZ0_3D,
               float fX1_3D, float fY1_3D, float fZ1_3D,
               float fX2_3D, float fY2_3D, float fZ2_3D,
