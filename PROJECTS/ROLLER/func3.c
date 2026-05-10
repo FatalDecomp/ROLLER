@@ -1050,7 +1050,7 @@ static void snapshot_setup_record_fixtures(void)
     "IVY", "JAX", "KATE", "LYNX", "MARA", "NOVA", "ONYX", "PIKE"
   };
   static const int iCars[16] = {
-    CAR_DESIGN_AUTO, CAR_DESIGN_DESILVA, CAR_DESIGN_PULSE, -1,
+    CAR_DESIGN_AUTO, CAR_DESIGN_DESILVA, CAR_DESIGN_PULSE, CAR_DESIGN_GLOBAL,
     CAR_DESIGN_MILLION, CAR_DESIGN_MISSION, CAR_DESIGN_ZIZIN, CAR_DESIGN_REISE,
     CAR_DESIGN_AUTO, CAR_DESIGN_DESILVA, CAR_DESIGN_PULSE, CAR_DESIGN_GLOBAL,
     CAR_DESIGN_MILLION, CAR_DESIGN_MISSION, CAR_DESIGN_ZIZIN, CAR_DESIGN_REISE
@@ -1109,10 +1109,10 @@ void snapshot_render_time_trials(void)
   Car[iDriverIdx].byCarDesignIdx = CAR_DESIGN_AUTO;
   Car[iDriverIdx].byLap = 5;
   Car[iDriverIdx].fBestLapTime = 62.34f;
-  trial_times[1] = 65.20f;
-  trial_times[2] = 62.34f;
-  trial_times[3] = 64.08f;
-  trial_times[4] = 63.50f;
+  trial_times[0] = 65.20f;
+  trial_times[1] = 62.34f;
+  trial_times[2] = 64.08f;
+  trial_times[3] = 63.50f;
 
   SnapshotQueueRawKey(0x1C);
   TimeTrials(iDriverIdx);
