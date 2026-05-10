@@ -15,6 +15,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DRAWTRK3 = ROOT / "PROJECTS" / "ROLLER" / "drawtrk3.c"
 FRAME_SRC = ROOT / "PROJECTS" / "ROLLER" / "3d.c"
+RENDER_QUEUE_SRC = ROOT / "PROJECTS" / "ROLLER" / "render_queue_3d.c"
+RENDER_QUEUE_HDR = ROOT / "PROJECTS" / "ROLLER" / "render_queue_3d.h"
 SNAPSHOT_SRC = ROOT / "PROJECTS" / "ROLLER" / "snapshot.c"
 SNAPSHOT_HDR = ROOT / "PROJECTS" / "ROLLER" / "snapshot.h"
 ROLLER_SRC = ROOT / "PROJECTS" / "ROLLER"
@@ -69,6 +71,12 @@ REQUIRED_DRAWTRACK_PHASE_MARKERS = {
     "Gameplay 3D queue phase: sorted dispatch": "sorted dispatch phase",
 }
 
+GAMEPLAY_3D_RENDER_QUEUE_FILES = {
+    "drawtrk3.c",
+    "render_queue_3d.c",
+    "render_queue_3d.h",
+}
+
 REQUIRED_SNAPSHOT_RECORD_MARKERS = {
     "SnapshotApplyFixedRecords();": "snapshot-mode record fixture application",
     "if (!g_bSnapshotMode) SaveRecords();": "snapshot-mode SaveRecords guard",
@@ -84,8 +92,8 @@ def fail(message: str) -> int:
     return 1
 
 
-def direct_priority_write_pattern(priority: int) -> re.Pattern[str]:
-    return re.compile(rf"\.nRenderPriority\s*=\s*{priority}\b|->nRenderPriority\s*=\s*{priority}\b")
+def direct_priority_write_pattern() -> re.Pattern[str]:
+    return re.compile(r"\.nRenderPriority\s*=|->nRenderPriority\s*=")
 
 
 def compatibility_call_pattern(function_name: str, priority: int) -> re.Pattern[str]:
@@ -97,10 +105,11 @@ def main() -> int:
     frame_src = FRAME_SRC.read_text(encoding="utf-8")
     snapshot_src = SNAPSHOT_SRC.read_text(encoding="utf-8")
     snapshot_hdr = SNAPSHOT_HDR.read_text(encoding="utf-8")
+    render_queue_src = RENDER_QUEUE_SRC.read_text(encoding="utf-8")
+    render_queue_hdr = RENDER_QUEUE_HDR.read_text(encoding="utf-8")
 
-    for priority, name in MIGRATED_PRIORITIES.items():
-        if direct_priority_write_pattern(priority).search(drawtrk3):
-            return fail(f"drawtrk3.c writes {name} legacy priority {priority} directly")
+    if direct_priority_write_pattern().search(drawtrk3):
+        return fail("drawtrk3.c writes legacy render priorities directly")
 
     for api_name, label in REQUIRED_DRAWTRK3_APIS.items():
         if api_name not in drawtrk3:
@@ -112,8 +121,14 @@ def main() -> int:
     if re.search(r"\bnum_bits\b", drawtrk3):
         return fail("drawtrk3.c still maintains num_bits instead of querying render_queue_3d_count")
 
+    if "TrackView" in drawtrk3:
+        return fail("drawtrk3.c must not use the legacy TrackView queue alias")
+
     if "render_queue_3d_add_legacy_priority" in drawtrk3:
         return fail("drawtrk3.c still uses old legacy-priority compatibility API name")
+
+    if "render_queue_3d_add_unmigrated_legacy_priority" in render_queue_src + render_queue_hdr:
+        return fail("temporary unmigrated legacy-priority compatibility API must be removed")
 
     for marker, label in REQUIRED_FRAME_PHASE_MARKERS.items():
         if marker not in frame_src:
@@ -130,6 +145,13 @@ def main() -> int:
     for marker, label in REQUIRED_SNAPSHOT_RECORD_MARKERS.items():
         if marker not in snapshot_text:
             return fail(f"snapshot harness does not pin {label}")
+
+    for path in ROLLER_SRC.glob("*.[ch]"):
+        if path.name in GAMEPLAY_3D_RENDER_QUEUE_FILES:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "render_queue_3d.h" in text or re.search(r"\brender_queue_3d_", text):
+            return fail(f"{path.relative_to(ROOT)} reaches into gameplay render_queue_3d")
 
     save_records_callers = "\n".join(path.read_text(encoding="utf-8") for path in ROLLER_SRC.glob("*.c"))
     if save_records_callers.count("SaveRecords();") != save_records_callers.count("if (!g_bSnapshotMode) SaveRecords();"):

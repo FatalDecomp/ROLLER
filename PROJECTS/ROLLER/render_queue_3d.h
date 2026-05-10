@@ -20,8 +20,8 @@
 #define RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY 13
 #define RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY 14
 
-// Only implemented gameplay-3D command kinds are named here. Legacy priorities stay on the
-// temporary compatibility path until their renderers migrate to typed queue submission APIs.
+// Only implemented gameplay-3D command kinds are named here. Gameplay 3D submissions use
+// typed queue APIs so raw legacy priority writes cannot leak back into drawtrk3.c.
 typedef enum
 {
   RENDER_COMMAND_3D_KIND_BUILDING = 0,
@@ -146,13 +146,6 @@ void render_queue_3d_clear(RenderQueue3D *pQueue);
 tTrackZOrderEntry *render_queue_3d_entries(RenderQueue3D *pQueue);
 const RenderCommand3D *render_queue_3d_command_at(const RenderQueue3D *pQueue, int iIndex);
 int render_queue_3d_count(const RenderQueue3D *pQueue);
-
-// Temporary compatibility API for unmigrated legacy render priorities. Priorities with named
-// command APIs must use those APIs instead.
-void render_queue_3d_add_unmigrated_legacy_priority(RenderQueue3D *pQueue,
-                                                     int iLegacyPriority,
-                                                     int iChunkIdx,
-                                                     float fZDepth);
 
 void render_queue_3d_add_ground(RenderQueue3D *pQueue,
                                  int iSectionIdx,
