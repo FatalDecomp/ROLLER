@@ -46,7 +46,6 @@ extern int CarsLeft;
 extern int VisibleCars;
 extern int num_pols;
 extern int small_poly;
-extern int num_bits;
 
 //-------------------------------------------------------------------------------------------------
 

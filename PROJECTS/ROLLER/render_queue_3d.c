@@ -1,4 +1,5 @@
 #include "render_queue_3d.h"
+#include <assert.h>
 #include <stdlib.h>
 //-------------------------------------------------------------------------------------------------
 
@@ -10,6 +11,32 @@ typedef struct
   RenderCommand3D command;
   int has_typed_command;
 } RenderQueue3DSortEntry;
+
+//-------------------------------------------------------------------------------------------------
+
+static void render_queue_3d_require(int iCondition)
+{
+  if (!iCondition) {
+    assert(iCondition);
+    abort();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int render_queue_3d_is_named_priority(int iLegacyPriority)
+{
+  switch (iLegacyPriority) {
+  case RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_LEFT_LANE_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
+    return 1;
+  }
+  return 0;
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -52,32 +79,14 @@ int render_queue_3d_count(const RenderQueue3D *pQueue)
 
 //-------------------------------------------------------------------------------------------------
 
-void render_queue_3d_set_legacy_count(RenderQueue3D *pQueue, int iCount)
-{
-  int iCommandIndex;
-
-  if (iCount < 0)
-    iCount = 0;
-  if (iCount > RENDER_QUEUE_3D_CAPACITY)
-    iCount = RENDER_QUEUE_3D_CAPACITY;
-
-  for (iCommandIndex = 0; iCommandIndex < iCount; ++iCommandIndex)
-    pQueue->has_typed_command[iCommandIndex] = 0;
-
-  pQueue->count = iCount;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static tTrackZOrderEntry *render_queue_3d_add(RenderQueue3D *pQueue,
-                                              int iLegacyPriority,
-                                              int iChunkIdx,
-                                              float fZDepth)
+static tTrackZOrderEntry *render_queue_3d_add_required(RenderQueue3D *pQueue,
+                                                       int iLegacyPriority,
+                                                       int iChunkIdx,
+                                                       float fZDepth)
 {
   tTrackZOrderEntry *pEntry;
 
-  if (pQueue->count >= RENDER_QUEUE_3D_CAPACITY)
-    return NULL;
+  render_queue_3d_require(pQueue->count < RENDER_QUEUE_3D_CAPACITY);
 
   pEntry = &pQueue->entries[pQueue->count];
   pEntry->nRenderPriority = (int16)iLegacyPriority;
@@ -91,69 +100,107 @@ static tTrackZOrderEntry *render_queue_3d_add(RenderQueue3D *pQueue,
 
 //-------------------------------------------------------------------------------------------------
 
-tTrackZOrderEntry *render_queue_3d_add_legacy_priority(RenderQueue3D *pQueue,
-                                                       int iLegacyPriority,
-                                                       int iChunkIdx,
-                                                       float fZDepth)
+void render_queue_3d_add_unmigrated_legacy_priority(RenderQueue3D *pQueue,
+                                                     int iLegacyPriority,
+                                                     int iChunkIdx,
+                                                     float fZDepth)
 {
-  switch (iLegacyPriority) {
-  case RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
-    return NULL;
-  }
-
-  return render_queue_3d_add(pQueue, iLegacyPriority, iChunkIdx, fZDepth);
+  render_queue_3d_require(!render_queue_3d_is_named_priority(iLegacyPriority));
+  render_queue_3d_add_required(pQueue, iLegacyPriority, iChunkIdx, fZDepth);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-tTrackZOrderEntry *render_queue_3d_add_building(RenderQueue3D *pQueue,
-                                                int iBuildingIdx,
-                                                float fZDepth)
+static void render_queue_3d_add_road_surface(RenderQueue3D *pQueue,
+                                             int iLegacyPriority,
+                                             int iSectionIdx,
+                                             float fZDepth,
+                                             RenderCommand3DRoadSurfaceKind surfaceKind)
 {
-  tTrackZOrderEntry *pEntry = render_queue_3d_add(pQueue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY, iBuildingIdx, fZDepth);
-  if (pEntry != NULL) {
-    RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
-    pCommand->kind = RENDER_COMMAND_3D_KIND_BUILDING;
-    pCommand->payload.building.building_idx = iBuildingIdx;
-    pCommand->payload.building.depth = fZDepth;
-    pQueue->has_typed_command[pQueue->count - 1] = 1;
-  }
-  return pEntry;
+  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_ROAD_SURFACE;
+  pCommand->payload.road_surface.section_idx = iSectionIdx;
+  pCommand->payload.road_surface.depth = fZDepth;
+  pCommand->payload.road_surface.surface_kind = surfaceKind;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
 }
 
-tTrackZOrderEntry *render_queue_3d_add_car(RenderQueue3D *pQueue,
-                                           int iCarIdx,
-                                           float fZDepth,
-                                           const GameRenderCarPose *pPose,
-                                           const GameRenderCarOptions *pOptions)
+void render_queue_3d_add_road_center(RenderQueue3D *pQueue,
+                                      int iSectionIdx,
+                                      float fZDepth)
 {
-  tTrackZOrderEntry *pEntry = render_queue_3d_add(pQueue, RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY, iCarIdx, fZDepth);
-  if (pEntry != NULL) {
-    RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
-    pCommand->kind = RENDER_COMMAND_3D_KIND_CAR;
-    pCommand->payload.car.car_idx = iCarIdx;
-    pCommand->payload.car.depth = fZDepth;
-    if (pPose != NULL) {
-      pCommand->payload.car.pose = *pPose;
-    } else {
-      pCommand->payload.car.pose.position.fX = 0.0f;
-      pCommand->payload.car.pose.position.fY = 0.0f;
-      pCommand->payload.car.pose.position.fZ = 0.0f;
-      pCommand->payload.car.pose.yaw = 0;
-      pCommand->payload.car.pose.pitch = 0;
-      pCommand->payload.car.pose.roll = 0;
-    }
-    if (pOptions != NULL) {
-      pCommand->payload.car.options = *pOptions;
-    } else {
-      pCommand->payload.car.options.anim_frame = 0;
-      pCommand->payload.car.options.color_remap = NULL;
-    }
-    pQueue->has_typed_command[pQueue->count - 1] = 1;
+  render_queue_3d_add_road_surface(pQueue,
+                                   RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_ROAD_SURFACE_CENTER);
+}
+
+void render_queue_3d_add_left_lane(RenderQueue3D *pQueue,
+                                    int iSectionIdx,
+                                    float fZDepth)
+{
+  render_queue_3d_add_road_surface(pQueue,
+                                   RENDER_QUEUE_3D_LEFT_LANE_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_ROAD_SURFACE_LEFT_LANE);
+}
+
+void render_queue_3d_add_right_lane(RenderQueue3D *pQueue,
+                                     int iSectionIdx,
+                                     float fZDepth)
+{
+  render_queue_3d_add_road_surface(pQueue,
+                                   RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_ROAD_SURFACE_RIGHT_LANE);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void render_queue_3d_add_building(RenderQueue3D *pQueue,
+                                   int iBuildingIdx,
+                                   float fZDepth)
+{
+  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY, iBuildingIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_BUILDING;
+  pCommand->payload.building.building_idx = iBuildingIdx;
+  pCommand->payload.building.depth = fZDepth;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
+}
+
+void render_queue_3d_add_car(RenderQueue3D *pQueue,
+                              int iCarIdx,
+                              float fZDepth,
+                              const GameRenderCarPose *pPose,
+                              const GameRenderCarOptions *pOptions)
+{
+  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY, iCarIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_CAR;
+  pCommand->payload.car.car_idx = iCarIdx;
+  pCommand->payload.car.depth = fZDepth;
+  if (pPose != NULL) {
+    pCommand->payload.car.pose = *pPose;
+  } else {
+    pCommand->payload.car.pose.position.fX = 0.0f;
+    pCommand->payload.car.pose.position.fY = 0.0f;
+    pCommand->payload.car.pose.position.fZ = 0.0f;
+    pCommand->payload.car.pose.yaw = 0;
+    pCommand->payload.car.pose.pitch = 0;
+    pCommand->payload.car.pose.roll = 0;
   }
-  return pEntry;
+  if (pOptions != NULL) {
+    pCommand->payload.car.options = *pOptions;
+  } else {
+    pCommand->payload.car.options.anim_frame = 0;
+    pCommand->payload.car.options.color_remap = NULL;
+  }
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -161,19 +208,16 @@ tTrackZOrderEntry *render_queue_3d_add_car(RenderQueue3D *pQueue,
 
 //-------------------------------------------------------------------------------------------------
 
-tTrackZOrderEntry *render_queue_3d_add_start_light(RenderQueue3D *pQueue,
-                                                   int iLightIdx,
-                                                   float fZDepth)
+void render_queue_3d_add_start_light(RenderQueue3D *pQueue,
+                                      int iLightIdx,
+                                      float fZDepth)
 {
-  tTrackZOrderEntry *pEntry = render_queue_3d_add(pQueue, RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY, iLightIdx, fZDepth);
-  if (pEntry != NULL) {
-    RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
-    pCommand->kind = RENDER_COMMAND_3D_KIND_START_LIGHT;
-    pCommand->payload.start_light.light_idx = iLightIdx;
-    pCommand->payload.start_light.depth = fZDepth;
-    pQueue->has_typed_command[pQueue->count - 1] = 1;
-  }
-  return pEntry;
+  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY, iLightIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_START_LIGHT;
+  pCommand->payload.start_light.light_idx = iLightIdx;
+  pCommand->payload.start_light.depth = fZDepth;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
 }
 
 //-------------------------------------------------------------------------------------------------
