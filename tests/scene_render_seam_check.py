@@ -220,6 +220,12 @@ def main() -> int:
         "DrawBuilding must explicitly mark flat and textured building quads as building subdivision type",
     )
 
+    assert_true(
+        "SURFACE_FLAG_APPLY_TEXTURE" in draw_building
+        and "uiTex & 0x100" not in draw_building,
+        "DrawBuilding must use the named texture-application surface flag instead of magic 0x100",
+    )
+
     scene_quad = extract_function(scene_render_sw, "scene_render_sw_quad_world_legacy")
     assert_true(
         "float directVz[4]" in scene_quad and "directVz[i] = (float)iVz[i];" in scene_quad,
