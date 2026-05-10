@@ -732,8 +732,10 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           TextureHandle th = ((uiTex & 0x100) != 0)
             ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
             : TEXTURE_HANDLE_INVALID;
-          game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex,
-                                 (float)BuildingSub[uiBuildingType] * subscale);
+          game_render_quad_world_subdivide_type(
+            g_pGameRenderer, verts, th, (int)uiTex,
+            GAME_RENDER_SUBDIVIDE_TYPE_BUILDING,
+            (float)BuildingSub[uiBuildingType] * subscale);
         }
         skip_polygon:;
         iZOrderOffset = iCurrentZOrderIdx * 12 + 12;

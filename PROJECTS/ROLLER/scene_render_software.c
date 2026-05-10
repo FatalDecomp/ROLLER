@@ -20,7 +20,7 @@
  * 666 = building (other_texture[] lookup). */
 #define SUBPOLY_WALL     (-1)
 #define SUBPOLY_STANDARD   0
-#define SUBPOLY_BUILDING 666
+#define SUBPOLY_BUILDING SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING
 
 //-------------------------------------------------------------------------------------------------
 //000257E0

@@ -19,8 +19,9 @@ typedef struct {
     float u, v;     // texture coordinates
 } SceneRenderVertex;
 
-#define SCENE_RENDER_SUBDIVIDE_TYPE_AUTO  (-2147483647 - 1)
-#define SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD (-2147483647)
+#define SCENE_RENDER_SUBDIVIDE_TYPE_AUTO     (-2147483647 - 1)
+#define SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD    (-2147483647)
+#define SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING 666
 
 typedef struct {
     float viewX, viewY, viewZ;

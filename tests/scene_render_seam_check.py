@@ -214,6 +214,12 @@ def main() -> int:
         "DrawBuilding must preserve BuildingSub[uiBuildingType] * subscale subdivision threshold",
     )
 
+    assert_true(
+        "game_render_quad_world_subdivide_type" in draw_building
+        and "GAME_RENDER_SUBDIVIDE_TYPE_BUILDING" in draw_building,
+        "DrawBuilding must explicitly mark flat and textured building quads as building subdivision type",
+    )
+
     scene_quad = extract_function(scene_render_sw, "scene_render_sw_quad_world_legacy")
     assert_true(
         "float directVz[4]" in scene_quad and "directVz[i] = (float)iVz[i];" in scene_quad,
