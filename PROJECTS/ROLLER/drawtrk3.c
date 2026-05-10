@@ -1985,7 +1985,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fLeftLowerWallDepthSelected = fLeftLowerWallSelected;
       fLeftLowerWallCmdDepth = fLeftLowerWallDepthSelected;
-      render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 3, iCurrentSect, fLeftLowerWallCmdDepth); // lower wall, migrate in #158
+      render_queue_3d_add_left_lower_wall(render_queue_3d_global(), iCurrentSect, fLeftLowerWallCmdDepth);
     }
     if (GroundColour[iCurrentSect][GROUND_COLOUR_RLOWALL] != -1 && bGroundVisible) {
       if (pNextGroundScreen->screenPtAy[3].projected.fZ <= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
@@ -2013,7 +2013,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fRightLowerWallDepthSelected = fRightLowerWallSelected;
       fRightLowerWallCmdDepth = fRightLowerWallDepthSelected;
-      render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 4, iCurrentSect, fRightLowerWallCmdDepth); // lower wall, migrate in #158
+      render_queue_3d_add_right_lower_wall(render_queue_3d_global(), iCurrentSect, fRightLowerWallCmdDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99) {
       if (Walls_On) {
@@ -2054,7 +2054,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 * 0.25f;
             }
             fRightWallCmdDepth = fLeftWallRoofDepth;
-            render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 8, iCurrentSect, fRightWallCmdDepth); // wall, migrate in #158
+            render_queue_3d_add_left_high_wall(render_queue_3d_global(), iCurrentSect, fRightWallCmdDepth);
           } else {
             if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
               fLeftWallDepthMax1 = pScreenCoord_1->screenPtAy[1].projected.fZ;
@@ -2080,7 +2080,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
               fLeftWallDepthTmp1 = fLeftWallDepthSelected;
             }
             fLeftWallFinalDepth = fLeftWallDepthSelected;
-            render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 0, iCurrentSect, fLeftWallFinalDepth); // wall, migrate in #158
+            render_queue_3d_add_left_wall(render_queue_3d_global(), iCurrentSect, fLeftWallFinalDepth);
           }
         }
       }
@@ -2123,7 +2123,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                                    + pScreenCoord->screenPtAy[5].projected.fZ)
                 * 0.25f;
             }
-            render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 9, iCurrentSect, fRightWallRoofDepth); // wall, migrate in #158
+            render_queue_3d_add_right_high_wall(render_queue_3d_global(), iCurrentSect, fRightWallRoofDepth);
           } else {
             if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
               fRightWallBasicDepth1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
@@ -2150,7 +2150,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRightWallFinalDepth = fRightWallBasicSelected;
             fRightWallBasicCmdDepth = fRightWallFinalDepth;
-            render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 1, iCurrentSect, fRightWallBasicCmdDepth); // wall, migrate in #158
+            render_queue_3d_add_right_wall(render_queue_3d_global(), iCurrentSect, fRightWallBasicCmdDepth);
           }
         }
       }
@@ -2292,8 +2292,8 @@ LABEL_393:
         pNextGroundScreen = &GroundScreenXYZ[iNextSectionIndex];
       }
       switch (pRenderCommand->nRenderPriority) {
-        case 0:
-        case 8:
+        case RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY:
+        case RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY:
           {
             int sf = TrakColour[iSectionNum][TRAK_COLOUR_LEFT_WALL];
             int highWall = (sf < 0);
@@ -2318,8 +2318,8 @@ LABEL_393:
             }
           }
           goto LABEL_1271;
-        case 1:
-        case 9:
+        case RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY:
+        case RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY:
           {
             int sf = TrakColour[iSectionNum][TRAK_COLOUR_RIGHT_WALL];
             int highWall = (sf < 0);
@@ -2378,7 +2378,7 @@ LABEL_393:
             }
           }
           goto LABEL_1271;
-        case 3:
+        case RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY:
           {
             int sf = GroundColour[iSectionNum][GROUND_COLOUR_LUOWALL];
             if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)
@@ -2446,7 +2446,7 @@ LABEL_393:
             }
           }
           goto LABEL_1271;
-        case 4:
+        case RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY:
           {
             int sf = GroundColour[iSectionNum][GROUND_COLOUR_RUOWALL];
             if (sf == -1 || GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR] == -1)

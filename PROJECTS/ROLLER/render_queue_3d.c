@@ -27,9 +27,15 @@ static void render_queue_3d_require(int iCondition)
 static int render_queue_3d_is_named_priority(int iLegacyPriority)
 {
   switch (iLegacyPriority) {
+  case RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_LEFT_LANE_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
@@ -160,6 +166,111 @@ void render_queue_3d_add_right_lane(RenderQueue3D *pQueue,
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static void render_queue_3d_add_wall_surface(RenderQueue3D *pQueue,
+                                             int iLegacyPriority,
+                                             int iSectionIdx,
+                                             float fZDepth,
+                                             RenderCommand3DWallSurfaceSide side,
+                                             RenderCommand3DWallSurfaceVariant variant)
+{
+  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_WALL_SURFACE;
+  pCommand->payload.wall_surface.section_idx = iSectionIdx;
+  pCommand->payload.wall_surface.depth = fZDepth;
+  pCommand->payload.wall_surface.side = side;
+  pCommand->payload.wall_surface.variant = variant;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
+}
+
+void render_queue_3d_add_left_wall(RenderQueue3D *pQueue,
+                                    int iSectionIdx,
+                                    float fZDepth)
+{
+  render_queue_3d_add_wall_surface(pQueue,
+                                   RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_LEFT,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_BASIC);
+}
+
+void render_queue_3d_add_right_wall(RenderQueue3D *pQueue,
+                                     int iSectionIdx,
+                                     float fZDepth)
+{
+  render_queue_3d_add_wall_surface(pQueue,
+                                   RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_RIGHT,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_BASIC);
+}
+
+void render_queue_3d_add_left_high_wall(RenderQueue3D *pQueue,
+                                         int iSectionIdx,
+                                         float fZDepth)
+{
+  render_queue_3d_add_wall_surface(pQueue,
+                                   RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_LEFT,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_HIGH);
+}
+
+void render_queue_3d_add_right_high_wall(RenderQueue3D *pQueue,
+                                          int iSectionIdx,
+                                          float fZDepth)
+{
+  render_queue_3d_add_wall_surface(pQueue,
+                                   RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_RIGHT,
+                                   RENDER_COMMAND_3D_WALL_SURFACE_HIGH);
+}
+
+static void render_queue_3d_add_lower_wall_surface(RenderQueue3D *pQueue,
+                                                   int iLegacyPriority,
+                                                   int iSectionIdx,
+                                                   float fZDepth,
+                                                   RenderCommand3DWallSurfaceSide side)
+{
+  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_LOWER_WALL_SURFACE;
+  pCommand->payload.lower_wall_surface.section_idx = iSectionIdx;
+  pCommand->payload.lower_wall_surface.depth = fZDepth;
+  pCommand->payload.lower_wall_surface.side = side;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
+}
+
+void render_queue_3d_add_left_lower_wall(RenderQueue3D *pQueue,
+                                          int iSectionIdx,
+                                          float fZDepth)
+{
+  render_queue_3d_add_lower_wall_surface(pQueue,
+                                         RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY,
+                                         iSectionIdx,
+                                         fZDepth,
+                                         RENDER_COMMAND_3D_WALL_SURFACE_LEFT);
+}
+
+void render_queue_3d_add_right_lower_wall(RenderQueue3D *pQueue,
+                                           int iSectionIdx,
+                                           float fZDepth)
+{
+  render_queue_3d_add_lower_wall_surface(pQueue,
+                                         RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY,
+                                         iSectionIdx,
+                                         fZDepth,
+                                         RENDER_COMMAND_3D_WALL_SURFACE_RIGHT);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 
 void render_queue_3d_add_building(RenderQueue3D *pQueue,
                                    int iBuildingIdx,
