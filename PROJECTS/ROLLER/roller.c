@@ -88,6 +88,12 @@ SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 static MenuRenderer *s_pMenuRenderer = NULL;
 MenuRenderer *GetMenuRenderer(void) { return s_pMenuRenderer; }
 
+void SnapshotEnsureMenuRenderer(void)
+{
+  if (!s_pMenuRenderer)
+    s_pMenuRenderer = menu_render_create(NULL, NULL);
+}
+
 static DebugOverlay *s_pDebugOverlay = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 

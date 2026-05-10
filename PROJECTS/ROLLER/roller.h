@@ -33,6 +33,7 @@ struct DebugOverlay *ROLLERGetDebugOverlay(void);
 // Menu renderer accessor
 typedef struct MenuRenderer MenuRenderer;
 MenuRenderer *GetMenuRenderer(void);
+void SnapshotEnsureMenuRenderer(void);
 
 // functions added by ROLLER
 int InitSDL(char *data_root, const char *midi_root);

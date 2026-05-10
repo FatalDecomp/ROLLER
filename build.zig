@@ -78,6 +78,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/snapshot.c",
+            "PROJECTS/ROLLER/snapshot_scenes.c",
             "PROJECTS/ROLLER/sound.c",
             "PROJECTS/ROLLER/svgacpy.c",
             "PROJECTS/ROLLER/tower.c",
