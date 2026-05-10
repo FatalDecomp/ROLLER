@@ -2961,8 +2961,10 @@ void snapshot_render_championship_over(void)
     2, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
   };
 
-  load_language_file(szSelectEng, 0);
-  load_language_file(szConfigEng, 1);
+  char szSnapshotIngameEng[11] = "ingame.eng";
+  char szSnapshotConfigEng[11] = "config.eng";
+  load_language_file(szSnapshotIngameEng, 0);
+  load_language_file(szSnapshotConfigEng, 1);
 
   network_on = 0;
   network_champ_on = 0;
