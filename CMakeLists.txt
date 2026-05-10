@@ -47,6 +47,7 @@ add_executable(roller
     PROJECTS/ROLLER/control.c
     PROJECTS/ROLLER/date.c
     PROJECTS/ROLLER/drawtrk3.c
+    PROJECTS/ROLLER/render_queue_3d.c
     PROJECTS/ROLLER/engines.c
     PROJECTS/ROLLER/frontend_config.c
     PROJECTS/ROLLER/frontend_data.c

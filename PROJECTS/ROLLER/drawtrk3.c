@@ -9,6 +9,8 @@
 #include "building.h"
 #include "tower.h"
 #include "roller.h"
+#include "render_queue_3d.h"
+#define TrackView (render_queue_3d_entries(render_queue_3d_global()))
 #include <math.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -2333,29 +2335,27 @@ LABEL_393:
       num_bits = iBuildingCmdIndex + 1;
     } while (iBuildingNext != -1);
   }
+  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
     iLightIndex = 0;
-    pLightRenderCmd = &TrackView[num_bits];
     iLightArrayOffset = 3 * iChaseCamIdx_1;
     do {
       fLightZ = (SLight[0][iLightArrayOffset].currentPos.fX - viewx) * vk3
         + (SLight[0][iLightArrayOffset].currentPos.fY - viewy) * vk6
         + (SLight[0][iLightArrayOffset].currentPos.fZ - viewz) * vk9;
       if (fLightZ > 0.0) {
-        pLightRenderCmd->nRenderPriority = 14;
-        ++pLightRenderCmd;
         fLightDepth = fLightZ;
-        iLightCmdIndex = num_bits;
-        pLightRenderCmd[-1].nChunkIdx = iLightIndex;
-        pLightRenderCmd[-1].fZDepth = fLightDepth;
-        num_bits = iLightCmdIndex + 1;
+        pLightRenderCmd = render_queue_3d_add_start_light(render_queue_3d_global(), iLightIndex, fLightDepth);
+        if (pLightRenderCmd != NULL)
+          num_bits = render_queue_3d_count(render_queue_3d_global());
       }
       ++iLightIndex;
       ++iLightArrayOffset;
     } while (iLightIndex < 3);
   }
-  qsort(TrackView, num_bits, 8u, Zcmp);// Fifth phase: Sort render list by Z-depth and render objects
+  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
+  render_queue_3d_sort(render_queue_3d_global());// Fifth phase: Sort render list by Z-depth and render objects
   iRenderObjectIndex = 0;
   if (num_bits > 0) {
     iIndexTmp1 = 144 * iChaseCamIdx_1;
@@ -2792,27 +2792,7 @@ int facing_ok(float fX0, float fY0, float fZ0,
 //00027A10
 int Zcmp(const void *pTrackView1, const void *pTrackView2)
 {
-  int iRenderPriorityCmp2; // edx
-  int iRenderPriorityCmp1; // ebx
-  float fZCmp2; // [esp+0h] [ebp-Ch]
-  float fZCmp1; // [esp+4h] [ebp-8h]
-
-  const tTrackZOrderEntry *pTrackZ1 = (const tTrackZOrderEntry *)pTrackView1;
-  const tTrackZOrderEntry *pTrackZ2 = (const tTrackZOrderEntry *)pTrackView2;
-
-  fZCmp1 = pTrackZ1->fZDepth;
-  fZCmp2 = pTrackZ2->fZDepth;
-  iRenderPriorityCmp2 = pTrackZ2->nRenderPriority;
-  iRenderPriorityCmp1 = pTrackZ1->nRenderPriority;
-  if (fZCmp1 < (double)fZCmp2)
-    return -1;
-  if (fZCmp1 == fZCmp2) {
-    if (iRenderPriorityCmp1 == iRenderPriorityCmp2)
-      return 0;
-    if (iRenderPriorityCmp1 >= iRenderPriorityCmp2)
-      return -1;
-  }
-  return 1;
+  return render_queue_3d_compare_legacy_z_order(pTrackView1, pTrackView2);
 }
 
 //-------------------------------------------------------------------------------------------------

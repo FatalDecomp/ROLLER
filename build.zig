@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/render_queue_3d.c",
             "PROJECTS/ROLLER/engines.c",
             "PROJECTS/ROLLER/frontend_config.c",
             "PROJECTS/ROLLER/frontend_data.c",
@@ -162,6 +163,8 @@ pub fn build(b: *std.Build) void {
     });
     run_step.dependOn(&wildmidi_config_install.step);
 
+    configureRenderQueue3DTests(b, target, optimize, c_flags);
+
     // Snapshot regression harness: drive the snapshot binary serially across
     // every configured intro replay, writing PNGs straight into the
     // checked-in baseline directory, then run `git diff --exit-code` against
@@ -171,6 +174,55 @@ pub fn build(b: *std.Build) void {
     // refresh run produces a clean exit before the developer commits.
     configureSnapshotTests(b, exe, assets_path);
 }
+
+fn configureRenderQueue3DTests(
+    b: *Build,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+    c_flags: []const []const u8,
+) void {
+    const test_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const sdl = b.dependency("sdl", .{
+        .target = target,
+        .optimize = optimize,
+        .lto = .none,
+    });
+    test_mod.addIncludePath(sdl.builder.path("include"));
+    test_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    test_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/render_queue_3d.c",
+            "tests/render_queue_3d_test.c",
+        },
+    });
+
+    const test_exe = b.addExecutable(.{
+        .name = "render_queue_3d_test",
+        .root_module = test_mod,
+    });
+    const run_unit = b.addRunArtifact(test_exe);
+
+    const seam_check = b.addSystemCommand(&.{
+        "python3",
+        "tools/check_render_queue_3d_seams.py",
+    });
+
+    const render_queue_tests = b.step(
+        "test-render-queue-3d",
+        "Run render_queue_3d sort/mapping tests and seam checks",
+    );
+    render_queue_tests.dependOn(&run_unit.step);
+    render_queue_tests.dependOn(&seam_check.step);
+
+    const test_step = b.step("test", "Run focused unit and seam tests");
+    test_step.dependOn(render_queue_tests);
+}
+
 
 const SnapshotReplay = struct {
     name: []const u8,
