@@ -1,8 +1,17 @@
 [tools]
+clang-format = "latest"
+hk = "1.45.0"
 python = "3"
 "ubi:zigtools/zls" = "0.15.0"
 usage = "latest"
 zig = "0.15.2"
+
+[env]
+HK_MISE = "1"
+HK_PKL_BACKEND = "pklr"
+
+[hooks]
+postinstall = "hk install --mise"
 
 [tasks.build]
 description = "Build for specific platform"
@@ -15,3 +24,7 @@ run = "rm -rf zig-out .zig-cache"
 [tasks.test]
 description = "Run tests"
 run = "zig build test"
+
+[tasks.pre-commit]
+description = "Run pre-commit hooks"
+run = "hk run pre-commit"

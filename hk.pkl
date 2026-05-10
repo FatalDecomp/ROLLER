@@ -1,0 +1,38 @@
+amends "package://github.com/jdx/hk/releases/download/v1.45.0/hk@1.45.0#/Config.pkl"
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps {
+      ["clang-format"] {
+        glob = List(
+          "PROJECTS/ROLLER/**/*.c",
+          "PROJECTS/ROLLER/**/*.h",
+          "tests/**/*.c",
+          "tests/**/*.h",
+          "resource.h",
+        )
+        check_first = true
+        check = "clang-format --dry-run -Werror {{ files }}"
+        fix = "clang-format -i {{ files }}"
+      }
+    }
+  }
+
+  ["check"] {
+    fix = false
+    steps {
+      ["clang-format"] {
+        glob = List(
+          "PROJECTS/ROLLER/**/*.c",
+          "PROJECTS/ROLLER/**/*.h",
+          "tests/**/*.c",
+          "tests/**/*.h",
+          "resource.h",
+        )
+        check = "clang-format --dry-run -Werror {{ files }}"
+      }
+    }
+  }
+}
