@@ -125,7 +125,6 @@ float ptan[16384];          //001110F0
 float tcos[16384];          //00121128
 char buffer[128];           //00131228
 uint8 blank_line[640];      //001312A8
-tTrackZOrderEntry TrackView[6500]; //00131528
 int p_joyk1[2];             //0013E048
 int p_joyk2[2];             //0013E050
 tMemBlock mem_blocks[MEM_BLOCK_COUNT];  //0013E058

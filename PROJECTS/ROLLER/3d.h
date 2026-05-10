@@ -276,7 +276,6 @@ extern float ptan[16384];
 extern float tcos[16384];
 extern char buffer[128];
 extern uint8 blank_line[640];
-extern tTrackZOrderEntry TrackView[6500];
 extern int p_joyk1[2];
 extern int p_joyk2[2];
 extern tMemBlock mem_blocks[MEM_BLOCK_COUNT];
