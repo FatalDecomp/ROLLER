@@ -201,13 +201,13 @@ const snapshot_replays = [_]SnapshotReplay{
 };
 
 const snapshot_scenes = [_]SnapshotScene{
-    .{ .name = "menu-main", .frames = "3" },
-    .{ .name = "menu-select-car", .frames = "3" },
-    .{ .name = "menu-select-track", .frames = "3" },
-    .{ .name = "menu-select-type", .frames = "3" },
-    .{ .name = "menu-select-disk", .frames = "3" },
-    .{ .name = "winner-race", .frames = "3" },
-    .{ .name = "winner-championship", .frames = "3" },
+    .{ .name = "menu-main", .frames = "30" },
+    .{ .name = "menu-select-car", .frames = "30" },
+    .{ .name = "menu-select-track", .frames = "30" },
+    .{ .name = "menu-select-type", .frames = "30" },
+    .{ .name = "menu-select-disk", .frames = "30" },
+    .{ .name = "winner-race", .frames = "30" },
+    .{ .name = "winner-championship", .frames = "30" },
 };
 
 fn configureSnapshotTests(
