@@ -59,6 +59,7 @@ int MIDIGetMasterVolume();
 int DIGISampleStart(tSampleData *data);
 bool DIGISampleDone(int index);
 int DIGISampleAvailable(int index);
+int DIGISampleGeneration(int index);
 void DIGIStopSample(int index);
 void DIGISetMasterVolume(int volume);
 int DIGIGetMasterVolume();

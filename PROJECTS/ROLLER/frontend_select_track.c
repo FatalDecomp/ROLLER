@@ -52,12 +52,14 @@ void select_track()
   int iTrackInCup; // [esp+28h] [ebp-28h]
   int iExitFlag; // [esp+2Ch] [ebp-24h]
   int iCalculatedTrack; // [esp+30h] [ebp-20h]
+  int iFrontendSpeechPending;
 
   iAnimationTimer = 36;
   fade_palette(0);                              // Initialize track selection screen - fade out and reset state
   iSoundFlag = 0;
   front_fade = 0;
   iExitFlag = 0;
+  iFrontendSpeechPending = 0;
   if (TrackLoad > 0)                          // Set initial track selection based on current TrackLoad and game type
   {
     iSelectedTrack = ((uint8)TrackLoad - 1) & 7;
@@ -95,12 +97,12 @@ void select_track()
       iSelectedTrack = 8;
     iFrameCount = frames;
     frames = 0;
+    int bStartedFadeIn = 0;
     iPrevTrackLoad = TrackLoad;
-    //if (SoundCard && front_fade && SampleHandleCar[86].handles[0] != -1 && sosDIGISampleDone(*(int *)&DIGIHandle, SampleHandleCar[86].handles[0]))// Handle frontend car engine sound sample playback
-    if (SoundCard && front_fade && SampleHandleCar[86].handles[0] != -1 && DIGISampleDone(SampleHandleCar[86].handles[0]))// Handle frontend car engine sound sample playback
+    if (SoundCard && front_fade && iFrontendSpeechPending && sfxplaying(SOUND_SAMPLE_TRACK) == 0)
     {
       frontendsample(0x8000);
-      SampleHandleCar[86].handles[0] = -1;
+      iFrontendSpeechPending = 0;
     }
     if (switch_types)                         // Handle game type switching (championship/single race/team game)
     {
@@ -118,6 +120,7 @@ void select_track()
     menu_render_begin_frame(mr);
     if (!front_fade) {
       front_fade = -1;
+      bStartedFadeIn = -1;
       menu_render_begin_fade(mr, 1, 32);
     }
     menu_render_background(mr, 0);
@@ -265,11 +268,12 @@ void select_track()
         if (iCurrentTrack == TrackLoad)
           iPrevTrackLoad = -1;
         TrackLoad = iCurrentTrack;
-        if (frontendspeechptr)
-          fre((void **)&frontendspeechptr);
+        remove_frontendspeech();
+        iFrontendSpeechPending = 0;
         if (TrackLoad >= 0)
           loadtrack(TrackLoad, -1);
         loadtracksample(TrackLoad);
+        iFrontendSpeechPending = -1;
         fZ = cur_TrackZ;
         iSoundFlag = -1;
         fTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
@@ -282,16 +286,19 @@ void select_track()
         frames = 0;
       }
     }
-    if (!front_fade)                          // Initialize screen fade and sound effects on first display
+    if (bStartedFadeIn)                       // Initialize screen fade and track voice sample on first display
     {
       loadtracksample(TrackLoad);
+      iFrontendSpeechPending = 0;
       frontendsample(0x8000);
       frames = 0;
     }
     if (TrackLoad != iPrevTrackLoad)          // Track changed - play selection sound and reset animation
     {
-      if (!iSoundFlag)
+      if (!iSoundFlag) {
         sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+        iFrontendSpeechPending = 0;
+      }
       iSoundFlag = 0;
       iCurrentTrack = TrackLoad;
       iAnimationTimer = 0;
@@ -318,6 +325,7 @@ void select_track()
       } else if (byKey <= 0xDu) {                                         // Enter key pressed - confirm track selection
         if (iSelectedTrack != 8 && iCurrentTrack != iCalculatedTrack || iSelectedTrack == 8) {
           remove_frontendspeech();
+          iFrontendSpeechPending = 0;
           sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
         }
         //if (iCurrentTrack == iCalculatedTrack && SoundCard && frontendspeechhandle != -1 && sosDIGISampleDone(*(int *)&DIGIHandle, frontendspeechhandle)) {
@@ -329,6 +337,7 @@ void select_track()
           iExitFlag = -1;
         } else if (game_type != 1 && iCurrentTrack != iCupOffset + iTrackInCup) {
           sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+          iFrontendSpeechPending = 0;
           iCurrentTrack = iCupOffset + iTrackInCup;
           if (iAnimationTimer) {
             iAnimationTimer = 0;
@@ -339,12 +348,14 @@ void select_track()
       } else if (byKey >= 0x1Bu) {
         if (byKey <= 0x1Bu) {
           remove_frontendspeech();              // Escape key pressed - exit track selection
+          iFrontendSpeechPending = 0;
           sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
           iExitFlag = -1;
         } else if (byKey == 32 && game_type != 1 && TrackLoad > 0)// Space key pressed - cycle through cup categories
         {
           iCurrentTrack += 8;
           sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+          iFrontendSpeechPending = 0;
           if (iCurrentTrack > 8 && iCurrentTrack < 17 && (cup_won & 1) == 0)// Skip locked cup categories based on championship progress
             iCurrentTrack += 8;
           if (iCurrentTrack > 16 && iCurrentTrack < 25 && (cup_won & 2) == 0)
@@ -389,8 +400,7 @@ void select_track()
   fre((void **)&front_vga[13]);
   fre((void **)&front_vga[14]);
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
-  if (frontendspeechptr)
-    fre((void **)&frontendspeechptr);
+  remove_frontendspeech();
 }
 
 //-------------------------------------------------------------------------------------------------

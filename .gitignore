@@ -386,6 +386,5 @@ packages.microsoft.gpg
 .vscode/launch.json
 .claude
 .codex
-.worktrees/
-
+CLAUDE.md
 .worktrees/

@@ -790,6 +790,8 @@ void select_screen()
               while (ppCartexVgaToFree_2 != (void **)&cartex_vga[16]);
               remove_mapsels();
             }
+            if ((iMenuSelection >= 0 && iMenuSelection <= 5) || iMenuSelection == 7)
+              sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
             // GPU fade-out before leaving main menu to sub-menus
             // (main menu is GPU-rendered, scrbuf is stale, so software
             // fade_palette(0) in sub-menus would flash stale content)
@@ -810,22 +812,18 @@ void select_screen()
             }
             switch (iMenuSelection) {
               case 0:
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 select_car();
                 break;
               case 1:
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 if (game_type == 1)
                   select_disk();
                 else
                   select_track();
                 break;
               case 2:
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 select_configure();
                 break;
               case 3:
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 if (game_type == 1 && Race > 0) {
                   last_type = game_type;
                   game_type = 3;
@@ -835,12 +833,10 @@ void select_screen()
                 }
                 break;
               case 4:
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 select_type();
                 break;
               case 5:
                 iContinue = -1;
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 replaytype = 2;
                 break;
               case 6:
@@ -850,7 +846,6 @@ void select_screen()
                 break;
               case 7:
                 iQuitConfirmed = -1;
-                sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 break;
               case 8:
                 if (iBlockIdx >= CAR_DESIGN_AUTO) {

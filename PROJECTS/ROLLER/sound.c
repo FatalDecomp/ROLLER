@@ -80,6 +80,7 @@ int y2ok = 0;               //000A4A3C
 int bitaccept = 0;          //000A4A40
 uint8 *frontendspeechptr = NULL;//000A4A44
 int frontendspeechhandle = -1;  //000A4A48
+uint32 frontendlen = 0;
 int holdmusic = 0;          //000A4A4C
 int drivertype = -1;        //000A4A50
 uint8 unmangleinbuf[1024];  //00149EF0
@@ -148,6 +149,34 @@ int languages;              //0016F8D8
 int net_loading;            //0016F8DC
 int already_quit;           //0016F8E0
 int network_error;          //0017C97C
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontendspeechgeneration = -1;
+
+static int frontendspeech_current_handle()
+{
+  int iGeneration;
+
+  if (frontendspeechhandle == -1)
+    return 0;
+
+  iGeneration = DIGISampleGeneration(frontendspeechhandle);
+  return iGeneration != -1 && iGeneration == frontendspeechgeneration;
+}
+
+static void clear_frontendspeech_handle()
+{
+  frontendspeechhandle = -1;
+  frontendspeechgeneration = -1;
+}
+
+static void stop_frontendspeech_handle()
+{
+  if (frontendspeech_current_handle())
+    DIGIStopSample(frontendspeechhandle);
+  clear_frontendspeech_handle();
+}
 
 //-------------------------------------------------------------------------------------------------
 //000394C0
@@ -1209,8 +1238,6 @@ void tickhandler()
             copy_multiple[writeptr][player1_car].uiFullData = user_inp;
 
             // Set disconnect flag
-            uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
-            unFlags ;
             copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
 
             writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
@@ -1743,6 +1770,10 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
 
   *pBuf = 0;
   *uiSize = 0;
+
+  if (g_bSnapshotMode && iIsSound == 1 && !soundon) {
+    return;
+  }
   iFile = ROLLERopen(szFile, O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
   if (iFile == -1) {
     *uiSize = 0;
@@ -2346,20 +2377,13 @@ void dospeechsample(int iSampleIdx, int iVolume)
 
 //-------------------------------------------------------------------------------------------------
 //0003CC00
-int frontendspeechhandle;
-uint8 *frontendspeechptr;
-uint32 frontendlen;
-
 void loadfrontendsample(char *fileName)
 {
   if (!SoundCard)
     return;
 
   // Clear any existing frontend speech sample
-  if (frontendspeechhandle != -1) {
-    DIGIStopSample(frontendspeechhandle);
-    frontendspeechhandle = -1;
-  }
+  stop_frontendspeech_handle();
 
   // Free any existing frontend speech pointer
   if (frontendspeechptr)
@@ -2424,8 +2448,17 @@ void loadfrontendsample(char *fileName)
 //0003CD90
 int frontendsample(int iVol)
 {
+  int iPrevSample;
+
   if (iVol > 0x7FFF)
     iVol = 0x7FFF;
+
+  if (!SoundCard || !soundon || paused || !frontendspeechptr || !frontendlen) {
+    clear_frontendspeech_handle();
+    return -1;
+  }
+
+  stop_frontendspeech_handle();
 
   // Scale volume using SpeechVolume
   int iScaledVol = (SpeechVolume * iVol) / 127;
@@ -2436,6 +2469,16 @@ int frontendsample(int iVol)
   SampleFixed.iLength = frontendlen;
 
   frontendspeechhandle = DIGISampleStart(&SampleFixed);
+  frontendspeechgeneration = DIGISampleGeneration(frontendspeechhandle);
+  if (frontendspeechhandle != -1) {
+    iPrevSample = HandleSample[frontendspeechhandle];
+    if (iPrevSample != -1) {
+      if (HandleCar[frontendspeechhandle] != -1)
+        SampleHandleCar[iPrevSample].handles[HandleCar[frontendspeechhandle]] = -1;
+      HandleSample[frontendspeechhandle] = -1;
+      HandleCar[frontendspeechhandle] = -1;
+    }
+  }
 
   return frontendspeechhandle;
 }
@@ -2445,10 +2488,7 @@ int frontendsample(int iVol)
 void remove_frontendspeech()
 {
   // Clear any existing frontend speech sample
-  if (frontendspeechhandle != -1) {
-    DIGIStopSample(frontendspeechhandle);
-    frontendspeechhandle = -1;
-  }
+  stop_frontendspeech_handle();
 
 // Free any existing frontend speech pointer
   if (frontendspeechptr)
@@ -3232,7 +3272,7 @@ void startmusic(int iSong)
     uint32_t musiclength;
     loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
     SongPtr = musicbuffer;
-    if (&musicbuffer) {
+    if (musicbuffer) {
       // Init song in the MIDI system
       tInitSong InitSong = {
         .pData = (void *)musicbuffer,

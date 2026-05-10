@@ -81,6 +81,7 @@ void select_car()
   unsigned int uiNetworkLoop; // [esp+5Ch] [ebp-24h]
   int iPieChartY; // [esp+60h] [ebp-20h]
   int iNetworkPlayerCount; // [esp+64h] [ebp-1Ch]
+  int iFrontendSpeechPending;
 
   fade_palette(0);                              // Initialize screen fade and prepare UI graphics
   front_fade = 0;
@@ -148,6 +149,7 @@ void select_car()
     iCurrentCarSelectorPos = 8;
   iDelayBeforeRotation = 36;                    // 36-frame delay before starting car rotation animation
   iActivePlayer = 0;
+  iFrontendSpeechPending = 0;
   frames = 0;
   if (!byMenuExitFlag) {
     if (iOriginalCarSelection >= 0) //check added by ROLLER for zig build
@@ -165,18 +167,17 @@ void select_car()
       }
       iStatAnimationFrame = frames;
       frames = 0;
-      if (SoundCard
-        && front_fade
-        && SampleHandleCar[84].handles[0] != -1
-        && DIGISampleDone(SampleHandleCar[84].handles[0])) {//DIGISampleDone(*(int *)&DIGIHandle, SampleHandleCar[84].handles[0])) {
+      int bStartedFadeIn = 0;
+      if (SoundCard && front_fade && iFrontendSpeechPending && sfxplaying(SOUND_SAMPLE_CARIN) == 0) {
         frontendsample(0x8000);
-        SampleHandleCar[84].handles[0] = -1;
+        iFrontendSpeechPending = 0;
       }
       {                                           // RENDER FRAME (GPU)
       MenuRenderer *mr = GetMenuRenderer();
       menu_render_begin_frame(mr);
       if (!front_fade) {
         front_fade = -1;
+        bStartedFadeIn = -1;
         menu_render_begin_fade(mr, 1, 32);
       }
       menu_render_background(mr, 0);
@@ -328,8 +329,8 @@ void select_car()
                 fre(ppCurrentTexture);
               } while (ppTextureArray != &cartex_vga[16]);
               remove_mapsels();
-              if (frontendspeechptr)
-                fre((void **)&frontendspeechptr);
+              remove_frontendspeech();
+              iFrontendSpeechPending = 0;
             }
             if (game_type == 1 && Race > 0) {
               iPlayer1Car = iSelectedCar;
@@ -382,10 +383,14 @@ void select_car()
           }
           if (iPlayer1Car >= CAR_DESIGN_AUTO) {
             sfxsample(SOUND_SAMPLE_CARIN, 0x8000);
-            if (iPlayer1Car < CAR_DESIGN_SUICYCO)
+            iFrontendSpeechPending = 0;
+            if (iPlayer1Car < CAR_DESIGN_SUICYCO) {
               loadfrontendsample(descript[iPlayer1Car]);
-            if (!SamplePtr[SOUND_SAMPLE_CARIN])
-              frontendsample(0x8000);
+              if (SamplePtr[SOUND_SAMPLE_CARIN])
+                iFrontendSpeechPending = -1;
+              else
+                frontendsample(0x8000);
+            }
           }
           broadcast_mode = -1;
           while (broadcast_mode) {
@@ -400,6 +405,7 @@ void select_car()
         iZoomSpeed = 2000;
         iSelectedCar = -car_request - 1;
         sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+        iFrontendSpeechPending = 0;
         car_request = 0;
         if ((cheat_mode & 0x4000) != 0)
           switch_same = iSelectedCar + 666;
@@ -411,6 +417,7 @@ void select_car()
           iZoomSpeed = 2000;
           iDelayBeforeRotation = 0;
           sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+          iFrontendSpeechPending = 0;
 
           if (players > 0) {
               for (iPlayerLoopCounter = 0; iPlayerLoopCounter < players; iPlayerLoopCounter++) {
@@ -435,6 +442,7 @@ void select_car()
         iZoomSpeed = 2000;
         iSelectedCar = -1;
         sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+        iFrontendSpeechPending = 0;
         cheat_mode &= ~CHEAT_MODE_CLONES;
       }
       if (switch_sets) {
@@ -442,14 +450,14 @@ void select_car()
         iDelayBeforeRotation = 0;
         iZoomSpeed = 2000;
         sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+        iFrontendSpeechPending = 0;
         switch_sets = 0;
       }
-      if (!front_fade)                        // Screen fade-in: Load car voice sample and fade palette to visible
+      if (bStartedFadeIn)                    // Screen fade-in: Load car voice sample and start playback
       {
         if (iPlayer1Car >= CAR_DESIGN_AUTO && iPlayer1Car < CAR_DESIGN_SUICYCO)
           loadfrontendsample(descript[iPlayer1Car]);
-        front_fade = -1;
-        fade_palette(32);
+        iFrontendSpeechPending = 0;
         frontendsample(0x8000);
         frames = 0;
       }
@@ -476,6 +484,7 @@ void select_car()
           {
             if (iCurrentCarSelectorPos != 8 && iCurrentCarSelectorPos != iPlayer1Car || iCurrentCarSelectorPos == 8) {
               remove_frontendspeech();
+              iFrontendSpeechPending = 0;
               sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
             }
             if (iCurrentCarSelectorPos == iPlayer1Car
@@ -499,12 +508,14 @@ void select_car()
                 iZoomSpeed = 2000;
                 iSelectedCar = iCurrentCarSelectorPos;
                 sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+                iFrontendSpeechPending = 0;
               }
             }
           } else if (byInputKey == 27)          // Escape key: Exit to main menu
           {
             byMenuExitFlag = -1;
             remove_frontendspeech();
+            iFrontendSpeechPending = 0;
             sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
           }
         } else if (byInputKey <= 0x20u) {                                       // Space key: Switch between Player 1 and Player 2 in two-player mode
@@ -514,11 +525,13 @@ void select_car()
               iDelayBeforeRotation = 0;
               iZoomSpeed = 2000;
               iSelectedCar = Players_Cars[player1_car];
+              iFrontendSpeechPending = 0;
             } else {
               iDelayBeforeRotation = 0;
               iActivePlayer = 1;
               iZoomSpeed = 2000;
               iSelectedCar = Players_Cars[player2_car];
+              iFrontendSpeechPending = 0;
             }
           }
         } else if (byInputKey < 0x2Du) {
@@ -568,8 +581,7 @@ void select_car()
     }
   }
   fre((void **)&front_vga[7]);
-  if (frontendspeechptr)
-    fre((void **)&frontendspeechptr);
+  remove_frontendspeech();
   front_fade = 0;
   if (iPlayer1Car >= CAR_DESIGN_AUTO) {
     ppCleanupTextureArray = cartex_vga;
