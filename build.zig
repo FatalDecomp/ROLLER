@@ -215,6 +215,23 @@ fn configureSnapshotTests(
         "Run rendering snapshot regression tests across the intro replays",
     );
 
+
+    const assets_abs = assets_path.getPath2(b, null);
+    const assets_available = blk: {
+        var assets_dir = std.fs.cwd().openDir(assets_abs, .{}) catch break :blk false;
+        assets_dir.close();
+        break :blk true;
+    };
+    if (!assets_available) {
+        const missing_assets = b.addFail(b.fmt(
+            "snapshot assets directory not found: {s}\n" ++
+                "Run `mise run link-worktree-data` or pass `-Dassets-path=/path/to/fatdata` before `zig build test-snapshots`.",
+            .{assets_abs},
+        ));
+        test_snapshots.dependOn(&missing_assets.step);
+        return;
+    }
+
     // Drive the snapshot binary serially. Parallel invocations introduced
     // non-deterministic pixels at long-running replay frames (suspected:
     // contention on shared system probes during early init); chaining each
