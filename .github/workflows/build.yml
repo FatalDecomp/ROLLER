@@ -33,6 +33,11 @@ jobs:
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runs-on }}
+    env:
+      # hk is only needed for local git hooks and is not distributed for every CI host.
+      # Keep it out of workflow tool installation, including macOS x86_64.
+      MISE_DISABLE_TOOLS: hk
+      MISE_NO_HOOKS: "1"
     strategy:
       fail-fast: false
       matrix:
