@@ -298,6 +298,7 @@ void snapshot_render_winner_race(void)
 {
   int carDesign = CAR_DESIGN_AUTO;
   char byFlags = 0;
+  SceneRenderer *scene;
 
   tick_on = -1;
   frontend_on = -1;
@@ -326,6 +327,7 @@ void snapshot_render_winner_race(void)
   Car[0].nRoll = 0;
   Car[0].nPitch = 0;
   set_starts(0);
+  scene = scene_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
 
   for (int i = 0; i < 16; ++i)
     car_texs_loaded[i] = -1;
@@ -335,6 +337,10 @@ void snapshot_render_winner_race(void)
   car_texmap[carDesign] = 1;
   car_texs_loaded[carType] = 1;
   LoadCarTextures = 2;
+  if (scene && cartex_vga[car_texmap[carDesign] - 1]) {
+    scene_render_load_texture(scene, cartex_vga[car_texmap[carDesign] - 1],
+                              256, 0, car_texmap[carDesign], gfx_size);
+  }
   NoOfTextures = 255;
   scr_size = SVGA_ON ? 128 : 64;
 
@@ -343,7 +349,9 @@ void snapshot_render_winner_race(void)
     name_copy(driver_names[result_order[0]], "HUMAN");
 
   memcpy(scrbuf, front_vga[0], SVGA_ON ? 256000 : 64000);
-  DrawCar(scrbuf + 73600, carDesign, 2200.0, 512, byFlags & 1);
+  scene_render_set_target(scene, scrbuf, winw, winw, winh);
+  scene_render_set_viewport(scene, 0, 115, winw, winh - 115);
+  DrawCar(scene, carDesign, 2200.0, 512, byFlags & 1);
   front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
   copypic(scrbuf, screen);
 
@@ -352,6 +360,7 @@ void snapshot_render_winner_race(void)
   for (int i = 0; i < 16; ++i)
     fre((void**)&cartex_vga[i]);
   remove_mapsels();
+  scene_render_destroy(scene);
 }
 
 //-------------------------------------------------------------------------------------------------
