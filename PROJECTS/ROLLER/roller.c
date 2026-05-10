@@ -280,6 +280,59 @@ void UpdateSDLWindow()
 
 //-------------------------------------------------------------------------------------------------
 
+static void PresentDebugOverlayOnly(void)
+{
+  if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
+    return;
+
+  SDL_GPUCommandBuffer *pCmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
+  if (!pCmdBuf)
+    return;
+
+  SDL_GPUTexture *pSwapchainTex;
+  Uint32 uiSwapchainW, uiSwapchainH;
+  if (!SDL_WaitAndAcquireGPUSwapchainTexture(pCmdBuf, s_pWindow,
+          &pSwapchainTex, &uiSwapchainW, &uiSwapchainH) || !pSwapchainTex) {
+    SDL_CancelGPUCommandBuffer(pCmdBuf);
+    return;
+  }
+
+  SDL_GPUColorTargetInfo ct = {0};
+  ct.texture = pSwapchainTex;
+  ct.load_op = SDL_GPU_LOADOP_CLEAR;
+  ct.store_op = SDL_GPU_STOREOP_STORE;
+  ct.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
+
+  SDL_GPURenderPass *pRp = SDL_BeginGPURenderPass(pCmdBuf, &ct, 1, NULL);
+  SDL_EndGPURenderPass(pRp);
+
+  debug_overlay_render(s_pDebugOverlay, pCmdBuf, pSwapchainTex, uiSwapchainW, uiSwapchainH);
+  SDL_SubmitGPUCommandBuffer(pCmdBuf);
+}
+
+void ROLLERRefreshStartupOverlay()
+{
+  if (!s_pWindow || !s_pDebugOverlay)
+    return;
+
+  SDL_Event e;
+  while (SDL_PollEvent(&e)) {
+    UpdateSDLAudioEvents(e);
+    if (e.type == SDL_EVENT_QUIT) {
+      ShutdownSDL();
+      exit(0);
+    }
+
+    debug_overlay_handle_event(s_pDebugOverlay, &e);
+    if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_GRAVE)
+      debug_overlay_toggle(s_pDebugOverlay);
+  }
+
+  PresentDebugOverlayOnly();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void ToggleFullscreen()
 {
   static bool s_bIsFullscreen = false;
@@ -445,6 +498,9 @@ void InitFATDATA(const char *szDataRoot)
 
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
+    debug_overlay_set_visible(s_pDebugOverlay, true);
+    PresentDebugOverlayOnly();
+
     SDL_MessageBoxButtonData buttons[] = {
       { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image" },
       { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel" },
@@ -471,20 +527,16 @@ void InitFATDATA(const char *szDataRoot)
 
       SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1, szDataRoot, false);
 
-      SDL_Event event;
       while (!result.bDone) {
-        while (SDL_PollEvent(&event)) {
-          if (event.type == SDL_EVENT_QUIT) {
-            ShutdownSDL();
-            exit(0);
-          }
-        }
+        ROLLERRefreshStartupOverlay();
         SDL_Delay(10);
       }
 
       if (!result.bCancelled) {
+        ROLLERRefreshStartupOverlay();
         ExtractFATDATA(result.szPath, szDataRoot);        
         SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
+        ROLLERRefreshStartupOverlay();
       }
     }
   }

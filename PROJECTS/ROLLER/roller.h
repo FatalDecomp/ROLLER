@@ -41,6 +41,7 @@ void InitREPLAYS(const char *szDataRoot);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();
+void ROLLERRefreshStartupOverlay();
 void UpdateSDLAudioEvents(SDL_Event e);
 
 bool MIDI_Init(const char *config_file);
