@@ -1770,6 +1770,10 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
 
   *pBuf = 0;
   *uiSize = 0;
+
+  if (g_bSnapshotMode && iIsSound == 1 && !soundon) {
+    return;
+  }
   iFile = ROLLERopen(szFile, O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
   if (iFile == -1) {
     *uiSize = 0;
