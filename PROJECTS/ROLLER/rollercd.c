@@ -602,7 +602,7 @@ static void ExtractAudioTracksFromCue(const tCueInfo *pCueInfo, const char *szOu
 
 void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
 {
-  UpdateSDL();
+  ROLLERRefreshStartupOverlay();
 
   SDL_CreateDirectory(szOutDir);
 
@@ -615,6 +615,7 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
   }
 
   SDL_Log("ExtractDir: reading '%s' -> '%s'", szIsoDir, szOutDir);
+  ROLLERRefreshStartupOverlay();
 
   CdioListNode_t *pNode;
   _CDIO_LIST_FOREACH(pNode, pList)
@@ -667,8 +668,10 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
         }
         fclose(pOut);
         SDL_Log("  -> wrote '%s' (%u bytes)", szOutPath, pStat->size);
+        ROLLERRefreshStartupOverlay();
       } else {
         SDL_Log("  -> FAILED to open '%s' for writing: %s", szOutPath, strerror(errno));
+        ROLLERRefreshStartupOverlay();
       }
     }
     iso9660_stat_free(pStat);
@@ -759,10 +762,12 @@ static bool ExtractFATDATAFromMultiFileCue(const char *szCuePath, const char *sz
 
   SDL_Log("ExtractFATDATAFromMultiFileCue: using track %u '%s' for FATDATA",
           (unsigned)pDataTrack->uiTrack, pDataTrack->szFile);
+  ROLLERRefreshStartupOverlay();
 
   CdIo_t *p_cdio = cdio_open_am(szNormTempCuePath, DRIVER_UNKNOWN, NULL);
   if (!p_cdio) {
     SDL_Log("ExtractFATDATAFromMultiFileCue: cdio_open_am failed for '%s'", szNormTempCuePath);
+    ROLLERRefreshStartupOverlay();
     remove(szTempCuePath);
     return false;
   }
@@ -786,11 +791,13 @@ void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
   // Unlike iso9660_open_fuzzy (which reads raw bytes), the CdIo driver layer
   // handles Mode 2 XA sectors (2352-byte, 24-byte header) correctly.
   SDL_Log("ExtractFATDATA: opening '%s', output dir '%s'", szImagePath, szOutDir);
+  ROLLERRefreshStartupOverlay();
 
   if (CueStringEndsWithIgnoreCase(szImagePath, ".cue")) {
     tCueInfo cueInfo;
     if (ParseCueFile(szImagePath, &cueInfo) && cueInfo.bMultiFile) {
       SDL_Log("ExtractFATDATA: detected multi-file CUE with %d tracks", cueInfo.iNumTracks);
+      ROLLERRefreshStartupOverlay();
       ExtractFATDATAFromMultiFileCue(szImagePath, szOutDir, &cueInfo);
       return;
     }
@@ -806,9 +813,11 @@ void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
   CdIo_t *p_cdio = cdio_open_am(szNormPath, DRIVER_UNKNOWN, NULL);
   if (!p_cdio) {
     SDL_Log("ExtractFATDATA: cdio_open_am failed for '%s'", szNormPath);
+    ROLLERRefreshStartupOverlay();
     return;
   }
   SDL_Log("ExtractFATDATA: image opened successfully");
+  ROLLERRefreshStartupOverlay();
 
   // Write into szOutDir/FATDATA/ so the ROLLERdirexists("./FATDATA") check
   // in InitFATDATA passes after extraction.

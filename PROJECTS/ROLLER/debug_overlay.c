@@ -29,7 +29,9 @@
 #define MAX_LOG_LEN      256
 
 #define PANEL_MARGIN     10
-#define PANEL_H          (OVERLAY_H - PANEL_MARGIN * 2)
+#define HINT_H           28
+#define PANEL_Y          (PANEL_MARGIN + HINT_H + PANEL_MARGIN)
+#define PANEL_H          (OVERLAY_H - PANEL_Y - PANEL_MARGIN)
 #define LEFT_W           410
 #define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
 #define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
@@ -422,15 +424,22 @@ bool debug_overlay_is_visible(DebugOverlay *pOverlay) {
   return pOverlay && pOverlay->bVisible;
 }
 
-void debug_overlay_toggle(DebugOverlay *pOverlay) {
+void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   if (!pOverlay) return;
-  pOverlay->bVisible = !pOverlay->bVisible;
-  if (pOverlay->bVisible) {
+  if (pOverlay->bVisible == bVisible) return;
+
+  pOverlay->bVisible = bVisible;
+  if (bVisible) {
     SDL_StartTextInput(pOverlay->pWindow);
     pOverlay->iNetIfaceCount = ROLLERCommsEnumLocalAddrs(pOverlay->aNetIfaces, ROLLER_MAX_IFACES);
   } else {
     SDL_StopTextInput(pOverlay->pWindow);
   }
+}
+
+void debug_overlay_toggle(DebugOverlay *pOverlay) {
+  if (!pOverlay) return;
+  debug_overlay_set_visible(pOverlay, !pOverlay->bVisible);
 }
 
 void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
@@ -531,10 +540,24 @@ static void DrawNetworkAdapterCombo(DebugOverlay *pOverlay)
 
 // ---------------------------------------------------------------------------
 
+static void DrawHintPanel(DebugOverlay *pOverlay) {
+  struct nk_context *pCtx = &pOverlay->nk;
+  if (nk_begin(pCtx, "Toggle Hint",
+               nk_rect(PANEL_MARGIN, PANEL_MARGIN,
+                       OVERLAY_W - PANEL_MARGIN * 2, HINT_H),
+               NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+    nk_layout_row_dynamic(pCtx, 18, 1);
+    nk_label(pCtx, "Debug menu: press ` to toggle", NK_TEXT_LEFT);
+  }
+  nk_end(pCtx);
+}
+
+// ---------------------------------------------------------------------------
+
 static void DrawDebugPanel(DebugOverlay *pOverlay) {
   struct nk_context *pCtx = &pOverlay->nk;
   if (nk_begin(pCtx, "Settings",
-               nk_rect(PANEL_MARGIN, PANEL_MARGIN, LEFT_W, PANEL_H),
+               nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Network", NK_TEXT_LEFT);
@@ -601,7 +624,7 @@ static void DrawLogPanel(DebugOverlay *pOverlay) {
   struct nk_context *pCtx = &pOverlay->nk;
 
   if (nk_begin(pCtx, "Log",
-               nk_rect(RIGHT_X, PANEL_MARGIN, RIGHT_W, PANEL_H),
+               nk_rect(RIGHT_X, PANEL_Y, RIGHT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
     nk_layout_row_dynamic(pCtx, PANEL_H - 50, 1);
     if (nk_group_begin(pCtx, "log_inner", NK_WINDOW_BORDER)) {
@@ -637,6 +660,7 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   nk_input_end(pCtx);
   pOverlay->bInputBegun = false;
 
+  DrawHintPanel(pOverlay);
   DrawDebugPanel(pOverlay);
   DrawLogPanel(pOverlay);
 
