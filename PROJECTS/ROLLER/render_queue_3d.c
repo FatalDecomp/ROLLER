@@ -24,30 +24,6 @@ static void render_queue_3d_require(int iCondition)
 
 //-------------------------------------------------------------------------------------------------
 
-static int render_queue_3d_is_named_priority(int iLegacyPriority)
-{
-  switch (iLegacyPriority) {
-  case RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_LEFT_LANE_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
-  case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
-    return 1;
-  }
-  return 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 RenderQueue3D *render_queue_3d_global(void)
 {
   return &g_RenderQueue3D;
@@ -104,17 +80,6 @@ static tTrackZOrderEntry *render_queue_3d_add_required(RenderQueue3D *pQueue,
   ++pQueue->count;
 
   return pEntry;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void render_queue_3d_add_unmigrated_legacy_priority(RenderQueue3D *pQueue,
-                                                     int iLegacyPriority,
-                                                     int iChunkIdx,
-                                                     float fZDepth)
-{
-  render_queue_3d_require(!render_queue_3d_is_named_priority(iLegacyPriority));
-  render_queue_3d_add_required(pQueue, iLegacyPriority, iChunkIdx, fZDepth);
 }
 
 //-------------------------------------------------------------------------------------------------

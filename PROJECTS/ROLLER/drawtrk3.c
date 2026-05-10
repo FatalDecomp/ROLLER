@@ -10,7 +10,6 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
-#define TrackView(pQueue) (render_queue_3d_entries(pQueue))
 #include <math.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -1262,6 +1261,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   float fLeftWallCameraX; // [esp+344h] [ebp-1B0h]
   int iRenderObjectIndex; // [esp+348h] [ebp-1ACh]
   int iRenderQueueCount;
+  tTrackZOrderEntry *pRenderQueueEntries;
   float fObjectDepthA1; // [esp+34Ch] [ebp-1A8h]
   float fObjectDepthA2; // [esp+350h] [ebp-1A4h]
   float fObjectDepthA3; // [esp+354h] [ebp-1A0h]
@@ -2276,10 +2276,11 @@ LABEL_393:
   render_queue_3d_sort(pRenderQueue3D);
   iRenderObjectIndex = 0;
   iRenderQueueCount = render_queue_3d_count(pRenderQueue3D);
+  pRenderQueueEntries = render_queue_3d_entries(pRenderQueue3D);
   if (iRenderQueueCount > 0) {
     iIndexTmp1 = 144 * iChaseCamIdx_1;
     while (1) {
-      pRenderCommand = &TrackView(pRenderQueue3D)[iRenderQueueCount - 1 - iRenderObjectIndex];
+      pRenderCommand = &pRenderQueueEntries[iRenderQueueCount - 1 - iRenderObjectIndex];
       pTypedRenderCommand = render_queue_3d_command_at(pRenderQueue3D, iRenderQueueCount - 1 - iRenderObjectIndex);
       fRenderDepth = pRenderCommand->fZDepth;
       iSectionNum = pRenderCommand->nChunkIdx;
@@ -2720,9 +2721,9 @@ int facing_ok(float fX0, float fY0, float fZ0,
 
 //-------------------------------------------------------------------------------------------------
 //00027A10
-int Zcmp(const void *pTrackView1, const void *pTrackView2)
+int Zcmp(const void *pCommand1, const void *pCommand2)
 {
-  return render_queue_3d_compare_legacy_z_order(pTrackView1, pTrackView2);
+  return render_queue_3d_compare_legacy_z_order(pCommand1, pCommand2);
 }
 
 //-------------------------------------------------------------------------------------------------
