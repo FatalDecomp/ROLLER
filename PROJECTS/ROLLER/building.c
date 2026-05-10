@@ -570,8 +570,9 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
       viewIntY[i] = (int)(dx * vk2 + dy * vk5 + dz * vk8);
       viewIntZ[i] = (int)(dx * vk3 + dy * vk6 + dz * vk9);
       sortDepths[i] = (float)viewIntZ[i];
-      // Project to screen-space using legacy integer math; far polygons
-      // dispatch via game_render_quad_screen with these pre-projected coords.
+      // Project to screen-space using legacy integer math for culling and
+      // depth sorting; building polygons are submitted through world-space
+      // scene rendering below.
       int iClipped = 0;
       int iVz = viewIntZ[i];
       if (iVz < 80) {
@@ -665,9 +666,9 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
         BuildingZOrder[iCurrentZOrderIdx].iPolygonLink = -1;
         pPolygon = &BuildingPlans[uiBuildingType].pPols[iPolygonIndex];
         uiTex = pPolygon->uiTex;
-        // Backface culling — render only if polygon faces camera, or if the
-        // 0x2000 flag forces it visible from both sides. Mirrors the legacy
-        // (d1 × d2) · V0 test using int-truncated view-space coords.
+        // Backface culling — render only if polygon faces camera, or if
+        // SURFACE_FLAG_FLIP_BACKFACE forces it visible from both sides. Mirrors
+        // the legacy (d1 × d2) · V0 test using int-truncated view-space coords.
         {
           int iV0 = pPolygon->verts[0];
           int iV1 = pPolygon->verts[1];
@@ -686,7 +687,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
                             + (fDz02 * fDx13 - fDx02 * fDz13) * fY0
                             + (fDx02 * fDy13 - fDy02 * fDx13) * fZ0;
           int isBackFace = (fNormalDot >= 0.0);
-          if (isBackFace && (uiTex & 0x2000) == 0)
+          if (isBackFace && (uiTex & SURFACE_FLAG_FLIP_BACKFACE) == 0)
             goto skip_polygon;
 
           // Sum per-vertex clip flags; skip if entire poly is behind near plane.
@@ -698,11 +699,11 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           // Handle special textures (advertisements, building remapping)
           if ((uiTex & 0x200) != 0)
             uiTex = advert_list[iBuildingIdx];
-          if ((textures_off & 0x80) != 0 && (uiTex & 0x100) != 0)
+          if ((textures_off & TEX_OFF_BUILDING_TEXTURES) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             uiTex = (uiTex & 0xFFFFFE00) + bld_remap[(uint8)uiTex];
 
           // Vertex order: forward for front-facing, reversed for the
-          // back-facing 0x2000 case so texture mapping stays correct.
+          // back-facing SURFACE_FLAG_FLIP_BACKFACE case so texture mapping stays correct.
           int iOrder[4];
           if (isBackFace) {
             iOrder[0] = iV3; iOrder[1] = iV2; iOrder[2] = iV1; iOrder[3] = iV0;
@@ -719,35 +720,26 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           if ((float)iZ2 < fClosestZ) fClosestZ = (float)iZ2;
           if ((float)iZ3 < fClosestZ) fClosestZ = (float)iZ3;
 
-          if ((double)BuildingSub[uiBuildingType] * subscale <= fClosestZ) {
-            // Far polygon — pre-projected screen verts via game_render_quad_screen.
-            BuildingPol.iSurfaceType = (int)uiTex;
-            BuildingPol.uiNumVerts = 4;
-            for (int vi = 0; vi < 4; vi++) {
-              BuildingPol.vertices[vi].x = screenX[iOrder[vi]];
-              BuildingPol.vertices[vi].y = screenY[iOrder[vi]];
-            }
-            if ((uiTex & 0x100) != 0)
-              game_render_quad_screen(g_pGameRenderer, &BuildingPol,
-                               game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING), NULL);
-            else
-              game_render_quad_screen(g_pGameRenderer, &BuildingPol, TEXTURE_HANDLE_INVALID, NULL);
-          } else {
-            // Close polygon — world-space dispatch lets sw_quad_world subdivide.
-            GameRenderVertex verts[4];
-            for (int vi = 0; vi < 4; vi++) {
-              tVec3 *wc = &worldCoords[iOrder[vi]];
-              verts[vi].x = wc->fX;
-              verts[vi].y = wc->fY;
-              verts[vi].z = wc->fZ;
-              verts[vi].u = 0.0f;
-              verts[vi].v = 0.0f;
-            }
-            TextureHandle th = ((uiTex & 0x100) != 0)
-              ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
-              : TEXTURE_HANDLE_INVALID;
-            game_render_quad_world(g_pGameRenderer, verts, th, (int)uiTex, 0.0f);
+          GameRenderVertex verts[4];
+          for (int vi = 0; vi < 4; vi++) {
+            tVec3 *wc = &worldCoords[iOrder[vi]];
+            verts[vi].x = wc->fX;
+            verts[vi].y = wc->fY;
+            verts[vi].z = wc->fZ;
+            verts[vi].u = 0.0f;
+            verts[vi].v = 0.0f;
           }
+          // Textured building surfaces sample from the shared building texture
+          // atlas; unflagged surfaces are flat colors encoded directly in uiTex
+          // and should use an invalid texture handle.
+
+          TextureHandle th = ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+            ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
+            : TEXTURE_HANDLE_INVALID;
+          game_render_quad_world_subdivide_type(
+            g_pGameRenderer, verts, th, (int)uiTex,
+            GAME_RENDER_SUBDIVIDE_TYPE_BUILDING,
+            (float)BuildingSub[uiBuildingType] * subscale);
         }
         skip_polygon:;
         iZOrderOffset = iCurrentZOrderIdx * 12 + 12;

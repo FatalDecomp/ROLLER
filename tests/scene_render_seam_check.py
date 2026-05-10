@@ -186,6 +186,57 @@ def main() -> int:
     )
 
     assert_true(
+        not re.search(r"\bdodivide\s*\(", drawtrk3_h),
+        "drawtrk3.h must not expose dodivide",
+    )
+    assert_true(
+        not re.search(r"^void\s+dodivide\s*\(", drawtrk3, re.M),
+        "drawtrk3.c must not define public dodivide",
+    )
+    assert_true(
+        re.search(r"^static\s+void\s+dodivide\s*\(", scene_render_sw, re.M),
+        "scene_render_software.c must own static dodivide",
+    )
+
+
+    building = read("PROJECTS/ROLLER/building.c")
+    draw_building = extract_function(building, "DrawBuilding")
+    assert_true(
+        "game_render_quad_screen" not in draw_building,
+        "DrawBuilding must route building scene geometry through game_render_quad_world, not screen-space overlay quads",
+    )
+    assert_true(
+        "game_render_quad_world" in draw_building,
+        "DrawBuilding must submit building polygons through the world-space scene seam",
+    )
+    assert_true(
+        "(float)BuildingSub[uiBuildingType] * subscale" in draw_building,
+        "DrawBuilding must preserve BuildingSub[uiBuildingType] * subscale subdivision threshold",
+    )
+
+    assert_true(
+        "game_render_quad_world_subdivide_type" in draw_building
+        and "GAME_RENDER_SUBDIVIDE_TYPE_BUILDING" in draw_building,
+        "DrawBuilding must explicitly mark flat and textured building quads as building subdivision type",
+    )
+
+    assert_true(
+        "SURFACE_FLAG_APPLY_TEXTURE" in draw_building
+        and "uiTex & 0x100" not in draw_building,
+        "DrawBuilding must use the named texture-application surface flag instead of magic 0x100",
+    )
+
+    scene_quad = extract_function(scene_render_sw, "scene_render_sw_quad_world_legacy")
+    assert_true(
+        "float directVz[4]" in scene_quad and "directVz[i] = (float)iVz[i];" in scene_quad,
+        "building world-quads must keep unclamped view Z for subdivision threshold decisions",
+    )
+    assert_true(
+        "options.subThreshold > 0.0f || subpolyType == SUBPOLY_BUILDING" in scene_quad,
+        "building zero subdivision thresholds must remain valid direct-render thresholds",
+    )
+
+    assert_true(
         "const GameRenderCamera *camera" in drawtrk3_h
         and "const GameRenderProjection *projection" in drawtrk3_h,
         "DrawTrack3 must receive camera/projection explicitly",
