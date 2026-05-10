@@ -34,6 +34,10 @@
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontendspeechgeneration = -1;
+
+//-------------------------------------------------------------------------------------------------
+
 int samplespending = 0;     //000A4690
 int writesample = 0;        //000A4694
 int readsample = 0;         //000A4698
@@ -2346,20 +2350,13 @@ void dospeechsample(int iSampleIdx, int iVolume)
 
 //-------------------------------------------------------------------------------------------------
 //0003CC00
-int frontendspeechhandle;
-uint8 *frontendspeechptr;
-uint32 frontendlen;
-
 void loadfrontendsample(char *fileName)
 {
   if (!SoundCard)
     return;
 
   // Clear any existing frontend speech sample
-  if (frontendspeechhandle != -1) {
-    DIGIStopSample(frontendspeechhandle);
-    frontendspeechhandle = -1;
-  }
+  stop_frontendspeech_handle();
 
   // Free any existing frontend speech pointer
   if (frontendspeechptr)
@@ -2424,8 +2421,17 @@ void loadfrontendsample(char *fileName)
 //0003CD90
 int frontendsample(int iVol)
 {
+  int iPrevSample;
+
   if (iVol > 0x7FFF)
     iVol = 0x7FFF;
+
+  if (!SoundCard || !soundon || paused || !frontendspeechptr || !frontendlen) {
+    clear_frontendspeech_handle();
+    return -1;
+  }
+
+  stop_frontendspeech_handle();
 
   // Scale volume using SpeechVolume
   int iScaledVol = (SpeechVolume * iVol) / 127;
@@ -2436,6 +2442,16 @@ int frontendsample(int iVol)
   SampleFixed.iLength = frontendlen;
 
   frontendspeechhandle = DIGISampleStart(&SampleFixed);
+  frontendspeechgeneration = DIGISampleGeneration(frontendspeechhandle);
+  if (frontendspeechhandle != -1) {
+    iPrevSample = HandleSample[frontendspeechhandle];
+    if (iPrevSample != -1) {
+      if (HandleCar[frontendspeechhandle] != -1)
+        SampleHandleCar[iPrevSample].handles[HandleCar[frontendspeechhandle]] = -1;
+      HandleSample[frontendspeechhandle] = -1;
+      HandleCar[frontendspeechhandle] = -1;
+    }
+  }
 
   return frontendspeechhandle;
 }
@@ -2445,10 +2461,7 @@ int frontendsample(int iVol)
 void remove_frontendspeech()
 {
   // Clear any existing frontend speech sample
-  if (frontendspeechhandle != -1) {
-    DIGIStopSample(frontendspeechhandle);
-    frontendspeechhandle = -1;
-  }
+  stop_frontendspeech_handle();
 
 // Free any existing frontend speech pointer
   if (frontendspeechptr)

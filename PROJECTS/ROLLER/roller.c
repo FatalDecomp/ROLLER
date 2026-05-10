@@ -1109,6 +1109,7 @@ int MIDIGetMasterVolume()
 SDL_AudioStream *digi_stream[NUM_DIGI_STREAMS];
 float digi_volume[NUM_DIGI_STREAMS];
 float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
+int digi_generation[NUM_DIGI_STREAMS];
 tSampleData digi_sample_data[NUM_DIGI_STREAMS];
 
 static void DIGILock(void)
@@ -1203,6 +1204,7 @@ int DIGISampleStart(tSampleData *data)
     digi_stream[index] = NULL;
     memset(&digi_sample_data[index], 0, sizeof(tSampleData));
   }
+  ++digi_generation[index];
 
   // Compute initial pan: raw iPan [0, 0x10000], 0x8000 = center → [-1.0, 1.0]
   float fInitialPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
@@ -1280,6 +1282,17 @@ int DIGISampleAvailable(int index)
   return iAvailable;
 }
 
+int DIGISampleGeneration(int index)
+{
+  if (index < 0 || index >= NUM_DIGI_STREAMS)
+    return -1;
+
+  DIGILock();
+  int iGeneration = digi_generation[index];
+  DIGIUnlock();
+  return iGeneration;
+}
+
 int DIGIMasterVolume = 0x7FFF; // Default master volume (0-0x7FFF)
 /// <summary>
 /// Set the master volume for all digital audio streams.
@@ -1324,6 +1337,7 @@ void DIGIStopSample(int index)
     digi_stream[index] = NULL;
     memset(&digi_sample_data[index], 0, sizeof(tSampleData));
     digi_pan[index] = 0.0f;
+    ++digi_generation[index];
   }
   DIGIUnlock();
 }
@@ -1338,6 +1352,7 @@ void DIGIClearAllStream()
       digi_stream[i] = NULL;
       memset(&digi_sample_data[i], 0, sizeof(tSampleData));
       digi_pan[i] = 0.0f;
+      ++digi_generation[i];
     }
   }
   DIGIUnlock();
