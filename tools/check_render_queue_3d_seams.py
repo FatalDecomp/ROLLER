@@ -14,6 +14,9 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DRAWTRK3 = ROOT / "PROJECTS" / "ROLLER" / "drawtrk3.c"
+FRAME_SRC = ROOT / "PROJECTS" / "ROLLER" / "3d.c"
+SNAPSHOT_SRC = ROOT / "PROJECTS" / "ROLLER" / "snapshot.c"
+SNAPSHOT_HDR = ROOT / "PROJECTS" / "ROLLER" / "snapshot.h"
 ROLLER_SRC = ROOT / "PROJECTS" / "ROLLER"
 
 MIGRATED_PRIORITIES = {
@@ -51,6 +54,30 @@ REQUIRED_DRAWTRK3_APIS = {
     "render_queue_3d_add_start_light": "start lights",
 }
 
+REQUIRED_FRAME_PHASE_MARKERS = {
+    "Gameplay frame phase: camera/projection setup": "camera/projection setup phase",
+    "Gameplay frame phase: atmosphere": "atmosphere phase",
+    "Gameplay frame phase: visibility/entity production": "visibility/entity production phase",
+    "Gameplay frame phase: 3D queue production and sorted dispatch": "3D queue production/dispatch phase",
+    "Gameplay frame phase: capture/present": "capture/present phase",
+}
+
+REQUIRED_DRAWTRACK_PHASE_MARKERS = {
+    "RenderQueue3D *pRenderQueue3D = render_queue_3d_global();": "local render queue pointer",
+    "Gameplay 3D queue phase: project visible track geometry": "track projection phase",
+    "Gameplay 3D queue phase: produce world commands": "queue production phase",
+    "Gameplay 3D queue phase: sorted dispatch": "sorted dispatch phase",
+}
+
+REQUIRED_SNAPSHOT_RECORD_MARKERS = {
+    "SnapshotApplyFixedRecords();": "snapshot-mode record fixture application",
+    "if (!g_bSnapshotMode) SaveRecords();": "snapshot-mode SaveRecords guard",
+    "void SnapshotApplyFixedRecords(void)": "fixed snapshot record implementation",
+    "SnapshotRecordFixture": "fixed snapshot record fixture data",
+    "HUMAN": "baseline menu-select-track record holder",
+    "6127": "baseline menu-select-track record lap centiseconds",
+}
+
 
 def fail(message: str) -> int:
     print(f"render_queue_3d seam check failed: {message}", file=sys.stderr)
@@ -67,6 +94,9 @@ def compatibility_call_pattern(function_name: str, priority: int) -> re.Pattern[
 
 def main() -> int:
     drawtrk3 = DRAWTRK3.read_text(encoding="utf-8")
+    frame_src = FRAME_SRC.read_text(encoding="utf-8")
+    snapshot_src = SNAPSHOT_SRC.read_text(encoding="utf-8")
+    snapshot_hdr = SNAPSHOT_HDR.read_text(encoding="utf-8")
 
     for priority, name in MIGRATED_PRIORITIES.items():
         if direct_priority_write_pattern(priority).search(drawtrk3):
@@ -85,6 +115,25 @@ def main() -> int:
     if "render_queue_3d_add_legacy_priority" in drawtrk3:
         return fail("drawtrk3.c still uses old legacy-priority compatibility API name")
 
+    for marker, label in REQUIRED_FRAME_PHASE_MARKERS.items():
+        if marker not in frame_src:
+            return fail(f"3d.c does not name the gameplay {label}")
+
+    for marker, label in REQUIRED_DRAWTRACK_PHASE_MARKERS.items():
+        if marker not in drawtrk3:
+            return fail(f"drawtrk3.c does not name the gameplay {label}")
+
+    if drawtrk3.count("render_queue_3d_global()") != 1:
+        return fail("DrawTrack3 should use one local render queue pointer instead of repeated render_queue_3d_global() calls")
+
+    snapshot_text = "\n".join([frame_src, snapshot_src, snapshot_hdr])
+    for marker, label in REQUIRED_SNAPSHOT_RECORD_MARKERS.items():
+        if marker not in snapshot_text:
+            return fail(f"snapshot harness does not pin {label}")
+
+    save_records_callers = "\n".join(path.read_text(encoding="utf-8") for path in ROLLER_SRC.glob("*.c"))
+    if save_records_callers.count("SaveRecords();") != save_records_callers.count("if (!g_bSnapshotMode) SaveRecords();"):
+        return fail("snapshot mode must guard every SaveRecords() call")
     for path in ROLLER_SRC.glob("*.c"):
         if path.name == "render_queue_3d.c":
             continue

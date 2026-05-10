@@ -10,7 +10,7 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
-#define TrackView (render_queue_3d_entries(render_queue_3d_global()))
+#define TrackView(pQueue) (render_queue_3d_entries(pQueue))
 #include <math.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -1358,12 +1358,15 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   float fWorldY; // [esp+4CCh] [ebp-28h]
   float fWorldX; // [esp+4D0h] [ebp-24h]
   int iRenderingTemp; // [esp+4E0h] [ebp-14h]
+  RenderQueue3D *pRenderQueue3D = render_queue_3d_global();
 
   pScrPtr_1 = pScrPtr;                          // Store function parameters
   iChaseCamIdx_1 = iChaseCamIdx;
   iCarIdx_1 = iCarIdx;
   cars_drawn = 0;                               // Initialize global counters for rendering
   num_pols = 0;
+
+  // Gameplay 3D queue phase: project visible track geometry into screen-space caches.
   for (iTrackSectionIndex = 0; TrackSize + 1 >= iTrackSectionIndex; ++iTrackSectionIndex) {
     if (first_size + 1 >= iTrackSectionIndex || iTrackSectionIndex >= gap_size) {
       iCurrentTrackIndex = start_sect + iTrackSectionIndex;// Calculate current track section index with wraparound
@@ -1675,8 +1678,10 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
     }
   }
-  iTrackLoopCounter = TrackSize;                // Second phase: Build render list by traversing track backwards
-  render_queue_3d_clear(render_queue_3d_global());
+  iTrackLoopCounter = TrackSize;
+
+  // Gameplay 3D queue phase: produce world commands by traversing visible track sections backwards.
+  render_queue_3d_clear(pRenderQueue3D);
   if (TrackSize >= 0) {
     while (iTrackLoopCounter > first_size && iTrackLoopCounter < gap_size) {
     LABEL_356:
@@ -1766,7 +1771,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
         fProjectionZ = fGroundDepthSelected;
       }
       fGroundRenderDepth = fProjectionZ;
-      render_queue_3d_add_ground(render_queue_3d_global(), iCurrentSect, fGroundRenderDepth);
+      render_queue_3d_add_ground(pRenderQueue3D, iCurrentSect, fGroundRenderDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
       if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
@@ -1794,7 +1799,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fRoadCenterFinalDepth = fRoadCenterDepthSelected;
       fRoadCenterCmdDepth = fRoadCenterFinalDepth;
-      render_queue_3d_add_road_center(render_queue_3d_global(), iCurrentSect, fRoadCenterCmdDepth);
+      render_queue_3d_add_road_center(pRenderQueue3D, iCurrentSect, fRoadCenterCmdDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
       if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
@@ -1822,7 +1827,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fLeftRoadFinalDepth = fLeftRoadDepthSelected;
       fLeftRoadCmdDepth = fLeftRoadFinalDepth;
-      render_queue_3d_add_left_lane(render_queue_3d_global(), iCurrentSect, fLeftRoadCmdDepth);
+      render_queue_3d_add_left_lane(pRenderQueue3D, iCurrentSect, fLeftRoadCmdDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
       if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
@@ -1850,7 +1855,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fRightRoadFinalDepth = fRightRoadDepthSelected;
       fRightRoadCmdDepth = fRightRoadFinalDepth;
-      render_queue_3d_add_right_lane(render_queue_3d_global(), iCurrentSect, fRightRoadCmdDepth);
+      render_queue_3d_add_right_lane(pRenderQueue3D, iCurrentSect, fRightRoadCmdDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99) {
       if (Walls_On) {
@@ -1884,7 +1889,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRoof1DepthSelected = fRoof1SelectedDepth;
             fRoof1CmdDepth = fRoof1DepthSelected;
-            render_queue_3d_add_next_section_roof(render_queue_3d_global(), iCurrentSect, fRoof1CmdDepth);
+            render_queue_3d_add_next_section_roof(pRenderQueue3D, iCurrentSect, fRoof1CmdDepth);
             goto LABEL_238;
           }
           iRoofType = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
@@ -1954,7 +1959,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRoof2CmdDepth = fRoof2DepthSelected;
           }
-          render_queue_3d_add_current_section_roof(render_queue_3d_global(), iCurrentSect, fRoof2CmdDepth);
+          render_queue_3d_add_current_section_roof(pRenderQueue3D, iCurrentSect, fRoof2CmdDepth);
         }
       }
     }
@@ -1985,7 +1990,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fLeftLowerWallDepthSelected = fLeftLowerWallSelected;
       fLeftLowerWallCmdDepth = fLeftLowerWallDepthSelected;
-      render_queue_3d_add_left_lower_wall(render_queue_3d_global(), iCurrentSect, fLeftLowerWallCmdDepth);
+      render_queue_3d_add_left_lower_wall(pRenderQueue3D, iCurrentSect, fLeftLowerWallCmdDepth);
     }
     if (GroundColour[iCurrentSect][GROUND_COLOUR_RLOWALL] != -1 && bGroundVisible) {
       if (pNextGroundScreen->screenPtAy[3].projected.fZ <= (double)pNextGroundScreen->screenPtAy[4].projected.fZ)
@@ -2013,7 +2018,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
       }
       fRightLowerWallDepthSelected = fRightLowerWallSelected;
       fRightLowerWallCmdDepth = fRightLowerWallDepthSelected;
-      render_queue_3d_add_right_lower_wall(render_queue_3d_global(), iCurrentSect, fRightLowerWallCmdDepth);
+      render_queue_3d_add_right_lower_wall(pRenderQueue3D, iCurrentSect, fRightLowerWallCmdDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99) {
       if (Walls_On) {
@@ -2054,7 +2059,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 * 0.25f;
             }
             fRightWallCmdDepth = fLeftWallRoofDepth;
-            render_queue_3d_add_left_high_wall(render_queue_3d_global(), iCurrentSect, fRightWallCmdDepth);
+            render_queue_3d_add_left_high_wall(pRenderQueue3D, iCurrentSect, fRightWallCmdDepth);
           } else {
             if (pScreenCoord_1->screenPtAy[0].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
               fLeftWallDepthMax1 = pScreenCoord_1->screenPtAy[1].projected.fZ;
@@ -2080,7 +2085,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
               fLeftWallDepthTmp1 = fLeftWallDepthSelected;
             }
             fLeftWallFinalDepth = fLeftWallDepthSelected;
-            render_queue_3d_add_left_wall(render_queue_3d_global(), iCurrentSect, fLeftWallFinalDepth);
+            render_queue_3d_add_left_wall(pRenderQueue3D, iCurrentSect, fLeftWallFinalDepth);
           }
         }
       }
@@ -2123,7 +2128,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                                    + pScreenCoord->screenPtAy[5].projected.fZ)
                 * 0.25f;
             }
-            render_queue_3d_add_right_high_wall(render_queue_3d_global(), iCurrentSect, fRightWallRoofDepth);
+            render_queue_3d_add_right_high_wall(pRenderQueue3D, iCurrentSect, fRightWallRoofDepth);
           } else {
             if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[3].projected.fZ)
               fRightWallBasicDepth1 = pScreenCoord_1->screenPtAy[3].projected.fZ;
@@ -2150,7 +2155,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRightWallFinalDepth = fRightWallBasicSelected;
             fRightWallBasicCmdDepth = fRightWallFinalDepth;
-            render_queue_3d_add_right_wall(render_queue_3d_global(), iCurrentSect, fRightWallBasicCmdDepth);
+            render_queue_3d_add_right_wall(pRenderQueue3D, iCurrentSect, fRightWallBasicCmdDepth);
           }
         }
       }
@@ -2179,7 +2184,7 @@ LABEL_357:
             .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
             .color_remap = NULL,
           };
-          render_queue_3d_add_car(render_queue_3d_global(), iCarCommandIdx, fOffsetTmp1, &pose, &options);
+          render_queue_3d_add_car(pRenderQueue3D, iCarCommandIdx, fOffsetTmp1, &pose, &options);
         }
         cars_drawn = iCarProcessingFlag + 1;
       }
@@ -2245,7 +2250,7 @@ LABEL_393:
   pVisibleBuildingsPtr = &VisibleBuildings[0];     // Process building objects for rendering
   if (VisibleBuildings[0].iBuildingIdx != -1) {
     do {
-      render_queue_3d_add_building(render_queue_3d_global(),
+      render_queue_3d_add_building(pRenderQueue3D,
                                    pVisibleBuildingsPtr->iBuildingIdx,
                                    pVisibleBuildingsPtr->fDepth);
       ++pVisibleBuildingsPtr;
@@ -2261,20 +2266,21 @@ LABEL_393:
         + (SLight[0][iLightArrayOffset].currentPos.fZ - viewz) * vk9;
       if (fLightZ > 0.0) {
         fLightDepth = fLightZ;
-        render_queue_3d_add_start_light(render_queue_3d_global(), iLightIndex, fLightDepth);
+        render_queue_3d_add_start_light(pRenderQueue3D, iLightIndex, fLightDepth);
       }
       ++iLightIndex;
       ++iLightArrayOffset;
     } while (iLightIndex < 3);
   }
-  render_queue_3d_sort(render_queue_3d_global());// Fifth phase: Sort render list by Z-depth and render objects
+  // Gameplay 3D queue phase: sorted dispatch of world commands by Z-depth.
+  render_queue_3d_sort(pRenderQueue3D);
   iRenderObjectIndex = 0;
-  iRenderQueueCount = render_queue_3d_count(render_queue_3d_global());
+  iRenderQueueCount = render_queue_3d_count(pRenderQueue3D);
   if (iRenderQueueCount > 0) {
     iIndexTmp1 = 144 * iChaseCamIdx_1;
     while (1) {
-      pRenderCommand = &TrackView[iRenderQueueCount - 1 - iRenderObjectIndex];
-      pTypedRenderCommand = render_queue_3d_command_at(render_queue_3d_global(), iRenderQueueCount - 1 - iRenderObjectIndex);
+      pRenderCommand = &TrackView(pRenderQueue3D)[iRenderQueueCount - 1 - iRenderObjectIndex];
+      pTypedRenderCommand = render_queue_3d_command_at(pRenderQueue3D, iRenderQueueCount - 1 - iRenderObjectIndex);
       fRenderDepth = pRenderCommand->fZDepth;
       iSectionNum = pRenderCommand->nChunkIdx;
       pScreenCoord_1 = NULL;

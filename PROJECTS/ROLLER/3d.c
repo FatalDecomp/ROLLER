@@ -641,7 +641,7 @@ void doexit()
     }
   }
   close_network();
-  SaveRecords();
+  if (!g_bSnapshotMode) SaveRecords();
   fre((void**)&mirbuf);
   for (int i = 0; i < 16; ++i) {
     fre((void**)&rev_vga[i]);
@@ -1072,6 +1072,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
       dTextureSubscaleMultiplier = (double)scr_size * 1.2;// VGA texture-less: 1.2x multiplier (slightly higher detail)
     subscale = (float)dTextureSubscaleMultiplier;
   }
+  // Gameplay frame phase: camera/projection setup.
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
@@ -1098,11 +1099,19 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
       .texHalfRes = gfx_size,
   };
   game_render_set_projection(g_pGameRenderer, &proj);
+
+  // Gameplay frame phase: atmosphere. Sky/horizon stays outside the depth-sorted 3D queue.
   game_render_draw_sky(g_pGameRenderer, &cam, &proj); // Draw sky/horizon background
+
+  // Gameplay frame phase: visibility/entity production.
   CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
-  DrawCars(iCarIdx, uiViewMode);                // Render all visible cars (excluding current player if in chase cam)
+  DrawCars(iCarIdx, uiViewMode);                // Prepare visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
+
+  // Gameplay frame phase: 3D queue production and sorted dispatch.
   DrawTrack3(pScrPtr, iChaseCamIdx, iCarIdx, &cam, &proj); // Render track surface, buildings, and track-side objects
+
+  // Gameplay frame phase: capture/present.
   if (iCopyImmediately)                       // Check if immediate screen copy is requested
   {                                             // Copy rendered frame to display if screen is ready
     if (screenready)
@@ -1406,6 +1415,7 @@ int main(int argc, const char **argv, const char **envp)
   }
   InitCarStructs();                             // Initialize car data structures
   init();
+  SnapshotApplyFixedRecords();
   if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
     SnapshotEnsureMenuRenderer();
     int iSceneRc = SnapshotRunScene();
@@ -1994,7 +2004,7 @@ void play_game_uninit()
       //} while ((int)iOffset < iMaxOffset);
     }
   } else {
-    SaveRecords();
+    if (!g_bSnapshotMode) SaveRecords();
     save_fatal_config();
   }
   if (no_mem) {
