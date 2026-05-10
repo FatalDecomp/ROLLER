@@ -753,7 +753,9 @@ void DrawCars(int iCarIdx, int iViewMode)
 
 //-------------------------------------------------------------------------------------------------
 //000534A0
-void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
+void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar,
+                        const CarRenderPose *pose,
+                        const CarRenderOptions *options)
 {
   int iMotionX; // ebx
   int iMotionY; // esi
@@ -1075,6 +1077,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   float fRotMat00; // [esp+24Ch] [ebp-4Ch]
   int iYaw; // [esp+250h] [ebp-48h]
   tCar *pCar; // [esp+254h] [ebp-44h]
+  tVec3 renderPosePos;
   float fPolygonVertex1Z; // [esp+264h] [ebp-34h]
   float fPolygonVertex1X; // [esp+268h] [ebp-30h]
   tAnimation *pAnms; // [esp+278h] [ebp-20h]
@@ -1085,6 +1088,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   pScrBuf = pScreenBuffer;
   set_starts(0);
   pCar = &Car[iCarIndex];                       // Get pointer to car data structure
+  renderPosePos = pose->position;
   carDesignIndex = pCar->byCarDesignIdx;        // Get car design index from car data
   iNumCoords = CarDesigns[carDesignIndex].byNumCoords;
   pCarDesign = &CarDesigns[carDesignIndex];
@@ -1100,9 +1104,9 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
     iMotionY = pCar->iPitchMotion;
     iMotionZ = pCar->iYawMotion;
   }
-  nRoll = pCar->iRollCameraOffset + iMotionX + pCar->nRoll + pCar->iRollDynamicOffset;
-  iYawAngle = ((int16)iMotionZ + pCar->nYaw) & 0x3FFF;
-  iPitch = ((uint16)pCar->iPitchCameraOffset + (int16)iMotionY + (uint16)pCar->iPitchDynamicOffset + pCar->nPitch) & 0x3FFF;
+  nRoll = pCar->iRollCameraOffset + iMotionX + pose->roll + pCar->iRollDynamicOffset;
+  iYawAngle = ((int16)iMotionZ + pose->yaw) & 0x3FFF;
+  iPitch = ((uint16)pCar->iPitchCameraOffset + (int16)iMotionY + (uint16)pCar->iPitchDynamicOffset + pose->pitch) & 0x3FFF;
 
   fRotMat00 = tcos[iYawAngle] * tcos[iPitch];   // Calculate 3x3 rotation matrix from car orientation angles
   fRotMat01 = tsin[iYawAngle] * tcos[iPitch];
@@ -1116,14 +1120,15 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   fRotMat20 = -tcos[iYawAngle] * fRotMat02 * tcos[iRoll] - tsin[iYawAngle] * tsin[iRoll];
   fRotMat11 = -tsin[iYawAngle] * fRotMat02 * tcos[iRoll] + tcos[iYawAngle] * tsin[iRoll];
   dRotMat22 = tcos[iPitch] * tcos[iRoll];
-  fCarPosX = pCar->pos.fX;
-  fCarPosY = pCar->pos.fY;
-  fZ = pCar->pos.fZ;
+  fCarPosX = renderPosePos.fX;
+  fCarPosY = renderPosePos.fY;
+  fZ = renderPosePos.fZ;
   fRotMat22Copy = (float)dRotMat22;
   fCarPosZ = fZ;
   iCurrChunk = pCar->nCurrChunk;
-  uiColorFrom = car_flat_remap[carDesignIndex].uiColorFrom;
-  uiColorTo = car_flat_remap[carDesignIndex].uiColorTo;
+  const uint8 *color_remap = options ? options->color_remap : NULL;
+  uiColorFrom = color_remap ? color_remap[0] : car_flat_remap[carDesignIndex].uiColorFrom;
+  uiColorTo = color_remap ? color_remap[1] : car_flat_remap[carDesignIndex].uiColorTo;
   pAnms = CarDesigns[carDesignIndex].pAnms;
   if (fDistanceToCar >= 8000.0 && VisibleCars >= 4 || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
     goto LABEL_117;                             // Early exit if car is too far, invisible, or textures disabled
@@ -1217,7 +1222,7 @@ void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
   carpoint[3].fY = (float)dY;
 LABEL_28:
   if (pCar->nCurrChunk == -1) {
-    p_fX = &pCar->pos.fX;
+    p_fX = &renderPosePos.fX;
     uiCarWorldOffset = 0;
     dTransformMat22 = fRotMat22Copy;
     dTransformMat02 = fRotMat02;
@@ -1256,7 +1261,7 @@ LABEL_28:
       //++i;                                      // replace carpoint assignment with this in for loop
     }
   } else {
-    pCarPosPtr = &pCar->pos.fX;
+    pCarPosPtr = &renderPosePos.fX;
     iCornerIndex = 0;
     dTransformMat22_2 = fRotMat22Copy;
     dTransformMat02_2 = fRotMat02;
@@ -1928,7 +1933,7 @@ LABEL_117:
             if (byTextureIndex >= 4)
               uiTextureSurface = pAnimation->framesAy[iAnimationOffset / 4u];
             else
-              uiTextureSurface = pAnimation->framesAy[(char)pCar->byWheelAnimationFrame];
+              uiTextureSurface = pAnimation->framesAy[(char)(options ? options->anim_frame : 0)];
           }
           // SURFACE_FLAG_BACK
           if ((uiTextureSurface & SURFACE_FLAG_BACK) != 0)
@@ -2124,6 +2129,22 @@ LABEL_117:
       game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
     }
   }
+}
+
+void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
+{
+  tCar *pCar = &Car[iCarIndex];
+  CarRenderPose pose = {
+    .position = pCar->pos,
+    .yaw = pCar->nYaw,
+    .pitch = pCar->nPitch,
+    .roll = pCar->nRoll,
+  };
+  CarRenderOptions options = {
+    .anim_frame = pCar->byWheelAnimationFrame,
+    .color_remap = NULL,
+  };
+  DisplayCarWithPose(iCarIndex, pScreenBuffer, fDistanceToCar, &pose, &options);
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -49,10 +49,11 @@ void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
                          TextureHandle handle,
                          const uint8 *palette_remap);
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
-                             int yaw, int pitch, int roll,
-                             float worldX, float worldY, float worldZ,
-                             int animFrame, const uint8 *color_remap);
-void game_render_sw_draw_horizon(GameRendererSoftware *sw);
+                             const GameRenderCarPose *pose,
+                             const GameRenderCarOptions *options);
+void game_render_sw_draw_sky(GameRendererSoftware *sw,
+                              const GameRenderCamera *camera,
+                              const GameRenderProjection *projection);
 void game_render_sw_sprite(GameRendererSoftware *sw, int slot, int blockIdx,
                            int x, int y, int transparentColorIndex,
                            const tColor *palette);

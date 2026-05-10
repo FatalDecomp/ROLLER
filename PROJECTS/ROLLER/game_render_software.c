@@ -219,23 +219,36 @@ void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
 }
 
 void game_render_sw_draw_car(GameRendererSoftware *sw, int carIdx,
-                             int yaw, int pitch, int roll,
-                             float worldX, float worldY, float worldZ,
-                             int animFrame, const uint8 *color_remap) {
-    (void)yaw; (void)pitch; (void)roll;
-    (void)animFrame; (void)color_remap;
-    // Compute distance from camera to car for LOD.
-    // DisplayCar reads car state from global Car[] array.
+                             const GameRenderCarPose *pose,
+                             const GameRenderCarOptions *options) {
+    if (!sw || !pose)
+        return;
+    // Compute distance from camera to car for LOD using the explicit pose.
     const GameRenderCamera *cam = &sw->camera;
-    float dx = worldX - cam->viewX;
-    float dy = worldY - cam->viewY;
-    float dz = worldZ - cam->viewZ;
+    float dx = pose->position.fX - cam->viewX;
+    float dy = pose->position.fY - cam->viewY;
+    float dz = pose->position.fZ - cam->viewZ;
     float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-    DisplayCar(carIdx, screen_pointer, dist);
+    CarRenderPose car_pose = {
+        .position = pose->position,
+        .yaw = pose->yaw,
+        .pitch = pose->pitch,
+        .roll = pose->roll,
+    };
+    CarRenderOptions car_options = {
+        .anim_frame = options ? options->anim_frame : 0,
+        .color_remap = options ? options->color_remap : NULL,
+    };
+    DisplayCarWithPose(carIdx, screen_pointer, dist, &car_pose, &car_options);
 }
 
-void game_render_sw_draw_horizon(GameRendererSoftware *sw) {
-    (void)sw;
+void game_render_sw_draw_sky(GameRendererSoftware *sw,
+                             const GameRenderCamera *camera,
+                             const GameRenderProjection *projection) {
+    if (!sw || !camera || !projection)
+        return;
+    game_render_sw_set_camera(sw, camera);
+    game_render_sw_set_projection(sw, projection);
     DrawHorizon(screen_pointer);
 }
 

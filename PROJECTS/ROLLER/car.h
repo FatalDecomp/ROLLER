@@ -163,6 +163,20 @@ typedef struct
   int iType;
 } tCarSpray;
 
+typedef struct CarRenderPose
+{
+  tVec3 position;
+  int yaw;
+  int pitch;
+  int roll;
+} CarRenderPose;
+
+typedef struct CarRenderOptions
+{
+  int anim_frame;
+  const uint8 *color_remap;
+} CarRenderOptions;
+
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -224,6 +238,9 @@ void InitCars();
 void placecars();
 void DrawCars(int iCarIdx, int iViewMode);
 void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar);
+void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar,
+                        const CarRenderPose *pose,
+                        const CarRenderOptions *options);
 int carZcmp(const void *pCar1, const void *pCar2);
 
 //-------------------------------------------------------------------------------------------------

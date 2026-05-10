@@ -179,18 +179,21 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
-                          int yaw, int pitch, int roll,
-                          float worldX, float worldY, float worldZ,
-                          int animFrame, const uint8 *color_remap) {
+                          const GameRenderCarPose *pose,
+                          const GameRenderCarOptions *options) {
+    if (!renderer || !pose)
+        return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_draw_car(renderer->sw, carIdx, yaw, pitch, roll,
-                                worldX, worldY, worldZ, animFrame,
-                                color_remap);
+        game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
 }
 
-void game_render_draw_horizon(GameRenderer *renderer) {
+void game_render_draw_sky(GameRenderer *renderer,
+                          const GameRenderCamera *camera,
+                          const GameRenderProjection *projection) {
+    if (!renderer || !camera || !projection)
+        return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_draw_horizon(renderer->sw);
+        game_render_sw_draw_sky(renderer->sw, camera, projection);
 }
 
 void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,

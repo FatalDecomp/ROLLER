@@ -19,6 +19,18 @@ typedef SceneRenderVertex GameRenderVertex;
 typedef SceneRenderCamera GameRenderCamera;
 typedef SceneRenderProjection GameRenderProjection;
 
+typedef struct GameRenderCarPose {
+    tVec3 position;
+    int yaw;
+    int pitch;
+    int roll;
+} GameRenderCarPose;
+
+typedef struct GameRenderCarOptions {
+    int anim_frame;
+    const uint8 *color_remap;
+} GameRenderCarOptions;
+
 #define GAME_RENDER_SUBDIVIDE_TYPE_AUTO SCENE_RENDER_SUBDIVIDE_TYPE_AUTO
 #define GAME_RENDER_SUBDIVIDE_TYPE_CLOUD SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD
 
@@ -97,12 +109,13 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
 
 // Draw — car mesh
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
-                          int yaw, int pitch, int roll,
-                          float worldX, float worldY, float worldZ,
-                          int animFrame, const uint8 *color_remap);
+                          const GameRenderCarPose *pose,
+                          const GameRenderCarOptions *options);
 
-// Draw — horizon
-void game_render_draw_horizon(GameRenderer *renderer);
+// Draw — sky/horizon background
+void game_render_draw_sky(GameRenderer *renderer,
+                          const GameRenderCamera *camera,
+                          const GameRenderProjection *projection);
 
 // Draw — HUD sprites
 void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
