@@ -41,6 +41,10 @@ int SnapshotRunScene(void)
     snapshot_render_winner_championship();
     return SnapshotSceneCapturedAll();
   }
+  if (strcmp(g_SnapshotConfig.szSceneName, "championship-over") == 0) {
+    snapshot_render_championship_over();
+    return SnapshotSceneCapturedAll();
+  }
 
   fprintf(stderr, "ERROR: unknown snapshot scene '%s'\n", g_SnapshotConfig.szSceneName);
   return 1;

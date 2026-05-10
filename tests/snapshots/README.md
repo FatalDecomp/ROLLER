@@ -110,10 +110,10 @@ The list of replays and which frames are captured per replay live in
 
 Named scene snapshots live in `build.zig`'s `snapshot_scenes` table. Each
 scene currently captures frame `30`, meaning the thirtieth `SnapshotPresent()`
-call made by that scene's render driver. This gives frontend and winner
-screens a settle period before capture. Scene PNG names use
-`<scene-name>_<present-index>.png`, for example `menu-main_30.png` and
-`winner-race_30.png`.
+call made by that scene's render driver. This gives frontend, winner, and
+end-of-championship screens a settle period before capture. Scene PNG names use
+`<scene-name>_<present-index>.png`, for example `menu-main_30.png`,
+`winner-race_30.png`, and `championship-over_30.png`.
 
 ## File layout
 
@@ -134,7 +134,8 @@ tests/snapshots/
     ├── menu-select-type_30.png
     ├── menu-select-disk_30.png
     ├── winner-race_30.png
-    └── winner-championship_30.png
+    ├── winner-championship_30.png
+    └── championship-over_30.png
 ```
 
 Each PNG is a 640x400 8-bit indexed image with the active 256-entry
