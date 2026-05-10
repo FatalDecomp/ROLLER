@@ -37,6 +37,10 @@ int SnapshotRunScene(void)
     snapshot_render_menu_select_disk();
     return SnapshotSceneCapturedAll();
   }
+  if (strcmp(g_SnapshotConfig.szSceneName, "menu-configure") == 0) {
+    snapshot_render_menu_configure();
+    return SnapshotSceneCapturedAll();
+  }
   if (strcmp(g_SnapshotConfig.szSceneName, "winner-race") == 0) {
     snapshot_render_winner_race();
     return SnapshotSceneCapturedAll();
