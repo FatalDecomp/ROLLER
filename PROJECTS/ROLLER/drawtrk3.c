@@ -1766,7 +1766,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
         fProjectionZ = fGroundDepthSelected;
       }
       fGroundRenderDepth = fProjectionZ;
-      render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 2, iCurrentSect, fGroundRenderDepth); // ground, migrate in #159
+      render_queue_3d_add_ground(render_queue_3d_global(), iCurrentSect, fGroundRenderDepth);
     }
     if (pScreenCoord_1->iClipCount != 99 && pScreenCoord->iClipCount != 99 && Road_On) {
       if (pScreenCoord_1->screenPtAy[2].projected.fZ <= (double)pScreenCoord_1->screenPtAy[1].projected.fZ)
@@ -1884,7 +1884,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRoof1DepthSelected = fRoof1SelectedDepth;
             fRoof1CmdDepth = fRoof1DepthSelected;
-            render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 10, iCurrentSect, fRoof1CmdDepth); // roof, migrate in #159
+            render_queue_3d_add_next_section_roof(render_queue_3d_global(), iCurrentSect, fRoof1CmdDepth);
             goto LABEL_238;
           }
           iRoofType = TrakColour[iNextSectionIndex][TRAK_COLOUR_ROOF];
@@ -1954,7 +1954,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
             }
             fRoof2CmdDepth = fRoof2DepthSelected;
           }
-          render_queue_3d_add_unmigrated_legacy_priority(render_queue_3d_global(), 10, iCurrentSect, fRoof2CmdDepth); // roof, migrate in #159
+          render_queue_3d_add_current_section_roof(render_queue_3d_global(), iCurrentSect, fRoof2CmdDepth);
         }
       }
     }
@@ -2348,7 +2348,7 @@ LABEL_393:
           if (++iRenderObjectIndex >= iRenderQueueCount)
             return;
           break;
-        case 2:
+        case RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY:
           {
             int sf = GroundColour[iSectionNum][GROUND_COLOUR_OFLOOR];
             if (!facing_ok(
@@ -2566,7 +2566,7 @@ LABEL_393:
             }
           }
           goto LABEL_1271;
-        case 0xA:
+        case RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY:
           {
             int sf = TrakColour[iSectionNum][TRAK_COLOUR_ROOF];
             /* Single-section roof from NEXT section (negative surface type) */

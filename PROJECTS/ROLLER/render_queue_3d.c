@@ -29,6 +29,7 @@ static int render_queue_3d_is_named_priority(int iLegacyPriority)
   switch (iLegacyPriority) {
   case RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_LEFT_LOWER_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_RIGHT_LOWER_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_ROAD_CENTER_LEGACY_PRIORITY:
@@ -36,6 +37,7 @@ static int render_queue_3d_is_named_priority(int iLegacyPriority)
   case RENDER_QUEUE_3D_RIGHT_LANE_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_LEFT_HIGH_WALL_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_RIGHT_HIGH_WALL_LEGACY_PRIORITY:
+  case RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY:
   case RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY:
@@ -113,6 +115,54 @@ void render_queue_3d_add_unmigrated_legacy_priority(RenderQueue3D *pQueue,
 {
   render_queue_3d_require(!render_queue_3d_is_named_priority(iLegacyPriority));
   render_queue_3d_add_required(pQueue, iLegacyPriority, iChunkIdx, fZDepth);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void render_queue_3d_add_ground(RenderQueue3D *pQueue,
+                                 int iSectionIdx,
+                                 float fZDepth)
+{
+  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY, iSectionIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_GROUND_SURFACE;
+  pCommand->payload.ground_surface.section_idx = iSectionIdx;
+  pCommand->payload.ground_surface.depth = fZDepth;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
+}
+
+static void render_queue_3d_add_roof_surface(RenderQueue3D *pQueue,
+                                             int iSectionIdx,
+                                             float fZDepth,
+                                             RenderCommand3DRoofSurfaceVariant variant)
+{
+  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY, iSectionIdx, fZDepth);
+  RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
+  pCommand->kind = RENDER_COMMAND_3D_KIND_ROOF_SURFACE;
+  pCommand->payload.roof_surface.section_idx = iSectionIdx;
+  pCommand->payload.roof_surface.depth = fZDepth;
+  pCommand->payload.roof_surface.variant = variant;
+  pQueue->has_typed_command[pQueue->count - 1] = 1;
+}
+
+void render_queue_3d_add_next_section_roof(RenderQueue3D *pQueue,
+                                            int iSectionIdx,
+                                            float fZDepth)
+{
+  render_queue_3d_add_roof_surface(pQueue,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_ROOF_SURFACE_NEXT_SECTION);
+}
+
+void render_queue_3d_add_current_section_roof(RenderQueue3D *pQueue,
+                                               int iSectionIdx,
+                                               float fZDepth)
+{
+  render_queue_3d_add_roof_surface(pQueue,
+                                   iSectionIdx,
+                                   fZDepth,
+                                   RENDER_COMMAND_3D_ROOF_SURFACE_CURRENT_SECTION);
 }
 
 //-------------------------------------------------------------------------------------------------

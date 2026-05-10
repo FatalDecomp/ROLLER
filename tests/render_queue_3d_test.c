@@ -8,7 +8,7 @@ static void test_sort_matches_legacy_zcmp(void)
   render_queue_3d_clear(&queue);
 
   render_queue_3d_add_road_center(&queue, 100, 10.0f);
-  render_queue_3d_add_unmigrated_legacy_priority(&queue, 2, 101, 4.0f);
+  render_queue_3d_add_ground(&queue, 101, 4.0f);
   render_queue_3d_add_building(&queue, 102, 10.0f);
   render_queue_3d_add_left_lane(&queue, 103, 10.0f);
 
@@ -155,6 +155,48 @@ static void test_lower_wall_priority_mapping_payloads(void)
   assert(command->payload.lower_wall_surface.side == RENDER_COMMAND_3D_WALL_SURFACE_RIGHT);
 }
 
+static void test_ground_roof_priority_mapping_payloads(void)
+{
+  RenderQueue3D queue;
+  const RenderCommand3D *command;
+  render_queue_3d_clear(&queue);
+
+  render_queue_3d_add_ground(&queue, 40, 400.0f);
+  render_queue_3d_add_next_section_roof(&queue, 41, 401.0f);
+  render_queue_3d_add_current_section_roof(&queue, 42, 402.0f);
+
+  assert(render_queue_3d_count(&queue) == 3);
+
+  assert(queue.entries[0].nRenderPriority == RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY);
+  assert(queue.entries[0].nChunkIdx == 40);
+  assert(queue.entries[0].fZDepth == 400.0f);
+  command = render_queue_3d_command_at(&queue, 0);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_GROUND_SURFACE);
+  assert(command->payload.ground_surface.section_idx == 40);
+  assert(command->payload.ground_surface.depth == 400.0f);
+
+  assert(queue.entries[1].nRenderPriority == RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY);
+  assert(queue.entries[1].nChunkIdx == 41);
+  assert(queue.entries[1].fZDepth == 401.0f);
+  command = render_queue_3d_command_at(&queue, 1);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_ROOF_SURFACE);
+  assert(command->payload.roof_surface.section_idx == 41);
+  assert(command->payload.roof_surface.depth == 401.0f);
+  assert(command->payload.roof_surface.variant == RENDER_COMMAND_3D_ROOF_SURFACE_NEXT_SECTION);
+
+  assert(queue.entries[2].nRenderPriority == RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY);
+  assert(queue.entries[2].nChunkIdx == 42);
+  assert(queue.entries[2].fZDepth == 402.0f);
+  command = render_queue_3d_command_at(&queue, 2);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_ROOF_SURFACE);
+  assert(command->payload.roof_surface.section_idx == 42);
+  assert(command->payload.roof_surface.depth == 402.0f);
+  assert(command->payload.roof_surface.variant == RENDER_COMMAND_3D_ROOF_SURFACE_CURRENT_SECTION);
+}
+
 static void test_building_priority_mapping(void)
 {
   RenderQueue3D queue;
@@ -237,14 +279,18 @@ static void test_sort_keeps_typed_payloads_with_sorted_entries(void)
   render_queue_3d_clear(&queue);
 
   render_queue_3d_add_car(&queue, 4, 20.0f, &pose, &options);
-  render_queue_3d_add_unmigrated_legacy_priority(&queue, 2, 101, 10.0f);
+  render_queue_3d_add_ground(&queue, 101, 10.0f);
   render_queue_3d_add_right_lane(&queue, 77, 30.0f);
 
   render_queue_3d_sort(&queue);
 
   assert(render_queue_3d_count(&queue) == 3);
   assert(queue.entries[0].nChunkIdx == 101);
-  assert(render_queue_3d_command_at(&queue, 0) == NULL);
+  command = render_queue_3d_command_at(&queue, 0);
+  assert(command != NULL);
+  assert(command->kind == RENDER_COMMAND_3D_KIND_GROUND_SURFACE);
+  assert(command->payload.ground_surface.section_idx == 101);
+  assert(command->payload.ground_surface.depth == 10.0f);
   assert(queue.entries[1].nRenderPriority == RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY);
   assert(queue.entries[1].nChunkIdx == 4);
   command = render_queue_3d_command_at(&queue, 1);
@@ -273,6 +319,7 @@ int main(int argc, const char **argv, const char **envp)
   test_road_lane_priority_mapping_payloads();
   test_wall_priority_mapping_payloads();
   test_lower_wall_priority_mapping_payloads();
+  test_ground_roof_priority_mapping_payloads();
   test_building_priority_mapping();
   test_start_light_priority_mapping();
   test_car_priority_mapping_payload();
