@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pin migrated render_queue_3d command seams.
 
-Cars, buildings, start lights, road/lane surfaces, and wall/lower-wall surfaces have migrated
-away from raw legacy priority submission. Keep priorities 0, 1, 3, 4, 5, 6, 7, 8, 9,
-11, 13, and 14 out of drawtrk3's direct writes and out of the temporary unmigrated-priority
-compatibility path.
+Cars, buildings, start lights, road/lane surfaces, wall/lower-wall surfaces, and ground/roof
+surfaces have migrated away from raw legacy priority submission. Keep priorities 0, 1, 2,
+3, 4, 5, 6, 7, 8, 9, 10, 11, 13, and 14 out of drawtrk3's direct writes and out of the
+temporary unmigrated-priority compatibility path.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ ROLLER_SRC = ROOT / "PROJECTS" / "ROLLER"
 MIGRATED_PRIORITIES = {
     0: "left-wall",
     1: "right-wall",
+    2: "ground",
     3: "left-lower-wall",
     4: "right-lower-wall",
     5: "road-center",
@@ -26,6 +27,7 @@ MIGRATED_PRIORITIES = {
     7: "right-lane",
     8: "left-high-wall",
     9: "right-high-wall",
+    10: "roof",
     11: "car",
     13: "building",
     14: "start-light",
@@ -38,6 +40,9 @@ REQUIRED_DRAWTRK3_APIS = {
     "render_queue_3d_add_right_lower_wall": "right lower wall",
     "render_queue_3d_add_left_high_wall": "left high wall",
     "render_queue_3d_add_right_high_wall": "right high wall",
+    "render_queue_3d_add_ground": "ground",
+    "render_queue_3d_add_next_section_roof": "next-section roof",
+    "render_queue_3d_add_current_section_roof": "current-section roof",
     "render_queue_3d_add_road_center": "road center",
     "render_queue_3d_add_left_lane": "left lane",
     "render_queue_3d_add_right_lane": "right lane",
