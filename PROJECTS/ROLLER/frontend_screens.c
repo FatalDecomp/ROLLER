@@ -169,6 +169,96 @@ void fade_redraw_bg(void *ctx)
   menu_render_background((MenuRenderer *)ctx, 0);
 }
 
+void snapshot_render_menu_main(void)
+{
+  load_language_file(szSelectEng, 0);
+  load_language_file(szConfigEng, 1);
+
+  time_to_start = 0;
+  StartPressed = 0;
+  restart_net = 0;
+  network_on = 0;
+  players = 1;
+  player1_car = 0;
+  player2_car = 1;
+  Players_Cars[player1_car] = CAR_DESIGN_AUTO;
+  game_type = 0;
+  last_type = 0;
+  replaytype = 0;
+  Race = 0;
+  TrackLoad = 1;
+  front_fade = -1;
+  frontend_on = -1;
+  p_tex_size = gfx_size;
+
+  SVGA_ON = -1;
+  init_screen();
+  winx = 0;
+  winw = XMAX;
+  winy = 0;
+  winh = YMAX;
+  mirror = 0;
+  setpal("frontend.pal");
+
+  front_vga[0] = (tBlockHeader*)load_picture("frontend.bm");
+  front_vga[1] = (tBlockHeader*)load_picture("selhead.bm");
+  front_vga[2] = (tBlockHeader*)load_picture("font2.bm");
+  front_vga[4] = (tBlockHeader*)load_picture("opticon2.bm");
+  front_vga[5] = (tBlockHeader*)load_picture("selicons.bm");
+  front_vga[6] = (tBlockHeader*)load_picture("selexit.bm");
+  front_vga[15] = (tBlockHeader*)load_picture("font1.bm");
+
+  FindShades();
+  check_cars();
+  Car[0].nYaw = 0;
+  Car[0].nRoll = 0;
+  Car[0].nPitch = 0;
+  Car[0].pos.fX = 0.0;
+  Car[0].pos.fY = 0.0;
+  Car[0].pos.fZ = 0.0;
+  set_starts(0);
+  for (int i = 0; i < 16; ++i)
+    car_texs_loaded[i] = -1;
+  car_texs_loaded[0] = 0;
+  LoadCarTextures = 0;
+  NoOfTextures = 255;
+  scr_size = SVGA_ON ? 128 : 64;
+  ticks = 0;
+  frames = 0;
+
+  MenuRenderer *mr = GetMenuRenderer();
+  for (int i = 0; i <= 15; i++) {
+    if (front_vga[i])
+      menu_render_load_blocks(mr, i, front_vga[i], palette);
+  }
+
+  menu_render_begin_frame(mr);
+  menu_render_background(mr, 0);
+  menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
+  menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+  menu_render_sprite(mr, 6, 3, 52, 334, 0, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[192], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, config_buffer, font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[320], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[384], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[448], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &language_buffer[512], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_text(mr, 2, &config_buffer[640], font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
+  menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
+  menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+  menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+  menu_render_sprite(mr, 4, 7, 76, 257, -1, pal_addr);
+  show_received_mesage();
+  menu_render_end_frame(mr);
+
+  for (int i = 0; i < 16; ++i)
+    menu_render_free_blocks(mr, i);
+  for (int i = 0; i < 16; ++i)
+    fre((void**)&front_vga[i]);
+}
+
+
 //-------------------------------------------------------------------------------------------------
 //0003F7B0
 void select_screen()

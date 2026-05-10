@@ -121,6 +121,8 @@ void fade_redraw_bg(void *ctx);
 void title_screens();
 void copy_screens();
 void select_screen();
+void snapshot_render_menu_main(void);
+void snapshot_render_menu_main(void);
 void select_disk();
 void select_car();
 void select_configure();

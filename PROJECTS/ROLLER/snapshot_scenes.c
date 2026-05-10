@@ -6,8 +6,8 @@
 
 static int SnapshotRenderMenuMain(void)
 {
-  fprintf(stderr, "snapshot scene 'menu-main' is registered but has no renderer wired yet\n");
-  return 1;
+  snapshot_render_menu_main();
+  return g_SnapshotConfig.iCapturedCount == g_SnapshotConfig.iNumFrames ? 0 : 1;
 }
 
 int SnapshotRunScene(void)
