@@ -29,6 +29,10 @@ int SnapshotRunScene(void)
     snapshot_render_menu_select_type();
     return SnapshotSceneCapturedAll();
   }
+  if (strcmp(g_SnapshotConfig.szSceneName, "menu-select-players") == 0) {
+    snapshot_render_menu_select_players();
+    return SnapshotSceneCapturedAll();
+  }
   if (strcmp(g_SnapshotConfig.szSceneName, "menu-select-disk") == 0) {
     snapshot_render_menu_select_disk();
     return SnapshotSceneCapturedAll();
