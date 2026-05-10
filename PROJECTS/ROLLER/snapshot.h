@@ -6,14 +6,24 @@
 
 #define SNAPSHOT_MAX_FRAMES 64
 
+typedef enum
+{
+  SNAPSHOT_KIND_NONE = 0,
+  SNAPSHOT_KIND_REPLAY,
+  SNAPSHOT_KIND_SCENE,
+} eSnapshotKind;
+
 typedef struct
 {
+  eSnapshotKind eKind;
   char szReplayName[64];
+  char szSceneName[64];
   char szOutDir[256];
   int iFramesAy[SNAPSHOT_MAX_FRAMES];
   int iNumFrames;
   int iCapturedCount;
   int iMaxFrame;
+  int iPresentFrame;
 } tSnapshotConfig;
 
 extern int g_bSnapshotMode;
@@ -23,6 +33,9 @@ extern tSnapshotConfig g_SnapshotConfig;
 
 // Sets the replay file the snapshot driver will load. Truncates if too long.
 void SnapshotSetReplay(const char *szReplay);
+
+// Sets the named scene the snapshot driver will render. Truncates if too long.
+void SnapshotSetScene(const char *szScene);
 
 // Sets the output directory PNGs are written into.
 void SnapshotSetOutDir(const char *szOutDir);

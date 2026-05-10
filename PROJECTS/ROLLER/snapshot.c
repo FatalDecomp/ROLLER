@@ -24,8 +24,19 @@ tSnapshotConfig g_SnapshotConfig = { 0 };
 void SnapshotSetReplay(const char *szReplay)
 {
   if (!szReplay) return;
+  g_SnapshotConfig.eKind = SNAPSHOT_KIND_REPLAY;
   strncpy(g_SnapshotConfig.szReplayName, szReplay, sizeof(g_SnapshotConfig.szReplayName) - 1);
   g_SnapshotConfig.szReplayName[sizeof(g_SnapshotConfig.szReplayName) - 1] = '\0';
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SnapshotSetScene(const char *szScene)
+{
+  if (!szScene) return;
+  g_SnapshotConfig.eKind = SNAPSHOT_KIND_SCENE;
+  strncpy(g_SnapshotConfig.szSceneName, szScene, sizeof(g_SnapshotConfig.szSceneName) - 1);
+  g_SnapshotConfig.szSceneName[sizeof(g_SnapshotConfig.szSceneName) - 1] = '\0';
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -49,6 +60,8 @@ int SnapshotParseFrames(const char *szFramesArg)
 
   g_SnapshotConfig.iNumFrames = 0;
   g_SnapshotConfig.iMaxFrame = -1;
+  g_SnapshotConfig.iCapturedCount = 0;
+  g_SnapshotConfig.iPresentFrame = 0;
 
   char *pSaveptr = NULL;
   char *pTok = strtok_r(szBuf, ",", &pSaveptr);
@@ -81,24 +94,36 @@ void SnapshotZeroScreen(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void SnapshotBuildPath(char *szOut, size_t uiOutSize, int iFrame)
+static void SnapshotCopyStem(char *szStem, size_t uiStemSize)
 {
-  char szStem[64];
-  strncpy(szStem, g_SnapshotConfig.szReplayName, sizeof(szStem) - 1);
-  szStem[sizeof(szStem) - 1] = '\0';
+  const char *szSource = g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE
+    ? g_SnapshotConfig.szSceneName
+    : g_SnapshotConfig.szReplayName;
+
+  strncpy(szStem, szSource, uiStemSize - 1);
+  szStem[uiStemSize - 1] = '\0';
+
   // Strip the directory portion if any (caller may have passed a path).
   char *pSlash = strrchr(szStem, '/');
   char *pBack = strrchr(szStem, '\\');
   char *pBase = pSlash;
   if (pBack && (!pBase || pBack > pBase)) pBase = pBack;
   if (pBase) memmove(szStem, pBase + 1, strlen(pBase + 1) + 1);
+
   // Strip extension.
   char *pDot = strrchr(szStem, '.');
   if (pDot) *pDot = '\0';
+
   // Lowercase.
   for (char *p = szStem; *p; ++p) {
     if (*p >= 'A' && *p <= 'Z') *p = (char)(*p + ('a' - 'A'));
   }
+}
+
+static void SnapshotBuildPath(char *szOut, size_t uiOutSize, int iFrame)
+{
+  char szStem[64];
+  SnapshotCopyStem(szStem, sizeof(szStem));
 
   size_t uiDirLen = strlen(g_SnapshotConfig.szOutDir);
   int bHasSep = uiDirLen > 0 &&
@@ -118,9 +143,14 @@ void SnapshotPresent(void)
   if (!g_bSnapshotMode || !scrbuf) return;
   if (!g_bPaletteSet) return;
 
+  int iCaptureKey = currentreplayframe;
+  if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
+    iCaptureKey = ++g_SnapshotConfig.iPresentFrame;
+  }
+
   int bMatch = 0;
   for (int i = 0; i < g_SnapshotConfig.iNumFrames; ++i) {
-    if (g_SnapshotConfig.iFramesAy[i] == currentreplayframe) {
+    if (g_SnapshotConfig.iFramesAy[i] == iCaptureKey) {
       bMatch = 1;
       break;
     }
@@ -128,7 +158,7 @@ void SnapshotPresent(void)
 
   if (bMatch) {
     char szPath[512];
-    SnapshotBuildPath(szPath, sizeof(szPath), currentreplayframe);
+    SnapshotBuildPath(szPath, sizeof(szPath), iCaptureKey);
 
     // Make sure the output directory exists before writing the PNG.
     SDL_CreateDirectory(g_SnapshotConfig.szOutDir);
@@ -137,14 +167,15 @@ void SnapshotPresent(void)
     if (iRc != 0) {
       fprintf(stderr, "snapshot: PNG write failed (rc=%d) for '%s'\n", iRc, szPath);
     } else {
-      fprintf(stdout, "snapshot: wrote '%s' (frame %d)\n", szPath, currentreplayframe);
+      fprintf(stdout, "snapshot: wrote '%s' (frame %d)\n", szPath, iCaptureKey);
       fflush(stdout);
     }
     g_SnapshotConfig.iCapturedCount++;
   }
 
   if (g_SnapshotConfig.iCapturedCount >= g_SnapshotConfig.iNumFrames ||
-      currentreplayframe >= g_SnapshotConfig.iMaxFrame) {
+      (g_SnapshotConfig.eKind != SNAPSHOT_KIND_SCENE && currentreplayframe >= g_SnapshotConfig.iMaxFrame) ||
+      (g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE && g_SnapshotConfig.iPresentFrame >= g_SnapshotConfig.iMaxFrame)) {
     quit_game = 1;
     racing = 0;
   }
