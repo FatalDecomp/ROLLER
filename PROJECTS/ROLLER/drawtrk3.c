@@ -839,6 +839,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   tTrackZOrderEntry *pCarRenderCmd; // eax
   int iCarDrawOrderStatus; // edx
   float iCarDrawOrderIndex; // edx
+  int iCarCommandIdx; // edx
   int iCarProcessingFlag; // ecx
   int iCarsRenderedCount; // esi
   int iCarLoopIndex; // ebx
@@ -854,6 +855,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   float fLightDepth; // eax
   int iLightCmdIndex; // esi
   tTrackZOrderEntry *pRenderCommand; // eax
+  const RenderCommand3D *pTypedRenderCommand; // eax
   int iSectionNum; // esi
   int iSectionCommand; // eax
   float iSectionTypeIndex; // eax
@@ -1699,6 +1701,7 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   }
   iTrackLoopCounter = TrackSize;                // Second phase: Build render list by traversing track backwards
   num_bits = 0;
+  render_queue_3d_clear(render_queue_3d_global());
   if (TrackSize >= 0) {
     while (iTrackLoopCounter > first_size && iTrackLoopCounter < gap_size) {
     LABEL_356:
@@ -2237,22 +2240,34 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
     goto LABEL_356;
   }
 LABEL_357:
+  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   iCarIndex = 0;                                // Third phase: Process car objects for rendering
   if (numcars > 0) {
     iCarArrayIndex = 0;
-    pCarRenderCmd = &TrackView[num_bits];
     do {
       iCarDrawOrderStatus = car_draw_order[iCarArrayIndex].iChunkIdx;
       if (iCarDrawOrderStatus == -3 || iCarDrawOrderStatus >= 0) {
         iCarDrawOrderIndex = car_draw_order[iCarArrayIndex].fMinZDepth;
-        pCarRenderCmd->nRenderPriority = 11;
         fOffsetTmp1 = iCarDrawOrderIndex;
         iCarProcessingFlag = cars_drawn;
-        pCarRenderCmd->nChunkIdx = car_draw_order[iCarArrayIndex].iCarIdx;
-        pCarRenderCmd->fZDepth = fOffsetTmp1;
-        ++pCarRenderCmd;
-        cars_drawn = iCarProcessingFlag + 1;
-        ++num_bits;
+        iCarCommandIdx = car_draw_order[iCarArrayIndex].iCarIdx;
+        {
+          GameRenderCarPose pose = {
+            .position = Car[iCarCommandIdx].pos,
+            .yaw = Car[iCarCommandIdx].nYaw,
+            .pitch = Car[iCarCommandIdx].nPitch,
+            .roll = Car[iCarCommandIdx].nRoll,
+          };
+          GameRenderCarOptions options = {
+            .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
+            .color_remap = NULL,
+          };
+          pCarRenderCmd = render_queue_3d_add_car(render_queue_3d_global(), iCarCommandIdx, fOffsetTmp1, &pose, &options);
+        }
+        if (pCarRenderCmd != NULL) {
+          cars_drawn = iCarProcessingFlag + 1;
+          num_bits = render_queue_3d_count(render_queue_3d_global());
+        }
       }
       ++iCarIndex;
       ++iCarArrayIndex;
@@ -2313,7 +2328,6 @@ LABEL_357:
     goto LABEL_392;
   }
 LABEL_393:
-  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   pVisibleBuildingsPtr = &VisibleBuildings[0];     // Process building objects for rendering
   if (VisibleBuildings[0].iBuildingIdx != -1) {
     do {
@@ -2343,13 +2357,13 @@ LABEL_393:
       ++iLightArrayOffset;
     } while (iLightIndex < 3);
   }
-  render_queue_3d_set_legacy_count(render_queue_3d_global(), num_bits);
   render_queue_3d_sort(render_queue_3d_global());// Fifth phase: Sort render list by Z-depth and render objects
   iRenderObjectIndex = 0;
   if (num_bits > 0) {
     iIndexTmp1 = 144 * iChaseCamIdx_1;
     while (1) {
       pRenderCommand = &TrackView[num_bits - 1 - iRenderObjectIndex];
+      pTypedRenderCommand = render_queue_3d_command_at(render_queue_3d_global(), num_bits - 1 - iRenderObjectIndex);
       fRenderDepth = pRenderCommand->fZDepth;
       iSectionNum = pRenderCommand->nChunkIdx;
       pScreenCoord_1 = NULL;
@@ -2705,22 +2719,32 @@ LABEL_393:
           }
           goto LABEL_1271;
         case 0xB:
-          if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw) {
-            GameRenderCarPose pose = {
-              .position = Car[iSectionNum].pos,
-              .yaw = Car[iSectionNum].nYaw,
-              .pitch = Car[iSectionNum].nPitch,
-              .roll = Car[iSectionNum].nRoll,
-            };
-            GameRenderCarOptions options = {
-              .anim_frame = Car[iSectionNum].byWheelAnimationFrame,
-              .color_remap = NULL,
-            };
-            game_render_draw_car(g_pGameRenderer, iSectionNum, &pose, &options);
+          {
+            int iCarRenderIdx = iSectionNum;
+            GameRenderCarPose pose;
+            GameRenderCarOptions options;
+            const GameRenderCarPose *pCarPose;
+            const GameRenderCarOptions *pCarOptions;
+            if (pTypedRenderCommand != NULL && pTypedRenderCommand->kind == RENDER_COMMAND_3D_KIND_CAR) {
+              iCarRenderIdx = pTypedRenderCommand->payload.car.car_idx;
+              pCarPose = &pTypedRenderCommand->payload.car.pose;
+              pCarOptions = &pTypedRenderCommand->payload.car.options;
+            } else {
+              pose.position = Car[iSectionNum].pos;
+              pose.yaw = Car[iSectionNum].nYaw;
+              pose.pitch = Car[iSectionNum].nPitch;
+              pose.roll = Car[iSectionNum].nRoll;
+              options.anim_frame = Car[iSectionNum].byWheelAnimationFrame;
+              options.color_remap = NULL;
+              pCarPose = &pose;
+              pCarOptions = &options;
+            }
+            if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw)
+              game_render_draw_car(g_pGameRenderer, iCarRenderIdx, pCarPose, pCarOptions);
+            --CarsLeft;
+            if (names_on && (names_on == 1 || human_control[iCarRenderIdx]))
+              --NamesLeft;
           }
-          --CarsLeft;
-          if (names_on && (names_on == 1 || human_control[iSectionNum]))
-            --NamesLeft;
           goto LABEL_1271;
         case 0xC:
           DrawTower(iSectionNum, pScrPtr_1);
