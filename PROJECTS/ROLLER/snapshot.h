@@ -70,5 +70,9 @@ void SnapshotAdvanceTick(void);
 // are independent of the developer's local fatal.ini.
 void SnapshotApplyFixedSettings(void);
 
+// Pins record-table data after LoadRecords() so menu snapshots do not drift
+// with the developer's mutable dgkfc.rec file.
+void SnapshotApplyFixedRecords(void);
+
 //-------------------------------------------------------------------------------------------------
 #endif

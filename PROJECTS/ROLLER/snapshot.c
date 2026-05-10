@@ -20,6 +20,19 @@
 int g_bSnapshotMode = 0;
 tSnapshotConfig g_SnapshotConfig = { 0 };
 
+typedef struct SnapshotRecordFixture
+{
+  int iTrackIdx;
+  int iLapCentiseconds;
+  int iCarIdx;
+  int iKills;
+  char szName[9];
+} SnapshotRecordFixture;
+
+static const SnapshotRecordFixture g_SnapshotRecordFixtures[] = {
+  { 1, 6127, 0, 0, "HUMAN" },
+};
+
 //-------------------------------------------------------------------------------------------------
 
 void SnapshotSetReplay(const char *szReplay)
@@ -231,4 +244,30 @@ void SnapshotApplyFixedSettings(void)
   level = 0;
   damage_level = 0;
   infinite_laps = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void SnapshotApplyFixedRecords(void)
+{
+  if (!g_bSnapshotMode) return;
+
+  for (int i = 0; i < 25; ++i) {
+    memset(RecordNames[i], 0, sizeof(RecordNames[i]));
+    strcpy(RecordNames[i], "-----");
+    RecordLaps[i] = 128.0f;
+    RecordCars[i] = -1;
+    RecordKills[i] = 0;
+  }
+
+  for (int i = 0; i < (int)(sizeof(g_SnapshotRecordFixtures) / sizeof(g_SnapshotRecordFixtures[0])); ++i) {
+    const SnapshotRecordFixture *pFixture = &g_SnapshotRecordFixtures[i];
+    if (pFixture->iTrackIdx < 0 || pFixture->iTrackIdx >= 25) continue;
+
+    RecordLaps[pFixture->iTrackIdx] = (float)pFixture->iLapCentiseconds * 0.01f;
+    RecordCars[pFixture->iTrackIdx] = pFixture->iCarIdx;
+    RecordKills[pFixture->iTrackIdx] = pFixture->iKills;
+    memset(RecordNames[pFixture->iTrackIdx], 0, sizeof(RecordNames[pFixture->iTrackIdx]));
+    strncpy(RecordNames[pFixture->iTrackIdx], pFixture->szName, sizeof(RecordNames[pFixture->iTrackIdx]) - 1);
+  }
 }
