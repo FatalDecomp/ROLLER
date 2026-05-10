@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Pin the first render_queue_3d tracer-bullet migration.
+"""Pin migrated render_queue_3d command seams.
 
-Start lights are the first gameplay-3D command migrated away from raw legacy
-priority submission. Keep priority 14 out of drawtrk3's direct writes and out of
-the temporary legacy-priority compatibility path.
+Buildings and start lights have migrated away from raw legacy priority submission.
+Keep priorities 13 and 14 out of drawtrk3's direct writes and out of the temporary
+legacy-priority compatibility path.
 """
 from __future__ import annotations
 
@@ -23,19 +23,25 @@ def fail(message: str) -> int:
 def main() -> int:
     drawtrk3 = DRAWTRK3.read_text(encoding="utf-8")
 
+    if re.search(r"\.nRenderPriority\s*=\s*13\b|->nRenderPriority\s*=\s*13\b", drawtrk3):
+        return fail("drawtrk3.c writes building legacy priority 13 directly")
+
     if re.search(r"\.nRenderPriority\s*=\s*14\b|->nRenderPriority\s*=\s*14\b", drawtrk3):
         return fail("drawtrk3.c writes start-light legacy priority 14 directly")
+
+    if "render_queue_3d_add_building" not in drawtrk3:
+        return fail("drawtrk3.c does not submit buildings through render_queue_3d_add_building")
 
     if "render_queue_3d_add_start_light" not in drawtrk3:
         return fail("drawtrk3.c does not submit start lights through render_queue_3d_add_start_light")
 
-    legacy_priority_14 = re.compile(r"render_queue_3d_add_legacy_priority\s*\([^;]*\b14\b", re.DOTALL)
+    legacy_named_priority = re.compile(r"render_queue_3d_add_legacy_priority\s*\([^;]*\b(?:13|14)\b", re.DOTALL)
     for path in (ROOT / "PROJECTS" / "ROLLER").glob("*.c"):
         if path.name == "render_queue_3d.c":
             continue
         text = path.read_text(encoding="utf-8")
-        if legacy_priority_14.search(text):
-            return fail(f"{path.relative_to(ROOT)} submits priority 14 through legacy compatibility API")
+        if legacy_named_priority.search(text):
+            return fail(f"{path.relative_to(ROOT)} submits priority 13 or 14 through legacy compatibility API")
 
     return 0
 
