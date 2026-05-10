@@ -44,7 +44,7 @@ On the canonical host (Apple Silicon macOS at the time of writing) this:
 1. Builds the `roller` binary if needed.
 2. Runs `roller --snapshot introN.gss --frames ... --out
    tests/snapshots/baselines/` once per intro replay, serially, then
-   runs `roller --snapshot-scene NAME --frames 30 --out
+   runs `roller --snapshot-scene NAME --frames ... --out
    tests/snapshots/baselines/` once per named scene.
 3. Runs `git diff --exit-code --stat -- tests/snapshots/baselines/`.
 
@@ -109,33 +109,24 @@ The list of replays and which frames are captured per replay live in
 `build.zig`'s `snapshot_replays` table.
 
 Named scene snapshots live in `build.zig`'s `snapshot_scenes` table. Each
-scene currently captures frame `30`, meaning the thirtieth `SnapshotPresent()`
-call made by that scene's render driver. This gives frontend and winner
-screens a settle period before capture. Scene PNG names use
-`<scene-name>_<present-index>.png`, for example `menu-main_30.png` and
-`winner-race_30.png`.
+entry declares the scene name and capture frame(s). Animated frontend and
+winner scenes usually capture a later settled present such as frame `30`, while
+single-present static result screens can capture frame `1`. Scene PNG names use
+`<scene-name>_<present-index>.png`, for example `menu-main_30.png` or
+`race-result_1.png`.
 
 ## File layout
 
 ```
 tests/snapshots/
-├── README.md                  ← this file
-└── baselines/                 ← indexed PNGs, LFS-tracked
-    ├── intro1_60.png          ← <replay-stem>_<frame-index>.png
-    ├── intro1_240.png
-    ├── intro1_480.png
-    ├── intro1_720.png
-    ├── intro2_60.png
-    ├── ...
-    ├── intro7_600.png
-    ├── menu-main_30.png       ← <scene-name>_<present-index>.png
-    ├── menu-select-car_30.png
-    ├── menu-select-track_30.png
-    ├── menu-select-type_30.png
-    ├── menu-select-disk_30.png
-    ├── winner-race_30.png
-    └── winner-championship_30.png
+├── README.md
+└── baselines/    ← indexed PNG baselines, LFS-tracked
 ```
+
+Replay baseline filenames use `<replay-stem>_<frame-index>.png`; named scene
+baseline filenames use `<scene-name>_<present-index>.png`. Treat `build.zig`'s
+`snapshot_replays` and `snapshot_scenes` tables as the source of truth for the
+current generated file set.
 
 Each PNG is a 640x400 8-bit indexed image with the active 256-entry
 palette in the PLTE chunk. Any image viewer can open them.
