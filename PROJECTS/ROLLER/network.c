@@ -1863,6 +1863,7 @@ void CheckNewNodes()
           name_copy(rec_mes_name, messagePacket.szPlayerName);
 
           strncpy(rec_mes_buf, messagePacket.szMessage, sizeof(rec_mes_buf));
+          rec_mes_buf[sizeof(rec_mes_buf) - 1] = '\0';
           //for (iMsgCopyIndex = 0; iMsgCopyIndex < 32; LoadCarTextures_variable_1[iMsgCopyIndex] = transmitInitPacket.default_names[15][iMsgCopyIndex + 8])
           //  ++iMsgCopyIndex;
         }
@@ -1998,7 +1999,8 @@ void SendAMessage()
     syncHeader.uiId = PACKET_ID_MESSAGE;
     name_copy(messagePacket.szPlayerName, player_names[player1_car]);
 
-    strncpy(messagePacket.szMessage, rec_mes_buf, sizeof(messagePacket.szMessage));
+    strncpy(messagePacket.szMessage, send_mes_buf, sizeof(messagePacket.szMessage));
+    messagePacket.szMessage[sizeof(messagePacket.szMessage) - 1] = '\0';
 
     messagePacket.iNetworkSlot = network_slot;
 

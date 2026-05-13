@@ -5833,6 +5833,10 @@ MAIN_UI_LOOP:
                   iSelectedPlayer = iMenuSelection;
                   iMenuSelection = 0;
                   break;
+                case 2u:
+                  uiCurrentMenu = 0;
+                  iMenuSelection = 2;
+                  break;
                 default:
                   continue;
               }
@@ -5888,15 +5892,18 @@ void show_received_mesage()
       while (fatkbhit()) {
         if (!fatgetch())
           fatgetch();
+        UpdateSDL();
       }
+      UpdateSDL();
     } while (frames < 72);                      // Show message for at least 72 frames
     if (frames >= 72 && !time_to_start)       // After 72 frames, wait for any key press to dismiss
     {
       while (!fatkbhit() && !time_to_start)
-        ;
+        UpdateSDL();
       while (fatkbhit() && !time_to_start) {
         if (!fatgetch())
           fatgetch();
+        UpdateSDL();
       }
     }
     frames = 0;                                 // Reset frame counter when done
