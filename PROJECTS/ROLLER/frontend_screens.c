@@ -1097,7 +1097,7 @@ LABEL_232:
     }
     if (game_type == 1 && Race > 0) {
       if (racers > 0) {
-        for (int i = 0; i <= racers; i++)
+        for (int i = 0; i < racers; i++)
         {
           grid[i] = champorder[i];
         }
