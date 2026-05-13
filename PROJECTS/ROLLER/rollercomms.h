@@ -68,6 +68,12 @@ int ROLLERCommsBroadcastData(
     const void *pData,
     int iDataSize,
     uint16_t unPort);
+int ROLLERCommsSendDataToAddr(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    const void *pAddress);
 
 // Data reception
 int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut);

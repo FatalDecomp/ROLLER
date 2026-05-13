@@ -579,6 +579,38 @@ int ROLLERCommsBroadcastData(
 
 //-------------------------------------------------------------------------------------------------
 
+int ROLLERCommsSendDataToAddr(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    const void *pAddress)
+{
+  if (!g_commsState.bInitialized || !pAddress) {
+    return 0;
+  }
+
+  tROLLERNetAddr address;
+  memset(&address, 0, sizeof(address));
+  memcpy(&address, pAddress, sizeof(address));
+  address.unPadding = 0;
+  address.ullReserved = 0;
+
+  if (address.uiIPAddress == 0 || address.unPort == 0) {
+    return 0;
+  }
+
+  uint8_t packetBuffer[ROLLER_MAX_PACKET_SIZE];
+  int iTotalSize = 0;
+  if (!BuildPacket(packetBuffer, &iTotalSize, pHeader, iHeaderSize, pData, iDataSize)) {
+    return 0;
+  }
+
+  return SendPacketToIPv4(address.uiIPAddress, address.unPort, packetBuffer, iTotalSize);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut)
 {
   if (!g_commsState.bInitialized) {

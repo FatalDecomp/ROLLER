@@ -5993,6 +5993,10 @@ int select_netslot()
                                                 // 
     while (1)                                 // MAIN_DISPLAY_LOOP: Main UI display and input loop
     {
+      if (network_on) {
+        CheckNewNodes();
+        BroadcastNews();
+      }
       UpdateSDL();
       if (iExitFlag)
         return iReturnValue;
