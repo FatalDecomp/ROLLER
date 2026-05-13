@@ -108,6 +108,32 @@ static void LogDiscoveryAddress(const char *szMessage, const int32 pAddress[4])
 
 //-------------------------------------------------------------------------------------------------
 
+static int GetLastPacketAddress(int32 pAddress[4])
+{
+  tROLLERNetAddr netAddr;
+  if (!pAddress)
+    return 0;
+
+  ROLLERCommsGetLastPacketAddr(&netAddr);
+  netAddr.unPadding = 0;
+  netAddr.ullReserved = 0;
+  memcpy(pAddress, &netAddr, sizeof(netAddr));
+  return !IsInvalidPacketAddress(pAddress);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void UpdateDiscoveryTransport(const int32 pAddress[4], const int32 pTransportAddress[4])
+{
+  if (!pAddress || !pTransportAddress)
+    return;
+  if (IsInvalidPacketAddress(pTransportAddress) || IsLocalPacketAddress(pTransportAddress))
+    return;
+  ROLLERCommsUpdateNodeTransportAddr(pAddress, pTransportAddress);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void PulseLobbyDiscovery(void)
 {
   if (!frontend_on || !network_on || time_to_start || !master)
@@ -1123,6 +1149,8 @@ int TransmitInit()
 
   iSuccess = -1;
   if (network_on) {
+    ROLLERCommsGetNetworkAddr(address);
+    NormalizePacketAddress(address);
     header.byConsoleNode = player1_car;
     header.uiId = PACKET_ID_TRANSMIT_INIT;
     initPacket.iTrackLoad = TrackLoad;
@@ -1269,6 +1297,7 @@ void CheckNewNodes()
   tPlayerInfoPacket playerInfoPacket; // [esp+118h] [ebp-74h] BYREF
   tRecordPacket recordPacket; // [esp+140h] [ebp-4Ch] BYREF
   tSyncHeader syncHeader; // [esp+150h] [ebp-3Ch] BYREF
+  int32 packetTransportAddress[4];
   void *pPacket2; // [esp+15Ch] [ebp-30h] BYREF
   int iMaxGamerIndex; // [esp+160h] [ebp-2Ch]
   int *pTestSeed; // [esp+164h] [ebp-28h]
@@ -1286,6 +1315,8 @@ void CheckNewNodes()
         transmitInitPacket.iNetworkSlot = 0;
         ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
         NormalizePacketAddress(transmitInitPacket.address);
+        memset(packetTransportAddress, 0, sizeof(packetTransportAddress));
+        GetLastPacketAddress(packetTransportAddress);
         if (IsInvalidPacketAddress(transmitInitPacket.address)) {
           LogDiscoveryAddress("ignored invalid", transmitInitPacket.address);
           goto LABEL_40;
@@ -1294,6 +1325,10 @@ void CheckNewNodes()
           LogDiscoveryAddress("ignored self", transmitInitPacket.address);
           goto LABEL_40;
         }
+        ROLLERCommsUpdateLocalAddrForPeer(transmitInitPacket.address);
+        ROLLERCommsGetNetworkAddr(address);
+        NormalizePacketAddress(address);
+        UpdateDiscoveryTransport(transmitInitPacket.address, packetTransportAddress);
         if (network_slot >= 0)                // Process init packet when we are already connected (network_slot >= 0)
         {
           if (transmitInitPacket.iNetworkSlot < 0 && !I_Quit) {

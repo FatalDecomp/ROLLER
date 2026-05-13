@@ -28,9 +28,16 @@
 typedef struct
 {
   tROLLERNetAddr address;
+  tROLLERNetAddr transportAddress;
   SOCKET socket;
   bool bActive;
 } tNodeInfo;
+
+typedef struct
+{
+  tROLLERNetAddr address;
+  tROLLERNetAddr transportAddress;
+} tPendingTransport;
 
 static struct
 {
@@ -46,6 +53,7 @@ static struct
   uint8 receiveBuffer[ROLLER_MAX_PACKET_SIZE];
   int iReceiveSize;
   void *pCurrentPacketData;
+  tROLLERNetAddr lastPacketAddress;
 
 } g_commsState;
 
@@ -54,6 +62,8 @@ static uint16_t s_unLocalPort = ROLLER_DEFAULT_PORT;
 static bool s_bHasPeer = false;
 static tROLLERNetAddr s_peerAddr;
 static uint32_t s_uiLocalIPOverride = 0; // 0 = auto-detect
+static tPendingTransport s_pendingTransports[ROLLER_MAX_NODES];
+static int s_iPendingTransports = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -115,6 +125,111 @@ static uint32_t DetectLocalIPv4(void)
   struct in_addr addr;
   inet_pton(AF_INET, iface.szIP, &addr);
   return addr.s_addr;
+}
+
+static uint32_t DetectRouteLocalIPv4(uint32_t uiRemoteIP, uint16_t unRemotePort)
+{
+  if (uiRemoteIP == 0)
+    return 0;
+
+  SOCKET routeSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (routeSocket == INVALID_SOCKET)
+    return 0;
+
+  struct sockaddr_in remoteAddr;
+  memset(&remoteAddr, 0, sizeof(remoteAddr));
+  remoteAddr.sin_family = AF_INET;
+  remoteAddr.sin_addr.s_addr = uiRemoteIP;
+  remoteAddr.sin_port = htons(unRemotePort ? unRemotePort : ROLLER_DEFAULT_PORT);
+
+  uint32_t uiLocalIP = 0;
+  if (connect(routeSocket, (struct sockaddr *)&remoteAddr, sizeof(remoteAddr)) != SOCKET_ERROR) {
+    struct sockaddr_in localAddr;
+    socklen_t localLen = sizeof(localAddr);
+    memset(&localAddr, 0, sizeof(localAddr));
+    if (getsockname(routeSocket, (struct sockaddr *)&localAddr, &localLen) != SOCKET_ERROR) {
+      uiLocalIP = localAddr.sin_addr.s_addr;
+    }
+  }
+
+  closesocket(routeSocket);
+  return uiLocalIP;
+}
+
+static uint32_t GetConfiguredLocalIPv4(void)
+{
+  if (s_uiLocalIPOverride)
+    return s_uiLocalIPOverride;
+  if (s_bHasPeer && s_peerAddr.uiIPAddress == htonl(INADDR_LOOPBACK))
+    return htonl(INADDR_LOOPBACK);
+  if (s_bHasPeer) {
+    uint32_t uiRouteIP = DetectRouteLocalIPv4(s_peerAddr.uiIPAddress, s_peerAddr.unPort);
+    if (uiRouteIP)
+      return uiRouteIP;
+  }
+  return DetectLocalIPv4();
+}
+
+static void ApplyLocalAddressIPv4(uint32_t uiLocalIP, const char *szReason,
+                                  const tROLLERNetAddr *pPeerAddress)
+{
+  if (!g_commsState.bInitialized || uiLocalIP == 0)
+    return;
+
+  tROLLERNetAddr newAddress;
+  memset(&newAddress, 0, sizeof(newAddress));
+  newAddress.uiIPAddress = uiLocalIP;
+  newAddress.unPort = s_unLocalPort;
+
+  if (memcmp(&g_commsState.myAddress, &newAddress, sizeof(newAddress)) == 0)
+    return;
+
+  tROLLERNetAddr oldAddress = g_commsState.myAddress;
+  g_commsState.myAddress = newAddress;
+  if (g_commsState.iActiveNodes == 0) {
+    g_commsState.iActiveNodes = 1;
+  }
+
+  int iSelfNode = g_commsState.iConsoleNode;
+  if (iSelfNode < 0 || iSelfNode >= g_commsState.iActiveNodes ||
+      memcmp(&g_commsState.nodes[iSelfNode].address, &oldAddress, sizeof(oldAddress)) != 0) {
+    iSelfNode = -1;
+    for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+      if (memcmp(&g_commsState.nodes[i].address, &oldAddress, sizeof(oldAddress)) == 0) {
+        iSelfNode = i;
+        break;
+      }
+    }
+  }
+
+  if (iSelfNode < 0)
+    iSelfNode = 0;
+
+  g_commsState.nodes[iSelfNode].address = newAddress;
+  g_commsState.nodes[iSelfNode].transportAddress = newAddress;
+  g_commsState.nodes[iSelfNode].bActive = true;
+  g_commsState.iConsoleNode = iSelfNode;
+
+  char szAddr[32];
+  ROLLERCommsFormatAddr(&newAddress, szAddr, sizeof(szAddr));
+  if (pPeerAddress) {
+    char szPeer[32];
+    ROLLERCommsFormatAddr(pPeerAddress, szPeer, sizeof(szPeer));
+    SDL_Log("[NET-DISCOVERY] selected local address %s for %s via %s",
+            szAddr, szPeer, szReason ? szReason : "route");
+  } else {
+    SDL_Log("[NET-DISCOVERY] selected local address %s", szAddr);
+  }
+
+  ROLLERCommsSortNodes();
+}
+
+static void ApplyLocalIPOverrideIfIdle(void)
+{
+  if (!g_commsState.bInitialized || g_commsState.iActiveNodes > 1)
+    return;
+
+  ApplyLocalAddressIPv4(GetConfiguredLocalIPv4(), "configuration", NULL);
 }
 
 static int InitializeSockets(void)
@@ -199,11 +314,16 @@ void ROLLERCommsSetLocalIP(const char *szIP)
 {
   if (!szIP || szIP[0] == '\0') {
     s_uiLocalIPOverride = 0;
+    ApplyLocalIPOverrideIfIdle();
     return;
   }
   struct in_addr addr;
-  if (inet_pton(AF_INET, szIP, &addr) == 1)
+  if (inet_pton(AF_INET, szIP, &addr) == 1) {
     s_uiLocalIPOverride = addr.s_addr;
+    ApplyLocalIPOverrideIfIdle();
+  } else {
+    printf("ROLLERCommsSetLocalIP: invalid IP address '%s'\n", szIP);
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -220,6 +340,30 @@ void ROLLERCommsSetPeer(const char *szIP, uint16_t unPort)
   s_peerAddr.unPadding = 0;
   s_peerAddr.ullReserved = 0;
   s_bHasPeer = true;
+  if (g_commsState.bInitialized && !s_uiLocalIPOverride) {
+    uint32_t uiRouteIP = DetectRouteLocalIPv4(s_peerAddr.uiIPAddress, s_peerAddr.unPort);
+    ApplyLocalAddressIPv4(uiRouteIP, "peer", &s_peerAddr);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsUpdateLocalAddrForPeer(const void *pPeerAddress)
+{
+  if (!g_commsState.bInitialized || s_uiLocalIPOverride || !pPeerAddress)
+    return;
+
+  tROLLERNetAddr peerAddress;
+  memset(&peerAddress, 0, sizeof(peerAddress));
+  memcpy(&peerAddress, pPeerAddress, sizeof(peerAddress));
+  peerAddress.unPadding = 0;
+  peerAddress.ullReserved = 0;
+
+  if (peerAddress.uiIPAddress == 0 || peerAddress.unPort == 0)
+    return;
+
+  uint32_t uiRouteIP = DetectRouteLocalIPv4(peerAddress.uiIPAddress, peerAddress.unPort);
+  ApplyLocalAddressIPv4(uiRouteIP, "route", &peerAddress);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -235,6 +379,7 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   }
 
   memset(&g_commsState, 0, sizeof(g_commsState));
+  s_iPendingTransports = 0;
   g_commsState.listenSocket = INVALID_SOCKET;
 
   g_commsState.listenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -270,13 +415,7 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
     return 0;
   }
 
-  if (s_uiLocalIPOverride) {
-    g_commsState.myAddress.uiIPAddress = s_uiLocalIPOverride;
-  } else {
-    g_commsState.myAddress.uiIPAddress = DetectLocalIPv4();
-    if (s_bHasPeer && s_peerAddr.uiIPAddress == htonl(INADDR_LOOPBACK))
-      g_commsState.myAddress.uiIPAddress = htonl(INADDR_LOOPBACK);
-  }
+  g_commsState.myAddress.uiIPAddress = GetConfiguredLocalIPv4();
   g_commsState.myAddress.unPort = s_unLocalPort;
   g_commsState.myAddress.unPadding = 0;
   g_commsState.myAddress.ullReserved = 0;
@@ -298,6 +437,47 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   return 1;
 }
 
+static void RememberPendingTransport(const tROLLERNetAddr *pAddress,
+                                     const tROLLERNetAddr *pTransportAddress)
+{
+  if (!pAddress || !pTransportAddress)
+    return;
+  if (memcmp(pAddress, pTransportAddress, sizeof(tROLLERNetAddr)) == 0)
+    return;
+
+  for (int i = 0; i < s_iPendingTransports; i++) {
+    if (memcmp(&s_pendingTransports[i].address, pAddress, sizeof(tROLLERNetAddr)) == 0) {
+      s_pendingTransports[i].transportAddress = *pTransportAddress;
+      return;
+    }
+  }
+
+  if (s_iPendingTransports >= ROLLER_MAX_NODES)
+    return;
+
+  s_pendingTransports[s_iPendingTransports].address = *pAddress;
+  s_pendingTransports[s_iPendingTransports].transportAddress = *pTransportAddress;
+  s_iPendingTransports++;
+}
+
+static void ApplyPendingTransport(tNodeInfo *pNode)
+{
+  if (!pNode)
+    return;
+
+  for (int i = 0; i < s_iPendingTransports; i++) {
+    if (memcmp(&s_pendingTransports[i].address, &pNode->address, sizeof(tROLLERNetAddr)) == 0) {
+      pNode->transportAddress = s_pendingTransports[i].transportAddress;
+      char szAddress[32];
+      char szTransport[32];
+      ROLLERCommsFormatAddr(&pNode->address, szAddress, sizeof(szAddress));
+      ROLLERCommsFormatAddr(&pNode->transportAddress, szTransport, sizeof(szTransport));
+      SDL_Log("[NET-DISCOVERY] route %s via %s", szAddress, szTransport);
+      return;
+    }
+  }
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void ROLLERCommsUnInitSystem()
@@ -313,6 +493,7 @@ void ROLLERCommsUnInitSystem()
 
   CleanupSockets();
   memset(&g_commsState, 0, sizeof(g_commsState));
+  s_iPendingTransports = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -356,8 +537,8 @@ int ROLLERCommsSendData(
   if (!BuildPacket(packetBuffer, &iTotalSize, pHeader, iHeaderSize, pData, iDataSize)) {
     return 0;
   }
-  return SendPacketToIPv4(g_commsState.nodes[iDestNode].address.uiIPAddress,
-                          g_commsState.nodes[iDestNode].address.unPort,
+  return SendPacketToIPv4(g_commsState.nodes[iDestNode].transportAddress.uiIPAddress,
+                          g_commsState.nodes[iDestNode].transportAddress.unPort,
                           packetBuffer,
                           iTotalSize);
 }
@@ -413,6 +594,10 @@ int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut)
   if (iBytesReceived <= 0) {
     return 0; // No data available
   }
+
+  memset(&g_commsState.lastPacketAddress, 0, sizeof(g_commsState.lastPacketAddress));
+  g_commsState.lastPacketAddress.uiIPAddress = fromAddr.sin_addr.s_addr;
+  g_commsState.lastPacketAddress.unPort = ntohs(fromAddr.sin_port);
 
   if (iBytesReceived < iHeaderSize) {
     return 0; // Packet too small
@@ -497,10 +682,53 @@ int ROLLERCommsAddNode(const void *pAddress)
 
   int iNodeIdx = g_commsState.iActiveNodes;
   memcpy(&g_commsState.nodes[iNodeIdx].address, &address, sizeof(tROLLERNetAddr));
+  memcpy(&g_commsState.nodes[iNodeIdx].transportAddress, &address, sizeof(tROLLERNetAddr));
+  ApplyPendingTransport(&g_commsState.nodes[iNodeIdx]);
   g_commsState.nodes[iNodeIdx].bActive = true;
   g_commsState.iActiveNodes++;
 
   return 0;  // Success
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsUpdateNodeTransportAddr(const void *pAddress, const void *pTransportAddress)
+{
+  tROLLERNetAddr address;
+  tROLLERNetAddr transportAddress;
+
+  if (!g_commsState.bInitialized || !pAddress || !pTransportAddress)
+    return;
+
+  memset(&address, 0, sizeof(address));
+  memcpy(&address, pAddress, sizeof(address));
+  address.unPadding = 0;
+  address.ullReserved = 0;
+
+  memset(&transportAddress, 0, sizeof(transportAddress));
+  memcpy(&transportAddress, pTransportAddress, sizeof(transportAddress));
+  transportAddress.unPadding = 0;
+  transportAddress.ullReserved = 0;
+
+  if (transportAddress.uiIPAddress == 0 || transportAddress.unPort == 0)
+    return;
+
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (memcmp(&g_commsState.nodes[i].address, &address, sizeof(address)) == 0) {
+      if (memcmp(&g_commsState.nodes[i].transportAddress, &transportAddress,
+                 sizeof(transportAddress)) != 0) {
+        char szAddress[32];
+        char szTransport[32];
+        ROLLERCommsFormatAddr(&address, szAddress, sizeof(szAddress));
+        ROLLERCommsFormatAddr(&transportAddress, szTransport, sizeof(szTransport));
+        SDL_Log("[NET-DISCOVERY] route %s via %s", szAddress, szTransport);
+        g_commsState.nodes[i].transportAddress = transportAddress;
+      }
+      return;
+    }
+  }
+
+  RememberPendingTransport(&address, &transportAddress);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -566,10 +794,20 @@ void ROLLERCommsSortNodes(void)
          g_commsState.iActiveNodes, g_commsState.iConsoleNode);
   for (int i = 0; i < g_commsState.iActiveNodes; i++) {
     char szIP[INET_ADDRSTRLEN];
+    char szTransport[32];
     inet_ntop(AF_INET, &g_commsState.nodes[i].address.uiIPAddress, szIP, sizeof(szIP));
-    SDL_Log("[NET]   node[%d]: %s:%u%s\n", i, szIP,
-           (unsigned)g_commsState.nodes[i].address.unPort,
-           i == g_commsState.iConsoleNode ? " <-- self" : "");
+    if (memcmp(&g_commsState.nodes[i].address, &g_commsState.nodes[i].transportAddress,
+               sizeof(tROLLERNetAddr)) != 0) {
+      ROLLERCommsFormatAddr(&g_commsState.nodes[i].transportAddress,
+                            szTransport, sizeof(szTransport));
+      SDL_Log("[NET]   node[%d]: %s:%u via %s%s\n", i, szIP,
+             (unsigned)g_commsState.nodes[i].address.unPort, szTransport,
+             i == g_commsState.iConsoleNode ? " <-- self" : "");
+    } else {
+      SDL_Log("[NET]   node[%d]: %s:%u%s\n", i, szIP,
+             (unsigned)g_commsState.nodes[i].address.unPort,
+             i == g_commsState.iConsoleNode ? " <-- self" : "");
+    }
   }
 }
 
@@ -626,6 +864,15 @@ void ROLLERCommsGetNetworkAddr(int *pAddressOut)
 
 //-------------------------------------------------------------------------------------------------
 
+void ROLLERCommsGetLastPacketAddr(tROLLERNetAddr *pAddressOut)
+{
+  if (pAddressOut) {
+    memcpy(pAddressOut, &g_commsState.lastPacketAddress, sizeof(tROLLERNetAddr));
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERCommsNetAddrToNode(const int *pAddress)
 {
   // Find node with matching address
@@ -647,11 +894,8 @@ void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen)
   if (g_commsState.bInitialized) {
     uiIP   = g_commsState.myAddress.uiIPAddress;
     unPort = g_commsState.myAddress.unPort;
-  } else if (s_uiLocalIPOverride) {
-    uiIP   = s_uiLocalIPOverride;
-    unPort = s_unLocalPort;
   } else {
-    uiIP   = DetectLocalIPv4();
+    uiIP   = GetConfiguredLocalIPv4();
     unPort = s_unLocalPort;
   }
   char szIP[INET_ADDRSTRLEN];
@@ -674,7 +918,16 @@ void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen)
   struct in_addr addr;
   addr.s_addr = g_commsState.nodes[iNode].address.uiIPAddress;
   inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
-  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.nodes[iNode].address.unPort);
+  if (memcmp(&g_commsState.nodes[iNode].address, &g_commsState.nodes[iNode].transportAddress,
+             sizeof(tROLLERNetAddr)) != 0) {
+    char szTransport[32];
+    ROLLERCommsFormatAddr(&g_commsState.nodes[iNode].transportAddress,
+                          szTransport, sizeof(szTransport));
+    snprintf(szBuf, iBufLen, "%s:%u via %s", szIP,
+             (unsigned)g_commsState.nodes[iNode].address.unPort, szTransport);
+  } else {
+    snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)g_commsState.nodes[iNode].address.unPort);
+  }
 }
 
 //-------------------------------------------------------------------------------------------------

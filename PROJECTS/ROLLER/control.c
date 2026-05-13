@@ -3742,7 +3742,10 @@ void checkplacement(tCar *pCar)
         initcarview(ViewType[0], 0);
         stopallsamples();
       }
-      if ((Car[ViewType[1]].byLives & 0x80u) != 0) {
+      
+      if (ViewType[1] >= 0 && ViewType[1] < numcars //ViewType[1] is intentionally -1 when single player
+        && (Car[ViewType[1]].byLives & 0x80u) != 0) {
+
         for (ViewType[1] = 0; !human_control[ViewType[1]] || (Car[ViewType[1]].byLives & 0x80u) != 0; ++ViewType[1])
           ;
         initcarview(ViewType[1], 0);

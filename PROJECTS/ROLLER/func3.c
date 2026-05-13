@@ -5904,6 +5904,22 @@ void show_received_mesage()
 }
 
 //-------------------------------------------------------------------------------------------------
+static void AddCachedNetworkSlotNodes(int iSlot)
+{
+  if (iSlot < 0 || iSlot >= 4)
+    return;
+
+  int iCachedNodes = gamers_playing[iSlot];
+  if (iCachedNodes <= 0 || iCachedNodes > 16)
+    return;
+
+  for (int i = 0; i < iCachedNodes; i++) {
+    ROLLERCommsAddNode(&gamers_address[iSlot][i]);
+  }
+  ROLLERCommsSortNodes();
+}
+
+//-------------------------------------------------------------------------------------------------
 //0005EFB0
 int select_netslot()
 {
@@ -6193,6 +6209,7 @@ int select_netslot()
           }
         } else if (uiKeyCode <= 0xD) {                                       // Enter key - select current slot if available
           if ((unsigned int)gamers_playing[iCurrentSlot] < 16) {
+            AddCachedNetworkSlotNodes(iCurrentSlot);
             iExitFlag = -1;
             iReturnValue = iCurrentSlot + 1;
           }

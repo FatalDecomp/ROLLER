@@ -1126,6 +1126,7 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " -h, --help             show this help message and exit\n");
   fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
   fprintf(f, " --midi-root DIR        specify midi data directory\n");
+  fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
   fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
@@ -1169,6 +1170,14 @@ int main(int argc, const char **argv, const char **envp)
         consumed = 2;
       } else {
         fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--local-ip") == 0) {
+      if (i + 1 < argc) {
+        ROLLERCommsSetLocalIP(argv[i + 1]);
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--local-ip' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--port") == 0) {
