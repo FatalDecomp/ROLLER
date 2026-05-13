@@ -949,7 +949,7 @@ void TimeTrials(int iDriverIdx)
     if ((iRecordCar & 0xFu) >= 8)
       front_text(front_vga[2], "CHEAT", font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
     else
-      display_block(scrbuf, front_vga[0], smallcars[0][iRecordCar], 165, iRecordTextY - 3, 0);
+      display_block(scrbuf, front_vga[0], smallcars[(iRecordCar & 0x10) != 0][iRecordCar & 0xF], 165, iRecordTextY - 3, 0);
     dRecordTime = RecordLaps[TrackLoad] * 100.0;
     //_CHP();
     iRecordCentiseconds = (int)dRecordTime;
@@ -1679,7 +1679,7 @@ void ShowLapRecords()
       if ( (iCarType & 0xFu) >= 8 )
         front_text(front_vga[3], "CHEAT", font2_ascii, font2_offsets, 165, iTextY, 0x8Fu, 0);
       else
-        display_block(scrbuf, front_vga[0], smallcars[0][iCarType], 165, iCarY, 0);
+        display_block(scrbuf, front_vga[0], smallcars[(iCarType & 0x10) != 0][iCarType & 0xF], 165, iCarY, 0);
 
       // display kill count icon and number
       display_block(scrbuf, front_vga[0], 9, 540, iKillIconY, 0);
@@ -1800,7 +1800,7 @@ void ShowLapRecords()
         if ( (iCarType_1 & 0xFu) >= 8 )
           front_text(front_vga[3], "CHEAT", font2_ascii, font2_offsets, 165, iTextY_1, 0x8Fu, 0);
         else
-          display_block(scrbuf, front_vga[0], smallcars[0][iCarType_1], 165, iCarY2, 0);
+          display_block(scrbuf, front_vga[0], smallcars[(iCarType_1 & 0x10) != 0][iCarType_1 & 0xF], 165, iCarY2, 0);
 
         // display kill count icon and number
         display_block(scrbuf, front_vga[0], 9, 540, iKillIconY_1, 0);
