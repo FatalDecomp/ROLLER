@@ -296,11 +296,16 @@ LABEL_83:
     if (wConsoleNode == master)               // Master node waits for all client records, then broadcasts seed
     {
       int iLastRecordWaitLog = -1000;
+      int iLastStartResend = -1000;
       while (received_records < network_on) {
         if (frames - iLastRecordWaitLog >= 36) {
           iLastRecordWaitLog = frames;
           SDL_Log("[NET-START] master waiting for records received=%d expected=%d",
                   received_records, network_on);
+        }
+        if (frames - iLastStartResend >= 36) {
+          iLastStartResend = frames;
+          TransmitInit();
         }
         CheckNewNodes();
         UpdateSDL();

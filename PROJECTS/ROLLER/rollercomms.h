@@ -36,17 +36,20 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets);
 void ROLLERCommsUnInitSystem(void);
 void ROLLERCommsSetType(int iType); // 0 = IPX emulation, 1 = Serial emulation
 int ROLLERCommsGetType(void);
+void ROLLERCommsUpdateLocalAddrForPeer(const void *pPeerAddress);
 
 // Node management
 int ROLLERCommsGetActiveNodes(void);
 int ROLLERCommsGetConsoleNode(void);
 int ROLLERCommsAddNode(const void *pAddress);
+void ROLLERCommsUpdateNodeTransportAddr(const void *pAddress, const void *pTransportAddress);
 int ROLLERCommsDeleteNode(int iNodeIdx);
 void ROLLERCommsSortNodes(void);
 int ROLLERCommsNetAddrToNode(const int *pAddress);
 
 // Address
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
+void ROLLERCommsGetLastPacketAddr(tROLLERNetAddr *pAddressOut);
 void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
 void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
 void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen);
