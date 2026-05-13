@@ -5833,6 +5833,10 @@ MAIN_UI_LOOP:
                   iSelectedPlayer = iMenuSelection;
                   iMenuSelection = 0;
                   break;
+                case 2u:
+                  uiCurrentMenu = 0;
+                  iMenuSelection = 2;
+                  break;
                 default:
                   continue;
               }
