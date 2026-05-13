@@ -134,6 +134,52 @@ static void UpdateDiscoveryTransport(const int32 pAddress[4], const int32 pTrans
 
 //-------------------------------------------------------------------------------------------------
 
+static void CacheDiscoverySlotPlayer(const tTransmitInitPacket *pPacket)
+{
+  if (!pPacket || pPacket->iNetworkChampOn)
+    return;
+
+  int iSlot = pPacket->iNetworkSlot - 1;
+  if (iSlot < 0 || iSlot >= 4)
+    return;
+
+  if (pPacket->iTimeToStart == -1) {
+    gamers_playing[iSlot] = -2;
+    return;
+  }
+
+  int iNodeCount = gamers_playing[iSlot];
+  if (iNodeCount < 0) {
+    iNodeCount = 0;
+    gamers_playing[iSlot] = 0;
+  }
+  if (iNodeCount >= 16)
+    return;
+
+  int iNode = -1;
+  for (int i = 0; i < iNodeCount; i++) {
+    if (memcmp(&gamers_address[iSlot][i], pPacket->address, sizeof(_NETNOW_NODE_ADDR)) == 0) {
+      iNode = i;
+      break;
+    }
+  }
+
+  if (iNode < 0) {
+    iNode = iNodeCount;
+    memcpy(&gamers_address[iSlot][iNode], pPacket->address, sizeof(_NETNOW_NODE_ADDR));
+    gamers_playing[iSlot]++;
+
+    char szAddr[32];
+    ROLLERCommsFormatAddr((const tROLLERNetAddr *)pPacket->address, szAddr, sizeof(szAddr));
+    SDL_Log("[NET-DISCOVERY] slot %d found %s at %s",
+            iSlot + 1, pPacket->szPlayerName, szAddr);
+  }
+
+  name_copy(&gamers_names[iSlot][9 * iNode], pPacket->szPlayerName);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void PulseLobbyDiscovery(void)
 {
   if (!frontend_on || !network_on || time_to_start || !master)
@@ -1653,6 +1699,7 @@ void CheckNewNodes()
           }
           if (transmitInitPacket.iTimeToStart != -1) {
           LABEL_24:
+            CacheDiscoverySlotPlayer(&transmitInitPacket);
             if (!transmitInitPacket.iNetworkChampOn) {
               iFoundGamerIndex = 0;
               iNumGamersInSlot = gamers_playing[iTxInitPacketNetworkSlotMinus1];
