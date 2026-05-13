@@ -1182,81 +1182,102 @@ void do_sync_stuff()
 
 //-------------------------------------------------------------------------------------------------
 //00050790
-int TransmitInit()
+static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *pInitPacket)
 {
-  int iSuccess; // eax
   int32 iCarIdx; // eax
   int32 iGameType; // eax
   int32 iLevelFlags; // eax
   char *szDefaultNamesDst; // ecx
   char *szDefaultNameItr; // ebx
+
+  ROLLERCommsGetNetworkAddr(address);
+  NormalizePacketAddress(address);
+  pHeader->byConsoleNode = player1_car;
+  pHeader->uiId = PACKET_ID_TRANSMIT_INIT;
+  pInitPacket->iTrackLoad = TrackLoad;
+  name_copy(pInitPacket->szPlayerName, player_names[wConsoleNode]);
+  pInitPacket->address[0] = address[0];
+  pInitPacket->address[1] = address[1];
+  pInitPacket->address[2] = address[2];
+  pInitPacket->address[3] = address[3];
+  if (broadcast_mode == -9999)
+    iCarIdx = car_request - 1;
+  else
+    iCarIdx = Players_Cars[wConsoleNode];
+  pInitPacket->iCarIdx = iCarIdx;
+  if (net_type)
+    ++my_age;
+  pInitPacket->iMyAge = my_age;
+  pInitPacket->iNetworkOn = network_on;
+  if (game_type <= 2)
+    iGameType = game_type;
+  else
+    iGameType = last_type;
+  pInitPacket->iGameType = iGameType;
+  pInitPacket->iCompetitors = competitors;
+  pInitPacket->iManualControl = manual_control[wConsoleNode];
+  iLevelFlags = level;
+  if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)
+    iLevelFlags = level | 0x0100;
+  if (player_invul[player1_car])
+    iLevelFlags |= 0x0200;
+  if ((cheat_mode & CHEAT_MODE_KILLER_OPPONENTS) != 0)
+    iLevelFlags |= 0x0400;
+  if ((cheat_mode & CHEAT_MODE_ICY_ROAD) != 0)
+    iLevelFlags |= 0x0800;
+  if ((cheat_mode & CHEAT_MODE_50HZ_TIMER) != 0)
+    iLevelFlags |= 0x1000;
+  if ((cheat_mode & CHEAT_MODE_DOUBLE_TRACK) != 0)
+    iLevelFlags |= 0x2000;
+  if ((cheat_mode & CHEAT_MODE_100HZ_TIMER) != 0)
+    iLevelFlags |= 0x4000;
+  if ((cheat_mode & CHEAT_MODE_CLONES) != 0)
+    iLevelFlags |= 0x8000;
+  if ((cheat_mode & CHEAT_MODE_TINY_CARS) != 0)
+    iLevelFlags |= 0x10000;
+  pInitPacket->iLevelFlags = iLevelFlags;
+  pInitPacket->iDamageLevel = damage_level;
+  pInitPacket->iStartPressed = StartPressed;
+  if (time_to_start == 45)
+    time_to_start = 0;
+  pInitPacket->iTimeToStart = time_to_start;
+  pInitPacket->iFalseStart = false_starts;
+  pInitPacket->iTextureMode = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
+  pInitPacket->iNetworkChampOn = network_champ_on;
+  szDefaultNamesDst = pInitPacket->default_names[0];
+  szDefaultNameItr = default_names[0];
+  pInitPacket->iNetworkSlot = network_slot;
+  do {
+    name_copy(szDefaultNamesDst, szDefaultNameItr);
+    szDefaultNameItr += 9;
+    szDefaultNamesDst += 9;
+  } while (szDefaultNameItr != default_names[16]);
+}
+
+static int TransmitInitToAddress(const int32 pAddress[4])
+{
+  if (!network_on || !pAddress || IsInvalidPacketAddress(pAddress))
+    return 0;
+
+  tTransmitInitPacket initPacket; // [esp+0h] [ebp-108h] BYREF
+  tSyncHeader header;
+  BuildTransmitInitPacket(&header, &initPacket);
+  return ROLLERCommsSendDataToAddr(&header,
+                                   sizeof(tSyncHeader),
+                                   &initPacket,
+                                   sizeof(tTransmitInitPacket),
+                                   pAddress);
+}
+
+int TransmitInit()
+{
+  int iSuccess; // eax
   tTransmitInitPacket initPacket; // [esp+0h] [ebp-108h] BYREF
   tSyncHeader header;
 
   iSuccess = -1;
   if (network_on) {
-    ROLLERCommsGetNetworkAddr(address);
-    NormalizePacketAddress(address);
-    header.byConsoleNode = player1_car;
-    header.uiId = PACKET_ID_TRANSMIT_INIT;
-    initPacket.iTrackLoad = TrackLoad;
-    name_copy(initPacket.szPlayerName, player_names[wConsoleNode]);
-    initPacket.address[0] = address[0];
-    initPacket.address[1] = address[1];
-    initPacket.address[2] = address[2];
-    initPacket.address[3] = address[3];
-    if (broadcast_mode == -9999)
-      iCarIdx = car_request - 1;
-    else
-      iCarIdx = Players_Cars[wConsoleNode];
-    initPacket.iCarIdx = iCarIdx;
-    if (net_type)
-      ++my_age;
-    initPacket.iMyAge = my_age;
-    initPacket.iNetworkOn = network_on;
-    if (game_type <= 2)
-      iGameType = game_type;
-    else
-      iGameType = last_type;
-    initPacket.iGameType = iGameType;
-    initPacket.iCompetitors = competitors;
-    initPacket.iManualControl = manual_control[wConsoleNode];
-    iLevelFlags = level;
-    if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)
-      iLevelFlags = level | 0x0100;
-    if (player_invul[player1_car])
-      iLevelFlags |= 0x0200;
-    if ((cheat_mode & CHEAT_MODE_KILLER_OPPONENTS) != 0)
-      iLevelFlags |= 0x0400;
-    if ((cheat_mode & CHEAT_MODE_ICY_ROAD) != 0)
-      iLevelFlags |= 0x0800;
-    if ((cheat_mode & CHEAT_MODE_50HZ_TIMER) != 0)
-      iLevelFlags |= 0x1000;
-    if ((cheat_mode & CHEAT_MODE_DOUBLE_TRACK) != 0)
-      iLevelFlags |= 0x2000;
-    if ((cheat_mode & CHEAT_MODE_100HZ_TIMER) != 0)
-      iLevelFlags |= 0x4000;
-    if ((cheat_mode & CHEAT_MODE_CLONES) != 0)
-      iLevelFlags |= 0x8000;
-    if ((cheat_mode & CHEAT_MODE_TINY_CARS) != 0)
-      iLevelFlags |= 0x10000;
-    initPacket.iLevelFlags = iLevelFlags;
-    initPacket.iDamageLevel = damage_level;
-    initPacket.iStartPressed = StartPressed;
-    if (time_to_start == 45)
-      time_to_start = 0;
-    initPacket.iTimeToStart = time_to_start;
-    initPacket.iFalseStart = false_starts;
-    initPacket.iTextureMode = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
-    initPacket.iNetworkChampOn = network_champ_on;
-    szDefaultNamesDst = initPacket.default_names[0];
-    szDefaultNameItr = default_names[0];
-    initPacket.iNetworkSlot = network_slot;
-    do {
-      name_copy(szDefaultNamesDst, szDefaultNameItr);
-      szDefaultNameItr += 9;
-      szDefaultNamesDst += 9;
-    } while (szDefaultNameItr != default_names[16]);
+    BuildTransmitInitPacket(&header, &initPacket);
 
     int iKnownPeerSuccess = ROLLERCommsSendData(
                               &header,
@@ -1378,6 +1399,15 @@ void CheckNewNodes()
         if (network_slot >= 0)                // Process init packet when we are already connected (network_slot >= 0)
         {
           if (transmitInitPacket.iNetworkSlot < 0 && !I_Quit) {
+            int iOldTimeToStart = time_to_start;
+            time_to_start = 0xFFFFFE37;
+            if (TransmitInitToAddress(packetTransportAddress)) {
+              char szAddr[32];
+              ROLLERCommsFormatAddr((const tROLLERNetAddr *)packetTransportAddress,
+                                    szAddr, sizeof(szAddr));
+              SDL_Log("[NET-DISCOVERY] sent slot reply to %s", szAddr);
+            }
+            time_to_start = iOldTimeToStart;
             send_broadcast(0xFFFFFE37);
             test = 3;
             ROLLERCommsPostListen();
