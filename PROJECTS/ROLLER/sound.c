@@ -34,6 +34,11 @@
 
 //-------------------------------------------------------------------------------------------------
 
+volatile uint64 ullLastTickTimeNs = 0;
+volatile uint64 ullTickIntervalNs = HZ_TO_NS(36u);
+
+//-------------------------------------------------------------------------------------------------
+
 int samplespending = 0;     //000A4690
 int writesample = 0;        //000A4694
 int readsample = 0;         //000A4698
@@ -922,6 +927,7 @@ void tickhandler()
   } else {
     broadcast_mode = 0;
   }
+  ullLastTickTimeNs = SDL_GetTicksNS();
   frames++;
 
   // Replay speed control
@@ -1306,6 +1312,8 @@ void claim_ticktimer(unsigned int uiRateHz)
   /***
   * ADDED BY ROLLER
   ***/
+  ullTickIntervalNs = HZ_TO_NS(uiRateHz);
+  ullLastTickTimeNs = SDL_GetTicksNS();
   tickhandle = ROLLERAddTimer(uiRateHz, SDLTickTimerCallback, NULL); //may as well re-use tickhandle, it is also a uint32
   /***
   * END ROLLER CODE

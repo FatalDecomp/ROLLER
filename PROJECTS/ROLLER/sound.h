@@ -279,6 +279,11 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
+extern volatile uint64 ullLastTickTimeNs;
+extern volatile uint64 ullTickIntervalNs;
+
+//-------------------------------------------------------------------------------------------------
+
 extern int samplespending;
 extern int writesample;
 extern int readsample;
