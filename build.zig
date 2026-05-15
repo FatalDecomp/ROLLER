@@ -52,6 +52,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/frontend.c",
             "PROJECTS/ROLLER/frontend_config.c",
             "PROJECTS/ROLLER/frontend_data.c",
+            "PROJECTS/ROLLER/frontend_lobby.c",
             "PROJECTS/ROLLER/frontend_network.c",
             "PROJECTS/ROLLER/frontend_screens.c",
             "PROJECTS/ROLLER/frontend_select_car.c",
@@ -235,7 +236,6 @@ fn configureRenderQueue3DTests(
     test_step.dependOn(render_queue_tests);
 }
 
-
 const SnapshotReplay = struct {
     name: []const u8,
     frames: []const u8,
@@ -300,7 +300,6 @@ fn configureSnapshotTests(
         "test-snapshots",
         "Run rendering snapshot regression tests across the intro replays",
     );
-
 
     const assets_abs = assets_path.getPath2(b, null);
     const assets_available = blk: {

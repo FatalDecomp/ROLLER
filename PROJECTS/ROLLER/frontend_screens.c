@@ -739,7 +739,7 @@ static void frontend_main_menu_apply_same_car_switch(void)
   }
 }
 
-static void frontend_main_menu_prepare_race_start(void)
+void frontend_main_menu_prepare_race_start(void)
 {
   tick_on = -1;
   messages = -1;
@@ -883,8 +883,16 @@ static void frontend_main_menu_prepare_to_start(void)
   no_clear = 0;
   if (!quit_game && !intro) {
     check_cars();
-    if (network_on && iFrontendMainMenuSelection == 8 && !intro)
-      NetworkWait();
+    if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
+      // Hand off to the LOBBY dispatcher state; it calls
+      // frontend_main_menu_prepare_race_start() and sets the next state
+      // when the lobby resolves.  restart_net_game() still calls
+      // NetworkWait() directly (Phase 5 will convert that path).
+      iFrontendMainMenuInitialized = 0;
+      iFrontendMainMenuStartDelayTarget = 0;
+      eFrontendNextState = eFRONTEND_STATE_LOBBY;
+      return;
+    }
   }
   if (iFrontendMainMenuSelection < 8 || !network_on || intro)
     time_to_start = 45;

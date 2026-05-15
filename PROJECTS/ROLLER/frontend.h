@@ -77,6 +77,10 @@ void frontend_players_select_exit(void);
 void frontend_type_select_enter(void);
 void frontend_type_select_update(void);
 void frontend_type_select_exit(void);
+void frontend_lobby_enter(void);
+void frontend_lobby_update(void);
+void frontend_lobby_exit(void);
+void frontend_main_menu_prepare_race_start(void);
 
 //-------------------------------------------------------------------------------------------------
 

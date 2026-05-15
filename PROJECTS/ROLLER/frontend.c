@@ -32,6 +32,7 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_DISK_SELECT] = { frontend_disk_select_enter, frontend_disk_select_update, NULL, frontend_disk_select_exit },
   [eFRONTEND_STATE_PLAYERS_SELECT] = { frontend_players_select_enter, frontend_players_select_update, NULL, frontend_players_select_exit },
   [eFRONTEND_STATE_TYPE_SELECT] = { frontend_type_select_enter, frontend_type_select_update, NULL, frontend_type_select_exit },
+  [eFRONTEND_STATE_LOBBY]   = { frontend_lobby_enter, frontend_lobby_update, NULL, frontend_lobby_exit },
   [eFRONTEND_STATE_LOADING] = { frontend_loading_enter, frontend_loading_update, NULL, NULL },
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
