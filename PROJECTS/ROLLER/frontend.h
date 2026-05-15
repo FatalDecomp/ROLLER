@@ -19,6 +19,38 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
+typedef enum {
+  eFRONTEND_STATE_NONE = 0,
+  eFRONTEND_STATE_TITLE,
+  eFRONTEND_STATE_MAIN_MENU,
+  eFRONTEND_STATE_CAR_SELECT,
+  eFRONTEND_STATE_TRACK_SELECT,
+  eFRONTEND_STATE_DIFFICULTY,
+  eFRONTEND_STATE_LOBBY,
+  eFRONTEND_STATE_LOADING,
+  eFRONTEND_STATE_COUNTDOWN,
+  eFRONTEND_STATE_RACING,
+  eFRONTEND_STATE_RESULTS,
+  eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS,
+  eFRONTEND_STATE_OPTIONS,
+  eFRONTEND_STATE_QUIT
+} eFrontendState;
+
+extern eFrontendState eFrontendCurrentState;
+extern eFrontendState eFrontendNextState;
+
+void frontend_set_state(eFrontendState eState);
+void frontend_update(void);
+void push_overlay(eFrontendState eOverlay);
+void pop_overlay(void);
+void race_set_track(int iTrack);
+void race_enter(void);
+void race_update(void);
+void race_draw(void);
+void race_exit(void);
+
+//-------------------------------------------------------------------------------------------------
+
 extern int false_starts;
 extern float TrackZs[25];
 extern int death_race;
