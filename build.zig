@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/drawtrk3.c",
             "PROJECTS/ROLLER/render_queue_3d.c",
             "PROJECTS/ROLLER/engines.c",
+            "PROJECTS/ROLLER/frontend.c",
             "PROJECTS/ROLLER/frontend_config.c",
             "PROJECTS/ROLLER/frontend_data.c",
             "PROJECTS/ROLLER/frontend_network.c",

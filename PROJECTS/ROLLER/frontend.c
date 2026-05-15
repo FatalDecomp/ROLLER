@@ -1,0 +1,101 @@
+#include "frontend.h"
+#include "3d.h"
+
+//-------------------------------------------------------------------------------------------------
+
+typedef void (*tFrontendEnterFn)(void);
+typedef void (*tFrontendUpdateFn)(void);
+typedef void (*tFrontendDrawFn)(void);
+typedef void (*tFrontendExitFn)(void);
+
+typedef struct {
+  tFrontendEnterFn pfnEnter;
+  tFrontendUpdateFn pfnUpdate;
+  tFrontendDrawFn pfnDraw;
+  tFrontendExitFn pfnExit;
+} tFrontendScreen;
+
+//-------------------------------------------------------------------------------------------------
+
+eFrontendState eFrontendCurrentState = eFRONTEND_STATE_NONE;
+eFrontendState eFrontendNextState = eFRONTEND_STATE_NONE;
+
+#define OVERLAY_STACK_DEPTH 4
+
+static eFrontendState aOverlayStack[OVERLAY_STACK_DEPTH];
+static int iOverlayStackTop = 0;
+
+static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
+  [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
+};
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_state_is_valid(eFrontendState eState)
+{
+  return eState >= eFRONTEND_STATE_NONE &&
+         eState < (eFrontendState)(sizeof(aScreens) / sizeof(aScreens[0]));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_set_state(eFrontendState eState)
+{
+  if (!frontend_state_is_valid(eState))
+    eState = eFRONTEND_STATE_NONE;
+
+  if (eState == eFrontendCurrentState) {
+    eFrontendNextState = eState;
+    return;
+  }
+
+  if (frontend_state_is_valid(eFrontendCurrentState) &&
+      aScreens[eFrontendCurrentState].pfnExit)
+    aScreens[eFrontendCurrentState].pfnExit();
+
+  eFrontendCurrentState = eState;
+  eFrontendNextState = eState;
+
+  if (aScreens[eFrontendCurrentState].pfnEnter)
+    aScreens[eFrontendCurrentState].pfnEnter();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_update(void)
+{
+  if (eFrontendNextState != eFrontendCurrentState)
+    frontend_set_state(eFrontendNextState);
+
+  if (!frontend_state_is_valid(eFrontendCurrentState))
+    return;
+
+  if (aScreens[eFrontendCurrentState].pfnUpdate)
+    aScreens[eFrontendCurrentState].pfnUpdate();
+
+  if (aScreens[eFrontendCurrentState].pfnDraw)
+    aScreens[eFrontendCurrentState].pfnDraw();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void push_overlay(eFrontendState eOverlay)
+{
+  if (iOverlayStackTop >= OVERLAY_STACK_DEPTH)
+    return;
+
+  aOverlayStack[iOverlayStackTop++] = eFrontendCurrentState;
+  eFrontendNextState = eOverlay;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void pop_overlay(void)
+{
+  if (iOverlayStackTop <= 0)
+    return;
+
+  eFrontendNextState = aOverlayStack[--iOverlayStackTop];
+}
+
+//-------------------------------------------------------------------------------------------------
