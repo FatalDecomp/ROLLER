@@ -384,7 +384,6 @@ void frontend_players_select_update(void)
     }
     UpdateSDL();
   }
-  UpdateSDL();
 }
 
 void frontend_players_select_exit(void)
