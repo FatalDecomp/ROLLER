@@ -648,11 +648,34 @@ int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut)
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize)
+int ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize)
 {
-  if (pDataIn && pDataOut && iSize > 0) {
-    memcpy(pDataOut, pDataIn, iSize);
+  if (!pDataIn || !pDataOut || iSize <= 0)
+    return 0;
+
+  uint8 *pPayloadStart = (uint8 *)g_commsState.pCurrentPacketData;
+  uintptr_t uiPayloadStart = (uintptr_t)pPayloadStart;
+  uintptr_t uiPayloadEnd = uiPayloadStart + (uintptr_t)g_commsState.iReceiveSize;
+  uintptr_t uiBlockStart = (uintptr_t)pDataIn;
+  if (!pPayloadStart) {
+    SDL_Log("[NET] packet payload requested without an active packet");
+    memset(pDataOut, 0, iSize);
+    return 0;
   }
+
+  if (uiBlockStart < uiPayloadStart || uiBlockStart > uiPayloadEnd ||
+      (uintptr_t)iSize > uiPayloadEnd - uiBlockStart) {
+    SDL_Log("[NET] short packet payload: wanted %d bytes, available %d",
+            iSize,
+            (uiBlockStart >= uiPayloadStart && uiBlockStart <= uiPayloadEnd)
+              ? (int)(uiPayloadEnd - uiBlockStart)
+              : 0);
+    memset(pDataOut, 0, iSize);
+    return 0;
+  }
+
+  memcpy(pDataOut, pDataIn, iSize);
+  return 1;
 }
 
 //-------------------------------------------------------------------------------------------------

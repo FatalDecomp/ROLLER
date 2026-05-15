@@ -81,6 +81,18 @@ static void NormalizePacketAddress(int32 pAddress[4])
 
 //-------------------------------------------------------------------------------------------------
 
+static int NetworkPlayerCarOrNone(int iCarIdx, const char *szContext, int iNode)
+{
+  if (iCarIdx >= -1 && iCarIdx <= CAR_DESIGN_DEATH)
+    return iCarIdx;
+
+  SDL_Log("[NET] invalid player car %d from %s node=%d; treating as no car",
+          iCarIdx, szContext, iNode);
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int IsInvalidPacketAddress(const int32 pAddress[4])
 {
   const tROLLERNetAddr *pNetAddr = (const tROLLERNetAddr *)pAddress;
@@ -306,7 +318,7 @@ void close_network()
       net_players[i] = -667;
 
   if (network_on && !frontend_on) {
-    Players_Cars[0] = my_car;
+    Players_Cars[0] = NetworkPlayerCarOrNone(my_car, "close-network", 0);
     name_copy(player_names[0], my_name);
     manual_control[0] = my_control;
     player_invul[0] = my_invul;
@@ -882,8 +894,18 @@ int receive_multiple()
           ROLLERCommsPostListen();
           continue;
         case PACKET_ID_PLAYER_INFO:
-          ROLLERCommsGetBlock(pPacket, &playerInfoPacket, sizeof(tPlayerInfoPacket));
-          Players_Cars[in_header.byConsoleNode] = playerInfoPacket.iPlayerCar;
+          if (!ROLLERCommsGetBlock(pPacket, &playerInfoPacket, sizeof(tPlayerInfoPacket))) {
+            ROLLERCommsPostListen();
+            continue;
+          }
+          if (in_header.byConsoleNode >= MAX_PLAYERS) {
+            ROLLERCommsPostListen();
+            continue;
+          }
+          Players_Cars[in_header.byConsoleNode] =
+            NetworkPlayerCarOrNone(playerInfoPacket.iPlayerCar,
+                                   "player-info",
+                                   in_header.byConsoleNode);
           check_cars();
           name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
           TrackLoad = playerInfoPacket.iTrackLoad;
@@ -985,7 +1007,10 @@ void receive_all_singles()
       byConsoleNode = in_header.byConsoleNode;
       switch (in_header.uiId) {
           case PACKET_ID_TRANSMIT_INIT:
-            ROLLERCommsGetBlock(pData, &transmitInitPacket, sizeof(tTransmitInitPacket));
+            if (!ROLLERCommsGetBlock(pData, &transmitInitPacket, sizeof(tTransmitInitPacket))) {
+              ROLLERCommsPostListen();
+              continue;
+            }
             if (transmitInitPacket.iTimeToStart != 0xFFFFFE38)
               goto LABEL_31;
             send_slot();
@@ -1033,8 +1058,16 @@ void receive_all_singles()
             ROLLERCommsPostListen();
             continue;
           case PACKET_ID_PLAYER_INFO: 
-            ROLLERCommsGetBlock(pData, &playerInfoPacket, sizeof(tPlayerInfoPacket));
-            Players_Cars[in_header.byConsoleNode] = playerInfoPacket.iPlayerCar;
+            if (!ROLLERCommsGetBlock(pData, &playerInfoPacket, sizeof(tPlayerInfoPacket))) {
+              ROLLERCommsPostListen();
+              continue;
+            }
+            if (in_header.byConsoleNode >= MAX_PLAYERS)
+              goto LABEL_31;
+            Players_Cars[in_header.byConsoleNode] =
+              NetworkPlayerCarOrNone(playerInfoPacket.iPlayerCar,
+                                     "single-player-info",
+                                     in_header.byConsoleNode);
             check_cars();
             name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
             TrackLoad = playerInfoPacket.iTrackLoad;
@@ -1193,13 +1226,22 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
   int32 iLevelFlags; // eax
   char *szDefaultNamesDst; // ecx
   char *szDefaultNameItr; // ebx
+  int iConsoleNode = wConsoleNode;
+  int iPlayerSlot = player1_car;
+
+  if (iConsoleNode < 0 || iConsoleNode >= MAX_PLAYERS) {
+    SDL_Log("[NET] invalid console node %d while building init packet", iConsoleNode);
+    iConsoleNode = 0;
+  }
+  if (iPlayerSlot < 0 || iPlayerSlot >= MAX_PLAYERS)
+    iPlayerSlot = iConsoleNode;
 
   ROLLERCommsGetNetworkAddr(address);
   NormalizePacketAddress(address);
-  pHeader->byConsoleNode = player1_car;
+  pHeader->byConsoleNode = (uint8)iPlayerSlot;
   pHeader->uiId = PACKET_ID_TRANSMIT_INIT;
   pInitPacket->iTrackLoad = TrackLoad;
-  name_copy(pInitPacket->szPlayerName, player_names[wConsoleNode]);
+  name_copy(pInitPacket->szPlayerName, player_names[iConsoleNode]);
   pInitPacket->address[0] = address[0];
   pInitPacket->address[1] = address[1];
   pInitPacket->address[2] = address[2];
@@ -1207,8 +1249,9 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
   if (broadcast_mode == -9999)
     iCarIdx = car_request - 1;
   else
-    iCarIdx = Players_Cars[wConsoleNode];
-  pInitPacket->iCarIdx = iCarIdx;
+    iCarIdx = Players_Cars[iConsoleNode];
+  pInitPacket->iCarIdx =
+    NetworkPlayerCarOrNone(iCarIdx, "transmit-init-local", wConsoleNode);
   if (net_type)
     ++my_age;
   pInitPacket->iMyAge = my_age;
@@ -1219,11 +1262,11 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
     iGameType = last_type;
   pInitPacket->iGameType = iGameType;
   pInitPacket->iCompetitors = competitors;
-  pInitPacket->iManualControl = manual_control[wConsoleNode];
+  pInitPacket->iManualControl = manual_control[iConsoleNode];
   iLevelFlags = level;
   if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)
     iLevelFlags = level | 0x0100;
-  if (player_invul[player1_car])
+  if (player_invul[iPlayerSlot])
     iLevelFlags |= 0x0200;
   if ((cheat_mode & CHEAT_MODE_KILLER_OPPONENTS) != 0)
     iLevelFlags |= 0x0400;
@@ -1384,7 +1427,10 @@ void CheckNewNodes()
       case PACKET_ID_TRANSMIT_INIT:                         // PACKET_ID_TRANSMIT_INIT
         transmitInitPacket.iNetworkChampOn = 0;
         transmitInitPacket.iNetworkSlot = 0;
-        ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket));
+        if (!ROLLERCommsGetBlock(pPacket2, &transmitInitPacket, sizeof(tTransmitInitPacket))) {
+          ROLLERCommsPostListen();
+          continue;
+        }
         NormalizePacketAddress(transmitInitPacket.address);
         memset(packetTransportAddress, 0, sizeof(packetTransportAddress));
         GetLastPacketAddress(packetTransportAddress);
@@ -1480,7 +1526,10 @@ void CheckNewNodes()
             }
             test = 7;
             name_copy(player_names[network_on], transmitInitPacket.szPlayerName);
-            Players_Cars[network_on] = transmitInitPacket.iCarIdx;
+            Players_Cars[network_on] =
+              NetworkPlayerCarOrNone(transmitInitPacket.iCarIdx,
+                                     "transmit-init-new",
+                                     network_on);
             manual_control[network_on] = transmitInitPacket.iManualControl;
             player_started[network_on] = transmitInitPacket.iStartPressed;
             iCheckNamesResult = CheckNames(player_names[network_on], network_on);
@@ -1596,13 +1645,16 @@ void CheckNewNodes()
           test = 8;
           iNodeIndex = iFoundNodeOffset - 10;
           ++my_age;
-          if (iNodeIndex <= 0)
+          if (iNodeIndex <= 0 || iNodeIndex >= MAX_PLAYERS)
             goto LABEL_40;
           test = 9;
           if (!transmitInitPacket.iTimeToStart) {
             test = 10;
             name_copy(player_names[iNodeIndex], transmitInitPacket.szPlayerName);
-            Players_Cars[iNodeIndex] = transmitInitPacket.iCarIdx;
+            Players_Cars[iNodeIndex] =
+              NetworkPlayerCarOrNone(transmitInitPacket.iCarIdx,
+                                     "transmit-init-update",
+                                     iNodeIndex);
             iCheckNamesResult2 = CheckNames(player_names[iNodeIndex], iNodeIndex);
             check_cars();
             TrackLoad = transmitInitPacket.iTrackLoad;
@@ -1813,9 +1865,17 @@ void CheckNewNodes()
         ROLLERCommsPostListen();
         continue;
       case PACKET_ID_PLAYER_INFO:                         // PACKET_ID_PLAYER_INFO
-        ROLLERCommsGetBlock(pPacket2, &playerInfoPacket, 40);// Handle PACKET_ID_PLAYER_INFO (0x686C636A) - update player information
+        if (!ROLLERCommsGetBlock(pPacket2, &playerInfoPacket, sizeof(tPlayerInfoPacket))) {
+          ROLLERCommsPostListen();
+          continue;
+        }
         byConsoleNode = syncHeader.byConsoleNode;
-        Players_Cars[syncHeader.byConsoleNode] = playerInfoPacket.iPlayerCar;
+        if (byConsoleNode < 0 || byConsoleNode >= MAX_PLAYERS)
+          goto LABEL_40;
+        Players_Cars[syncHeader.byConsoleNode] =
+          NetworkPlayerCarOrNone(playerInfoPacket.iPlayerCar,
+                                 "start-player-info",
+                                 syncHeader.byConsoleNode);
         name_copy(player_names[byConsoleNode], playerInfoPacket.szPlayerName);
         TrackLoad = playerInfoPacket.iTrackLoad;
         game_type = playerInfoPacket.iGameType;
@@ -1923,7 +1983,8 @@ void FoundNodes()
     if (iSortedNode < 0 || iSortedNode >= network_on)
       continue;
 
-    Players_Cars[iSortedNode] = oldPlayersCars[i];
+    Players_Cars[iSortedNode] =
+      NetworkPlayerCarOrNone(oldPlayersCars[i], "found-nodes-remap", iSortedNode);
     manual_control[iSortedNode] = oldManualControl[i];
     player_invul[iSortedNode] = oldPlayerInvul[i];
     player_started[iSortedNode] = oldPlayerStarted[i];
@@ -1956,15 +2017,24 @@ void SendPlayerInfo()
   tPlayerInfoPacket playerInfo; // [esp+0h] [ebp-44h] BYREF
 
   if (network_on) {
+    int iPlayerSlot = player1_car;
+    if (iPlayerSlot < 0 || iPlayerSlot >= MAX_PLAYERS) {
+      SDL_Log("[NET] invalid player slot %d while sending player info", iPlayerSlot);
+      return;
+    }
+
     //setup playerInfo packet
-    name_copy(playerInfo.szPlayerName, player_names[player1_car]);
-    playerInfo.iPlayerCar = Players_Cars[player1_car];
+    name_copy(playerInfo.szPlayerName, player_names[iPlayerSlot]);
+    playerInfo.iPlayerCar =
+      NetworkPlayerCarOrNone(Players_Cars[iPlayerSlot],
+                             "player-info-local",
+                             iPlayerSlot);
     playerInfo.iTrackLoad = TrackLoad;
     playerInfo.iGameType = game_type;
     playerInfo.iCompetitors = competitors;
     playerInfo.iLevel = level;
     playerInfo.iDamageLevel = damage_level;
-    if (player_invul[player1_car])
+    if (player_invul[iPlayerSlot])
       playerInfo.iDamageLevel |= 0x00000040;
     playerInfo.iManualControl = manual_control[player1_car];
     
