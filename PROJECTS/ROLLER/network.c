@@ -812,7 +812,7 @@ int receive_multiple()
   void *pPacket; // [esp+38h] [ebp-28h] BYREF
   int iPaused; // [esp+40h] [ebp-20h] BYREF
   int *pSeed; // [esp+44h] [ebp-1Ch]
-  int iSlotReceived = 0;
+  int iSlotsReceived = 0;
 
   if (network_on && !net_quit) {
     pSeed = &test_seed;
@@ -856,7 +856,7 @@ int receive_multiple()
           if (in_header.unFrameId == frame_number) {
             ++frame_number;
             writeptr = (writeptr + 1) & 0x1FF;
-            iSlotReceived = 1;
+            ++iSlotsReceived;
             next_resync = -1;
             ROLLERCommsPostListen();
             continue;
@@ -951,7 +951,7 @@ int receive_multiple()
             ++ticks_received;
             ++frame_number;
             writeptr = (writeptr + 1) & 0x1FF;
-            iSlotReceived = 1;
+            ++iSlotsReceived;
             next_resync = -1;
             ROLLERCommsPostListen();
             continue;
@@ -988,7 +988,7 @@ int receive_multiple()
       }
     }
   }
-  return iSlotReceived;
+  return iSlotsReceived;
 }
 
 //-------------------------------------------------------------------------------------------------

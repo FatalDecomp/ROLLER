@@ -1123,14 +1123,16 @@ static void network_master_tick(void)
   }
 }
 
-static void network_slave_tick(void)
+static int network_slave_tick(void)
 {
+  int iSlotsReceived;
+
   if (paused)
     network_timeout = frames;
   if (frames > network_timeout + network_limit && human_finishers < players)
     network_error = 123;
 
-  (void)receive_multiple();
+  iSlotsReceived = receive_multiple();
 
   if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
     read_check = -1;
@@ -1162,6 +1164,8 @@ static void network_slave_tick(void)
       write_check = 0;
     }
   }
+
+  return iSlotsReceived;
 }
 
 static void network_slave_input_tick(void)
@@ -1283,6 +1287,8 @@ void tick_clock_step(void)
 
 void game_tick_step(void)
 {
+  int iControlTicks = 1;
+
   if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
     if (!network_on || winner_mode) {
       local_input_tick();
@@ -1291,9 +1297,11 @@ void game_tick_step(void)
 
       if (wConsoleNode == master)
         network_master_tick();
-      else if (wConsoleNode > master && net_players[wConsoleNode])
-        network_slave_tick();
-      else
+      else if (wConsoleNode > master && net_players[wConsoleNode]) {
+        iControlTicks = network_slave_tick();
+        if (iControlTicks < 1)
+          iControlTicks = 1;
+      } else
         network_orphan_tick();
 
       network_engine_delay_tick();
@@ -1302,10 +1310,12 @@ void game_tick_step(void)
 
   replay_engine_delay_tick();
 
-  if (champ_mode < 16)
-    control_one_tick();
-  else
-    firework_display_one_tick();
+  for (int i = 0; i < iControlTicks; i++) {
+    if (champ_mode < 16)
+      control_one_tick();
+    else
+      firework_display_one_tick();
+  }
 }
 
 void tickhandler()

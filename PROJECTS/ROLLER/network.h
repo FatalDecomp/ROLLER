@@ -208,7 +208,7 @@ void send_pause();
 void send_slot();
 void transmitpausetoslaves();
 void send_multiple();
-int receive_multiple();
+int receive_multiple(); // returns number of copy_multiple slots received
 void receive_all_singles();
 void do_sync_stuff();
 int TransmitInit();
