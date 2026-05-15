@@ -7411,9 +7411,7 @@ void dozoomstuff(int iPlayerIdx)
   int iPlayerIdx_1; // eax
   int iZoomCountdown; // esi
   double dZoomInScale; // st7
-  int iPlayerIdx2; // edx
   double dZoomOutScale; // st7
-  int iPlayerIdx3; // edx
 
   iPrevChampMode = champ_mode;                  // Store current championship mode state
   if (champ_mode >= 16)                       // Decrement champ counter if in championship mode
@@ -7426,30 +7424,28 @@ void dozoomstuff(int iPlayerIdx)
         dZoomOutScale = game_scale[iPlayerIdx] * 0.5;// Zoom out phase: apply zoom factor based on championship vs regular mode
       else
         dZoomOutScale = game_scale[iPlayerIdx] * 0.7692307692307693;
-      game_scale[iPlayerIdx] = (float)dZoomOutScale;
-      iPlayerIdx3 = iPlayerIdx;
-      if (game_scale[iPlayerIdx3] < 64.0)     // Check if zoom has reached minimum scale limit
+      if (dZoomOutScale < 64.0)               // Check if zoom has reached minimum scale limit
       {
-        game_scale[iPlayerIdx3] = 64.0;         // Clamp to minimum zoom (64.0) and set appropriate countdown timer
+        set_game_scale(iPlayerIdx, 64.0f);      // Clamp to minimum zoom (64.0) and set appropriate countdown timer
         if (iPrevChampMode) {
-          game_count[iPlayerIdx3] = 36;
+          game_count[iPlayerIdx] = 36;
           champ_mode = iPrevChampMode;
           return;
         }
-        game_count[iPlayerIdx3] = 72;
-      }
+        game_count[iPlayerIdx] = 72;
+      } else
+        set_game_scale(iPlayerIdx, (float)dZoomOutScale);
     } else if (iZoomCountdown > -2) {
       dZoomInScale = champ_mode ? game_scale[iPlayerIdx] * 2.0 : game_scale[iPlayerIdx] * 1.3;
-      game_scale[iPlayerIdx] = (float)dZoomInScale;
-      iPlayerIdx2 = iPlayerIdx;
-      if (game_scale[iPlayerIdx2] > 32768.0)  // Check if zoom has reached maximum scale limit
+      if (dZoomInScale > 32768.0)             // Check if zoom has reached maximum scale limit
       {
-        game_scale[iPlayerIdx2] = 32768.0;      // Clamp to maximum zoom and disable further zooming
-        game_count[iPlayerIdx2] = -2;
-        sub_on[iPlayerIdx2] = 0;
+        set_game_scale(iPlayerIdx, 32768.0f);   // Clamp to maximum zoom and disable further zooming
+        game_count[iPlayerIdx] = -2;
+        sub_on[iPlayerIdx] = 0;
         champ_mode = iPrevChampMode;
         return;
-      }
+      } else
+        set_game_scale(iPlayerIdx, (float)dZoomInScale);
     }
   } else {
     game_count[iPlayerIdx_1] = iZoomCountdown - 1;// Countdown is positive - decrement timer

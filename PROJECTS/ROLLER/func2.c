@@ -15,6 +15,7 @@
 #include "date.h"
 #include "moving.h"
 #include "graphics.h"
+#include "snapshot.h"
 #include <stdio.h>
 #include "roller.h"
 #include <string.h>
@@ -32,6 +33,32 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+//-------------------------------------------------------------------------------------------------
+
+static float compute_tick_fraction(int iPlayerIdx)
+{
+  uint64 ullIntervalNs = ullTickIntervalNs;
+  uint64 ullScaleTimeNs = ullGameScaleTimeNs[iPlayerIdx];
+
+  if (g_bSnapshotMode || ullIntervalNs == 0 || ullScaleTimeNs == 0)
+    return 1.0f;
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  if (ullNowNs <= ullScaleTimeNs)
+    return 0.0f;
+
+  double dFraction = (double)(ullNowNs - ullScaleTimeNs) / (double)ullIntervalNs;
+  if (dFraction >= 1.0)
+    return 1.0f;
+  return (float)dFraction;
+}
+
+static float get_effective_game_scale(int iPlayerIdx)
+{
+  float fInterp = compute_tick_fraction(iPlayerIdx);
+  return fPrevGameScale[iPlayerIdx] + (game_scale[iPlayerIdx] - fPrevGameScale[iPlayerIdx]) * fInterp;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 // Symbol names defined by ROLLER
@@ -1182,9 +1209,11 @@ void ZoomString(const char *szStr, const char *mappingTable, tBlockHeader *pBloc
   int iSavedZoomY; // [esp+4h] [ebp-24h]
   int iTotalWidth; // [esp+10h] [ebp-18h]
   float fZoomFactor; // [esp+14h] [ebp-14h]
+  float fEffectiveGameScale;
   int iStringDone; // [esp+18h] [ebp-10h]
 
-  if (game_scale[iPlayerIdx] < 32768.0 && zoom_size[iPlayerIdx] || !zoom_size[iPlayerIdx] && game_scale[iPlayerIdx] < 1024.0) {                                             // Check for 2-player mode or widescreen cheat
+  fEffectiveGameScale = get_effective_game_scale(iPlayerIdx);
+  if (fEffectiveGameScale < 32768.0 && zoom_size[iPlayerIdx] || !zoom_size[iPlayerIdx] && fEffectiveGameScale < 1024.0) {                                             // Check for 2-player mode or widescreen cheat
     if (player_type == 2 || (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0)// CHEAT_MODE_WIDESCREEN
       zoom_x = 320;                             // Set zoom center X to 320 for 2-player/widescreen
     else
@@ -1219,14 +1248,14 @@ void ZoomString(const char *szStr, const char *mappingTable, tBlockHeader *pBloc
         dCharWidth = 512.0;                     // Use fixed 512.0 width for space character
       else
         dCharWidth = (double)((pBlockHeader[iCharIndex].iWidth + 1) << 6);// Get character width from font data, add 1 pixel spacing
-      dNewTextWidth = dCharWidth / game_scale[iPlayerIdx] + (double)iTotalWidth;// Scale character width and accumulate total
+      dNewTextWidth = dCharWidth / fEffectiveGameScale + (double)iTotalWidth;// Scale character width and accumulate total
       //_CHP();
       ++szCurrentChar;
     }
 
     if (iTotalWidth <= 310)                   // Check if total width fits within 310 pixels
     {
-      fZoomFactor = game_scale[iPlayerIdx];     // Use normal game scale factor
+      fZoomFactor = fEffectiveGameScale;        // Use normal game scale factor
     } else {
       dScaledWidth = (double)((iTotalWidth << 6) / 310);// Calculate compressed scale to fit in 310 pixels
       iTotalWidth = 310;                        // Clamp total width to 310 pixels
@@ -1242,7 +1271,7 @@ void ZoomString(const char *szStr, const char *mappingTable, tBlockHeader *pBloc
           byFontIndex = mappingTable[iCharCode];// Look up font index in mapping table
           if (byFontIndex == 0xFF)            // Check if font index is invalid (0xFF)
           {
-            dSpaceWidth = 512.0 / game_scale[iPlayerIdx] + (double)zoom_x;// Calculate space width and advance zoom X
+            dSpaceWidth = 512.0 / fEffectiveGameScale + (double)zoom_x;// Calculate space width and advance zoom X
             //_CHP();
             zoom_x = (int)dSpaceWidth;          // Update global zoom X position
           } else {
@@ -1277,10 +1306,12 @@ void ZoomSub(const char *szText, const char *mappingTable, tBlockHeader *pBlockH
   double dSpaceWidth; // st7
   int iSavedZoomY; // [esp+4h] [ebp-24h]
   float fZoomFactor; // [esp+10h] [ebp-18h]
+  float fEffectiveGameScale;
   int iStringDone; // [esp+14h] [ebp-14h]
   int iTotalWidth; // [esp+18h] [ebp-10h]
 
-  if (game_scale[iPlayerIdx] < 1024.0) {                                             // Check for 2-player mode or cheat flag 0x40
+  fEffectiveGameScale = get_effective_game_scale(iPlayerIdx);
+  if (fEffectiveGameScale < 1024.0) {                                             // Check for 2-player mode or cheat flag 0x40
     if (player_type == 2 || (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0)// CHEAT_MODE_WIDESCREEN
       zoom_x = 320;                             // Set zoom center X to 320 for 2-player/cheat mode
     else
@@ -1289,7 +1320,7 @@ void ZoomSub(const char *szText, const char *mappingTable, tBlockHeader *pBlockH
       dZoomDivisor = 2048.0;                    // Use 2048.0 divisor for large zoom
     else
       dZoomDivisor = 1024.0;                    // Use 1024.0 divisor for normal zoom
-    dNewZoomY = dZoomDivisor / game_scale[iPlayerIdx] + (double)zoom_y;// Calculate new zoom Y position with scaling
+    dNewZoomY = dZoomDivisor / fEffectiveGameScale + (double)zoom_y;// Calculate new zoom Y position with scaling
     //_CHP();
     zoom_y = (int)dNewZoomY;                    // Update global zoom Y position
 
@@ -1302,13 +1333,13 @@ void ZoomSub(const char *szText, const char *mappingTable, tBlockHeader *pBlockH
         dCharWidth = 512.0;                     // Use fixed 512.0 width for space character
       else
         dCharWidth = (double)((pBlockHeader[iCharIndex].iWidth + 1) << 6);// Get character width from font data, add 1 pixel spacing
-      dNewTextWidth = dCharWidth / game_scale[iPlayerIdx] + (double)iTotalWidth;// Scale character width and accumulate total
+      dNewTextWidth = dCharWidth / fEffectiveGameScale + (double)iTotalWidth;// Scale character width and accumulate total
       pbyTextPtr++;
       //_CHP();
     }
     if (iTotalWidth <= 310)                   // Check if total width fits within 310 pixels
     {
-      fZoomFactor = game_scale[iPlayerIdx];     // Use normal game scale factor
+      fZoomFactor = fEffectiveGameScale;        // Use normal game scale factor
     } else {
       dScaledWidth = (double)((iTotalWidth << 6) / 310);// Calculate compressed scale to fit in 310 pixels
       iTotalWidth = 310;                        // Clamp total width to 310 pixels
@@ -1324,7 +1355,7 @@ void ZoomSub(const char *szText, const char *mappingTable, tBlockHeader *pBlockH
           byFontIndex = mappingTable[iCharCode];// Look up font index in mapping table
           if (byFontIndex == 0xFF)            // Check if font index is invalid (0xFF)
           {
-            dSpaceWidth = 512.0 / game_scale[iPlayerIdx] + (double)zoom_x;// Calculate space width and advance zoom X
+            dSpaceWidth = 512.0 / fEffectiveGameScale + (double)zoom_x;// Calculate space width and advance zoom X
             //_CHP();
             zoom_x = (int)dSpaceWidth;          // Update global zoom X position
           } else {
@@ -4932,7 +4963,7 @@ void start_zoom(const char *szStr, int iPlayerIdx)
       pszDest += 2;
     } while (c1);
     game_count[iPlayerIdx_1] = 0;
-    game_scale[iPlayerIdx_1] = 32768.0f;
+    set_game_scale(iPlayerIdx_1, 32768.0f);
   } else {
     do {
       c0_1 = *szStr;
@@ -4981,7 +5012,7 @@ void small_zoom(const char *szStr)
       pszDest += 2;
     } while (c1);
     game_count[0] = 0;
-    game_scale[0] = 32768.0f;
+    set_game_scale(0, 32768.0f);
   } else if (!zoom_size[0]) {
     pszDest_1 = zoom_mes[0];
     sub_on[0] = 0;

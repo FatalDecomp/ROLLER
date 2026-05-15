@@ -32,6 +32,12 @@
 #else
 #include <unistd.h>
 #endif
+
+//-------------------------------------------------------------------------------------------------
+
+float fPrevGameScale[2] = { 32768.0f, 32768.0f };
+uint64 ullGameScaleTimeNs[2] = { 0, 0 };
+
 //-------------------------------------------------------------------------------------------------
 //symbols defined by ROLLER
 char szIngameEng[11] = "ingame.eng";                    //000A01FC
@@ -256,6 +262,21 @@ int XMAX;                   //0013FB78
 int time_shown;             //0013FB7C
 int player2_car;            //0013FB7E
 int player1_car;            //0013FB80
+
+//-------------------------------------------------------------------------------------------------
+
+void set_game_scale(int iPlayerIdx, float fNew)
+{
+  uint64 ullScaleTimeNs;
+
+  fPrevGameScale[iPlayerIdx] = game_scale[iPlayerIdx];
+  game_scale[iPlayerIdx] = fNew;
+
+  ullScaleTimeNs = ullLastTickTimeNs;
+  if (!ullScaleTimeNs)
+    ullScaleTimeNs = SDL_GetTicksNS();
+  ullGameScaleTimeNs[iPlayerIdx] = ullScaleTimeNs;
+}
 
 //-------------------------------------------------------------------------------------------------
 //00010020
@@ -1736,8 +1757,8 @@ void play_game_init()
   ahead_time = 0;
   game_count[0] = -2;
   game_count[1] = -2;
-  game_scale[0] = 32768.0;
-  game_scale[1] = 32768.0;
+  set_game_scale(0, 32768.0f);
+  set_game_scale(1, 32768.0f);
   Joy1used = 0;
   Joy2used = 0;
   check_joystick_usage();                       // Initialize joystick usage tracking
@@ -2226,9 +2247,6 @@ void play_game(int iTrack)
   bool bShiftKeyPressed; // eax
   int iSong; // eax
 
-  //added by ROLLER
-  int iLastFrame = frames;
-
   game_track = iTrack;                          // Initialize game state and track
   lagdone = 0;
   I_Want_Out = 0;
@@ -2252,19 +2270,13 @@ void play_game(int iTrack)
   while (racing || lastsample > 0)            // Main game loop - continues while racing or sound samples playing
   {                                             // Stop all sound samples if requested
 
-    //added by ROLLER - ensure we get a frame update before next process
-    //TODO: figure out how this was handled originally
     if (g_bSnapshotMode) {
       // No SDL tick timer in snapshot mode: drive replay one tick per
       // iteration with no wall-clock pacing, and zero scrbuf so any
       // unredrawn region cannot leak from the previous frame.
       SnapshotZeroScreen();
       SnapshotAdvanceTick();
-    } else {
-      while (iLastFrame == frames)
-        ;
     }
-    iLastFrame = frames;
 
     UpdateSDL();
     if (dostopsamps) {
@@ -3637,7 +3649,7 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
         start_zoom(buffer, 0);
         sprintf(buffer, "%s", player_names[pauser]);
         subzoom(buffer);
-        game_scale[0] = 64.0;
+        set_game_scale(0, 64.0f);
         game_count[0] = 2;
       }
       if (iCarIdx == player1_car || winner_mode || intro)// Render zoom messages for player 1 or in special modes

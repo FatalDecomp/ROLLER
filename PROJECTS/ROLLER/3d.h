@@ -195,6 +195,11 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
+extern float fPrevGameScale[2];
+extern uint64 ullGameScaleTimeNs[2];
+
+//-------------------------------------------------------------------------------------------------
+
 extern int champ_track[16];
 extern int exiting;
 extern int dontrestart;
@@ -258,6 +263,7 @@ extern uint8 *cartex_vga[16];
 extern uint8 *cargen_vga;
 extern tBlockHeader *rev_vga[16];
 extern int firstrun;
+void set_game_scale(int iPlayerIdx, float fNew);
 extern int lagdone;
 extern int language;
 extern int GroundColour[MAX_TRACK_CHUNKS][5];
