@@ -2244,6 +2244,7 @@ void play_game(int iTrack)
   int iNetTimeItr_1; // ecx
   int16 nNetTimeItr_2; // bx
   int iNetTimeItr_3; // eax
+  int iPendingTicks; // eax
   bool bShiftKeyPressed; // eax
   int iSong; // eax
 
@@ -2266,18 +2267,10 @@ void play_game(int iTrack)
   network_error = 0;
   network_sync_error = 0;
   frontend_on = 0;
+  SDL_SetAtomicInt(&iTicksPending, 0);
   //_enable();
   while (racing || lastsample > 0)            // Main game loop - continues while racing or sound samples playing
   {                                             // Stop all sound samples if requested
-
-    if (g_bSnapshotMode) {
-      // No SDL tick timer in snapshot mode: drive replay one tick per
-      // iteration with no wall-clock pacing, and zero scrbuf so any
-      // unredrawn region cannot leak from the previous frame.
-      SnapshotZeroScreen();
-      SnapshotAdvanceTick();
-    }
-
     UpdateSDL();
     if (dostopsamps) {
       stopallsamples();
@@ -2310,10 +2303,18 @@ void play_game(int iTrack)
       initsoundlag(0);
       lagdone = -1;
     }
-    if (champ_mode < 16)                      // Handle game control vs fireworks display based on championship mode
-      control();
-    else
-      firework_display();
+    updates = 0;
+    if (g_bSnapshotMode) {
+      // No SDL tick timer in snapshot mode: drive one logical tick per
+      // iteration with no wall-clock pacing, and zero scrbuf so any
+      // unredrawn region cannot leak from the previous frame.
+      SnapshotZeroScreen();
+      SnapshotAdvanceTick();
+    }
+    while ((iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+      SDL_AddAtomicInt(&iTicksPending, iPendingTicks > 0 ? -1 : 1);
+      game_tick_step();
+    }
     if (!replayspeed && intro && !game_req)   // Exit replay if intro mode and no game requested
       racing = replayspeed;
     //removed by ROLLER, CD looping is handled in ROLLER code

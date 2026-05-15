@@ -548,7 +548,7 @@ void GoDownGear(tCar *pCar, int iUseAutoLogic)
 
 //-------------------------------------------------------------------------------------------------
 //0002A350
-void control()
+static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
 {
   int iChecksum; // ebx
   int iCarCounter; // edi
@@ -615,13 +615,16 @@ void control()
   float fZ; // [esp+78h] [ebp-24h]
   float fY; // [esp+7Ch] [ebp-20h]
   float fLightDeltaY; // [esp+80h] [ebp-1Ch]
+  int iTicksProcessed = 0;
 
-  updates = 0;                                  // Initialize update counter and handle replay mode
   if (replaytype == 2)
     readptr = -10000;
-  if (readptr == writeptr)
+  if (readptr == writeptr) {
     analysespeechsamples();
-  while (readptr != writeptr)                 // Main game update loop - process each frame while data available
+    if (iReturnIfNoTick)
+      return;
+  }
+  while (readptr != writeptr && (iMaxTicks < 0 || iTicksProcessed < iMaxTicks))                 // Main game update loop - process each frame while data available
   {
     --view1_cnt;                                // Update frame counters and warp animation angle
     --view0_cnt;
@@ -976,6 +979,7 @@ void control()
       readptr = writeptr;
     else
       readptr = ((int16)readptr + 1) & 0x1FF;
+    ++iTicksProcessed;
   }
   if (replaytype != 2 && numcars > 0)         // Final processing: handle special car state changes for active cars
   {
@@ -1003,6 +1007,17 @@ void control()
     Car[iFinalCarIdx].byWheelAnimationFrame = byNewValue;
     goto LABEL_185;
   }
+}
+
+void control()
+{
+  updates = 0;
+  control_ticks(-1, 0);
+}
+
+void control_one_tick(void)
+{
+  control_ticks(1, 1);
 }
 
 //-------------------------------------------------------------------------------------------------

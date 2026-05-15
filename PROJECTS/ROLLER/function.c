@@ -1557,7 +1557,7 @@ void showmap(uint8 *pScrPtr, int iCarIdx)
 
 //-------------------------------------------------------------------------------------------------
 //000390D0
-void firework_display()
+static void firework_display_ticks(int iMaxTicks)
 {
   int i; // ebp
   tCarSpray *pSprayData; // ebx
@@ -1588,8 +1588,9 @@ void firework_display()
   float fY; // [esp+14h] [ebp-24h]
   float fX; // [esp+18h] [ebp-20h]
   float fOrigVelX; // [esp+1Ch] [ebp-1Ch]
+  int iTicksProcessed = 0;
 
-  for (updates = 0; readptr != writeptr; readptr = ((uint16)readptr + 1) & 0x1FF) {                                             // Only advance animation if not paused
+  for (; readptr != writeptr && (iMaxTicks < 0 || iTicksProcessed < iMaxTicks); readptr = ((uint16)readptr + 1) & 0x1FF, ++iTicksProcessed) {                                             // Only advance animation if not paused
     if (!paused)
       ++updates;
     dozoomstuff(0);
@@ -1723,6 +1724,17 @@ void firework_display()
     }
     analysespeechsamples();
   }
+}
+
+void firework_display()
+{
+  updates = 0;
+  firework_display_ticks(-1);
+}
+
+void firework_display_one_tick(void)
+{
+  firework_display_ticks(1);
 }
 
 //-------------------------------------------------------------------------------------------------

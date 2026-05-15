@@ -1960,7 +1960,7 @@ static bool ROLLERGetTimerInterval(SDL_TimerID timerID, uint64 *pUllInterval)
 
 Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval)
 {
-  tickhandler();
+  tick_clock_step();
   uint64 ullRet = 0;
 
   if (!ROLLERGetTimerInterval(timerID, &ullRet))

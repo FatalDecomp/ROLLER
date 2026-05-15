@@ -19,6 +19,7 @@ extern uint8 testbuf[4096];
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
+extern SDL_AtomicInt iTicksPending;
 
 //-------------------------------------------------------------------------------------------------
 

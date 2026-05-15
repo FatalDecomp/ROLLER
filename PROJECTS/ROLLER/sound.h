@@ -411,6 +411,8 @@ void Initialise_SOS();
 void updatejoy();
 void readuserdata(int iPlayer);
 void tickhandler();
+void tick_clock_step(void);
+void game_tick_step(void);
 void claim_ticktimer(unsigned int uiRateHz);
 void release_ticktimer();
 void Uninitialise_SOS();

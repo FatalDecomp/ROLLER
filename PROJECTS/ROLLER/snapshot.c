@@ -217,7 +217,10 @@ void SnapshotQueueRawKey(uint8 byRawKey)
 void SnapshotAdvanceTick(void)
 {
   if (!g_bSnapshotMode) return;
-  tickhandler();
+  tick_clock_step();
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  if (!frontend_on)
+    game_tick_step();
 }
 
 //-------------------------------------------------------------------------------------------------
