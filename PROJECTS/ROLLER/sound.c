@@ -1175,6 +1175,12 @@ static void network_slave_input_tick(void)
   if (!network_on || !start_race || wConsoleNode <= master || !net_players[wConsoleNode])
     return;
 
+  // This deliberately runs from tick_clock_step() on the timer thread. Slave
+  // nodes need to sample and transmit fresh input at timer cadence; waiting for
+  // the main-thread network tick makes remote controls feel sluggish. Keep
+  // readuserdata() and send_single() safe for this path: they may touch input
+  // and network-send bookkeeping, but must not depend on render-thread state or
+  // pump SDL events.
   readuserdata(0);
   send_single(user_inp);
   last_inp[0] = user_inp;

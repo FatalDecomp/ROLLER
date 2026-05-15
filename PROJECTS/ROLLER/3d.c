@@ -2312,7 +2312,12 @@ void play_game(int iTrack)
       SnapshotAdvanceTick();
     }
     while ((iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
-      SDL_AddAtomicInt(&iTicksPending, iPendingTicks > 0 ? -1 : 1);
+      // Claim one pending tick with CAS. The timer thread can enqueue between
+      // this read and update, so a plain read/add pair can race, especially
+      // when replay rewind changes the pending count's sign.
+      int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
+      if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
+        continue;
       game_tick_step();
     }
     if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
