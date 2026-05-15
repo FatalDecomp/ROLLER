@@ -2315,6 +2315,8 @@ void play_game(int iTrack)
       SDL_AddAtomicInt(&iTicksPending, iPendingTicks > 0 ? -1 : 1);
       game_tick_step();
     }
+    if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
+      game_tick_step();
     if (!replayspeed && intro && !game_req)   // Exit replay if intro mode and no game requested
       racing = replayspeed;
     //removed by ROLLER, CD looping is handled in ROLLER code
