@@ -1143,10 +1143,3 @@ void frontend_players_select_update(void)
   iFrontendMainMenuResumeFromChild = -1;
   eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
 }
-
-void frontend_type_select_update(void)
-{
-  select_type();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
-}
