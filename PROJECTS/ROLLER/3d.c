@@ -2266,8 +2266,9 @@ void play_game(int iTrack)
   network_timeout = frames;
   network_error = 0;
   network_sync_error = 0;
-  frontend_on = 0;
+  reset_tick_input_samples();
   SDL_SetAtomicInt(&iTicksPending, 0);
+  frontend_on = 0;
   //_enable();
   while (racing || lastsample > 0)            // Main game loop - continues while racing or sound samples playing
   {                                             // Stop all sound samples if requested

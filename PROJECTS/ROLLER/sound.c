@@ -38,6 +38,8 @@
 volatile uint64 ullLastTickTimeNs = 0;
 volatile uint64 ullTickIntervalNs = HZ_TO_NS(36u);
 SDL_AtomicInt iTicksPending;
+static SDL_AtomicInt iNetworkMasterInput;
+static SDL_AtomicInt iNetworkMasterInputValid;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -992,6 +994,12 @@ static void network_engine_delay_tick(void)
   delayread += ticks_received;
 }
 
+void reset_tick_input_samples(void)
+{
+  SDL_SetAtomicInt(&iNetworkMasterInput, 0);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 0);
+}
+
 static void replay_engine_delay_tick(void)
 {
   if (replaytype != 2 || replayspeed != REPLAY_NORMAL_SPEED || delayread >= delaywrite)
@@ -1061,9 +1069,14 @@ static void network_master_tick(void)
       copy_multiple[writeptr][i].data.unFlags = unFlags;
     }
 
-    readuserdata(0);
-    copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-    last_inp[0] = user_inp;
+    if (SDL_GetAtomicInt(&iNetworkMasterInputValid)) {
+      copy_multiple[writeptr][player1_car].uiFullData =
+        (uint32)SDL_GetAtomicInt(&iNetworkMasterInput);
+    } else {
+      readuserdata(0);
+      copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+      last_inp[0] = user_inp;
+    }
 
     receive_all_singles();
   }
@@ -1168,6 +1181,22 @@ static int network_slave_tick(void)
   return iSlotsReceived;
 }
 
+static void network_master_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode != master || !net_players[wConsoleNode])
+    return;
+
+  // Master input needs the same timer-cadence sampling as slave input for
+  // long network races. Only the packed input word crosses to the main-thread
+  // game tick; writeptr, copy_multiple, and packet fan-out stay there.
+  readuserdata(0);
+  SDL_SetAtomicInt(&iNetworkMasterInput, (int)user_inp);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 1);
+  last_inp[0] = user_inp;
+}
+
 static void network_slave_input_tick(void)
 {
   if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
@@ -1263,6 +1292,7 @@ void tick_clock_step(void)
     ticks++;
     if (!paused && !frontend_on) {
       updatejoy();
+      network_master_input_tick();
       network_slave_input_tick();
     }
   }
