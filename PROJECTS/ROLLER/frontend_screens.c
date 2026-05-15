@@ -1123,13 +1123,6 @@ void frontend_menu_resume_from_child(void)
   iFrontendMainMenuResumeFromChild = -1;
 }
 
-void frontend_car_select_update(void)
-{
-  select_car();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
-}
-
 void frontend_options_update(void)
 {
   select_configure();
