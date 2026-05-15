@@ -1,5 +1,4 @@
 #include "frontend.h"
-#include "3d.h"
 
 //-------------------------------------------------------------------------------------------------
 
@@ -73,6 +72,11 @@ void frontend_update(void)
   if (aScreens[eFrontendCurrentState].pfnUpdate)
     aScreens[eFrontendCurrentState].pfnUpdate();
 
+  if (eFrontendNextState != eFrontendCurrentState) {
+    frontend_set_state(eFrontendNextState);
+    return;
+  }
+
   if (aScreens[eFrontendCurrentState].pfnDraw)
     aScreens[eFrontendCurrentState].pfnDraw();
 }
@@ -81,7 +85,8 @@ void frontend_update(void)
 
 void push_overlay(eFrontendState eOverlay)
 {
-  if (iOverlayStackTop >= OVERLAY_STACK_DEPTH)
+  if (iOverlayStackTop >= OVERLAY_STACK_DEPTH ||
+      !frontend_state_is_valid(eOverlay))
     return;
 
   aOverlayStack[iOverlayStackTop++] = eFrontendCurrentState;

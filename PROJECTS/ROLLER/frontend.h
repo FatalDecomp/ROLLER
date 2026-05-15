@@ -43,6 +43,11 @@ void frontend_set_state(eFrontendState eState);
 void frontend_update(void);
 void push_overlay(eFrontendState eOverlay);
 void pop_overlay(void);
+void race_set_track(int iTrack);
+void race_enter(void);
+void race_update(void);
+void race_draw(void);
+void race_exit(void);
 
 //-------------------------------------------------------------------------------------------------
 
