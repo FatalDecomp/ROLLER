@@ -96,8 +96,6 @@ int result_p2;            //00188834
 int result_p2_pos;        //00188838
 int result_p1_pos;        //0018883C
 
-//-------------------------------------------------------------------------------------------------
-
 static void sync_scene_render_from_legacy_view(SceneRenderer *scene)
 {
   if (!scene)
@@ -122,15 +120,6 @@ static void sync_scene_render_from_legacy_view(SceneRenderer *scene)
   };
   scene_render_set_camera(scene, &cam);
   scene_render_set_projection(scene, &proj);
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static int normalize_car_design(int iCarDesignIdx)
-{
-  if (iCarDesignIdx < CAR_DESIGN_AUTO || iCarDesignIdx > CAR_DESIGN_DEATH)
-    return CAR_DESIGN_AUTO;
-  return iCarDesignIdx;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5216,7 +5205,7 @@ void AllocateCars()
     iDriverIdx = 0;
     do {                                           // Clone mode: all cars use player 1's car type
       if ((cheat_mode & 0x4000) != 0)         // cheat_mode & CHEAT_MODE_CLONES
-        iAssignedCarType = normalize_car_design(Players_Cars[0]);
+        iAssignedCarType = Players_Cars[0];
       else
         iAssignedCarType = iCarIdx / 2;         // Normal mode: car type based on position (pairs)
       Drivers_Car[iDriverIdx] = iAssignedCarType;
@@ -5243,8 +5232,7 @@ void AllocateCars()
     iPlayersCarIdx = 0;
     pszNextPlayerName = player_names[1];
     do {
-      iSelectedCarType = normalize_car_design(Players_Cars[iPlayersCarIdx]);// Get player's selected car type
-      Players_Cars[iPlayersCarIdx] = iSelectedCarType;
+      iSelectedCarType = Players_Cars[iPlayersCarIdx];// Get player's selected car type
       if (iPlayerIdx || (iAvailableSlot = my_number, my_number < 0)) {                                         // For cars >= 8 or clone mode, find any available slot
         if (iSelectedCarType >= 8 || (cheat_mode & 0x4000) != 0)// CHEAT_MODE_CLONES
         {
@@ -5478,15 +5466,14 @@ LABEL_8:
   if (players > 0) {
     j = 0;
     do {
-      iCarId = normalize_car_design(Players_Cars[j]);
-      Players_Cars[j] = iCarId;
+      iCarId = Players_Cars[j];
       if (iCarId >= 0) {
         // If cheat bit CHEAT_MODE_CLONES is not enabled, count the car usage
         if ((cheat_mode & CHEAT_MODE_CLONES) == 0)
           ++allocated_cars[iCarId];
 
         // Assign player index to car_to_player
-        iCarId2 = iCarId;
+        iCarId2 = Players_Cars[j];
         if (iCarId2 <= 7) { //added by ROLLER, ignore cheat cars, bug in original game
           if (allocated_cars[iCarId2] == 1)
             car_to_player[2 * iCarId2] = i;
