@@ -740,11 +740,11 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
     }
     if ((textures_off & TEX_OFF_KMH) != 0)          // TEX_OFF_KMH
     {
-      sprintf(buffer, "%3.0f", (double)fabs(Car[iCarIndex_1].fFinalSpeed * 15.0 * 0.041666668));// Display speed in km/h (convert from internal units)
+      snprintf(buffer, sizeof(buffer), "%3.0f", (double)fabs(Car[iCarIndex_1].fFinalSpeed * 15.0 * 0.041666668));// Display speed in km/h (convert from internal units)
       mini_prt_string(rev_vga[0], buffer, winw - 34, winh - 8);
       szSpeedUnit = szKmh;
     } else {
-      sprintf(buffer, "%3.0f", (double)fabs(Car[iCarIndex_1].fFinalSpeed * 0.3333333333333333));// Display speed in mph (convert from internal units)
+      snprintf(buffer, sizeof(buffer), "%3.0f", (double)fabs(Car[iCarIndex_1].fFinalSpeed * 0.3333333333333333));// Display speed in mph (convert from internal units)
       mini_prt_string(rev_vga[0], buffer, winw - 34, winh - 8);
       szSpeedUnit = szMph;
     }
@@ -753,11 +753,11 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
     byGearAyMax = Car[iCarIndex_1].byGearAyMax; // Display current gear (N, R, or 1-max)
     if (byGearAyMax < 0) {
       if (byGearAyMax == -1)
-        sprintf(buffer, "N");
+        snprintf(buffer, sizeof(buffer), "N");
       else
-        sprintf(buffer, "R");
+        snprintf(buffer, sizeof(buffer), "R");
     } else {
-      sprintf(buffer, "%1i", byGearAyMax + 1);
+      snprintf(buffer, sizeof(buffer), "%1i", byGearAyMax + 1);
     }
     mini_prt_string(rev_vga[0], buffer, winw - 8, winh - 16);
     mini_prt_string(rev_vga[0], "R", winw - 30, winh - 24);
@@ -811,7 +811,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       byLap = 1;
     if (byLap > 99)
       byLap = 99;
-    sprintf(buffer, "%2i", byLap);
+    snprintf(buffer, sizeof(buffer), "%2i", byLap);
     mini_prt_string(rev_vga[0], buffer, winw - 12, 4);
     if (game_type >= 2) {
       iLapNumber = 1;
@@ -820,7 +820,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       iLapTimeYPos = 8;
       iTrialTimeIdx = 24 * iCarIndex_1 + 4;
       do {
-        sprintf(buffer, "%s %i", &language_buffer[256], iLapNumber);
+        snprintf(buffer, sizeof(buffer), "%s %i", &language_buffer[256], iLapNumber);
         mini_prt_string(rev_vga[0], buffer, 2, iLapTimeYPos);
         if (iLapNumber < (char)Car[uiCarDataOffset / 0x134].byLap) {
           dLapTime = trial_times[iTrialTimeIdx / sizeof(float)] * 100.0;
@@ -831,7 +831,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           int iMinutes = iLapTimeCentiseconds / 6000;  // 60 seconds * 100 centiseconds
           int iSeconds = (iLapTimeCentiseconds / 100) % 60;
           int iCentiseconds = iLapTimeCentiseconds % 100;
-          sprintf(buffer, "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
+          snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
           mini_prt_string(rev_vga[0], buffer, 30, iLapTimeYPos);
           //buffer[8] = 0;
           //LODWORD(llLapTimeInt) = (int)dLapTime;
@@ -856,7 +856,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           int iMinutes = iLapTimeCentiseconds / 6000;  // 60 seconds * 100 centiseconds
           int iSeconds = (iLapTimeCentiseconds / 100) % 60;
           int iCentiseconds = iLapTimeCentiseconds % 100;
-          sprintf(buffer, "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
+          snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
           mini_prt_string(rev_vga[0], buffer, 30, iLapTimeYPos);
           //LODWORD(llRunningLapTimeInt) = (int)dRunningLapTime;
           //HIDWORD(llRunningLapTimeInt) = (int)dRunningLapTime >> 31;
@@ -880,10 +880,10 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       scr_size = iSavedScrSize;
     } else {
       mini_prt_right(rev_vga[0], &language_buffer[1408], winw - 14, 12);
-      sprintf(buffer, "%2i", Car[iCarIndex_1].byRacePosition + 1);
+      snprintf(buffer, sizeof(buffer), "%2i", Car[iCarIndex_1].byRacePosition + 1);
       mini_prt_string(rev_vga[0], buffer, winw - 12, 12);
       mini_prt_right(rev_vga[0], &language_buffer[1472], winw - 14, 20);
-      sprintf(buffer, "%2i", (char)Car[iCarIndex_1].byLives);
+      snprintf(buffer, sizeof(buffer), "%2i", (char)Car[iCarIndex_1].byLives);
       mini_prt_string(rev_vga[0], buffer, winw - 12, 20);
       scr_size = iSavedScrSize;
     }
@@ -1058,7 +1058,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
       iLapTimeYPos2 = 8;
       iTrialTimeIdx2 = 24 * iCarIndex_1 + 4;
       do {
-        sprintf(buffer, "%s %i", &language_buffer[256], iLapNum2);
+        snprintf(buffer, sizeof(buffer), "%s %i", &language_buffer[256], iLapNum2);
         mini_prt_string(rev_vga[0], buffer, 8, iLapTimeYPos2);
         if (iLapNum2 < (char)Car[uiCarDataOffset2 / 0x134].byLap) {
           dLapTime2 = trial_times[iTrialTimeIdx2 / sizeof(float)] * 100.0;
@@ -1068,7 +1068,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           int iMinutes = iLapTimeCentiseconds / 6000;  // 60 seconds * 100 centiseconds
           int iSeconds = (iLapTimeCentiseconds / 100) % 60;
           int iCentiseconds = iLapTimeCentiseconds % 100;
-          sprintf(buffer, "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
+          snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
           mini_prt_string(rev_vga[0], buffer, 40, iLapTimeYPos2);
           //buffer[8] = 0;
           //LODWORD(llLapTimeInt2) = (int)dLapTime2;
@@ -1092,7 +1092,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           int iMinutes = iLapTimeCentiseconds / 6000;  // 60 seconds * 100 centiseconds
           int iSeconds = (iLapTimeCentiseconds / 100) % 60;
           int iCentiseconds = iLapTimeCentiseconds % 100;
-          sprintf(buffer, "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
+          snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", iMinutes, iSeconds, iCentiseconds);
           mini_prt_string(rev_vga[0], buffer, 40, iLapTimeYPos2);
           //LODWORD(llRunningLapTimeInt2) = (int)dRunningLapTime2;
           //HIDWORD(llRunningLapTimeInt2) = (int)dRunningLapTime2 >> 31;
@@ -1157,9 +1157,9 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           //_CHP();
           iLapsAheadCnt = (int)dAheadTimeLaps;
           if (iLapsAheadCnt == 1)
-            sprintf(buffer, "1 %s", &language_buffer[256]);
+            snprintf(buffer, sizeof(buffer), "1 %s", &language_buffer[256]);
           else
-            sprintf(buffer, "%2i %s", iLapsAheadCnt, &language_buffer[320]);
+            snprintf(buffer, sizeof(buffer), "%2i %s", iLapsAheadCnt, &language_buffer[320]);
           prt_string(rev_vga[1], buffer, iBaseXPos, 24);
         } else {
           ShowATime(fAheadTime, iTimingBaseXPos, 24);
@@ -1170,9 +1170,9 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
           //_CHP();
           iBehindLapCnt = (int)dBehindTimeLaps;
           if (iBehindLapCnt == 1)
-            sprintf(buffer, "1 %s", &language_buffer[256]);
+            snprintf(buffer, sizeof(buffer), "1 %s", &language_buffer[256]);
           else
-            sprintf(buffer, "%2i %s", iBehindLapCnt, &language_buffer[320]);
+            snprintf(buffer, sizeof(buffer), "%2i %s", iBehindLapCnt, &language_buffer[320]);
           prt_string(rev_vga[1], buffer, iBaseXPos, 34);
         } else {
           ShowATime(fBehindTime, iBaseXPos, 34);
@@ -1185,7 +1185,7 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
         szMessageSender = driver_names[network_mes_mode];
       else
         szMessageSender = &language_buffer[3904];
-      sprintf(buffer, "%s %s", &language_buffer[3840], szMessageSender);
+      snprintf(buffer, sizeof(buffer), "%s %s", &language_buffer[3840], szMessageSender);
       prt_string(rev_vga[1], buffer, 2, winh - 12);
     }
   }
@@ -3131,7 +3131,7 @@ void display_paused()
         pszPerspectiveText = &config_buffer[2624];
       }
       prt_stringcol(rev_vga[1], pszPerspectiveText, 190, 26, byPerspectiveOnOff);
-      sprintf(buffer, "%s:", &config_buffer[3968]);
+      snprintf(buffer, sizeof(buffer), "%s:", &config_buffer[3968]);
       if (graphic_mode == 15)
         byNamesColor = 0x8F;
       else
@@ -3416,7 +3416,7 @@ void display_paused()
       else
         iSizePercent = (100 * req_size) / 64;
         //iSizePercent = (100 * req_size - (__CFSHL__((100 * req_size) >> 31, 6) + ((100 * req_size) >> 31 << 6))) >> 6;
-      sprintf(buffer, "%3i %%", iSizePercent);
+      snprintf(buffer, sizeof(buffer), "%3i %%", iSizePercent);
       if (graphic_mode == 2)
         bySizeDisplayColor = 0x8F;
       else
