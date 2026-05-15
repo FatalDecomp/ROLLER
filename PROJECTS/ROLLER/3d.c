@@ -2144,31 +2144,6 @@ static void frontend_run_game_loop(void)
     frontend_set_state(eFRONTEND_STATE_QUIT);
 }
 
-//-------------------------------------------------------------------------------------------------
-
-void frontend_menu_enter(void)
-{
-  start_race = 0;
-  time_to_start = 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void frontend_menu_update(void)
-{
-  if (restart_net) {
-    restart_net_game();                         // Handle network game restart
-  } else {
-    while (!time_to_start && !quit_game)
-      select_screen();                          // Wait for player to start race from menu
-  }
-
-  restart_net = 0;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 void frontend_loading_enter(void)
 {
   countdown = 144;

@@ -27,10 +27,16 @@ static int iOverlayStackTop = 0;
 static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_TITLE] = { NULL, frontend_title_update, NULL, NULL },
   [eFRONTEND_STATE_MAIN_MENU] = { frontend_menu_enter, frontend_menu_update, NULL, NULL },
+  [eFRONTEND_STATE_CAR_SELECT] = { NULL, frontend_car_select_update, NULL, NULL },
+  [eFRONTEND_STATE_TRACK_SELECT] = { NULL, frontend_track_select_update, NULL, NULL },
+  [eFRONTEND_STATE_DISK_SELECT] = { NULL, frontend_disk_select_update, NULL, NULL },
+  [eFRONTEND_STATE_PLAYERS_SELECT] = { NULL, frontend_players_select_update, NULL, NULL },
+  [eFRONTEND_STATE_TYPE_SELECT] = { NULL, frontend_type_select_update, NULL, NULL },
   [eFRONTEND_STATE_LOADING] = { frontend_loading_enter, frontend_loading_update, NULL, NULL },
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
   [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
+  [eFRONTEND_STATE_OPTIONS] = { NULL, frontend_options_update, NULL, NULL },
 };
 
 //-------------------------------------------------------------------------------------------------

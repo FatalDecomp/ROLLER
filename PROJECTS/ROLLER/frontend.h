@@ -25,6 +25,9 @@ typedef enum {
   eFRONTEND_STATE_MAIN_MENU,
   eFRONTEND_STATE_CAR_SELECT,
   eFRONTEND_STATE_TRACK_SELECT,
+  eFRONTEND_STATE_DISK_SELECT,
+  eFRONTEND_STATE_PLAYERS_SELECT,
+  eFRONTEND_STATE_TYPE_SELECT,
   eFRONTEND_STATE_DIFFICULTY,
   eFRONTEND_STATE_LOBBY,
   eFRONTEND_STATE_LOADING,
@@ -55,6 +58,12 @@ void frontend_loading_update(void);
 void frontend_title_update(void);
 void frontend_results_update(void);
 void frontend_championship_standings_update(void);
+void frontend_car_select_update(void);
+void frontend_track_select_update(void);
+void frontend_disk_select_update(void);
+void frontend_options_update(void);
+void frontend_players_select_update(void);
+void frontend_type_select_update(void);
 
 //-------------------------------------------------------------------------------------------------
 
