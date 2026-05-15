@@ -1123,9 +1123,3 @@ void frontend_menu_resume_from_child(void)
   iFrontendMainMenuResumeFromChild = -1;
 }
 
-void frontend_options_update(void)
-{
-  select_configure();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
-}

@@ -29,9 +29,55 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+// File-static state for frontend config screen (persists across dispatcher ticks)
+static int iFrontendConfigExitFlag;
+static int iFrontendConfigMenuSelection;
+static int iFrontendConfigEditingName;
+static int iFrontendConfigControlsInEdit;
+static int iFrontendConfigState;
+static int iFrontendConfigVolumeSelection;
+static int iFrontendConfigVideoState;
+static int iFrontendConfigControlSelection;
+static int iFrontendConfigSelectedCar;
+static int iFrontendConfigNameLength;
+static char szFrontendConfigNewNameBuf[12];
+static tJoyPos jFrontendConfigJoyPos;
+static int iFrontendConfigGraphicsState;
+static int iFrontendConfigNetworkState;
+
+void frontend_config_enter(void)
+{
+  fade_palette(0);
+  iFrontendConfigExitFlag = 0;
+  iFrontendConfigMenuSelection = 7;
+  iFrontendConfigEditingName = 0;
+  iFrontendConfigControlsInEdit = 0;
+  front_fade = 0;
+  iFrontendConfigState = 0;
+  {
+    extern tColor palette[];
+    memcpy(pal_addr, palette, 256 * sizeof(tColor));
+    palette_brightness = 32;
+  }
+}
+
+void frontend_config_exit(void)
+{
+  MenuRenderer *mr = GetMenuRenderer();
+  menu_render_begin_fade(mr, 0, 32);
+  menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  palette_brightness = 0;
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = 0;
+    pal_addr[i].byB = 0;
+    pal_addr[i].byG = 0;
+  }
+  front_fade = 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 //00042D40
-void select_configure()
+void frontend_config_update(void)
 {
   char *szString; // eax
   int iCharIndex; // edx
@@ -50,7 +96,7 @@ void select_configure()
   uint8 byTextColor8; // al
   uint8 byTextColor9; // al
   uint8 byColor; // al
-  int iSelectedCar_1; // edi
+  int iFrontendConfigSelectedCar_1; // edi
   uint8 byColor_1; // al
   uint8 byColor_2; // al
   char byVolumeColor1; // al
@@ -72,16 +118,16 @@ void select_configure()
   int byColor_15; // ebx
   int byColor_16; // ebx
   int byColor_17; // ebx
-  int iVolumeSelection_1; // ecx
+  int iFrontendConfigVolumeSelection_1; // ecx
   int byColor_18; // ebx
-  int iConfigState_1; // edi
+  int iFrontendConfigState_1; // edi
   int iJoyCalibValue1; // ebx
   char *szJoyStatus1; // edx
   int iJoyCalibValue2; // ebx
   char *szJoyStatus2; // edx
   int iX2CalibrationVal; // ebx
   char *szX2Text; // edx
-  int iConfigState_2; // edi
+  int iFrontendConfigState_2; // edi
   int iY2CalibrationVal; // ebx
   char *szY2Text; // edx
   int iKeyFound; // ebx
@@ -195,7 +241,7 @@ void select_configure()
   uint8 byColor_102; // al
   char byColor_103; // al
   uint8 byColor_104; // al
-  int iNetworkState_1; // edi
+  int iFrontendConfigNetworkState_1; // edi
   int iX; // eax
   int iPlayerIdx_1; // eax
   //int iPlayersCarsOffset_1; // edx
@@ -211,8 +257,8 @@ void select_configure()
   unsigned int uiArrowKey; // eax
   int iPrevSelectedCar; // edx
   int iNextSelectedCar; // edx
-  int iNameLength_1; // eax
-  int iEditingName_1; // edi
+  int iFrontendConfigNameLength_1; // eax
+  int iFrontendConfigEditingName_1; // edi
   int j; // ecx
   int iPlayer2Car; // edx
   int k; // ecx
@@ -231,7 +277,7 @@ void select_configure()
   int iAIDriverIdx_1; // eax
   int v196; // ecx
   int v197; // edx
-  int iNameLength_2; // edi
+  int iFrontendConfigNameLength_2; // edi
   unsigned int uiKey_5; // eax
   int iNextVolumeSelection; // edi
   unsigned int uiKey; // eax
@@ -266,22 +312,8 @@ void select_configure()
   char byTempChar1; // [esp-10h] [ebp-16h]
   char byTempChar2; // [esp-10h] [ebp-16h]
   uint8 byTempValue; // [esp-8h] [ebp-Eh]
-  tJoyPos joyPos; // [esp+0h] [ebp-6h] BYREF
-  char szNewNameBuf[12]; // [esp+20h] [ebp+1Ah] BYREF
   int iY; // [esp+2Ch] [ebp+26h]
   int iTextPosX; // [esp+30h] [ebp+2Ah]
-  int iGraphicsState; // [esp+34h] [ebp+2Eh]
-  int iNetworkState; // [esp+38h] [ebp+32h]
-  int iControlsInEdit; // [esp+3Ch] [ebp+36h]
-  int iControlSelection; // [esp+40h] [ebp+3Ah]
-  int iVideoState; // [esp+44h] [ebp+3Eh]
-  int iVolumeSelection; // [esp+48h] [ebp+42h]
-  int iSelectedCar; // [esp+4Ch] [ebp+46h]
-  int iConfigState; // [esp+50h] [ebp+4Ah]
-  int iNameLength; // [esp+54h] [ebp+4Eh]
-  int iEditingName; // [esp+58h] [ebp+52h]
-  int iMenuSelection; // [esp+5Ch] [ebp+56h]
-  int iExitFlag; // [esp+60h] [ebp+5Ah]
   int iCarDisplay; // [esp+64h] [ebp+5Eh]
   int iDimmedColor; // [esp+68h] [ebp+62h]
   int iActiveColor; // [esp+6Ch] [ebp+66h]
@@ -292,26 +324,7 @@ void select_configure()
   int iHighlightColor; // [esp+80h] [ebp+7Ah]
   int iCarLoop; // [esp+84h] [ebp+7Eh]
 
-  // Init config menu
-  fade_palette(0);
-  iExitFlag = 0;
-  iMenuSelection = 7;
-  iEditingName = 0;
-  iControlsInEdit = 0;
-  front_fade = 0;
-  iConfigState = 0;
-
-  // Restore palette for GPU rendering
-  {
-    extern tColor palette[];
-    memcpy(pal_addr, palette, 256 * sizeof(tColor));
-    palette_brightness = 32;
-  }
-
-  // Main config loop
-  while (2) {
-    UpdateSDL();
-    if (switch_types) {
+  if (switch_types) {
       game_type = switch_types - 1;
       if (switch_types == 1 && competitors == 1)
         competitors = 16;
@@ -337,13 +350,13 @@ void select_configure()
     menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
 
     // draw menu selector
-    if (iMenuSelection >= 7) {
+    if (iFrontendConfigMenuSelection >= 7) {
       // no menu item selected (exit)
       menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
       // draw menu selector
       menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
-      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuSelection].x, sel_posns[iMenuSelection].y, 0x8Fu, 0, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iFrontendConfigMenuSelection].x, sel_posns[iFrontendConfigMenuSelection].y, 0x8Fu, 0, pal_addr);
     }
 
     // menu options labels
@@ -359,22 +372,22 @@ void select_configure()
       menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
 
     // Config state machine
-    switch (iMenuSelection) {
+    switch (iFrontendConfigMenuSelection) {
       case 0:
-        if (iEditingName == 1) {
+        if (iFrontendConfigEditingName == 1) {
           iHighlightColor = 0xAB;
           iNormalColor = 0xA5;
         } else {
           iHighlightColor = 0xA5;
           iNormalColor = 0xAB;
         }
-        if (iConfigState != 1) {
+        if (iFrontendConfigState != 1) {
           iHighlightColor = 0x8F;
           iNormalColor = 0x8F;
         }
-        if (iEditingName == 1) {
+        if (iFrontendConfigEditingName == 1) {
           iTextPosX = 0;
-          szString = szNewNameBuf;
+          szString = szFrontendConfigNewNameBuf;
           while (*szString) {
             iCharIndex = (uint8)font1_ascii[(uint8)*szString++];
             if (iCharIndex == 255)
@@ -383,7 +396,7 @@ void select_configure()
               iTextPosX += front_vga[15][iCharIndex].iWidth + 1;
           }
           iTextPosX += 430;
-          iY = 374 - 18 * iSelectedCar;
+          iY = 374 - 18 * iFrontendConfigSelectedCar;
         }
 
         // Init car display loop
@@ -400,22 +413,22 @@ void select_configure()
           // Check if car slot is allocated to a player
           if ((iCarLoop & 1) >= allocated_cars[iCarDisplay / 2]) {
             // Car is available for Ai palyers
-            if (iCarIndex == iSelectedCar && iEditingName == 1) {
+            if (iCarIndex == iFrontendConfigSelectedCar && iFrontendConfigEditingName == 1) {
               // Selected car with name being edited
               menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, iNormalColor, 2u, pal_addr);
-              if (iCarIndex == iSelectedCar)
+              if (iCarIndex == iFrontendConfigSelectedCar)
                 byTextColor3 = iHighlightColor;
               else
                 byTextColor3 = 0x8F;
-              menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, iTextPosY, byTextColor3, 0, pal_addr);
+              menu_render_text(mr, 15, szFrontendConfigNewNameBuf, font1_ascii, font1_offsets, 430, iTextPosY, byTextColor3, 0, pal_addr);
             } else {
               // Selected car with default name displayed
-              if (iCarIndex == iSelectedCar)
+              if (iCarIndex == iFrontendConfigSelectedCar)
                 byTextColor4 = iNormalColor;
               else
                 byTextColor4 = 0x8F;
               menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor4, 2u, pal_addr);
-              if (iCarIndex == iSelectedCar)
+              if (iCarIndex == iFrontendConfigSelectedCar)
                 byChar = iHighlightColor;
               else
                 byChar = 0x8F;
@@ -429,12 +442,12 @@ void select_configure()
             }
           } else {
             // Car is allocated to a human player
-            if (iCarIndex == iSelectedCar)
+            if (iCarIndex == iFrontendConfigSelectedCar)
               byTextColor1 = iActiveColor;
             else
               byTextColor1 = 0x8B;
             menu_render_text(mr, 15, szCarName, font1_ascii, font1_offsets, 425, iTextPosY, byTextColor1, 2u, pal_addr);
-            if (iCarIndex == iSelectedCar)
+            if (iCarIndex == iFrontendConfigSelectedCar)
               byTextColor2 = iDimmedColor;
             else
               byTextColor2 = 0x7F;
@@ -453,25 +466,25 @@ void select_configure()
 
         // Display player 2 configuration (if in 2-player mode)
         if (player_type == 2) {
-          if (iSelectedCar == 2 && iEditingName == 1) {
+          if (iFrontendConfigSelectedCar == 2 && iFrontendConfigEditingName == 1) {
             // Player 2 name being edited
-            if (iSelectedCar == player_type)
+            if (iFrontendConfigSelectedCar == player_type)
               byTextColor5 = iNormalColor;
             else
               byTextColor5 = 0x8F;
             menu_render_text(mr, 15, &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor5, player_type, pal_addr);
-            if (iSelectedCar == 2)
+            if (iFrontendConfigSelectedCar == 2)
               byTextColor6 = iHighlightColor;
             else
               byTextColor6 = 0x8F;
-            menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, 338, byTextColor6, 0, pal_addr);
+            menu_render_text(mr, 15, szFrontendConfigNewNameBuf, font1_ascii, font1_offsets, 430, 338, byTextColor6, 0, pal_addr);
           } else {
             // Player 2 name display mode
-            if (iSelectedCar == 2)
+            if (iFrontendConfigSelectedCar == 2)
               byTextColor7 = iNormalColor;
             else
               byTextColor7 = 0x8F;
-            iTemp1 = iSelectedCar;
+            iTemp1 = iFrontendConfigSelectedCar;
             menu_render_text(mr, 15, &config_buffer[4288], font1_ascii, font1_offsets, 425, 338, byTextColor7, 2u, pal_addr);
             if (iTemp1 == 2)
               byTextColor8 = iHighlightColor;
@@ -482,23 +495,23 @@ void select_configure()
         }
 
         // Display player 1 configuration
-        if (iSelectedCar == 1 && iEditingName == 1) {
+        if (iFrontendConfigSelectedCar == 1 && iFrontendConfigEditingName == 1) {
           // Player 1 name being edited
           menu_render_text(mr, 15, &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, iNormalColor, 2u, pal_addr);
-          if (iSelectedCar == 1)
+          if (iFrontendConfigSelectedCar == 1)
             byTextColor9 = iHighlightColor;
           else
             byTextColor9 = 0x8F;
-          menu_render_text(mr, 15, szNewNameBuf, font1_ascii, font1_offsets, 430, 356, byTextColor9, 0, pal_addr);
+          menu_render_text(mr, 15, szFrontendConfigNewNameBuf, font1_ascii, font1_offsets, 430, 356, byTextColor9, 0, pal_addr);
         } else {
           // Player 1 name display mode
-          if (iSelectedCar == 1)
+          if (iFrontendConfigSelectedCar == 1)
             byColor = iNormalColor;
           else
             byColor = 0x8F;
-          iSelectedCar_1 = iSelectedCar;
+          iFrontendConfigSelectedCar_1 = iFrontendConfigSelectedCar;
           menu_render_text(mr, 15, &config_buffer[4224], font1_ascii, font1_offsets, 425, 356, byColor, 2u, pal_addr);
-          if (iSelectedCar_1 == 1)
+          if (iFrontendConfigSelectedCar_1 == 1)
             byColor_1 = iHighlightColor;
           else
             byColor_1 = 0x8F;
@@ -506,67 +519,67 @@ void select_configure()
         }
 
         // Display "BACK" option
-        if (iSelectedCar)
+        if (iFrontendConfigSelectedCar)
           byColor_2 = 0x8F;
         else
           byColor_2 = iNormalColor;
         menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 374, byColor_2, 2u, pal_addr);
 
         // Display blinking cursor when editing names
-        if (iEditingName == 1) {
+        if (iFrontendConfigEditingName == 1) {
           if ((frames & 0xFu) < 8)            // blink cursor based on frame counter
             menu_render_text(mr, 15, "_", font1_ascii, font1_offsets, iTextPosX, iY, 0xABu, 0, pal_addr);
-          szNewNameBuf[iNameLength] = 0;
+          szFrontendConfigNewNameBuf[iFrontendConfigNameLength] = 0;
         }
         goto RENDER_FRAME;                      // skip to end of switch
       case 1:
         // Audio/volume config
-        if (iConfigState != 2)
-          iVolumeSelection = -1;
+        if (iFrontendConfigState != 2)
+          iFrontendConfigVolumeSelection = -1;
 
         // Engine volume
-        if (iVolumeSelection == 1)
+        if (iFrontendConfigVolumeSelection == 1)
           byVolumeColor1 = 0xAB;
         else
           byVolumeColor1 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2304], font1_ascii, font1_offsets, 425, 80, byVolumeColor1, 2u, 200, 640, pal_addr);
 
         // SFX volume
-        if (iVolumeSelection == 2)
+        if (iFrontendConfigVolumeSelection == 2)
           byVolumeColor2 = 0xAB;
         else
           byVolumeColor2 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2368], font1_ascii, font1_offsets, 425, 104, byVolumeColor2, 2u, 200, 640, pal_addr);
 
         // Speech volume
-        if (iVolumeSelection == 3)
+        if (iFrontendConfigVolumeSelection == 3)
           byVolumeColor3 = 0xAB;
         else
           byVolumeColor3 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2432], font1_ascii, font1_offsets, 425, 128, byVolumeColor3, 2u, 200, 640, pal_addr);
 
         // Music volume
-        if (iVolumeSelection == 4)
+        if (iFrontendConfigVolumeSelection == 4)
           byVolumeColor4 = 0xAB;
         else
           byVolumeColor4 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2496], font1_ascii, font1_offsets, 425, 152, byVolumeColor4, 2u, 200, 640, pal_addr);
 
         // Engine options
-        if (iVolumeSelection == 5)
+        if (iFrontendConfigVolumeSelection == 5)
           byColor_3 = 0xAB;
         else
           byColor_3 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2560], font1_ascii, font1_offsets, 425, 176, byColor_3, 2u, 200, 640, pal_addr);
         if (allengines) {
-          if (iVolumeSelection == 5)
+          if (iFrontendConfigVolumeSelection == 5)
             byColor_4 = 0xAB;
           else
             byColor_4 = 0x8F;
           // ALL ENGINES
           menu_render_scaled_text(mr, 15, &config_buffer[2752], font1_ascii, font1_offsets, 430, 176, byColor_4, 0, 200, 640, pal_addr);
         } else {
-          if (iVolumeSelection == 5)
+          if (iFrontendConfigVolumeSelection == 5)
             byColor_5 = 0xAB;
           else
             byColor_5 = 0x8F;
@@ -575,27 +588,27 @@ void select_configure()
         }
 
         // Sound effects options
-        if (iVolumeSelection == 6)
+        if (iFrontendConfigVolumeSelection == 6)
           byColor_6 = 0xAB;
         else
           byColor_6 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2880], font1_ascii, font1_offsets, 425, 200, byColor_6, 2u, 200, 640, pal_addr);
         if (soundon) {
-          if (iVolumeSelection == 6)
+          if (iFrontendConfigVolumeSelection == 6)
             byColor_7 = 0xAB;
           else
             byColor_7 = 0x8F;
           // ON
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 200, byColor_7, 0, 200, 640, pal_addr);
         } else if (SoundCard) {
-          if (iVolumeSelection == 6)
+          if (iFrontendConfigVolumeSelection == 6)
             byColor_8 = 0xAB;
           else
             byColor_8 = 0x8F;
           // OFF
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 430, 200, byColor_8, soundon, 200, 640, pal_addr);
         } else {
-          if (iVolumeSelection == 6)
+          if (iFrontendConfigVolumeSelection == 6)
             byColor_9 = 0xAB;
           else
             byColor_9 = 0x8F;
@@ -604,27 +617,27 @@ void select_configure()
         }
 
         // Music options
-        if (iVolumeSelection == 7)
+        if (iFrontendConfigVolumeSelection == 7)
           byColor_10 = 0xAB;
         else
           byColor_10 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[2944], font1_ascii, font1_offsets, 425, 224, byColor_10, 2u, 200, 640, pal_addr);
         if (musicon) {
-          if (iVolumeSelection == 7)
+          if (iFrontendConfigVolumeSelection == 7)
             byColor_11 = 0xAB;
           else
             byColor_11 = 0x8F;
           // ON
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640, pal_addr);
         } else if (MusicCard || MusicCD) {
-          if (iVolumeSelection == 7)
+          if (iFrontendConfigVolumeSelection == 7)
             byColor_12 = 0xAB;
           else
             byColor_12 = 0x8F;
           // OFF
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 430, 224, byColor_12, 0, 200, 640, pal_addr);
         } else {
-          if (iVolumeSelection == 7)
+          if (iFrontendConfigVolumeSelection == 7)
             byColor_13 = 0xAB;
           else
             byColor_13 = 0x8F;
@@ -633,30 +646,30 @@ void select_configure()
         }
 
         // Back option
-        if (iVolumeSelection)
+        if (iFrontendConfigVolumeSelection)
           byColor_14 = 0x8F;
         else
           byColor_14 = 0xAB;
         menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 248, byColor_14, 2u, 200, 640, pal_addr);
 
         // Display volume bars
-        if (iVolumeSelection == 1)
+        if (iFrontendConfigVolumeSelection == 1)
           byColor_15 = 0xAB;
         else
           byColor_15 = 0xA5;
         front_volumebar(80, EngineVolume, byColor_15);
-        if (iVolumeSelection == 2)
+        if (iFrontendConfigVolumeSelection == 2)
           byColor_16 = 0xAB;
         else
           byColor_16 = 0xA5;
         front_volumebar(104, SFXVolume, byColor_16);
-        if (iVolumeSelection == 3)
+        if (iFrontendConfigVolumeSelection == 3)
           byColor_17 = 0xAB;
         else
           byColor_17 = 0xA5;
-        iVolumeSelection_1 = iVolumeSelection;
+        iFrontendConfigVolumeSelection_1 = iFrontendConfigVolumeSelection;
         front_volumebar(128, SpeechVolume, byColor_17);
-        if (iVolumeSelection_1 == 4)
+        if (iFrontendConfigVolumeSelection_1 == 4)
           byColor_18 = 0xAB;
         else
           byColor_18 = 0xA5;
@@ -664,30 +677,30 @@ void select_configure()
         goto RENDER_FRAME;
       case 2:
         // Joystick calibration
-        if (iConfigState == 3) {
-          ReadJoys(&joyPos);
+        if (iFrontendConfigState == 3) {
+          ReadJoys(&jFrontendConfigJoyPos);
           //_disable();
 
           // Update calibration ranges for all axes
-          if (joyPos.iJ1XAxis < JAXmin)
-            JAXmin = joyPos.iJ1XAxis;
-          if (joyPos.iJ1XAxis > JAXmax)
-            JAXmax = joyPos.iJ1XAxis;
+          if (jFrontendConfigJoyPos.iJ1XAxis < JAXmin)
+            JAXmin = jFrontendConfigJoyPos.iJ1XAxis;
+          if (jFrontendConfigJoyPos.iJ1XAxis > JAXmax)
+            JAXmax = jFrontendConfigJoyPos.iJ1XAxis;
 
-          if (joyPos.iJ1YAxis < JAYmin)
-            JAYmin = joyPos.iJ1YAxis;
-          if (joyPos.iJ1YAxis > JAYmax)
-            JAYmax = joyPos.iJ1YAxis;
+          if (jFrontendConfigJoyPos.iJ1YAxis < JAYmin)
+            JAYmin = jFrontendConfigJoyPos.iJ1YAxis;
+          if (jFrontendConfigJoyPos.iJ1YAxis > JAYmax)
+            JAYmax = jFrontendConfigJoyPos.iJ1YAxis;
 
-          if (joyPos.iJ2XAxis < JBXmin)
-            JBXmin = joyPos.iJ2XAxis;
-          if (joyPos.iJ2XAxis > JBXmax)
-            JBXmax = joyPos.iJ2XAxis;
+          if (jFrontendConfigJoyPos.iJ2XAxis < JBXmin)
+            JBXmin = jFrontendConfigJoyPos.iJ2XAxis;
+          if (jFrontendConfigJoyPos.iJ2XAxis > JBXmax)
+            JBXmax = jFrontendConfigJoyPos.iJ2XAxis;
 
-          if (joyPos.iJ2YAxis < JBYmin)
-            JBYmin = joyPos.iJ2YAxis;
-          if (joyPos.iJ2YAxis > JBYmax)
-            JBYmax = joyPos.iJ2YAxis;
+          if (jFrontendConfigJoyPos.iJ2YAxis < JBYmin)
+            JBYmin = jFrontendConfigJoyPos.iJ2YAxis;
+          if (jFrontendConfigJoyPos.iJ2YAxis > JBYmax)
+            JBYmax = jFrontendConfigJoyPos.iJ2YAxis;
 
           if (JAXmin == JAXmax)
             JAXmax = JAXmin + 1;
@@ -702,21 +715,21 @@ void select_configure()
         }
 
         // Display calibration instructions when active
-        if (iConfigState == 3) {
+        if (iFrontendConfigState == 3) {
           // MOVE JOYSTICKS TO FULL EXTENTS
           menu_render_scaled_text(mr, 15, &config_buffer[2112], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
           // THEN PRESS ANY KEY
           menu_render_scaled_text(mr, 15, &config_buffer[2176], font1_ascii, font1_offsets, 400, 78, 143, 1u, 200, 640, pal_addr);
         }
 
-        iConfigState_1 = iConfigState;
+        iFrontendConfigState_1 = iFrontendConfigState;
 
         // X1 axis display
         menu_render_scaled_text(mr, 15, &config_buffer[1728], font1_ascii, font1_offsets, 400, 110, 143, 1u, 200, 640, pal_addr);
-        if (iConfigState_1 == 3) {
+        if (iFrontendConfigState_1 == 3) {
           // Show calibration bar
           if (x1ok && JAXmax - JAXmin >= 100)
-            iJoyCalibValue1 = 140 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
+            iJoyCalibValue1 = 140 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
           else
             iJoyCalibValue1 = 0;
           front_displaycalibrationbar(300, 128, iJoyCalibValue1);
@@ -731,10 +744,10 @@ void select_configure()
 
         // Y1 axis display
         menu_render_scaled_text(mr, 15, &config_buffer[1792], font1_ascii, font1_offsets, 400, 160, 143, 1u, 200, 640, pal_addr);
-        if (iConfigState == 3) {
+        if (iFrontendConfigState == 3) {
           // Show Calibration bar
           if (y1ok && JAYmax - JAYmin >= 100)
-            iJoyCalibValue2 = 140 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+            iJoyCalibValue2 = 140 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
           else
             iJoyCalibValue2 = 0;
           front_displaycalibrationbar(300, 178, iJoyCalibValue2);
@@ -749,10 +762,10 @@ void select_configure()
 
         // X2 axis display
         menu_render_scaled_text(mr, 15, &config_buffer[1856], font1_ascii, font1_offsets, 400, 210, 143, 1u, 200, 640, pal_addr);
-        if (iConfigState == 3) {
+        if (iFrontendConfigState == 3) {
           // Calibration bar
           if (x2ok && JBXmax - JBXmin >= 100)
-            iX2CalibrationVal = 140 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+            iX2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
           else
             iX2CalibrationVal = 0;
           front_displaycalibrationbar(300, 228, iX2CalibrationVal);
@@ -765,14 +778,14 @@ void select_configure()
           menu_render_scaled_text(mr, 15, szX2Text, font1_ascii, font1_offsets, 400, 228, 143, 1u, 200, 640, pal_addr);
         }
 
-        iConfigState_2 = iConfigState;
+        iFrontendConfigState_2 = iFrontendConfigState;
 
         // Y2 axis display
         menu_render_scaled_text(mr, 15, &config_buffer[1920], font1_ascii, font1_offsets, 400, 260, 143, 1u, 200, 640, pal_addr);
-        if (iConfigState_2 == 3) {
+        if (iFrontendConfigState_2 == 3) {
           // Calibration bar
           if (y2ok && JBYmax - JBYmin >= 100)
-            iY2CalibrationVal = 140 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+            iY2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
           else
             iY2CalibrationVal = 0;
           front_displaycalibrationbar(300, 278, iY2CalibrationVal);
@@ -787,7 +800,7 @@ void select_configure()
         goto RENDER_FRAME;
       case 3:
         // Keyboard control config
-        if (iConfigState == 4) {
+        if (iFrontendConfigState == 4) {
           if (controlrelease) {
             // Check if all keys have been released
             iKeyFound = -1;
@@ -803,7 +816,7 @@ void select_configure()
               controlrelease = 0;
           }
         } else {
-          iControlSelection = -1;               // reset control selection
+          iFrontendConfigControlSelection = -1;               // reset control selection
         }
 
         // Display player 2 controls (if in 2 player mode)
@@ -813,14 +826,14 @@ void select_configure()
             sprintf(buffer, "%s %s", &config_buffer[4480], &config_buffer[4544]);
           else
             sprintf(buffer, "%s %s", &config_buffer[4480], &config_buffer[4608]);
-          if (iControlSelection == 4)
+          if (iFrontendConfigControlSelection == 4)
             byColor_19 = 0xAB;
           else
             byColor_19 = 0x8F;
           menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 60, byColor_19, 1u, 200, 640, pal_addr);
 
           // Player 2 customize controls option
-          if (iControlSelection == 3)
+          if (iFrontendConfigControlSelection == 3)
             byColor_20 = 0xAB;
           else
             byColor_20 = 0x8F;
@@ -833,13 +846,13 @@ void select_configure()
           sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4544]);
         else
           sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4608]);
-        if (iControlSelection == 2)
+        if (iFrontendConfigControlSelection == 2)
           byColor_21 = 0xAB;
         else
           byColor_21 = 0x8F;
         menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 96, byColor_21, 1u, 200, 640, pal_addr);
         // Player 1 customize controls option
-        if (iControlSelection == 1)
+        if (iFrontendConfigControlSelection == 1)
           byColor_22 = 0xAB;
         else
           byColor_22 = 0x8F;
@@ -847,14 +860,14 @@ void select_configure()
         menu_render_scaled_text(mr, 15, &config_buffer[768], font1_ascii, font1_offsets, 420, 114, byColor_22, 1u, 200, 640, pal_addr);
 
         // Back option
-        if (iControlSelection)
+        if (iFrontendConfigControlSelection)
           byColor_23 = 0x8F;
         else
           byColor_23 = 0xAB;
         menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 132, byColor_23, 1u, 200, 640, pal_addr);
 
         // Display player 1 control customization screen
-        if (iControlSelection == 1 || iControlSelection == 2) {
+        if (iFrontendConfigControlSelection == 1 || iFrontendConfigControlSelection == 2) {
           iControlLoop = 0;
           szControlName = &config_buffer[896];  // start of control name strings
           iY_1 = 200;
@@ -888,7 +901,7 @@ void select_configure()
           }
         }
         // Display Player 2 control customization screen
-        else if (iControlSelection == 3 || iControlSelection == 4) {
+        else if (iFrontendConfigControlSelection == 3 || iFrontendConfigControlSelection == 4) {
           iControlIndex2 = 6;
           szText = &config_buffer[1280];
           iY_2 = 200;
@@ -925,7 +938,7 @@ void select_configure()
         }
 
         // Handle active key mapping process
-        if (!iControlsInEdit || iConfigState != 4)
+        if (!iFrontendConfigControlsInEdit || iFrontendConfigState != 4)
           goto RENDER_FRAME;
 
         // Key detection and mapping logic
@@ -945,42 +958,42 @@ void select_configure()
 
         // If no keyboard key pressed check joystick buttons
         if (iFoundKey == -1) {
-          ReadJoys(&joyPos);
-          if (joyPos.iJ1Button1)
+          ReadJoys(&jFrontendConfigJoyPos);
+          if (jFrontendConfigJoyPos.iJ1Button1)
             iFoundKey = 128;
-          if (joyPos.iJ1Button2)
+          if (jFrontendConfigJoyPos.iJ1Button2)
             iFoundKey = 129;
-          if (joyPos.iJ2Button1)
+          if (jFrontendConfigJoyPos.iJ2Button1)
             iFoundKey = 130;
-          if (joyPos.iJ2Button2)
+          if (jFrontendConfigJoyPos.iJ2Button2)
             iFoundKey = 131;
         }
 
         // If still no input check joystick axis movements
         if (iFoundKey == -1) {
           if (y2ok) {
-            iJoyValue1 = 100 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
+            iJoyValue1 = 100 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
             if (iJoyValue1 < -50)
               iFoundKey = 138;
             if (iJoyValue1 > 50)
               iFoundKey = 139;
           }
           if (x2ok) {
-            iJoyValue2 = 100 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
+            iJoyValue2 = 100 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
             if (iJoyValue2 < -50)
               iFoundKey = 136;
             if (iJoyValue2 > 50)
               iFoundKey = 137;
           }
           if (y1ok) {
-            iJoyValue3 = 100 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
+            iJoyValue3 = 100 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
             if (iJoyValue3 < -50)
               iFoundKey = 134;
             if (iJoyValue3 > 50)
               iFoundKey = 135;
           }
           if (x1ok) {
-            iJoyValue4 = 100 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
+            iJoyValue4 = 100 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
             if (iJoyValue4 < -50)
               iFoundKey = 132;
             if (iJoyValue4 > 50)
@@ -1013,7 +1026,7 @@ void select_configure()
 
         // Assign the new key
         iEditIndex = control_edit + 1;
-        iControlState = iControlsInEdit;
+        iControlState = iFrontendConfigControlsInEdit;
         controlrelease = -1;
 
         userkey[control_edit] = iFoundKey;
@@ -1041,7 +1054,7 @@ void select_configure()
         }
 
         // All controls mapped, exit editing mode
-        iControlsInEdit = 0;
+        iFrontendConfigControlsInEdit = 0;
         control_edit = -1;
         enable_keyboard();
       CHECK_CONTROL_INPUT:
@@ -1050,7 +1063,7 @@ void select_configure()
           memcpy(userkey, oldkeys, 0xCu);      // restore original player 1 keys
           memcpy(&userkey[12], &oldkeys[12], 2u);// restore original cheat keys
           enable_keyboard();
-          iControlsInEdit = 0;
+          iFrontendConfigControlsInEdit = 0;
           control_edit = -1;
           check_joystick_usage();
         }
@@ -1110,10 +1123,9 @@ void select_configure()
         }
 
         // Process keyboard input when not editing controls
-        if (!iControlsInEdit) {
+        if (!iFrontendConfigControlsInEdit) {
           while (fatkbhit()) {
-            UpdateSDL();
-            switch (iConfigState) {
+            switch (iFrontendConfigState) {
               case 0:                           // MAIN MENU NAVIGATION
                 uiKeyCode = fatgetch();
                 if (uiKeyCode < 0xD) {
@@ -1123,70 +1135,70 @@ void select_configure()
                     if (uiExtendedKey >= 0x48)// Up arrow
                     {
                       if (uiExtendedKey <= 0x48) {
-                        iMenuDir2 = --iMenuSelection;
+                        iMenuDir2 = --iFrontendConfigMenuSelection;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir2 == 6)
-                          iMenuSelection = 5;
-                        if (iMenuSelection < 0)
-                          iMenuSelection = 0;
+                          iFrontendConfigMenuSelection = 5;
+                        if (iFrontendConfigMenuSelection < 0)
+                          iFrontendConfigMenuSelection = 0;
                       } else if (uiExtendedKey == 80)// Down arrow
                       {
-                        iMenuDir = ++iMenuSelection;
+                        iMenuDir = ++iFrontendConfigMenuSelection;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir == 6)
-                          iMenuSelection = 7;
-                        if (iMenuSelection > 7)
-                          iMenuSelection = 7;
+                          iFrontendConfigMenuSelection = 7;
+                        if (iFrontendConfigMenuSelection > 7)
+                          iFrontendConfigMenuSelection = 7;
                       }
                     }
                   }
                 } else if (uiKeyCode <= 0xD)    // enter key
                 {
-                  switch (iMenuSelection) {
+                  switch (iFrontendConfigMenuSelection) {
                     case 0:                     // drivers
-                      iConfigState = 1;
-                      iSelectedCar = 0;
+                      iFrontendConfigState = 1;
+                      iFrontendConfigSelectedCar = 0;
                       break;
                     case 1:                     // audio
-                      iConfigState = 2;
-                      iVolumeSelection = 0;
+                      iFrontendConfigState = 2;
+                      iFrontendConfigVolumeSelection = 0;
                       break;
                     case 2:                     // joystick
-                      iConfigState = 3;
+                      iFrontendConfigState = 3;
                       check_joystickpresence();
                       break;
                     case 3:                     // controls
-                      iConfigState = 4;
-                      iControlSelection = 0;
-                      iControlsInEdit = 0;
+                      iFrontendConfigState = 4;
+                      iFrontendConfigControlSelection = 0;
+                      iFrontendConfigControlsInEdit = 0;
                       Joy1used = 0;
                       Joy2used = 0;
                       controlrelease = -1;
                       control_edit = -1;
                       break;
                     case 4:                     // video
-                      iConfigState = 5;
-                      iVideoState = 0;
+                      iFrontendConfigState = 5;
+                      iFrontendConfigVideoState = 0;
                       break;
                     case 5:                     // graphics
-                      iConfigState = 6;
-                      iGraphicsState = 0;
+                      iFrontendConfigState = 6;
+                      iFrontendConfigGraphicsState = 0;
                       break;
                     case 6:                     // network
-                      iConfigState = 7;
-                      iNetworkState = 0;
-                      iEditingName = 0;
+                      iFrontendConfigState = 7;
+                      iFrontendConfigNetworkState = 0;
+                      iFrontendConfigEditingName = 0;
                       break;
                     case 7:                     // exit
                       sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-                      iExitFlag = -1;
+                      iFrontendConfigExitFlag = -1;
                       break;
                     default:
                       continue;
                   }
                 } else if (uiKeyCode == 27)     // ESC key
                 {
-                  iExitFlag = -1;
+                  iFrontendConfigExitFlag = -1;
                   sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
                 }
                 continue;
@@ -1199,66 +1211,66 @@ void select_configure()
 
                   // Handle arrow keys for car selection
                   uiArrowKey = fatgetch();
-                  if (!iEditingName && uiArrowKey >= 0x48) {
+                  if (!iFrontendConfigEditingName && uiArrowKey >= 0x48) {
                     if (uiArrowKey <= 0x48)   // up arrow
                     {
-                      iNextSelectedCar = ++iSelectedCar;
+                      iNextSelectedCar = ++iFrontendConfigSelectedCar;
                       // Skip player 2 slot in single player mode
                       if (player_type != 2 && iNextSelectedCar == 2)
-                        iSelectedCar = 3;
-                      if (iSelectedCar > 18)
-                        iSelectedCar = 18;
+                        iFrontendConfigSelectedCar = 3;
+                      if (iFrontendConfigSelectedCar > 18)
+                        iFrontendConfigSelectedCar = 18;
                     } else if (uiArrowKey == 80)// down arrow
                     {
-                      iPrevSelectedCar = --iSelectedCar;
+                      iPrevSelectedCar = --iFrontendConfigSelectedCar;
                       // Skip player 2 slot in single player mode
                       if (player_type != 2 && iPrevSelectedCar == 2)
-                        iSelectedCar = 1;
-                      if (iSelectedCar < 0)
-                        iSelectedCar = 0;
+                        iFrontendConfigSelectedCar = 1;
+                      if (iFrontendConfigSelectedCar < 0)
+                        iFrontendConfigSelectedCar = 0;
                     }
                   }
                 } else if ((unsigned int)iKeyInput <= 8)// backspace
                 {
-                  if (iEditingName) {
+                  if (iFrontendConfigEditingName) {
                     // Handle backspace in name editing
-                    iNameLength_1 = iNameLength;
-                    szNewNameBuf[iNameLength] = 0;
-                    if (iNameLength_1 > 0) {
-                      iNameLength = iNameLength_1 - 1;
-                      szNewNameBuf[iNameLength_1 - 1] = 0;
+                    iFrontendConfigNameLength_1 = iFrontendConfigNameLength;
+                    szFrontendConfigNewNameBuf[iFrontendConfigNameLength] = 0;
+                    if (iFrontendConfigNameLength_1 > 0) {
+                      iFrontendConfigNameLength = iFrontendConfigNameLength_1 - 1;
+                      szFrontendConfigNewNameBuf[iFrontendConfigNameLength_1 - 1] = 0;
                     }
                   }
                 } else if ((unsigned int)iKeyInput < 0xD)// regular character input
                 {
                 HANDLE_CHAR_INPUT:
-                  if (iEditingName) {
+                  if (iFrontendConfigEditingName) {
                     // Convert lowercase to uppercase
                     if (iKeyInput >= 97 && iKeyInput <= 122)
                       iKeyChar = iKeyInput - 32;
 
                     // Accept alphanumeric chars and space
-                    if ((iKeyChar == 32 || iKeyChar >= 65 && iKeyChar <= 90 || iKeyChar >= 48 && iKeyChar <= 57) && iNameLength < 8) {
-                      iNameLength_2 = iNameLength + 1;
-                      szNewNameBuf[iNameLength] = iKeyChar;
-                      iNameLength = iNameLength_2;
-                      szNewNameBuf[iNameLength_2] = 0;
+                    if ((iKeyChar == 32 || iKeyChar >= 65 && iKeyChar <= 90 || iKeyChar >= 48 && iKeyChar <= 57) && iFrontendConfigNameLength < 8) {
+                      iFrontendConfigNameLength_2 = iFrontendConfigNameLength + 1;
+                      szFrontendConfigNewNameBuf[iFrontendConfigNameLength] = iKeyChar;
+                      iFrontendConfigNameLength = iFrontendConfigNameLength_2;
+                      szFrontendConfigNewNameBuf[iFrontendConfigNameLength_2] = 0;
                     }
                   }
                 } else if ((unsigned int)iKeyInput <= 0xD)// enter key
                 {
-                  iEditingName_1 = iEditingName;
-                  if (iEditingName) {
+                  iFrontendConfigEditingName_1 = iFrontendConfigEditingName;
+                  if (iFrontendConfigEditingName) {
                     // Save edited name
-                    iEditingName = 0;
-                    if (iSelectedCar) {
-                      if ((unsigned int)iSelectedCar <= 1) {
+                    iFrontendConfigEditingName = 0;
+                    if (iFrontendConfigSelectedCar) {
+                      if ((unsigned int)iFrontendConfigSelectedCar <= 1) {
 
                         // Save player 1 name
 
                         for (j = 0; j < 9; j++)
                         {
-                            player_names[player1_car][j] = szNewNameBuf[j];
+                            player_names[player1_car][j] = szFrontendConfigNewNameBuf[j];
                         }
                         //for (j = 0; j < 9; cheat_names[player1_car + 31][j + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + j + 3))
                         //  ++j;
@@ -1270,13 +1282,13 @@ void select_configure()
                           waste = CheckNames(player_names[player1_car], player1_car);
                         check_cars();
                       } else {
-                        if (iSelectedCar != 2)
+                        if (iFrontendConfigSelectedCar != 2)
                           goto SAVE_AI_DRIVER_NAME;
                         iPlayer2Car = player2_car;
 
                         for (k = 0; k < 9; k++)
                         {
-                          player_names[player2_car][k] = szNewNameBuf[k];
+                          player_names[player2_car][k] = szFrontendConfigNewNameBuf[k];
                         }
                         //for (k = 0; k < 9; cheat_names[iPlayer2Car + 31][k + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + k + 3))
                         //  ++k;
@@ -1287,15 +1299,15 @@ void select_configure()
                     } else                        // AI players
                     {
                     SAVE_AI_DRIVER_NAME:
-                      iDefaultNamesIdx_1 = iSelectedCar - 3;
-                      iDefaultNamesIdx_1 = (iSelectedCar - 3) ^ 1;// Toggle for paired AI drivers
-                      //LOBYTE(iDefaultNamesIdx_1) = (iSelectedCar - 3) ^ 1;// Toggle for paired AI drivers
+                      iDefaultNamesIdx_1 = iFrontendConfigSelectedCar - 3;
+                      iDefaultNamesIdx_1 = (iFrontendConfigSelectedCar - 3) ^ 1;// Toggle for paired AI drivers
+                      //LOBYTE(iDefaultNamesIdx_1) = (iFrontendConfigSelectedCar - 3) ^ 1;// Toggle for paired AI drivers
                       iDefaultNamesCharItr = 0;
                       iDefaultNamesIdx = iDefaultNamesIdx_1;
 
                       do
                       {
-                        default_names[iDefaultNamesIdx][iDefaultNamesCharItr] = szNewNameBuf[iDefaultNamesCharItr];
+                        default_names[iDefaultNamesIdx][iDefaultNamesCharItr] = szFrontendConfigNewNameBuf[iDefaultNamesCharItr];
                         ++iDefaultNamesCharItr;
                       }
                       while (iDefaultNamesCharItr < 9);
@@ -1306,7 +1318,7 @@ void select_configure()
 
                       // Set default name if empty
                       if (!default_names[iDefaultNamesIdx][0]) {
-                        sprintf(buffer, "comp %i", iSelectedCar - 2);
+                        sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[iDefaultNamesIdx], buffer);
                       }
                       broadcast_mode = -1;
@@ -1315,45 +1327,45 @@ void select_configure()
                     }
                   } else {
                     // Start editing name
-                    if (!iSelectedCar)
+                    if (!iFrontendConfigSelectedCar)
                       goto EXIT_NAME_EDITING;
-                    iEditingName = 1;
-                    if (iSelectedCar >= 3) {
+                    iFrontendConfigEditingName = 1;
+                    if (iFrontendConfigSelectedCar >= 3) {
                       // Check if AI car slot is editable
-                      if ((((uint8)iSelectedCar - 3) & 1) != 0)
-                        iEditingName = allocated_cars[(iSelectedCar - 3) / 2] <= 0;
+                      if ((((uint8)iFrontendConfigSelectedCar - 3) & 1) != 0)
+                        iFrontendConfigEditingName = allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 0;
                       else
-                        iEditingName = allocated_cars[(iSelectedCar - 3) / 2] <= 1;
+                        iFrontendConfigEditingName = allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 1;
                     }
 
-                    if (iEditingName == 1) {
-                      iNameLength = 0;
-                      if ((unsigned int)iSelectedCar <= 1)// Load player 1 name
+                    if (iFrontendConfigEditingName == 1) {
+                      iFrontendConfigNameLength = 0;
+                      if ((unsigned int)iFrontendConfigSelectedCar <= 1)// Load player 1 name
                       {
                         for (m = 0; m < 9; m++)
                         {
-                          szNewNameBuf[m] = player_names[player1_car][m];
+                          szFrontendConfigNewNameBuf[m] = player_names[player1_car][m];
                         }
                         //for (m = 0; m < 9; *((_BYTE *)&pJoyPos.iJ2YAxis + m + 3) = cheat_names[player1_car + 31][m + 8])
                         //  ++m;
-                      } else if (iSelectedCar == 2)// Load player 2 name
+                      } else if (iFrontendConfigSelectedCar == 2)// Load player 2 name
                       {
                         for (n = 0; n < 9; n++)
                         {
-                          szNewNameBuf[n] = player_names[player2_car][n];
+                          szFrontendConfigNewNameBuf[n] = player_names[player2_car][n];
                         }
                         //for (n = 0; n < 9; *((_BYTE *)&pJoyPos.iJ2YAxis + n + 3) = cheat_names[player2_car + 31][n + 8])
                         //  ++n;
                       } else                      // Load AI driver name
                       {
-                        iAIDriverIdx = iSelectedCar - 3;
+                        iAIDriverIdx = iFrontendConfigSelectedCar - 3;
                         iAIDriverIdx ^= 1;  // Toggle the lowest bit
                         for (int i = 0; i < 9; i++)
                         {
-                          szNewNameBuf[i] = default_names[iAIDriverIdx][i];
+                          szFrontendConfigNewNameBuf[i] = default_names[iAIDriverIdx][i];
                         }
-                        //iAIDriverIdx = iSelectedCar - 3;
-                        //LOBYTE(iAIDriverIdx) = (iSelectedCar - 3) ^ 1;
+                        //iAIDriverIdx = iFrontendConfigSelectedCar - 3;
+                        //LOBYTE(iAIDriverIdx) = (iFrontendConfigSelectedCar - 3) ^ 1;
                         //v189 = 0;
                         //iOffset = 9 * iAIDriverIdx;
                         //do {
@@ -1365,27 +1377,27 @@ void select_configure()
                       }
 
                       // Calculate current name length
-                      while (szNewNameBuf[iNameLength])
-                        ++iNameLength;
+                      while (szFrontendConfigNewNameBuf[iFrontendConfigNameLength])
+                        ++iFrontendConfigNameLength;
                     }
 
                   }
                 } else {
                   if (iKeyInput != 27)        // ESC key
                     goto HANDLE_CHAR_INPUT;
-                  iEditingName_1 = iEditingName;
-                  if (iEditingName) {
+                  iFrontendConfigEditingName_1 = iFrontendConfigEditingName;
+                  if (iFrontendConfigEditingName) {
                     // Cancel editing, restore original name
-                    iEditingName = 0;
-                    if (iSelectedCar) {
-                      if ((unsigned int)iSelectedCar <= 1)// player 1
+                    iFrontendConfigEditingName = 0;
+                    if (iFrontendConfigSelectedCar) {
+                      if ((unsigned int)iFrontendConfigSelectedCar <= 1)// player 1
                       {
 
                         // Restore player 1 name
 
                         for (ii = 0; ii < 9; ii++)
                         {
-                          player_names[player1_car][ii] = szNewNameBuf[ii];
+                          player_names[player1_car][ii] = szFrontendConfigNewNameBuf[ii];
                         }
                         //for (ii = 0; ii < 9; cheat_names[player1_car + 31][ii + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + ii + 3))
                         //  ++ii;
@@ -1395,7 +1407,7 @@ void select_configure()
                         if (!network_on)
                           waste = CheckNames(player_names[player1_car], player1_car);
                       } else {
-                        if (iSelectedCar != 2)// player 2
+                        if (iFrontendConfigSelectedCar != 2)// player 2
                           goto CANCEL_AI_NAME_EDIT;
                         iPlayer2Car_1 = player2_car;
 
@@ -1403,7 +1415,7 @@ void select_configure()
 
                         for (jj = 0; jj < 9; jj++)
                         {
-                          player_names[player2_car][jj] = szNewNameBuf[jj];
+                          player_names[player2_car][jj] = szFrontendConfigNewNameBuf[jj];
                         }
                         //for (jj = 0; jj < 9; cheat_names[iPlayer2Car_1 + 31][jj + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + jj + 3))
                         //  ++jj;
@@ -1413,15 +1425,15 @@ void select_configure()
                     {
                     CANCEL_AI_NAME_EDIT:
                       // Restore AI driver name
-                      iAIDriverIdx_1 = iSelectedCar - 3;
+                      iAIDriverIdx_1 = iFrontendConfigSelectedCar - 3;
                       iAIDriverIdx_1 ^= 1;  // Toggle between paired AI drivers
                       for (v196 = 0; v196 < 9; v196++)
                       {
-                        default_names[iAIDriverIdx_1][v196] = szNewNameBuf[v196];
+                        default_names[iAIDriverIdx_1][v196] = szFrontendConfigNewNameBuf[v196];
                       }
-                      iAIDriverIdx_1 = iSelectedCar - 3;
-                      iAIDriverIdx_1 = (iSelectedCar - 3) ^ 1;
-                      //LOBYTE(iAIDriverIdx_1) = (iSelectedCar - 3) ^ 1;
+                      iAIDriverIdx_1 = iFrontendConfigSelectedCar - 3;
+                      iAIDriverIdx_1 = (iFrontendConfigSelectedCar - 3) ^ 1;
+                      //LOBYTE(iAIDriverIdx_1) = (iFrontendConfigSelectedCar - 3) ^ 1;
                       v196 = 0;
                       v197 = iAIDriverIdx_1;
 
@@ -1432,7 +1444,7 @@ void select_configure()
                       //} while (v196 < 9);
 
                       if (!default_names[iAIDriverIdx_1][0]) {
-                        sprintf(buffer, "comp %i", iSelectedCar - 2);
+                        sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[v197], buffer);
                       }
                       broadcast_mode = -1;
@@ -1441,7 +1453,7 @@ void select_configure()
                     }
                   } else {
                   EXIT_NAME_EDITING:
-                    iConfigState = iEditingName_1;
+                    iFrontendConfigState = iFrontendConfigEditingName_1;
                   }
                 }
                 continue;
@@ -1453,15 +1465,15 @@ void select_configure()
                   {
                     switch (fatgetch()) {
                       case 0x48:                // UP arrow
-                        if (iVolumeSelection) {
-                          if (iVolumeSelection > 1)
-                            --iVolumeSelection;
+                        if (iFrontendConfigVolumeSelection) {
+                          if (iFrontendConfigVolumeSelection > 1)
+                            --iFrontendConfigVolumeSelection;
                         } else {
-                          iVolumeSelection = 7;
+                          iFrontendConfigVolumeSelection = 7;
                         }
                         break;
                       case 0x4B:                // Left arrow - decrease volume
-                        switch (iVolumeSelection) {
+                        switch (iFrontendConfigVolumeSelection) {
                           case 1:               // Engine volume
                             EngineVolume -= 4;
                             if (EngineVolume < 0)
@@ -1493,7 +1505,7 @@ void select_configure()
                         }
                         break;
                       case 0x4D:                // Right arrow - increase volume
-                        switch (iVolumeSelection) {
+                        switch (iFrontendConfigVolumeSelection) {
                           case 1:               // Engine volume
                             EngineVolume += 4;
                             if (EngineVolume >= 128)
@@ -1526,11 +1538,11 @@ void select_configure()
                         }
                         break;
                       case 0x50:                // Down arrow
-                        iNextVolumeSelection = iVolumeSelection;
-                        if (iVolumeSelection > 0) {
-                          ++iVolumeSelection;
+                        iNextVolumeSelection = iFrontendConfigVolumeSelection;
+                        if (iFrontendConfigVolumeSelection > 0) {
+                          ++iFrontendConfigVolumeSelection;
                           if (iNextVolumeSelection + 1 > 7)
-                            iVolumeSelection = 0;
+                            iFrontendConfigVolumeSelection = 0;
                         }
                         break;
                       default:
@@ -1539,7 +1551,7 @@ void select_configure()
                   }
                 } else if (uiKey_5 <= 0xD)      // Enter key
                 {
-                  switch (iVolumeSelection) {
+                  switch (iFrontendConfigVolumeSelection) {
                     case 0:                     // Back
                       goto EXIT_AUDIO_MENU;     // Return to main menu
                     case 5:                     // Toggle engine mode
@@ -1569,7 +1581,7 @@ void select_configure()
                 } else if (uiKey_5 == 0x1B)     // ESC key
                 {
                 EXIT_AUDIO_MENU_2:
-                  iConfigState = 0;
+                  iFrontendConfigState = 0;
                 }
                 continue;
               case 3:                           // JOYSTICK CALIBRATION INPUT
@@ -1580,7 +1592,7 @@ void select_configure()
                 } else if (uiKey <= 0xD || uiKey == 0x1B)// Enter or ESC
                 {
                   remove_uncalibrated();
-                  iConfigState = 0;             // Return to main menu
+                  iFrontendConfigState = 0;             // Return to main menu
                 }
                 continue;
               case 4:                           // CONTROL CONFIG INPUT
@@ -1592,23 +1604,23 @@ void select_configure()
                     if (uiKey_6 >= 0x48) {
                       if (uiKey_6 <= 0x48)    // Up arrow
                       {
-                        if (!iControlsInEdit) {
-                          iNextControlSelection = ++iControlSelection;
+                        if (!iFrontendConfigControlsInEdit) {
+                          iNextControlSelection = ++iFrontendConfigControlSelection;
                           if (player_type == 2) {
                             if (iNextControlSelection > 4)
-                              iControlSelection = 4;
+                              iFrontendConfigControlSelection = 4;
                           } else if (iNextControlSelection > 2) {
-                            iControlSelection = 2;
+                            iFrontendConfigControlSelection = 2;
                           }
                         }
-                      } else if (uiKey_6 == 80 && !iControlsInEdit && --iControlSelection < 0) {
-                        iControlSelection = iControlsInEdit;
+                      } else if (uiKey_6 == 80 && !iFrontendConfigControlsInEdit && --iFrontendConfigControlSelection < 0) {
+                        iFrontendConfigControlSelection = iFrontendConfigControlsInEdit;
                       }
                     }
                   }
                 } else if (uiKey_1 <= 0xD)      // Enter key
                 {
-                  switch (iControlSelection) {
+                  switch (iFrontendConfigControlSelection) {
                     case 0:                     // Back
                       goto EXIT_CONTROLS_MENU;  // Return to main menu
                     case 1:                     // Customize Player 1
@@ -1616,7 +1628,7 @@ void select_configure()
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// Backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
-                      iControlsInEdit = 1;
+                      iFrontendConfigControlsInEdit = 1;
                       controlrelease = -1;
                       break;
                     case 2:                     // Toggle player 1 control method
@@ -1629,7 +1641,7 @@ void select_configure()
                         UpdateSDL();
                       break;
                     case 3:                     // Customize player 2
-                      iControlsInEdit = 2;
+                      iFrontendConfigControlsInEdit = 2;
                       control_edit = 6;         // Start with player 2 controls
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// backup current keys
@@ -1646,7 +1658,7 @@ void select_configure()
                       continue;
                   }
                 } else if (uiKey_1 == 27) {
-                  iConfigState = 0;
+                  iFrontendConfigState = 0;
                 }
                 continue;
               case 5:                           // VIDEO
@@ -1655,11 +1667,11 @@ void select_configure()
                   if (!uiKey_2) {
                     switch (fatgetch()) {
                       case 0x48:
-                        if (++iVideoState > 16)
-                          iVideoState = 16;
+                        if (++iFrontendConfigVideoState > 16)
+                          iFrontendConfigVideoState = 16;
                         break;
                       case 0x4B:
-                        if (iVideoState == 2) {
+                        if (iFrontendConfigVideoState == 2) {
                           if (game_svga) {
                             game_size -= 16;
                             if (game_size < 64)
@@ -1672,7 +1684,7 @@ void select_configure()
                         }
                         break;
                       case 0x4D:
-                        if (iVideoState == 2) {
+                        if (iFrontendConfigVideoState == 2) {
                           if (game_svga) {
                             game_size += 16;
                             if (game_size > 128)
@@ -1685,17 +1697,17 @@ void select_configure()
                         }
                         break;
                       case 0x50:
-                        if (--iVideoState < 0)
-                          iVideoState = 0;
+                        if (--iFrontendConfigVideoState < 0)
+                          iFrontendConfigVideoState = 0;
                         break;
                       default:
                         continue;
                     }
                   }
                 } else if (uiKey_2 <= 0xD) {
-                  switch (iVideoState) {
+                  switch (iFrontendConfigVideoState) {
                     case 0:
-                      iConfigState = 0;
+                      iFrontendConfigState = 0;
                       break;
                     case 1:
                       if (game_svga) {
@@ -1798,7 +1810,7 @@ void select_configure()
                   }
                 } else if (uiKey_2 == 27) {
                 EXIT_AUDIO_MENU:
-                  iConfigState = 0;
+                  iFrontendConfigState = 0;
                 }
                 continue;
               case 6:                           // GRAPHICS
@@ -1807,24 +1819,24 @@ void select_configure()
                   if (!uiKey_3) {
                     switch (fatgetch()) {
                       case 0x48:
-                        iPlayerIndex = ++iGraphicsState;
+                        iPlayerIndex = ++iFrontendConfigGraphicsState;
                         if (player_type == 2) {
                           if (iPlayerIndex > 6)
-                            iGraphicsState = 6;
+                            iFrontendConfigGraphicsState = 6;
                         } else if (iPlayerIndex > 5) {
-                          iGraphicsState = 5;
+                          iFrontendConfigGraphicsState = 5;
                         }
                         break;
                       case 0x50:
-                        if (--iGraphicsState < 0)
-                          iGraphicsState = 0;
+                        if (--iFrontendConfigGraphicsState < 0)
+                          iFrontendConfigGraphicsState = 0;
                         break;
                       default:
                         continue;
                     }
                   }
                 } else if (uiKey_3 <= 0xD) {
-                  switch (iGraphicsState) {
+                  switch (iFrontendConfigGraphicsState) {
                     case 0:
                       goto EXIT_AUDIO_MENU_2;
                     case 1:
@@ -1874,24 +1886,24 @@ void select_configure()
                 if (uiKey_4 < 8) {
                   if (uiKey_4)
                     goto LABEL_1028;
-                  iPlayerIndex2 = iEditingName;
+                  iPlayerIndex2 = iFrontendConfigEditingName;
                   uiDataValue3 = fatgetch();
                   if (!iPlayerIndex2 && uiDataValue3 >= 0x48) {
                     if (uiDataValue3 <= 0x48) {
-                      if (++iNetworkState > 5)
-                        iNetworkState = 5;
-                    } else if (uiDataValue3 == 80 && --iNetworkState < 0) {
-                      iNetworkState = uiDataValue1;
+                      if (++iFrontendConfigNetworkState > 5)
+                        iFrontendConfigNetworkState = 5;
+                    } else if (uiDataValue3 == 80 && --iFrontendConfigNetworkState < 0) {
+                      iFrontendConfigNetworkState = uiDataValue1;
                     }
                   }
                 } else {
-                  uiDataValue2 = 14 * (4 - iNetworkState);
+                  uiDataValue2 = 14 * (4 - iFrontendConfigNetworkState);
                   if (uiDataValue1 <= 8) {
-                    if (iEditingName) {
-                      iDataIndex = iNameLength;
-                      network_messages[0][iNameLength + uiDataValue2] = 0;
+                    if (iFrontendConfigEditingName) {
+                      iDataIndex = iFrontendConfigNameLength;
+                      network_messages[0][iFrontendConfigNameLength + uiDataValue2] = 0;
                       if (iDataIndex > 0) {
-                        iNameLength = iDataIndex - 1;
+                        iFrontendConfigNameLength = iDataIndex - 1;
                         network_messages[0][iDataIndex - 1 + uiDataValue2] = 0;
                       }
                     }
@@ -1899,41 +1911,41 @@ void select_configure()
                     if (uiDataValue1 < 0xD)
                       goto LABEL_1028;
                     if (uiDataValue1 <= 0xD) {
-                      if (iEditingName) {
-                        iEditingName = uiDataValue1 ^ iGameIndex;
-                      } else if (iNetworkState) {
-                        if (iNetworkState == 5) {
+                      if (iFrontendConfigEditingName) {
+                        iFrontendConfigEditingName = uiDataValue1 ^ iGameIndex;
+                      } else if (iFrontendConfigNetworkState) {
+                        if (iFrontendConfigNetworkState == 5) {
                           select_messages();
                         } else {
-                          iNameLength = iEditingName;
-                          iCounterVar = 14 * (4 - iNetworkState);
+                          iFrontendConfigNameLength = iFrontendConfigEditingName;
+                          iCounterVar = 14 * (4 - iFrontendConfigNetworkState);
                           byTempFlag = network_messages[uiDataValue2 / 0xE][0];
-                          iEditingName = 1;
+                          iFrontendConfigEditingName = 1;
                           for (kk = byTempFlag == 0; !kk; kk = byStatusFlag == 0) {
                             byStatusFlag = network_messages[0][++iCounterVar];
-                            ++iNameLength;
+                            ++iFrontendConfigNameLength;
                           }
                         }
                       } else {
-                        iConfigState = iEditingName;
+                        iFrontendConfigState = iFrontendConfigEditingName;
                       }
                     } else if (uiDataValue1 == 27) {
-                      iDisplayIndex = iEditingName;
-                      if (iEditingName)
-                        iEditingName = 0;
+                      iDisplayIndex = iFrontendConfigEditingName;
+                      if (iFrontendConfigEditingName)
+                        iFrontendConfigEditingName = 0;
                       else
                         LABEL_900:
-                      iConfigState = iDisplayIndex;
+                      iFrontendConfigState = iDisplayIndex;
                     } else {
                     LABEL_1028:
-                      if (iEditingName && iNameLength < 13) {
+                      if (iFrontendConfigEditingName && iFrontendConfigNameLength < 13) {
                         if (iGameIndex >= 97 && iGameIndex <= 122)
                           iGameIndex -= 32;
                         if (iGameIndex >= 65 && iGameIndex <= 90 || iGameIndex >= 48 && iGameIndex <= 57 || iGameIndex == 32 || iGameIndex == 46 || iGameIndex == 39) {
-                          iResultValue = 14 * (4 - iNetworkState);
-                          iCalculation = iNameLength + 1;
-                          network_messages[0][iNameLength + iResultValue] = iGameIndex;
-                          iNameLength = iCalculation;
+                          iResultValue = 14 * (4 - iFrontendConfigNetworkState);
+                          iCalculation = iFrontendConfigNameLength + 1;
+                          network_messages[0][iFrontendConfigNameLength + iResultValue] = iGameIndex;
+                          iFrontendConfigNameLength = iCalculation;
                           network_messages[0][iCalculation + iResultValue] = 0;
                         }
                       }
@@ -1946,39 +1958,27 @@ void select_configure()
             }
           }
         }
-        if (!iExitFlag)
-          continue;
-        // GPU fade-out
-        {
-          MenuRenderer *mr = GetMenuRenderer();
-          menu_render_begin_fade(mr, 0, 32);
-          menu_render_fade_wait(mr, fade_redraw_bg, mr);
-          palette_brightness = 0;
-          for (int i = 0; i < 256; i++) {
-            pal_addr[i].byR = 0;
-            pal_addr[i].byB = 0;
-            pal_addr[i].byG = 0;
-          }
-        }
-        front_fade = 0;
+        if (!iFrontendConfigExitFlag)
+          return;
+        eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
         return;
       case 4:
-        if (iConfigState != 5)
-          iVideoState = -1;
-        if (iVideoState == 16)
+        if (iFrontendConfigState != 5)
+          iFrontendConfigVideoState = -1;
+        if (iFrontendConfigVideoState == 16)
           byColor_31 = 0xAB;
         else
           byColor_31 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[6912], font1_ascii, font1_offsets, 435, 60, byColor_31, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_PERSPECTIVE_CORRECTION) != 0) {
-          if (iVideoState == 16)
+          if (iFrontendConfigVideoState == 16)
             byColor_32 = 0xAB;
           else
             byColor_32 = 0x8F;
           byTempChar1 = byColor_32;
           szText_1 = &config_buffer[2688];
         } else {
-          if (iVideoState == 16)
+          if (iFrontendConfigVideoState == 16)
             byColor_33 = 0xAB;
           else
             byColor_33 = 0x8F;
@@ -1987,255 +1987,255 @@ void select_configure()
         }
         menu_render_scaled_text(mr, 15, szText_1, font1_ascii, font1_offsets, 440, 60, byTempChar1, 0, 200, 640, pal_addr);
         sprintf(buffer, "%s:", &config_buffer[3968]);
-        if (iVideoState == 15)
+        if (iFrontendConfigVideoState == 15)
           byColor_34 = 0xAB;
         else
           byColor_34 = 0x8F;
         menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 80, byColor_34, 2u, 200, 640, pal_addr);
         if (names_on) {
           if (names_on == 2) {
-            if (iVideoState == 15)
+            if (iFrontendConfigVideoState == 15)
               byColor_105 = 0xAB;
             else
               byColor_105 = 0x8F;
             menu_render_scaled_text(mr, 15, &config_buffer[2816], font1_ascii, font1_offsets, 440, 80, byColor_105, 0, 200, 640, pal_addr);
           } else {
-            if (iVideoState == 15)
+            if (iFrontendConfigVideoState == 15)
               byColor_35 = 0xAB;
             else
               byColor_35 = 0x8F;
             menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 80, byColor_35, 0, 200, 640, pal_addr);
           }
         } else {
-          if (iVideoState == 15)
+          if (iFrontendConfigVideoState == 15)
             byColor_36 = 0xAB;
           else
             byColor_36 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 80, byColor_36, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 14)
+        if (iFrontendConfigVideoState == 14)
           byColor_37 = 0xAB;
         else
           byColor_37 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3008], font1_ascii, font1_offsets, 435, 100, byColor_37, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_BUILDINGS) != 0) {
-          if (iVideoState == 14)
+          if (iFrontendConfigVideoState == 14)
             byColor_38 = 0xAB;
           else
             byColor_38 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 100, byColor_38, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 14)
+          if (iFrontendConfigVideoState == 14)
             byColor_39 = 0xAB;
           else
             byColor_39 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 100, byColor_39, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 13)
+        if (iFrontendConfigVideoState == 13)
           byColor_40 = 0xAB;
         else
           byColor_40 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3072], font1_ascii, font1_offsets, 435, 120, byColor_40, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_GLASS_WALLS) != 0) {
-          if (iVideoState == 13)
+          if (iFrontendConfigVideoState == 13)
             byColor_41 = 0xAB;
           else
             byColor_41 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 120, byColor_41, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 13)
+          if (iFrontendConfigVideoState == 13)
             byColor_42 = 0xAB;
           else
             byColor_42 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 120, byColor_42, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 12)
+        if (iFrontendConfigVideoState == 12)
           byColor_43 = 0xAB;
         else
           byColor_43 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3200], font1_ascii, font1_offsets, 435, 140, byColor_43, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_HORIZON) != 0) {
-          if (iVideoState == 12)
+          if (iFrontendConfigVideoState == 12)
             byColor_44 = 0xAB;
           else
             byColor_44 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 140, byColor_44, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 12)
+          if (iFrontendConfigVideoState == 12)
             byColor_45 = 0xAB;
           else
             byColor_45 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 140, byColor_45, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 11)
+        if (iFrontendConfigVideoState == 11)
           byColor_46 = 0xAB;
         else
           byColor_46 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3136], font1_ascii, font1_offsets, 435, 160, byColor_46, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_CAR_TEXTURES) != 0) {
-          if (iVideoState == 11)
+          if (iFrontendConfigVideoState == 11)
             byColor_47 = 0xAB;
           else
             byColor_47 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 160, byColor_47, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 11)
+          if (iFrontendConfigVideoState == 11)
             byColor_48 = 0xAB;
           else
             byColor_48 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 160, byColor_48, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 10)
+        if (iFrontendConfigVideoState == 10)
           byColor_49 = 0xAB;
         else
           byColor_49 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3264], font1_ascii, font1_offsets, 435, 180, byColor_49, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
-          if (iVideoState == 10)
+          if (iFrontendConfigVideoState == 10)
             byColor_50 = 0xAB;
           else
             byColor_50 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 180, byColor_50, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 10)
+          if (iFrontendConfigVideoState == 10)
             byColor_51 = 0xAB;
           else
             byColor_51 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 180, byColor_51, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 9)
+        if (iFrontendConfigVideoState == 9)
           byColor_52 = 0xAB;
         else
           byColor_52 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3328], font1_ascii, font1_offsets, 435, 200, byColor_52, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0) {
-          if (iVideoState == 9)
+          if (iFrontendConfigVideoState == 9)
             byColor_53 = 0xAB;
           else
             byColor_53 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 200, byColor_53, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 9)
+          if (iFrontendConfigVideoState == 9)
             byColor_54 = 0xAB;
           else
             byColor_54 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 200, byColor_54, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 8)
+        if (iFrontendConfigVideoState == 8)
           byColor_55 = 0xAB;
         else
           byColor_55 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3392], font1_ascii, font1_offsets, 435, 220, byColor_55, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_BUILDING_TEXTURES) == 0) {
-          if (iVideoState == 8)
+          if (iFrontendConfigVideoState == 8)
             byColor_56 = 0xAB;
           else
             byColor_56 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 220, byColor_56, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 8)
+          if (iFrontendConfigVideoState == 8)
             byColor_57 = 0xAB;
           else
             byColor_57 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 220, byColor_57, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 7)
+        if (iFrontendConfigVideoState == 7)
           byColor_58 = 0xAB;
         else
           byColor_58 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3456], font1_ascii, font1_offsets, 435, 240, byColor_58, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0) {
-          if (iVideoState == 7)
+          if (iFrontendConfigVideoState == 7)
             byColor_59 = 0xAB;
           else
             byColor_59 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 240, byColor_59, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 7)
+          if (iFrontendConfigVideoState == 7)
             byColor_60 = 0xAB;
           else
             byColor_60 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 240, byColor_60, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 6)
+        if (iFrontendConfigVideoState == 6)
           byColor_61 = 0xAB;
         else
           byColor_61 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3520], font1_ascii, font1_offsets, 435, 260, byColor_61, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_SHADOWS) != 0) {
-          if (iVideoState == 6)
+          if (iFrontendConfigVideoState == 6)
             byColor_62 = 0xAB;
           else
             byColor_62 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 260, byColor_62, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 6)
+          if (iFrontendConfigVideoState == 6)
             byColor_63 = 0xAB;
           else
             byColor_63 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 260, byColor_63, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 5)
+        if (iFrontendConfigVideoState == 5)
           byColor_64 = 0xAB;
         else
           byColor_64 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3584], font1_ascii, font1_offsets, 435, 280, byColor_64, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_CLOUDS) != 0) {
-          if (iVideoState == 5)
+          if (iFrontendConfigVideoState == 5)
             byColor_65 = 0xAB;
           else
             byColor_65 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 280, byColor_65, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 5)
+          if (iFrontendConfigVideoState == 5)
             byColor_66 = 0xAB;
           else
             byColor_66 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 280, byColor_66, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 4)
+        if (iFrontendConfigVideoState == 4)
           byColor_67 = 0xAB;
         else
           byColor_67 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3648], font1_ascii, font1_offsets, 435, 300, byColor_67, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_PANEL_OFF) != 0) {
-          if (iVideoState == 4)
+          if (iFrontendConfigVideoState == 4)
             byColor_68 = 0xAB;
           else
             byColor_68 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 300, byColor_68, 0, 200, 640, pal_addr);
         } else if ((textures_off & TEX_OFF_PANEL_RESTRICTED) != 0) {
-          if (iVideoState == 4)
+          if (iFrontendConfigVideoState == 4)
             byColor_69 = 0xAB;
           else
             byColor_69 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[3776], font1_ascii, font1_offsets, 440, 300, byColor_69, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 4)
+          if (iFrontendConfigVideoState == 4)
             byColor_70 = 0xAB;
           else
             byColor_70 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 300, byColor_70, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 3)
+        if (iFrontendConfigVideoState == 3)
           byColor_71 = 0xAB;
         else
           byColor_71 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[3712], font1_ascii, font1_offsets, 435, 320, byColor_71, 2u, 200, 640, pal_addr);
         if (view_limit) {
-          if (iVideoState == 3)
+          if (iFrontendConfigVideoState == 3)
             byColor_72 = 0xAB;
           else
             byColor_72 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[3776], font1_ascii, font1_offsets, 440, 320, byColor_72, 0, 200, 640, pal_addr);
         } else {
-          if (iVideoState == 3)
+          if (iFrontendConfigVideoState == 3)
             byColor_73 = 0xAB;
           else
             byColor_73 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[3840], font1_ascii, font1_offsets, 440, 320, byColor_73, 0, 200, 640, pal_addr);
         }
-        if (iVideoState == 2)
+        if (iFrontendConfigVideoState == 2)
           byColor_74 = 0xAB;
         else
           byColor_74 = 0x8F;
@@ -2249,150 +2249,150 @@ void select_configure()
           //iReturnValue = (100 * game_size) % 64;
           //iReturnValue = (100 * game_size - (__CFSHL__((100 * game_size) >> 31, 6) + ((100 * game_size) >> 31 << 6))) >> 6;
         sprintf(buffer, "%i %%", iReturnValue);
-        if (iVideoState == 2)
+        if (iFrontendConfigVideoState == 2)
           byColor_76 = 0xAB;
         else
           byColor_76 = 0x8F;
         menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 440, 340, byColor_76, 0, 200, 640, pal_addr);
         if (game_svga) {
-          if (iVideoState == 1)
+          if (iFrontendConfigVideoState == 1)
             byColor_75 = 0xAB;
           else
             byColor_75 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[512], font1_ascii, font1_offsets, 440, 360, byColor_75, 1u, 20, 640, pal_addr);
         } else {
-          if (iVideoState == 1)
+          if (iFrontendConfigVideoState == 1)
             byColor_77 = 0xAB;
           else
             byColor_77 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[448], font1_ascii, font1_offsets, 440, 360, byColor_77, 1u, 200, 640, pal_addr);
         }
-        if (iVideoState)
+        if (iFrontendConfigVideoState)
           byColor_78 = 0x8F;
         else
           byColor_78 = 0xAB;
         menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 430, 380, byColor_78, 2u, 200, 640, pal_addr);
         goto RENDER_FRAME;
       case 5:
-        if (iConfigState != 6)
-          iGraphicsState = -1;
+        if (iFrontendConfigState != 6)
+          iFrontendConfigGraphicsState = -1;
         if (player_type == 2) {
           sprintf(buffer, "%s %s", &config_buffer[4480], &config_buffer[4864]);
-          if (iGraphicsState == 6)
+          if (iFrontendConfigGraphicsState == 6)
             byColor_79 = 0xAB;
           else
             byColor_79 = 0x8F;
           menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 78, byColor_79, 2u, 200, 640, pal_addr);
-          if (iGraphicsState == 6)
+          if (iFrontendConfigGraphicsState == 6)
             byColor_80 = 0xAB;
           else
             byColor_80 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[64 * game_view[1] + 4928], font1_ascii, font1_offsets, 440, 78, byColor_80, 0, 200, 640, pal_addr);
         }
         sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4864]);
-        if (iGraphicsState == 5)
+        if (iFrontendConfigGraphicsState == 5)
           byColor_81 = 0xAB;
         else
           byColor_81 = 0x8F;
         menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 435, 96, byColor_81, 2u, 200, 640, pal_addr);
-        if (iGraphicsState == 5)
+        if (iFrontendConfigGraphicsState == 5)
           byColor_82 = 0xAB;
         else
           byColor_82 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[64 * game_view[0] + 4928], font1_ascii, font1_offsets, 440, 96, byColor_82, 0, 200, 640, pal_addr);
-        if (iGraphicsState == 4)
+        if (iFrontendConfigGraphicsState == 4)
           byColor_83 = 0xAB;
         else
           byColor_83 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[5440], font1_ascii, font1_offsets, 435, 114, byColor_83, 2u, 200, 640, pal_addr);
         if ((textures_off & TEX_OFF_KMH) != 0) {
-          if (iGraphicsState == 4)
+          if (iFrontendConfigGraphicsState == 4)
             byColor_84 = 0xAB;
           else
             byColor_84 = 0x8F;
           menu_render_scaled_text(mr, 15, "KMH", font1_ascii, font1_offsets, 440, 114, byColor_84, 0, 200, 640, pal_addr);
         } else {
-          if (iGraphicsState == 4)
+          if (iFrontendConfigGraphicsState == 4)
             byColor_85 = 0xAB;
           else
             byColor_85 = 0x8F;
           menu_render_scaled_text(mr, 15, "MPH", font1_ascii, font1_offsets, 440, 114, byColor_85, 0, 200, 640, pal_addr);
         }
-        if (iGraphicsState == 3)
+        if (iFrontendConfigGraphicsState == 3)
           byColor_86 = 0xAB;
         else
           byColor_86 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[5504], font1_ascii, font1_offsets, 435, 132, byColor_86, 2u, 200, 640, pal_addr);
         if (replay_record) {
-          if (iGraphicsState == 3)
+          if (iFrontendConfigGraphicsState == 3)
             byColor_87 = 0xAB;
           else
             byColor_87 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 132, byColor_87, 0, 200, 640, pal_addr);
         } else {
-          if (iGraphicsState == 3)
+          if (iFrontendConfigGraphicsState == 3)
             byColor_88 = 0xAB;
           else
             byColor_88 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 132, byColor_88, 0, 200, 640, pal_addr);
         }
-        if (iGraphicsState == 2)
+        if (iFrontendConfigGraphicsState == 2)
           byColor_89 = 0xAB;
         else
           byColor_89 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[4672], font1_ascii, font1_offsets, 435, 150, byColor_89, 2u, 200, 640, pal_addr);
         if (p_tex_size == 1) {
-          if (iGraphicsState == 2)
+          if (iFrontendConfigGraphicsState == 2)
             byColor_90 = 0xAB;
           else
             byColor_90 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[4736], font1_ascii, font1_offsets, 440, 150, byColor_90, 0, 200, 640, pal_addr);
         } else {
-          if (iGraphicsState == 2)
+          if (iFrontendConfigGraphicsState == 2)
             byColor_91 = 0xAB;
           else
             byColor_91 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[4800], font1_ascii, font1_offsets, 440, 150, byColor_91, 0, 200, 640, pal_addr);
         }
-        if (iGraphicsState == 1)
+        if (iFrontendConfigGraphicsState == 1)
           byColor_92 = 0xAB;
         else
           byColor_92 = 0x8F;
         menu_render_scaled_text(mr, 15, &config_buffer[5888], font1_ascii, font1_offsets, 435, 168, byColor_92, 2u, 200, 640, pal_addr);
         if (false_starts) {
-          if (iGraphicsState == 1)
+          if (iFrontendConfigGraphicsState == 1)
             byColor_93 = 0xAB;
           else
             byColor_93 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 168, byColor_93, 0, 200, 640, pal_addr);
         } else {
-          if (iGraphicsState == 1)
+          if (iFrontendConfigGraphicsState == 1)
             byColor_94 = 0xAB;
           else
             byColor_94 = 0x8F;
           menu_render_scaled_text(mr, 15, &config_buffer[2688], font1_ascii, font1_offsets, 440, 168, byColor_94, 0, 200, 640, pal_addr);
         }
-        if (iGraphicsState)
+        if (iFrontendConfigGraphicsState)
           byColor_95 = 0x8F;
         else
           byColor_95 = 0xAB;
         menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 430, 186, byColor_95, 2u, 200, 640, pal_addr);
         goto RENDER_FRAME;
       case 6:
-        if (iEditingName == 1) {
+        if (iFrontendConfigEditingName == 1) {
           byColor_96 = 0xAB;
           byColor_97 = 0xA5;
         } else {
           byColor_96 = 0xA5;
           byColor_97 = 0xAB;
         }
-        if (iConfigState != 7) {
+        if (iFrontendConfigState != 7) {
           byColor_96 = 0x8F;
           byColor_97 = 0x8F;
         }
-        if (iEditingName == 1) {
+        if (iFrontendConfigEditingName == 1) {
           iTextPosX = 0;
-          for (szMemPtr = network_messages[4 - iNetworkState]; *szMemPtr; ++szMemPtr) {
+          for (szMemPtr = network_messages[4 - iFrontendConfigNetworkState]; *szMemPtr; ++szMemPtr) {
             iFontChar = (uint8)font1_ascii[(uint8)*szMemPtr];
             if (iFontChar == 255)
               iTextPosX += 8;
@@ -2400,58 +2400,58 @@ void select_configure()
               iTextPosX += front_vga[15][iFontChar].iWidth + 1;
           }
           iTextPosX += 390;
-          iY = 140 - 18 * iNetworkState;
+          iY = 140 - 18 * iFrontendConfigNetworkState;
         }
-        if (iNetworkState == 5)
+        if (iFrontendConfigNetworkState == 5)
           byColor_106 = byColor_97;
         else
           byColor_106 = 0x8F;
         menu_render_text(mr, 15, &language_buffer[7296], font1_ascii, font1_offsets, 390, 50, byColor_106, 1u, pal_addr);
-        if (iNetworkState == 4)
+        if (iFrontendConfigNetworkState == 4)
           byColor_98 = byColor_97;
         else
           byColor_98 = 0x8F;
         menu_render_text(mr, 15, &config_buffer[5632], font1_ascii, font1_offsets, 385, 68, byColor_98, 2u, pal_addr);
-        if (iNetworkState == 4)
+        if (iFrontendConfigNetworkState == 4)
           byColor_99 = byColor_96;
         else
           byColor_99 = 0x8F;
         menu_render_scaled_text(mr, 15, network_messages[0], font1_ascii, font1_offsets, 390, 68, byColor_99, 0, 200, 630, pal_addr);
-        if (iNetworkState == 3)
+        if (iFrontendConfigNetworkState == 3)
           byColor_100 = byColor_97;
         else
           byColor_100 = 0x8F;
         menu_render_text(mr, 15, &config_buffer[5696], font1_ascii, font1_offsets, 385, 86, byColor_100, 2u, pal_addr);
-        if (iNetworkState == 3)
+        if (iFrontendConfigNetworkState == 3)
           byColor_101 = byColor_96;
         else
           byColor_101 = 0x8F;
         menu_render_scaled_text(mr, 15, network_messages[1], font1_ascii, font1_offsets, 390, 86, byColor_101, 0, 200, 630, pal_addr);
-        if (iNetworkState == 2)
+        if (iFrontendConfigNetworkState == 2)
           byColor_102 = byColor_97;
         else
           byColor_102 = 0x8F;
         menu_render_text(mr, 15, &config_buffer[5760], font1_ascii, font1_offsets, 385, 104, byColor_102, 2u, pal_addr);
-        if (iNetworkState == 2)
+        if (iFrontendConfigNetworkState == 2)
           byColor_103 = byColor_96;
         else
           byColor_103 = 0x8F;
         menu_render_scaled_text(mr, 15, network_messages[2], font1_ascii, font1_offsets, 390, 104, byColor_103, 0, 200, 630, pal_addr);
-        if (iNetworkState == 1)
+        if (iFrontendConfigNetworkState == 1)
           byColor_104 = byColor_97;
         else
           byColor_104 = 0x8F;
         menu_render_text(mr, 15, &config_buffer[5824], font1_ascii, font1_offsets, 385, 122, byColor_104, 2u, pal_addr);
-        if (iNetworkState != 1)
+        if (iFrontendConfigNetworkState != 1)
           byColor_96 = 0x8F;
         byTempChar2 = byColor_96;
-        iNetworkState_1 = iNetworkState;
+        iFrontendConfigNetworkState_1 = iFrontendConfigNetworkState;
         menu_render_scaled_text(mr, 15, network_messages[3], font1_ascii, font1_offsets, 390, 122, byTempChar2, 0, 200, 630, pal_addr);
-        if (iNetworkState_1)
+        if (iFrontendConfigNetworkState_1)
           byColor_97 = 0x8F;
         menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 390, 140, byColor_97, 1u, pal_addr);
-        if (iEditingName == 1 && (frames & 0xFu) < 8) {
-          iX = stringwidth(network_messages[4 - iNetworkState]) + 390;
+        if (iFrontendConfigEditingName == 1 && (frames & 0xFu) < 8) {
+          iX = stringwidth(network_messages[4 - iFrontendConfigNetworkState]) + 390;
           if (iX <= 620)
             menu_render_text(mr, 15, "_", font1_ascii, font1_offsets, iX, iY, 0xABu, 0, pal_addr);
           else
@@ -2461,13 +2461,19 @@ void select_configure()
       default:
         goto RENDER_FRAME;
     }
-  }
+}
+
+void select_configure(void)
+{
+  frontend_config_enter();
+  frontend_config_update();
 }
 
 void snapshot_render_menu_configure(void)
 {
   snapshot_setup_frontend_menu_state(0);
-  select_configure();
+  frontend_config_enter();
+  frontend_config_update();
 }
 
 //-------------------------------------------------------------------------------------------------
