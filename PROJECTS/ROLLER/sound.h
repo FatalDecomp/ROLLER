@@ -413,6 +413,7 @@ void readuserdata(int iPlayer);
 void tickhandler();
 void tick_clock_step(void);
 void game_tick_step(void);
+void DrainEngineDelay(void);
 void reset_tick_input_samples(void);
 void claim_ticktimer(unsigned int uiRateHz);
 void release_ticktimer();
