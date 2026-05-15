@@ -918,107 +918,43 @@ LABEL_107:
 
 //-------------------------------------------------------------------------------------------------
 //0003A270
-static void local_engine_delay_tick(void)
+static void drain_engine_delay_car(int iCarIdx, int iDelayReadIdx)
+{
+  tEngineSoundData *pSound = &enginedelay[iCarIdx].engineSoundData[iDelayReadIdx];
+
+  if (pSound->iEngineVol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+  if (pSound->iEngine2Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+  if (pSound->iSkid1Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+}
+
+void DrainEngineDelay(void)
 {
   if (!soundon || paused || delayread >= delaywrite)
     return;
 
   delayreadx = delayread % DELAY_BUFFER_SIZE;
 
-  if (player_type == 2) {
-    tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-    if (pSound->iEngineVol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-    if (pSound->iEngine2Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-    if (pSound->iSkid1Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-    pSound = &enginedelay[ViewType[1]].engineSoundData[delayreadx];
-    if (pSound->iEngineVol >= 0)
-      loopsample(ViewType[1], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-    if (pSound->iEngine2Vol >= 0)
-      loopsample(ViewType[1], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-    if (pSound->iSkid1Vol >= 0)
-      loopsample(ViewType[1], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-  } else if (allengines) {
-    for (int i = 0; i < numcars; i++) {
-      tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
-      if (pSound->iEngineVol >= 0)
-        loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-      if (pSound->iEngine2Vol >= 0)
-        loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-      if (pSound->iSkid1Vol >= 0)
-        loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-    }
+  if (replaytype == 2 || allengines) {
+    for (int i = 0; i < numcars; i++)
+      drain_engine_delay_car(i, delayreadx);
+  } else if (player_type == 2 && (!network_on || winner_mode)) {
+    drain_engine_delay_car(ViewType[0], delayreadx);
+    drain_engine_delay_car(ViewType[1], delayreadx);
   } else {
-    tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-    if (pSound->iEngineVol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-    if (pSound->iEngine2Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-    if (pSound->iSkid1Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+    drain_engine_delay_car(ViewType[0], delayreadx);
   }
 
   if (delaywrite - delayread >= 6)
     delayread++;
-}
-
-static void network_engine_delay_tick(void)
-{
-  if (!soundon || paused || delayread >= delaywrite)
-    return;
-
-  delayreadx = delayread % DELAY_BUFFER_SIZE;
-
-  if (allengines) {
-    for (int i = 0; i < numcars; i++) {
-      tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
-      if (pSound->iEngineVol >= 0)
-        loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-      if (pSound->iEngine2Vol >= 0)
-        loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-      if (pSound->iSkid1Vol >= 0)
-        loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-    }
-  } else {
-    tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-    if (pSound->iEngineVol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-    if (pSound->iEngine2Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-    if (pSound->iSkid1Vol >= 0)
-      loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-  }
-
-  delayread += ticks_received;
 }
 
 void reset_tick_input_samples(void)
 {
   SDL_SetAtomicInt(&iNetworkMasterInput, 0);
   SDL_SetAtomicInt(&iNetworkMasterInputValid, 0);
-}
-
-static void replay_engine_delay_tick(void)
-{
-  if (replaytype != 2 || replayspeed != REPLAY_NORMAL_SPEED || delayread >= delaywrite)
-    return;
-
-  int iDelayReadIdx = delayread % DELAY_BUFFER_SIZE;
-
-  for (int i = 0; i < numcars; i++) {
-    tEngineSoundData *pSound = &enginedelay[i].engineSoundData[iDelayReadIdx];
-    if (pSound->iEngineVol >= 0)
-      loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-    if (pSound->iEngine2Vol >= 0)
-      loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-    if (pSound->iSkid1Vol >= 0)
-      loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-  }
-
-  if (delaywrite - delayread >= 6)
-    delayread++;
 }
 
 static void local_input_tick(void)
@@ -1037,7 +973,6 @@ static void local_input_tick(void)
   }
 
   writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-  local_engine_delay_tick();
 }
 
 static void network_master_tick(void)
@@ -1324,10 +1259,12 @@ void tick_clock_step(void)
 void game_tick_step(void)
 {
   int iControlTicks = 1;
+  int iDrainEngineDelay = 0;
 
   if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
     if (!network_on || winner_mode) {
       local_input_tick();
+      iDrainEngineDelay = start_race;
     } else if (start_race) {
       ticks_received = 0;
 
@@ -1340,17 +1277,20 @@ void game_tick_step(void)
       } else
         network_orphan_tick();
 
-      network_engine_delay_tick();
+      iDrainEngineDelay = ticks_received > 0;
     }
   }
 
-  replay_engine_delay_tick();
+  if (replaytype == 2 && replayspeed == REPLAY_NORMAL_SPEED)
+    iDrainEngineDelay = 1;
 
   for (int i = 0; i < iControlTicks; i++) {
     if (champ_mode < 16)
       control_one_tick();
     else
       firework_display_one_tick();
+    if (iDrainEngineDelay)
+      DrainEngineDelay();
   }
 }
 
