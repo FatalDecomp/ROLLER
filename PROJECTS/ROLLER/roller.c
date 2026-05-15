@@ -826,7 +826,6 @@ void UpdateSDL()
           key_handler(0x1D | 0x80);
           key_handler(0x45 | 0x80);
         }
-        tick_network_step();
         return;
       }
 
@@ -887,7 +886,6 @@ void UpdateSDL()
     g_ullTimer150Ms = ullCurTicksMs + 150;
     UpdateAudioTracks();
   }
-  tick_network_step();
 }
 
 //--------------------------------------------------------------------------------------------------

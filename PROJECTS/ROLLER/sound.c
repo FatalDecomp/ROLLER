@@ -1185,8 +1185,10 @@ void tick_clock_step(void)
 {
   int iTickAdvance = 1;
 
-  if (network_on && syncleft)
+  if (network_on && syncleft) {
+    do_sync_stuff();
     return;
+  }
 
   if (network_on)
     net_loading = 0;
@@ -1245,25 +1247,6 @@ void tick_clock_step(void)
       updatejoy();
   }
 
-  if (!frontend_on && iTickAdvance != 0)
-    SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
-}
-
-void tick_network_step(void)
-{
-  static int iNetworkStepActive;
-
-  if (iNetworkStepActive)
-    return;
-
-  iNetworkStepActive = -1;
-
-  if (network_on && syncleft) {
-    do_sync_stuff();
-    iNetworkStepActive = 0;
-    return;
-  }
-
   if (tick_on) {
     if (network_on && (replaytype == 2 || game_type > 2)) {
       CheckNewNodes();
@@ -1284,7 +1267,8 @@ void tick_network_step(void)
     }
   }
 
-  iNetworkStepActive = 0;
+  if (!frontend_on && iTickAdvance != 0)
+    SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
 }
 
 void game_tick_step(void)

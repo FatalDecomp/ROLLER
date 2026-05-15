@@ -131,7 +131,7 @@ void NetworkWait()
         time_to_start = 0;
         broadcast_mode = -670;
         while (broadcast_mode)
-          UpdateSDL();
+          ;
         iContinueLoop = 0;
       LABEL_25:
         --players_waiting;
@@ -277,7 +277,7 @@ void NetworkWait()
     time_to_start = 0;
     broadcast_mode = -670;
     while (broadcast_mode)
-      UpdateSDL();
+      ;
     iContinueLoop = 0;
     goto LABEL_25;
   }

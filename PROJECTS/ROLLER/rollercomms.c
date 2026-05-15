@@ -1004,40 +1004,6 @@ void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBuf
 
 //-------------------------------------------------------------------------------------------------
 
-int ROLLERCommsIsLocalAddress(const void *pAddress)
-{
-  if (!pAddress)
-    return 0;
-
-  tROLLERNetAddr address;
-  memset(&address, 0, sizeof(address));
-  memcpy(&address, pAddress, sizeof(address));
-  address.unPadding = 0;
-  address.ullReserved = 0;
-
-  if (address.unPort != s_unLocalPort)
-    return 0;
-
-  if (g_commsState.bInitialized &&
-      memcmp(&address, &g_commsState.myAddress, sizeof(address)) == 0) {
-    return 1;
-  }
-
-  tROLLERNetIface aIfaces[ROLLER_MAX_IFACES];
-  int iIfaceCount = ROLLERCommsEnumLocalAddrs(aIfaces, ROLLER_MAX_IFACES);
-  for (int i = 0; i < iIfaceCount; i++) {
-    struct in_addr addr;
-    if (inet_pton(AF_INET, aIfaces[i].szIP, &addr) == 1 &&
-        addr.s_addr == address.uiIPAddress) {
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 void ROLLERclrrx(void)
 {
 // Clear receive buffer - could implement if needed

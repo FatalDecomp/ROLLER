@@ -53,7 +53,6 @@ void ROLLERCommsGetLastPacketAddr(tROLLERNetAddr *pAddressOut);
 void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
 void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
 void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen);
-int ROLLERCommsIsLocalAddress(const void *pAddress);
 int  ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
 
 // Data transmission
