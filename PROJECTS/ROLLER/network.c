@@ -104,6 +104,9 @@ static int IsInvalidPacketAddress(const int32 pAddress[4])
 static int IsLocalPacketAddress(const int32 pAddress[4])
 {
   int localAddress[4];
+  if (ROLLERCommsIsLocalAddress(pAddress))
+    return 1;
+
   ROLLERCommsGetNetworkAddr(localAddress);
   NormalizePacketAddress(localAddress);
   return memcmp(localAddress, pAddress, sizeof(tROLLERNetAddr)) == 0;
