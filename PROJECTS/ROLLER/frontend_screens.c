@@ -1118,6 +1118,11 @@ void frontend_menu_update(void)
   frontend_main_menu_update_rotation(nFrames);
 }
 
+void frontend_menu_resume_from_child(void)
+{
+  iFrontendMainMenuResumeFromChild = -1;
+}
+
 void frontend_car_select_update(void)
 {
   select_car();
@@ -1128,13 +1133,6 @@ void frontend_car_select_update(void)
 void frontend_track_select_update(void)
 {
   select_track();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
-}
-
-void frontend_disk_select_update(void)
-{
-  select_disk();
   iFrontendMainMenuResumeFromChild = -1;
   eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
 }
