@@ -2312,7 +2312,11 @@ void play_game(int iTrack)
       SnapshotZeroScreen();
       SnapshotAdvanceTick();
     }
-    while ((iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+    // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
+    // backs up iTicksPending, catching up burns main-thread time and starves
+    // the next render, which backs up more ticks, and so on.
+    int iDrained = 0;
+    while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
       // Claim one pending tick with CAS. The timer thread can enqueue between
       // this read and update, so a plain read/add pair can race, especially
       // when replay rewind changes the pending count's sign.
@@ -2320,6 +2324,7 @@ void play_game(int iTrack)
       if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
         continue;
       game_tick_step();
+      ++iDrained;
     }
     if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
       game_tick_step();
