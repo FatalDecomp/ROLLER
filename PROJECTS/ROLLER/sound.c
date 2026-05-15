@@ -1130,10 +1130,6 @@ static void network_slave_tick(void)
   if (frames > network_timeout + network_limit && human_finishers < players)
     network_error = 123;
 
-  readuserdata(0);
-  send_single(user_inp);
-  last_inp[0] = user_inp;
-
   (void)receive_multiple();
 
   if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
@@ -1166,6 +1162,18 @@ static void network_slave_tick(void)
       write_check = 0;
     }
   }
+}
+
+static void network_slave_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode <= master || !net_players[wConsoleNode])
+    return;
+
+  readuserdata(0);
+  send_single(user_inp);
+  last_inp[0] = user_inp;
 }
 
 static void network_orphan_tick(void)
@@ -1243,8 +1251,10 @@ void tick_clock_step(void)
       fraction = 0;
   } else {
     ticks++;
-    if (!paused && !frontend_on)
+    if (!paused && !frontend_on) {
       updatejoy();
+      network_slave_input_tick();
+    }
   }
 
   if (tick_on) {
