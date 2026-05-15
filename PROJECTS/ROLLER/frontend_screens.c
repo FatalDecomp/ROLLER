@@ -1130,13 +1130,6 @@ void frontend_car_select_update(void)
   eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
 }
 
-void frontend_track_select_update(void)
-{
-  select_track();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
-}
-
 void frontend_options_update(void)
 {
   select_configure();
