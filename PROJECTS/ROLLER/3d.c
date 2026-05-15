@@ -1158,12 +1158,12 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
 
+static void frontend_run_game_loop(void);
+
 //-------------------------------------------------------------------------------------------------
 //00011930
 int main(int argc, const char **argv, const char **envp)
 {
-  int nGameFlags; // edx
-  int16 nCarIdx; // bx
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
   char whiplash_root[260] = { 0 };
@@ -1475,117 +1475,7 @@ int main(int argc, const char **argv, const char **envp)
     doexit();
     return 0;
   }
-  VIEWDIST = 270;                               // Main game loop - continues until quit_game is set
-  do {
-    start_race = 0;
-    time_to_start = 0;
-    if (restart_net) {
-      restart_net_game();                       // Handle network game restart
-    } else {                                           // Wait for player to start race from menu
-      while (!time_to_start)
-        select_screen();
-    }
-    restart_net = 0;
-    countdown = 144;
-    gosound = 3;
-    delayread = 0;
-    delaywrite = 6;
-    writeptr = 0;
-    readptr = 0;
-    if (!quit_game) {                                           // Handle different game types - single race, championship, etc
-      if (game_type < 3) {
-        title_screens();
-        nGameFlags = -1;
-        if (replaytype == 2)
-          nGameFlags = 0;
-        if (intro)
-          nGameFlags = 0;
-        net_quit = 0;
-        prev_track = TrackLoad;
-        play_game(TrackLoad);
-        if (network_buggered) {
-          network_fucked();
-          nGameFlags = 0;
-        }
-        if (net_quit || network_buggered) {
-          nGameFlags = 0;
-          if (network_champ_on && (network_buggered != 666 || !restart_net)) {
-            game_type = 0;
-            network_champ_on = 0;
-          }
-          if (net_quit)
-            close_network();
-        }
-        if (cd_error)
-          no_cd();
-        VIEWDIST = 270;
-        if (!quit_game) {
-          if (nGameFlags) {
-            if (game_type) {
-              if ((unsigned int)game_type > 1) {                                 // Time trial mode - special handling
-                if (game_type == 2) {
-                  StoreResult();
-                  for (nCarIdx = 0; nCarIdx < numcars; ++nCarIdx) {
-                    if (human_control[nCarIdx] && (char)Car[nCarIdx].byLap > 1)
-                      TimeTrials(nCarIdx);
-                  }
-                  ShowLapRecords();
-                }
-                goto RACE_CLEANUP;
-              }
-              finish_race();                    // Championship mode - handle race completion
-              StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-                winner_race();
-              ResultRoundUp();
-              RaceResult();
-              ChampionshipStandings();
-              if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-                TeamStandings();
-              ShowLapRecords();
-              ++Race;
-              TrackLoad = prev_track + 1;
-              if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-              {
-                ChampionshipOver();
-                goto RACE_CLEANUP;
-              }
-              if ((cheat_mode & CHEAT_MODE_CREDITS) == 0)
-                goto RACE_CLEANUP;
-ROLL_CREDITS:
-              RollCredits();
-              goto RACE_CLEANUP;
-            }
-            if (!gave_up) {
-              finish_race();
-              StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-                winner_race();
-              ResultRoundUp();
-              RaceResult();
-              ShowLapRecords();
-            }
-            if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-              ChampionshipOver();
-            if ((cheat_mode & CHEAT_MODE_CREDITS) != 0)
-              goto ROLL_CREDITS;
-RACE_CLEANUP:
-            if (player_type == 1)             // RACE_CLEANUP: Clean up after race completion
-              player_type = 0;
-          }
-          intro = 0;
-        }
-      } else if (game_type == 3) {
-        ChampionshipStandings();
-        if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-          TeamStandings();
-        dontrestart = -1;
-      } else {
-        ShowLapRecords();
-        dontrestart = -1;
-      }
-    }
-  } while (!quit_game);
+  frontend_run_game_loop();
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   doexit();
   return 0;
@@ -2237,6 +2127,189 @@ void champion_race()
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static int iFrontendGameFlags = 0;
+
+static void frontend_run_game_loop(void)
+{
+  VIEWDIST = 270;
+  frontend_set_state(eFRONTEND_STATE_MAIN_MENU);
+
+  while (eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game) {
+    UpdateSDL();
+    frontend_update();
+  }
+
+  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    frontend_set_state(eFRONTEND_STATE_QUIT);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_menu_enter(void)
+{
+  start_race = 0;
+  time_to_start = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_menu_update(void)
+{
+  if (restart_net) {
+    restart_net_game();                         // Handle network game restart
+  } else {
+    while (!time_to_start && !quit_game)
+      select_screen();                          // Wait for player to start race from menu
+  }
+
+  restart_net = 0;
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_loading_enter(void)
+{
+  countdown = 144;
+  gosound = 3;
+  delayread = 0;
+  delaywrite = 6;
+  writeptr = 0;
+  readptr = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_loading_update(void)
+{
+  if (quit_game) {
+    eFrontendNextState = eFRONTEND_STATE_QUIT;
+  } else if (game_type < 3) {
+    eFrontendNextState = eFRONTEND_STATE_TITLE;
+  } else if (game_type == 3) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+  } else {
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_title_update(void)
+{
+  title_screens();
+  iFrontendGameFlags = -1;
+  if (replaytype == 2)
+    iFrontendGameFlags = 0;
+  if (intro)
+    iFrontendGameFlags = 0;
+  net_quit = 0;
+  prev_track = TrackLoad;
+  race_set_track(TrackLoad);
+  eFrontendNextState = eFRONTEND_STATE_RACING;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_results_update(void)
+{
+  int16 nCarIdx; // bx
+
+  if (game_type >= 3) {
+    ShowLapRecords();
+    dontrestart = -1;
+    eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+    return;
+  }
+
+  if (network_buggered) {
+    network_fucked();
+    iFrontendGameFlags = 0;
+  }
+  if (net_quit || network_buggered) {
+    iFrontendGameFlags = 0;
+    if (network_champ_on && (network_buggered != 666 || !restart_net)) {
+      game_type = 0;
+      network_champ_on = 0;
+    }
+    if (net_quit)
+      close_network();
+  }
+  if (cd_error)
+    no_cd();
+  VIEWDIST = 270;
+
+  if (!quit_game && iFrontendGameFlags) {
+    if (game_type) {
+      if ((unsigned int)game_type > 1) {        // Time trial mode - special handling
+        if (game_type == 2) {
+          StoreResult();
+          for (nCarIdx = 0; nCarIdx < numcars; ++nCarIdx) {
+            if (human_control[nCarIdx] && (char)Car[nCarIdx].byLap > 1)
+              TimeTrials(nCarIdx);
+          }
+          ShowLapRecords();
+        }
+        goto RACE_CLEANUP;
+      }
+      finish_race();                            // Championship mode - handle race completion
+      StoreResult();
+      if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+        winner_race();
+      ResultRoundUp();
+      RaceResult();
+      ChampionshipStandings();
+      if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
+        TeamStandings();
+      ShowLapRecords();
+      ++Race;
+      TrackLoad = prev_track + 1;
+      if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
+      {
+        ChampionshipOver();
+        goto RACE_CLEANUP;
+      }
+      if ((cheat_mode & CHEAT_MODE_CREDITS) == 0)
+        goto RACE_CLEANUP;
+ROLL_CREDITS:
+      RollCredits();
+      goto RACE_CLEANUP;
+    }
+    if (!gave_up) {
+      finish_race();
+      StoreResult();
+      if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+        winner_race();
+      ResultRoundUp();
+      RaceResult();
+      ShowLapRecords();
+    }
+    if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
+      ChampionshipOver();
+    if ((cheat_mode & CHEAT_MODE_CREDITS) != 0)
+      goto ROLL_CREDITS;
+RACE_CLEANUP:
+    if (player_type == 1)                       // RACE_CLEANUP: Clean up after race completion
+      player_type = 0;
+  }
+  intro = 0;
+
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_championship_standings_update(void)
+{
+  ChampionshipStandings();
+  if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
+    TeamStandings();
+  dontrestart = -1;
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+}
+
+//-------------------------------------------------------------------------------------------------
 //00012EF0
 static int iFrontendRaceTrack = 0;
 
@@ -2283,7 +2356,7 @@ void race_update(void)
   int iSong; // eax
 
   if (!racing && lastsample <= 0) {
-    eFrontendNextState = eFRONTEND_STATE_NONE;
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
     return;
   }
 
@@ -2559,6 +2632,10 @@ void play_game(int iTrack)
     UpdateSDL();
     frontend_update();
   }
+
+  // Legacy callers use play_game() synchronously and own their post-race flow.
+  if (eFrontendCurrentState == eFRONTEND_STATE_RESULTS)
+    frontend_set_state(eFRONTEND_STATE_NONE);
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -25,7 +25,12 @@ static eFrontendState aOverlayStack[OVERLAY_STACK_DEPTH];
 static int iOverlayStackTop = 0;
 
 static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
+  [eFRONTEND_STATE_TITLE] = { NULL, frontend_title_update, NULL, NULL },
+  [eFRONTEND_STATE_MAIN_MENU] = { frontend_menu_enter, frontend_menu_update, NULL, NULL },
+  [eFRONTEND_STATE_LOADING] = { frontend_loading_enter, frontend_loading_update, NULL, NULL },
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
+  [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
+  [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
 };
 
 //-------------------------------------------------------------------------------------------------

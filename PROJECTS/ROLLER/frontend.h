@@ -48,6 +48,13 @@ void race_enter(void);
 void race_update(void);
 void race_draw(void);
 void race_exit(void);
+void frontend_menu_enter(void);
+void frontend_menu_update(void);
+void frontend_loading_enter(void);
+void frontend_loading_update(void);
+void frontend_title_update(void);
+void frontend_results_update(void);
+void frontend_championship_standings_update(void);
 
 //-------------------------------------------------------------------------------------------------
 
