@@ -77,7 +77,7 @@ int ROLLERCommsSendDataToAddr(
 
 // Data reception
 int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut);
-void ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize);
+int ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize);
 int ROLLERCommsPostListen(void);
 
 // Serial port emulation (for compatibility)

@@ -11,6 +11,7 @@
 #include "control.h"
 #include "network.h"
 #include "replay.h"
+#include "function.h"
 #include "tower.h"
 #include "view.h"
 #include "transfrm.h"
@@ -36,6 +37,9 @@
 
 volatile uint64 ullLastTickTimeNs = 0;
 volatile uint64 ullTickIntervalNs = HZ_TO_NS(36u);
+SDL_AtomicInt iTicksPending;
+static SDL_AtomicInt iNetworkMasterInput;
+static SDL_AtomicInt iNetworkMasterInputValid;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -914,23 +918,268 @@ LABEL_107:
 
 //-------------------------------------------------------------------------------------------------
 //0003A270
-void tickhandler()
+static void drain_engine_delay_car(int iCarIdx, int iDelayReadIdx)
 {
+  tEngineSoundData *pSound = &enginedelay[iCarIdx].engineSoundData[iDelayReadIdx];
+
+  if (pSound->iEngineVol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+  if (pSound->iEngine2Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+  if (pSound->iSkid1Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+}
+
+void DrainEngineDelay(void)
+{
+  if (!soundon || paused || delayread >= delaywrite)
+    return;
+
+  delayreadx = delayread % DELAY_BUFFER_SIZE;
+
+  if (replaytype == 2 || allengines) {
+    for (int i = 0; i < numcars; i++)
+      drain_engine_delay_car(i, delayreadx);
+  } else if (player_type == 2 && (!network_on || winner_mode)) {
+    drain_engine_delay_car(ViewType[0], delayreadx);
+    drain_engine_delay_car(ViewType[1], delayreadx);
+  } else {
+    drain_engine_delay_car(ViewType[0], delayreadx);
+  }
+
+  if (delaywrite - delayread >= 6)
+    delayread++;
+}
+
+void reset_tick_input_samples(void)
+{
+  SDL_SetAtomicInt(&iNetworkMasterInput, 0);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 0);
+}
+
+static void local_input_tick(void)
+{
+  if (!start_race || paused)
+    return;
+
+  readuserdata(0);
+  last_inp[0] = user_inp;
+  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+
+  if (player_type == 2) {
+    readuserdata(1);
+    last_inp[1] = user_inp;
+    copy_multiple[writeptr][player2_car].uiFullData = user_inp;
+  }
+
+  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+}
+
+static void network_master_tick(void)
+{
+  for (int i = 0; i < network_on; i++) {
+    if (paused)
+      net_time[i] = frames;
+    if (i != master && net_players[i] &&
+        (frames > net_time[i] + network_limit) &&
+        !send_finished)
+      network_error = 222;
+  }
+
+  if (network_error && network_error != 666)
+    send_net_error();
+
+  if (network_on - 1 == start_multiple) {
+    memcpy(copy_multiple[writeptr],
+           copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE],
+           sizeof(tCopyData) * MAX_CARS);
+
+    for (int i = 0; i < numcars; i++) {
+      uint16 unFlags = copy_multiple[writeptr][i].data.unFlags;
+
+      if (copy_multiple[writeptr][i].uiFullData & 0x4000000)
+        unFlags ^= FLAG_DISCONNECT;
+      if (copy_multiple[writeptr][i].uiFullData & 0x8000000)
+        unFlags = (unFlags ^ FLAG_MASTER_CHANGE) | FLAG_DISCONNECT;
+      copy_multiple[writeptr][i].data.unFlags = unFlags;
+    }
+
+    if (SDL_GetAtomicInt(&iNetworkMasterInputValid)) {
+      copy_multiple[writeptr][player1_car].uiFullData =
+        (uint32)SDL_GetAtomicInt(&iNetworkMasterInput);
+    } else {
+      readuserdata(0);
+      copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+      last_inp[0] = user_inp;
+    }
+
+    receive_all_singles();
+  }
+
+  if (countdown >= 0) {
+    active_nodes = 0;
+    for (int i = 0; i < network_on; i++) {
+      if (player_ready[i])
+        active_nodes++;
+      if (player_ready[i] == 666 && net_players[i]) {
+        copy_multiple[writeptr][player_to_car[i]].data.unFlags |= FLAG_DISCONNECT;
+        net_players[i] = 0;
+      }
+    }
+  }
+
+  if (active_nodes == network_on) {
+    net_loading = 0;
+    if (network_on - 1 != start_multiple || !paused) {
+      if (start_race && !paused && send_finished && numcars > 0) {
+        for (int i = 0; i < numcars; i++)
+          copy_multiple[writeptr][i].data.unFlags |= FLAG_FINISHED;
+      }
+      send_multiple();
+
+      if (network_on - 1 == start_multiple) {
+        for (int i = 0; i < numcars; i++) {
+          if (copy_multiple[writeptr][i].data.unFlags & FLAG_DISCONNECT) {
+            net_players[car_to_player[i]] = 0;
+            network_timeout = frames;
+          }
+        }
+
+        if (copy_multiple[writeptr][player1_car].data.unFlags & FLAG_MASTER_CHANGE) {
+          read_check = -1;
+          write_check = -1;
+          memset(player_checks, -1, sizeof(player_checks));
+
+          net_players[master] = 0;
+          while (!net_players[master] && master < MAX_PLAYERS)
+            master++;
+
+          for (int i = 0; i < network_on; i++)
+            net_time[i] = frames;
+
+          uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
+          unFlags ^= FLAG_DISCONNECT;
+          copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE][player1_car].data.unFlags = unFlags;
+
+          network_timeout = frames;
+        }
+
+        writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+        ticks_received++;
+      }
+    }
+  }
+}
+
+static int network_slave_tick(void)
+{
+  int iSlotsReceived;
+
+  if (paused)
+    network_timeout = frames;
+  if (frames > network_timeout + network_limit && human_finishers < players)
+    network_error = 123;
+
+  iSlotsReceived = receive_multiple();
+
+  if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
+    read_check = -1;
+    write_check = -1;
+    memset(player_checks, -1, sizeof(player_checks));
+
+    net_players[master] = 0;
+    while (!net_players[master] && master < MAX_PLAYERS)
+      master++;
+
+    active_nodes = network_on;
+    start_multiple = network_on - 1;
+
+    for (int i = 0; i < network_on; i++)
+      net_time[i] = frames;
+    network_timeout = frames;
+  }
+
+  for (int i = 0; i < numcars; i++) {
+    uint32 uiData = copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][i].uiFullData;
+
+    if (uiData & 0x10000000)
+      network_error = 0;
+    if (uiData & 0x4000000) {
+      net_players[car_to_player[i]] = 0;
+      network_timeout = frames;
+      memset(player_checks, -1, sizeof(player_checks));
+      read_check = 0;
+      write_check = 0;
+    }
+  }
+
+  return iSlotsReceived;
+}
+
+static void network_master_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode != master || !net_players[wConsoleNode])
+    return;
+
+  // Master input needs the same timer-cadence sampling as slave input for
+  // long network races. Only the packed input word crosses to the main-thread
+  // game tick; writeptr, copy_multiple, and packet fan-out stay there.
+  readuserdata(0);
+  SDL_SetAtomicInt(&iNetworkMasterInput, (int)user_inp);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 1);
+  last_inp[0] = user_inp;
+}
+
+static void network_slave_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode <= master || !net_players[wConsoleNode])
+    return;
+
+  // This deliberately runs from tick_clock_step() on the timer thread. Slave
+  // nodes need to sample and transmit fresh input at timer cadence; waiting for
+  // the main-thread network tick makes remote controls feel sluggish. Keep
+  // readuserdata() and send_single() safe for this path: they may touch input
+  // and network-send bookkeeping, but must not depend on render-thread state or
+  // pump SDL events.
+  readuserdata(0);
+  send_single(user_inp);
+  last_inp[0] = user_inp;
+}
+
+static void network_orphan_tick(void)
+{
+  read_check = -1;
+  write_check = -1;
+
+  readuserdata(0);
+  last_inp[0] = user_inp;
+  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+  copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
+
+  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+}
+
+void tick_clock_step(void)
+{
+  int iTickAdvance = 1;
+
   if (network_on && syncleft) {
     do_sync_stuff();
     return;
   }
 
-  // Initialize network state
-  if (network_on) {
+  if (network_on)
     net_loading = 0;
-  } else {
+  else
     broadcast_mode = 0;
-  }
+
   ullLastTickTimeNs = SDL_GetTicksNS();
   frames++;
 
-  // Replay speed control
   if (replaytype == 2) {
     if (forwarding) {
       if (slowing) {
@@ -941,9 +1190,8 @@ void tickhandler()
         }
       } else {
         replayspeed = (17 * replayspeed) / 16;
-        if (replayspeed > REPLAY_SPEED_MAX) {
+        if (replayspeed > REPLAY_SPEED_MAX)
           replayspeed = REPLAY_SPEED_MAX;
-        }
       }
     }
 
@@ -956,35 +1204,34 @@ void tickhandler()
         }
       } else {
         replayspeed = (17 * replayspeed) / 16;
-        if (replayspeed < REPLAY_SPEED_MIN) {
+        if (replayspeed < REPLAY_SPEED_MIN)
           replayspeed = REPLAY_SPEED_MIN;
-        }
       }
     }
 
-    // Calculate tick advancement
     int iTotal = replayspeed + fraction;
-    int iTickAdvance = iTotal / 256;
+    iTickAdvance = iTotal / 256;
     fraction = iTotal % 256;
 
-    // Update and clamp tick position
     ticks += iTickAdvance;
-    if (ticks < 0) ticks = 0;
-    if (ticks >= replayframes) ticks = replayframes - 1;
+    if (ticks < 0)
+      ticks = 0;
+    if (ticks >= replayframes)
+      ticks = replayframes - 1;
 
-    // Handle boundary conditions
-    if (ticks == 0 && fraction < 0) fraction = 0;
-    if (ticks == replayframes - 1 && fraction > 0) fraction = 0;
-  }
-  // Handle normal game mode
-  else {
+    if (ticks == 0 && fraction < 0)
+      fraction = 0;
+    if (ticks == replayframes - 1 && fraction > 0)
+      fraction = 0;
+  } else {
     ticks++;
     if (!paused && !frontend_on) {
       updatejoy();
+      network_master_input_tick();
+      network_slave_input_tick();
     }
   }
 
-  // Network message processing
   if (tick_on) {
     if (network_on && (replaytype == 2 || game_type > 2)) {
       CheckNewNodes();
@@ -997,312 +1244,59 @@ void tickhandler()
           SendAMessage();
           BroadcastNews();
         }
-      } else {
-        if (network_on && winner_mode) {
-          CheckNewNodes();
-          SendAMessage();
-          BroadcastNews();
-        }
-        // Single player mode
-        if (!network_on || winner_mode) {
-          if (start_race && !paused) {
-
-            // Process player 1 input
-            readuserdata(0);
-            last_inp[0] = user_inp;
-            copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-
-            // Process player 2 input if present
-            if (player_type == 2) {
-              readuserdata(1);
-              last_inp[1] = user_inp;
-              copy_multiple[writeptr][player2_car].uiFullData = user_inp;
-            }
-
-            // Update write pointer
-            writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-
-            // Process sound if enabled
-            if (soundon && !paused) {
-              if (delayread < delaywrite) {
-                delayreadx = delayread % DELAY_BUFFER_SIZE;
-
-                if (player_type == 2) {
-                  // Process both players
-                  tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-                  if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-                  if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-                  if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-                  pSound = &enginedelay[ViewType[1]].engineSoundData[delayreadx];
-                  if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-                  if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-                  if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[1], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-                } else if (allengines) {
-                  // Process all cars
-                  for (int i = 0; i < numcars; i++) {
-                    tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
-                    if (pSound->iEngineVol >= 0)
-                      loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-                    if (pSound->iEngine2Vol >= 0)
-                      loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-                    if (pSound->iSkid1Vol >= 0)
-                      loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-                  }
-                } else {
-                  // Process only player 1
-                  tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-                  if (pSound->iEngineVol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-                  if (pSound->iEngine2Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-                  if (pSound->iSkid1Vol >= 0)
-                    loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-                }
-
-                // Advance buffer
-                if (delaywrite - delayread >= 6) {
-                  delayread++;
-                }
-              }
-            }
-          }
-        } else if (start_race) {
-          // Handle multiplayer mode
-          ticks_received = 0;
-
-          // Handle master node
-          if (wConsoleNode == master) {
-            // Check player timeouts
-            for (int i = 0; i < network_on; i++) {
-              if (paused) {
-                net_time[i] = frames;
-              }
-              if (i != master && net_players[i] &&
-                  (frames > net_time[i] + network_limit) &&
-                  !send_finished) {
-                network_error = 222;
-              }
-            }
-
-            // Handle network errors
-            if (network_error && network_error != 666) {
-              send_net_error();
-            }
-
-            // Full player count reached
-            if (network_on - 1 == start_multiple) {
-              // Copy previous frame data
-              memcpy(copy_multiple[writeptr],
-                     copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE],
-                     sizeof(tCopyData) * MAX_CARS);
-
-              // Reset connection flags
-              for (int i = 0; i < numcars; i++) {
-                uint16 unFlags = copy_multiple[writeptr][i].data.unFlags;
-
-                if (copy_multiple[writeptr][i].uiFullData & 0x4000000) {
-                  unFlags ^= FLAG_DISCONNECT;
-                }
-                if (copy_multiple[writeptr][i].uiFullData & 0x8000000) {
-                  unFlags = (unFlags ^ FLAG_MASTER_CHANGE) | FLAG_DISCONNECT;
-                }
-                copy_multiple[writeptr][i].data.unFlags = unFlags;
-              }
-
-              // Process player input
-              readuserdata(0);
-              copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-              last_inp[0] = user_inp;
-
-              receive_all_singles();
-            }
-
-            // Countdown handling
-            if (countdown >= 0) {
-              active_nodes = 0;
-              for (int i = 0; i < network_on; i++) {
-                if (player_ready[i]) active_nodes++;
-                if (player_ready[i] == 666 && net_players[i]) {
-                  copy_multiple[writeptr][player_to_car[i]].data.unFlags |= FLAG_DISCONNECT;
-                  net_players[i] = 0;
-                }
-              }
-            }
-
-            // Send data when all nodes are ready
-            if (active_nodes == network_on) {
-              net_loading = 0;
-              if (network_on - 1 != start_multiple || !paused) {
-                if (start_race && !paused && send_finished && numcars > 0) {
-                  for (int i = 0; i < numcars; i++) {
-                    copy_multiple[writeptr][i].data.unFlags |= FLAG_FINISHED;
-                  }
-                }
-                send_multiple();
-                
-                // Handle master transition
-                if (network_on - 1 == start_multiple) {
-                  for (int i = 0; i < numcars; i++) {
-                    if (copy_multiple[writeptr][i].data.unFlags & FLAG_DISCONNECT) {
-                      net_players[car_to_player[i]] = 0;
-                      network_timeout = frames;
-                    }
-                  }
-
-                  if (copy_multiple[writeptr][player1_car].data.unFlags & FLAG_MASTER_CHANGE) {
-                    // Reset network state
-                    read_check = -1;
-                    write_check = -1;
-                    memset(player_checks, -1, sizeof(player_checks));
-
-                    // Find new master
-                    net_players[master] = 0;
-                    while (!net_players[master] && master < MAX_PLAYERS) {
-                      master++;
-                    }
-
-                    // Reset timers
-                    for (int i = 0; i < network_on; i++) {
-                      net_time[i] = frames;
-                    }
-
-                    // Update flags
-                    uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
-                    unFlags ^= FLAG_DISCONNECT;
-                    copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE][player1_car].data.unFlags = unFlags;
-
-                    network_timeout = frames;
-                  }
-
-                  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-                  ticks_received++;
-                }
-              }
-            }
-          } else if (wConsoleNode > master && net_players[wConsoleNode]) {
-            if (paused) {
-              network_timeout = frames;
-            }
-            if (frames > network_timeout + network_limit && human_finishers < players) {
-              network_error = 123;
-            }
-
-            readuserdata(0);
-            send_single(user_inp);
-            last_inp[0] = user_inp;
-
-            receive_multiple();
-
-            // Handle master change
-            if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
-              read_check = -1;
-              write_check = -1;
-              memset(player_checks, -1, sizeof(player_checks));
-
-              net_players[master] = 0;
-              while (!net_players[master] && master < MAX_PLAYERS) {
-                master++;
-              }
-
-              active_nodes = network_on;
-              start_multiple = network_on - 1;
-
-              for (int i = 0; i < network_on; i++) {
-                net_time[i] = frames;
-              }
-              network_timeout = frames;
-            }
-
-            // Check for disconnections
-            for (int i = 0; i < numcars; i++) {
-              uint32 uiData = copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][i].uiFullData;
-
-              if (uiData & 0x10000000) {
-                network_error = 0;  // Reset error on valid data
-              }
-              if (uiData & 0x4000000) {
-                net_players[car_to_player[i]] = 0;
-                network_timeout = frames;
-                memset(player_checks, -1, sizeof(player_checks));
-                read_check = 0;
-                write_check = 0;
-              }
-            }
-          } else {
-            // Handle disconnected state
-            read_check = -1;
-            write_check = -1;
-
-            readuserdata(0);
-            last_inp[0] = user_inp;
-            copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-
-            // Set disconnect flag
-            copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
-
-            writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-          }
-
-          // Process sound
-          if (soundon && !paused) {
-            if (delayread >= delaywrite) return;
-
-            delayreadx = delayread % DELAY_BUFFER_SIZE;
-
-            if (allengines) {
-              for (int i = 0; i < numcars; i++) {
-                tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
-                if (pSound->iEngineVol >= 0)
-                  loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-                if (pSound->iEngine2Vol >= 0)
-                  loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-                if (pSound->iSkid1Vol >= 0)
-                  loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-              }
-            } else {
-              tEngineSoundData *pSound = &enginedelay[ViewType[0]].engineSoundData[delayreadx];
-              if (pSound->iEngineVol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-              if (pSound->iEngine2Vol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-              if (pSound->iSkid1Vol >= 0)
-                loopsample(ViewType[0], SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-            }
-
-            // Advance by ticks received
-            delayread += ticks_received;
-          }
-        }
+      } else if (network_on && winner_mode) {
+        CheckNewNodes();
+        SendAMessage();
+        BroadcastNews();
       }
     }
   }
 
-  // Replay sound processing
-  if (replaytype == 2 && replayspeed == REPLAY_NORMAL_SPEED) {
-    if (delayread < delaywrite) {
-      int delayreadx = delayread % DELAY_BUFFER_SIZE;
+  if (!frontend_on && iTickAdvance != 0)
+    SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
+}
 
-      for (int i = 0; i < numcars; i++) {
-        tEngineSoundData *pSound = &enginedelay[i].engineSoundData[delayreadx];
-        if (pSound->iEngineVol >= 0)
-          loopsample(i, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-        if (pSound->iEngine2Vol >= 0)
-          loopsample(i, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-        if (pSound->iSkid1Vol >= 0)
-          loopsample(i, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-      }
+void game_tick_step(void)
+{
+  int iControlTicks = 1;
+  int iDrainEngineDelay = 0;
 
-      if (delaywrite - delayread >= 6) {
-        delayread++;
-      }
+  if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
+    if (!network_on || winner_mode) {
+      local_input_tick();
+      iDrainEngineDelay = start_race;
+    } else if (start_race) {
+      ticks_received = 0;
+
+      if (wConsoleNode == master)
+        network_master_tick();
+      else if (wConsoleNode > master && net_players[wConsoleNode]) {
+        iControlTicks = network_slave_tick();
+        if (iControlTicks < 1)
+          iControlTicks = 1;
+      } else
+        network_orphan_tick();
+
+      iDrainEngineDelay = ticks_received > 0;
     }
   }
+
+  if (replaytype == 2 && replayspeed == REPLAY_NORMAL_SPEED)
+    iDrainEngineDelay = 1;
+
+  for (int i = 0; i < iControlTicks; i++) {
+    if (champ_mode < 16)
+      control_one_tick();
+    else
+      firework_display_one_tick();
+    if (iDrainEngineDelay)
+      DrainEngineDelay();
+  }
+}
+
+void tickhandler()
+{
+  tick_clock_step();
 }
 
 //-------------------------------------------------------------------------------------------------

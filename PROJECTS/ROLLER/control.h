@@ -61,6 +61,7 @@ void humancar(int iCarIdx);
 void GoUpGear(tCar *pCar);
 void GoDownGear(tCar *pCar, int iUseAutoLogic);
 void control();
+void control_one_tick(void);
 double calc_revs(tRevCurve *pRevs, int iGear, float fChg);
 double calc_pow(int iCarDesignIdx, int iCurrentGear, float fRPMRatio);
 void Accelerate(tCar *pCar);

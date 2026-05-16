@@ -49,8 +49,11 @@ add_executable(roller
     PROJECTS/ROLLER/drawtrk3.c
     PROJECTS/ROLLER/render_queue_3d.c
     PROJECTS/ROLLER/engines.c
+    PROJECTS/ROLLER/frontend.c
     PROJECTS/ROLLER/frontend_config.c
     PROJECTS/ROLLER/frontend_data.c
+    PROJECTS/ROLLER/frontend_lobby.c
+    PROJECTS/ROLLER/frontend_pause.c
     PROJECTS/ROLLER/frontend_network.c
     PROJECTS/ROLLER/frontend_screens.c
     PROJECTS/ROLLER/frontend_select_car.c

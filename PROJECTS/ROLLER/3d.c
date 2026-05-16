@@ -1158,12 +1158,12 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
 
+static void frontend_run_game_loop(void);
+
 //-------------------------------------------------------------------------------------------------
 //00011930
 int main(int argc, const char **argv, const char **envp)
 {
-  int nGameFlags; // edx
-  int16 nCarIdx; // bx
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
   char whiplash_root[260] = { 0 };
@@ -1475,117 +1475,7 @@ int main(int argc, const char **argv, const char **envp)
     doexit();
     return 0;
   }
-  VIEWDIST = 270;                               // Main game loop - continues until quit_game is set
-  do {
-    start_race = 0;
-    time_to_start = 0;
-    if (restart_net) {
-      restart_net_game();                       // Handle network game restart
-    } else {                                           // Wait for player to start race from menu
-      while (!time_to_start)
-        select_screen();
-    }
-    restart_net = 0;
-    countdown = 144;
-    gosound = 3;
-    delayread = 0;
-    delaywrite = 6;
-    writeptr = 0;
-    readptr = 0;
-    if (!quit_game) {                                           // Handle different game types - single race, championship, etc
-      if (game_type < 3) {
-        title_screens();
-        nGameFlags = -1;
-        if (replaytype == 2)
-          nGameFlags = 0;
-        if (intro)
-          nGameFlags = 0;
-        net_quit = 0;
-        prev_track = TrackLoad;
-        play_game(TrackLoad);
-        if (network_buggered) {
-          network_fucked();
-          nGameFlags = 0;
-        }
-        if (net_quit || network_buggered) {
-          nGameFlags = 0;
-          if (network_champ_on && (network_buggered != 666 || !restart_net)) {
-            game_type = 0;
-            network_champ_on = 0;
-          }
-          if (net_quit)
-            close_network();
-        }
-        if (cd_error)
-          no_cd();
-        VIEWDIST = 270;
-        if (!quit_game) {
-          if (nGameFlags) {
-            if (game_type) {
-              if ((unsigned int)game_type > 1) {                                 // Time trial mode - special handling
-                if (game_type == 2) {
-                  StoreResult();
-                  for (nCarIdx = 0; nCarIdx < numcars; ++nCarIdx) {
-                    if (human_control[nCarIdx] && (char)Car[nCarIdx].byLap > 1)
-                      TimeTrials(nCarIdx);
-                  }
-                  ShowLapRecords();
-                }
-                goto RACE_CLEANUP;
-              }
-              finish_race();                    // Championship mode - handle race completion
-              StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-                winner_race();
-              ResultRoundUp();
-              RaceResult();
-              ChampionshipStandings();
-              if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-                TeamStandings();
-              ShowLapRecords();
-              ++Race;
-              TrackLoad = prev_track + 1;
-              if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-              {
-                ChampionshipOver();
-                goto RACE_CLEANUP;
-              }
-              if ((cheat_mode & CHEAT_MODE_CREDITS) == 0)
-                goto RACE_CLEANUP;
-ROLL_CREDITS:
-              RollCredits();
-              goto RACE_CLEANUP;
-            }
-            if (!gave_up) {
-              finish_race();
-              StoreResult();
-              if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-                winner_race();
-              ResultRoundUp();
-              RaceResult();
-              ShowLapRecords();
-            }
-            if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-              ChampionshipOver();
-            if ((cheat_mode & CHEAT_MODE_CREDITS) != 0)
-              goto ROLL_CREDITS;
-RACE_CLEANUP:
-            if (player_type == 1)             // RACE_CLEANUP: Clean up after race completion
-              player_type = 0;
-          }
-          intro = 0;
-        }
-      } else if (game_type == 3) {
-        ChampionshipStandings();
-        if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-          TeamStandings();
-        dontrestart = -1;
-      } else {
-        ShowLapRecords();
-        dontrestart = -1;
-      }
-    }
-  } while (!quit_game);
+  frontend_run_game_loop();
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   doexit();
   return 0;
@@ -2237,17 +2127,351 @@ void champion_race()
 }
 
 //-------------------------------------------------------------------------------------------------
+
+typedef enum {
+  eFRONTEND_POST_RACE_NONE = 0,
+  eFRONTEND_POST_RACE_SINGLE,
+  eFRONTEND_POST_RACE_CHAMPIONSHIP,
+  eFRONTEND_POST_RACE_TIME_TRIAL,
+  eFRONTEND_POST_RACE_RECORDS,
+  eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP
+} eFrontendPostRaceFlow;
+
+static int iFrontendGameFlags = 0;
+static eFrontendPostRaceFlow eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+static int iFrontendPostRaceCleanup = 0;
+static int iFrontendTimeTrialCarIdx = 0;
+
+static int frontend_should_show_winner_screen(void)
+{
+  return human_control[carorder[0]] ||
+         (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0;
+}
+
+static int frontend_should_show_team_standings(void)
+{
+  return competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0;
+}
+
+static void frontend_finish_post_race_sequence(void)
+{
+  if (iFrontendPostRaceCleanup && player_type == 1)
+    player_type = 0;
+
+  if (eFrontendPostRaceCurrentFlow != eFRONTEND_POST_RACE_RECORDS &&
+      eFrontendPostRaceCurrentFlow != eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP)
+    intro = 0;
+
+  eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+  iFrontendPostRaceCleanup = 0;
+  iFrontendTimeTrialCarIdx = 0;
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+}
+
+static void frontend_after_single_result_screens(void)
+{
+  if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  } else {
+    frontend_finish_post_race_sequence();
+  }
+}
+
+static void frontend_after_championship_lap_records(void)
+{
+  ++Race;
+  TrackLoad = prev_track + 1;
+  if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  } else {
+    frontend_finish_post_race_sequence();
+  }
+}
+
+static void frontend_run_game_loop(void)
+{
+  VIEWDIST = 270;
+  frontend_set_state(eFRONTEND_STATE_MAIN_MENU);
+
+  while (eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game) {
+    UpdateSDL();
+    frontend_update();
+  }
+
+  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    frontend_set_state(eFRONTEND_STATE_QUIT);
+}
+
+void frontend_loading_enter(void)
+{
+  countdown = 144;
+  gosound = 3;
+  delayread = 0;
+  delaywrite = 6;
+  writeptr = 0;
+  readptr = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_loading_update(void)
+{
+  if (quit_game) {
+    eFrontendNextState = eFRONTEND_STATE_QUIT;
+  } else if (game_type < 3) {
+    eFrontendNextState = eFRONTEND_STATE_TITLE;
+  } else if (game_type == 3) {
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP;
+    iFrontendPostRaceCleanup = 0;
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+  } else {
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_title_enter(void)
+{
+  frontend_title_screen_enter();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_title_update(void)
+{
+  if (!frontend_title_screen_update())
+    return;
+
+  iFrontendGameFlags = -1;
+  if (replaytype == 2)
+    iFrontendGameFlags = 0;
+  if (intro)
+    iFrontendGameFlags = 0;
+  net_quit = 0;
+  prev_track = TrackLoad;
+  race_set_track(TrackLoad);
+  eFrontendNextState = eFRONTEND_STATE_RACING;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_title_exit(void)
+{
+  frontend_title_screen_exit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_results_update(void)
+{
+  eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+  iFrontendPostRaceCleanup = 0;
+  iFrontendTimeTrialCarIdx = 0;
+
+  if (game_type >= 3) {
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_RECORDS;
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+    return;
+  }
+
+  if (network_buggered) {
+    network_fucked();
+    iFrontendGameFlags = 0;
+  }
+  if (net_quit || network_buggered) {
+    iFrontendGameFlags = 0;
+    if (network_champ_on && (network_buggered != 666 || !restart_net)) {
+      game_type = 0;
+      network_champ_on = 0;
+    }
+    if (net_quit)
+      close_network();
+  }
+  if (cd_error)
+    no_cd();
+  VIEWDIST = 270;
+
+  if (!quit_game && iFrontendGameFlags) {
+    iFrontendPostRaceCleanup = -1;
+    if (game_type) {
+      if ((unsigned int)game_type > 1) {        // Time trial mode - special handling
+        if (game_type == 2) {
+          StoreResult();
+          eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_TIME_TRIAL;
+          eFrontendNextState = eFRONTEND_STATE_TIME_TRIAL_RESULTS;
+          return;
+        }
+        frontend_finish_post_race_sequence();
+        return;
+      }
+      eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_CHAMPIONSHIP;
+      finish_race();                            // Championship mode - handle race completion
+      StoreResult();
+      eFrontendNextState = frontend_should_show_winner_screen()
+        ? eFRONTEND_STATE_WINNER_SCREEN
+        : eFRONTEND_STATE_RESULT_ROUNDUP;
+      return;
+    }
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_SINGLE;
+    if (!gave_up) {
+      finish_race();
+      StoreResult();
+      eFrontendNextState = frontend_should_show_winner_screen()
+        ? eFRONTEND_STATE_WINNER_SCREEN
+        : eFRONTEND_STATE_RESULT_ROUNDUP;
+      return;
+    }
+    frontend_after_single_result_screens();
+    return;
+  }
+
+  frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_winner_screen_update(void)
+{
+  if (winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+    eFrontendNextState = eFRONTEND_STATE_WINNER_RACE;
+  else
+    eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_winner_race_update(void)
+{
+  winner_race();
+  VIEWDIST = 270;
+  eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_result_roundup_update(void)
+{
+  ResultRoundUp();
+  eFrontendNextState = eFRONTEND_STATE_RACE_RESULT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_race_result_update(void)
+{
+  RaceResult();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP)
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+  else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE)
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  else
+    frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_championship_standings_update(void)
+{
+  ChampionshipStandings();
+  if (frontend_should_show_team_standings()) {
+    eFrontendNextState = eFRONTEND_STATE_TEAM_STANDINGS;
+  } else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  } else {
+    dontrestart = -1;
+    frontend_finish_post_race_sequence();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_team_standings_update(void)
+{
+  TeamStandings();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  } else {
+    dontrestart = -1;
+    frontend_finish_post_race_sequence();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_lap_records_update(void)
+{
+  ShowLapRecords();
+  switch (eFrontendPostRaceCurrentFlow) {
+    case eFRONTEND_POST_RACE_CHAMPIONSHIP:
+      frontend_after_championship_lap_records();
+      break;
+    case eFRONTEND_POST_RACE_SINGLE:
+      frontend_after_single_result_screens();
+      break;
+    case eFRONTEND_POST_RACE_RECORDS:
+      dontrestart = -1;
+      frontend_finish_post_race_sequence();
+      break;
+    default:
+      frontend_finish_post_race_sequence();
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_time_trial_results_update(void)
+{
+  while (iFrontendTimeTrialCarIdx < numcars) {
+    int iCarIdx = iFrontendTimeTrialCarIdx++;
+    if (human_control[iCarIdx] && (char)Car[iCarIdx].byLap > 1) {
+      TimeTrials(iCarIdx);
+      return;
+    }
+  }
+  eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_championship_over_update(void)
+{
+  ChampionshipOver();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE &&
+      (cheat_mode & CHEAT_MODE_CREDITS) != 0)
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  else
+    frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_credits_update(void)
+{
+  RollCredits();
+  frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
 //00012EF0
-void play_game(int iTrack)
+static int iFrontendRaceTrack = 0;
+
+void race_set_track(int iTrack)
+{
+  iFrontendRaceTrack = iTrack;
+}
+
+void race_enter(void)
 {
   int iNetTimeItr; // eax
   int iNetTimeItr_1; // ecx
-  int16 nNetTimeItr_2; // bx
-  int iNetTimeItr_3; // eax
-  bool bShiftKeyPressed; // eax
-  int iSong; // eax
 
-  game_track = iTrack;                          // Initialize game state and track
+  game_track = iFrontendRaceTrack;              // Initialize game state and track
   lagdone = 0;
   I_Want_Out = 0;
   play_game_init();                             // Initialize game systems and memory tracking
@@ -2259,259 +2483,291 @@ void play_game(int iTrack)
   network_limit = 4320;                         // Disable interrupts and setup network timing arrays
   iNetTimeItr = 0;
   do {
-    iNetTimeItr_1 = (int16)iNetTimeItr++;     // Initialize network timing array with current frame count
+    iNetTimeItr_1 = (int16)iNetTimeItr++;       // Initialize network timing array with current frame count
     net_time[iNetTimeItr_1] = frames;
   } while ((int16)iNetTimeItr < 16);
   network_timeout = frames;
   network_error = 0;
   network_sync_error = 0;
+  reset_tick_input_samples();
+  SDL_SetAtomicInt(&iTicksPending, 0);
   frontend_on = 0;
   //_enable();
-  while (racing || lastsample > 0)            // Main game loop - continues while racing or sound samples playing
-  {                                             // Stop all sound samples if requested
+}
 
-    if (g_bSnapshotMode) {
-      // No SDL tick timer in snapshot mode: drive replay one tick per
-      // iteration with no wall-clock pacing, and zero scrbuf so any
-      // unredrawn region cannot leak from the previous frame.
-      SnapshotZeroScreen();
-      SnapshotAdvanceTick();
-    }
+void race_update(void)
+{
+  int16 nNetTimeItr_2; // bx
+  int iNetTimeItr_3; // eax
+  int iPendingTicks; // eax
+  bool bShiftKeyPressed; // eax
+  int iSong; // eax
 
-    UpdateSDL();
-    if (dostopsamps) {
-      stopallsamples();
-      dostopsamps = 0;
-    }
-    if (network_on)                           // Handle network game timing and synchronization
-    {                                           // Set countdown for network games after frame 250
-      if (frame_number >= 250)
-        countdown = -75;
-      if (countdown == 144 && replaytype != 2 && fadedin)// Send ready signal when countdown reaches 144 (not in replay mode)
-        send_ready();
-      if (network_limit == 4320 && countdown < 140)// Switch network timeout from 4320 to 360 frames when race starts
-      {
-        //_disable();
-        network_limit = 360;
-        for (nNetTimeItr_2 = 0; ; ++nNetTimeItr_2) {
-          iNetTimeItr_3 = nNetTimeItr_2;
-          if (nNetTimeItr_2 >= network_on)
-            break;
-          net_time[iNetTimeItr_3] = frames;     // Update network timing array for all connected nodes
-        }
-        network_timeout = frames;
-        //_enable();
+  if (!racing && lastsample <= 0) {
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    return;
+  }
+
+  if (dostopsamps) {                            // Stop all sound samples if requested
+    stopallsamples();
+    dostopsamps = 0;
+  }
+  if (network_on)                               // Handle network game timing and synchronization
+  {                                             // Set countdown for network games after frame 250
+    if (frame_number >= 250)
+      countdown = -75;
+    if (countdown == 144 && replaytype != 2 && fadedin)// Send ready signal when countdown reaches 144 (not in replay mode)
+      send_ready();
+    if (network_limit == 4320 && countdown < 140)// Switch network timeout from 4320 to 360 frames when race starts
+    {
+      //_disable();
+      network_limit = 360;
+      for (nNetTimeItr_2 = 0; ; ++nNetTimeItr_2) {
+        iNetTimeItr_3 = nNetTimeItr_2;
+        if (nNetTimeItr_2 >= network_on)
+          break;
+        net_time[iNetTimeItr_3] = frames;       // Update network timing array for all connected nodes
       }
+      network_timeout = frames;
+      //_enable();
     }
-    if (player_type == 1 && (network_error || network_sync_error || cd_error))// Exit network game if errors occur in single player mode
+  }
+  if (player_type == 1 && (network_error || network_sync_error || cd_error))// Exit network game if errors occur in single player mode
+    racing = 0;
+  if (fadedin && !lagdone && (countdown < 140 || replaytype == 2))// Initialize sound lag compensation when race starts
+  {
+    initsoundlag(0);
+    lagdone = -1;
+  }
+  updates = 0;
+  if (g_bSnapshotMode) {
+    // No SDL tick timer in snapshot mode: drive one logical tick per
+    // iteration with no wall-clock pacing, and zero scrbuf so any
+    // unredrawn region cannot leak from the previous frame.
+    SnapshotZeroScreen();
+    SnapshotAdvanceTick();
+  }
+  // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
+  // backs up iTicksPending, catching up burns main-thread time and starves
+  // the next render, which backs up more ticks, and so on.
+  int iDrained = 0;
+  while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+    // Claim one pending tick with CAS. The timer thread can enqueue between
+    // this read and update, so a plain read/add pair can race, especially
+    // when replay rewind changes the pending count's sign.
+    int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
+    if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
+      continue;
+    game_tick_step();
+    ++iDrained;
+  }
+  if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
+    game_tick_step();
+  if (!replayspeed && intro && !game_req)       // Exit replay if intro mode and no game requested
+    racing = replayspeed;
+  //removed by ROLLER, CD looping is handled in ROLLER code
+  //if (track_playing && frames - start_cd > 36 * track_duration / 75)// Handle CD audio track looping based on duration
+  //{
+  //  StopTrack();
+  //  RepeatTrack();
+  //  start_cd = frames;
+  //}
+  if (network_on && net_quit && !intro)         // Handle network quit requests
+    racing = 0;
+  if (player_type == 2)                         // Handle end-of-race conditions for different player modes
+  {                                             // 2-player mode: end race when both cars dead and sound finished
+    if ((Car[player1_car].byLives & 0x80u) != 0
+      && (Car[player2_car].byLives & 0x80u) != 0
+      && lastsample < -72
+      && readsample == writesample
+      && player_type != replaytype) {
       racing = 0;
-    if (fadedin && !lagdone && (countdown < 140 || replaytype == 2))// Initialize sound lag compensation when race starts
-    {
-      initsoundlag(0);
-      lagdone = -1;
     }
-    if (champ_mode < 16)                      // Handle game control vs fireworks display based on championship mode
-      control();
-    else
-      firework_display();
-    if (!replayspeed && intro && !game_req)   // Exit replay if intro mode and no game requested
-      racing = replayspeed;
-    //removed by ROLLER, CD looping is handled in ROLLER code
-    //if (track_playing && frames - start_cd > 36 * track_duration / 75)// Handle CD audio track looping based on duration
-    //{
-    //  StopTrack();
-    //  RepeatTrack();
-    //  start_cd = frames;
-    //}
-    if (network_on && net_quit && !intro)     // Handle network quit requests
+  } else if (!network_on && (Car[player1_car].byLives & 0x80u) != 0 && lastsample < -72 && readsample == writesample && replaytype != 2)// Single player: end race when car dead and sound finished
+  {
+    racing = (unsigned int)writesample ^ readsample;
+  }
+  if (winner_mode)                              // Handle winner celebration mode and championship fireworks
+  {
+    if (winner_done && lastsample < -72 && readsample == writesample) {
       racing = 0;
-    if (player_type == 2)                     // Handle end-of-race conditions for different player modes
-    {                                           // 2-player mode: end race when both cars dead and sound finished
-      if ((Car[player1_car].byLives & 0x80u) != 0
-        && (Car[player2_car].byLives & 0x80u) != 0
-        && lastsample < -72
-        && readsample == writesample
-        && player_type != replaytype) {
-        racing = 0;
-      }
-    } else if (!network_on && (Car[player1_car].byLives & 0x80u) != 0 && lastsample < -72 && readsample == writesample && replaytype != 2)// Single player: end race when car dead and sound finished
-    {
-      racing = (unsigned int)writesample ^ readsample;
-    }
-    if (winner_mode)                          // Handle winner celebration mode and championship fireworks
-    {
-      if (winner_done && lastsample < -72 && readsample == writesample) {
-        racing = 0;
-      } else {
-        racing = -1;
-        if (champ_mode) {
-          if (champ_mode >= 16 && champ_zoom > 7 && champ_count < 0 && !winner_done) {
-            // SOUND_SAMPLE_WON
-            speechsample(114, 0x8000, 18, player1_car);// Play victory sound sample (114) in championship mode
-            winner_done = -1;
-          }
-          if (!winner_done && champ_mode == 2) {
-            // SOUND_SAMPLE_WON
-            speechsample(114, 0x8000, 18, player1_car);// Play victory sound and advance championship mode
-            ++champ_mode;
-          }
-          if (champ_mode == 3 && lastsample < -72 && readsample == writesample)// Initialize fireworks sequence with fade out/in
-          {
-            holdmusic = -1;
-            game_render_begin_fade(g_pGameRenderer, 0, 0); // writesample ^ readsample == 0 when readsample == writesample
-            ++champ_mode;
-            firework_screen();
-            game_render_begin_fade(g_pGameRenderer, 1, 0);
-            champ_count = 720;
-            champ_zoom = 3;
-            champ_mode = 16;
-            memset(CarSpray, 0, 0x318u);
-            if (SVGA_ON)
-              scr_size = 128;
-            else
-              scr_size = 64;
-            winw = XMAX;
-            winx = 0;
-            winy = 0;
-            winh = YMAX;
-          }
-        } else if (Car[ViewType[0]].byLap > 1 && !winner_done)// Play victory sound for regular race completion
-        {
+    } else {
+      racing = -1;
+      if (champ_mode) {
+        if (champ_mode >= 16 && champ_zoom > 7 && champ_count < 0 && !winner_done) {
           // SOUND_SAMPLE_WON
-          speechsample(114, 0x8000, 18, player1_car);
+          speechsample(114, 0x8000, 18, player1_car);// Play victory sound sample (114) in championship mode
           winner_done = -1;
         }
-      }
-    }
-    if (champ_mode < 16)                      // Update screen display (normal game or fireworks)
-      updatescreen();
-    else
-      firework_screen();
-    if (print_data)
-      SDL_Log("\n\n");
-    print_data = 0;
-    if (pause_request && !intro)              // Handle pause requests (excluding intro mode)
-    {
-      if (!pausewindow || !paused) {                                         // Network pause handling - master/slave coordination
-        if (network_on && replaytype != 2) {
-          if (wConsoleNode == master) {
-            if (!finished_car[player1_car]) {
-              paused = paused == 0;
-              if (paused)
-                stopallsamples();
-              if (paused)
-                pauser = wConsoleNode;
-              transmitpausetoslaves();
-            }
-          } else if (!finished_car[player1_car]) {
-            send_pause();
-          }
-        } else {                                       // Local pause handling - toggle game settings and calibration
-          if (game_req) {
-            clear_borders = -1;
-            scr_size = req_size;
-            remove_uncalibrated();
-            check_joystick_usage();
-          } else {
-            req_size = scr_size;
-            if (SVGA_ON)
-              scr_size = 128;
-            else
-              scr_size = 64;
-          }
-          control_edit = -1;
-          req_edit = 0;
-          game_req = game_req == 0;
-          pausewindow = 0;
-          paused = paused == 0;
-          if (paused)
-            stopallsamples();
+        if (!winner_done && champ_mode == 2) {
+          // SOUND_SAMPLE_WON
+          speechsample(114, 0x8000, 18, player1_car);// Play victory sound and advance championship mode
+          ++champ_mode;
         }
-      }
-      pause_request = 0;
-    }
-    if (network_on && slave_pause && wConsoleNode == master)// Handle slave pause requests in network games
-    {
-      paused = paused == 0;
-      if (paused)
-        stopallsamples();
-      transmitpausetoslaves();
-      slave_pause = 0;
-    }
-    if (!filingmenu)
-      game_keys();
-    if (replaytype == 2) {
-      if (SVGA_ON)
-        scr_size = 128;
-      else
-        scr_size = 64;
-    }
-    if (!racing && !winner_done && winner_mode)// Handle race end with victory sound if no winner celebration yet
-    {
-      // SOUND_SAMPLE_WON
-      speechsample(114, 0x8000, 18, player1_car);
-      winner_done = -1;
-      racing = -1;
-    }
-    bShiftKeyPressed = keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT];
-    shifting = bShiftKeyPressed;
-    if (bShiftKeyPressed && keys[WHIP_SCANCODE_F7] || keys[WHIP_SCANCODE_RETURN] && controlicon == 8)
-    {
-      if (shifting && keys[WHIP_SCANCODE_F7])
-        controlicon = 9;
-      slowing = 0;
-      if (!rewinding)
-        Rrewindstart();
-    } else if (rewinding) {
-      slowing = -1;
-    }
-    if (shifting && keys[WHIP_SCANCODE_F8] || keys[WHIP_SCANCODE_RETURN] && controlicon == 10)
-    {
-      if (shifting && keys[WHIP_SCANCODE_F8])
-        controlicon = 9;
-      slowing = 0;
-      if (!forwarding)
-        Rforwardstart();
-    } else if (forwarding) {
-      slowing = -1;
-    }
-    if (screenready)                          // Handle screen fade-in and music startup
-    {
-      if (!fadedin) {
-        game_render_begin_fade(g_pGameRenderer, 1, 0);
-        fadedin = -1;
-        holdmusic = 0;
-        if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
-          if (!MusicCD && !winner_mode && !loading_replay) {
-            if (replaytype == 2)
-              iSong = titlesong;
-            else
-              iSong = game_track;
-            startmusic(iSong);
-          }
+        if (champ_mode == 3 && lastsample < -72 && readsample == writesample)// Initialize fireworks sequence with fade out/in
+        {
+          holdmusic = -1;
+          game_render_begin_fade(g_pGameRenderer, 0, 0); // writesample ^ readsample == 0 when readsample == writesample
+          ++champ_mode;
+          firework_screen();
+          game_render_begin_fade(g_pGameRenderer, 1, 0);
+          champ_count = 720;
+          champ_zoom = 3;
+          champ_mode = 16;
+          memset(CarSpray, 0, 0x318u);
+          if (SVGA_ON)
+            scr_size = 128;
+          else
+            scr_size = 64;
+          winw = XMAX;
+          winx = 0;
+          winy = 0;
+          winh = YMAX;
         }
+      } else if (Car[ViewType[0]].byLap > 1 && !winner_done)// Play victory sound for regular race completion
+      {
+        // SOUND_SAMPLE_WON
+        speechsample(114, 0x8000, 18, player1_car);
+        winner_done = -1;
       }
     }
-    //NOCD error disabled for ROLLER
-    //if (!intro && replaytype != 2)            // Handle CD-ROM validation for copy protection
-    //{
-    //  if (player_type && player_type != 2) {
-    //    if (!cdchecked) {
-    //      if (active_nodes == network_on)
-    //        cdchecked = -1;
-    //      if (wConsoleNode == master && !netCD && active_nodes == network_on) {
-    //        send_nocd_error();
-    //        cd_error = -1;
-    //        cdchecked = -1;
-    //      }
-    //    }
-    //  } else if (!localCD) {
-    //    racing = 0;
-    //    cd_error = -1;
-    //  }
-    //}
   }
+  if (pause_request && !intro)                  // Handle pause requests (excluding intro mode)
+  {
+    if (!pausewindow || !paused) {                                         // Network pause handling - master/slave coordination
+      if (network_on && replaytype != 2) {
+        if (wConsoleNode == master) {
+          if (!finished_car[player1_car]) {
+            paused = paused == 0;
+            if (paused)
+              stopallsamples();
+            if (paused)
+              pauser = wConsoleNode;
+            transmitpausetoslaves();
+          }
+        } else if (!finished_car[player1_car]) {
+          send_pause();
+        }
+      } else {                                       // Local pause: push overlay state
+        push_overlay(eFRONTEND_STATE_PAUSE_OVERLAY);
+      }
+    }
+    pause_request = 0;
+  }
+  if (network_on && slave_pause && wConsoleNode == master)// Handle slave pause requests in network games
+  {
+    paused = paused == 0;
+    if (paused)
+      stopallsamples();
+    transmitpausetoslaves();
+    slave_pause = 0;
+  }
+  if (!filingmenu)
+    game_keys();
+  if (replaytype == 2) {
+    if (SVGA_ON)
+      scr_size = 128;
+    else
+      scr_size = 64;
+  }
+  if (!racing && !winner_done && winner_mode)   // Handle race end with victory sound if no winner celebration yet
+  {
+    // SOUND_SAMPLE_WON
+    speechsample(114, 0x8000, 18, player1_car);
+    winner_done = -1;
+    racing = -1;
+  }
+  bShiftKeyPressed = keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT];
+  shifting = bShiftKeyPressed;
+  if (bShiftKeyPressed && keys[WHIP_SCANCODE_F7] || keys[WHIP_SCANCODE_RETURN] && controlicon == 8)
+  {
+    if (shifting && keys[WHIP_SCANCODE_F7])
+      controlicon = 9;
+    slowing = 0;
+    if (!rewinding)
+      Rrewindstart();
+  } else if (rewinding) {
+    slowing = -1;
+  }
+  if (shifting && keys[WHIP_SCANCODE_F8] || keys[WHIP_SCANCODE_RETURN] && controlicon == 10)
+  {
+    if (shifting && keys[WHIP_SCANCODE_F8])
+      controlicon = 9;
+    slowing = 0;
+    if (!forwarding)
+      Rforwardstart();
+  } else if (forwarding) {
+    slowing = -1;
+  }
+  if (screenready)                              // Handle screen fade-in and music startup
+  {
+    if (!fadedin) {
+      game_render_begin_fade(g_pGameRenderer, 1, 0);
+      fadedin = -1;
+      holdmusic = 0;
+      if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
+        if (!MusicCD && !winner_mode && !loading_replay) {
+          if (replaytype == 2)
+            iSong = titlesong;
+          else
+            iSong = game_track;
+          startmusic(iSong);
+        }
+      }
+    }
+  }
+  //NOCD error disabled for ROLLER
+  //if (!intro && replaytype != 2)            // Handle CD-ROM validation for copy protection
+  //{
+  //  if (player_type && player_type != 2) {
+  //    if (!cdchecked) {
+  //      if (active_nodes == network_on)
+  //        cdchecked = -1;
+  //      if (wConsoleNode == master && !netCD && active_nodes == network_on) {
+  //        send_nocd_error();
+  //        cd_error = -1;
+  //        cdchecked = -1;
+  //      }
+  //    }
+  //  } else if (!localCD) {
+  //    racing = 0;
+  //    cd_error = -1;
+  //  }
+  //}
+}
+
+void race_draw(void)
+{
+  if (champ_mode < 16)                          // Update screen display (normal game or fireworks)
+    updatescreen();
+  else
+    firework_screen();
+  if (print_data)
+    SDL_Log("\n\n");
+  print_data = 0;
+}
+
+void race_exit(void)
+{
   play_game_uninit();                           // Clean up and uninitialize game systems
+}
+
+void play_game(int iTrack)
+{
+  race_set_track(iTrack);
+  frontend_set_state(eFRONTEND_STATE_RACING);
+
+  while (eFrontendCurrentState == eFRONTEND_STATE_RACING ||
+         eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+         eFrontendNextState == eFRONTEND_STATE_RACING ||
+         eFrontendNextState == eFRONTEND_STATE_PAUSE_OVERLAY) {
+    UpdateSDL();
+    frontend_update();
+  }
+
+  // Legacy callers use play_game() synchronously and own their post-race flow.
+  if (eFrontendCurrentState == eFRONTEND_STATE_RESULTS)
+    frontend_set_state(eFRONTEND_STATE_NONE);
 }
 
 //-------------------------------------------------------------------------------------------------

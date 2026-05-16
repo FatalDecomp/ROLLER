@@ -10,6 +10,7 @@
 #include "view.h"
 #include "function.h"
 #include "snapshot.h"
+#include "frontend.h"
 #include <string.h>
 #include <errno.h>
 #include <math.h>
@@ -3285,6 +3286,10 @@ void loadreplay()
     ticks = currentreplayframe;
     //_enable();
     play_game_init();
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    ticks = currentreplayframe;
+    fraction = 0;
+    frontend_on = 0;
     pend_view_init = ViewType[0];
   }
   screenready = 0;                              // Clear screen and loading flags to complete initialization

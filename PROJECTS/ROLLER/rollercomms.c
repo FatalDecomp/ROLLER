@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #define SOCKET int
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
@@ -283,6 +284,97 @@ static int SendPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t
                           (struct sockaddr *)&destAddr, sizeof(destAddr));
 
   return (iBytesSent == iPacketSize) ? 1 : 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int IsLoopbackIPv4(uint32_t uiIPAddress);
+
+static int BroadcastPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t *pPacket, int iPacketSize)
+{
+  if (!SendPacketToIPv4(uiIPAddress, unPort, pPacket, iPacketSize))
+    return 0;
+
+  struct in_addr addr;
+  char szAddr[INET_ADDRSTRLEN];
+  addr.s_addr = uiIPAddress;
+  if (!inet_ntop(AF_INET, &addr, szAddr, sizeof(szAddr)))
+    strncpy(szAddr, "?", sizeof(szAddr));
+  szAddr[sizeof(szAddr) - 1] = '\0';
+  SDL_Log("[NET-DISCOVERY] broadcast init to %s:%u", szAddr, (unsigned)unPort);
+  return 1;
+}
+
+static int BroadcastPacketToLocalNetworks(uint16_t unPort, const uint8_t *pPacket, int iPacketSize)
+{
+  int iSuccess = 0;
+#ifdef IS_WINDOWS
+  ULONG uiBufLen = 15000;
+  IP_ADAPTER_ADDRESSES *pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
+  if (!pBuf)
+    return 0;
+  ULONG uiResult = GetAdaptersAddresses(AF_INET,
+    GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+    NULL, pBuf, &uiBufLen);
+  if (uiResult == ERROR_BUFFER_OVERFLOW) {
+    free(pBuf);
+    pBuf = (IP_ADAPTER_ADDRESSES *)malloc(uiBufLen);
+    if (!pBuf)
+      return 0;
+    uiResult = GetAdaptersAddresses(AF_INET,
+      GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+      NULL, pBuf, &uiBufLen);
+  }
+  if (uiResult == NO_ERROR) {
+    for (IP_ADAPTER_ADDRESSES *pAA = pBuf; pAA; pAA = pAA->Next) {
+      if (pAA->OperStatus != IfOperStatusUp)
+        continue;
+      if (pAA->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+        continue;
+      for (IP_ADAPTER_UNICAST_ADDRESS *pUA = pAA->FirstUnicastAddress; pUA; pUA = pUA->Next) {
+        if (pUA->Address.lpSockaddr->sa_family != AF_INET)
+          continue;
+        if (pUA->OnLinkPrefixLength >= 32)
+          continue;
+        struct sockaddr_in *pSin = (struct sockaddr_in *)pUA->Address.lpSockaddr;
+        uint32_t uiHostIP = ntohl(pSin->sin_addr.s_addr);
+        uint32_t uiMask = pUA->OnLinkPrefixLength == 0
+          ? 0
+          : (0xFFFFFFFFu << (32 - pUA->OnLinkPrefixLength));
+        uint32_t uiBroadcast = htonl(uiHostIP | ~uiMask);
+        if (!IsLoopbackIPv4(uiBroadcast))
+          iSuccess |= BroadcastPacketToIPv4(uiBroadcast, unPort, pPacket, iPacketSize);
+      }
+    }
+  }
+  free(pBuf);
+#else
+  struct ifaddrs *pList = NULL;
+  if (getifaddrs(&pList) == 0) {
+    for (struct ifaddrs *pIfa = pList; pIfa; pIfa = pIfa->ifa_next) {
+      if (!pIfa->ifa_addr || pIfa->ifa_addr->sa_family != AF_INET)
+        continue;
+      if ((pIfa->ifa_flags & IFF_UP) == 0 || (pIfa->ifa_flags & IFF_LOOPBACK) != 0)
+        continue;
+
+      uint32_t uiBroadcast = 0;
+      if ((pIfa->ifa_flags & IFF_BROADCAST) != 0 && pIfa->ifa_broadaddr &&
+          pIfa->ifa_broadaddr->sa_family == AF_INET) {
+        struct sockaddr_in *pBroadcast = (struct sockaddr_in *)pIfa->ifa_broadaddr;
+        uiBroadcast = pBroadcast->sin_addr.s_addr;
+      } else if (pIfa->ifa_netmask && pIfa->ifa_netmask->sa_family == AF_INET) {
+        struct sockaddr_in *pAddress = (struct sockaddr_in *)pIfa->ifa_addr;
+        struct sockaddr_in *pNetmask = (struct sockaddr_in *)pIfa->ifa_netmask;
+        uiBroadcast = pAddress->sin_addr.s_addr | ~pNetmask->sin_addr.s_addr;
+      }
+
+      if (uiBroadcast && !IsLoopbackIPv4(uiBroadcast))
+        iSuccess |= BroadcastPacketToIPv4(uiBroadcast, unPort, pPacket, iPacketSize);
+    }
+    freeifaddrs(pList);
+  }
+#endif
+  return iSuccess;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -562,16 +654,12 @@ int ROLLERCommsBroadcastData(
     return 0;
   }
 
-  int iSuccess = 0;
-  if (SendPacketToIPv4(htonl(INADDR_BROADCAST), unPort, packetBuffer, iTotalSize)) {
-    SDL_Log("[NET-DISCOVERY] broadcast init to 255.255.255.255:%u", (unsigned)unPort);
-    iSuccess = 1;
-  }
+  int iSuccess = BroadcastPacketToIPv4(htonl(INADDR_BROADCAST), unPort, packetBuffer, iTotalSize);
+  iSuccess |= BroadcastPacketToLocalNetworks(unPort, packetBuffer, iTotalSize);
 
-  if (s_unLocalPort != unPort &&
-      SendPacketToIPv4(htonl(INADDR_BROADCAST), s_unLocalPort, packetBuffer, iTotalSize)) {
-    SDL_Log("[NET-DISCOVERY] broadcast init to 255.255.255.255:%u", (unsigned)s_unLocalPort);
-    iSuccess = 1;
+  if (s_unLocalPort != unPort) {
+    iSuccess |= BroadcastPacketToIPv4(htonl(INADDR_BROADCAST), s_unLocalPort, packetBuffer, iTotalSize);
+    iSuccess |= BroadcastPacketToLocalNetworks(s_unLocalPort, packetBuffer, iTotalSize);
   }
 
   return iSuccess;
@@ -648,11 +736,34 @@ int ROLLERCommsGetHeader(void *pHeaderOut, int iHeaderSize, void **ppDataOut)
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize)
+int ROLLERCommsGetBlock(void *pDataIn, void *pDataOut, int iSize)
 {
-  if (pDataIn && pDataOut && iSize > 0) {
-    memcpy(pDataOut, pDataIn, iSize);
+  if (!pDataIn || !pDataOut || iSize <= 0)
+    return 0;
+
+  uint8 *pPayloadStart = (uint8 *)g_commsState.pCurrentPacketData;
+  uintptr_t uiPayloadStart = (uintptr_t)pPayloadStart;
+  uintptr_t uiPayloadEnd = uiPayloadStart + (uintptr_t)g_commsState.iReceiveSize;
+  uintptr_t uiBlockStart = (uintptr_t)pDataIn;
+  if (!pPayloadStart) {
+    SDL_Log("[NET] packet payload requested without an active packet");
+    memset(pDataOut, 0, iSize);
+    return 0;
   }
+
+  if (uiBlockStart < uiPayloadStart || uiBlockStart > uiPayloadEnd ||
+      (uintptr_t)iSize > uiPayloadEnd - uiBlockStart) {
+    SDL_Log("[NET] short packet payload: wanted %d bytes, available %d",
+            iSize,
+            (uiBlockStart >= uiPayloadStart && uiBlockStart <= uiPayloadEnd)
+              ? (int)(uiPayloadEnd - uiBlockStart)
+              : 0);
+    memset(pDataOut, 0, iSize);
+    return 0;
+  }
+
+  memcpy(pDataOut, pDataIn, iSize);
+  return 1;
 }
 
 //-------------------------------------------------------------------------------------------------

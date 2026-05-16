@@ -25,6 +25,7 @@ bool linevalid(int iChunkIdx, float fStartCoord, float fEndCoord);
 void analysefalloff(tCar *pCar);
 void showmap(uint8 *pScrPtr, int iCarIdx);
 void firework_display();
+void firework_display_one_tick(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif
