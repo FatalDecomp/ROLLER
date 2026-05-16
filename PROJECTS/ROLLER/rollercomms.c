@@ -26,6 +26,10 @@
 
 //-------------------------------------------------------------------------------------------------
 
+#define SEND_QUEUE_PUMP_BUDGET_PER_NODE 16
+
+//-------------------------------------------------------------------------------------------------
+
 typedef struct
 {
   tROLLERNetAddr address;
@@ -764,15 +768,18 @@ void ROLLERCommsPumpSendQueue(void)
 
   for (int iNode = 0; iNode < ROLLER_MAX_NODES; iNode++) {
     tSendQueue *pQueue = &s_aSendQueues[iNode];
-    if (pQueue->iCount <= 0)
-      continue;
+    int iBudget = SEND_QUEUE_PUMP_BUDGET_PER_NODE;
 
-    tQueuedSend *pQueuedSend = &pQueue->aEntries[pQueue->iReadIdx];
-    int iPacketSize = pQueuedSend->entry.unHeaderSize + pQueuedSend->entry.unDataSize;
-    if (SendPacketToIPv4(pQueuedSend->destAddress.uiIPAddress,
-                         pQueuedSend->destAddress.unPort,
-                         pQueuedSend->entry.abPacket,
-                         iPacketSize)) {
+    while (pQueue->iCount > 0 && iBudget-- > 0) {
+      tQueuedSend *pQueuedSend = &pQueue->aEntries[pQueue->iReadIdx];
+      int iPacketSize = pQueuedSend->entry.unHeaderSize + pQueuedSend->entry.unDataSize;
+      if (!SendPacketToIPv4(pQueuedSend->destAddress.uiIPAddress,
+                            pQueuedSend->destAddress.unPort,
+                            pQueuedSend->entry.abPacket,
+                            iPacketSize)) {
+        break;
+      }
+
       pQueue->iReadIdx = (pQueue->iReadIdx + 1) % SEND_QUEUE_DEPTH;
       pQueue->iCount--;
     }

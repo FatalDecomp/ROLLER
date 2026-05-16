@@ -474,6 +474,8 @@ void send_ready()
     else
       p_header.uiId = PACKET_ID_NOCD;
     if (wConsoleNode != master || player_ready[master]) {
+      if (ROLLERCommsSendQueueDepth(master) > 0)
+        return;
       ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, 0, master);
     } else {
       player_ready[master] = -1;
