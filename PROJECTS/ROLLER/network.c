@@ -450,14 +450,12 @@ void send_quit()
     if (wConsoleNode == master) {
       for (i = 0; i < network_on; ++i) {
         if (i != wConsoleNode) {
-          while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i))
-            UpdateSDL(); //added by ROLLER
+          ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, 0, i);
         }
       }
       net_quit = -1;
     } else {
-      while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master))
-        UpdateSDL(); //added by ROLLER
+      ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, 0, master);
     }
   }
 }
@@ -466,8 +464,6 @@ void send_quit()
 //0004F290
 void send_ready()
 {
-  int iDataSent; // eax
-
   if (network_on) {
     p_header.byConsoleNode = (uint8)wConsoleNode;
     if (localCD)
@@ -475,12 +471,7 @@ void send_ready()
     else
       p_header.uiId = PACKET_ID_NOCD;
     if (wConsoleNode != master || player_ready[master]) {
-      do {
-        //_disable();
-        iDataSent = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
-        //_enable();
-        UpdateSDL(); //added by ROLLER
-      } while (!iDataSent);
+      ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, 0, master);
     } else {
       player_ready[master] = -1;
       active_nodes++;
@@ -501,8 +492,7 @@ void send_record_to_master(int iRecordIdx)
 
     SDL_Log("[NET-START] send record to master=%d from node=%d track=%d",
             master, (int)wConsoleNode, iRecordIdx);
-    while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master))
-      UpdateSDL(); //added by ROLLER
+    ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), master);
   }
 }
 
@@ -520,9 +510,7 @@ void send_record_to_slaves(int iRecordIdx)
     for (int i = 0; i < network_on; ++i) {
       iRecordIdx = wConsoleNode;
       if (wConsoleNode != i) {
-        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), i)) {
-          UpdateSDL(); //added by ROLLER
-        }
+        ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), &p_record, sizeof(tRecordPacket), i);
       }
     }
   }
@@ -552,16 +540,14 @@ void send_mes(int iNetworkMessageIdx, int iNode)
           iNetPlayers = 0;
           do {
             if (iNodeIdx != wConsoleNode && net_players[iNetPlayers]) {
-              while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNodeIdx))
-                UpdateSDL(); //added by ROLLER
+              ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNodeIdx);
             }
             ++iNetPlayers;
             ++iNodeIdx;
           } while (iNodeIdx < network_on);
         }
       } else {
-        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNode))
-          UpdateSDL(); //added by ROLLER
+        ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), p_data, sizeof(p_data), iNode);
       }
     } else {
       message_sent = 4;
@@ -581,8 +567,7 @@ void send_seed(int iRandomSeed)
             iRandomSeed, (int)wConsoleNode, network_on);
     for (int i = 0;  i < network_on; ++i) {
       if (i != wConsoleNode) {
-        while (!ROLLERCommsSendData(&p_header, 12, &test_seed, 4, i))
-          UpdateSDL(); //added by ROLLER
+        ROLLERCommsQueueSend(&p_header, 12, &test_seed, 4, i);
       }
     }
 
@@ -645,8 +630,7 @@ void send_pause()
     syncHeader.byConsoleNode = (uint8)wConsoleNode;
     syncHeader.uiId = PACKET_ID_PAUSE;
     bPaused = paused == 0;
-    while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), master))
-      UpdateSDL(); //added by ROLLER
+    ROLLERCommsQueueSend(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), master);
   }
 }
 
@@ -660,8 +644,7 @@ void send_slot()
   if (network_on) {
     syncHeader.byConsoleNode = (uint8)network_slot;
     syncHeader.uiId = PACKET_ID_SLOT;
-    while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iSlot, sizeof(int), 21))
-      UpdateSDL(); //added by ROLLER
+    ROLLERCommsQueueSend(&syncHeader, sizeof(tSyncHeader), &iSlot, sizeof(int), 21);
   }
 }
 
@@ -683,8 +666,7 @@ void transmitpausetoslaves()
       iNetPlayerIdx = 0;
       do {
         if (iNode != master && net_players[iNetPlayerIdx]) {
-          while (!ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), iNode))
-            UpdateSDL(); //added by ROLLER
+          ROLLERCommsQueueSend(&syncHeader, sizeof(tSyncHeader), &bPaused, sizeof(bool), iNode);
         }
         ++iNetPlayerIdx;
         ++iNode;
@@ -1145,19 +1127,15 @@ void do_sync_stuff()
   int iCarIdx; // eax
   int *pTestMultiple; // edx
   uint32 uiSyncData2; // ebx
-  int iSendDataSuccess2; // eax
   uint8 byConsoleNode; // al
   int *pTestMini; // edx
   int i; // eax
   uint32 uiSyncData; // ebx
-  int iSendDataSuccess; // eax
+  int iSyncBudget = 16;
 
   iSyncPtr = syncptr;
   if (net_type) {
-    do {
-      if (!syncleft)
-        break;
-
+    while (syncleft && iSyncBudget-- > 0) {
       // Prepare sync header
       byConsoleNode = (uint8)wConsoleNode;
       in_header.uiId = 0x686C6366;              // fclh
@@ -1173,16 +1151,18 @@ void do_sync_stuff()
       }
       syncptr = iSyncPtr;
 
-      // Send data
-      iSendDataSuccess = ROLLERCommsSendData(&in_header, 12, test_mini, 8, syncnode);
+      // Queue data; if the destination queue is full, resume on the next tick.
+      if (!ROLLERCommsQueueSend(&in_header, 12, test_mini, 8, syncnode))
+        break;
 
       // Advance state
       iSyncPtr = ((uint16)syncptr + 1) & 0x1FF;  // ensure this index doesn't go beyond 511
       --syncleft;
       ++syncframe;
-    } while (iSendDataSuccess);
+      syncptr = iSyncPtr;
+    }
   } else {
-    while (syncleft) {
+    while (syncleft && iSyncBudget-- > 0) {
       // Prepare sync header
       byConsoleNode2 = (uint8)wConsoleNode;
       in_header.uiId = 0x686C6366;              // fclh
@@ -1201,17 +1181,15 @@ void do_sync_stuff()
       }
       syncptr = iSyncPtr;
 
-      // Send data
-      iSendDataSuccess2 = ROLLERCommsSendData(&in_header, 12, test_multiple, 64, syncnode);
+      // Queue data; if the destination queue is full, resume on the next tick.
+      if (!ROLLERCommsQueueSend(&in_header, 12, test_multiple, 64, syncnode))
+        break;
 
       // Advance state
       iSyncPtr = ((uint16)syncptr + 1) & 0x1FF;
       --syncleft;
       ++syncframe;
-      if (!iSendDataSuccess2) {
-        syncptr = ((uint16)syncptr + 1) & 0x1FF; // ensure this index doesn't go beyond 511
-        return;
-      }
+      syncptr = iSyncPtr;
     }
   }
   syncptr = iSyncPtr;
@@ -2045,8 +2023,7 @@ void SendPlayerInfo()
     //send to all nodes
     for (int i = 0; i < network_on; ++i) {
       if (wConsoleNode != i) {
-        while (!ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &playerInfo, sizeof(tPlayerInfoPacket), i))
-          UpdateSDL(); //added by ROLLER
+        ROLLERCommsQueueSend(&p_header, sizeof(tSyncHeader), &playerInfo, sizeof(tPlayerInfoPacket), i);
       }
     }
   }

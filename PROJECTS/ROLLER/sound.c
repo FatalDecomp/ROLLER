@@ -10,6 +10,7 @@
 #include "roller.h"
 #include "control.h"
 #include "network.h"
+#include "rollercomms.h"
 #include "replay.h"
 #include "function.h"
 #include "tower.h"
@@ -1168,7 +1169,9 @@ void tick_clock_step(void)
   int iTickAdvance = 1;
 
   if (network_on && syncleft) {
+    ROLLERCommsPumpSendQueue();
     do_sync_stuff();
+    ROLLERCommsPumpSendQueue();
     return;
   }
 
@@ -1251,6 +1254,9 @@ void tick_clock_step(void)
       }
     }
   }
+
+  if (network_on)
+    ROLLERCommsPumpSendQueue();
 
   if (!frontend_on && iTickAdvance != 0)
     SDL_AddAtomicInt(&iTicksPending, iTickAdvance);

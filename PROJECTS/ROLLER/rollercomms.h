@@ -9,6 +9,7 @@
 #define ROLLER_DEFAULT_PORT 7777
 #define ROLLER_MAX_PACKET_SIZE 1024
 #define ROLLER_MAX_IFACES 8
+#define SEND_QUEUE_DEPTH 64
 
 typedef struct
 {
@@ -24,6 +25,14 @@ typedef struct
   uint16 unPadding;
   uint64 ullReserved;    // Must be zero — pads to 16 bytes to match _NETNOW_NODE_ADDR
 } tROLLERNetAddr;
+
+//-------------------------------------------------------------------------------------------------
+
+typedef struct {
+  uint16 unHeaderSize;
+  uint16 unDataSize;
+  uint8 abPacket[ROLLER_MAX_PACKET_SIZE];
+} tSendQueueEntry;
 
 //-------------------------------------------------------------------------------------------------
 // Pre-init configuration (call before InitSystem)
@@ -62,6 +71,14 @@ int ROLLERCommsSendData(
     const void *pData,
     int iDataSize,
     int iDestNode);
+int ROLLERCommsQueueSend(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    int iDestNode);
+void ROLLERCommsPumpSendQueue(void);
+int ROLLERCommsSendQueueDepth(int iDestNode);
 int ROLLERCommsBroadcastData(
     const void *pHeader,
     int iHeaderSize,
