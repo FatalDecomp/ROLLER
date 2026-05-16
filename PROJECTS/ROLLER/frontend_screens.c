@@ -82,8 +82,36 @@ void font_ascii_replace_accent(char *font)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iFrontendTitleScreenActive = 0;
+static int iFrontendTitleScreenWaitFatal = 0;
+
+static int frontend_title_fatal_sample_done(void)
+{
+  if (!soundon || !SamplePtr[SOUND_SAMPLE_FATAL])
+    return -1;
+
+  for (int i = 0; i < 16; ++i) {
+    if (!DIGISampleDone(SampleHandleCar[SOUND_SAMPLE_FATAL].handles[i]))
+      return 0;
+  }
+  return -1;
+}
+
+static void frontend_title_apply_language_font_replacements(void)
+{
+  if (strcmp(languagename, "Brazilian") == 0 || strcmp(languagename, "Saspanish") == 0) {
+    SDL_Log("Language: update font1_ascii and font2_ascii to support '%s'", languagename);
+    memcpy(font1_ascii, font1_ascii_br, 256);
+    memcpy(font2_ascii, font2_ascii_br, 256);
+    memcpy(font3_ascii, font3_ascii_br, 256);
+    memcpy(font4_ascii, font4_ascii_br, 256);
+    font_ascii_replace_accent((char *)font6_ascii);
+    font_ascii_replace_accent((char *)ascii_conv3);
+  }
+}
+
 //0003F5B0
-void title_screens()
+void frontend_title_screen_enter(void)
 {
   winx = 0;
   winy = 0;
@@ -116,21 +144,39 @@ void title_screens()
   if ((cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0)
     dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
   disable_keyboard();
-  if ((cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0)
-    waitsampledone(SOUND_SAMPLE_FATAL);
+
+  iFrontendTitleScreenActive = -1;
+  iFrontendTitleScreenWaitFatal =
+    (cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0;
+}
+
+int frontend_title_screen_update(void)
+{
+  if (!iFrontendTitleScreenActive)
+    return -1;
+  if (!iFrontendTitleScreenWaitFatal)
+    return -1;
+  return frontend_title_fatal_sample_done();
+}
+
+void frontend_title_screen_exit(void)
+{
+  if (!iFrontendTitleScreenActive)
+    return;
+
   fre((void**)&front_vga[0]);
   freefatalsample();
+  frontend_title_apply_language_font_replacements();
+  iFrontendTitleScreenActive = 0;
+  iFrontendTitleScreenWaitFatal = 0;
+}
 
-  // Add by ROLLER, check language to change font table to support Brazilian / Saspanish.
-  if (strcmp(languagename, "Brazilian") == 0 || strcmp(languagename, "Saspanish") == 0) {
-    SDL_Log("Language: update font1_ascii and font2_ascii to support '%s'", languagename);
-    memcpy(font1_ascii, font1_ascii_br, 256);
-    memcpy(font2_ascii, font2_ascii_br, 256);
-    memcpy(font3_ascii, font3_ascii_br, 256);
-    memcpy(font4_ascii, font4_ascii_br, 256);
-    font_ascii_replace_accent((char *)font6_ascii);
-    font_ascii_replace_accent((char *)ascii_conv3);
-  }
+void title_screens()
+{
+  frontend_title_screen_enter();
+  while (!frontend_title_screen_update())
+    UpdateSDL();
+  frontend_title_screen_exit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1130,4 +1176,3 @@ void frontend_menu_resume_from_child(void)
 {
   iFrontendMainMenuResumeFromChild = -1;
 }
-

@@ -2128,7 +2128,69 @@ void champion_race()
 
 //-------------------------------------------------------------------------------------------------
 
+typedef enum {
+  eFRONTEND_POST_RACE_NONE = 0,
+  eFRONTEND_POST_RACE_SINGLE,
+  eFRONTEND_POST_RACE_CHAMPIONSHIP,
+  eFRONTEND_POST_RACE_TIME_TRIAL,
+  eFRONTEND_POST_RACE_RECORDS,
+  eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP
+} eFrontendPostRaceFlow;
+
 static int iFrontendGameFlags = 0;
+static eFrontendPostRaceFlow eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+static int iFrontendPostRaceCleanup = 0;
+static int iFrontendTimeTrialCarIdx = 0;
+
+static int frontend_should_show_winner_screen(void)
+{
+  return human_control[carorder[0]] ||
+         (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0;
+}
+
+static int frontend_should_show_team_standings(void)
+{
+  return competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0;
+}
+
+static void frontend_finish_post_race_sequence(void)
+{
+  if (iFrontendPostRaceCleanup && player_type == 1)
+    player_type = 0;
+
+  if (eFrontendPostRaceCurrentFlow != eFRONTEND_POST_RACE_RECORDS &&
+      eFrontendPostRaceCurrentFlow != eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP)
+    intro = 0;
+
+  eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+  iFrontendPostRaceCleanup = 0;
+  iFrontendTimeTrialCarIdx = 0;
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+}
+
+static void frontend_after_single_result_screens(void)
+{
+  if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  } else {
+    frontend_finish_post_race_sequence();
+  }
+}
+
+static void frontend_after_championship_lap_records(void)
+{
+  ++Race;
+  TrackLoad = prev_track + 1;
+  if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  } else {
+    frontend_finish_post_race_sequence();
+  }
+}
 
 static void frontend_run_game_loop(void)
 {
@@ -2163,6 +2225,8 @@ void frontend_loading_update(void)
   } else if (game_type < 3) {
     eFrontendNextState = eFRONTEND_STATE_TITLE;
   } else if (game_type == 3) {
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP;
+    iFrontendPostRaceCleanup = 0;
     eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
   } else {
     eFrontendNextState = eFRONTEND_STATE_RESULTS;
@@ -2171,9 +2235,18 @@ void frontend_loading_update(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_title_enter(void)
+{
+  frontend_title_screen_enter();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_title_update(void)
 {
-  title_screens();
+  if (!frontend_title_screen_update())
+    return;
+
   iFrontendGameFlags = -1;
   if (replaytype == 2)
     iFrontendGameFlags = 0;
@@ -2187,14 +2260,22 @@ void frontend_title_update(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_title_exit(void)
+{
+  frontend_title_screen_exit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_results_update(void)
 {
-  int16 nCarIdx; // bx
+  eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
+  iFrontendPostRaceCleanup = 0;
+  iFrontendTimeTrialCarIdx = 0;
 
   if (game_type >= 3) {
-    ShowLapRecords();
-    dontrestart = -1;
-    eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_RECORDS;
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
     return;
   }
 
@@ -2216,61 +2297,80 @@ void frontend_results_update(void)
   VIEWDIST = 270;
 
   if (!quit_game && iFrontendGameFlags) {
+    iFrontendPostRaceCleanup = -1;
     if (game_type) {
       if ((unsigned int)game_type > 1) {        // Time trial mode - special handling
         if (game_type == 2) {
           StoreResult();
-          for (nCarIdx = 0; nCarIdx < numcars; ++nCarIdx) {
-            if (human_control[nCarIdx] && (char)Car[nCarIdx].byLap > 1)
-              TimeTrials(nCarIdx);
-          }
-          ShowLapRecords();
+          eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_TIME_TRIAL;
+          eFrontendNextState = eFRONTEND_STATE_TIME_TRIAL_RESULTS;
+          return;
         }
-        goto RACE_CLEANUP;
+        frontend_finish_post_race_sequence();
+        return;
       }
+      eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_CHAMPIONSHIP;
       finish_race();                            // Championship mode - handle race completion
       StoreResult();
-      if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-        winner_race();
-      ResultRoundUp();
-      RaceResult();
-      ChampionshipStandings();
-      if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-        TeamStandings();
-      ShowLapRecords();
-      ++Race;
-      TrackLoad = prev_track + 1;
-      if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-      {
-        ChampionshipOver();
-        goto RACE_CLEANUP;
-      }
-      if ((cheat_mode & CHEAT_MODE_CREDITS) == 0)
-        goto RACE_CLEANUP;
-ROLL_CREDITS:
-      RollCredits();
-      goto RACE_CLEANUP;
+      eFrontendNextState = frontend_should_show_winner_screen()
+        ? eFRONTEND_STATE_WINNER_SCREEN
+        : eFRONTEND_STATE_RESULT_ROUNDUP;
+      return;
     }
+    eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_SINGLE;
     if (!gave_up) {
       finish_race();
       StoreResult();
-      if ((human_control[carorder[0]] || (cheat_mode & CHEAT_MODE_RACE_HISTORY) != 0) && winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
-        winner_race();
-      ResultRoundUp();
-      RaceResult();
-      ShowLapRecords();
+      eFrontendNextState = frontend_should_show_winner_screen()
+        ? eFRONTEND_STATE_WINNER_SCREEN
+        : eFRONTEND_STATE_RESULT_ROUNDUP;
+      return;
     }
-    if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0)
-      ChampionshipOver();
-    if ((cheat_mode & CHEAT_MODE_CREDITS) != 0)
-      goto ROLL_CREDITS;
-RACE_CLEANUP:
-    if (player_type == 1)                       // RACE_CLEANUP: Clean up after race completion
-      player_type = 0;
+    frontend_after_single_result_screens();
+    return;
   }
-  intro = 0;
 
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+  frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_winner_screen_update(void)
+{
+  if (winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+    eFrontendNextState = eFRONTEND_STATE_WINNER_RACE;
+  else
+    eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_winner_race_update(void)
+{
+  winner_race();
+  VIEWDIST = 270;
+  eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_result_roundup_update(void)
+{
+  ResultRoundUp();
+  eFrontendNextState = eFRONTEND_STATE_RACE_RESULT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_race_result_update(void)
+{
+  RaceResult();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP)
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+  else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE)
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  else
+    frontend_finish_post_race_sequence();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2278,10 +2378,83 @@ RACE_CLEANUP:
 void frontend_championship_standings_update(void)
 {
   ChampionshipStandings();
-  if (competitors > 8 && (cheat_mode & CHEAT_MODE_CLONES) == 0)
-    TeamStandings();
-  dontrestart = -1;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+  if (frontend_should_show_team_standings()) {
+    eFrontendNextState = eFRONTEND_STATE_TEAM_STANDINGS;
+  } else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  } else {
+    dontrestart = -1;
+    frontend_finish_post_race_sequence();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_team_standings_update(void)
+{
+  TeamStandings();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
+    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  } else {
+    dontrestart = -1;
+    frontend_finish_post_race_sequence();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_lap_records_update(void)
+{
+  ShowLapRecords();
+  switch (eFrontendPostRaceCurrentFlow) {
+    case eFRONTEND_POST_RACE_CHAMPIONSHIP:
+      frontend_after_championship_lap_records();
+      break;
+    case eFRONTEND_POST_RACE_SINGLE:
+      frontend_after_single_result_screens();
+      break;
+    case eFRONTEND_POST_RACE_RECORDS:
+      dontrestart = -1;
+      frontend_finish_post_race_sequence();
+      break;
+    default:
+      frontend_finish_post_race_sequence();
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_time_trial_results_update(void)
+{
+  while (iFrontendTimeTrialCarIdx < numcars) {
+    int iCarIdx = iFrontendTimeTrialCarIdx++;
+    if (human_control[iCarIdx] && (char)Car[iCarIdx].byLap > 1) {
+      TimeTrials(iCarIdx);
+      return;
+    }
+  }
+  eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_championship_over_update(void)
+{
+  ChampionshipOver();
+  if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE &&
+      (cheat_mode & CHEAT_MODE_CREDITS) != 0)
+    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+  else
+    frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_credits_update(void)
+{
+  RollCredits();
+  frontend_finish_post_race_sequence();
 }
 
 //-------------------------------------------------------------------------------------------------

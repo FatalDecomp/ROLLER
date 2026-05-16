@@ -25,7 +25,7 @@ static eFrontendState aOverlayStack[OVERLAY_STACK_DEPTH];
 static int iOverlayStackTop = 0;
 
 static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
-  [eFRONTEND_STATE_TITLE] = { NULL, frontend_title_update, NULL, NULL },
+  [eFRONTEND_STATE_TITLE] = { frontend_title_enter, frontend_title_update, NULL, frontend_title_exit },
   [eFRONTEND_STATE_MAIN_MENU] = { frontend_menu_enter, frontend_menu_update, NULL, NULL },
   [eFRONTEND_STATE_CAR_SELECT] = { frontend_car_select_enter, frontend_car_select_update, NULL, frontend_car_select_exit },
   [eFRONTEND_STATE_TRACK_SELECT] = { frontend_track_select_enter, frontend_track_select_update, NULL, frontend_track_select_exit },
@@ -37,7 +37,16 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
+  [eFRONTEND_STATE_WINNER_SCREEN] = { NULL, frontend_winner_screen_update, NULL, NULL },
+  [eFRONTEND_STATE_WINNER_RACE] = { NULL, frontend_winner_race_update, NULL, NULL },
+  [eFRONTEND_STATE_RESULT_ROUNDUP] = { NULL, frontend_result_roundup_update, NULL, NULL },
+  [eFRONTEND_STATE_RACE_RESULT] = { NULL, frontend_race_result_update, NULL, NULL },
   [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
+  [eFRONTEND_STATE_TEAM_STANDINGS] = { NULL, frontend_team_standings_update, NULL, NULL },
+  [eFRONTEND_STATE_LAP_RECORDS] = { NULL, frontend_lap_records_update, NULL, NULL },
+  [eFRONTEND_STATE_TIME_TRIAL_RESULTS] = { NULL, frontend_time_trial_results_update, NULL, NULL },
+  [eFRONTEND_STATE_CHAMPIONSHIP_OVER] = { NULL, frontend_championship_over_update, NULL, NULL },
+  [eFRONTEND_STATE_CREDITS] = { NULL, frontend_credits_update, NULL, NULL },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
 };
 

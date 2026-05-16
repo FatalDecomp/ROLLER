@@ -35,7 +35,16 @@ typedef enum {
   eFRONTEND_STATE_RACING,
   eFRONTEND_STATE_PAUSE_OVERLAY,
   eFRONTEND_STATE_RESULTS,
+  eFRONTEND_STATE_WINNER_SCREEN,
+  eFRONTEND_STATE_WINNER_RACE,
+  eFRONTEND_STATE_RESULT_ROUNDUP,
+  eFRONTEND_STATE_RACE_RESULT,
   eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS,
+  eFRONTEND_STATE_TEAM_STANDINGS,
+  eFRONTEND_STATE_LAP_RECORDS,
+  eFRONTEND_STATE_TIME_TRIAL_RESULTS,
+  eFRONTEND_STATE_CHAMPIONSHIP_OVER,
+  eFRONTEND_STATE_CREDITS,
   eFRONTEND_STATE_OPTIONS,
   eFRONTEND_STATE_QUIT
 } eFrontendState;
@@ -61,9 +70,23 @@ void frontend_menu_update(void);
 void frontend_menu_resume_from_child(void);
 void frontend_loading_enter(void);
 void frontend_loading_update(void);
+void frontend_title_enter(void);
 void frontend_title_update(void);
+void frontend_title_exit(void);
 void frontend_results_update(void);
+void frontend_winner_screen_update(void);
+void frontend_winner_race_update(void);
+void frontend_result_roundup_update(void);
+void frontend_race_result_update(void);
 void frontend_championship_standings_update(void);
+void frontend_team_standings_update(void);
+void frontend_lap_records_update(void);
+void frontend_time_trial_results_update(void);
+void frontend_championship_over_update(void);
+void frontend_credits_update(void);
+void frontend_title_screen_enter(void);
+int frontend_title_screen_update(void);
+void frontend_title_screen_exit(void);
 void frontend_car_select_enter(void);
 void frontend_car_select_update(void);
 void frontend_car_select_exit(void);
