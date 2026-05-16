@@ -33,6 +33,7 @@ typedef enum {
   eFRONTEND_STATE_LOADING,
   eFRONTEND_STATE_COUNTDOWN,
   eFRONTEND_STATE_RACING,
+  eFRONTEND_STATE_PAUSE_OVERLAY,
   eFRONTEND_STATE_RESULTS,
   eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS,
   eFRONTEND_STATE_OPTIONS,
@@ -51,6 +52,10 @@ void race_enter(void);
 void race_update(void);
 void race_draw(void);
 void race_exit(void);
+void frontend_pause_enter(void);
+void frontend_pause_update(void);
+void frontend_pause_draw(void);
+void frontend_pause_exit(void);
 void frontend_menu_enter(void);
 void frontend_menu_update(void);
 void frontend_menu_resume_from_child(void);

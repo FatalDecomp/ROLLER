@@ -2475,26 +2475,8 @@ void race_update(void)
         } else if (!finished_car[player1_car]) {
           send_pause();
         }
-      } else {                                       // Local pause handling - toggle game settings and calibration
-        if (game_req) {
-          clear_borders = -1;
-          scr_size = req_size;
-          remove_uncalibrated();
-          check_joystick_usage();
-        } else {
-          req_size = scr_size;
-          if (SVGA_ON)
-            scr_size = 128;
-          else
-            scr_size = 64;
-        }
-        control_edit = -1;
-        req_edit = 0;
-        game_req = game_req == 0;
-        pausewindow = 0;
-        paused = paused == 0;
-        if (paused)
-          stopallsamples();
+      } else {                                       // Local pause: push overlay state
+        push_overlay(eFRONTEND_STATE_PAUSE_OVERLAY);
       }
     }
     pause_request = 0;
@@ -2603,7 +2585,9 @@ void play_game(int iTrack)
   frontend_set_state(eFRONTEND_STATE_RACING);
 
   while (eFrontendCurrentState == eFRONTEND_STATE_RACING ||
-         eFrontendNextState == eFRONTEND_STATE_RACING) {
+         eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+         eFrontendNextState == eFRONTEND_STATE_RACING ||
+         eFrontendNextState == eFRONTEND_STATE_PAUSE_OVERLAY) {
     UpdateSDL();
     frontend_update();
   }

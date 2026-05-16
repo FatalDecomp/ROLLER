@@ -35,6 +35,7 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_LOBBY]   = { frontend_lobby_enter, frontend_lobby_update, NULL, frontend_lobby_exit },
   [eFRONTEND_STATE_LOADING] = { frontend_loading_enter, frontend_loading_update, NULL, NULL },
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
+  [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
   [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
