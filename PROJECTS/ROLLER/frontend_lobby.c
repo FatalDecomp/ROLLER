@@ -29,6 +29,31 @@
 static int iLobbyActive;       // nonzero while waiting for players; 0 when lobby should exit
 static int iLobbySavedScrSize;
 
+typedef enum {
+  eLOBBY_BROADCAST_NONE = 0,
+  eLOBBY_BROADCAST_FADE_IN,
+  eLOBBY_BROADCAST_START_RACE,
+  eLOBBY_BROADCAST_LEAVE,
+  eLOBBY_BROADCAST_SAME_CAR_DROP
+} eLobbyBroadcastAction;
+
+typedef enum {
+  eLOBBY_POST_SYNC_NONE = 0,
+  eLOBBY_POST_SYNC_DELAY,
+  eLOBBY_POST_SYNC_INIT,
+  eLOBBY_POST_SYNC_MASTER_RECORDS,
+  eLOBBY_POST_SYNC_MASTER_SEED,
+  eLOBBY_POST_SYNC_SLAVE_SEED
+} eLobbyPostSyncPhase;
+
+static eLobbyBroadcastAction eLobbyBroadcastActionCurrent;
+static eLobbyPostSyncPhase eLobbyPostSyncCurrentPhase;
+static int iLobbyPostSyncDelayTarget;
+static int iLobbyLastRecordWaitLog;
+static int iLobbyLastStartResend;
+static int iLobbyLastRecordResend;
+static int iLobbyRacePrepared;
+
 //-------------------------------------------------------------------------------------------------
 
 void frontend_lobby_enter(void)
@@ -63,6 +88,147 @@ void frontend_lobby_enter(void)
     }
   }
   iLobbyActive = -1;
+  eLobbyBroadcastActionCurrent = eLOBBY_BROADCAST_NONE;
+  eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_NONE;
+  iLobbyPostSyncDelayTarget = 0;
+  iLobbyLastRecordWaitLog = -1000;
+  iLobbyLastStartResend = -1000;
+  iLobbyLastRecordResend = -1000;
+  iLobbyRacePrepared = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void lobby_begin_broadcast_wait(eLobbyBroadcastAction eAction,
+                                       int iBroadcastMode,
+                                       int iRepeatCount)
+{
+  eLobbyBroadcastActionCurrent = eAction;
+  network_broadcast_wait_start(iBroadcastMode, iRepeatCount);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int lobby_update_broadcast_wait(void)
+{
+  if (eLobbyBroadcastActionCurrent == eLOBBY_BROADCAST_NONE)
+    return 0;
+
+  if (!network_broadcast_wait_update())
+    return -1;
+
+  switch (eLobbyBroadcastActionCurrent) {
+    case eLOBBY_BROADCAST_FADE_IN:
+      frames = 0;
+      break;
+    case eLOBBY_BROADCAST_START_RACE:
+      iLobbyActive = 0;
+      time_to_start = -1;
+      break;
+    case eLOBBY_BROADCAST_LEAVE:
+      iLobbyActive = 0;
+      --players_waiting;
+      no_clear = -1;
+      break;
+    case eLOBBY_BROADCAST_SAME_CAR_DROP:
+      iLobbyActive = 0;
+      --players_waiting;
+      break;
+    default:
+      break;
+  }
+
+  eLobbyBroadcastActionCurrent = eLOBBY_BROADCAST_NONE;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void lobby_begin_post_sync(void)
+{
+  iLobbyPostSyncDelayTarget = ticks + 18;
+  iLobbyLastRecordWaitLog = -1000;
+  iLobbyLastStartResend = -1000;
+  iLobbyLastRecordResend = -1000;
+  eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_DELAY;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void lobby_finish_post_sync(void)
+{
+  check_cars();
+  eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_NONE;
+  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int lobby_update_post_sync(void)
+{
+  if (eLobbyPostSyncCurrentPhase == eLOBBY_POST_SYNC_NONE)
+    return 0;
+
+  switch (eLobbyPostSyncCurrentPhase) {
+    case eLOBBY_POST_SYNC_DELAY:
+      if (iLobbyPostSyncDelayTarget > ticks)
+        return -1;
+      network_broadcast_wait_start(-314, 1);
+      eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_INIT;
+      return -1;
+
+    case eLOBBY_POST_SYNC_INIT:
+      if (!network_broadcast_wait_update())
+        return -1;
+      if (wConsoleNode == master)
+        eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_MASTER_RECORDS;
+      else
+        eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_SLAVE_SEED;
+      return -1;
+
+    case eLOBBY_POST_SYNC_MASTER_RECORDS:
+      if (received_records >= network_on) {
+        network_broadcast_wait_start(-2718, 1);
+        eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_MASTER_SEED;
+        return -1;
+      }
+      if (frames - iLobbyLastRecordWaitLog >= 36) {
+        iLobbyLastRecordWaitLog = frames;
+        SDL_Log("[NET-START] master waiting for records received=%d expected=%d",
+                received_records, network_on);
+      }
+      if (frames - iLobbyLastStartResend >= 36) {
+        iLobbyLastStartResend = frames;
+        TransmitInit();
+      }
+      CheckNewNodes();
+      ROLLERCommsPumpSendQueue();
+      return -1;
+
+    case eLOBBY_POST_SYNC_MASTER_SEED:
+      if (!network_broadcast_wait_update())
+        return -1;
+      lobby_finish_post_sync();
+      return -1;
+
+    case eLOBBY_POST_SYNC_SLAVE_SEED:
+      if (received_seed) {
+        lobby_finish_post_sync();
+        return -1;
+      }
+      if (frames - iLobbyLastRecordResend >= 36) {
+        iLobbyLastRecordResend = frames;
+        SDL_Log("[NET-START] slave waiting for seed; resending record to master=%d", master);
+        send_record_to_master(TrackLoad);
+      }
+      CheckNewNodes();
+      ROLLERCommsPumpSendQueue();
+      return -1;
+
+    default:
+      eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_NONE;
+      return 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -154,13 +320,7 @@ static void lobby_draw_frame(void)
     if (!front_fade) {
       front_fade = -1;
       menu_render_begin_fade(mr, 1, 32);
-      broadcast_mode = -668;
-      while (broadcast_mode)
-        UpdateSDL();
-      broadcast_mode = -668;
-      while (broadcast_mode)
-        UpdateSDL();
-      frames = 0;
+      lobby_begin_broadcast_wait(eLOBBY_BROADCAST_FADE_IN, -668, 2);
     }
   }
 }
@@ -179,27 +339,14 @@ static void lobby_handle_input(void)
         fatgetch();
     } else if (uiKeyPressed <= 0xD) {
       if (players_waiting == network_on && !time_to_start) {
-        iLobbyActive = 0;
-        broadcast_mode = -671;
-        while (broadcast_mode)
-          UpdateSDL();
-        broadcast_mode = -671;
-        while (broadcast_mode)
-          UpdateSDL();
-        broadcast_mode = -671;
-        while (broadcast_mode)
-          UpdateSDL();
-        time_to_start = -1;
+        lobby_begin_broadcast_wait(eLOBBY_BROADCAST_START_RACE, -671, 3);
+        return;
       }
     } else if (uiKeyPressed == 27 && !time_to_start && !restart_net) {
       StartPressed = 0;
       time_to_start = 0;
-      broadcast_mode = -670;
-      while (broadcast_mode)
-        UpdateSDL();
-      iLobbyActive = 0;
-      --players_waiting;
-      no_clear = -1;
+      lobby_begin_broadcast_wait(eLOBBY_BROADCAST_LEAVE, -670, 1);
+      return;
     }
   }
 }
@@ -208,6 +355,12 @@ static void lobby_handle_input(void)
 
 void frontend_lobby_update(void)
 {
+  if (lobby_update_broadcast_wait())
+    return;
+
+  if (lobby_update_post_sync())
+    return;
+
   // Handle game type switching from master
   if (switch_types) {
     game_type = switch_types - 1;
@@ -228,11 +381,8 @@ void frontend_lobby_update(void)
     if (Players_Cars[player1_car] < 0) {
       StartPressed = 0;
       time_to_start = 0;
-      broadcast_mode = -670;
-      while (broadcast_mode)
-        ;
-      iLobbyActive = 0;
-      --players_waiting;
+      lobby_begin_broadcast_wait(eLOBBY_BROADCAST_SAME_CAR_DROP, -670, 1);
+      return;
     }
   } else if (switch_same < 0) {
     for (int i = 0; i < players; i++)
@@ -241,11 +391,8 @@ void frontend_lobby_update(void)
     switch_same = 0;
     StartPressed = 0;
     time_to_start = 0;
-    broadcast_mode = -670;
-    while (broadcast_mode)
-      ;
-    iLobbyActive = 0;
-    --players_waiting;
+    lobby_begin_broadcast_wait(eLOBBY_BROADCAST_SAME_CAR_DROP, -670, 1);
+    return;
   }
 
   check_cars();
@@ -254,8 +401,11 @@ void frontend_lobby_update(void)
 
   if (!iLobbyActive) {
     if (time_to_start) {
-      frontend_main_menu_prepare_race_start();
-      eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+      if (!iLobbyRacePrepared) {
+        frontend_main_menu_prepare_race_start();
+        iLobbyRacePrepared = -1;
+      }
+      lobby_begin_post_sync();
     } else {
       eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
     }
@@ -266,55 +416,6 @@ void frontend_lobby_update(void)
 
 void frontend_lobby_exit(void)
 {
-  // Post-lobby sync: brief timing gap then network handshake before race starts.
-  // Only runs when time_to_start is set; skipped on escape or disconnect.
-  int iTimer = ticks + 18;
-  while (iTimer > ticks)
-    ;
-
-  if (time_to_start) {
-    broadcast_mode = -314;
-    while (broadcast_mode) {
-      CheckNewNodes();
-      BroadcastNews();
-      UpdateSDL();
-    }
-    if (wConsoleNode == master) {
-      int iLastRecordWaitLog = -1000;
-      int iLastStartResend = -1000;
-      while (received_records < network_on) {
-        if (frames - iLastRecordWaitLog >= 36) {
-          iLastRecordWaitLog = frames;
-          SDL_Log("[NET-START] master waiting for records received=%d expected=%d",
-                  received_records, network_on);
-        }
-        if (frames - iLastStartResend >= 36) {
-          iLastStartResend = frames;
-          TransmitInit();
-        }
-        CheckNewNodes();
-        UpdateSDL();
-      }
-      broadcast_mode = -2718;
-      while (broadcast_mode) {
-        CheckNewNodes();
-        BroadcastNews();
-        UpdateSDL();
-      }
-    } else {
-      int iLastRecordResend = -1000;
-      while (!received_seed) {
-        if (frames - iLastRecordResend >= 36) {
-          iLastRecordResend = frames;
-          SDL_Log("[NET-START] slave waiting for seed; resending record to master=%d", master);
-          send_record_to_master(TrackLoad);
-        }
-        CheckNewNodes();
-        UpdateSDL();
-      }
-    }
-  }
-
   check_cars();
 
   {

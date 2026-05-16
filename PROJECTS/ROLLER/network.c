@@ -66,6 +66,8 @@ int16 wConsoleNode;         //0017C9DA
 //-------------------------------------------------------------------------------------------------
 
 static int s_iLastDiscoveryBroadcastFrame = -1000;
+static int s_iBroadcastWaitMode = 0;
+static int s_iBroadcastWaitRepeatsLeft = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -262,7 +264,8 @@ void Initialise_Network(int iSelectNetSlot)
     else
       broadcast_mode = -1;
     tick_on = -1;
-    while (broadcast_mode)
+    network_broadcast_wait_start((int)broadcast_mode, 1);
+    while (!network_broadcast_wait_update())
       UpdateSDL(); //added by ROLLER
     ROLLERCommsSortNodes();
     received_records = 1;
@@ -2240,6 +2243,51 @@ void BroadcastNews()
 }
 
 //-------------------------------------------------------------------------------------------------
+
+void network_broadcast_wait_start(int iBroadcastMode, int iRepeatCount)
+{
+  if (iRepeatCount <= 0)
+    iRepeatCount = 1;
+
+  s_iBroadcastWaitMode = iBroadcastMode;
+  s_iBroadcastWaitRepeatsLeft = iRepeatCount;
+  broadcast_mode = iBroadcastMode;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int network_broadcast_wait_active(void)
+{
+  return s_iBroadcastWaitRepeatsLeft > 0 || broadcast_mode != 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int network_broadcast_wait_update(void)
+{
+  if (!network_broadcast_wait_active())
+    return -1;
+
+  CheckNewNodes();
+  BroadcastNews();
+  ROLLERCommsPumpSendQueue();
+
+  if (broadcast_mode)
+    return 0;
+
+  if (s_iBroadcastWaitRepeatsLeft > 0)
+    --s_iBroadcastWaitRepeatsLeft;
+
+  if (s_iBroadcastWaitRepeatsLeft > 0) {
+    broadcast_mode = s_iBroadcastWaitMode;
+    return 0;
+  }
+
+  s_iBroadcastWaitMode = 0;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
 //00051E20
 void remove_messages(int iClear)
 {
@@ -2367,28 +2415,16 @@ unsigned int send_broadcast(unsigned int uiBroadcastMode)
     if (uiBroadcastMode == 0xFFFFFE37) {
       uiOldTimeToStart = time_to_start;
       time_to_start = 0xFFFFFE37;
-      do {
-        uiBroadcastMode = -1;
-        if (network_on)
-          uiBroadcastMode = TransmitInit();
-      } while (!uiBroadcastMode);
+      uiBroadcastMode = network_on ? (unsigned int)TransmitInit() : (unsigned int)-1;
       time_to_start = uiOldTimeToStart;
     }
   } else if (uiBroadcastMode <= 0xFFFFFE38) {
     uiOldTimeToStart = time_to_start;
     time_to_start = 0xFFFFFE38;
-    do {
-      uiBroadcastMode = -1;
-      if (network_on)
-        uiBroadcastMode = TransmitInit();
-    } while (!uiBroadcastMode);
+    uiBroadcastMode = network_on ? (unsigned int)TransmitInit() : (unsigned int)-1;
     time_to_start = uiOldTimeToStart;
   } else if (uiBroadcastMode == -1) {
-    do {
-      uiBroadcastMode = -1;
-      if (network_on)
-        uiBroadcastMode = TransmitInit();
-    } while (!uiBroadcastMode);
+    uiBroadcastMode = network_on ? (unsigned int)TransmitInit() : (unsigned int)-1;
   }
   return uiBroadcastMode;
 }
