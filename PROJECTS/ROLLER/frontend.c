@@ -102,8 +102,13 @@ void push_overlay(eFrontendState eOverlay)
       !frontend_state_is_valid(eOverlay))
     return;
 
+  // Preserve current state WITHOUT calling its exit callback — it stays logically active.
   aOverlayStack[iOverlayStackTop++] = eFrontendCurrentState;
+  eFrontendCurrentState = eOverlay;
   eFrontendNextState = eOverlay;
+
+  if (aScreens[eFrontendCurrentState].pfnEnter)
+    aScreens[eFrontendCurrentState].pfnEnter();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -113,7 +118,13 @@ void pop_overlay(void)
   if (iOverlayStackTop <= 0)
     return;
 
-  eFrontendNextState = aOverlayStack[--iOverlayStackTop];
+  // Exit the overlay WITHOUT calling the restored state's enter callback.
+  if (frontend_state_is_valid(eFrontendCurrentState) &&
+      aScreens[eFrontendCurrentState].pfnExit)
+    aScreens[eFrontendCurrentState].pfnExit();
+
+  eFrontendCurrentState = aOverlayStack[--iOverlayStackTop];
+  eFrontendNextState = eFrontendCurrentState;
 }
 
 //-------------------------------------------------------------------------------------------------

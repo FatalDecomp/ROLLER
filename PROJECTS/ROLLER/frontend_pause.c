@@ -3,6 +3,7 @@
 #include "func2.h"
 #include "sound.h"
 #include "replay.h"
+#include "roller.h"
 
 //-------------------------------------------------------------------------------------------------
 
@@ -27,7 +28,7 @@ void frontend_pause_update(void)
 {
   if (!filingmenu)
     game_keys();
-  if (pause_request) {
+  if (pause_request || !racing) {
     pause_request = 0;
     pop_overlay();
   }
@@ -53,4 +54,7 @@ void frontend_pause_exit(void)
   check_joystick_usage();
   game_req = 0;
   paused = 0;
+  if (!racing)
+    stopallsamples();
+  SDL_SetAtomicInt(&iTicksPending, 0);
 }
