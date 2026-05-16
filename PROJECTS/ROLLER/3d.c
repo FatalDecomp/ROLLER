@@ -656,8 +656,8 @@ void doexit()
   if (network_on) {
     tick_on = -1;
     frontend_on = -1;
-    broadcast_mode = -666;
-    while (broadcast_mode == -666) {
+    network_broadcast_wait_start(-666, 1);
+    while (!network_broadcast_wait_update()) {
       UpdateSDL();
     }
   }

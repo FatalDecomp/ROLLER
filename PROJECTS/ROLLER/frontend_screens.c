@@ -294,6 +294,19 @@ static int iFrontendMainMenuBlockIdx = 0;
 static int iFrontendMainMenuPtexSize = 0;
 static int iFrontendMainMenuStartDelayTarget = 0;
 
+typedef enum {
+  eMAIN_MENU_NET_WAIT_NONE = 0,
+  eMAIN_MENU_NET_WAIT_SETUP_SYNC,
+  eMAIN_MENU_NET_WAIT_FADE_EXISTING,
+  eMAIN_MENU_NET_WAIT_FADE_DISCOVERY,
+  eMAIN_MENU_NET_WAIT_QUIT_BROADCAST,
+  eMAIN_MENU_NET_WAIT_QUIT_TICKS,
+  eMAIN_MENU_NET_WAIT_RESTART_SYNC
+} eMainMenuNetworkWait;
+
+static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+static int iFrontendMainMenuQuitTickTarget = 0;
+
 static void frontend_main_menu_load_renderer_blocks(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -306,6 +319,85 @@ static void frontend_main_menu_load_renderer_blocks(void)
       menu_render_load_blocks(mr, i, front_vga[i], palette);
   }
 }
+
+static int frontend_main_menu_update_network_wait(void);
+static void frontend_main_menu_finish_prepare_to_start(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_main_menu_begin_network_wait(eMainMenuNetworkWait eWait,
+                                                  int iBroadcastMode,
+                                                  int iRepeatCount)
+{
+  eFrontendMainMenuNetworkWait = eWait;
+  network_broadcast_wait_start(iBroadcastMode, iRepeatCount);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_main_menu_update_network_wait(void)
+{
+  if (eFrontendMainMenuNetworkWait == eMAIN_MENU_NET_WAIT_NONE)
+    return 0;
+
+  switch (eFrontendMainMenuNetworkWait) {
+    case eMAIN_MENU_NET_WAIT_SETUP_SYNC:
+      if (!network_broadcast_wait_update())
+        return -1;
+      name_copy(player_names[player1_car], my_name);
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+      return -1;
+
+    case eMAIN_MENU_NET_WAIT_FADE_EXISTING:
+      if (!network_broadcast_wait_update())
+        return -1;
+      frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
+      return -1;
+
+    case eMAIN_MENU_NET_WAIT_FADE_DISCOVERY:
+      if (!network_broadcast_wait_update())
+        return -1;
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+      return -1;
+
+    case eMAIN_MENU_NET_WAIT_QUIT_BROADCAST:
+      if (!network_broadcast_wait_update())
+        return -1;
+      tick_on = 0;
+      ticks = 0;
+      iFrontendMainMenuQuitTickTarget = 3;
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_QUIT_TICKS;
+      return -1;
+
+    case eMAIN_MENU_NET_WAIT_QUIT_TICKS:
+      if (ticks < iFrontendMainMenuQuitTickTarget)
+        return -1;
+      close_network();
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+      frontend_main_menu_finish_prepare_to_start();
+      return -1;
+
+    case eMAIN_MENU_NET_WAIT_RESTART_SYNC:
+      if (!network_broadcast_wait_update())
+        return -1;
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+      restart_net = 0;
+      no_clear = 0;
+      if (!quit_game && !intro) {
+        check_cars();
+        eFrontendNextState = eFRONTEND_STATE_LOBBY;
+      } else {
+        eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+      }
+      return -1;
+
+    default:
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+      return 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_black_palette(void)
 {
@@ -379,6 +471,26 @@ static void frontend_main_menu_free_preview_title_assets(void)
   fre((void **)&front_vga[14]);
 }
 
+static void frontend_main_menu_begin_restart_net(void)
+{
+  SVGA_ON = -1;
+  init_screen();
+  winx = 0;
+  winy = 0;
+  winw = XMAX;
+  mirror = 0;
+  winh = YMAX;
+  frontend_on = -1;
+  time_to_start = 0;
+  StartPressed = 0;
+  tick_on = -1;
+  load_language_file(szSelectEng, 0);
+  load_language_file(szConfigEng, 1);
+  remove_messages(-1);
+  reset_network(0);
+  frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_RESTART_SYNC, -667, 1);
+}
+
 static void frontend_main_menu_resume_after_child(void)
 {
   frontend_main_menu_free_preview_title_assets();
@@ -404,6 +516,8 @@ static void frontend_main_menu_setup(void)
   loadfatalsample();
   iFrontendMainMenuContinue = 0;
   iFrontendMainMenuRotation = 0;
+  eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+  iFrontendMainMenuQuitTickTarget = 0;
   player1_car = 0;
   player2_car = 1;
   if (!network_on) {
@@ -515,10 +629,7 @@ static void frontend_main_menu_setup(void)
   ticks = 0;
   frames = 0;
   if (network_on) {
-    broadcast_mode = -667;
-    while (broadcast_mode)
-      UpdateSDL();
-    name_copy(player_names[player1_car], my_name);
+    frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_SETUP_SYNC, -667, 1);
   }
 
   iFrontendMainMenuStartDelayTarget = 0;
@@ -895,23 +1006,8 @@ void frontend_main_menu_prepare_race_start(void)
     stopmusic();
 }
 
-static void frontend_main_menu_prepare_to_start(void)
+static void frontend_main_menu_finish_prepare_to_start(void)
 {
-  my_car = Players_Cars[player1_car];
-  name_copy(my_name, player_names[player1_car]);
-  my_invul = player_invul[player1_car];
-  my_control = manual_control[player1_car];
-  last_replay = replaytype;
-  if (quit_game && network_on) {
-    broadcast_mode = -666;
-    while (broadcast_mode)
-      UpdateSDL();
-    tick_on = 0;
-    ticks = 0;
-    while (ticks < 3)
-      ;
-    close_network();
-  }
   releasesamples();
   if (game_type != 4 && game_type != 3)
     holdmusic = 0;
@@ -932,8 +1028,8 @@ static void frontend_main_menu_prepare_to_start(void)
     if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
       // Hand off to the LOBBY dispatcher state; it calls
       // frontend_main_menu_prepare_race_start() and sets the next state
-      // when the lobby resolves.  restart_net_game() still calls
-      // NetworkWait() directly (Phase 5 will convert that path).
+      // when the lobby resolves.  restart_net re-entry uses the same
+      // dispatcher lobby path.
       iFrontendMainMenuInitialized = 0;
       iFrontendMainMenuStartDelayTarget = 0;
       eFrontendNextState = eFRONTEND_STATE_LOBBY;
@@ -952,6 +1048,21 @@ static void frontend_main_menu_prepare_to_start(void)
   iFrontendMainMenuInitialized = 0;
   iFrontendMainMenuStartDelayTarget = 0;
   eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+}
+
+static void frontend_main_menu_prepare_to_start(void)
+{
+  my_car = Players_Cars[player1_car];
+  name_copy(my_name, player_names[player1_car]);
+  my_invul = player_invul[player1_car];
+  my_control = manual_control[player1_car];
+  last_replay = replaytype;
+  if (quit_game && network_on) {
+    frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_QUIT_BROADCAST, -666, 1);
+    return;
+  }
+
+  frontend_main_menu_finish_prepare_to_start();
 }
 
 static void frontend_main_menu_begin_child(eFrontendState eState)
@@ -1111,15 +1222,19 @@ void frontend_menu_update(void)
   int nFrames;
   MenuRenderer *mr;
 
+  if (frontend_main_menu_update_network_wait())
+    return;
+
   if (restart_net) {
-    restart_net_game();
-    restart_net = 0;
-    eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+    frontend_main_menu_begin_restart_net();
     return;
   }
 
   if (!iFrontendMainMenuInitialized)
     frontend_main_menu_setup();
+
+  if (frontend_main_menu_update_network_wait())
+    return;
 
   if (iFrontendMainMenuStartDelayTarget) {
     if (ticks >= iFrontendMainMenuStartDelayTarget) {
@@ -1151,11 +1266,12 @@ void frontend_menu_update(void)
     palette_brightness = 32;
     frames = 0;
     if (network_on) {
-      while (broadcast_mode)
-        UpdateSDL();
-      broadcast_mode = -1;
-      while (broadcast_mode)
-        UpdateSDL();
+      if (broadcast_mode) {
+        eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
+      } else {
+        frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
+      }
+      return;
     }
   }
 

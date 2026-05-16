@@ -26,6 +26,10 @@
 
 //-------------------------------------------------------------------------------------------------
 
+#define SEND_QUEUE_PUMP_BUDGET_PER_NODE 16
+
+//-------------------------------------------------------------------------------------------------
+
 typedef struct
 {
   tROLLERNetAddr address;
@@ -39,6 +43,20 @@ typedef struct
   tROLLERNetAddr address;
   tROLLERNetAddr transportAddress;
 } tPendingTransport;
+
+typedef struct
+{
+  tSendQueueEntry entry;
+  tROLLERNetAddr destAddress;
+} tQueuedSend;
+
+typedef struct
+{
+  int iReadIdx;
+  int iWriteIdx;
+  int iCount;
+  tQueuedSend aEntries[SEND_QUEUE_DEPTH];
+} tSendQueue;
 
 static struct
 {
@@ -65,6 +83,8 @@ static tROLLERNetAddr s_peerAddr;
 static uint32_t s_uiLocalIPOverride = 0; // 0 = auto-detect
 static tPendingTransport s_pendingTransports[ROLLER_MAX_NODES];
 static int s_iPendingTransports = 0;
+static tSendQueue s_aSendQueues[ROLLER_MAX_NODES];
+static SDL_Mutex *s_pSendQueueMutex = NULL;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -288,6 +308,58 @@ static int SendPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t
 
 //-------------------------------------------------------------------------------------------------
 
+static int EnsureSendQueueMutex(void)
+{
+  if (s_pSendQueueMutex)
+    return 1;
+
+  s_pSendQueueMutex = SDL_CreateMutex();
+  if (!s_pSendQueueMutex) {
+    SDL_Log("[NET-QUEUE] failed to create send queue mutex: %s", SDL_GetError());
+    return 0;
+  }
+  return 1;
+}
+
+static void ClearSendQueuesLocked(void)
+{
+  memset(s_aSendQueues, 0, sizeof(s_aSendQueues));
+}
+
+static void ClearSendQueues(void)
+{
+  if (!EnsureSendQueueMutex())
+    return;
+
+  SDL_LockMutex(s_pSendQueueMutex);
+  ClearSendQueuesLocked();
+  SDL_UnlockMutex(s_pSendQueueMutex);
+}
+
+static int QueueSendPacketLocked(const tSendQueueEntry *pEntry,
+                                 const tROLLERNetAddr *pDestAddress,
+                                 int iDestNode)
+{
+  if (!pEntry || !pDestAddress || iDestNode < 0 || iDestNode >= ROLLER_MAX_NODES)
+    return 0;
+
+  tSendQueue *pQueue = &s_aSendQueues[iDestNode];
+  if (pQueue->iCount >= SEND_QUEUE_DEPTH) {
+    SDL_Log("[NET-QUEUE] send queue overflow for node=%d depth=%d",
+            iDestNode, pQueue->iCount);
+    return 0;
+  }
+
+  tQueuedSend *pQueuedSend = &pQueue->aEntries[pQueue->iWriteIdx];
+  pQueuedSend->entry = *pEntry;
+  pQueuedSend->destAddress = *pDestAddress;
+  pQueue->iWriteIdx = (pQueue->iWriteIdx + 1) % SEND_QUEUE_DEPTH;
+  pQueue->iCount++;
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int IsLoopbackIPv4(uint32_t uiIPAddress);
 
 static int BroadcastPacketToIPv4(uint32_t uiIPAddress, uint16_t unPort, const uint8_t *pPacket, int iPacketSize)
@@ -473,6 +545,7 @@ int ROLLERCommsInitSystem(unsigned int uiMaxPackets)
   memset(&g_commsState, 0, sizeof(g_commsState));
   s_iPendingTransports = 0;
   g_commsState.listenSocket = INVALID_SOCKET;
+  ClearSendQueues();
 
   g_commsState.listenSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (g_commsState.listenSocket == INVALID_SOCKET) {
@@ -586,6 +659,7 @@ void ROLLERCommsUnInitSystem()
   CleanupSockets();
   memset(&g_commsState, 0, sizeof(g_commsState));
   s_iPendingTransports = 0;
+  ClearSendQueues();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -633,6 +707,106 @@ int ROLLERCommsSendData(
                           g_commsState.nodes[iDestNode].transportAddress.unPort,
                           packetBuffer,
                           iTotalSize);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERCommsQueueSend(
+    const void *pHeader,
+    int iHeaderSize,
+    const void *pData,
+    int iDataSize,
+    int iDestNode)
+{
+  if (!g_commsState.bInitialized) {
+    return 0;
+  }
+
+  tSendQueueEntry entry;
+  int iTotalSize = 0;
+  memset(&entry, 0, sizeof(entry));
+  if (!BuildPacket(entry.abPacket, &iTotalSize, pHeader, iHeaderSize, pData, iDataSize)) {
+    return 0;
+  }
+  entry.unHeaderSize = (uint16)iHeaderSize;
+  entry.unDataSize = (uint16)iDataSize;
+
+  if (!EnsureSendQueueMutex())
+    return 0;
+
+  SDL_LockMutex(s_pSendQueueMutex);
+
+  int iQueued = 1;
+  if (iDestNode == 21) {
+    for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+      if (i != g_commsState.iConsoleNode && g_commsState.nodes[i].bActive) {
+        if (!QueueSendPacketLocked(&entry, &g_commsState.nodes[i].transportAddress, i))
+          iQueued = 0;
+      }
+    }
+  } else if (iDestNode < 0 || iDestNode >= ROLLER_MAX_NODES ||
+             !g_commsState.nodes[iDestNode].bActive) {
+    iQueued = 0;
+  } else if (iDestNode != g_commsState.iConsoleNode) {
+    iQueued = QueueSendPacketLocked(&entry,
+                                    &g_commsState.nodes[iDestNode].transportAddress,
+                                    iDestNode);
+  }
+
+  SDL_UnlockMutex(s_pSendQueueMutex);
+  return iQueued;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERCommsPumpSendQueue(void)
+{
+  if (!g_commsState.bInitialized || !s_pSendQueueMutex)
+    return;
+
+  SDL_LockMutex(s_pSendQueueMutex);
+
+  for (int iNode = 0; iNode < ROLLER_MAX_NODES; iNode++) {
+    tSendQueue *pQueue = &s_aSendQueues[iNode];
+    int iBudget = SEND_QUEUE_PUMP_BUDGET_PER_NODE;
+
+    while (pQueue->iCount > 0 && iBudget-- > 0) {
+      tQueuedSend *pQueuedSend = &pQueue->aEntries[pQueue->iReadIdx];
+      int iPacketSize = pQueuedSend->entry.unHeaderSize + pQueuedSend->entry.unDataSize;
+      if (!SendPacketToIPv4(pQueuedSend->destAddress.uiIPAddress,
+                            pQueuedSend->destAddress.unPort,
+                            pQueuedSend->entry.abPacket,
+                            iPacketSize)) {
+        break;
+      }
+
+      pQueue->iReadIdx = (pQueue->iReadIdx + 1) % SEND_QUEUE_DEPTH;
+      pQueue->iCount--;
+    }
+  }
+
+  SDL_UnlockMutex(s_pSendQueueMutex);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERCommsSendQueueDepth(int iDestNode)
+{
+  int iDepth = 0;
+
+  if (!EnsureSendQueueMutex())
+    return 0;
+
+  SDL_LockMutex(s_pSendQueueMutex);
+  if (iDestNode == 21) {
+    for (int i = 0; i < ROLLER_MAX_NODES; i++)
+      iDepth += s_aSendQueues[i].iCount;
+  } else if (iDestNode >= 0 && iDestNode < ROLLER_MAX_NODES) {
+    iDepth = s_aSendQueues[iDestNode].iCount;
+  }
+  SDL_UnlockMutex(s_pSendQueueMutex);
+
+  return iDepth;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1101,7 +1275,7 @@ void ROLLERclrrx(void)
 
 void ROLLERclrtx(void)
 {
-// Clear transmit buffer - could implement if needed
+  ClearSendQueues();
 }
 
 //-------------------------------------------------------------------------------------------------
