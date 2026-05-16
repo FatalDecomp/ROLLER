@@ -35,60 +35,351 @@ void snapshot_render_menu_select_track(void)
   select_track();
 }
 
+static int iFrontendTrackAnimationTimer = 0;
+static int iFrontendTrackSelectedTrack = 0;
+static int iFrontendTrackCurrentTrack = 0;
+static int iFrontendTrackSoundFlag = 0;
+static int iFrontendTrackYaw = 0;
+static int iFrontendTrackExitFlag = 0;
+static int iFrontendTrackSpeechPending = 0;
+static float fFrontendTrackZoom = 0.0f;
+static float fFrontendTrackAnimatedZoom = 0.0f;
+static float fFrontendTrackTargetZoom = 0.0f;
 
-//-------------------------------------------------------------------------------------------------
-//00049070
-void select_track()
+static void frontend_track_select_black_palette(void)
 {
-  int iAnimationTimer; // edi
-  int iSelectedTrack; // ebp
-  int iCurrentTrack; // esi
-  int iLapsForLevel; // eax
-  double dZoomInterpolation; // st7
-  unsigned int uiKeyDirection; // ecx
-  uint8 byKey; // al
-  uint8 byKey_1; // al
-  float fZ_1; // [esp+4h] [ebp-4Ch]
-  float fTargetZoom; // [esp+8h] [ebp-48h]
-  int iFrameCount; // [esp+Ch] [ebp-44h]
-  int iBlockIdx; // [esp+10h] [ebp-40h]
-  int iSoundFlag; // [esp+14h] [ebp-3Ch]
-  int iYaw; // [esp+18h] [ebp-38h]
-  int iPrevTrackLoad; // [esp+1Ch] [ebp-34h]
-  float fZ; // [esp+20h] [ebp-30h]
-  int iCupOffset; // [esp+24h] [ebp-2Ch]
-  int iTrackInCup; // [esp+28h] [ebp-28h]
-  int iExitFlag; // [esp+2Ch] [ebp-24h]
-  int iCalculatedTrack; // [esp+30h] [ebp-20h]
-  int iFrontendSpeechPending;
-
-  iAnimationTimer = 36;
-  fade_palette(0);                              // Initialize track selection screen - fade out and reset state
-  iSoundFlag = 0;
-  front_fade = 0;
-  iExitFlag = 0;
-  iFrontendSpeechPending = 0;
-  if (TrackLoad > 0)                          // Set initial track selection based on current TrackLoad and game type
-  {
-    iSelectedTrack = ((uint8)TrackLoad - 1) & 7;
-    if (game_type == 1)
-      iSelectedTrack = 8;
-  } else {
-    iSelectedTrack = 0;
+  palette_brightness = 0;
+  for (int i = 0; i < 256; ++i) {
+    pal_addr[i].byR = 0;
+    pal_addr[i].byB = 0;
+    pal_addr[i].byG = 0;
   }
-  iCurrentTrack = TrackLoad;
-  fre((void **)&front_vga[3]);                  // Load track selection UI graphics and 3D track preview
+}
+
+static void frontend_track_select_request_exit(void)
+{
+  iFrontendTrackExitFlag = -1;
+  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT)
+    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+}
+
+static void frontend_track_select_apply_type_switch(void)
+{
+  if (!switch_types)
+    return;
+
+  game_type = switch_types - 1;
+  if (switch_types == 1 && competitors == 1)
+    competitors = 16;
+  switch_types = 0;
+  if (game_type == 1)
+    Race = ((uint8)TrackLoad - 1) & 7;
+  else
+    network_champ_on = 0;
+}
+
+static void frontend_track_select_apply_same_car_switch(void)
+{
+  if (switch_same > 0) {
+    for (int i = 0; i < players; ++i)
+      Players_Cars[i] = switch_same - 666;
+    cheat_mode |= CHEAT_MODE_CLONES;
+  } else if (switch_same < 0) {
+    switch_same = 0;
+    for (int i = 0; i < players; ++i)
+      Players_Cars[i] = -1;
+    cheat_mode &= ~CHEAT_MODE_CLONES;
+  }
+}
+
+static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
+{
+  int iLapsForLevel;
+  int iBlockIdx;
+  MenuRenderer *mr = GetMenuRenderer();
+
+  *piStartedFadeIn = 0;
+
+  menu_render_begin_frame(mr);
+  if (!front_fade) {
+    front_fade = -1;
+    *piStartedFadeIn = -1;
+    menu_render_begin_fade(mr, 1, 32);
+  }
+  menu_render_background(mr, 0);
+  menu_render_sprite(mr, 1, 2, head_x, head_y, 0, pal_addr);
+  if (cup_won)
+    menu_render_sprite(mr, 1, 8, 480, 388, 0, pal_addr);
+  menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
+  menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
+  menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+  menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
+
+  if (iFrontendTrackSelectedTrack >= 8) {
+    menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
+  } else {
+    menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+    menu_render_text(mr, 2, "~", font2_ascii, font2_offsets,
+                     sel_posns[iFrontendTrackSelectedTrack].x,
+                     sel_posns[iFrontendTrackSelectedTrack].y, 0x8Fu, 0,
+                     pal_addr);
+  }
+
+  menu_render_text(mr, 2, "AUTO ARIEL", font2_ascii, font2_offsets,
+                   sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "DESILVA", font2_ascii, font2_offsets,
+                   sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "PULSE", font2_ascii, font2_offsets,
+                   sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "GLOBAL", font2_ascii, font2_offsets,
+                   sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets,
+                   sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "MISSION", font2_ascii, font2_offsets,
+                   sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "ZIZIN", font2_ascii, font2_offsets,
+                   sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+  menu_render_text(mr, 2, "REISE WAGON", font2_ascii, font2_offsets,
+                   sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u,
+                   pal_addr);
+
+  iBlockIdx = (TrackLoad - 1) / 8;
+  *piBlockIdx = iBlockIdx;
+
+  if (TrackLoad >= 0) {
+    menu_render_load_track_mesh(mr, palette);
+    if (iFrontendTrackAnimationTimer)
+      menu_render_draw_track_preview(mr, fFrontendTrackZoom, 1280,
+                                     iFrontendTrackYaw, PREVIEW_X,
+                                     TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
+    else
+      menu_render_draw_track_preview(mr, fFrontendTrackAnimatedZoom, 1280,
+                                     iFrontendTrackYaw, PREVIEW_X,
+                                     TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
+    menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
+
+    if (game_type >= 2) {
+      NoOfLaps = 5;
+    } else {
+      iLapsForLevel = cur_laps[level];
+      NoOfLaps = iLapsForLevel;
+      if (competitors == 2)
+        NoOfLaps = iLapsForLevel / 2;
+    }
+
+    sprintf(buffer, "%s: %i", &language_buffer[4544], NoOfLaps);
+    menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 16,
+                     0x8Fu, 1u, pal_addr);
+    menu_render_text(mr, 15, &language_buffer[4608], font1_ascii,
+                     font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
+    if (RecordCars[TrackLoad] < 0) {
+      sprintf(buffer, "%s", RecordNames[TrackLoad]);
+    } else {
+      int iTotalCentiseconds = (int)(RecordLaps[TrackLoad] * 100.0);
+      int iRecordMinutes = iTotalCentiseconds / 6000;
+      int iRecordSeconds = (iTotalCentiseconds / 100) % 60;
+      int iRecordCentiseconds = iTotalCentiseconds % 100;
+
+      sprintf(buffer, "%s - %s - %02i:%02i:%02i",
+              RecordNames[TrackLoad], CompanyNames[RecordCars[TrackLoad] & 0xF],
+              iRecordMinutes, iRecordSeconds, iRecordCentiseconds);
+    }
+    menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52,
+                     0x8Fu, 1u, pal_addr);
+  }
+
+  menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
+  if (TrackLoad <= 0) {
+    if (TrackLoad)
+      menu_render_text(mr, 2, "EDITOR", font2_ascii, font2_offsets, 190, 350,
+                       0x8Fu, 0, pal_addr);
+    else
+      menu_render_text(mr, 2, "TRACK ZERO", font2_ascii, font2_offsets, 190,
+                       350, 0x8Fu, 0, pal_addr);
+  } else if (TrackLoad >= 17) {
+    menu_render_sprite(mr, 13, TrackLoad - 17, 190, 356, 0, pal_addr);
+  } else {
+    menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
+  }
+  show_received_mesage();
+  menu_render_end_frame(mr);
+}
+
+static void frontend_track_select_update_animation(int iFrameCount,
+                                                   int *piPrevTrackLoad,
+                                                   int iStartedFadeIn)
+{
+  if (!iFrontendTrackAnimationTimer) {
+    double dZoomInterpolation =
+        (double)iFrameCount * fFrontendTrackTargetZoom +
+        fFrontendTrackAnimatedZoom;
+    fFrontendTrackAnimatedZoom = (float)dZoomInterpolation;
+    if (dZoomInterpolation <= 10000000.0) {
+      if (fFrontendTrackAnimatedZoom < fFrontendTrackZoom) {
+        fFrontendTrackAnimatedZoom = fFrontendTrackZoom;
+        iFrontendTrackAnimationTimer = 72;
+        fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+      }
+    } else {
+      fFrontendTrackAnimatedZoom = 10000000.0f;
+      if (iFrontendTrackCurrentTrack == TrackLoad)
+        *piPrevTrackLoad = -1;
+      TrackLoad = iFrontendTrackCurrentTrack;
+      remove_frontendspeech();
+      iFrontendTrackSpeechPending = 0;
+      if (TrackLoad >= 0)
+        loadtrack(TrackLoad, -1);
+      loadtracksample(TrackLoad);
+      iFrontendTrackSpeechPending = -1;
+      fFrontendTrackZoom = cur_TrackZ;
+      iFrontendTrackSoundFlag = -1;
+      fFrontendTrackTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
+      if (*piPrevTrackLoad != -1) {
+        broadcast_mode = -1;
+        while (broadcast_mode)
+          UpdateSDL();
+      }
+      *piPrevTrackLoad = -1;
+      frames = 0;
+    }
+  }
+
+  if (iStartedFadeIn) {
+    loadtracksample(TrackLoad);
+    iFrontendTrackSpeechPending = 0;
+    frontendsample(0x8000);
+    frames = 0;
+  }
+
+  if (TrackLoad != *piPrevTrackLoad) {
+    if (!iFrontendTrackSoundFlag) {
+      sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+      iFrontendTrackSpeechPending = 0;
+    }
+    iFrontendTrackSoundFlag = 0;
+    iFrontendTrackCurrentTrack = TrackLoad;
+    iFrontendTrackAnimationTimer = 0;
+  }
+}
+
+static void frontend_track_select_handle_input(int iBlockIdx)
+{
+  int iCupOffset = 8 * iBlockIdx;
+  int iTrackInCup = iFrontendTrackSelectedTrack + 1;
+  unsigned int uiKeyDirection = 0;
+  int iCalculatedTrack = 8 * iBlockIdx + iFrontendTrackSelectedTrack + 1;
+
+  while (fatkbhit()) {
+    uint8 byKey = fatgetch();
+
+    if (byKey < 0xDu) {
+      if (!byKey) {
+        uint8 byExtendedKey = fatgetch();
+
+        if (byExtendedKey >= 0x48u) {
+          if (byExtendedKey <= 0x48u)
+            uiKeyDirection = 2;
+          else if (byExtendedKey == 0x50)
+            uiKeyDirection = 1;
+        }
+      }
+    } else if (byKey <= 0xDu) {
+      if ((iFrontendTrackSelectedTrack != 8 &&
+           iFrontendTrackCurrentTrack != iCalculatedTrack) ||
+          iFrontendTrackSelectedTrack == 8) {
+        remove_frontendspeech();
+        iFrontendTrackSpeechPending = 0;
+        sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+      }
+      if (iFrontendTrackCurrentTrack == iCalculatedTrack && SoundCard &&
+          frontendspeechhandle != -1 && DIGISampleDone(frontendspeechhandle)) {
+        frontendspeechhandle = -1;
+        frontendsample(0x8000);
+      }
+      if (iFrontendTrackSelectedTrack == 8) {
+        frontend_track_select_request_exit();
+      } else if (game_type != 1 &&
+                 iFrontendTrackCurrentTrack != iCupOffset + iTrackInCup) {
+        sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+        iFrontendTrackSpeechPending = 0;
+        iFrontendTrackCurrentTrack = iCupOffset + iTrackInCup;
+        if (iFrontendTrackAnimationTimer)
+          iFrontendTrackAnimationTimer = 0;
+        else if (fFrontendTrackTargetZoom < 0.0f)
+          fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+      }
+    } else if (byKey >= 0x1Bu) {
+      if (byKey <= 0x1Bu) {
+        remove_frontendspeech();
+        iFrontendTrackSpeechPending = 0;
+        sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+        frontend_track_select_request_exit();
+      } else if (byKey == 32 && game_type != 1 && TrackLoad > 0) {
+        iFrontendTrackCurrentTrack += 8;
+        sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+        iFrontendTrackSpeechPending = 0;
+        if (iFrontendTrackCurrentTrack > 8 &&
+            iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
+          iFrontendTrackCurrentTrack += 8;
+        if (iFrontendTrackCurrentTrack > 16 &&
+            iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
+          iFrontendTrackCurrentTrack += 8;
+        if (iFrontendTrackCurrentTrack > 24)
+          iFrontendTrackCurrentTrack -= 24;
+        if (iFrontendTrackAnimationTimer)
+          iFrontendTrackAnimationTimer = 0;
+        else if (fFrontendTrackTargetZoom < 0.0f)
+          fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+      }
+    }
+
+    if (iFrontendTrackExitFlag)
+      return;
+  }
+
+  if (uiKeyDirection) {
+    if (uiKeyDirection > 1) {
+      if (game_type != 1 && --iFrontendTrackSelectedTrack < 0)
+        iFrontendTrackSelectedTrack = 0;
+    } else if (game_type != 1 && ++iFrontendTrackSelectedTrack > 8) {
+      iFrontendTrackSelectedTrack = 8;
+    }
+  }
+}
+
+void frontend_track_select_enter(void)
+{
+  iFrontendTrackAnimationTimer = 36;
+  fade_palette(0);
+  iFrontendTrackSoundFlag = 0;
+  front_fade = 0;
+  iFrontendTrackExitFlag = 0;
+  iFrontendTrackSpeechPending = 0;
+  if (TrackLoad > 0) {
+    iFrontendTrackSelectedTrack = ((uint8)TrackLoad - 1) & 7;
+    if (game_type == 1)
+      iFrontendTrackSelectedTrack = 8;
+  } else {
+    iFrontendTrackSelectedTrack = 0;
+  }
+  iFrontendTrackCurrentTrack = TrackLoad;
+  fre((void **)&front_vga[3]);
   if (TrackLoad >= 0)
     loadtrack(TrackLoad, -1);
   front_vga[3] = (tBlockHeader *)load_picture("trkname.bm");
   front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
-  iYaw = 0;
+  iFrontendTrackYaw = 0;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
-  // Restore palette and create GPU textures for sub-menu rendering
+  memcpy(pal_addr, palette, 256 * sizeof(tColor));
+  palette_brightness = 32;
   {
-    extern tColor palette[];
-    memcpy(pal_addr, palette, 256 * sizeof(tColor));
-    palette_brightness = 32;
     MenuRenderer *mr = GetMenuRenderer();
     if (mr) {
       menu_render_load_blocks(mr, 3, front_vga[3], palette);
@@ -97,320 +388,75 @@ void select_track()
     }
   }
   frames = 0;
-  fZ = cur_TrackZ;
-  fZ_1 = cur_TrackZ;
-  fTargetZoom = -(cur_TrackZ + -10000000.0f) * 0.05f;
-  do {                                             // Main track selection display loop
-    if (game_type == 1)
-      iSelectedTrack = 8;
-    iFrameCount = frames;
-    frames = 0;
-    int bStartedFadeIn = 0;
-    iPrevTrackLoad = TrackLoad;
-    if (SoundCard && front_fade && iFrontendSpeechPending && sfxplaying(SOUND_SAMPLE_TRACK) == 0)
-    {
-      frontendsample(0x8000);
-      iFrontendSpeechPending = 0;
-    }
-    if (switch_types)                         // Handle game type switching (championship/single race/team game)
-    {
-      game_type = switch_types - 1;
-      if (switch_types == 1 && competitors == 1)
-        competitors = 16;
-      switch_types = 0;
-      if (game_type == 1)
-        Race = ((uint8)TrackLoad - 1) & 7;
-      else
-        network_champ_on = 0;
-    }
-    {                                           // RENDER FRAME (GPU)
+  fFrontendTrackZoom = cur_TrackZ;
+  fFrontendTrackAnimatedZoom = cur_TrackZ;
+  fFrontendTrackTargetZoom = -(cur_TrackZ + -10000000.0f) * 0.05f;
+}
+
+void frontend_track_select_update(void)
+{
+  int iFrameCount;
+  int iPrevTrackLoad;
+  int iStartedFadeIn;
+  int iBlockIdx;
+
+  if (game_type == 1)
+    iFrontendTrackSelectedTrack = 8;
+  iFrameCount = frames;
+  frames = 0;
+  iPrevTrackLoad = TrackLoad;
+  if (SoundCard && front_fade && iFrontendTrackSpeechPending &&
+      sfxplaying(SOUND_SAMPLE_TRACK) == 0) {
+    frontendsample(0x8000);
+    iFrontendTrackSpeechPending = 0;
+  }
+
+  frontend_track_select_apply_type_switch();
+  frontend_track_select_draw(&iBlockIdx, &iStartedFadeIn);
+  if (SnapshotShouldStop())
+    return;
+
+  frontend_track_select_apply_same_car_switch();
+  frontend_track_select_update_animation(iFrameCount, &iPrevTrackLoad,
+                                         iStartedFadeIn);
+  frontend_track_select_handle_input(iBlockIdx);
+  iFrontendTrackYaw =
+      ((uint16)iFrontendTrackYaw + 32 * (uint16)iFrameCount) & 0x3FFF;
+}
+
+void frontend_track_select_exit(void)
+{
+  if (!SnapshotShouldStop()) {
     MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_frame(mr);
-    if (!front_fade) {
-      front_fade = -1;
-      bStartedFadeIn = -1;
-      menu_render_begin_fade(mr, 1, 32);
-    }
-    menu_render_background(mr, 0);
-    menu_render_sprite(mr, 1, 2, head_x, head_y, 0, pal_addr);
-    if (cup_won)                              // Show cup trophy if championship won
-      menu_render_sprite(mr, 1, 8, 480, 388, 0, pal_addr);
-    menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
-    menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);// Display player type and game type indicators
-    menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
-    menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
-    if (iSelectedTrack >= 8)                  // Draw track selector: championship view or individual track selector
-    {
-      menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
-    } else {
-      menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
-      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iSelectedTrack].x, sel_posns[iSelectedTrack].y, 0x8Fu, 0, pal_addr);
-    }
-    menu_render_text(mr, 2, "AUTO ARIEL", font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);// Display hardcoded track names (should use track name data)
-    menu_render_text(mr, 2, "DESILVA", font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "PULSE", font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "GLOBAL", font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "MISSION", font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "ZIZIN", font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "REISE WAGON", font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
-    iBlockIdx = (TrackLoad - 1) / 8;  // Calculate cup icon index (8 tracks per cup)
-    //iBlockIdx = (TrackLoad - 1 - (__CFSHL__((TrackLoad - 1) >> 31, 3) + 8 * ((TrackLoad - 1) >> 31))) >> 3;// Calculate cup icon index for display
-    if (TrackLoad >= 0) {                                           // Render 3D track preview
-      menu_render_load_track_mesh(mr, palette);
-      if (iAnimationTimer)
-        menu_render_draw_track_preview(mr, fZ, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
-      else
-        menu_render_draw_track_preview(mr, fZ_1, 1280, iYaw, PREVIEW_X, TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
-      menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
-      if (game_type >= 2)                     // Set number of laps based on game type and difficulty level
-      {
-        NoOfLaps = 5;
-      } else {
-        iLapsForLevel = cur_laps[level];
-        NoOfLaps = iLapsForLevel;
-        if (competitors == 2)
-          NoOfLaps = iLapsForLevel / 2;
-      }
-      sprintf(buffer, "%s: %i", &language_buffer[4544], NoOfLaps);
-      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 16, 0x8Fu, 1u, pal_addr);
-      menu_render_text(mr, 15, &language_buffer[4608], font1_ascii, font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
-      if (RecordCars[TrackLoad] < 0)          // Display track record holder and lap time
-      {
-        sprintf(buffer, "%s", RecordNames[TrackLoad]);
-      } else {
-        // Format lap time as MM:SS:CC (minutes:seconds:centiseconds)
-        int iTotalCentiseconds = (int)(RecordLaps[TrackLoad] * 100.0);
-        int iRecordMinutes = iTotalCentiseconds / 6000;
-        int iRecordSeconds = (iTotalCentiseconds / 100) % 60;
-        int iRecordCentiseconds = iTotalCentiseconds % 100;
 
-        sprintf(buffer, "%s - %s - %02i:%02i:%02i",
-            RecordNames[TrackLoad],
-            CompanyNames[RecordCars[TrackLoad] & 0xF],
-            iRecordMinutes,
-            iRecordSeconds,
-            iRecordCentiseconds);
-        //dRecordTimeFloat = RecordLaps[TrackLoad] * 100.0;// Format lap time as MM:SS:CC (minutes:seconds:centiseconds)
-        //_CHP();
-        //LODWORD(llTimeCalc) = (int)dRecordTimeFloat;
-        //HIDWORD(llTimeCalc) = (int)dRecordTimeFloat >> 31;
-        //iRecordMinutes = llTimeCalc / 6000;
-        //LODWORD(llTimeCalc) = (int)dRecordTimeFloat;
-        //iRecordSeconds = (int)(llTimeCalc / 100) % 60;
-        //LODWORD(llTimeCalc) = (int)dRecordTimeFloat;
-        //sprintf(
-        //  buffer,
-        //  "%s - %s - %02i:%02i:%02i",
-        //  RecordNames[TrackLoad],
-        //  CompanyNames[RecordCars[TrackLoad] & 0xF],
-        //  iRecordMinutes,
-        //  iRecordSeconds,
-        //  (unsigned int)(llTimeCalc % 100));
-      }
-      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52, 0x8Fu, 1u, pal_addr);
-    }
-    menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);// Display cup icon and track name/type
-    if (TrackLoad <= 0) {
-      if (TrackLoad)
-        menu_render_text(mr, 2, "EDITOR", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
-      else
-        menu_render_text(mr, 2, "TRACK ZERO", font2_ascii, font2_offsets, 190, 350, 0x8Fu, 0, pal_addr);
-    } else if (TrackLoad >= 17)                 // Display track name: bonus tracks (17+), regular tracks (1-16), or special tracks
-    {
-      menu_render_sprite(mr, 13, TrackLoad - 17, 190, 356, 0, pal_addr);
-    } else {
-      menu_render_sprite(mr, 3, TrackLoad - 1, 190, 356, 0, pal_addr);
-    }
-    show_received_mesage();
-    menu_render_end_frame(mr);
-    if (SnapshotShouldStop())
-      return;
-    }
-    if (switch_same > 0)                      // Handle same-car mode activation/deactivation
-    {
-
-      for (int i = 0; i < players; i++) {
-          Players_Cars[i] = switch_same - 666;
-      }
-      //iPlayerLoop2 = 0;                         // Activate same-car mode: set all players to same car type
-      //if (players > 0) {
-      //  iArrayOffset2 = 0;
-      //  do {
-      //    iArrayOffset2 += 4;
-      //    ++iPlayerLoop2;
-      //    *(int *)((char *)&infinite_laps + iArrayOffset2) = switch_same - 666;
-      //  } while (iPlayerLoop2 < players);
-      //}
-
-      cheat_mode |= CHEAT_MODE_CLONES;
-    } else if (switch_same < 0) {
-
-      switch_same = 0;
-      for (int i = 0; i < players; i++) {
-          Players_Cars[i] = -1;
-      }
-      //iPlayerLoop1 = 0;                         // Deactivate same-car mode: reset all player car selections
-      //switch_same = 0;
-      //if (players > 0) {
-      //  iArrayOffset1 = 0;
-      //  do {
-      //    iArrayOffset1 += 4;
-      //    ++iPlayerLoop1;
-      //    *(int *)((char *)&infinite_laps + iArrayOffset1) = -1;
-      //  } while (iPlayerLoop1 < players);
-      //}
-
-      cheat_mode &= ~CHEAT_MODE_CLONES;
-    }
-    if (!iAnimationTimer)                     // Handle 3D camera zoom animation
-    {
-      dZoomInterpolation = (double)iFrameCount * fTargetZoom + fZ_1;
-      fZ_1 = (float)dZoomInterpolation;
-      if (dZoomInterpolation <= 10000000.0) {
-        if (fZ_1 < fZ) {
-          fZ_1 = fZ;
-          iAnimationTimer = 72;
-          fTargetZoom = -fTargetZoom;  // Reverse zoom direction
-        }
-      } else {
-        fZ_1 = 10000000.0;                      // Camera reached max zoom - load new track and reset animation
-        if (iCurrentTrack == TrackLoad)
-          iPrevTrackLoad = -1;
-        TrackLoad = iCurrentTrack;
-        remove_frontendspeech();
-        iFrontendSpeechPending = 0;
-        if (TrackLoad >= 0)
-          loadtrack(TrackLoad, -1);
-        loadtracksample(TrackLoad);
-        iFrontendSpeechPending = -1;
-        fZ = cur_TrackZ;
-        iSoundFlag = -1;
-        fTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
-        if (iPrevTrackLoad != -1) {
-          broadcast_mode = -1;
-          while (broadcast_mode)
-            UpdateSDL();
-        }
-        iPrevTrackLoad = -1;
-        frames = 0;
-      }
-    }
-    if (bStartedFadeIn)                       // Initialize screen fade and track voice sample on first display
-    {
-      loadtracksample(TrackLoad);
-      iFrontendSpeechPending = 0;
-      frontendsample(0x8000);
-      frames = 0;
-    }
-    if (TrackLoad != iPrevTrackLoad)          // Track changed - play selection sound and reset animation
-    {
-      if (!iSoundFlag) {
-        sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
-        iFrontendSpeechPending = 0;
-      }
-      iSoundFlag = 0;
-      iCurrentTrack = TrackLoad;
-      iAnimationTimer = 0;
-    }
-    iCupOffset = 8 * iBlockIdx;                 // Calculate track selection values for input handling
-    iTrackInCup = iSelectedTrack + 1;
-    uiKeyDirection = 0;
-    iCalculatedTrack = 8 * iBlockIdx + iSelectedTrack + 1;
-    while (fatkbhit())                        // Process keyboard input for track selection
-    {
-      UpdateSDL();
-      byKey = fatgetch();
-      if (byKey < 0xDu) {
-        if (!byKey) {
-          byKey_1 = fatgetch();                 // Handle arrow keys: Up (0x48) and Down (0x50)
-          if (byKey_1 >= 0x48u) {
-            if (byKey_1 <= 0x48u) {
-              uiKeyDirection = 2;
-            } else if (byKey_1 == 0x50) {
-              uiKeyDirection = 1;
-            }
-          }
-        }
-      } else if (byKey <= 0xDu) {                                         // Enter key pressed - confirm track selection
-        if (iSelectedTrack != 8 && iCurrentTrack != iCalculatedTrack || iSelectedTrack == 8) {
-          remove_frontendspeech();
-          iFrontendSpeechPending = 0;
-          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-        }
-        //if (iCurrentTrack == iCalculatedTrack && SoundCard && frontendspeechhandle != -1 && sosDIGISampleDone(*(int *)&DIGIHandle, frontendspeechhandle)) {
-        if (iCurrentTrack == iCalculatedTrack && SoundCard && frontendspeechhandle != -1 && DIGISampleDone(frontendspeechhandle)) {
-          frontendspeechhandle = -1;
-          frontendsample(0x8000);
-        }
-        if (iSelectedTrack == 8) {
-          iExitFlag = -1;
-        } else if (game_type != 1 && iCurrentTrack != iCupOffset + iTrackInCup) {
-          sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
-          iFrontendSpeechPending = 0;
-          iCurrentTrack = iCupOffset + iTrackInCup;
-          if (iAnimationTimer) {
-            iAnimationTimer = 0;
-          } else if (fTargetZoom < 0.0) {
-            fTargetZoom = -fTargetZoom;  // Reverse zoom direction
-          }
-        }
-      } else if (byKey >= 0x1Bu) {
-        if (byKey <= 0x1Bu) {
-          remove_frontendspeech();              // Escape key pressed - exit track selection
-          iFrontendSpeechPending = 0;
-          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-          iExitFlag = -1;
-        } else if (byKey == 32 && game_type != 1 && TrackLoad > 0)// Space key pressed - cycle through cup categories
-        {
-          iCurrentTrack += 8;
-          sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
-          iFrontendSpeechPending = 0;
-          if (iCurrentTrack > 8 && iCurrentTrack < 17 && (cup_won & 1) == 0)// Skip locked cup categories based on championship progress
-            iCurrentTrack += 8;
-          if (iCurrentTrack > 16 && iCurrentTrack < 25 && (cup_won & 2) == 0)
-            iCurrentTrack += 8;
-          if (iCurrentTrack > 24)
-            iCurrentTrack -= 24;
-          if (iAnimationTimer) {
-            iAnimationTimer = 0;
-          } else if (fTargetZoom < 0.0) {
-            fTargetZoom = -fTargetZoom;  // Reverse zoom direction
-          }
-        }
-      }
-    }
-    if (uiKeyDirection)                       // Process up/down arrow key movement in track list
-    {
-      if (uiKeyDirection > 1) {
-        if (game_type != 1 && --iSelectedTrack < 0)
-          iSelectedTrack = 0;
-      } else if (game_type != 1 && ++iSelectedTrack > 8) {
-        iSelectedTrack = 8;
-      }
-    }
-    iYaw = ((uint16)iYaw + 32 * (uint16)iFrameCount) & 0x3FFF;
-
-    UpdateSDL();
-  } while (!iExitFlag);
-  // GPU fade-out
-  {
-    MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
     menu_render_fade_wait(mr, fade_redraw_bg, mr);
-    palette_brightness = 0;
-    for (int i = 0; i < 256; i++) {
-      pal_addr[i].byR = 0;
-      pal_addr[i].byB = 0;
-      pal_addr[i].byG = 0;
-    }
+    frontend_track_select_black_palette();
   }
+
   front_fade = 0;
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[13]);
   fre((void **)&front_vga[14]);
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
   remove_frontendspeech();
+
+  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT)
+    frontend_menu_resume_from_child();
+}
+
+//-------------------------------------------------------------------------------------------------
+//00049070
+void select_track()
+{
+  frontend_track_select_enter();
+  while (!iFrontendTrackExitFlag && !SnapshotShouldStop()) {
+    frontend_track_select_update();
+    if (!iFrontendTrackExitFlag && !SnapshotShouldStop())
+      UpdateSDL();
+  }
+  if (!SnapshotShouldStop())
+    frontend_track_select_exit();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -25,13 +25,26 @@ typedef enum {
   eFRONTEND_STATE_MAIN_MENU,
   eFRONTEND_STATE_CAR_SELECT,
   eFRONTEND_STATE_TRACK_SELECT,
+  eFRONTEND_STATE_DISK_SELECT,
+  eFRONTEND_STATE_PLAYERS_SELECT,
+  eFRONTEND_STATE_TYPE_SELECT,
   eFRONTEND_STATE_DIFFICULTY,
   eFRONTEND_STATE_LOBBY,
   eFRONTEND_STATE_LOADING,
   eFRONTEND_STATE_COUNTDOWN,
   eFRONTEND_STATE_RACING,
+  eFRONTEND_STATE_PAUSE_OVERLAY,
   eFRONTEND_STATE_RESULTS,
+  eFRONTEND_STATE_WINNER_SCREEN,
+  eFRONTEND_STATE_WINNER_RACE,
+  eFRONTEND_STATE_RESULT_ROUNDUP,
+  eFRONTEND_STATE_RACE_RESULT,
   eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS,
+  eFRONTEND_STATE_TEAM_STANDINGS,
+  eFRONTEND_STATE_LAP_RECORDS,
+  eFRONTEND_STATE_TIME_TRIAL_RESULTS,
+  eFRONTEND_STATE_CHAMPIONSHIP_OVER,
+  eFRONTEND_STATE_CREDITS,
   eFRONTEND_STATE_OPTIONS,
   eFRONTEND_STATE_QUIT
 } eFrontendState;
@@ -48,6 +61,54 @@ void race_enter(void);
 void race_update(void);
 void race_draw(void);
 void race_exit(void);
+void frontend_pause_enter(void);
+void frontend_pause_update(void);
+void frontend_pause_draw(void);
+void frontend_pause_exit(void);
+void frontend_menu_enter(void);
+void frontend_menu_update(void);
+void frontend_menu_resume_from_child(void);
+void frontend_loading_enter(void);
+void frontend_loading_update(void);
+void frontend_title_enter(void);
+void frontend_title_update(void);
+void frontend_title_exit(void);
+void frontend_results_update(void);
+void frontend_winner_screen_update(void);
+void frontend_winner_race_update(void);
+void frontend_result_roundup_update(void);
+void frontend_race_result_update(void);
+void frontend_championship_standings_update(void);
+void frontend_team_standings_update(void);
+void frontend_lap_records_update(void);
+void frontend_time_trial_results_update(void);
+void frontend_championship_over_update(void);
+void frontend_credits_update(void);
+void frontend_title_screen_enter(void);
+int frontend_title_screen_update(void);
+void frontend_title_screen_exit(void);
+void frontend_car_select_enter(void);
+void frontend_car_select_update(void);
+void frontend_car_select_exit(void);
+void frontend_track_select_enter(void);
+void frontend_track_select_update(void);
+void frontend_track_select_exit(void);
+void frontend_disk_select_enter(void);
+void frontend_disk_select_update(void);
+void frontend_disk_select_exit(void);
+void frontend_config_enter(void);
+void frontend_config_update(void);
+void frontend_config_exit(void);
+void frontend_players_select_enter(void);
+void frontend_players_select_update(void);
+void frontend_players_select_exit(void);
+void frontend_type_select_enter(void);
+void frontend_type_select_update(void);
+void frontend_type_select_exit(void);
+void frontend_lobby_enter(void);
+void frontend_lobby_update(void);
+void frontend_lobby_exit(void);
+void frontend_main_menu_prepare_race_start(void);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -152,7 +213,6 @@ extern char font4_ascii_br[256];
 void fade_redraw_bg(void *ctx);
 void title_screens();
 void copy_screens();
-void select_screen();
 void snapshot_setup_frontend_menu_state(int iGameType);
 void snapshot_render_menu_main(void);
 void select_disk();
