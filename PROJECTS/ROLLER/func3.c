@@ -134,36 +134,30 @@ static int PlayerCarOrNone(int iCarIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iWinnerScreenActive = 0;
+static int iWinnerScreenRetVal = -1;
+static int iWinnerScreenOldGfxSize = 0;
+static int iWinnerScreenCarDesign = 0;
+static char byWinnerScreenAnimFrame = 0;
+static int iWinnerScreenDisplayDuration = 0;
+static SceneRenderer *pWinnerScreenScene = NULL;
+
 //00056070
-int winner_screen(int carDesign, char byFlags)
+void WinnerScreenEnter(int carDesign, char byFlags)
 {
-  int iExit; // ebp
   //int iCartexLoopItr; // eax
   eCarType carType; // eax
   eCarType carType_1; // esi
   int iTexturesLoaded; // edx
   int iExistingTexIdx; // ecx
-  uint8 *pScrBuf; // edi
-  tBlockHeader *pWinnerImage; // esi
-  unsigned int uiBufSize; // ecx
-  char byBufSizeLow; // al
-  unsigned int uiDWordCount; // ecx
-  int16 nNewYaw; // ax
-  tBlockHeader **ppFrontVgaItr; // edx
-  void **ppFrePtr; // eax
-  uint8 **ppCartexItr; // edx
-  void **ppFrePtr_1; // eax
-  int iRetVal; // [esp+0h] [ebp-28h]
-  int iOldGfxSize; // [esp+4h] [ebp-24h]
-  char byAnimFrame; // [esp+8h] [ebp-20h]
-  int iDisplayDuration; // [esp+Ch] [ebp-1Ch]
   SceneRenderer *scene;
 
   tick_on = -1;
   frontend_on = -1;
-  iRetVal = -1;
+  iWinnerScreenRetVal = -1;
+  iWinnerScreenCarDesign = carDesign;
   SVGA_ON = -1;
-  iOldGfxSize = gfx_size;
+  iWinnerScreenOldGfxSize = gfx_size;
   front_fade = 0;
   init_screen();
   winx = 0;
@@ -174,15 +168,14 @@ int winner_screen(int carDesign, char byFlags)
 
   // longer display with music
   if ( MusicVolume && MusicCard )
-    iDisplayDuration = 720;
+    iWinnerScreenDisplayDuration = 720;
   else
-    iDisplayDuration = 180;
+    iWinnerScreenDisplayDuration = 180;
 
   // load graphics
   front_vga[0] = (tBlockHeader *)load_picture("winner.bm");
   front_vga[1] = (tBlockHeader *)load_picture("font3.bm");
 
-  iExit = 0;
   setpal("winner.pal");
   FindShades();
 
@@ -197,6 +190,7 @@ int winner_screen(int carDesign, char byFlags)
   Car[0].nPitch = 0;
   set_starts(0);
   scene = scene_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
+  pWinnerScreenScene = scene;
 
   for (int i = 0; i < 16; ++i) {
     car_texs_loaded[i] = -1;
@@ -236,59 +230,89 @@ int winner_screen(int carDesign, char byFlags)
   ticks = 0;
   frames = 0;
   startmusic(winsong);
-  byAnimFrame = byFlags & 1;
-  do
+  byWinnerScreenAnimFrame = byFlags & 1;
+  iWinnerScreenActive = -1;
+}
+
+int WinnerScreenUpdate(void)
+{
+  uint8 *pScrBuf; // edi
+  tBlockHeader *pWinnerImage; // esi
+  unsigned int uiBufSize; // ecx
+  char byBufSizeLow; // al
+  unsigned int uiDWordCount; // ecx
+  int16 nNewYaw; // ax
+  int iKeyPressed; // eax
+
+  if (!iWinnerScreenActive)
+    return -1;
+
+  pScrBuf = scrbuf;
+  pWinnerImage = front_vga[0];
+  if ( SVGA_ON )
+    uiBufSize = 256000;
+  else
+    uiBufSize = 64000;
+
+  // dword copy
+  byBufSizeLow = uiBufSize;
+  uiDWordCount = uiBufSize >> 2;
+  memcpy(scrbuf, front_vga[0], 4 * uiDWordCount);
+  memcpy(&pScrBuf[4 * uiDWordCount], &pWinnerImage->iWidth + uiDWordCount, byBufSizeLow & 3);
+
+  scene_render_set_target(pWinnerScreenScene, scrbuf, winw, winw, winh);
+  scene_render_set_viewport(pWinnerScreenScene, 0, 115, winw, winh - 115);
+  DrawCar(pWinnerScreenScene, iWinnerScreenCarDesign, 2200.0, 512, byWinnerScreenAnimFrame);
+  front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
+  copypic(scrbuf, screen);
+  if (SnapshotShouldStop())
+    return -1;
+
+  if ( !front_fade )
   {
-    pScrBuf = scrbuf;
-    pWinnerImage = front_vga[0];
-    if ( SVGA_ON )
-      uiBufSize = 256000;
-    else
-      uiBufSize = 64000;
-
-    // dword copy
-    byBufSizeLow = uiBufSize;
-    uiDWordCount = uiBufSize >> 2;
-    memcpy(scrbuf, front_vga[0], 4 * uiDWordCount);
-    memcpy(&pScrBuf[4 * uiDWordCount], &pWinnerImage->iWidth + uiDWordCount, byBufSizeLow & 3);
-
-    scene_render_set_target(scene, scrbuf, winw, winw, winh);
-    scene_render_set_viewport(scene, 0, 115, winw, winh - 115);
-    DrawCar(scene, carDesign, 2200.0, 512, byAnimFrame);
-    front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
-    copypic(scrbuf, screen);
-    if (SnapshotShouldStop()) {
-      iExit = -1;
-      break;
-    }
-    if ( !front_fade )
-    {
-      front_fade = -1;
-      fade_palette(32);
-      frames = 0;
-    }
-    while ( fatkbhit() )
-    {
-      if ( !(uint8)fatgetch() )
-        fatgetch();
-      iExit = -1;
-      iRetVal = 0;
-      UpdateSDL();
-    }
-    if ( ticks > iDisplayDuration )
-      iExit = -1;
-    nNewYaw = Car[0].nYaw + 32 * frames;
-    nNewYaw &= 0x3FFF;
-    Car[0].nYaw = nNewYaw;
+    front_fade = -1;
+    fade_palette(32);
     frames = 0;
-    UpdateSDL();
-    if (SnapshotShouldStop())
-      iExit = -1;
-    else
-      SnapshotAdvanceTick();
   }
-  while ( !iExit );
 
+  iKeyPressed = 0;
+  while ( fatkbhit() )
+  {
+    if ( !(uint8)fatgetch() )
+      fatgetch();
+    iKeyPressed = -1;
+  }
+  if (iKeyPressed) {
+    iWinnerScreenRetVal = 0;
+    return -1;
+  }
+
+  if ( ticks > iWinnerScreenDisplayDuration )
+    return -1;
+  nNewYaw = Car[0].nYaw + 32 * frames;
+  nNewYaw &= 0x3FFF;
+  Car[0].nYaw = nNewYaw;
+  frames = 0;
+  if (SnapshotShouldStop())
+    return -1;
+  SnapshotAdvanceTick();
+  return 0;
+}
+
+int WinnerScreenResult(void)
+{
+  return iWinnerScreenRetVal;
+}
+
+void WinnerScreenExit(void)
+{
+  tBlockHeader **ppFrontVgaItr; // edx
+  void **ppFrePtr; // eax
+  uint8 **ppCartexItr; // edx
+  void **ppFrePtr_1; // eax
+
+  if (!iWinnerScreenActive)
+    return;
   // cleanup
   ppFrontVgaItr = front_vga;
   do
@@ -305,14 +329,24 @@ int winner_screen(int carDesign, char byFlags)
   }
   while ( ppCartexItr != &cartex_vga[16] );
   remove_mapsels();
-  scene_render_destroy(scene);
-  gfx_size = iOldGfxSize;
-  if ( !iRetVal )
+  scene_render_destroy(pWinnerScreenScene);
+  pWinnerScreenScene = NULL;
+  gfx_size = iWinnerScreenOldGfxSize;
+  if ( !iWinnerScreenRetVal )
   {
     fade_palette(0);
     front_fade = 0;
   }
-  return iRetVal;
+  iWinnerScreenActive = 0;
+}
+
+int winner_screen(int carDesign, char byFlags)
+{
+  WinnerScreenEnter(carDesign, byFlags);
+  while (!WinnerScreenUpdate())
+    UpdateSDL();
+  WinnerScreenExit();
+  return WinnerScreenResult();
 }
 
 void snapshot_render_winner_race(void)
@@ -477,8 +511,11 @@ void StoreResult()
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iRaceResultScreenActive = 0;
+static int iRaceResultSavedScreenSize = 0;
+
 //00056570
-void RaceResult()
+void RaceResultEnter(void)
 {
   uint8 *pbyScreenBuffer; // edi
   tBlockHeader *pResultBitmap; // esi
@@ -494,7 +531,6 @@ void RaceResult()
   double dTimeDifference; // st7
   int iTotalRacePoints; // eax
   int iFinishedCount; // [esp+0h] [ebp-4Ch]
-  int iSavedScreenSize; // [esp+4h] [ebp-48h]
   float fWinnerTime; // [esp+8h] [ebp-44h]
   char *pszPositionText; // [esp+Ch] [ebp-40h]
   int iY; // [esp+10h] [ebp-3Ch]
@@ -509,7 +545,7 @@ void RaceResult()
   // init
   fWinnerTime = 0; //added by ROLLER
   tick_on = 0;
-  iSavedScreenSize = scr_size;
+  iRaceResultSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("result.pal");
@@ -670,20 +706,41 @@ void RaceResult()
   if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE)
     UpdateSDLWindow();
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160) {
-    if (SnapshotShouldStop())
-      break;
-    UpdateSDL();
-  }
+  iRaceResultScreenActive = -1;
+}
 
+int RaceResultUpdate(void)
+{
+  if (!iRaceResultScreenActive)
+    return -1;
+  if (SnapshotShouldStop())
+    return -1;
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
+
+void RaceResultExit(void)
+{
+  if (!iRaceResultScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[2]);
   fre((void **)&front_vga[3]);
-  scr_size = iSavedScreenSize;
+  scr_size = iRaceResultSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iRaceResultScreenActive = 0;
+}
+
+void RaceResult()
+{
+  RaceResultEnter();
+  while (!RaceResultUpdate())
+    UpdateSDL();
+  RaceResultExit();
 }
 
 void snapshot_render_race_result(void)
@@ -774,8 +831,11 @@ void snapshot_render_race_result(void)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iTimeTrialsScreenActive = 0;
+static int iTimeTrialsSavedScreenSize = 0;
+
 //00056D60
-void TimeTrials(int iDriverIdx)
+void TimeTrialsEnter(int iDriverIdx)
 {
   uint8 *pbyScreenBuffer; // edi
   tBlockHeader *pResultBitmap; // esi
@@ -813,7 +873,8 @@ void TimeTrials(int iDriverIdx)
 
   // init
   tick_on = 0;
-  iSavedScreenSize = scr_size;
+  iTimeTrialsSavedScreenSize = scr_size;
+  iSavedScreenSize = iTimeTrialsSavedScreenSize;
   SVGA_ON = -1;
   init_screen();
   setpal("result.pal");
@@ -1035,16 +1096,38 @@ void TimeTrials(int iDriverIdx)
   startmusic(leaderboardsong);
   fade_palette(32);
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
-    UpdateSDL();
+  iTimeTrialsScreenActive = -1;
+}
 
+int TimeTrialsUpdate(void)
+{
+  if (!iTimeTrialsScreenActive)
+    return -1;
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
+
+void TimeTrialsExit(void)
+{
+  if (!iTimeTrialsScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
-  scr_size = iSavedScreenSize;
+  scr_size = iTimeTrialsSavedScreenSize;
   fade_palette(0);
+  iTimeTrialsScreenActive = 0;
+}
+
+void TimeTrials(int iDriverIdx)
+{
+  TimeTrialsEnter(iDriverIdx);
+  while (!TimeTrialsUpdate())
+    UpdateSDL();
+  TimeTrialsExit();
 }
 
 static void snapshot_copy_name9(char szDest[9], const char *szSrc)
@@ -1132,8 +1215,11 @@ void snapshot_render_time_trials(void)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iChampionshipStandingsScreenActive = 0;
+static int iChampionshipStandingsSavedScreenSize = 0;
+
 //00057AD0
-void ChampionshipStandings()
+void ChampionshipStandingsEnter(void)
 {
   int iSavedScreenSize; // ebp
   uint8 *pbyScreenBuffer; // edi
@@ -1168,7 +1254,8 @@ void ChampionshipStandings()
 
   // init
   tick_on = 0;
-  iSavedScreenSize = scr_size;
+  iChampionshipStandingsSavedScreenSize = scr_size;
+  iSavedScreenSize = iChampionshipStandingsSavedScreenSize;
   SVGA_ON = -1;
   init_screen();
   setpal("result.pal");
@@ -1315,36 +1402,60 @@ void ChampionshipStandings()
   holdmusic = -1;
   fade_palette(32);
   ticks = 0;
+  iChampionshipStandingsScreenActive = -1;
+}
+
+int ChampionshipStandingsUpdate(void)
+{
+  if (!iChampionshipStandingsScreenActive)
+    return -1;
 
   // Different wait behavior: single race mode waits indefinitely, championship mode waits 2160 ticks
   if (g_bSnapshotMode) {
-    while (!SnapshotShouldStop()) {
-      UpdateSDL();
-      UpdateSDLWindow();
-      if (!SnapshotShouldStop())
-        SnapshotAdvanceTick();
-    }
+    if (SnapshotShouldStop())
+      return -1;
+    UpdateSDLWindow();
+    if (!SnapshotShouldStop())
+      SnapshotAdvanceTick();
+    return SnapshotShouldStop();
   } else if (game_type == 3) {
-    while (!fatkbhit())
-      UpdateSDL();
+    return fatkbhit();
   } else {
-    while (!fatkbhit() && ticks < 2160)
-      UpdateSDL();
+    if (fatkbhit())
+      return -1;
+    return ticks >= 2160;
   }
+}
 
+void ChampionshipStandingsExit(void)
+{
+  if (!iChampionshipStandingsScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
-  scr_size = iSavedScreenSize;
+  scr_size = iChampionshipStandingsSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iChampionshipStandingsScreenActive = 0;
+}
+
+void ChampionshipStandings()
+{
+  ChampionshipStandingsEnter();
+  while (!ChampionshipStandingsUpdate())
+    UpdateSDL();
+  ChampionshipStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iTeamStandingsScreenActive = 0;
+static int iTeamStandingsSavedScreenSize = 0;
+
 //00058100
-void TeamStandings()
+void TeamStandingsEnter(void)
 {
   uint8 *pScrBuf; // edi
   tBlockHeader *pResultImage; // esi
@@ -1377,6 +1488,7 @@ void TeamStandings()
 
   // init screen
   tick_on = 0;
+  iTeamStandingsSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("result.pal");
@@ -1558,32 +1670,50 @@ void TeamStandings()
   holdmusic = -1;
   fade_palette(32);
   ticks = 0;
+  iTeamStandingsScreenActive = -1;
+}
 
+int TeamStandingsUpdate(void)
+{
+  if (!iTeamStandingsScreenActive)
+    return -1;
   // wait for user input or timeout
   if ( game_type == 3 )
-  {
-    while ( !fatkbhit() )
-      UpdateSDL();
-  }
-  else
-  {
-    while ( !fatkbhit() && ticks < 2160 )
-      UpdateSDL();
-  }
+    return fatkbhit();
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
 
+void TeamStandingsExit(void)
+{
+  if (!iTeamStandingsScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
-  scr_size = iBestPoints;
+  scr_size = iTeamStandingsSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iTeamStandingsScreenActive = 0;
+}
+
+void TeamStandings()
+{
+  TeamStandingsEnter();
+  while (!TeamStandingsUpdate())
+    UpdateSDL();
+  TeamStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
-//00058780
-void ShowLapRecords()
+static int iLapRecordsScreenActive = 0;
+static int iLapRecordsSavedScreenSize = 0;
+static int iLapRecordsPage = 0;
+
+static void ShowLapRecordsDrawPage(int iFirstRecordIdx, int iLastRecordIdx)
 {
   uint8 *pScrBuf; // edi
   tBlockHeader *pBlockHeader; // esi
@@ -1594,52 +1724,11 @@ void ShowLapRecords()
   int iRecordIdx; // ebp
   int iArrayIdx; // edi
   double dLapTime; // st7
-  uint8 *pScrBuf_1; // edi
-  tBlockHeader *pBlockHeader_1; // esi
-  unsigned int uiMemSize_1; // ecx
-  char byMemSize_1; // al
-  unsigned int uiDwordCount_1; // ecx
-  int iTextY_1; // esi
-  int iRecordIdx_1; // ebp
-  int iArrayIdx_1; // edi
-  double dLapTime_1; // st7
-  int iCarY; // [esp+4h] [ebp-44h]
-  int iOldScrSize; // [esp+8h] [ebp-40h]
-  int iKillIconY_1; // [esp+Ch] [ebp-3Ch]
-  int iKillIconY; // [esp+10h] [ebp-38h]
-  int iCarY2; // [esp+14h] [ebp-34h]
-  int iCarType; // [esp+18h] [ebp-30h]
-  int iCarType_1; // [esp+1Ch] [ebp-2Ch]
-  const char *szRecordName; // [esp+20h] [ebp-28h]
-  const char *szRecordName_1; // [esp+24h] [ebp-24h]
-  int iTimeValue_1; // [esp+28h] [ebp-20h]
-  int iTimeTemp_1; // [esp+28h] [ebp-20h]
-  int iTimeValue; // [esp+2Ch] [ebp-1Ch]
-  int iTimeTemp; // [esp+2Ch] [ebp-1Ch]
-
-  // init display settings
-  holdmusic = -1;
-  tick_on = 0;
-  SVGA_ON = -1;
-  iOldScrSize = scr_size;
-  init_screen();
-  setpal("result.pal");
-
-  // set up window params
-  winx = 0;
-  winw = XMAX;
-  winy = 0;
-  winh = YMAX;
-  mirror = 0;
-
-  // load graphics resources
-  front_vga[2] = (tBlockHeader *)load_picture("result.bm");
-  front_vga[3] = (tBlockHeader *)load_picture("font2.bm");
-  front_vga[0] = (tBlockHeader *)load_picture("smallcar.bm");
-  front_vga[1] = (tBlockHeader *)load_picture("tabtext.bm");
-
-  frontend_on = -1;
-  tick_on = -1;
+  int iCarY; // [esp+4h] [ebp-34h]
+  int iKillIconY; // [esp+8h] [ebp-30h]
+  int iCarType; // [esp+Ch] [ebp-2Ch]
+  int iTimeValue; // [esp+10h] [ebp-28h]
+  int iTimeTemp; // [esp+14h] [ebp-24h]
 
   // copy background to screen buffer
   pScrBuf = scrbuf;
@@ -1655,10 +1744,9 @@ void ShowLapRecords()
 
   // Display records
   iTextY = 49;
-  iRecordIdx = 1;
+  iRecordIdx = iFirstRecordIdx;
   display_block(scrbuf, front_vga[1], 3, 142, 2, -1);
-  iArrayIdx = 1;
-  szRecordName = RecordNames[1];
+  iArrayIdx = iFirstRecordIdx;
   iCarY = 46;
   iKillIconY = 45;
 
@@ -1672,21 +1760,21 @@ void ShowLapRecords()
     if ( iCarType < 0 )
     {
       // no record set - display default name and time
-      sprintf(buffer, (uint8 *)"%s", szRecordName);
+      sprintf(buffer, (uint8 *)"%s", RecordNames[iArrayIdx]);
       front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 165, iTextY, 0x8Fu, 0);
       front_text(front_vga[3], "00:00:00", font2_ascii, font2_offsets, 450, iTextY, 0x8Fu, 0);
     }
     else
     {
       // display record holder name
-      sprintf(buffer, (uint8 *)"%s", szRecordName);
+      sprintf(buffer, (uint8 *)"%s", RecordNames[iArrayIdx]);
       front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 85, iTextY, 0x8Fu, 0);
 
       // display car company name
       sprintf(buffer, (uint8 *)"%s", CompanyNames[iCarType & 0xF]);
       front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 218, iTextY, 0x8Fu, 0);
 
-      // display car
+      // display car or cheat indicator
       if ( (iCarType & 0xFu) >= 8 )
         front_text(front_vga[3], "CHEAT", font2_ascii, font2_offsets, 165, iTextY, 0x8Fu, 0);
       else
@@ -1724,8 +1812,8 @@ void ShowLapRecords()
       // display minutes
       iTimeTemp /= 6;
       buffer[1] = iTimeTemp % 10 + 48;
-      buffer[0] = iTimeTemp / 10 % 10 + 48;
       buffer[2] = 0;
+      buffer[0] = iTimeTemp / 10 % 10 + 48;
       front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 450, iTextY, 0x8Fu, 0);
     }
 
@@ -1735,158 +1823,103 @@ void ShowLapRecords()
     ++iRecordIdx;
     iCarY += 22;
     iKillIconY += 22;
-    szRecordName += 9;
   }
-  while ( iRecordIdx < 17 );
+  while ( iRecordIdx < iLastRecordIdx );
+}
 
-  // display first page and wait for input
+static void ShowLapRecordsPresentPage(int iFirstRecordIdx, int iLastRecordIdx)
+{
+  ShowLapRecordsDrawPage(iFirstRecordIdx, iLastRecordIdx);
   copypic(scrbuf, screen);
   holdmusic = -1;
   fade_palette(32);
   ticks = 0;
-  if ( game_type == 4 )
-  {
-    while ( !fatkbhit() )
-      UpdateSDL();
-  }
-  else
-  {
-    while ( !fatkbhit() && ticks < 720 )
-      UpdateSDL();
-  }
-  scr_size = iOldScrSize;
+}
 
-  // display second page
-  if ( (textures_off & TEX_OFF_BONUS_CUP_AVAILABLE) != 0 )
-  {
+//00058780
+void ShowLapRecordsEnter(void)
+{
+  // init display settings
+  holdmusic = -1;
+  tick_on = 0;
+  SVGA_ON = -1;
+  iLapRecordsSavedScreenSize = scr_size;
+  init_screen();
+  setpal("result.pal");
+
+  // set up window params
+  winx = 0;
+  winw = XMAX;
+  winy = 0;
+  winh = YMAX;
+  mirror = 0;
+
+  // load graphics resources
+  front_vga[2] = (tBlockHeader *)load_picture("result.bm");
+  front_vga[3] = (tBlockHeader *)load_picture("font2.bm");
+  front_vga[0] = (tBlockHeader *)load_picture("smallcar.bm");
+  front_vga[1] = (tBlockHeader *)load_picture("tabtext.bm");
+
+  frontend_on = -1;
+  tick_on = -1;
+
+  iLapRecordsPage = 1;
+  ShowLapRecordsPresentPage(1, 17);
+  iLapRecordsScreenActive = -1;
+}
+
+static int ShowLapRecordsWaitComplete(void)
+{
+  if ( game_type == 4 )
+    return fatkbhit();
+  if (fatkbhit())
+    return -1;
+  return ticks >= 720;
+}
+
+int ShowLapRecordsUpdate(void)
+{
+  if (!iLapRecordsScreenActive)
+    return -1;
+  if (!ShowLapRecordsWaitComplete())
+    return 0;
+
+  scr_size = iLapRecordsSavedScreenSize;
+  if (iLapRecordsPage == 1 && (textures_off & TEX_OFF_BONUS_CUP_AVAILABLE) != 0) {
     holdmusic = -1;
     fade_palette(0);
-
-    // copy background to screen buffer
-    pScrBuf_1 = scrbuf;
-    pBlockHeader_1 = front_vga[2];
-    if ( SVGA_ON )
-      uiMemSize_1 = 256000;
-    else
-      uiMemSize_1 = 64000;
-    byMemSize_1 = uiMemSize_1;
-    uiDwordCount_1 = uiMemSize_1 >> 2;
-    memcpy(scrbuf, front_vga[2], 4 * uiDwordCount_1);
-    memcpy(&pScrBuf_1[4 * uiDwordCount_1], &pBlockHeader_1->iWidth + uiDwordCount_1, byMemSize_1 & 3);
-
-    // display records 17-24
-    iTextY_1 = 49;
-    iRecordIdx_1 = 17;
-    display_block(scrbuf, front_vga[1], 3, 142, 2, -1);
-    iArrayIdx_1 = 17;
-    szRecordName_1 = RecordNames[17];
-    iCarY2 = 46;
-    iKillIconY_1 = 45;
-
-    do
-    {
-      // display record number
-      sprintf(buffer, (uint8 *)"%02i", iRecordIdx_1);
-      front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 33, iTextY_1, 0x8Fu, 0);
-
-      iCarType_1 = RecordCars[iArrayIdx_1];
-      if ( iCarType_1 < 0 )
-      {
-        // no record set
-        sprintf(buffer, (uint8 *)"%s", szRecordName_1);
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 165, iTextY_1, 0x8Fu, 0);
-        front_text(front_vga[3], "00:00:00", font2_ascii, font2_offsets, 450, iTextY_1, 0x8Fu, 0);
-      }
-      else
-      {
-        // display record holder name
-        sprintf(buffer, (uint8 *)"%s", szRecordName_1);
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 85, iTextY_1, 0x8Fu, 0);
-
-        // display car company name
-        sprintf(buffer, (uint8 *)"%s", CompanyNames[iCarType_1 & 0xF]);
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 218, iTextY_1, 0x8Fu, 0);
-
-        // display car or cheat indicator
-        if ( (iCarType_1 & 0xFu) >= 8 )
-          front_text(front_vga[3], "CHEAT", font2_ascii, font2_offsets, 165, iTextY_1, 0x8Fu, 0);
-        else
-          display_block(scrbuf, front_vga[0], smallcars[(iCarType_1 & 0x10) != 0][iCarType_1 & 0xF], 165, iCarY2, 0);
-
-        // display kill count icon and number
-        display_block(scrbuf, front_vga[0], 9, 540, iKillIconY_1, 0);
-        sprintf(buffer, (uint8 *)"%i", RecordKills[iArrayIdx_1]);
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 560, iTextY_1, 0x8Fu, 0);
-
-        // display lap time
-        dLapTime_1 = RecordLaps[iArrayIdx_1] * 100.0;
-        //_CHP();
-        iTimeValue_1 = (int)dLapTime_1;
-        if ( (int)dLapTime_1 > 599999 )
-          iTimeValue_1 = 599999;
-
-        // display centiseconds
-        buffer[1] = iTimeValue_1 % 10 + 48;
-        iTimeTemp_1 = iTimeValue_1 / 10;
-        buffer[0] = iTimeTemp_1 % 10 + 48;
-        buffer[2] = 0;
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 492, iTextY_1, 0x8Fu, 0);
-        front_text(front_vga[3], ":", font2_ascii, font2_offsets, 467, iTextY_1, 0x8Fu, 0);
-
-        // display seconds
-        iTimeTemp_1 /= 10;
-        buffer[1] = iTimeTemp_1 % 10 + 48;
-        iTimeTemp_1 /= 10;
-        buffer[0] = iTimeTemp_1 % 6 + 48;
-        buffer[2] = 0;
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 471, iTextY_1, 0x8Fu, 0);
-        front_text(front_vga[3], ":", font2_ascii, font2_offsets, 488, iTextY_1, 0x8Fu, 0);
-
-        // display minutes
-        iTimeTemp_1 /= 6;
-        buffer[1] = iTimeTemp_1 % 10 + 48;
-        buffer[2] = 0;
-        buffer[0] = iTimeTemp_1 / 10 % 10 + 48;
-        front_text(front_vga[3], buffer, font2_ascii, font2_offsets, 450, iTextY_1, 0x8Fu, 0);
-      }
-
-      // move to next record pos
-      iTextY_1 += 22;
-      ++iArrayIdx_1;
-      ++iRecordIdx_1;
-      iCarY2 += 22;
-      iKillIconY_1 += 22;
-      szRecordName_1 += 9;
-    }
-    while ( iRecordIdx_1 < 25 );
-
-    // display second page and wait for input
-    copypic(scrbuf, screen);
-    holdmusic = -1;
-    fade_palette(32);
-    ticks = 0;
-    if ( game_type == 4 )
-    {
-      while ( !fatkbhit() )
-        UpdateSDL();
-    }
-    else
-    {
-      while ( !fatkbhit() && ticks < 720 )
-        UpdateSDL();
-    }
-    scr_size = iOldScrSize;
+    iLapRecordsPage = 2;
+    ShowLapRecordsPresentPage(17, 25);
+    return 0;
   }
 
+  return -1;
+}
+
+void ShowLapRecordsExit(void)
+{
+  if (!iLapRecordsScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[2]);
   fre((void **)&front_vga[3]);
+  scr_size = iLapRecordsSavedScreenSize;
   holdmusic = (game_type != 4) - 1;
   fade_palette(0);
   if ( game_type != 4 )
     holdmusic = 0;
+  iLapRecordsScreenActive = 0;
+  iLapRecordsPage = 0;
+}
+
+void ShowLapRecords()
+{
+  ShowLapRecordsEnter();
+  while (!ShowLapRecordsUpdate())
+    UpdateSDL();
+  ShowLapRecordsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3111,24 +3144,35 @@ void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAn
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005B490
-void championship_winner()
+static int iChampionshipWinnerActive = 0;
+static int iChampionshipWinnerCurrentFrame = 0;
+static int iChampionshipWinnerFrameTimer = 0;
+static int iChampionshipWinnerNumAnimFrames = 0;
+static int iChampionshipWinnerDuration = 0;
+
+static void ChampionshipWinnerShowFrame(void)
 {
   uint8 *pbyScreenBuffer; // edi
-  tBlockHeader *pChampImageData; // esi
-  int iCurrentFrame; // ebp
+  char *pszCurrentFrameData; // esi
   unsigned int uiBufferSize; // ecx
   char byBufferSizeRemainder; // al
   unsigned int uiDwordCopyCount; // ecx
-  int iFrameTimer; // ebx
-  uint8 *pbyAnimScreenBuf; // edi
-  char *pszCurrentFrameData; // esi
-  unsigned int uiAnimBufferSize; // ecx
-  char byAnimRemainder; // al
-  unsigned int uiAnimDwordCount; // ecx
-  int iNumAnimFrames; // [esp+0h] [ebp-20h]
-  int iDuration; // [esp+4h] [ebp-1Ch]
 
+  pbyScreenBuffer = scrbuf;
+  pszCurrentFrameData = (char *)front_vga[0] + 256000 * iChampionshipWinnerCurrentFrame;// Calculate pointer to current animation frame data
+  if (SVGA_ON)
+    uiBufferSize = 256000;
+  else
+    uiBufferSize = 64000;
+  byBufferSizeRemainder = uiBufferSize;
+  uiDwordCopyCount = uiBufferSize >> 2;
+  memcpy(scrbuf, pszCurrentFrameData, 4 * uiDwordCopyCount);// Copy current frame to screen buffer and display
+  memcpy(&pbyScreenBuffer[4 * uiDwordCopyCount], &pszCurrentFrameData[4 * uiDwordCopyCount], byBufferSizeRemainder & 3);
+  copypic(scrbuf, screen);
+}
+
+void ChampionshipWinnerEnter(void)
+{
   SVGA_ON = -1;                                 // Initialize SVGA mode and full screen window for championship victory
   init_screen();
   winx = 0;
@@ -3139,73 +3183,69 @@ void championship_winner()
   setpal("champ.pal");                          // Set championship palette and load victory image
   front_vga[0] = (tBlockHeader *)try_load_picture("champ.bm");// Try to load animated championship image, fallback to static
   if (front_vga[0]) {
-    iNumAnimFrames = 12;                        // Animated version has 12 frames
+    iChampionshipWinnerNumAnimFrames = 12;      // Animated version has 12 frames
   } else {
     front_vga[0] = (tBlockHeader *)load_picture("chump.bm");// Static fallback version has 1 frame
-    iNumAnimFrames = 1;
+    iChampionshipWinnerNumAnimFrames = 1;
   }
-  if (iNumAnimFrames != 1 && MusicVolume && MusicCard)// Set display duration: longer for animated with music, shorter otherwise
-    iDuration = 720;
+  if (iChampionshipWinnerNumAnimFrames != 1 && MusicVolume && MusicCard)// Set display duration: longer for animated with music, shorter otherwise
+    iChampionshipWinnerDuration = 720;
   else
-    iDuration = 180;
-  pbyScreenBuffer = scrbuf;
-  pChampImageData = front_vga[0];
-  iCurrentFrame = 0;                            // Copy first frame to screen buffer (optimized memory copy)
-  if (SVGA_ON)
-    uiBufferSize = 256000;
-  else
-    uiBufferSize = 64000;
-  byBufferSizeRemainder = uiBufferSize;
-  uiDwordCopyCount = uiBufferSize >> 2;
-  memcpy(scrbuf, front_vga[0], 4 * uiDwordCopyCount);
-  memcpy(&pbyScreenBuffer[4 * uiDwordCopyCount], &pChampImageData->iWidth + uiDwordCopyCount, byBufferSizeRemainder & 3);
-  copypic(scrbuf, screen);                      // Display initial frame and start championship music
-  if (SnapshotShouldStop()) {
-    fre((void **)front_vga);
+    iChampionshipWinnerDuration = 180;
+  iChampionshipWinnerCurrentFrame = 0;          // Copy first frame to screen buffer
+  iChampionshipWinnerFrameTimer = 0;
+  iChampionshipWinnerActive = -1;
+  ChampionshipWinnerShowFrame();                // Display initial frame and start championship music
+  if (SnapshotShouldStop())
     return;
-  }
-  iFrameTimer = 0;
   startmusic(winchampsong);
   enable_keyboard();
   fade_palette(32);                             // Enable input, fade in display, and initialize animation timing
   front_fade = -1;
   ticks = 0;
   frames = 1;
-  do {                                             // Main animation loop - exit on keyboard input
-    if (fatkbhit())
-      break;
-    iFrameTimer -= frames;                      // Update frame timer based on game frame rate
-    frames = 0;
-    if (iFrameTimer < 0)                      // Time to advance to next animation frame
-    {
-      pbyAnimScreenBuf = scrbuf;
-      pszCurrentFrameData = (char *)front_vga[0] + 256000 * iCurrentFrame;// Calculate pointer to current animation frame data
-      if (SVGA_ON)
-        uiAnimBufferSize = 256000;
-      else
-        uiAnimBufferSize = 64000;
-      byAnimRemainder = uiAnimBufferSize;
-      uiAnimDwordCount = uiAnimBufferSize >> 2;
-      memcpy(scrbuf, pszCurrentFrameData, 4 * uiAnimDwordCount);// Copy current frame to screen buffer and display
-      memcpy(&pbyAnimScreenBuf[4 * uiAnimDwordCount], &pszCurrentFrameData[4 * uiAnimDwordCount], byAnimRemainder & 3);
-      copypic(scrbuf, screen);
-      if (SnapshotShouldStop())
-        break;
-      do {                                         // Advance to next frame, wrap around at end of animation
-        if (++iCurrentFrame == iNumAnimFrames)
-          iCurrentFrame ^= iNumAnimFrames;      // Reset to frame 0 when reaching end of animation cycle
-        iFrameTimer += 2;                       // Add 2 ticks to frame timer for next frame timing
-        UpdateSDL();
-        if (!SnapshotShouldStop())
-          SnapshotAdvanceTick();
-      } while (iFrameTimer < 0);
-    }
-    UpdateSDL();
+}
+
+int ChampionshipWinnerUpdate(void)
+{
+  if (!iChampionshipWinnerActive)
+    return -1;
+  if (SnapshotShouldStop())
+    return -1;
+  if (fatkbhit())
+    return -1;
+
+  iChampionshipWinnerFrameTimer -= frames;       // Update frame timer based on game frame rate
+  frames = 0;
+  if (iChampionshipWinnerFrameTimer < 0) {       // Time to advance to next animation frame
+    ChampionshipWinnerShowFrame();
     if (SnapshotShouldStop())
-      break;
-    SnapshotAdvanceTick();
-  } while (ticks < iDuration);                  // Continue animation until timeout or user input
+      return -1;
+    do {                                        // Advance to next frame, wrap around at end of animation
+      if (++iChampionshipWinnerCurrentFrame == iChampionshipWinnerNumAnimFrames)
+        iChampionshipWinnerCurrentFrame ^= iChampionshipWinnerNumAnimFrames;// Reset to frame 0 when reaching end of animation cycle
+      iChampionshipWinnerFrameTimer += 2;       // Add 2 ticks to frame timer for next frame timing
+    } while (iChampionshipWinnerFrameTimer < 0);
+  }
+  SnapshotAdvanceTick();
+  return SnapshotShouldStop() || ticks >= iChampionshipWinnerDuration;
+}
+
+void ChampionshipWinnerExit(void)
+{
+  if (!iChampionshipWinnerActive)
+    return;
   fre((void **)front_vga);                      // Clean up championship image resources
+  iChampionshipWinnerActive = 0;
+}
+
+//0005B490
+void championship_winner()
+{
+  ChampionshipWinnerEnter();
+  while (!ChampionshipWinnerUpdate())
+    UpdateSDL();
+  ChampionshipWinnerExit();
 }
 
 void snapshot_render_winner_championship(void)
@@ -3495,7 +3535,32 @@ void save_champ(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 //0005B9A0
-int load_champ(int iSlot)
+static int s_iLoadChampNetworkInitPending = 0;
+
+static void load_champ_begin_network_init(void)
+{
+  network_initialise_begin(0);
+  s_iLoadChampNetworkInitPending = network_initialise_active() ? -1 : 0;
+}
+
+int load_champ_update(void)
+{
+  if (!s_iLoadChampNetworkInitPending)
+    return -1;
+
+  if (!network_initialise_update())
+    return 0;
+
+  s_iLoadChampNetworkInitPending = 0;
+  return -1;
+}
+
+int load_champ_active(void)
+{
+  return s_iLoadChampNetworkInitPending;
+}
+
+int load_champ_begin(int iSlot)
 {
   int iFileHandle; // edx
   int iFileLength; // esi
@@ -3593,6 +3658,7 @@ int load_champ(int iSlot)
   char *pszDefaultNameEnd; // [esp+10h] [ebp-20h]
   signed int iSortIndex; // [esp+14h] [ebp-1Ch]
 
+  s_iLoadChampNetworkInitPending = 0;
   iFileLength = ROLLERfilelength(save_slots[iSlot - 1]);
 
   iFileHandle = ROLLERopen(save_slots[iSlot - 1], O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
@@ -3705,7 +3771,9 @@ int load_champ(int iSlot)
       iNetType = *piStatsPointer;
       piTeamStatsPointer = piStatsPointer + 1;
       net_type = iNetType;
-      ROLLERCommsSetType(iNetType);
+      if (player_type == 1 && net_type)
+        net_type = 0;
+      ROLLERCommsSetType(net_type);
       iStatsLoop = 0;
       if (numcars > 0)                        // INDIVIDUAL STATISTICS: Load championship points, kills, fastest laps, wins for each car
       {
@@ -3971,10 +4039,7 @@ int load_champ(int iSlot)
         network_on = 0;
         net_started = 0;
       }
-      if (player_type == 1 && net_type == 1)
-        select_comport(3);
-      if (player_type == 1 && net_type == 2)
-        select_modemstuff(4);
+      ROLLERCommsSetType(net_type);
       if (network_on) {
         if (player_type == 1) {
           reset_network(0);
@@ -3983,12 +4048,22 @@ int load_champ(int iSlot)
           time_to_start = 0;
         }
       } else if (player_type == 1 && net_type != 2) {
-        Initialise_Network(0);
+        load_champ_begin_network_init();
       }
     }
     fre((void **)&pFileBuf);                    // Cleanup: Free file buffer and return success/failure status
   }
   return iChecksumOk;
+}
+
+int load_champ(int iSlot)
+{
+  int iResult = load_champ_begin(iSlot);
+
+  while (load_champ_active() && !load_champ_update())
+    UpdateSDL();
+
+  return iResult;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4062,15 +4137,8 @@ void check_saves()
         save_status[iSlotIndex].iPackedTrack = *pbyFileData;// Extract packed track info from offset 0
         save_status[iSlotIndex].iDifficulty = pbyReadBuffer[3];// Extract difficulty level from offset 3
         save_status[iSlotIndex].iPlayerType = pbyReadBuffer[5];// Extract player type from offset 5
-        byNetType = pbyReadBuffer[51];          // Get network type from offset 51
-        if (save_status[iSlotIndex].iPlayerType == 1 && byNetType)// Convert network player type based on net_type value
-        {
-          if (byNetType <= 1u) {
-            save_status[iSlotIndex].iPlayerType = 3;// net_type 0 or 1 = Network player (type 3)
-          } else if (byNetType == 2) {
-            save_status[iSlotIndex].iPlayerType = 4;// net_type 2 = Modem player (type 4)
-          }
-        }
+        byNetType = pbyReadBuffer[51];          // Legacy serial/modem saves now display as plain Network.
+        (void)byNetType;
       } else {
         save_status[iSlotIndex].iSlotUsed = 0;  // Mark slot as empty if file size is invalid
       }
@@ -4081,8 +4149,11 @@ void check_saves()
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iResultRoundUpScreenActive = 0;
+static int iResultRoundUpSavedScreenSize = 0;
+
 //0005C180
-void ResultRoundUp()
+void ResultRoundUpEnter(void)
 {
   uint8 *pbyScreenBuffer; // edi
   tBlockHeader *pBackgroundImage; // esi
@@ -4107,7 +4178,6 @@ void ResultRoundUp()
   int iP2NameYPos; // edi
   int iP2StatsYPos; // edi
   double dP2BestTime; // st7
-  int iOriginalScrSize; // [esp+0h] [ebp-28h]
   int iP2Time1; // [esp+4h] [ebp-24h]
   int iP2Time2; // [esp+4h] [ebp-24h]
   int iP1Time1; // [esp+8h] [ebp-20h]
@@ -4116,7 +4186,7 @@ void ResultRoundUp()
   int iLapTime2; // [esp+Ch] [ebp-1Ch]
 
   tick_on = 0;                                  // Initialize race results screen display
-  iOriginalScrSize = scr_size;
+  iResultRoundUpSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("resround.pal");
@@ -4278,86 +4348,188 @@ void ResultRoundUp()
   startmusic(leaderboardsong);
   fade_palette(32);
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
-    UpdateSDL();
+  iResultRoundUpScreenActive = -1;
+}
+
+int ResultRoundUpUpdate(void)
+{
+  if (!iResultRoundUpScreenActive)
+    return -1;
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
+
+void ResultRoundUpExit(void)
+{
+  if (!iResultRoundUpScreenActive)
+    return;
   fre((void **)&front_vga[2]);                  // Clean up resources and restore screen settings
   fre((void **)&front_vga[1]);
   fre((void **)front_vga);
-  scr_size = iOriginalScrSize;
+  scr_size = iResultRoundUpSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iResultRoundUpScreenActive = 0;
+}
+
+void ResultRoundUp()
+{
+  ResultRoundUpEnter();
+  while (!ResultRoundUpUpdate())
+    UpdateSDL();
+  ResultRoundUpExit();
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005CB20
-void RollCredits()
+typedef enum {
+  eROLL_CREDITS_PHASE_INACTIVE = 0,
+  eROLL_CREDITS_PHASE_TITLE,
+  eROLL_CREDITS_PHASE_INITIAL_WAIT,
+  eROLL_CREDITS_PHASE_CARD_WAIT,
+  eROLL_CREDITS_PHASE_DONE
+} eRollCreditsPhase;
+
+static eRollCreditsPhase eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
+static int iRollCreditsCurrImageIdx = 0;
+static int iRollCreditsOrderIdx = 0;
+static int iRollCreditsImagesLoaded = 0;
+
+static void RollCreditsShowCurrentCard(void)
 {
-  int iCurrImageIdx; // edi
-  int iCreditOrderIdx; // esi
   int iBlockIdx; // ecx
   tBlockHeader *pCurrImage; // ebp
   int64 llBlockHeight; // rax
+
+  iBlockIdx = credit_order[iRollCreditsOrderIdx];
+  if ( iBlockIdx < 0 )
+  {
+    if ( iBlockIdx == -3 )
+      --iRollCreditsCurrImageIdx;
+    else
+      ++iRollCreditsCurrImageIdx;
+    iBlockIdx = credit_order[++iRollCreditsOrderIdx];
+  }
+  memset(scrbuf, 0, 0x3E800u);
+  pCurrImage = front_vga[iRollCreditsCurrImageIdx];
+  llBlockHeight = pCurrImage[iBlockIdx].iHeight;
+  display_block(scrbuf, pCurrImage, iBlockIdx, XMAX / 2 - pCurrImage[iBlockIdx].iWidth / 2, YMAX / 2 - (int)llBlockHeight / 2, -1);
+  copypic(scrbuf, screen);
+  fade_palette(32);
+  ticks = 0;
+}
+
+//0005CB20
+void RollCreditsEnter(void)
+{
+  frontend_title_screen_enter();
+  eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_TITLE;
+  iRollCreditsCurrImageIdx = 0;
+  iRollCreditsOrderIdx = 0;
+  iRollCreditsImagesLoaded = 0;
+}
+
+int RollCreditsUpdate(void)
+{
   int i; // eax
 
-  title_screens();
-  ticks = 0;
-  frontend_on = -1;
-  tick_on = -1;
-  front_vga[0] = (tBlockHeader *)load_picture("credit1.bm");
-  front_vga[1] = (tBlockHeader *)load_picture("credit2.bm");
-  while ( ticks < 108 )
-    UpdateSDL();
-  fade_palette(0);
-  iCurrImageIdx = 0;
-  iCreditOrderIdx = 0;
-  setpal("credit1.pal");
-  do
-  {
-    iBlockIdx = credit_order[iCreditOrderIdx];
-    if ( iBlockIdx < 0 )
-    {
-      if ( iBlockIdx == -3 )
-        --iCurrImageIdx;
-      else
-        ++iCurrImageIdx;
-      iBlockIdx = credit_order[++iCreditOrderIdx];
-    }
-    memset(scrbuf, 0, 0x3E800u);
-    pCurrImage = front_vga[iCurrImageIdx];
-    llBlockHeight = pCurrImage[iBlockIdx].iHeight;
-    display_block(scrbuf, pCurrImage, iBlockIdx, XMAX / 2 - pCurrImage[iBlockIdx].iWidth / 2, YMAX / 2 - (int)llBlockHeight / 2, -1);
-    copypic(scrbuf, screen);
-    fade_palette(32);
-    ticks = 0;
-    do
-    {
+  switch (eRollCreditsPhaseCurrent) {
+    case eROLL_CREDITS_PHASE_TITLE:
+      if (!frontend_title_screen_update())
+        return 0;
+      frontend_title_screen_exit();
+      ticks = 0;
+      frontend_on = -1;
+      tick_on = -1;
+      front_vga[0] = (tBlockHeader *)load_picture("credit1.bm");
+      front_vga[1] = (tBlockHeader *)load_picture("credit2.bm");
+      iRollCreditsImagesLoaded = -1;
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INITIAL_WAIT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_INITIAL_WAIT:
+      if (ticks < 108)
+        return 0;
+      fade_palette(0);
+      iRollCreditsCurrImageIdx = 0;
+      iRollCreditsOrderIdx = 0;
+      setpal("credit1.pal");
+      RollCreditsShowCurrentCard();
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_WAIT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_CARD_WAIT:
       while ( fatkbhit() )
       {
         ticks = 74;
         if ( !fatgetch() )
           fatgetch();
-        for ( i = iCreditOrderIdx; credit_order[i] != -2; ++i )
-          ++iCreditOrderIdx;
-        UpdateSDL();
+        for ( i = iRollCreditsOrderIdx; credit_order[i] != -2; ++i )
+          ++iRollCreditsOrderIdx;
       }
-      UpdateSDL();
-    }
-    while ( ticks < 72 );
-    if ( credit_order[iCreditOrderIdx] != -2 )
-      ++iCreditOrderIdx;
-    if ( credit_order[iCreditOrderIdx] == -2 )
-      holdmusic = 0;
-    fade_palette(0);
+      if (ticks < 72)
+        return 0;
+      if ( credit_order[iRollCreditsOrderIdx] != -2 )
+        ++iRollCreditsOrderIdx;
+      if ( credit_order[iRollCreditsOrderIdx] == -2 )
+        holdmusic = 0;
+      fade_palette(0);
+      if ( credit_order[iRollCreditsOrderIdx] == -2 ) {
+        eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_DONE;
+        return -1;
+      }
+      RollCreditsShowCurrentCard();
+      return 0;
+
+    case eROLL_CREDITS_PHASE_DONE:
+      return -1;
+
+    default:
+      return -1;
   }
-  while ( credit_order[iCreditOrderIdx] != -2 );
-  fre((void **)&front_vga[0]);
-  fre((void **)&front_vga[1]);
+}
+
+void RollCreditsExit(void)
+{
+  if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_INACTIVE)
+    return;
+  if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_TITLE)
+    frontend_title_screen_exit();
+  if (iRollCreditsImagesLoaded) {
+    fre((void **)&front_vga[0]);
+    fre((void **)&front_vga[1]);
+  }
   front_fade = 0;
+  eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
+  iRollCreditsImagesLoaded = 0;
+}
+
+void RollCredits()
+{
+  RollCreditsEnter();
+  while (!RollCreditsUpdate())
+    UpdateSDL();
+  RollCreditsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005CCE0
-void ChampionshipOver()
+typedef enum {
+  eCHAMPIONSHIP_OVER_PHASE_INACTIVE = 0,
+  eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER,
+  eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT,
+  eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE,
+  eCHAMPIONSHIP_OVER_PHASE_CREDITS,
+  eCHAMPIONSHIP_OVER_PHASE_DONE
+} eChampionshipOverPhase;
+
+static eChampionshipOverPhase eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+static int iChampionshipOverSavedScreenSize = 0;
+static int iChampionshipOverResultScreenActive = 0;
+static int iChampionshipOverChampionPreludeDone = 0;
+
+static int ChampionshipOverBestPosition(void)
 {
   signed int iPlayer1Position; // edx
   int iP1SearchIndex; // eax
@@ -4365,12 +4537,6 @@ void ChampionshipOver()
   signed int iPlayer2Position; // edx
   int iP2SearchIndex; // eax
   int iCurrentP2Entry; // ebx
-  uint8 *pbyScreenBuffer; // edi
-  char *pszTitleImageData; // esi
-  unsigned int uiBufferSize; // ecx
-  char byBufferSizeRemainder; // al
-  unsigned int uiDwordCopyCount; // ecx
-  int id; // [esp+0h] [ebp-20h]
   signed int iBestPos; // [esp+4h] [ebp-1Ch]
 
   iPlayer1Position = 0;                         // Initialize championship analysis and disable network championship mode
@@ -4397,13 +4563,45 @@ void ChampionshipOver()
     if (iPlayer2Position < iBestPos)                // Use the better position between both players
       iBestPos = iPlayer2Position;
   }
-  if (!iBestPos)                                    // If player won championship (position 0), show victory sequence
+
+  return iBestPos;
+}
+
+static void ChampionshipOverReleaseResultScreen(void)
+{
+  if (!iChampionshipOverResultScreenActive)
+    return;
+
+  fre(&title_vga);                              // Clean up resources and restore screen settings
+  fre(&font_vga);
+  fre((void **)front_vga);
+  scr_size = iChampionshipOverSavedScreenSize;
+  iChampionshipOverResultScreenActive = 0;
+}
+
+//0005CCE0
+static void ChampionshipOverStart(void)
+{
+  uint8 *pbyScreenBuffer; // edi
+  char *pszTitleImageData; // esi
+  unsigned int uiBufferSize; // ecx
+  char byBufferSizeRemainder; // al
+  unsigned int uiDwordCopyCount; // ecx
+  signed int iBestPos; // [esp+4h] [ebp-1Ch]
+
+  eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+  iChampionshipOverResultScreenActive = 0;
+  iBestPos = ChampionshipOverBestPosition();
+
+  if (!iBestPos && !iChampionshipOverChampionPreludeDone) // If player won championship (position 0), show victory sequence
   {
-    championship_winner();
-    champion_race();
+    iChampionshipOverChampionPreludeDone = -1;
+    ChampionshipWinnerEnter();
+    eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER;
+    return;
   }
   tick_on = 0;                                  // Initialize screen for championship results display
-  id = scr_size;
+  iChampionshipOverSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("resround.pal");
@@ -4449,113 +4647,262 @@ void ChampionshipOver()
         Race = 0;
       }
     }
-    goto LABEL_36;
-  }
-  front_text((tBlockHeader *)font_vga, &language_buffer[4096], font4_ascii, font4_offsets, 320, 64, 0x8Fu, 1u);// Championship winner - display congratulations
-  if (Race == 8)                              // Handle completion rewards and progression
-  {                                             // Unlock texture quality improvements for winning championship
-    if (level < 4)
-      textures_off |= TEX_OFF_PREMIER_CUP_AVAILABLE;
-    if (level < 2) {
-      textures_off |= TEX_OFF_CAR_SET_AVAILABLE;
-      //uiTextureSettings = textures_off;
-      //BYTE1(uiTextureSettings) = BYTE1(textures_off) | 0x80;
-      //textures_off = uiTextureSettings;
-    }
-  }
-  if (TrackLoad < 17 && level < 4)            // Determine next level progression or reset
-  {                                             // Continue in same track group at higher difficulties
-    if (level > 0) {
-      front_text((tBlockHeader *)font_vga, &language_buffer[4480], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
-      goto LABEL_30;
-    }
   } else {
-    TrackLoad = 17;                             // Reset to first track group and decrease difficulty if at higher levels
-    if (level > 0) {
-      if (Race == 8)
-        --level;
-      front_text((tBlockHeader *)font_vga, &language_buffer[4416], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
-      goto LABEL_30;
+    front_text((tBlockHeader *)font_vga, &language_buffer[4096], font4_ascii, font4_offsets, 320, 64, 0x8Fu, 1u);// Championship winner - display congratulations
+    if (Race == 8)                              // Handle completion rewards and progression
+    {                                             // Unlock texture quality improvements for winning championship
+      if (level < 4)
+        textures_off |= TEX_OFF_PREMIER_CUP_AVAILABLE;
+      if (level < 2) {
+        textures_off |= TEX_OFF_CAR_SET_AVAILABLE;
+        //uiTextureSettings = textures_off;
+        //BYTE1(uiTextureSettings) = BYTE1(textures_off) | 0x80;
+        //textures_off = uiTextureSettings;
+      }
     }
+    if (TrackLoad < 17 && level < 4)            // Determine next level progression or reset
+    {                                             // Continue in same track group at higher difficulties
+      if (level > 0) {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4480], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
+      } else {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
+      }
+    } else {
+      TrackLoad = 17;                             // Reset to first track group and decrease difficulty if at higher levels
+      if (level > 0) {
+        if (Race == 8)
+          --level;
+        front_text((tBlockHeader *)font_vga, &language_buffer[4416], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
+      } else {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
+      }
+    }
+    if (Race == 8)                              // Reset race counter after completing championship
+      Race = 0;
   }
-  front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
-LABEL_30:
-  if (Race == 8)                              // Reset race counter after completing championship
-    Race = 0;
-LABEL_36:
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
   fade_palette(32);
-  if (g_bSnapshotMode) {
-    while (!SnapshotShouldStop() && g_SnapshotConfig.iPresentFrame < g_SnapshotConfig.iMaxFrame) {
-      UpdateSDLWindow();
-      if (!SnapshotShouldStop())
+  iChampionshipOverResultScreenActive = -1;
+  eChampionshipOverPhaseCurrent = g_bSnapshotMode
+    ? eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT
+    : eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
+  if (!g_bSnapshotMode)
+    ticks = 0;
+}
+
+void ChampionshipOverEnter(void)
+{
+  iChampionshipOverChampionPreludeDone = 0;
+  ChampionshipOverStart();
+}
+
+int ChampionshipOverUpdate(void)
+{
+  switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER:
+      if (!ChampionshipWinnerUpdate())
+        return 0;
+      ChampionshipWinnerExit();
+      champion_race_enter();
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
+      if (!champion_race_update())
+        return 0;
+      champion_race_exit();
+      ChampionshipOverStart();
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
+      if (SnapshotShouldStop()) {
+        ChampionshipOverReleaseResultScreen();
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      if (g_SnapshotConfig.iPresentFrame < g_SnapshotConfig.iMaxFrame) {
+        UpdateSDLWindow();
+        if (!SnapshotShouldStop())
+          SnapshotAdvanceTick();
+        return 0;
+      }
+      ticks = 0;
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
+      if (SnapshotShouldStop()) {
+        ChampionshipOverReleaseResultScreen();
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      if (!fatkbhit() && ticks < 2160) {
         SnapshotAdvanceTick();
-    }
+        return 0;
+      }
+      ChampionshipOverReleaseResultScreen();
+      if (SnapshotShouldStop()) {
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      fade_palette(0);
+      if (SnapshotShouldStop()) {
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      EndChampSequenceEnter();                  // Run championship end sequence and credits
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE:
+      if (!EndChampSequenceUpdate())
+        return 0;
+      EndChampSequenceExit();
+      RollCreditsEnter();
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CREDITS;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_CREDITS:
+      if (!RollCreditsUpdate())
+        return 0;
+      RollCreditsExit();
+      if (TrackLoad >= 17)                        // Reset track selection if at maximum
+        TrackLoad = 1;
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+      return -1;
+
+    case eCHAMPIONSHIP_OVER_PHASE_DONE:
+      return -1;
+
+    default:
+      return -1;
   }
-  ticks = 0;
-  while (!fatkbhit() && ticks < 2160) {
-    UpdateSDL();
-    if (SnapshotShouldStop())
+}
+
+void ChampionshipOverExit(void)
+{
+  switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER:
+      ChampionshipWinnerExit();
       break;
-    SnapshotAdvanceTick();
+
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
+      champion_race_exit();
+      break;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
+      ChampionshipOverReleaseResultScreen();
+      break;
+
+    case eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE:
+      EndChampSequenceExit();
+      break;
+
+    case eCHAMPIONSHIP_OVER_PHASE_CREDITS:
+      RollCreditsExit();
+      break;
+
+    default:
+      break;
   }
-  fre(&title_vga);                              // Clean up resources and show end sequence
-  fre(&font_vga);
-  fre((void **)front_vga);
-  scr_size = id;
-  if (SnapshotShouldStop())
-    return;
-  fade_palette(0);
-  if (SnapshotShouldStop())
-    return;
-  EndChampSequence();                           // Run championship end sequence and credits
-  RollCredits();
-  if (TrackLoad >= 17)                        // Reset track selection if at maximum
-    TrackLoad = 1;
+
+  eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+  iChampionshipOverResultScreenActive = 0;
+  iChampionshipOverChampionPreludeDone = 0;
+}
+
+void ChampionshipOverDraw(void)
+{
+  if (eChampionshipOverPhaseCurrent == eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE)
+    champion_race_draw();
+}
+
+void ChampionshipOver()
+{
+  ChampionshipOverEnter();
+  while (!ChampionshipOverUpdate())
+    UpdateSDL();
+  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005D180
-void EndChampSequence()
+static int iEndChampSequenceActive = 0;
+static int iEndChampSequenceImageIndex = 0;
+
+static void EndChampSequenceShowCurrentImage(void)
 {
-  int iImageIndex; // esi
   int iRandomValue; // eax
   int iRandomYPosition; // eax
 
+  setpal(round_pals[iEndChampSequenceImageIndex]);            // Set palette for current championship image
+  memset(scrbuf, 0, 0x3E800u);                // Clear screen buffer (320x200 = 0x3E800 bytes)
+  iRandomValue = ROLLERrandRaw();                      // Generate random position for image display
+  iRandomYPosition = 300 * GetHighOrderRand(5, iRandomValue);
+  //iRandomYPosition = 300 * ((5 * iRandomValue - (__CFSHL__((5 * iRandomValue) >> 31, 15) + ((5 * iRandomValue) >> 31 << 15))) >> 15);// Calculate random Y position using complex modulo arithmetic
+  display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
+  //display_block(scrbuf, front_vga[0], 0, (iRandomYPosition - (__CFSHL__(iRandomYPosition >> 31, 2) + 4 * (iRandomYPosition >> 31))) >> 2, 0, -1);// Display championship image at random Y position, centered horizontally
+  copypic(scrbuf, screen);                    // Copy buffer to screen and fade in
+  fade_palette(32);
+  ticks = 0;                                  // Reset timing for image display duration
+  if (++iEndChampSequenceImageIndex < 8)                    // Advance to next image if not at end of sequence
+  {
+    fre((void **)front_vga);                  // Free current image and load next championship image
+    front_vga[0] = (tBlockHeader *)load_picture(round_pics[iEndChampSequenceImageIndex]);
+  }
+}
+
+//0005D180
+void EndChampSequenceEnter(void)
+{
   ticks = 0;                                    // Initialize championship end sequence timing and modes
   frontend_on = -1;
   tick_on = -1;
-  iImageIndex = 0;                              // Start with first championship image (index 0)
+  iEndChampSequenceImageIndex = 0;              // Start with first championship image (index 0)
   front_vga[0] = (tBlockHeader *)load_picture(round_pics[0]);// Load the first championship sequence image
-  do {
-    setpal(round_pals[iImageIndex]);            // Set palette for current championship image
-    memset(scrbuf, 0, 0x3E800u);                // Clear screen buffer (320x200 = 0x3E800 bytes)
-    iRandomValue = ROLLERrandRaw();                      // Generate random position for image display
-    iRandomYPosition = 300 * GetHighOrderRand(5, iRandomValue);
-    //iRandomYPosition = 300 * ((5 * iRandomValue - (__CFSHL__((5 * iRandomValue) >> 31, 15) + ((5 * iRandomValue) >> 31 << 15))) >> 15);// Calculate random Y position using complex modulo arithmetic
-    display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
-    //display_block(scrbuf, front_vga[0], 0, (iRandomYPosition - (__CFSHL__(iRandomYPosition >> 31, 2) + 4 * (iRandomYPosition >> 31))) >> 2, 0, -1);// Display championship image at random Y position, centered horizontally
-    copypic(scrbuf, screen);                    // Copy buffer to screen and fade in
-    fade_palette(32);
-    ticks = 0;                                  // Reset timing for image display duration
-    if (++iImageIndex < 8)                    // Advance to next image if not at end of sequence
-    {
-      fre((void **)front_vga);                  // Free current image and load next championship image
-      front_vga[0] = (tBlockHeader *)load_picture(round_pics[iImageIndex]);
-    }
-    do {                                           // Check for user input to skip sequence
-      if (fatkbhit()) {
-        iImageIndex = 8;                        // Skip to end of sequence and set timeout on key press
-        if (!fatgetch())
-          fatgetch();
-        ticks = 144;                            // Set timeout to 144 ticks for image display
-      }
-      UpdateSDL();
-    } while (ticks < 144);                      // Wait for display timeout (144 ticks) or user input
-    fade_palette(0);                            // Fade out current image before next iteration
-  } while (iImageIndex < 8);                    // Continue sequence until all 8 championship images shown
+  iEndChampSequenceActive = -1;
+  EndChampSequenceShowCurrentImage();
+}
+
+int EndChampSequenceUpdate(void)
+{
+  if (!iEndChampSequenceActive)
+    return -1;
+
+  // Check for user input to skip sequence
+  if (fatkbhit()) {
+    iEndChampSequenceImageIndex = 8;            // Skip to end of sequence and set timeout on key press
+    if (!fatgetch())
+      fatgetch();
+    ticks = 144;                                // Set timeout to 144 ticks for image display
+  }
+  if (ticks < 144)
+    return 0;
+
+  fade_palette(0);                              // Fade out current image before next iteration
+  if (iEndChampSequenceImageIndex >= 8)
+    return -1;
+
+  EndChampSequenceShowCurrentImage();
+  return 0;
+}
+
+void EndChampSequenceExit(void)
+{
+  if (!iEndChampSequenceActive)
+    return;
   fre((void **)front_vga);                      // Clean up resources and reset fade state
   front_fade = 0;
+  iEndChampSequenceActive = 0;
+  iEndChampSequenceImageIndex = 0;
+}
+
+void EndChampSequence()
+{
+  EndChampSequenceEnter();
+  while (!EndChampSequenceUpdate())
+    UpdateSDL();
+  EndChampSequenceExit();
 }
 
 //-------------------------------------------------------------------------------------------------

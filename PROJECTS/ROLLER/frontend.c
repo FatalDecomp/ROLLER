@@ -37,17 +37,32 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
-  [eFRONTEND_STATE_WINNER_SCREEN] = { NULL, frontend_winner_screen_update, NULL, NULL },
-  [eFRONTEND_STATE_WINNER_RACE] = { NULL, frontend_winner_race_update, NULL, NULL },
-  [eFRONTEND_STATE_RESULT_ROUNDUP] = { NULL, frontend_result_roundup_update, NULL, NULL },
-  [eFRONTEND_STATE_RACE_RESULT] = { NULL, frontend_race_result_update, NULL, NULL },
-  [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
-  [eFRONTEND_STATE_TEAM_STANDINGS] = { NULL, frontend_team_standings_update, NULL, NULL },
-  [eFRONTEND_STATE_LAP_RECORDS] = { NULL, frontend_lap_records_update, NULL, NULL },
-  [eFRONTEND_STATE_TIME_TRIAL_RESULTS] = { NULL, frontend_time_trial_results_update, NULL, NULL },
-  [eFRONTEND_STATE_CHAMPIONSHIP_OVER] = { NULL, frontend_championship_over_update, NULL, NULL },
-  [eFRONTEND_STATE_CREDITS] = { NULL, frontend_credits_update, NULL, NULL },
+  [eFRONTEND_STATE_WINNER_SCREEN] = {
+    frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
+  [eFRONTEND_STATE_WINNER_RACE] = {
+    frontend_winner_race_enter, frontend_winner_race_update, race_draw,
+    frontend_winner_race_exit },
+  [eFRONTEND_STATE_RESULT_ROUNDUP] = {
+    frontend_result_roundup_enter, frontend_result_roundup_update, NULL, frontend_result_roundup_exit },
+  [eFRONTEND_STATE_RACE_RESULT] = {
+    frontend_race_result_enter, frontend_race_result_update, NULL, frontend_race_result_exit },
+  [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = {
+    frontend_championship_standings_enter, frontend_championship_standings_update, NULL,
+    frontend_championship_standings_exit },
+  [eFRONTEND_STATE_TEAM_STANDINGS] = {
+    frontend_team_standings_enter, frontend_team_standings_update, NULL, frontend_team_standings_exit },
+  [eFRONTEND_STATE_LAP_RECORDS] = {
+    frontend_lap_records_enter, frontend_lap_records_update, NULL, frontend_lap_records_exit },
+  [eFRONTEND_STATE_TIME_TRIAL_RESULTS] = {
+    frontend_time_trial_results_enter, frontend_time_trial_results_update, NULL,
+    frontend_time_trial_results_exit },
+  [eFRONTEND_STATE_CHAMPIONSHIP_OVER] = {
+    frontend_championship_over_enter, frontend_championship_over_update,
+    frontend_championship_over_draw,
+    frontend_championship_over_exit },
+  [eFRONTEND_STATE_CREDITS] = { frontend_credits_enter, frontend_credits_update, NULL, frontend_credits_exit },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
+  [eFRONTEND_STATE_SHUTDOWN] = { frontend_shutdown_enter, frontend_shutdown_update, NULL, NULL },
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -60,19 +75,39 @@ static int frontend_state_is_valid(eFrontendState eState)
 
 //-------------------------------------------------------------------------------------------------
 
-void frontend_set_state(eFrontendState eState)
+static eFrontendState frontend_resolve_state(eFrontendState eState)
 {
   if (!frontend_state_is_valid(eState))
-    eState = eFRONTEND_STATE_NONE;
+    return eFRONTEND_STATE_NONE;
+
+  if (eState == eFRONTEND_STATE_QUIT && !frontend_shutdown_complete())
+    return eFRONTEND_STATE_SHUTDOWN;
+
+  return eState;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_exit_state(eFrontendState eState)
+{
+  if (frontend_state_is_valid(eState) && aScreens[eState].pfnExit)
+    aScreens[eState].pfnExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_set_state(eFrontendState eState)
+{
+  eState = frontend_resolve_state(eState);
 
   if (eState == eFrontendCurrentState) {
     eFrontendNextState = eState;
     return;
   }
 
-  if (frontend_state_is_valid(eFrontendCurrentState) &&
-      aScreens[eFrontendCurrentState].pfnExit)
-    aScreens[eFrontendCurrentState].pfnExit();
+  frontend_exit_state(eFrontendCurrentState);
+  while (iOverlayStackTop > 0)
+    frontend_exit_state(aOverlayStack[--iOverlayStackTop]);
 
   eFrontendCurrentState = eState;
   eFrontendNextState = eState;

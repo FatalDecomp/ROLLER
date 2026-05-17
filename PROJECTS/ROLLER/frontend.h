@@ -46,6 +46,7 @@ typedef enum {
   eFRONTEND_STATE_CHAMPIONSHIP_OVER,
   eFRONTEND_STATE_CREDITS,
   eFRONTEND_STATE_OPTIONS,
+  eFRONTEND_STATE_SHUTDOWN,
   eFRONTEND_STATE_QUIT
 } eFrontendState;
 
@@ -74,16 +75,37 @@ void frontend_title_enter(void);
 void frontend_title_update(void);
 void frontend_title_exit(void);
 void frontend_results_update(void);
+void frontend_winner_screen_enter(void);
 void frontend_winner_screen_update(void);
+void frontend_winner_screen_exit(void);
+void frontend_winner_race_enter(void);
 void frontend_winner_race_update(void);
+void frontend_winner_race_exit(void);
+void frontend_result_roundup_enter(void);
 void frontend_result_roundup_update(void);
+void frontend_result_roundup_exit(void);
+void frontend_race_result_enter(void);
 void frontend_race_result_update(void);
+void frontend_race_result_exit(void);
+void frontend_championship_standings_enter(void);
 void frontend_championship_standings_update(void);
+void frontend_championship_standings_exit(void);
+void frontend_team_standings_enter(void);
 void frontend_team_standings_update(void);
+void frontend_team_standings_exit(void);
+void frontend_lap_records_enter(void);
 void frontend_lap_records_update(void);
+void frontend_lap_records_exit(void);
+void frontend_time_trial_results_enter(void);
 void frontend_time_trial_results_update(void);
+void frontend_time_trial_results_exit(void);
+void frontend_championship_over_enter(void);
 void frontend_championship_over_update(void);
+void frontend_championship_over_draw(void);
+void frontend_championship_over_exit(void);
+void frontend_credits_enter(void);
 void frontend_credits_update(void);
+void frontend_credits_exit(void);
 void frontend_title_screen_enter(void);
 int frontend_title_screen_update(void);
 void frontend_title_screen_exit(void);
@@ -109,6 +131,9 @@ void frontend_lobby_enter(void);
 void frontend_lobby_update(void);
 void frontend_lobby_exit(void);
 void frontend_main_menu_prepare_race_start(void);
+void frontend_shutdown_enter(void);
+void frontend_shutdown_update(void);
+int frontend_shutdown_complete(void);
 
 //-------------------------------------------------------------------------------------------------
 

@@ -767,7 +767,8 @@ void UpdateSDL()
     UpdateSDLAudioEvents(e);
     if (e.type == SDL_EVENT_QUIT) {
       quit_game = 1;
-      doexit();
+      eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+      continue;
     }
     debug_overlay_handle_event(s_pDebugOverlay, &e);
 
