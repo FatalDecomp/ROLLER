@@ -2192,18 +2192,34 @@ static void frontend_after_championship_lap_records(void)
   }
 }
 
+static void frontend_run_game_loop(void);
+
+int main_loop_iteration(void)
+{
+  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    eFrontendNextState = eFRONTEND_STATE_QUIT;
+
+  if (eFrontendCurrentState == eFRONTEND_STATE_QUIT &&
+      eFrontendNextState == eFRONTEND_STATE_QUIT)
+    return 0;
+
+  UpdateSDL();
+
+  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    eFrontendNextState = eFRONTEND_STATE_QUIT;
+
+  frontend_update();
+
+  return eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game;
+}
+
 static void frontend_run_game_loop(void)
 {
   VIEWDIST = 270;
   frontend_set_state(eFRONTEND_STATE_MAIN_MENU);
 
-  while (eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game) {
-    UpdateSDL();
-    frontend_update();
+  while (main_loop_iteration()) {
   }
-
-  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
-    frontend_set_state(eFRONTEND_STATE_QUIT);
 }
 
 void frontend_loading_enter(void)
@@ -2757,12 +2773,11 @@ void play_game(int iTrack)
   race_set_track(iTrack);
   frontend_set_state(eFRONTEND_STATE_RACING);
 
-  while (eFrontendCurrentState == eFRONTEND_STATE_RACING ||
-         eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
-         eFrontendNextState == eFRONTEND_STATE_RACING ||
-         eFrontendNextState == eFRONTEND_STATE_PAUSE_OVERLAY) {
-    UpdateSDL();
-    frontend_update();
+  while ((eFrontendCurrentState == eFRONTEND_STATE_RACING ||
+          eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+          eFrontendNextState == eFRONTEND_STATE_RACING ||
+          eFrontendNextState == eFRONTEND_STATE_PAUSE_OVERLAY) &&
+         main_loop_iteration()) {
   }
 
   // Legacy callers use play_game() synchronously and own their post-race flow.

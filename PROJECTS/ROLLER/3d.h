@@ -426,6 +426,7 @@ void firework_screen();
 void updatescreen();
 void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyImmediately, int iChaseCamIdx);
 int main(int argc, const char **argv, const char **envp);
+int main_loop_iteration(void);
 void play_game_init();
 void play_game_uninit();
 void winner_race();
