@@ -2141,6 +2141,7 @@ static int iFrontendGameFlags = 0;
 static eFrontendPostRaceFlow eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
 static int iFrontendPostRaceCleanup = 0;
 static int iFrontendTimeTrialCarIdx = 0;
+static int iFrontendTimeTrialScreenActive = 0;
 
 static int frontend_should_show_winner_screen(void)
 {
@@ -2165,6 +2166,8 @@ static void frontend_finish_post_race_sequence(void)
   eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_NONE;
   iFrontendPostRaceCleanup = 0;
   iFrontendTimeTrialCarIdx = 0;
+  iFrontendTimeTrialScreenActive = 0;
+  iFrontendTimeTrialScreenActive = 0;
   eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
 }
 
@@ -2415,7 +2418,8 @@ void frontend_race_result_exit(void)
 
 void frontend_championship_standings_update(void)
 {
-  ChampionshipStandings();
+  if (!ChampionshipStandingsUpdate())
+    return;
   if (frontend_should_show_team_standings()) {
     eFrontendNextState = eFRONTEND_STATE_TEAM_STANDINGS;
   } else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
@@ -2426,11 +2430,22 @@ void frontend_championship_standings_update(void)
   }
 }
 
+void frontend_championship_standings_enter(void)
+{
+  ChampionshipStandingsEnter();
+}
+
+void frontend_championship_standings_exit(void)
+{
+  ChampionshipStandingsExit();
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void frontend_team_standings_update(void)
 {
-  TeamStandings();
+  if (!TeamStandingsUpdate())
+    return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
     eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
   } else {
@@ -2439,11 +2454,22 @@ void frontend_team_standings_update(void)
   }
 }
 
+void frontend_team_standings_enter(void)
+{
+  TeamStandingsEnter();
+}
+
+void frontend_team_standings_exit(void)
+{
+  TeamStandingsExit();
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void frontend_lap_records_update(void)
 {
-  ShowLapRecords();
+  if (!ShowLapRecordsUpdate())
+    return;
   switch (eFrontendPostRaceCurrentFlow) {
     case eFRONTEND_POST_RACE_CHAMPIONSHIP:
       frontend_after_championship_lap_records();
@@ -2461,18 +2487,49 @@ void frontend_lap_records_update(void)
   }
 }
 
+void frontend_lap_records_enter(void)
+{
+  ShowLapRecordsEnter();
+}
+
+void frontend_lap_records_exit(void)
+{
+  ShowLapRecordsExit();
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void frontend_time_trial_results_update(void)
 {
+  if (iFrontendTimeTrialScreenActive) {
+    if (!TimeTrialsUpdate())
+      return;
+    TimeTrialsExit();
+    iFrontendTimeTrialScreenActive = 0;
+  }
+
   while (iFrontendTimeTrialCarIdx < numcars) {
     int iCarIdx = iFrontendTimeTrialCarIdx++;
     if (human_control[iCarIdx] && (char)Car[iCarIdx].byLap > 1) {
-      TimeTrials(iCarIdx);
+      TimeTrialsEnter(iCarIdx);
+      iFrontendTimeTrialScreenActive = -1;
       return;
     }
   }
   eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+}
+
+void frontend_time_trial_results_enter(void)
+{
+  iFrontendTimeTrialScreenActive = 0;
+}
+
+void frontend_time_trial_results_exit(void)
+{
+  if (iFrontendTimeTrialScreenActive) {
+    TimeTrialsExit();
+    iFrontendTimeTrialScreenActive = 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------

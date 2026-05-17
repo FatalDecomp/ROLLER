@@ -43,10 +43,16 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
     frontend_result_roundup_enter, frontend_result_roundup_update, NULL, frontend_result_roundup_exit },
   [eFRONTEND_STATE_RACE_RESULT] = {
     frontend_race_result_enter, frontend_race_result_update, NULL, frontend_race_result_exit },
-  [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
-  [eFRONTEND_STATE_TEAM_STANDINGS] = { NULL, frontend_team_standings_update, NULL, NULL },
-  [eFRONTEND_STATE_LAP_RECORDS] = { NULL, frontend_lap_records_update, NULL, NULL },
-  [eFRONTEND_STATE_TIME_TRIAL_RESULTS] = { NULL, frontend_time_trial_results_update, NULL, NULL },
+  [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = {
+    frontend_championship_standings_enter, frontend_championship_standings_update, NULL,
+    frontend_championship_standings_exit },
+  [eFRONTEND_STATE_TEAM_STANDINGS] = {
+    frontend_team_standings_enter, frontend_team_standings_update, NULL, frontend_team_standings_exit },
+  [eFRONTEND_STATE_LAP_RECORDS] = {
+    frontend_lap_records_enter, frontend_lap_records_update, NULL, frontend_lap_records_exit },
+  [eFRONTEND_STATE_TIME_TRIAL_RESULTS] = {
+    frontend_time_trial_results_enter, frontend_time_trial_results_update, NULL,
+    frontend_time_trial_results_exit },
   [eFRONTEND_STATE_CHAMPIONSHIP_OVER] = { NULL, frontend_championship_over_update, NULL, NULL },
   [eFRONTEND_STATE_CREDITS] = { NULL, frontend_credits_update, NULL, NULL },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
