@@ -3771,7 +3771,9 @@ int load_champ_begin(int iSlot)
       iNetType = *piStatsPointer;
       piTeamStatsPointer = piStatsPointer + 1;
       net_type = iNetType;
-      ROLLERCommsSetType(iNetType);
+      if (player_type == 1 && net_type)
+        net_type = 0;
+      ROLLERCommsSetType(net_type);
       iStatsLoop = 0;
       if (numcars > 0)                        // INDIVIDUAL STATISTICS: Load championship points, kills, fastest laps, wins for each car
       {
@@ -4037,10 +4039,7 @@ int load_champ_begin(int iSlot)
         network_on = 0;
         net_started = 0;
       }
-      if (player_type == 1 && net_type == 1)
-        select_comport(3);
-      if (player_type == 1 && net_type == 2)
-        select_modemstuff(4);
+      ROLLERCommsSetType(net_type);
       if (network_on) {
         if (player_type == 1) {
           reset_network(0);
@@ -4138,15 +4137,8 @@ void check_saves()
         save_status[iSlotIndex].iPackedTrack = *pbyFileData;// Extract packed track info from offset 0
         save_status[iSlotIndex].iDifficulty = pbyReadBuffer[3];// Extract difficulty level from offset 3
         save_status[iSlotIndex].iPlayerType = pbyReadBuffer[5];// Extract player type from offset 5
-        byNetType = pbyReadBuffer[51];          // Get network type from offset 51
-        if (save_status[iSlotIndex].iPlayerType == 1 && byNetType)// Convert network player type based on net_type value
-        {
-          if (byNetType <= 1u) {
-            save_status[iSlotIndex].iPlayerType = 3;// net_type 0 or 1 = Network player (type 3)
-          } else if (byNetType == 2) {
-            save_status[iSlotIndex].iPlayerType = 4;// net_type 2 = Modem player (type 4)
-          }
-        }
+        byNetType = pbyReadBuffer[51];          // Legacy serial/modem saves now display as plain Network.
+        (void)byNetType;
       } else {
         save_status[iSlotIndex].iSlotUsed = 0;  // Mark slot as empty if file size is invalid
       }

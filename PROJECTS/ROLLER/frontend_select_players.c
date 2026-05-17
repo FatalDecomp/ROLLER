@@ -12,7 +12,6 @@
 #include "drawtrk3.h"
 #include "cdx.h"
 #include "polytex.h"
-#include "comms.h"
 #include "colision.h"
 #include "rollercomms.h"
 #include "menu_render.h"
@@ -42,8 +41,14 @@ static int iFrontendPlayersNetworkStatus = 0;
 static int iFrontendPlayersNetworkMode = 0;
 static int iFrontendPlayersNetworkSetupFlag = 0;
 static int iFrontendPlayersExitFlag = 0;
-static int iFrontendPlayersComPortStatus = 0;
-static int iFrontendPlayersNetworkInitPending = 0;
+
+static void frontend_players_select_clamp_selection(void)
+{
+  if (iFrontendPlayersSelectedPlayerType != 0 &&
+      iFrontendPlayersSelectedPlayerType != 1 &&
+      iFrontendPlayersSelectedPlayerType != 2)
+    iFrontendPlayersSelectedPlayerType = 1;
+}
 
 static void frontend_players_select_request_exit(void)
 {
@@ -52,45 +57,9 @@ static void frontend_players_select_request_exit(void)
     eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
 }
 
-static void frontend_players_select_finish_network_init(void)
-{
-  iFrontendPlayersNetworkInitPending = 0;
-  if (network_on) {
-    iFrontendPlayersNetworkSetupFlag = -1;
-    iFrontendPlayersNetworkMode = -1;
-  } else {
-    iFrontendPlayersNetworkStatus = -1;
-  }
-}
-
-static void frontend_players_select_begin_network_init(void)
-{
-  network_initialise_begin(0);
-  if (network_initialise_active()) {
-    iFrontendPlayersNetworkInitPending = -1;
-    return;
-  }
-
-  frontend_players_select_finish_network_init();
-}
-
-static int frontend_players_select_update_network_init(void)
-{
-  if (!iFrontendPlayersNetworkInitPending)
-    return 0;
-
-  if (!network_initialise_update())
-    return -1;
-
-  frontend_players_select_finish_network_init();
-  return -1;
-}
-
 void frontend_players_select_enter(void)
 {
-  iFrontendPlayersComPortStatus = 0;
   iFrontendPlayersExitFlag = 0;
-  iFrontendPlayersNetworkInitPending = 0;
   fade_palette(0);
   iFrontendPlayersSelectedPlayerType = player_type;
   front_fade = 0;
@@ -99,16 +68,13 @@ void frontend_players_select_enter(void)
     memcpy(pal_addr, palette, 256 * sizeof(tColor));
     palette_brightness = 32;
   }
-  if (player_type == 1 && net_type) {
-    if ((unsigned int)net_type <= 1)
-      iFrontendPlayersSelectedPlayerType = 3;
-    else if (net_type == 2)
-      iFrontendPlayersSelectedPlayerType = 4;
+  if (player_type == 1) {
+    net_type = 0;
+    iFrontendPlayersSelectedPlayerType = 1;
   }
+  frontend_players_select_clamp_selection();
   iFrontendPlayersNetworkSetupFlag = 0;
-  if (iFrontendPlayersSelectedPlayerType == 1 ||
-      iFrontendPlayersSelectedPlayerType == 3 ||
-      iFrontendPlayersSelectedPlayerType == 4)
+  if (iFrontendPlayersSelectedPlayerType == 1)
     iFrontendPlayersNetworkMode = -1;
   else
     iFrontendPlayersNetworkMode = 0;
@@ -124,14 +90,14 @@ void frontend_players_select_update(void)
   char byMenuColor1;
   char byMenuColor2;
   char byMenuColor3;
-  char byMenuColor4;
-  char byMenuColor5;
   uint8 byInputKey;
   uint8 byExtendedKey;
   int iPlayerIndex;
   int iY;
   char *szText;
   int iPlayerListCount;
+
+  frontend_players_select_clamp_selection();
 
   if (switch_types) {
     game_type = switch_types - 1;
@@ -143,9 +109,6 @@ void frontend_players_select_update(void)
     else
       network_champ_on = 0;
   }
-
-  if (frontend_players_select_update_network_init())
-    return;
 
   {                                           // RENDER FRAME (GPU)
   MenuRenderer *mr = GetMenuRenderer();
@@ -162,14 +125,8 @@ void frontend_players_select_update(void)
   menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
   menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
   if (iFrontendPlayersNetworkStatus &&
-      (iFrontendPlayersSelectedPlayerType == 1 ||
-       iFrontendPlayersSelectedPlayerType == 3 ||
-       iFrontendPlayersSelectedPlayerType == 4))
+      iFrontendPlayersSelectedPlayerType == 1)
     menu_render_scaled_text(mr, 15, &language_buffer[4992], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
-  if ((iFrontendPlayersSelectedPlayerType == 3 ||
-       iFrontendPlayersSelectedPlayerType == 4) &&
-      !iFrontendPlayersComPortStatus)
-    menu_render_scaled_text(mr, 15, &language_buffer[8064], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
   do {
     uiCheatArrayOffset = broadcast_mode;
     UpdateSDL();
@@ -198,15 +155,7 @@ void frontend_players_select_update(void)
         UpdateSDL();
       iFrontendPlayersNetworkSetupFlag = 0;
     }
-    if (net_type) {
-      if ((unsigned int)net_type <= 1) {
-        menu_render_scaled_text(mr, 15, &language_buffer[5056], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
-      } else if (net_type == 2) {
-        menu_render_scaled_text(mr, 15, &language_buffer[5120], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
-      }
-    } else {
-      menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
-    }
+    menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
     iPlayerListCount = 0;
     if (network_on > 0) {                     // Display connected players and their selected cars
       iPlayerIndex = 0;
@@ -227,15 +176,7 @@ void frontend_players_select_update(void)
         UpdateSDL();
       } while (iPlayerListCount < network_on);
     }
-    if (net_type) {
-      if ((unsigned int)net_type <= 1) {
-        menu_render_scaled_text(mr, 15, &language_buffer[5184], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
-      } else if (net_type == 2) {
-        menu_render_scaled_text(mr, 15, &language_buffer[5248], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
-      }
-    } else {
-      menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
-    }
+    menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
     menu_render_scaled_text(mr, 15, &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640, pal_addr);
   } else {
     menu_render_scaled_text(mr, 15, &language_buffer[2944], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr); // MENU MODE UI: Show player selection options with highlighting
@@ -255,16 +196,6 @@ void frontend_players_select_update(void)
     else
       byMenuColor3 = 0x8F;
     menu_render_scaled_text(mr, 15, &language_buffer[2176], font1_ascii, font1_offsets, 400, 171, byMenuColor3, 1u, 200, 640, pal_addr);
-    if (iFrontendPlayersSelectedPlayerType == 3)
-      byMenuColor4 = 0xAB;
-    else
-      byMenuColor4 = 0x8F;
-    menu_render_scaled_text(mr, 15, &language_buffer[2304], font1_ascii, font1_offsets, 400, 189, byMenuColor4, 1u, 200, 640, pal_addr);
-    if (iFrontendPlayersSelectedPlayerType == 4)
-      byMenuColor5 = 0xAB;
-    else
-      byMenuColor5 = 0x8F;
-    menu_render_scaled_text(mr, 15, &language_buffer[2368], font1_ascii, font1_offsets, 400, 207, byMenuColor5, 1u, 200, 640, pal_addr);
   }
   show_received_mesage();
   menu_render_end_frame(mr);
@@ -290,14 +221,6 @@ void frontend_players_select_update(void)
                     iFrontendPlayersSelectedPlayerType = 0;
                     iFrontendPlayersNetworkStatus = 0;
                     break;
-                  case 3u:
-                    iFrontendPlayersSelectedPlayerType = 1;
-                    iFrontendPlayersNetworkStatus = 0;
-                    break;
-                  case 4u:
-                    iFrontendPlayersSelectedPlayerType = 3;
-                    iFrontendPlayersNetworkStatus = 0;
-                    break;
                   default:
                     continue;
                 }
@@ -310,15 +233,11 @@ void frontend_players_select_update(void)
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 case 1u:
-                  iFrontendPlayersSelectedPlayerType = 3;
+                  iFrontendPlayersSelectedPlayerType = 1;
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 case 2u:
                   iFrontendPlayersSelectedPlayerType = 1;
-                  iFrontendPlayersNetworkStatus = 0;
-                  break;
-                case 3u:
-                  iFrontendPlayersSelectedPlayerType = 4;
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 default:
@@ -334,16 +253,7 @@ void frontend_players_select_update(void)
           case 2u:
             goto LABEL_128;
           case 1u:
-          case 3u:
-          case 4u:
-            if (iFrontendPlayersSelectedPlayerType != 1 && !iFrontendPlayersComPortStatus)
-              continue;
-            if (iFrontendPlayersSelectedPlayerType == 1)
-              net_type = 0;
-            if (iFrontendPlayersSelectedPlayerType == 3)
-              net_type = 1;
-            if (iFrontendPlayersSelectedPlayerType == 4)
-              net_type = 2;
+            net_type = 0;
             ROLLERCommsSetType(net_type);
             if (iFrontendPlayersNetworkMode) {
             LABEL_128:
@@ -352,41 +262,18 @@ void frontend_players_select_update(void)
             }
             if (iFrontendPlayersNetworkStatus)
               goto LABEL_159;
-            if (net_type)                     // NETWORK SETUP: Initialize communication for selected network type
-            {
-              if ((unsigned int)net_type <= 1) {
-                if (select_comport(iFrontendPlayersSelectedPlayerType))
-                  goto LABEL_153;
-              } else {
-                if (net_type != 2)
-                  goto LABEL_156;
-                if (select_modemstuff(iFrontendPlayersSelectedPlayerType)) {
-                LABEL_153:
-                  network_slot = 0;
-                  goto LABEL_156;
-                }
-              }
-              network_on = 0;
-              network_slot = -1;
+            network_slot = select_netslot(); // Network slot selection and connection
+            if (network_slot >= 0) {
+              broadcast_mode = -1;
+              while (broadcast_mode)
+                UpdateSDL();
+            } else if (network_slot == -2) {
+              broadcast_mode = -666;
+              while (broadcast_mode)
+                UpdateSDL();
+              close_network();
             } else {
-              network_slot = select_netslot(); // IPX network: Select network slot and handle connection
-              if (network_slot >= 0) {
-                broadcast_mode = -1;
-                while (broadcast_mode)
-                  UpdateSDL();
-              } else if (network_slot == -2) {
-                broadcast_mode = -666;
-                while (broadcast_mode)
-                  UpdateSDL();
-                close_network();
-              } else {
-                iFrontendPlayersNetworkStatus = -1;
-              }
-            }
-          LABEL_156:
-            if (iFrontendPlayersSelectedPlayerType == 3 && network_slot >= 0) {
-              frontend_players_select_begin_network_init();
-              return;
+              iFrontendPlayersNetworkStatus = -1;
             }
           LABEL_159:
             if (network_on) {
@@ -433,12 +320,6 @@ void frontend_players_select_exit(void)
   if (iFrontendPlayersSelectedPlayerType == 1) { // CLEANUP: Set final player type and network settings based on selection
     player_type = 1;
     net_type = 0;
-  } else if (iFrontendPlayersSelectedPlayerType == 3) {
-    player_type = 1;
-    net_type = 1;
-  } else if (iFrontendPlayersSelectedPlayerType == 4) {
-    player_type = 1;
-    net_type = 2;
   } else {
     player_type = (int)iFrontendPlayersSelectedPlayerType;
   }
