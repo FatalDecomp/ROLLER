@@ -39,7 +39,9 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
   [eFRONTEND_STATE_WINNER_SCREEN] = {
     frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
-  [eFRONTEND_STATE_WINNER_RACE] = { NULL, frontend_winner_race_update, NULL, NULL },
+  [eFRONTEND_STATE_WINNER_RACE] = {
+    frontend_winner_race_enter, frontend_winner_race_update, race_draw,
+    frontend_winner_race_exit },
   [eFRONTEND_STATE_RESULT_ROUNDUP] = {
     frontend_result_roundup_enter, frontend_result_roundup_update, NULL, frontend_result_roundup_exit },
   [eFRONTEND_STATE_RACE_RESULT] = {

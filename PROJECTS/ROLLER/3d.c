@@ -1935,21 +1935,14 @@ void play_game_uninit()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00012B90
-void winner_race()
+static int iWinnerRaceSavedRacers = 0;
+static int iWinnerRaceSavedPlayerType = 0;
+static int iWinnerRaceActive = 0;
+
+static void winner_race_setup(void)
 {
-  int iNumCars; // ecx
-  int iCarIdx; // eax
   //int iArrayIdx; // edx
   int iWinnerCarIdx; // edx
-  int iRacers; // edx
-  int iPlayerType; // ebx
-  int iNumCars_1; // ecx
-  //int iMaxOffset; // ebx
-  //unsigned int uiOffset; // eax
-
-  iNumCars = numcars;
-  iCarIdx = 0;
 
   for (int i = 0; i < numcars; ++i) {
     grid[i] = i;
@@ -1983,17 +1976,27 @@ void winner_race()
   delaywrite = 6;
   writeptr = 0;
   readptr = 0;
-  iRacers = racers;
-  iPlayerType = player_type;
-  numcars = iNumCars;
+  iWinnerRaceSavedRacers = racers;
+  iWinnerRaceSavedPlayerType = player_type;
   player_type = 0;
   replaytype = 0;
   racers = 1;
-  play_game(prev_track);
-  iNumCars_1 = numcars;
+  iWinnerRaceActive = -1;
+}
+
+static void winner_race_teardown(void)
+{
+  int iNumCars; // ecx
+  //int iMaxOffset; // ebx
+  //unsigned int uiOffset; // eax
+
+  if (!iWinnerRaceActive)
+    return;
+
+  iNumCars = numcars;
   winner_mode = 0;
-  racers = iRacers;
-  player_type = iPlayerType;
+  racers = iWinnerRaceSavedRacers;
+  player_type = iWinnerRaceSavedPlayerType;
   VIEWDIST = 270;
 
   for (int i = 0; i < numcars; ++i) {
@@ -2008,7 +2011,16 @@ void winner_race()
   //  } while ((int)uiOffset < iMaxOffset);
   //}
 
-  numcars = iNumCars_1;
+  numcars = iNumCars;
+  iWinnerRaceActive = 0;
+}
+
+//00012B90
+void winner_race()
+{
+  winner_race_setup();
+  play_game(prev_track);
+  winner_race_teardown();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2376,11 +2388,24 @@ void frontend_winner_screen_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_winner_race_enter(void)
+{
+  winner_race_setup();
+  race_set_track(prev_track);
+  race_enter();
+}
+
 void frontend_winner_race_update(void)
 {
-  winner_race();
-  VIEWDIST = 270;
-  eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+  race_update();
+  if (eFrontendNextState == eFRONTEND_STATE_RESULTS)
+    eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+void frontend_winner_race_exit(void)
+{
+  race_exit();
+  winner_race_teardown();
 }
 
 //-------------------------------------------------------------------------------------------------
