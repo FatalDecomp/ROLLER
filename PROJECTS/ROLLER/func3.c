@@ -3535,7 +3535,32 @@ void save_champ(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 //0005B9A0
-int load_champ(int iSlot)
+static int s_iLoadChampNetworkInitPending = 0;
+
+static void load_champ_begin_network_init(void)
+{
+  network_initialise_begin(0);
+  s_iLoadChampNetworkInitPending = network_initialise_active() ? -1 : 0;
+}
+
+int load_champ_update(void)
+{
+  if (!s_iLoadChampNetworkInitPending)
+    return -1;
+
+  if (!network_initialise_update())
+    return 0;
+
+  s_iLoadChampNetworkInitPending = 0;
+  return -1;
+}
+
+int load_champ_active(void)
+{
+  return s_iLoadChampNetworkInitPending;
+}
+
+int load_champ_begin(int iSlot)
 {
   int iFileHandle; // edx
   int iFileLength; // esi
@@ -3633,6 +3658,7 @@ int load_champ(int iSlot)
   char *pszDefaultNameEnd; // [esp+10h] [ebp-20h]
   signed int iSortIndex; // [esp+14h] [ebp-1Ch]
 
+  s_iLoadChampNetworkInitPending = 0;
   iFileLength = ROLLERfilelength(save_slots[iSlot - 1]);
 
   iFileHandle = ROLLERopen(save_slots[iSlot - 1], O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
@@ -4023,12 +4049,22 @@ int load_champ(int iSlot)
           time_to_start = 0;
         }
       } else if (player_type == 1 && net_type != 2) {
-        Initialise_Network(0);
+        load_champ_begin_network_init();
       }
     }
     fre((void **)&pFileBuf);                    // Cleanup: Free file buffer and return success/failure status
   }
   return iChecksumOk;
+}
+
+int load_champ(int iSlot)
+{
+  int iResult = load_champ_begin(iSlot);
+
+  while (load_champ_active() && !load_champ_update())
+    UpdateSDL();
+
+  return iResult;
 }
 
 //-------------------------------------------------------------------------------------------------

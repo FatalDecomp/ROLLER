@@ -35,6 +35,7 @@ static int iFrontendDiskChampResult = 0;
 static int iFrontendDiskStatusMessage = 0;
 static int iFrontendDiskMenuCursor = 2;
 static int iFrontendDiskExitFlag = 0;
+static int iFrontendDiskLoadPending = 0;
 
 static void frontend_disk_select_black_palette(void)
 {
@@ -51,6 +52,18 @@ static void frontend_disk_select_request_exit(void)
   iFrontendDiskExitFlag = -1;
   if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT)
     eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+}
+
+static int frontend_disk_select_update_load(void)
+{
+  if (!iFrontendDiskLoadPending)
+    return 0;
+
+  if (!load_champ_update())
+    return -1;
+
+  iFrontendDiskLoadPending = 0;
+  return -1;
 }
 
 static void frontend_disk_select_apply_type_switch(void)
@@ -323,7 +336,10 @@ static void frontend_disk_select_handle_input(void)
           iFrontendDiskStatusMessage = 1;
           if (save_status[iFrontendDiskSelectedSlot - 1].iSlotUsed) {
             uiFrontendDiskMenuMode = 0;
-            iFrontendDiskChampResult = load_champ(iFrontendDiskSelectedSlot);
+            iFrontendDiskChampResult = load_champ_begin(iFrontendDiskSelectedSlot);
+            if (load_champ_active())
+              iFrontendDiskLoadPending = -1;
+            return;
           } else {
             iFrontendDiskStatusMessage = 4;
           }
@@ -368,6 +384,7 @@ void frontend_disk_select_enter(void)
   iFrontendDiskMenuCursor = 2;
   iFrontendDiskStatusMessage = 0;
   iFrontendDiskChampResult = 0;
+  iFrontendDiskLoadPending = 0;
   check_saves();
 }
 
@@ -379,6 +396,9 @@ void frontend_disk_select_update(void)
 
   frontend_disk_select_draw();
   if (SnapshotShouldStop())
+    return;
+
+  if (frontend_disk_select_update_load())
     return;
 
   frontend_disk_select_apply_same_car_switch();

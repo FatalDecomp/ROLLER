@@ -94,6 +94,9 @@ void championship_winner();
 void print_mem_used(const char *szMsg);
 uint8 *try_load_picture(const char *szFile);
 void save_champ(int iSlot);
+int load_champ_begin(int iSlot);
+int load_champ_update(void);
+int load_champ_active(void);
 int load_champ(int iSlot);
 uint8 *lod_champ_char(uint8 *pSrc, int *piValue);
 uint8 *sav_champ_char(uint8 *pSrc, int *piValue); //actually loads an int
