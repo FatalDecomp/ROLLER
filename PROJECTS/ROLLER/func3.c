@@ -3144,24 +3144,35 @@ void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAn
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005B490
-void championship_winner()
+static int iChampionshipWinnerActive = 0;
+static int iChampionshipWinnerCurrentFrame = 0;
+static int iChampionshipWinnerFrameTimer = 0;
+static int iChampionshipWinnerNumAnimFrames = 0;
+static int iChampionshipWinnerDuration = 0;
+
+static void ChampionshipWinnerShowFrame(void)
 {
   uint8 *pbyScreenBuffer; // edi
-  tBlockHeader *pChampImageData; // esi
-  int iCurrentFrame; // ebp
+  char *pszCurrentFrameData; // esi
   unsigned int uiBufferSize; // ecx
   char byBufferSizeRemainder; // al
   unsigned int uiDwordCopyCount; // ecx
-  int iFrameTimer; // ebx
-  uint8 *pbyAnimScreenBuf; // edi
-  char *pszCurrentFrameData; // esi
-  unsigned int uiAnimBufferSize; // ecx
-  char byAnimRemainder; // al
-  unsigned int uiAnimDwordCount; // ecx
-  int iNumAnimFrames; // [esp+0h] [ebp-20h]
-  int iDuration; // [esp+4h] [ebp-1Ch]
 
+  pbyScreenBuffer = scrbuf;
+  pszCurrentFrameData = (char *)front_vga[0] + 256000 * iChampionshipWinnerCurrentFrame;// Calculate pointer to current animation frame data
+  if (SVGA_ON)
+    uiBufferSize = 256000;
+  else
+    uiBufferSize = 64000;
+  byBufferSizeRemainder = uiBufferSize;
+  uiDwordCopyCount = uiBufferSize >> 2;
+  memcpy(scrbuf, pszCurrentFrameData, 4 * uiDwordCopyCount);// Copy current frame to screen buffer and display
+  memcpy(&pbyScreenBuffer[4 * uiDwordCopyCount], &pszCurrentFrameData[4 * uiDwordCopyCount], byBufferSizeRemainder & 3);
+  copypic(scrbuf, screen);
+}
+
+void ChampionshipWinnerEnter(void)
+{
   SVGA_ON = -1;                                 // Initialize SVGA mode and full screen window for championship victory
   init_screen();
   winx = 0;
@@ -3172,73 +3183,69 @@ void championship_winner()
   setpal("champ.pal");                          // Set championship palette and load victory image
   front_vga[0] = (tBlockHeader *)try_load_picture("champ.bm");// Try to load animated championship image, fallback to static
   if (front_vga[0]) {
-    iNumAnimFrames = 12;                        // Animated version has 12 frames
+    iChampionshipWinnerNumAnimFrames = 12;      // Animated version has 12 frames
   } else {
     front_vga[0] = (tBlockHeader *)load_picture("chump.bm");// Static fallback version has 1 frame
-    iNumAnimFrames = 1;
+    iChampionshipWinnerNumAnimFrames = 1;
   }
-  if (iNumAnimFrames != 1 && MusicVolume && MusicCard)// Set display duration: longer for animated with music, shorter otherwise
-    iDuration = 720;
+  if (iChampionshipWinnerNumAnimFrames != 1 && MusicVolume && MusicCard)// Set display duration: longer for animated with music, shorter otherwise
+    iChampionshipWinnerDuration = 720;
   else
-    iDuration = 180;
-  pbyScreenBuffer = scrbuf;
-  pChampImageData = front_vga[0];
-  iCurrentFrame = 0;                            // Copy first frame to screen buffer (optimized memory copy)
-  if (SVGA_ON)
-    uiBufferSize = 256000;
-  else
-    uiBufferSize = 64000;
-  byBufferSizeRemainder = uiBufferSize;
-  uiDwordCopyCount = uiBufferSize >> 2;
-  memcpy(scrbuf, front_vga[0], 4 * uiDwordCopyCount);
-  memcpy(&pbyScreenBuffer[4 * uiDwordCopyCount], &pChampImageData->iWidth + uiDwordCopyCount, byBufferSizeRemainder & 3);
-  copypic(scrbuf, screen);                      // Display initial frame and start championship music
-  if (SnapshotShouldStop()) {
-    fre((void **)front_vga);
+    iChampionshipWinnerDuration = 180;
+  iChampionshipWinnerCurrentFrame = 0;          // Copy first frame to screen buffer
+  iChampionshipWinnerFrameTimer = 0;
+  iChampionshipWinnerActive = -1;
+  ChampionshipWinnerShowFrame();                // Display initial frame and start championship music
+  if (SnapshotShouldStop())
     return;
-  }
-  iFrameTimer = 0;
   startmusic(winchampsong);
   enable_keyboard();
   fade_palette(32);                             // Enable input, fade in display, and initialize animation timing
   front_fade = -1;
   ticks = 0;
   frames = 1;
-  do {                                             // Main animation loop - exit on keyboard input
-    if (fatkbhit())
-      break;
-    iFrameTimer -= frames;                      // Update frame timer based on game frame rate
-    frames = 0;
-    if (iFrameTimer < 0)                      // Time to advance to next animation frame
-    {
-      pbyAnimScreenBuf = scrbuf;
-      pszCurrentFrameData = (char *)front_vga[0] + 256000 * iCurrentFrame;// Calculate pointer to current animation frame data
-      if (SVGA_ON)
-        uiAnimBufferSize = 256000;
-      else
-        uiAnimBufferSize = 64000;
-      byAnimRemainder = uiAnimBufferSize;
-      uiAnimDwordCount = uiAnimBufferSize >> 2;
-      memcpy(scrbuf, pszCurrentFrameData, 4 * uiAnimDwordCount);// Copy current frame to screen buffer and display
-      memcpy(&pbyAnimScreenBuf[4 * uiAnimDwordCount], &pszCurrentFrameData[4 * uiAnimDwordCount], byAnimRemainder & 3);
-      copypic(scrbuf, screen);
-      if (SnapshotShouldStop())
-        break;
-      do {                                         // Advance to next frame, wrap around at end of animation
-        if (++iCurrentFrame == iNumAnimFrames)
-          iCurrentFrame ^= iNumAnimFrames;      // Reset to frame 0 when reaching end of animation cycle
-        iFrameTimer += 2;                       // Add 2 ticks to frame timer for next frame timing
-        UpdateSDL();
-        if (!SnapshotShouldStop())
-          SnapshotAdvanceTick();
-      } while (iFrameTimer < 0);
-    }
-    UpdateSDL();
+}
+
+int ChampionshipWinnerUpdate(void)
+{
+  if (!iChampionshipWinnerActive)
+    return -1;
+  if (SnapshotShouldStop())
+    return -1;
+  if (fatkbhit())
+    return -1;
+
+  iChampionshipWinnerFrameTimer -= frames;       // Update frame timer based on game frame rate
+  frames = 0;
+  if (iChampionshipWinnerFrameTimer < 0) {       // Time to advance to next animation frame
+    ChampionshipWinnerShowFrame();
     if (SnapshotShouldStop())
-      break;
-    SnapshotAdvanceTick();
-  } while (ticks < iDuration);                  // Continue animation until timeout or user input
+      return -1;
+    do {                                        // Advance to next frame, wrap around at end of animation
+      if (++iChampionshipWinnerCurrentFrame == iChampionshipWinnerNumAnimFrames)
+        iChampionshipWinnerCurrentFrame ^= iChampionshipWinnerNumAnimFrames;// Reset to frame 0 when reaching end of animation cycle
+      iChampionshipWinnerFrameTimer += 2;       // Add 2 ticks to frame timer for next frame timing
+    } while (iChampionshipWinnerFrameTimer < 0);
+  }
+  SnapshotAdvanceTick();
+  return SnapshotShouldStop() || ticks >= iChampionshipWinnerDuration;
+}
+
+void ChampionshipWinnerExit(void)
+{
+  if (!iChampionshipWinnerActive)
+    return;
   fre((void **)front_vga);                      // Clean up championship image resources
+  iChampionshipWinnerActive = 0;
+}
+
+//0005B490
+void championship_winner()
+{
+  ChampionshipWinnerEnter();
+  while (!ChampionshipWinnerUpdate())
+    UpdateSDL();
+  ChampionshipWinnerExit();
 }
 
 void snapshot_render_winner_championship(void)
@@ -4480,6 +4487,7 @@ void RollCredits()
 //-------------------------------------------------------------------------------------------------
 typedef enum {
   eCHAMPIONSHIP_OVER_PHASE_INACTIVE = 0,
+  eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER,
   eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT,
@@ -4560,9 +4568,8 @@ static void ChampionshipOverStart(void)
   if (!iBestPos && !iChampionshipOverChampionPreludeDone) // If player won championship (position 0), show victory sequence
   {
     iChampionshipOverChampionPreludeDone = -1;
-    championship_winner();
-    champion_race_enter();
-    eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE;
+    ChampionshipWinnerEnter();
+    eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER;
     return;
   }
   tick_on = 0;                                  // Initialize screen for championship results display
@@ -4664,6 +4671,14 @@ void ChampionshipOverEnter(void)
 int ChampionshipOverUpdate(void)
 {
   switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER:
+      if (!ChampionshipWinnerUpdate())
+        return 0;
+      ChampionshipWinnerExit();
+      champion_race_enter();
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE;
+      return 0;
+
     case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
       if (!champion_race_update())
         return 0;
@@ -4739,6 +4754,10 @@ int ChampionshipOverUpdate(void)
 void ChampionshipOverExit(void)
 {
   switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER:
+      ChampionshipWinnerExit();
+      break;
+
     case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
       champion_race_exit();
       break;
