@@ -477,8 +477,11 @@ void StoreResult()
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iRaceResultScreenActive = 0;
+static int iRaceResultSavedScreenSize = 0;
+
 //00056570
-void RaceResult()
+void RaceResultEnter(void)
 {
   uint8 *pbyScreenBuffer; // edi
   tBlockHeader *pResultBitmap; // esi
@@ -494,7 +497,6 @@ void RaceResult()
   double dTimeDifference; // st7
   int iTotalRacePoints; // eax
   int iFinishedCount; // [esp+0h] [ebp-4Ch]
-  int iSavedScreenSize; // [esp+4h] [ebp-48h]
   float fWinnerTime; // [esp+8h] [ebp-44h]
   char *pszPositionText; // [esp+Ch] [ebp-40h]
   int iY; // [esp+10h] [ebp-3Ch]
@@ -509,7 +511,7 @@ void RaceResult()
   // init
   fWinnerTime = 0; //added by ROLLER
   tick_on = 0;
-  iSavedScreenSize = scr_size;
+  iRaceResultSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("result.pal");
@@ -670,20 +672,41 @@ void RaceResult()
   if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE)
     UpdateSDLWindow();
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160) {
-    if (SnapshotShouldStop())
-      break;
-    UpdateSDL();
-  }
+  iRaceResultScreenActive = -1;
+}
 
+int RaceResultUpdate(void)
+{
+  if (!iRaceResultScreenActive)
+    return -1;
+  if (SnapshotShouldStop())
+    return -1;
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
+
+void RaceResultExit(void)
+{
+  if (!iRaceResultScreenActive)
+    return;
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[2]);
   fre((void **)&front_vga[3]);
-  scr_size = iSavedScreenSize;
+  scr_size = iRaceResultSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iRaceResultScreenActive = 0;
+}
+
+void RaceResult()
+{
+  RaceResultEnter();
+  while (!RaceResultUpdate())
+    UpdateSDL();
+  RaceResultExit();
 }
 
 void snapshot_render_race_result(void)
@@ -4081,8 +4104,11 @@ void check_saves()
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iResultRoundUpScreenActive = 0;
+static int iResultRoundUpSavedScreenSize = 0;
+
 //0005C180
-void ResultRoundUp()
+void ResultRoundUpEnter(void)
 {
   uint8 *pbyScreenBuffer; // edi
   tBlockHeader *pBackgroundImage; // esi
@@ -4107,7 +4133,6 @@ void ResultRoundUp()
   int iP2NameYPos; // edi
   int iP2StatsYPos; // edi
   double dP2BestTime; // st7
-  int iOriginalScrSize; // [esp+0h] [ebp-28h]
   int iP2Time1; // [esp+4h] [ebp-24h]
   int iP2Time2; // [esp+4h] [ebp-24h]
   int iP1Time1; // [esp+8h] [ebp-20h]
@@ -4116,7 +4141,7 @@ void ResultRoundUp()
   int iLapTime2; // [esp+Ch] [ebp-1Ch]
 
   tick_on = 0;                                  // Initialize race results screen display
-  iOriginalScrSize = scr_size;
+  iResultRoundUpSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("resround.pal");
@@ -4278,14 +4303,37 @@ void ResultRoundUp()
   startmusic(leaderboardsong);
   fade_palette(32);
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
-    UpdateSDL();
+  iResultRoundUpScreenActive = -1;
+}
+
+int ResultRoundUpUpdate(void)
+{
+  if (!iResultRoundUpScreenActive)
+    return -1;
+  if (fatkbhit())
+    return -1;
+  return ticks >= 2160;
+}
+
+void ResultRoundUpExit(void)
+{
+  if (!iResultRoundUpScreenActive)
+    return;
   fre((void **)&front_vga[2]);                  // Clean up resources and restore screen settings
   fre((void **)&front_vga[1]);
   fre((void **)front_vga);
-  scr_size = iOriginalScrSize;
+  scr_size = iResultRoundUpSavedScreenSize;
   holdmusic = -1;
   fade_palette(0);
+  iResultRoundUpScreenActive = 0;
+}
+
+void ResultRoundUp()
+{
+  ResultRoundUpEnter();
+  while (!ResultRoundUpUpdate())
+    UpdateSDL();
+  ResultRoundUpExit();
 }
 
 //-------------------------------------------------------------------------------------------------

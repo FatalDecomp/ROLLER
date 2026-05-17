@@ -2370,23 +2370,45 @@ void frontend_winner_race_update(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_result_roundup_enter(void)
+{
+  ResultRoundUpEnter();
+}
+
 void frontend_result_roundup_update(void)
 {
-  ResultRoundUp();
+  if (!ResultRoundUpUpdate())
+    return;
   eFrontendNextState = eFRONTEND_STATE_RACE_RESULT;
+}
+
+void frontend_result_roundup_exit(void)
+{
+  ResultRoundUpExit();
 }
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_race_result_enter(void)
+{
+  RaceResultEnter();
+}
+
 void frontend_race_result_update(void)
 {
-  RaceResult();
+  if (!RaceResultUpdate())
+    return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP)
     eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
   else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE)
     eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
   else
     frontend_finish_post_race_sequence();
+}
+
+void frontend_race_result_exit(void)
+{
+  RaceResultExit();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -39,8 +39,10 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
   [eFRONTEND_STATE_WINNER_SCREEN] = { NULL, frontend_winner_screen_update, NULL, NULL },
   [eFRONTEND_STATE_WINNER_RACE] = { NULL, frontend_winner_race_update, NULL, NULL },
-  [eFRONTEND_STATE_RESULT_ROUNDUP] = { NULL, frontend_result_roundup_update, NULL, NULL },
-  [eFRONTEND_STATE_RACE_RESULT] = { NULL, frontend_race_result_update, NULL, NULL },
+  [eFRONTEND_STATE_RESULT_ROUNDUP] = {
+    frontend_result_roundup_enter, frontend_result_roundup_update, NULL, frontend_result_roundup_exit },
+  [eFRONTEND_STATE_RACE_RESULT] = {
+    frontend_race_result_enter, frontend_race_result_update, NULL, frontend_race_result_exit },
   [eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS] = { NULL, frontend_championship_standings_update, NULL, NULL },
   [eFRONTEND_STATE_TEAM_STANDINGS] = { NULL, frontend_team_standings_update, NULL, NULL },
   [eFRONTEND_STATE_LAP_RECORDS] = { NULL, frontend_lap_records_update, NULL, NULL },

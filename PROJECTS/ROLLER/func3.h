@@ -58,6 +58,9 @@ typedef struct
 
 int winner_screen(int carDesign, char byFlags);
 void StoreResult();
+void RaceResultEnter(void);
+int RaceResultUpdate(void);
+void RaceResultExit(void);
 void RaceResult();
 void TimeTrials(int iDriverIdx);
 void snapshot_render_time_trials(void);
@@ -77,6 +80,9 @@ uint8 *lod_champ_char(uint8 *pSrc, int *piValue);
 uint8 *sav_champ_char(uint8 *pSrc, int *piValue); //actually loads an int
 uint8 *sav_champ_int(uint8 *pDest, int iValue);
 void check_saves();
+void ResultRoundUpEnter(void);
+int ResultRoundUpUpdate(void);
+void ResultRoundUpExit(void);
 void ResultRoundUp();
 void RollCredits();
 void ChampionshipOver();
