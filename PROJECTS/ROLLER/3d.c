@@ -1158,7 +1158,7 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
 
-static void frontend_run_game_loop(void);
+static void frontend_run_game_loop(eFrontendState eInitialState);
 
 //-------------------------------------------------------------------------------------------------
 //00011930
@@ -1469,13 +1469,8 @@ int main(int argc, const char **argv, const char **envp)
   readptr = 0;
   winner_mode = 0;
   intro = -1;
-  play_game(TrackLoad);                   // Start initial game with intro sequence
-  intro = 0;
-  if (g_bSnapshotMode) {
-    doexit();
-    return 0;
-  }
-  frontend_run_game_loop();
+  race_set_track(TrackLoad);                    // Start initial intro replay through the dispatcher.
+  frontend_run_game_loop(eFRONTEND_STATE_RACING);
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   doexit();
   return 0;
@@ -2254,7 +2249,7 @@ static void frontend_after_championship_lap_records(void)
   }
 }
 
-static void frontend_run_game_loop(void);
+static void frontend_run_game_loop(eFrontendState eInitialState);
 
 int main_loop_iteration(void)
 {
@@ -2275,10 +2270,10 @@ int main_loop_iteration(void)
   return eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game;
 }
 
-static void frontend_run_game_loop(void)
+static void frontend_run_game_loop(eFrontendState eInitialState)
 {
   VIEWDIST = 270;
-  frontend_set_state(eFRONTEND_STATE_MAIN_MENU);
+  frontend_set_state(eInitialState);
 
   while (main_loop_iteration()) {
   }
