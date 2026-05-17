@@ -4637,47 +4637,82 @@ LABEL_36:
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005D180
-void EndChampSequence()
+static int iEndChampSequenceActive = 0;
+static int iEndChampSequenceImageIndex = 0;
+
+static void EndChampSequenceShowCurrentImage(void)
 {
-  int iImageIndex; // esi
   int iRandomValue; // eax
   int iRandomYPosition; // eax
 
+  setpal(round_pals[iEndChampSequenceImageIndex]);            // Set palette for current championship image
+  memset(scrbuf, 0, 0x3E800u);                // Clear screen buffer (320x200 = 0x3E800 bytes)
+  iRandomValue = ROLLERrandRaw();                      // Generate random position for image display
+  iRandomYPosition = 300 * GetHighOrderRand(5, iRandomValue);
+  //iRandomYPosition = 300 * ((5 * iRandomValue - (__CFSHL__((5 * iRandomValue) >> 31, 15) + ((5 * iRandomValue) >> 31 << 15))) >> 15);// Calculate random Y position using complex modulo arithmetic
+  display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
+  //display_block(scrbuf, front_vga[0], 0, (iRandomYPosition - (__CFSHL__(iRandomYPosition >> 31, 2) + 4 * (iRandomYPosition >> 31))) >> 2, 0, -1);// Display championship image at random Y position, centered horizontally
+  copypic(scrbuf, screen);                    // Copy buffer to screen and fade in
+  fade_palette(32);
+  ticks = 0;                                  // Reset timing for image display duration
+  if (++iEndChampSequenceImageIndex < 8)                    // Advance to next image if not at end of sequence
+  {
+    fre((void **)front_vga);                  // Free current image and load next championship image
+    front_vga[0] = (tBlockHeader *)load_picture(round_pics[iEndChampSequenceImageIndex]);
+  }
+}
+
+//0005D180
+void EndChampSequenceEnter(void)
+{
   ticks = 0;                                    // Initialize championship end sequence timing and modes
   frontend_on = -1;
   tick_on = -1;
-  iImageIndex = 0;                              // Start with first championship image (index 0)
+  iEndChampSequenceImageIndex = 0;              // Start with first championship image (index 0)
   front_vga[0] = (tBlockHeader *)load_picture(round_pics[0]);// Load the first championship sequence image
-  do {
-    setpal(round_pals[iImageIndex]);            // Set palette for current championship image
-    memset(scrbuf, 0, 0x3E800u);                // Clear screen buffer (320x200 = 0x3E800 bytes)
-    iRandomValue = ROLLERrandRaw();                      // Generate random position for image display
-    iRandomYPosition = 300 * GetHighOrderRand(5, iRandomValue);
-    //iRandomYPosition = 300 * ((5 * iRandomValue - (__CFSHL__((5 * iRandomValue) >> 31, 15) + ((5 * iRandomValue) >> 31 << 15))) >> 15);// Calculate random Y position using complex modulo arithmetic
-    display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
-    //display_block(scrbuf, front_vga[0], 0, (iRandomYPosition - (__CFSHL__(iRandomYPosition >> 31, 2) + 4 * (iRandomYPosition >> 31))) >> 2, 0, -1);// Display championship image at random Y position, centered horizontally
-    copypic(scrbuf, screen);                    // Copy buffer to screen and fade in
-    fade_palette(32);
-    ticks = 0;                                  // Reset timing for image display duration
-    if (++iImageIndex < 8)                    // Advance to next image if not at end of sequence
-    {
-      fre((void **)front_vga);                  // Free current image and load next championship image
-      front_vga[0] = (tBlockHeader *)load_picture(round_pics[iImageIndex]);
-    }
-    do {                                           // Check for user input to skip sequence
-      if (fatkbhit()) {
-        iImageIndex = 8;                        // Skip to end of sequence and set timeout on key press
-        if (!fatgetch())
-          fatgetch();
-        ticks = 144;                            // Set timeout to 144 ticks for image display
-      }
-      UpdateSDL();
-    } while (ticks < 144);                      // Wait for display timeout (144 ticks) or user input
-    fade_palette(0);                            // Fade out current image before next iteration
-  } while (iImageIndex < 8);                    // Continue sequence until all 8 championship images shown
+  iEndChampSequenceActive = -1;
+  EndChampSequenceShowCurrentImage();
+}
+
+int EndChampSequenceUpdate(void)
+{
+  if (!iEndChampSequenceActive)
+    return -1;
+
+  // Check for user input to skip sequence
+  if (fatkbhit()) {
+    iEndChampSequenceImageIndex = 8;            // Skip to end of sequence and set timeout on key press
+    if (!fatgetch())
+      fatgetch();
+    ticks = 144;                                // Set timeout to 144 ticks for image display
+  }
+  if (ticks < 144)
+    return 0;
+
+  fade_palette(0);                              // Fade out current image before next iteration
+  if (iEndChampSequenceImageIndex >= 8)
+    return -1;
+
+  EndChampSequenceShowCurrentImage();
+  return 0;
+}
+
+void EndChampSequenceExit(void)
+{
+  if (!iEndChampSequenceActive)
+    return;
   fre((void **)front_vga);                      // Clean up resources and reset fade state
   front_fade = 0;
+  iEndChampSequenceActive = 0;
+  iEndChampSequenceImageIndex = 0;
+}
+
+void EndChampSequence()
+{
+  EndChampSequenceEnter();
+  while (!EndChampSequenceUpdate())
+    UpdateSDL();
+  EndChampSequenceExit();
 }
 
 //-------------------------------------------------------------------------------------------------
