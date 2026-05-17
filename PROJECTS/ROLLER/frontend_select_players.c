@@ -43,6 +43,7 @@ static int iFrontendPlayersNetworkMode = 0;
 static int iFrontendPlayersNetworkSetupFlag = 0;
 static int iFrontendPlayersExitFlag = 0;
 static int iFrontendPlayersComPortStatus = 0;
+static int iFrontendPlayersNetworkInitPending = 0;
 
 static void frontend_players_select_request_exit(void)
 {
@@ -51,10 +52,45 @@ static void frontend_players_select_request_exit(void)
     eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
 }
 
+static void frontend_players_select_finish_network_init(void)
+{
+  iFrontendPlayersNetworkInitPending = 0;
+  if (network_on) {
+    iFrontendPlayersNetworkSetupFlag = -1;
+    iFrontendPlayersNetworkMode = -1;
+  } else {
+    iFrontendPlayersNetworkStatus = -1;
+  }
+}
+
+static void frontend_players_select_begin_network_init(void)
+{
+  network_initialise_begin(0);
+  if (network_initialise_active()) {
+    iFrontendPlayersNetworkInitPending = -1;
+    return;
+  }
+
+  frontend_players_select_finish_network_init();
+}
+
+static int frontend_players_select_update_network_init(void)
+{
+  if (!iFrontendPlayersNetworkInitPending)
+    return 0;
+
+  if (!network_initialise_update())
+    return -1;
+
+  frontend_players_select_finish_network_init();
+  return -1;
+}
+
 void frontend_players_select_enter(void)
 {
   iFrontendPlayersComPortStatus = 0;
   iFrontendPlayersExitFlag = 0;
+  iFrontendPlayersNetworkInitPending = 0;
   fade_palette(0);
   iFrontendPlayersSelectedPlayerType = player_type;
   front_fade = 0;
@@ -107,6 +143,10 @@ void frontend_players_select_update(void)
     else
       network_champ_on = 0;
   }
+
+  if (frontend_players_select_update_network_init())
+    return;
+
   {                                           // RENDER FRAME (GPU)
   MenuRenderer *mr = GetMenuRenderer();
   menu_render_begin_frame(mr);
@@ -344,8 +384,10 @@ void frontend_players_select_update(void)
               }
             }
           LABEL_156:
-            if (iFrontendPlayersSelectedPlayerType == 3 && network_slot >= 0)
-              Initialise_Network(0);
+            if (iFrontendPlayersSelectedPlayerType == 3 && network_slot >= 0) {
+              frontend_players_select_begin_network_init();
+              return;
+            }
           LABEL_159:
             if (network_on) {
               iFrontendPlayersNetworkSetupFlag = -1;

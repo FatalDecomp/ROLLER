@@ -68,6 +68,7 @@ int16 wConsoleNode;         //0017C9DA
 static int s_iLastDiscoveryBroadcastFrame = -1000;
 static int s_iBroadcastWaitMode = 0;
 static int s_iBroadcastWaitRepeatsLeft = 0;
+static int s_iNetworkInitialiseActive = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -206,11 +207,23 @@ static void PulseLobbyDiscovery(void)
 }
 
 //-------------------------------------------------------------------------------------------------
+static void network_initialise_finish(void)
+{
+  ROLLERCommsSortNodes();
+  received_records = 1;
+  switch_sets = 0;
+  switch_same = 0;
+  switch_types = 0;
+  s_iNetworkInitialiseActive = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
 //0004EB30
-void Initialise_Network(int iSelectNetSlot)
+void network_initialise_begin(int iSelectNetSlot)
 {
   int iResetNetwork; // [esp+0h] [ebp-1Ch]
 
+  s_iNetworkInitialiseActive = 0;
   iResetNetwork = 0;
   active_nodes = 0;
   net_quit = 0;
@@ -265,14 +278,38 @@ void Initialise_Network(int iSelectNetSlot)
       broadcast_mode = -1;
     tick_on = -1;
     network_broadcast_wait_start((int)broadcast_mode, 1);
-    while (!network_broadcast_wait_update())
-      UpdateSDL(); //added by ROLLER
-    ROLLERCommsSortNodes();
-    received_records = 1;
-    switch_sets = 0;
-    switch_same = 0;
-    switch_types = 0;
+    s_iNetworkInitialiseActive = -1;
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int network_initialise_update(void)
+{
+  if (!s_iNetworkInitialiseActive)
+    return -1;
+
+  if (!network_broadcast_wait_update())
+    return 0;
+
+  network_initialise_finish();
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int network_initialise_active(void)
+{
+  return s_iNetworkInitialiseActive;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void Initialise_Network(int iSelectNetSlot)
+{
+  network_initialise_begin(iSelectNetSlot);
+  while (network_initialise_active() && !network_initialise_update())
+    UpdateSDL(); //added by ROLLER
 }
 
 //-------------------------------------------------------------------------------------------------
