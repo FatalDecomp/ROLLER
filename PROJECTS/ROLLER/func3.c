@@ -134,36 +134,30 @@ static int PlayerCarOrNone(int iCarIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int iWinnerScreenActive = 0;
+static int iWinnerScreenRetVal = -1;
+static int iWinnerScreenOldGfxSize = 0;
+static int iWinnerScreenCarDesign = 0;
+static char byWinnerScreenAnimFrame = 0;
+static int iWinnerScreenDisplayDuration = 0;
+static SceneRenderer *pWinnerScreenScene = NULL;
+
 //00056070
-int winner_screen(int carDesign, char byFlags)
+void WinnerScreenEnter(int carDesign, char byFlags)
 {
-  int iExit; // ebp
   //int iCartexLoopItr; // eax
   eCarType carType; // eax
   eCarType carType_1; // esi
   int iTexturesLoaded; // edx
   int iExistingTexIdx; // ecx
-  uint8 *pScrBuf; // edi
-  tBlockHeader *pWinnerImage; // esi
-  unsigned int uiBufSize; // ecx
-  char byBufSizeLow; // al
-  unsigned int uiDWordCount; // ecx
-  int16 nNewYaw; // ax
-  tBlockHeader **ppFrontVgaItr; // edx
-  void **ppFrePtr; // eax
-  uint8 **ppCartexItr; // edx
-  void **ppFrePtr_1; // eax
-  int iRetVal; // [esp+0h] [ebp-28h]
-  int iOldGfxSize; // [esp+4h] [ebp-24h]
-  char byAnimFrame; // [esp+8h] [ebp-20h]
-  int iDisplayDuration; // [esp+Ch] [ebp-1Ch]
   SceneRenderer *scene;
 
   tick_on = -1;
   frontend_on = -1;
-  iRetVal = -1;
+  iWinnerScreenRetVal = -1;
+  iWinnerScreenCarDesign = carDesign;
   SVGA_ON = -1;
-  iOldGfxSize = gfx_size;
+  iWinnerScreenOldGfxSize = gfx_size;
   front_fade = 0;
   init_screen();
   winx = 0;
@@ -174,15 +168,14 @@ int winner_screen(int carDesign, char byFlags)
 
   // longer display with music
   if ( MusicVolume && MusicCard )
-    iDisplayDuration = 720;
+    iWinnerScreenDisplayDuration = 720;
   else
-    iDisplayDuration = 180;
+    iWinnerScreenDisplayDuration = 180;
 
   // load graphics
   front_vga[0] = (tBlockHeader *)load_picture("winner.bm");
   front_vga[1] = (tBlockHeader *)load_picture("font3.bm");
 
-  iExit = 0;
   setpal("winner.pal");
   FindShades();
 
@@ -197,6 +190,7 @@ int winner_screen(int carDesign, char byFlags)
   Car[0].nPitch = 0;
   set_starts(0);
   scene = scene_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
+  pWinnerScreenScene = scene;
 
   for (int i = 0; i < 16; ++i) {
     car_texs_loaded[i] = -1;
@@ -236,59 +230,89 @@ int winner_screen(int carDesign, char byFlags)
   ticks = 0;
   frames = 0;
   startmusic(winsong);
-  byAnimFrame = byFlags & 1;
-  do
+  byWinnerScreenAnimFrame = byFlags & 1;
+  iWinnerScreenActive = -1;
+}
+
+int WinnerScreenUpdate(void)
+{
+  uint8 *pScrBuf; // edi
+  tBlockHeader *pWinnerImage; // esi
+  unsigned int uiBufSize; // ecx
+  char byBufSizeLow; // al
+  unsigned int uiDWordCount; // ecx
+  int16 nNewYaw; // ax
+  int iKeyPressed; // eax
+
+  if (!iWinnerScreenActive)
+    return -1;
+
+  pScrBuf = scrbuf;
+  pWinnerImage = front_vga[0];
+  if ( SVGA_ON )
+    uiBufSize = 256000;
+  else
+    uiBufSize = 64000;
+
+  // dword copy
+  byBufSizeLow = uiBufSize;
+  uiDWordCount = uiBufSize >> 2;
+  memcpy(scrbuf, front_vga[0], 4 * uiDWordCount);
+  memcpy(&pScrBuf[4 * uiDWordCount], &pWinnerImage->iWidth + uiDWordCount, byBufSizeLow & 3);
+
+  scene_render_set_target(pWinnerScreenScene, scrbuf, winw, winw, winh);
+  scene_render_set_viewport(pWinnerScreenScene, 0, 115, winw, winh - 115);
+  DrawCar(pWinnerScreenScene, iWinnerScreenCarDesign, 2200.0, 512, byWinnerScreenAnimFrame);
+  front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
+  copypic(scrbuf, screen);
+  if (SnapshotShouldStop())
+    return -1;
+
+  if ( !front_fade )
   {
-    pScrBuf = scrbuf;
-    pWinnerImage = front_vga[0];
-    if ( SVGA_ON )
-      uiBufSize = 256000;
-    else
-      uiBufSize = 64000;
-
-    // dword copy
-    byBufSizeLow = uiBufSize;
-    uiDWordCount = uiBufSize >> 2;
-    memcpy(scrbuf, front_vga[0], 4 * uiDWordCount);
-    memcpy(&pScrBuf[4 * uiDWordCount], &pWinnerImage->iWidth + uiDWordCount, byBufSizeLow & 3);
-
-    scene_render_set_target(scene, scrbuf, winw, winw, winh);
-    scene_render_set_viewport(scene, 0, 115, winw, winh - 115);
-    DrawCar(scene, carDesign, 2200.0, 512, byAnimFrame);
-    front_text(front_vga[1], driver_names[result_order[0]], font3_ascii, font3_offsets, 320, 120, 0x8Fu, 1u);
-    copypic(scrbuf, screen);
-    if (SnapshotShouldStop()) {
-      iExit = -1;
-      break;
-    }
-    if ( !front_fade )
-    {
-      front_fade = -1;
-      fade_palette(32);
-      frames = 0;
-    }
-    while ( fatkbhit() )
-    {
-      if ( !(uint8)fatgetch() )
-        fatgetch();
-      iExit = -1;
-      iRetVal = 0;
-      UpdateSDL();
-    }
-    if ( ticks > iDisplayDuration )
-      iExit = -1;
-    nNewYaw = Car[0].nYaw + 32 * frames;
-    nNewYaw &= 0x3FFF;
-    Car[0].nYaw = nNewYaw;
+    front_fade = -1;
+    fade_palette(32);
     frames = 0;
-    UpdateSDL();
-    if (SnapshotShouldStop())
-      iExit = -1;
-    else
-      SnapshotAdvanceTick();
   }
-  while ( !iExit );
 
+  iKeyPressed = 0;
+  while ( fatkbhit() )
+  {
+    if ( !(uint8)fatgetch() )
+      fatgetch();
+    iKeyPressed = -1;
+  }
+  if (iKeyPressed) {
+    iWinnerScreenRetVal = 0;
+    return -1;
+  }
+
+  if ( ticks > iWinnerScreenDisplayDuration )
+    return -1;
+  nNewYaw = Car[0].nYaw + 32 * frames;
+  nNewYaw &= 0x3FFF;
+  Car[0].nYaw = nNewYaw;
+  frames = 0;
+  if (SnapshotShouldStop())
+    return -1;
+  SnapshotAdvanceTick();
+  return 0;
+}
+
+int WinnerScreenResult(void)
+{
+  return iWinnerScreenRetVal;
+}
+
+void WinnerScreenExit(void)
+{
+  tBlockHeader **ppFrontVgaItr; // edx
+  void **ppFrePtr; // eax
+  uint8 **ppCartexItr; // edx
+  void **ppFrePtr_1; // eax
+
+  if (!iWinnerScreenActive)
+    return;
   // cleanup
   ppFrontVgaItr = front_vga;
   do
@@ -305,14 +329,24 @@ int winner_screen(int carDesign, char byFlags)
   }
   while ( ppCartexItr != &cartex_vga[16] );
   remove_mapsels();
-  scene_render_destroy(scene);
-  gfx_size = iOldGfxSize;
-  if ( !iRetVal )
+  scene_render_destroy(pWinnerScreenScene);
+  pWinnerScreenScene = NULL;
+  gfx_size = iWinnerScreenOldGfxSize;
+  if ( !iWinnerScreenRetVal )
   {
     fade_palette(0);
     front_fade = 0;
   }
-  return iRetVal;
+  iWinnerScreenActive = 0;
+}
+
+int winner_screen(int carDesign, char byFlags)
+{
+  WinnerScreenEnter(carDesign, byFlags);
+  while (!WinnerScreenUpdate())
+    UpdateSDL();
+  WinnerScreenExit();
+  return WinnerScreenResult();
 }
 
 void snapshot_render_winner_race(void)
@@ -4313,70 +4347,134 @@ void ResultRoundUp()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005CB20
-void RollCredits()
+typedef enum {
+  eROLL_CREDITS_PHASE_INACTIVE = 0,
+  eROLL_CREDITS_PHASE_TITLE,
+  eROLL_CREDITS_PHASE_INITIAL_WAIT,
+  eROLL_CREDITS_PHASE_CARD_WAIT,
+  eROLL_CREDITS_PHASE_DONE
+} eRollCreditsPhase;
+
+static eRollCreditsPhase eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
+static int iRollCreditsCurrImageIdx = 0;
+static int iRollCreditsOrderIdx = 0;
+static int iRollCreditsImagesLoaded = 0;
+
+static void RollCreditsShowCurrentCard(void)
 {
-  int iCurrImageIdx; // edi
-  int iCreditOrderIdx; // esi
   int iBlockIdx; // ecx
   tBlockHeader *pCurrImage; // ebp
   int64 llBlockHeight; // rax
+
+  iBlockIdx = credit_order[iRollCreditsOrderIdx];
+  if ( iBlockIdx < 0 )
+  {
+    if ( iBlockIdx == -3 )
+      --iRollCreditsCurrImageIdx;
+    else
+      ++iRollCreditsCurrImageIdx;
+    iBlockIdx = credit_order[++iRollCreditsOrderIdx];
+  }
+  memset(scrbuf, 0, 0x3E800u);
+  pCurrImage = front_vga[iRollCreditsCurrImageIdx];
+  llBlockHeight = pCurrImage[iBlockIdx].iHeight;
+  display_block(scrbuf, pCurrImage, iBlockIdx, XMAX / 2 - pCurrImage[iBlockIdx].iWidth / 2, YMAX / 2 - (int)llBlockHeight / 2, -1);
+  copypic(scrbuf, screen);
+  fade_palette(32);
+  ticks = 0;
+}
+
+//0005CB20
+void RollCreditsEnter(void)
+{
+  frontend_title_screen_enter();
+  eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_TITLE;
+  iRollCreditsCurrImageIdx = 0;
+  iRollCreditsOrderIdx = 0;
+  iRollCreditsImagesLoaded = 0;
+}
+
+int RollCreditsUpdate(void)
+{
   int i; // eax
 
-  title_screens();
-  ticks = 0;
-  frontend_on = -1;
-  tick_on = -1;
-  front_vga[0] = (tBlockHeader *)load_picture("credit1.bm");
-  front_vga[1] = (tBlockHeader *)load_picture("credit2.bm");
-  while ( ticks < 108 )
-    UpdateSDL();
-  fade_palette(0);
-  iCurrImageIdx = 0;
-  iCreditOrderIdx = 0;
-  setpal("credit1.pal");
-  do
-  {
-    iBlockIdx = credit_order[iCreditOrderIdx];
-    if ( iBlockIdx < 0 )
-    {
-      if ( iBlockIdx == -3 )
-        --iCurrImageIdx;
-      else
-        ++iCurrImageIdx;
-      iBlockIdx = credit_order[++iCreditOrderIdx];
-    }
-    memset(scrbuf, 0, 0x3E800u);
-    pCurrImage = front_vga[iCurrImageIdx];
-    llBlockHeight = pCurrImage[iBlockIdx].iHeight;
-    display_block(scrbuf, pCurrImage, iBlockIdx, XMAX / 2 - pCurrImage[iBlockIdx].iWidth / 2, YMAX / 2 - (int)llBlockHeight / 2, -1);
-    copypic(scrbuf, screen);
-    fade_palette(32);
-    ticks = 0;
-    do
-    {
+  switch (eRollCreditsPhaseCurrent) {
+    case eROLL_CREDITS_PHASE_TITLE:
+      if (!frontend_title_screen_update())
+        return 0;
+      frontend_title_screen_exit();
+      ticks = 0;
+      frontend_on = -1;
+      tick_on = -1;
+      front_vga[0] = (tBlockHeader *)load_picture("credit1.bm");
+      front_vga[1] = (tBlockHeader *)load_picture("credit2.bm");
+      iRollCreditsImagesLoaded = -1;
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INITIAL_WAIT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_INITIAL_WAIT:
+      if (ticks < 108)
+        return 0;
+      fade_palette(0);
+      iRollCreditsCurrImageIdx = 0;
+      iRollCreditsOrderIdx = 0;
+      setpal("credit1.pal");
+      RollCreditsShowCurrentCard();
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_WAIT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_CARD_WAIT:
       while ( fatkbhit() )
       {
         ticks = 74;
         if ( !fatgetch() )
           fatgetch();
-        for ( i = iCreditOrderIdx; credit_order[i] != -2; ++i )
-          ++iCreditOrderIdx;
-        UpdateSDL();
+        for ( i = iRollCreditsOrderIdx; credit_order[i] != -2; ++i )
+          ++iRollCreditsOrderIdx;
       }
-      UpdateSDL();
-    }
-    while ( ticks < 72 );
-    if ( credit_order[iCreditOrderIdx] != -2 )
-      ++iCreditOrderIdx;
-    if ( credit_order[iCreditOrderIdx] == -2 )
-      holdmusic = 0;
-    fade_palette(0);
+      if (ticks < 72)
+        return 0;
+      if ( credit_order[iRollCreditsOrderIdx] != -2 )
+        ++iRollCreditsOrderIdx;
+      if ( credit_order[iRollCreditsOrderIdx] == -2 )
+        holdmusic = 0;
+      fade_palette(0);
+      if ( credit_order[iRollCreditsOrderIdx] == -2 ) {
+        eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_DONE;
+        return -1;
+      }
+      RollCreditsShowCurrentCard();
+      return 0;
+
+    case eROLL_CREDITS_PHASE_DONE:
+      return -1;
+
+    default:
+      return -1;
   }
-  while ( credit_order[iCreditOrderIdx] != -2 );
-  fre((void **)&front_vga[0]);
-  fre((void **)&front_vga[1]);
+}
+
+void RollCreditsExit(void)
+{
+  if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_INACTIVE)
+    return;
+  if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_TITLE)
+    frontend_title_screen_exit();
+  if (iRollCreditsImagesLoaded) {
+    fre((void **)&front_vga[0]);
+    fre((void **)&front_vga[1]);
+  }
   front_fade = 0;
+  eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
+  iRollCreditsImagesLoaded = 0;
+}
+
+void RollCredits()
+{
+  RollCreditsEnter();
+  while (!RollCreditsUpdate())
+    UpdateSDL();
+  RollCreditsExit();
 }
 
 //-------------------------------------------------------------------------------------------------

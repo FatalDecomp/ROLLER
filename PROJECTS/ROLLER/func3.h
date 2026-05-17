@@ -56,6 +56,10 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
+void WinnerScreenEnter(int carDesign, char byFlags);
+int WinnerScreenUpdate(void);
+int WinnerScreenResult(void);
+void WinnerScreenExit(void);
 int winner_screen(int carDesign, char byFlags);
 void StoreResult();
 void RaceResultEnter(void);
@@ -96,6 +100,9 @@ void ResultRoundUpEnter(void);
 int ResultRoundUpUpdate(void);
 void ResultRoundUpExit(void);
 void ResultRoundUp();
+void RollCreditsEnter(void);
+int RollCreditsUpdate(void);
+void RollCreditsExit(void);
 void RollCredits();
 void ChampionshipOver();
 void EndChampSequence();

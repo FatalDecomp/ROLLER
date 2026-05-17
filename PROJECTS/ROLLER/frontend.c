@@ -37,7 +37,8 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
-  [eFRONTEND_STATE_WINNER_SCREEN] = { NULL, frontend_winner_screen_update, NULL, NULL },
+  [eFRONTEND_STATE_WINNER_SCREEN] = {
+    frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
   [eFRONTEND_STATE_WINNER_RACE] = { NULL, frontend_winner_race_update, NULL, NULL },
   [eFRONTEND_STATE_RESULT_ROUNDUP] = {
     frontend_result_roundup_enter, frontend_result_roundup_update, NULL, frontend_result_roundup_exit },
@@ -54,7 +55,7 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
     frontend_time_trial_results_enter, frontend_time_trial_results_update, NULL,
     frontend_time_trial_results_exit },
   [eFRONTEND_STATE_CHAMPIONSHIP_OVER] = { NULL, frontend_championship_over_update, NULL, NULL },
-  [eFRONTEND_STATE_CREDITS] = { NULL, frontend_credits_update, NULL, NULL },
+  [eFRONTEND_STATE_CREDITS] = { frontend_credits_enter, frontend_credits_update, NULL, frontend_credits_exit },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
 };
 

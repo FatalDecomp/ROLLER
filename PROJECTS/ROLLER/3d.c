@@ -2356,10 +2356,22 @@ void frontend_results_update(void)
 
 void frontend_winner_screen_update(void)
 {
-  if (winner_screen((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1))
+  if (!WinnerScreenUpdate())
+    return;
+  if (WinnerScreenResult())
     eFrontendNextState = eFRONTEND_STATE_WINNER_RACE;
   else
     eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+}
+
+void frontend_winner_screen_enter(void)
+{
+  WinnerScreenEnter((int)Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+}
+
+void frontend_winner_screen_exit(void)
+{
+  WinnerScreenExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2548,8 +2560,19 @@ void frontend_championship_over_update(void)
 
 void frontend_credits_update(void)
 {
-  RollCredits();
+  if (!RollCreditsUpdate())
+    return;
   frontend_finish_post_race_sequence();
+}
+
+void frontend_credits_enter(void)
+{
+  RollCreditsEnter();
+}
+
+void frontend_credits_exit(void)
+{
+  RollCreditsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
