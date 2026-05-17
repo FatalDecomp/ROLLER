@@ -2024,8 +2024,12 @@ void winner_race()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00012CE0
-void champion_race()
+static int iChampionRaceSavedRacers = 0;
+static int iChampionRaceSavedPlayerType = 0;
+static int iChampionRaceSavedTrackLoad = 0;
+static int iChampionRaceActive = 0;
+
+static int champion_race_setup(void)
 {
   //int iMaxOffset_1; // ebx
   //unsigned int iOffset_1; // eax
@@ -2038,15 +2042,10 @@ void champion_race()
   int iOffset_2; // ecx
   int iMaxOffset_2; // edi
   int j; // eax
-  int iOldRacers; // ebx
   int iDriver; // edx
-  int iPlayerType; // edx
-  //unsigned int iOffset; // eax
-  //int iMaxOffset; // ebx
-  int iTrackLoad; // [esp+0h] [ebp-20h]
   int iTrack; // [esp+4h] [ebp-1Ch]
 
-  iTrackLoad = TrackLoad;
+  iChampionRaceSavedTrackLoad = TrackLoad;
   champ_size = scr_size;
   if (game_type != 1 && numcars > 0) {
 
@@ -2092,7 +2091,7 @@ void champion_race()
     } while (iOffset_2 < iMaxOffset_2);
   }
 
-  iOldRacers = racers;
+  iChampionRaceSavedRacers = racers;
   winner_mode = -1;
   winner_done = 0;
   champ_mode = -1;
@@ -2112,16 +2111,27 @@ void champion_race()
   delaywrite = 6;
   writeptr = 0;
   readptr = 0;
-  iPlayerType = player_type;
+  iChampionRaceSavedPlayerType = player_type;
   replaytype = 0;
   player_type = 0;
-  play_game(iTrack);
+  iChampionRaceActive = -1;
+  return iTrack;
+}
+
+static void champion_race_teardown(void)
+{
+  //unsigned int iOffset; // eax
+  //int iMaxOffset; // ebx
+
+  if (!iChampionRaceActive)
+    return;
+
   VIEWDIST = 270;
   winner_mode = 0;
   champ_mode = 0;
-  racers = iOldRacers;
-  player_type = iPlayerType;
-  TrackLoad = iTrackLoad;
+  racers = iChampionRaceSavedRacers;
+  player_type = iChampionRaceSavedPlayerType;
+  TrackLoad = iChampionRaceSavedTrackLoad;
 
   for (int i = 0; i < numcars; ++i) {
     non_competitors[i] = result_competing[i];
@@ -2136,6 +2146,43 @@ void champion_race()
   //}
 
   scr_size = champ_size;
+  iChampionRaceActive = 0;
+}
+
+void champion_race_enter(void)
+{
+  int iTrack = champion_race_setup();
+  race_set_track(iTrack);
+  race_enter();
+}
+
+int champion_race_update(void)
+{
+  race_update();
+  if (eFrontendNextState == eFRONTEND_STATE_RESULTS) {
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+    return -1;
+  }
+  return 0;
+}
+
+void champion_race_draw(void)
+{
+  race_draw();
+}
+
+void champion_race_exit(void)
+{
+  race_exit();
+  champion_race_teardown();
+}
+
+//00012CE0
+void champion_race()
+{
+  int iTrack = champion_race_setup();
+  play_game(iTrack);
+  champion_race_teardown();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2585,12 +2632,11 @@ void frontend_championship_over_update(void)
 void frontend_championship_over_enter(void)
 {
   ChampionshipOverEnter();
-  // The championship winner prelude still uses the legacy nested champion_race()
-  // wrapper; keep the dispatcher anchored on this state after it returns.
-  if (!quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT) {
-    eFrontendCurrentState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
-  }
+}
+
+void frontend_championship_over_draw(void)
+{
+  ChampionshipOverDraw();
 }
 
 void frontend_championship_over_exit(void)

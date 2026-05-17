@@ -100,6 +100,7 @@ void frontend_time_trial_results_update(void);
 void frontend_time_trial_results_exit(void);
 void frontend_championship_over_enter(void);
 void frontend_championship_over_update(void);
+void frontend_championship_over_draw(void);
 void frontend_championship_over_exit(void);
 void frontend_credits_enter(void);
 void frontend_credits_update(void);

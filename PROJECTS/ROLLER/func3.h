@@ -106,6 +106,7 @@ void RollCreditsExit(void);
 void RollCredits();
 void ChampionshipOverEnter(void);
 int ChampionshipOverUpdate(void);
+void ChampionshipOverDraw(void);
 void ChampionshipOverExit(void);
 void ChampionshipOver();
 void EndChampSequenceEnter(void);

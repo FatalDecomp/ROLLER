@@ -4480,6 +4480,7 @@ void RollCredits()
 //-------------------------------------------------------------------------------------------------
 typedef enum {
   eCHAMPIONSHIP_OVER_PHASE_INACTIVE = 0,
+  eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT,
   eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE,
@@ -4490,6 +4491,7 @@ typedef enum {
 static eChampionshipOverPhase eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
 static int iChampionshipOverSavedScreenSize = 0;
 static int iChampionshipOverResultScreenActive = 0;
+static int iChampionshipOverChampionPreludeDone = 0;
 
 static int ChampionshipOverBestPosition(void)
 {
@@ -4542,7 +4544,7 @@ static void ChampionshipOverReleaseResultScreen(void)
 }
 
 //0005CCE0
-void ChampionshipOverEnter(void)
+static void ChampionshipOverStart(void)
 {
   uint8 *pbyScreenBuffer; // edi
   char *pszTitleImageData; // esi
@@ -4555,10 +4557,13 @@ void ChampionshipOverEnter(void)
   iChampionshipOverResultScreenActive = 0;
   iBestPos = ChampionshipOverBestPosition();
 
-  if (!iBestPos)                                    // If player won championship (position 0), show victory sequence
+  if (!iBestPos && !iChampionshipOverChampionPreludeDone) // If player won championship (position 0), show victory sequence
   {
+    iChampionshipOverChampionPreludeDone = -1;
     championship_winner();
-    champion_race();
+    champion_race_enter();
+    eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE;
+    return;
   }
   tick_on = 0;                                  // Initialize screen for championship results display
   iChampionshipOverSavedScreenSize = scr_size;
@@ -4650,9 +4655,22 @@ void ChampionshipOverEnter(void)
     ticks = 0;
 }
 
+void ChampionshipOverEnter(void)
+{
+  iChampionshipOverChampionPreludeDone = 0;
+  ChampionshipOverStart();
+}
+
 int ChampionshipOverUpdate(void)
 {
   switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
+      if (!champion_race_update())
+        return 0;
+      champion_race_exit();
+      ChampionshipOverStart();
+      return 0;
+
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
       if (SnapshotShouldStop()) {
         ChampionshipOverReleaseResultScreen();
@@ -4721,6 +4739,10 @@ int ChampionshipOverUpdate(void)
 void ChampionshipOverExit(void)
 {
   switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE:
+      champion_race_exit();
+      break;
+
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
       ChampionshipOverReleaseResultScreen();
@@ -4740,6 +4762,13 @@ void ChampionshipOverExit(void)
 
   eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
   iChampionshipOverResultScreenActive = 0;
+  iChampionshipOverChampionPreludeDone = 0;
+}
+
+void ChampionshipOverDraw(void)
+{
+  if (eChampionshipOverPhaseCurrent == eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE)
+    champion_race_draw();
 }
 
 void ChampionshipOver()
