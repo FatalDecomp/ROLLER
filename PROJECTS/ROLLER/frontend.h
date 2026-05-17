@@ -46,6 +46,7 @@ typedef enum {
   eFRONTEND_STATE_CHAMPIONSHIP_OVER,
   eFRONTEND_STATE_CREDITS,
   eFRONTEND_STATE_OPTIONS,
+  eFRONTEND_STATE_SHUTDOWN,
   eFRONTEND_STATE_QUIT
 } eFrontendState;
 
@@ -130,6 +131,9 @@ void frontend_lobby_enter(void);
 void frontend_lobby_update(void);
 void frontend_lobby_exit(void);
 void frontend_main_menu_prepare_race_start(void);
+void frontend_shutdown_enter(void);
+void frontend_shutdown_update(void);
+int frontend_shutdown_complete(void);
 
 //-------------------------------------------------------------------------------------------------
 

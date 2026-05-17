@@ -649,18 +649,37 @@ void fre(void **ppData)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00010AF0
-void doexit()
+static int iFrontendShutdownStarted = 0;
+static int iFrontendShutdownWaitingForNetwork = 0;
+static int iFrontendShutdownFinishing = 0;
+static int iFrontendShutdownComplete = 0;
+
+static void frontend_shutdown_begin(void)
 {
+  if (iFrontendShutdownStarted)
+    return;
+
+  iFrontendShutdownStarted = -1;
   exiting = -1;
+  quit_game = -1;
   if (network_on) {
     tick_on = -1;
     frontend_on = -1;
     network_broadcast_wait_start(-666, 1);
-    while (!network_broadcast_wait_update()) {
-      UpdateSDL();
-    }
+    iFrontendShutdownWaitingForNetwork = -1;
   }
+}
+
+static void frontend_shutdown_finish(void)
+{
+  if (iFrontendShutdownComplete)
+    return;
+  if (iFrontendShutdownFinishing) {
+    iFrontendShutdownComplete = -1;
+    return;
+  }
+
+  iFrontendShutdownFinishing = -1;
   close_network();
   if (!g_bSnapshotMode) SaveRecords();
   fre((void**)&mirbuf);
@@ -700,6 +719,47 @@ void doexit()
   //  iSuccess = getch();
   chdir("..");
 
+  iFrontendShutdownComplete = -1;
+  iFrontendShutdownFinishing = 0;
+}
+
+static int frontend_shutdown_pump(void)
+{
+  frontend_shutdown_begin();
+
+  if (iFrontendShutdownWaitingForNetwork) {
+    if (!network_broadcast_wait_update())
+      return 0;
+    iFrontendShutdownWaitingForNetwork = 0;
+  }
+
+  frontend_shutdown_finish();
+  return -1;
+}
+
+void frontend_shutdown_enter(void)
+{
+  frontend_shutdown_begin();
+}
+
+void frontend_shutdown_update(void)
+{
+  if (frontend_shutdown_pump())
+    eFrontendNextState = eFRONTEND_STATE_QUIT;
+}
+
+int frontend_shutdown_complete(void)
+{
+  return iFrontendShutdownComplete;
+}
+
+//00010AF0
+void doexit()
+{
+  frontend_shutdown_begin();
+  while (!frontend_shutdown_pump()) {
+    UpdateSDL();
+  }
   exit(0);
 }
 
@@ -1472,7 +1532,8 @@ int main(int argc, const char **argv, const char **envp)
   race_set_track(TrackLoad);                    // Start initial intro replay through the dispatcher.
   frontend_run_game_loop(eFRONTEND_STATE_RACING);
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
-  doexit();
+  if (!frontend_shutdown_complete())
+    doexit();
   return 0;
 }
 
@@ -2253,8 +2314,10 @@ static void frontend_run_game_loop(eFrontendState eInitialState);
 
 int main_loop_iteration(void)
 {
-  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
-    eFrontendNextState = eFRONTEND_STATE_QUIT;
+  if (quit_game &&
+      eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
+      eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
 
   if (eFrontendCurrentState == eFRONTEND_STATE_QUIT &&
       eFrontendNextState == eFRONTEND_STATE_QUIT)
@@ -2262,12 +2325,14 @@ int main_loop_iteration(void)
 
   UpdateSDL();
 
-  if (quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT)
-    eFrontendNextState = eFRONTEND_STATE_QUIT;
+  if (quit_game &&
+      eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
+      eFrontendCurrentState != eFRONTEND_STATE_QUIT)
+    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
 
   frontend_update();
 
-  return eFrontendCurrentState != eFRONTEND_STATE_QUIT && !quit_game;
+  return eFrontendCurrentState != eFRONTEND_STATE_QUIT;
 }
 
 static void frontend_run_game_loop(eFrontendState eInitialState)

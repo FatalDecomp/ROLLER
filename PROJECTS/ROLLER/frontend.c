@@ -62,6 +62,7 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
     frontend_championship_over_exit },
   [eFRONTEND_STATE_CREDITS] = { frontend_credits_enter, frontend_credits_update, NULL, frontend_credits_exit },
   [eFRONTEND_STATE_OPTIONS] = { frontend_config_enter, frontend_config_update, NULL, frontend_config_exit },
+  [eFRONTEND_STATE_SHUTDOWN] = { frontend_shutdown_enter, frontend_shutdown_update, NULL, NULL },
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -74,19 +75,39 @@ static int frontend_state_is_valid(eFrontendState eState)
 
 //-------------------------------------------------------------------------------------------------
 
-void frontend_set_state(eFrontendState eState)
+static eFrontendState frontend_resolve_state(eFrontendState eState)
 {
   if (!frontend_state_is_valid(eState))
-    eState = eFRONTEND_STATE_NONE;
+    return eFRONTEND_STATE_NONE;
+
+  if (eState == eFRONTEND_STATE_QUIT && !frontend_shutdown_complete())
+    return eFRONTEND_STATE_SHUTDOWN;
+
+  return eState;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_exit_state(eFrontendState eState)
+{
+  if (frontend_state_is_valid(eState) && aScreens[eState].pfnExit)
+    aScreens[eState].pfnExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_set_state(eFrontendState eState)
+{
+  eState = frontend_resolve_state(eState);
 
   if (eState == eFrontendCurrentState) {
     eFrontendNextState = eState;
     return;
   }
 
-  if (frontend_state_is_valid(eFrontendCurrentState) &&
-      aScreens[eFrontendCurrentState].pfnExit)
-    aScreens[eFrontendCurrentState].pfnExit();
+  frontend_exit_state(eFrontendCurrentState);
+  while (iOverlayStackTop > 0)
+    frontend_exit_state(aOverlayStack[--iOverlayStackTop]);
 
   eFrontendCurrentState = eState;
   eFrontendNextState = eState;
