@@ -2548,12 +2548,29 @@ void frontend_time_trial_results_exit(void)
 
 void frontend_championship_over_update(void)
 {
-  ChampionshipOver();
+  if (!ChampionshipOverUpdate())
+    return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE &&
       (cheat_mode & CHEAT_MODE_CREDITS) != 0)
     eFrontendNextState = eFRONTEND_STATE_CREDITS;
   else
     frontend_finish_post_race_sequence();
+}
+
+void frontend_championship_over_enter(void)
+{
+  ChampionshipOverEnter();
+  // The championship winner prelude still uses the legacy nested champion_race()
+  // wrapper; keep the dispatcher anchored on this state after it returns.
+  if (!quit_game && eFrontendCurrentState != eFRONTEND_STATE_QUIT) {
+    eFrontendCurrentState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  }
+}
+
+void frontend_championship_over_exit(void)
+{
+  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------

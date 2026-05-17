@@ -4478,8 +4478,20 @@ void RollCredits()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005CCE0
-void ChampionshipOver()
+typedef enum {
+  eCHAMPIONSHIP_OVER_PHASE_INACTIVE = 0,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT,
+  eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE,
+  eCHAMPIONSHIP_OVER_PHASE_CREDITS,
+  eCHAMPIONSHIP_OVER_PHASE_DONE
+} eChampionshipOverPhase;
+
+static eChampionshipOverPhase eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+static int iChampionshipOverSavedScreenSize = 0;
+static int iChampionshipOverResultScreenActive = 0;
+
+static int ChampionshipOverBestPosition(void)
 {
   signed int iPlayer1Position; // edx
   int iP1SearchIndex; // eax
@@ -4487,12 +4499,6 @@ void ChampionshipOver()
   signed int iPlayer2Position; // edx
   int iP2SearchIndex; // eax
   int iCurrentP2Entry; // ebx
-  uint8 *pbyScreenBuffer; // edi
-  char *pszTitleImageData; // esi
-  unsigned int uiBufferSize; // ecx
-  char byBufferSizeRemainder; // al
-  unsigned int uiDwordCopyCount; // ecx
-  int id; // [esp+0h] [ebp-20h]
   signed int iBestPos; // [esp+4h] [ebp-1Ch]
 
   iPlayer1Position = 0;                         // Initialize championship analysis and disable network championship mode
@@ -4519,13 +4525,43 @@ void ChampionshipOver()
     if (iPlayer2Position < iBestPos)                // Use the better position between both players
       iBestPos = iPlayer2Position;
   }
+
+  return iBestPos;
+}
+
+static void ChampionshipOverReleaseResultScreen(void)
+{
+  if (!iChampionshipOverResultScreenActive)
+    return;
+
+  fre(&title_vga);                              // Clean up resources and restore screen settings
+  fre(&font_vga);
+  fre((void **)front_vga);
+  scr_size = iChampionshipOverSavedScreenSize;
+  iChampionshipOverResultScreenActive = 0;
+}
+
+//0005CCE0
+void ChampionshipOverEnter(void)
+{
+  uint8 *pbyScreenBuffer; // edi
+  char *pszTitleImageData; // esi
+  unsigned int uiBufferSize; // ecx
+  char byBufferSizeRemainder; // al
+  unsigned int uiDwordCopyCount; // ecx
+  signed int iBestPos; // [esp+4h] [ebp-1Ch]
+
+  eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+  iChampionshipOverResultScreenActive = 0;
+  iBestPos = ChampionshipOverBestPosition();
+
   if (!iBestPos)                                    // If player won championship (position 0), show victory sequence
   {
     championship_winner();
     champion_race();
   }
   tick_on = 0;                                  // Initialize screen for championship results display
-  id = scr_size;
+  iChampionshipOverSavedScreenSize = scr_size;
   SVGA_ON = -1;
   init_screen();
   setpal("resround.pal");
@@ -4571,69 +4607,147 @@ void ChampionshipOver()
         Race = 0;
       }
     }
-    goto LABEL_36;
-  }
-  front_text((tBlockHeader *)font_vga, &language_buffer[4096], font4_ascii, font4_offsets, 320, 64, 0x8Fu, 1u);// Championship winner - display congratulations
-  if (Race == 8)                              // Handle completion rewards and progression
-  {                                             // Unlock texture quality improvements for winning championship
-    if (level < 4)
-      textures_off |= TEX_OFF_PREMIER_CUP_AVAILABLE;
-    if (level < 2) {
-      textures_off |= TEX_OFF_CAR_SET_AVAILABLE;
-      //uiTextureSettings = textures_off;
-      //BYTE1(uiTextureSettings) = BYTE1(textures_off) | 0x80;
-      //textures_off = uiTextureSettings;
-    }
-  }
-  if (TrackLoad < 17 && level < 4)            // Determine next level progression or reset
-  {                                             // Continue in same track group at higher difficulties
-    if (level > 0) {
-      front_text((tBlockHeader *)font_vga, &language_buffer[4480], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
-      goto LABEL_30;
-    }
   } else {
-    TrackLoad = 17;                             // Reset to first track group and decrease difficulty if at higher levels
-    if (level > 0) {
-      if (Race == 8)
-        --level;
-      front_text((tBlockHeader *)font_vga, &language_buffer[4416], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
-      goto LABEL_30;
+    front_text((tBlockHeader *)font_vga, &language_buffer[4096], font4_ascii, font4_offsets, 320, 64, 0x8Fu, 1u);// Championship winner - display congratulations
+    if (Race == 8)                              // Handle completion rewards and progression
+    {                                             // Unlock texture quality improvements for winning championship
+      if (level < 4)
+        textures_off |= TEX_OFF_PREMIER_CUP_AVAILABLE;
+      if (level < 2) {
+        textures_off |= TEX_OFF_CAR_SET_AVAILABLE;
+        //uiTextureSettings = textures_off;
+        //BYTE1(uiTextureSettings) = BYTE1(textures_off) | 0x80;
+        //textures_off = uiTextureSettings;
+      }
     }
+    if (TrackLoad < 17 && level < 4)            // Determine next level progression or reset
+    {                                             // Continue in same track group at higher difficulties
+      if (level > 0) {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4480], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
+      } else {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
+      }
+    } else {
+      TrackLoad = 17;                             // Reset to first track group and decrease difficulty if at higher levels
+      if (level > 0) {
+        if (Race == 8)
+          --level;
+        front_text((tBlockHeader *)font_vga, &language_buffer[4416], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);
+      } else {
+        front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
+      }
+    }
+    if (Race == 8)                              // Reset race counter after completing championship
+      Race = 0;
   }
-  front_text((tBlockHeader *)font_vga, &language_buffer[4544], font4_ascii, font4_offsets, 320, 100, 0x8Fu, 1u);// Ultimate completion - show mastery message
-LABEL_30:
-  if (Race == 8)                              // Reset race counter after completing championship
-    Race = 0;
-LABEL_36:
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
   fade_palette(32);
-  if (g_bSnapshotMode) {
-    while (!SnapshotShouldStop() && g_SnapshotConfig.iPresentFrame < g_SnapshotConfig.iMaxFrame) {
-      UpdateSDLWindow();
-      if (!SnapshotShouldStop())
+  iChampionshipOverResultScreenActive = -1;
+  eChampionshipOverPhaseCurrent = g_bSnapshotMode
+    ? eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT
+    : eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
+  if (!g_bSnapshotMode)
+    ticks = 0;
+}
+
+int ChampionshipOverUpdate(void)
+{
+  switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
+      if (SnapshotShouldStop()) {
+        ChampionshipOverReleaseResultScreen();
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      if (g_SnapshotConfig.iPresentFrame < g_SnapshotConfig.iMaxFrame) {
+        UpdateSDLWindow();
+        if (!SnapshotShouldStop())
+          SnapshotAdvanceTick();
+        return 0;
+      }
+      ticks = 0;
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
+      if (SnapshotShouldStop()) {
+        ChampionshipOverReleaseResultScreen();
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      if (!fatkbhit() && ticks < 2160) {
         SnapshotAdvanceTick();
-    }
+        return 0;
+      }
+      ChampionshipOverReleaseResultScreen();
+      if (SnapshotShouldStop()) {
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      fade_palette(0);
+      if (SnapshotShouldStop()) {
+        eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+        return -1;
+      }
+      EndChampSequenceEnter();                  // Run championship end sequence and credits
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE:
+      if (!EndChampSequenceUpdate())
+        return 0;
+      EndChampSequenceExit();
+      RollCreditsEnter();
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_CREDITS;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_CREDITS:
+      if (!RollCreditsUpdate())
+        return 0;
+      RollCreditsExit();
+      if (TrackLoad >= 17)                        // Reset track selection if at maximum
+        TrackLoad = 1;
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
+      return -1;
+
+    case eCHAMPIONSHIP_OVER_PHASE_DONE:
+      return -1;
+
+    default:
+      return -1;
   }
-  ticks = 0;
-  while (!fatkbhit() && ticks < 2160) {
-    UpdateSDL();
-    if (SnapshotShouldStop())
+}
+
+void ChampionshipOverExit(void)
+{
+  switch (eChampionshipOverPhaseCurrent) {
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
+      ChampionshipOverReleaseResultScreen();
       break;
-    SnapshotAdvanceTick();
+
+    case eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE:
+      EndChampSequenceExit();
+      break;
+
+    case eCHAMPIONSHIP_OVER_PHASE_CREDITS:
+      RollCreditsExit();
+      break;
+
+    default:
+      break;
   }
-  fre(&title_vga);                              // Clean up resources and show end sequence
-  fre(&font_vga);
-  fre((void **)front_vga);
-  scr_size = id;
-  if (SnapshotShouldStop())
-    return;
-  fade_palette(0);
-  if (SnapshotShouldStop())
-    return;
-  EndChampSequence();                           // Run championship end sequence and credits
-  RollCredits();
-  if (TrackLoad >= 17)                        // Reset track selection if at maximum
-    TrackLoad = 1;
+
+  eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_INACTIVE;
+  iChampionshipOverResultScreenActive = 0;
+}
+
+void ChampionshipOver()
+{
+  ChampionshipOverEnter();
+  while (!ChampionshipOverUpdate())
+    UpdateSDL();
+  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------
