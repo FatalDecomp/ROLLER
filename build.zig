@@ -54,7 +54,6 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/frontend_data.c",
             "PROJECTS/ROLLER/frontend_lobby.c",
             "PROJECTS/ROLLER/frontend_pause.c",
-            "PROJECTS/ROLLER/frontend_network.c",
             "PROJECTS/ROLLER/frontend_screens.c",
             "PROJECTS/ROLLER/frontend_select_car.c",
             "PROJECTS/ROLLER/frontend_select_disk.c",

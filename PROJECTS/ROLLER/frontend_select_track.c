@@ -46,6 +46,20 @@ static float fFrontendTrackZoom = 0.0f;
 static float fFrontendTrackAnimatedZoom = 0.0f;
 static float fFrontendTrackTargetZoom = 0.0f;
 
+static void frontend_track_select_begin_broadcast_wait(int iBroadcastMode)
+{
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static int frontend_track_select_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  (void)network_broadcast_wait_update();
+  return -1;
+}
+
 static void frontend_track_select_black_palette(void)
 {
   palette_brightness = 0;
@@ -241,11 +255,8 @@ static void frontend_track_select_update_animation(int iFrameCount,
       fFrontendTrackZoom = cur_TrackZ;
       iFrontendTrackSoundFlag = -1;
       fFrontendTrackTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
-      if (*piPrevTrackLoad != -1) {
-        broadcast_mode = -1;
-        while (broadcast_mode)
-          UpdateSDL();
-      }
+      if (*piPrevTrackLoad != -1)
+        frontend_track_select_begin_broadcast_wait(-1);
       *piPrevTrackLoad = -1;
       frames = 0;
     }
@@ -417,8 +428,12 @@ void frontend_track_select_update(void)
     return;
 
   frontend_track_select_apply_same_car_switch();
+  if (frontend_track_select_update_broadcast_wait())
+    return;
   frontend_track_select_update_animation(iFrameCount, &iPrevTrackLoad,
                                          iStartedFadeIn);
+  if (frontend_track_select_update_broadcast_wait())
+    return;
   frontend_track_select_handle_input(iBlockIdx);
   iFrontendTrackYaw =
       ((uint16)iFrontendTrackYaw + 32 * (uint16)iFrameCount) & 0x3FFF;

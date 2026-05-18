@@ -44,6 +44,50 @@ static char szFrontendConfigNewNameBuf[12];
 static tJoyPos jFrontendConfigJoyPos;
 static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
+static int iFrontendConfigBroadcastWaitAction;
+
+enum {
+  FRONTEND_CONFIG_BROADCAST_WAIT_NONE = 0,
+  FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME,
+  FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS
+};
+
+static void frontend_config_begin_broadcast_wait(int iBroadcastMode, int iAction)
+{
+  iFrontendConfigBroadcastWaitAction = iAction;
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static void frontend_config_finish_broadcast_wait(void)
+{
+  int iAction = iFrontendConfigBroadcastWaitAction;
+  iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
+
+  switch (iAction) {
+    case FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS:
+      if (!network_on)
+        waste = CheckNames(player_names[player1_car], player1_car);
+      check_cars();
+      break;
+    case FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME:
+      if (!network_on)
+        waste = CheckNames(player_names[player1_car], player1_car);
+      break;
+    default:
+      break;
+  }
+}
+
+static int frontend_config_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  if (network_broadcast_wait_update())
+    frontend_config_finish_broadcast_wait();
+
+  return -1;
+}
 
 void frontend_config_enter(void)
 {
@@ -54,6 +98,7 @@ void frontend_config_enter(void)
   iFrontendConfigControlsInEdit = 0;
   front_fade = 0;
   iFrontendConfigState = 0;
+  iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
   {
     extern tColor palette[];
     memcpy(pal_addr, palette, 256 * sizeof(tColor));
@@ -1122,6 +1167,9 @@ void frontend_config_update(void)
           //cheat_mode &= ~0x4000u;
         }
 
+        if (frontend_config_update_broadcast_wait())
+          return;
+
         // Process keyboard input when not editing controls
         if (!iFrontendConfigControlsInEdit) {
           while (fatkbhit()) {
@@ -1275,12 +1323,9 @@ void frontend_config_update(void)
                         //for (j = 0; j < 9; cheat_names[player1_car + 31][j + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + j + 3))
                         //  ++j;
 
-                        broadcast_mode = -669;
-                        while (broadcast_mode)
-                          UpdateSDL();
-                        if (!network_on)
-                          waste = CheckNames(player_names[player1_car], player1_car);
-                        check_cars();
+                        frontend_config_begin_broadcast_wait(
+                            -669, FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS);
+                        return;
                       } else {
                         if (iFrontendConfigSelectedCar != 2)
                           goto SAVE_AI_DRIVER_NAME;
@@ -1321,9 +1366,8 @@ void frontend_config_update(void)
                         sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[iDefaultNamesIdx], buffer);
                       }
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                     }
                   } else {
                     // Start editing name
@@ -1401,11 +1445,9 @@ void frontend_config_update(void)
                         }
                         //for (ii = 0; ii < 9; cheat_names[player1_car + 31][ii + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + ii + 3))
                         //  ++ii;
-                        broadcast_mode = -669;
-                        while (broadcast_mode)
-                          UpdateSDL();
-                        if (!network_on)
-                          waste = CheckNames(player_names[player1_car], player1_car);
+                        frontend_config_begin_broadcast_wait(
+                            -669, FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME);
+                        return;
                       } else {
                         if (iFrontendConfigSelectedCar != 2)// player 2
                           goto CANCEL_AI_NAME_EDIT;
@@ -1447,9 +1489,8 @@ void frontend_config_update(void)
                         sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[v197], buffer);
                       }
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                     }
                   } else {
                   EXIT_NAME_EDITING:
@@ -1636,9 +1677,8 @@ void frontend_config_update(void)
                         manual_control[player1_car] = 1;// Switch to keyboard
                       else
                         manual_control[player1_car] = 2;// Switch to joystick
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                       break;
                     case 3:                     // Customize player 2
                       iFrontendConfigControlsInEdit = 2;
@@ -1841,9 +1881,8 @@ void frontend_config_update(void)
                       goto EXIT_AUDIO_MENU_2;
                     case 1:
                       false_starts = false_starts == 0;
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                       break;
                     case 2:
                       if (lots_of_mem)

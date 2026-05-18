@@ -256,10 +256,8 @@ void select_track();
 void snapshot_render_menu_select_track(void);
 void save_params();
 void reset_params();
-void NetworkWait();
 void loadcheatnames();
 int CheckNames(char *szPlayerName, int iPlayerIdx);
-void restart_net_game();
 
 //-------------------------------------------------------------------------------------------------
 #endif

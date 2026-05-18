@@ -3042,6 +3042,7 @@ void game_keys()
   unsigned int uiKeyCode; // eax
   int iExtendedKey; // eax
   int iGameReqState; // eax
+  int iProcessedKey; // eax
   bool bToggleState; // zf
   //uint32 uiTextureFlags1; // eax
   //uint32 uiTextureFlags2; // eax
@@ -3051,6 +3052,7 @@ void game_keys()
   if (define_mode)
     EXIT_FUNCTION:
   return;
+  iProcessedKey = 0;
   //JUMPOUT(0x1381B);
   while (1) {
     do {
@@ -3059,8 +3061,10 @@ void game_keys()
           while (1) {
             while (1) {
               while (1) {
-                UpdateSDL();
               PROCESS_NEXT_KEY:
+                if (iProcessedKey)
+                  goto EXIT_FUNCTION;
+                iProcessedKey = -1;
                 if (!fatkbhit())
                   goto EXIT_FUNCTION;               // Check if a key is available in the keyboard buffer
                 uiKeyCode = fatgetch();         // Get the key code from the keyboard buffer

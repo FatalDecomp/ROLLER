@@ -48,6 +48,20 @@ static int iFrontendCarPlayer1Car;
 static int iFrontendCarSelectedCar;
 static char *szFrontendCarCurrentCompanyName;
 
+static void frontend_car_select_begin_broadcast_wait(int iBroadcastMode)
+{
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static int frontend_car_select_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  (void)network_broadcast_wait_update();
+  return -1;
+}
+
 static void frontend_car_select_black_palette(void)
 {
   palette_brightness = 0;
@@ -301,6 +315,9 @@ void frontend_car_select_update(void)
       return;
   }
 
+  if (frontend_car_select_update_broadcast_wait())
+    return;
+
   // ANIMATION UPDATE: pie chart
   if (iFrontendCarDelayBeforeRotation) {
     if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
@@ -393,12 +410,13 @@ void frontend_car_select_update(void)
             frontendsample(0x8000);
         }
       }
-      broadcast_mode = -1;
-      while (broadcast_mode)
-        UpdateSDL();
+      frontend_car_select_begin_broadcast_wait(-1);
       frames = 0;
     }
   }
+
+  if (frontend_car_select_update_broadcast_wait())
+    return;
 
   // Network car request from another player
   if (car_request < 0) {
@@ -495,9 +513,8 @@ void frontend_car_select_update(void)
                        || (game_type == 1 && Race > 0))) {
           if (network_on) {
             car_request = iNextCarIndex;
-            broadcast_mode = -9999;
-            while (broadcast_mode)
-              UpdateSDL();
+            frontend_car_select_begin_broadcast_wait(-9999);
+            return;
           } else {
             iFrontendCarDelayBeforeRotation = 0;
             iFrontendCarZoomSpeed = 2000;

@@ -3934,9 +3934,7 @@ void waitsampledone(int iSampleIdx)
 
   for (int i = 0; i < 16; i++) {
     int iSampleHandle = SampleHandleCar[iSampleIdx].handles[i];
-    while (!DIGISampleDone(iSampleHandle)) {
-      UpdateSDL(); //added by ROLLER
-    }
+    (void)DIGISampleDone(iSampleHandle);
   }
 
   return;
