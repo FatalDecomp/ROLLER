@@ -340,15 +340,6 @@ void WinnerScreenExit(void)
   iWinnerScreenActive = 0;
 }
 
-int winner_screen(int carDesign, char byFlags)
-{
-  WinnerScreenEnter(carDesign, byFlags);
-  while (!WinnerScreenUpdate())
-    UpdateSDL();
-  WinnerScreenExit();
-  return WinnerScreenResult();
-}
-
 void snapshot_render_winner_race(void)
 {
   int iWinnerCar = 0;
@@ -359,7 +350,10 @@ void snapshot_render_winner_race(void)
   if (!driver_names[iWinnerCar][0])
     name_copy(driver_names[iWinnerCar], "HUMAN");
 
-  (void)winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+  WinnerScreenEnter(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+  while (!WinnerScreenUpdate()) {
+  }
+  WinnerScreenExit();
 }
 
 static void snapshot_copy_driver_name(int iDriver, const char *szName)
@@ -3208,18 +3202,12 @@ void ChampionshipWinnerExit(void)
   iChampionshipWinnerActive = 0;
 }
 
-//0005B490
-void championship_winner()
-{
-  ChampionshipWinnerEnter();
-  while (!ChampionshipWinnerUpdate())
-    UpdateSDL();
-  ChampionshipWinnerExit();
-}
-
 void snapshot_render_winner_championship(void)
 {
-  championship_winner();
+  ChampionshipWinnerEnter();
+  while (!ChampionshipWinnerUpdate()) {
+  }
+  ChampionshipWinnerExit();
 }
 
 void snapshot_render_championship_over(void)
@@ -3305,7 +3293,10 @@ void snapshot_render_championship_over(void)
   FastestLap = champorder[0];
   BestTime = result_best[FastestLap];
 
-  ChampionshipOver();
+  ChampionshipOverEnter();
+  while (!ChampionshipOverUpdate()) {
+  }
+  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4791,14 +4782,6 @@ void ChampionshipOverDraw(void)
 {
   if (eChampionshipOverPhaseCurrent == eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE)
     champion_race_draw();
-}
-
-void ChampionshipOver()
-{
-  ChampionshipOverEnter();
-  while (!ChampionshipOverUpdate())
-    UpdateSDL();
-  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------
