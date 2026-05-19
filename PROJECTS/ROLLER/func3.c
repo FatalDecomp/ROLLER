@@ -426,7 +426,10 @@ static void snapshot_setup_championship_standings_fixture(void)
 void snapshot_render_championship_standings(void)
 {
   snapshot_setup_championship_standings_fixture();
-  ChampionshipStandings();
+  ChampionshipStandingsEnter();
+  while (!ChampionshipStandingsUpdate()) {
+  }
+  ChampionshipStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -735,14 +738,6 @@ void RaceResultExit(void)
   iRaceResultScreenActive = 0;
 }
 
-void RaceResult()
-{
-  RaceResultEnter();
-  while (!RaceResultUpdate())
-    UpdateSDL();
-  RaceResultExit();
-}
-
 void snapshot_render_race_result(void)
 {
   static char szNames[8][9] = {
@@ -825,9 +820,11 @@ void snapshot_render_race_result(void)
     name_copy(driver_names[iDriver], szNames[iDriver]);
   }
 
-  // RaceResult() is the real post-race screen. It presents once after its
+  // The scene path presents once during RaceResultEnter() after the
   // snapshot-mode fade skip, then exits through the snapshot stop check.
-  RaceResult();
+  RaceResultEnter();
+  (void)RaceResultUpdate();
+  RaceResultExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1122,14 +1119,6 @@ void TimeTrialsExit(void)
   iTimeTrialsScreenActive = 0;
 }
 
-void TimeTrials(int iDriverIdx)
-{
-  TimeTrialsEnter(iDriverIdx);
-  while (!TimeTrialsUpdate())
-    UpdateSDL();
-  TimeTrialsExit();
-}
-
 static void snapshot_copy_name9(char szDest[9], const char *szSrc)
 {
   memset(szDest, 0, 9);
@@ -1183,7 +1172,9 @@ void snapshot_render_lap_records(void)
   // static page. Queue a key so the snapshot exits through the normal input
   // condition, then capture the rendered framebuffer directly.
   SnapshotQueueRawKey(0x1C);
-  ShowLapRecords();
+  ShowLapRecordsEnter();
+  (void)ShowLapRecordsUpdate();
+  ShowLapRecordsExit();
   if (!SnapshotShouldStop())
     SnapshotPresent();
 }
@@ -1209,7 +1200,9 @@ void snapshot_render_time_trials(void)
   trial_times[3] = 63.50f;
 
   SnapshotQueueRawKey(0x1C);
-  TimeTrials(iDriverIdx);
+  TimeTrialsEnter(iDriverIdx);
+  (void)TimeTrialsUpdate();
+  TimeTrialsExit();
   if (!SnapshotShouldStop())
     SnapshotPresent();
 }
@@ -1440,14 +1433,6 @@ void ChampionshipStandingsExit(void)
   holdmusic = -1;
   fade_palette(0);
   iChampionshipStandingsScreenActive = 0;
-}
-
-void ChampionshipStandings()
-{
-  ChampionshipStandingsEnter();
-  while (!ChampionshipStandingsUpdate())
-    UpdateSDL();
-  ChampionshipStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1904,14 +1889,6 @@ void ShowLapRecordsExit(void)
     holdmusic = 0;
   iLapRecordsScreenActive = 0;
   iLapRecordsPage = 0;
-}
-
-void ShowLapRecords()
-{
-  ShowLapRecordsEnter();
-  while (!ShowLapRecordsUpdate())
-    UpdateSDL();
-  ShowLapRecordsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
