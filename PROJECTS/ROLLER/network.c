@@ -356,15 +356,6 @@ int network_initialise_active(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-
-void Initialise_Network(int iSelectNetSlot)
-{
-  network_initialise_begin(iSelectNetSlot);
-  while (network_initialise_active() && !network_initialise_update())
-    UpdateSDL(); //added by ROLLER
-}
-
-//-------------------------------------------------------------------------------------------------
 //0004ED70
 void close_network()
 {

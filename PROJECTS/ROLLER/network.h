@@ -190,7 +190,6 @@ extern int16 wConsoleNode;
 
 //-------------------------------------------------------------------------------------------------
 
-void Initialise_Network(int iSelectNetSlot);
 void network_initialise_begin(int iSelectNetSlot);
 int network_initialise_update(void);
 int network_initialise_active(void);
