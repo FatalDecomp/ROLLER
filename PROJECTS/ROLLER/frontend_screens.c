@@ -171,15 +171,6 @@ void frontend_title_screen_exit(void)
   iFrontendTitleScreenWaitFatal = 0;
 }
 
-void title_screens()
-{
-  frontend_title_screen_enter();
-  while (!frontend_title_screen_update())
-    UpdateSDL();
-  frontend_title_screen_exit();
-}
-
-//-------------------------------------------------------------------------------------------------
 //0003F6B0
 static int iCopyScreensActive = 0;
 static uint64 ullCopyScreensEndTicksMs = 0;
@@ -231,14 +222,6 @@ void CopyScreensExit(void)
   fade_palette(0);
   iCopyScreensActive = 0;
   ullCopyScreensEndTicksMs = 0;
-}
-
-void copy_screens()
-{
-  CopyScreensEnter();
-  while (!CopyScreensUpdate())
-    UpdateSDL();
-  CopyScreensExit();
 }
 
 // Fade callback: redraws menu background so fade overlay is visible over content

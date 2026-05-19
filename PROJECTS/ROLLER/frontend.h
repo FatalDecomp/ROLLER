@@ -251,8 +251,6 @@ void fade_redraw_bg(void *ctx);
 void CopyScreensEnter(void);
 int CopyScreensUpdate(void);
 void CopyScreensExit(void);
-void title_screens();
-void copy_screens();
 void snapshot_setup_frontend_menu_state(int iGameType);
 void snapshot_render_menu_main(void);
 void select_disk();
