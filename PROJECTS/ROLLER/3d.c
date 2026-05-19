@@ -1997,6 +1997,7 @@ void play_game_uninit()
 //-------------------------------------------------------------------------------------------------
 static int iWinnerRaceSavedRacers = 0;
 static int iWinnerRaceSavedPlayerType = 0;
+static int iWinnerRaceSavedNetworkOn = 0;
 static int iWinnerRaceActive = 0;
 
 static void winner_race_setup(void)
@@ -2038,6 +2039,9 @@ static void winner_race_setup(void)
   readptr = 0;
   iWinnerRaceSavedRacers = racers;
   iWinnerRaceSavedPlayerType = player_type;
+  iWinnerRaceSavedNetworkOn = network_on;
+  // Winner race is a local one-car showcase even after a network race.
+  network_on = 0;
   player_type = 0;
   replaytype = 0;
   racers = 1;
@@ -2057,6 +2061,7 @@ static void winner_race_teardown(void)
   winner_mode = 0;
   racers = iWinnerRaceSavedRacers;
   player_type = iWinnerRaceSavedPlayerType;
+  network_on = iWinnerRaceSavedNetworkOn;
   VIEWDIST = 270;
 
   for (int i = 0; i < numcars; ++i) {
