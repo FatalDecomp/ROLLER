@@ -373,11 +373,6 @@ void init_screen()
           SDL_Log("at it's optimum level. Please contact your video board manufacturer for\n");
           SDL_Log("more information. The program will now continue using lower resolution\n");
           SDL_Log("graphics.\n");
-          SDL_Log("Press any key to continue...");
-          fflush(stdout);
-          while (fatkbhit())
-            fatgetch();
-          fatgetch();
         }
         firstrun = 0;
       }

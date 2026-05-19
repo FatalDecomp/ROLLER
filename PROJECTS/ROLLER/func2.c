@@ -1875,18 +1875,14 @@ int fatgetch()
     iTwoParter = 0;                             // clear stored value
   } else {
 
-    // Wait until keys are available in the buffer
-    while (write_key == read_key)
-      UpdateSDL(); //added by ROLLER
+    if (write_key == read_key)
+      return 0;
 
     // Read next scancode from buffer and get mapped character
     int iTestReadKey = read_key++;
     uint8 byKey = key_buffer[iTestReadKey];
     uint8 byMapping = mapping[byKey];
     iResult = (char)byMapping;
-
-    int iTest = -69;
-    uint8 byTest = (uint8)iTest;
 
     read_key &= 0x3Fu;
 
