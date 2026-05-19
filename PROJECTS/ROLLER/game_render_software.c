@@ -63,22 +63,28 @@ void game_render_sw_destroy(GameRendererSoftware *sw) {
 // Frame lifecycle
 // ---------------------------------------------------------------------------
 
+static void game_render_sw_start_pending_fade_in(GameRendererSoftware *sw) {
+    if (!sw->fadeInPending)
+        return;
+
+    sw->fadeInPending = 0;
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+        pal_addr[i].byR = 0;
+        pal_addr[i].byB = 0;
+        pal_addr[i].byG = 0;
+    }
+    fade_palette_begin(32);
+}
+
 void game_render_sw_begin_frame(GameRendererSoftware *sw) {
     (void)sw;
 }
 
 void game_render_sw_end_frame(GameRendererSoftware *sw) {
-    if (sw->fadeInPending) {
-        sw->fadeInPending = 0;
-        palette_brightness = 0;
-        for (int i = 0; i < 256; i++) {
-            pal_addr[i].byR = 0;
-            pal_addr[i].byB = 0;
-            pal_addr[i].byG = 0;
-        }
-        fade_palette(32);
-        return;
-    }
+    game_render_sw_start_pending_fade_in(sw);
+    if (fade_palette_active())
+        fade_palette_update();
     UpdateSDLWindow();
 }
 
@@ -288,18 +294,24 @@ void game_render_sw_begin_fade(GameRendererSoftware *sw, int direction,
     if (direction) {
         sw->fadeInPending = 1;
     } else {
-        fade_palette(0);
+        fade_palette_begin(0);
     }
 }
 
 int game_render_sw_fade_active(GameRendererSoftware *sw) {
-    (void)sw;
-    return 0; // blocking fade completes immediately
+    return sw->fadeInPending || fade_palette_active();
 }
 
 void game_render_sw_fade_wait(GameRendererSoftware *sw,
                               void (*redraw_fn)(void *ctx), void *ctx) {
-    (void)sw;
-    (void)redraw_fn;
-    (void)ctx;
+    while (game_render_sw_fade_active(sw)) {
+        if (redraw_fn)
+            redraw_fn(ctx);
+        game_render_sw_start_pending_fade_in(sw);
+        if (fade_palette_active())
+            fade_palette_update();
+        UpdateSDLWindow();
+        if (game_render_sw_fade_active(sw))
+            SDL_Delay(1);
+    }
 }

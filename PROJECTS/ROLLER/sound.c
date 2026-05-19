@@ -3414,27 +3414,71 @@ void SOSTimerCallbackS7()
 }
 
 //-------------------------------------------------------------------------------------------------
-static void fade_palette_wait_timer_tick(void)
+
+typedef struct {
+  int iActive;
+  int iTargetBrightness;
+  int iCurrentStep;
+  int iStepDirection;
+  int iOriginalTickOn;
+  int iOriginalTicks;
+  int iLastS7;
+  uint32 uiTimerHandle;
+} tPaletteFadeState;
+
+static tPaletteFadeState sPaletteFadeState;
+
+//-------------------------------------------------------------------------------------------------
+static void fade_palette_apply_step(int iStep)
 {
-  if (current_mode == 0 || g_bSnapshotMode)
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
+    pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
+    pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+static void fade_palette_apply_audio_step(int iStep)
+{
+  if (sPaletteFadeState.iTargetBrightness != 0 || holdmusic)
     return;
 
-  int iPrevS7 = s7;
-  while (s7 == iPrevS7)
-    SDL_Delay(1);
+  if (musicon) {
+    //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+  }
+
+  if (soundon) {
+    int iVolumeStep = (iStep << 15) - iStep;
+    //sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
+    DIGISetMasterVolume(iVolumeStep >> 5);
+  }
+
+  if (MusicCD)
+    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 }
 
 //-------------------------------------------------------------------------------------------------
-static void fade_palette_present_step(void)
+static int fade_palette_timer_ready(void)
 {
-  g_bPaletteSet = true;
-  UpdateSDLWindow();
+  if (current_mode == 0 || g_bSnapshotMode)
+    return -1;
+
+  int iCurrentS7 = s7;
+  if (iCurrentS7 == sPaletteFadeState.iLastS7)
+    return 0;
+
+  sPaletteFadeState.iLastS7 = iCurrentS7;
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E680
-void fade_palette(int iTargetBrightness)
+void fade_palette_begin(int iTargetBrightness)
 {
+  if (sPaletteFadeState.iActive)
+    fade_palette_finish();
+
   if (g_bSnapshotMode) {
     // In snapshot capture, fade animations are skipped: PNGs are the raw
     // pixels with the active palette. Keep palette_brightness in sync and
@@ -3443,9 +3487,6 @@ void fade_palette(int iTargetBrightness)
     if (pal_addr) g_bPaletteSet = true;
     return;
   }
-  int iOriginalTickOn = tick_on;
-  int iOriginalTicks = ticks;
-  uint32 uiTimerHandle = 0;
 
   if (iTargetBrightness == 0)
     disable_keyboard();
@@ -3460,92 +3501,49 @@ void fade_palette(int iTargetBrightness)
   if (iTargetBrightness == iCurrentBrightness)
     return;
 
+  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
+  sPaletteFadeState.iActive = -1;
+  sPaletteFadeState.iTargetBrightness = iTargetBrightness;
+  sPaletteFadeState.iCurrentStep = iCurrentBrightness;
+  sPaletteFadeState.iStepDirection =
+      iTargetBrightness > iCurrentBrightness ? 1 : -1;
+  sPaletteFadeState.iOriginalTickOn = tick_on;
+  sPaletteFadeState.iOriginalTicks = ticks;
+
   tick_on = 0;
   s7 = 0;
+  sPaletteFadeState.iLastS7 = s7;
 
-  if (current_mode != 0) {
-    uiTimerHandle = ROLLERAddTimer(70, SDLS7TimerCallback, NULL); //added by ROLLER
-  }
+  if (current_mode != 0)
+    sPaletteFadeState.uiTimerHandle =
+        ROLLERAddTimer(70, SDLS7TimerCallback, NULL); //added by ROLLER
+}
 
-  if (iTargetBrightness > iCurrentBrightness) {
-      // FADE IN LOOP
-    for (int iStep = iCurrentBrightness; iStep <= iTargetBrightness; iStep++) {
-      for (int i = 0; i < 256; i++) {
-        pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
-        pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
-        pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
-      }
+//-------------------------------------------------------------------------------------------------
+int fade_palette_active()
+{
+  return sPaletteFadeState.iActive;
+}
 
-      if (current_mode != 0 && !g_bSnapshotMode) {
-        //could also do this instead of SDL timer
-        //uint32 uiStartTime = SDL_GetTicks();
-        //while (SDL_GetTicks() - uiStartTime < 70) {
-        //  SDL_Delay(1);
-        //}
-        fade_palette_wait_timer_tick();
-      } else {
-        //wait for retrace
-        //aka VSYNC for DOS
-      }
+//-------------------------------------------------------------------------------------------------
+void fade_palette_finish()
+{
+  if (!sPaletteFadeState.iActive)
+    return;
 
-      //set dac palette
-      fade_palette_present_step();
-    }
-  } else {
-      // FADE OUT LOOP
-    int iVolumeStep = (iTargetBrightness << 15) - iTargetBrightness;
-
-    for (int iStep = iCurrentBrightness; iStep >= iTargetBrightness; iStep--) {
-      if (iTargetBrightness == 0 && !holdmusic) {
-        if (musicon) {
-          //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-          MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-        }
-
-        if (soundon) {
-          //sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
-          DIGISetMasterVolume(iVolumeStep >> 5);
-        }
-
-        if (MusicCD) {
-          SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-        }
-      }
-
-      for (int i = 0; i < 256; i++) {
-        pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
-        pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
-        pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
-      }
-
-      if (current_mode != 0 && !g_bSnapshotMode) {
-        fade_palette_wait_timer_tick();
-      } else {
-        //wait for retrace
-        //aka VSYNC for DOS
-      }
-
-      //set dac palette
-      fade_palette_present_step();
-
-      iVolumeStep -= 0x7FFF;
-    }
-  }
-
-  if (current_mode != 0) {
-    ROLLERRemoveTimer(uiTimerHandle); //added by ROLLER
-  }
+  if (sPaletteFadeState.uiTimerHandle != 0)
+    ROLLERRemoveTimer(sPaletteFadeState.uiTimerHandle); //added by ROLLER
 
   //memcpy(pal_addr, palette, 768); //REMOVED by ROLLER (why is this here? causes palette change flicker)
-  
-  palette_brightness = iTargetBrightness;
-  tick_on = iOriginalTickOn;
-  ticks = iOriginalTicks;
 
-  if (iTargetBrightness == 0)
+  palette_brightness = sPaletteFadeState.iTargetBrightness;
+  tick_on = sPaletteFadeState.iOriginalTickOn;
+  ticks = sPaletteFadeState.iOriginalTicks;
+
+  if (sPaletteFadeState.iTargetBrightness == 0)
     enable_keyboard();
 
-  if (iTargetBrightness == 0 && !holdmusic) {
+  if (sPaletteFadeState.iTargetBrightness == 0 && !holdmusic) {
     if (MusicCD && track_playing)
       StopTrack();
     else if (MusicCard && SongPtr) {
@@ -3553,6 +3551,44 @@ void fade_palette(int iTargetBrightness)
       //sosMIDIUnInitSong(SongHandle);
       SongPtr = 0;
     }
+  }
+
+  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
+}
+
+//-------------------------------------------------------------------------------------------------
+int fade_palette_update()
+{
+  if (!sPaletteFadeState.iActive)
+    return -1;
+
+  if (!fade_palette_timer_ready())
+    return 0;
+
+  fade_palette_apply_audio_step(sPaletteFadeState.iCurrentStep);
+  fade_palette_apply_step(sPaletteFadeState.iCurrentStep);
+  g_bPaletteSet = true;
+
+  if (sPaletteFadeState.iCurrentStep == sPaletteFadeState.iTargetBrightness) {
+    fade_palette_finish();
+    return -1;
+  }
+
+  sPaletteFadeState.iCurrentStep += sPaletteFadeState.iStepDirection;
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+//0003E680
+void fade_palette(int iTargetBrightness)
+{
+  fade_palette_begin(iTargetBrightness);
+
+  while (fade_palette_active()) {
+    fade_palette_update();
+    UpdateSDLWindow();
+    if (fade_palette_active())
+      SDL_Delay(1);
   }
 }
 

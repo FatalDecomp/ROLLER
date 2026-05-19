@@ -66,33 +66,37 @@ void menu_render_sw_free_blocks(MenuRendererSoftware *sw, int slot) {
 // Frame lifecycle
 // ---------------------------------------------------------------------------
 
+static void menu_render_sw_start_pending_fade_in(MenuRendererSoftware *sw) {
+    if (!sw->fadeInPending)
+        return;
+
+    sw->fadeInPending = 0;
+    if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
+        g_bPaletteSet = true;
+        return;
+    }
+
+    // Content has been drawn to scrbuf; fade from black to full brightness.
+    // palette_brightness may have been set to 32 by GPU init code, so
+    // reset to 0 to ensure the fade actually animates.
+    palette_brightness = 0;
+    for (int i = 0; i < 256; i++) {
+        pal_addr[i].byR = 0;
+        pal_addr[i].byB = 0;
+        pal_addr[i].byG = 0;
+    }
+    fade_palette_begin(32);
+}
+
 void menu_render_sw_begin_frame(MenuRendererSoftware *sw) {
     (void)sw;
     // No-op: scrbuf is always available
 }
 
 void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
-    if (sw->fadeInPending) {
-        sw->fadeInPending = 0;
-        if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE) {
-            g_bPaletteSet = true;
-            UpdateSDLWindow();
-            if (!SnapshotShouldStop())
-                SnapshotAdvanceTick();
-            return;
-        }
-        // Content has been drawn to scrbuf; fade from black to full brightness.
-        // palette_brightness may have been set to 32 by GPU init code, so
-        // reset to 0 to ensure the fade actually animates.
-        palette_brightness = 0;
-        for (int i = 0; i < 256; i++) {
-            pal_addr[i].byR = 0;
-            pal_addr[i].byB = 0;
-            pal_addr[i].byG = 0;
-        }
-        fade_palette(32); // blocking; calls UpdateSDLWindow each step
-        return;
-    }
+    menu_render_sw_start_pending_fade_in(sw);
+    if (fade_palette_active())
+        fade_palette_update();
     g_bPaletteSet = true;
     UpdateSDLWindow();
     if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE && !SnapshotShouldStop())
@@ -135,21 +139,27 @@ void menu_render_sw_begin_fade(MenuRendererSoftware *sw, int direction,
         // Fade-in: defer to end_frame so scrbuf has the new content drawn first
         sw->fadeInPending = 1;
     } else {
-        fade_palette(0);
+        fade_palette_begin(0);
     }
 }
 
 int menu_render_sw_fade_active(MenuRendererSoftware *sw) {
-    (void)sw;
-    return 0; // blocking fade completes immediately
+    return sw->fadeInPending || fade_palette_active();
 }
 
 void menu_render_sw_fade_wait(MenuRendererSoftware *sw,
                               void (*redraw_fn)(void *ctx), void *ctx) {
-    (void)sw;
-    (void)redraw_fn;
-    (void)ctx;
-    // No-op: fade already done in begin_fade
+    while (menu_render_sw_fade_active(sw)) {
+        if (redraw_fn)
+            redraw_fn(ctx);
+        menu_render_sw_start_pending_fade_in(sw);
+        if (fade_palette_active())
+            fade_palette_update();
+        g_bPaletteSet = true;
+        UpdateSDLWindow();
+        if (menu_render_sw_fade_active(sw))
+            SDL_Delay(1);
+    }
 }
 
 // ---------------------------------------------------------------------------

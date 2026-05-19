@@ -84,6 +84,13 @@ void font_ascii_replace_accent(char *font)
 //-------------------------------------------------------------------------------------------------
 static int iFrontendTitleScreenActive = 0;
 static int iFrontendTitleScreenWaitFatal = 0;
+static int iFrontendTitleScreenPhase = 0;
+
+enum {
+  TITLE_SCREEN_PHASE_INACTIVE = 0,
+  TITLE_SCREEN_PHASE_FADE_IN,
+  TITLE_SCREEN_PHASE_WAIT
+};
 
 static int frontend_title_fatal_sample_done(void)
 {
@@ -138,22 +145,32 @@ void frontend_title_screen_enter(void)
   if (front_vga[0] && scrbuf) //check added by ROLLER
     display_picture(scrbuf, front_vga[0]);
 
-  copypic(scrbuf, screen);
   loadfatalsample();
-  fade_palette(32);
-  if ((cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0)
-    dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+  blankpal();
+  fade_palette_begin(32);
   disable_keyboard();
 
   iFrontendTitleScreenActive = -1;
   iFrontendTitleScreenWaitFatal =
     (cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0;
+  iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_FADE_IN;
 }
 
 int frontend_title_screen_update(void)
 {
   if (!iFrontendTitleScreenActive)
     return -1;
+
+  if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_FADE_IN) {
+    fade_palette_update();
+    UpdateSDLWindow();
+    if (fade_palette_active())
+      return 0;
+    if (iFrontendTitleScreenWaitFatal)
+      dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+    iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_WAIT;
+  }
+
   if (!iFrontendTitleScreenWaitFatal)
     return -1;
   return frontend_title_fatal_sample_done();
@@ -164,16 +181,27 @@ void frontend_title_screen_exit(void)
   if (!iFrontendTitleScreenActive)
     return;
 
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void**)&front_vga[0]);
   freefatalsample();
   frontend_title_apply_language_font_replacements();
   iFrontendTitleScreenActive = 0;
   iFrontendTitleScreenWaitFatal = 0;
+  iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_INACTIVE;
 }
 
 //0003F6B0
 static int iCopyScreensActive = 0;
 static uint64 ullCopyScreensEndTicksMs = 0;
+static int iCopyScreensPhase = 0;
+
+enum {
+  COPY_SCREENS_PHASE_INACTIVE = 0,
+  COPY_SCREENS_PHASE_FADE_IN,
+  COPY_SCREENS_PHASE_WAIT,
+  COPY_SCREENS_PHASE_FADE_OUT
+};
 
 void CopyScreensEnter(void)
 {
@@ -190,38 +218,68 @@ void CopyScreensEnter(void)
 
   display_picture(scrbuf, front_vga[0]);
 
-  fade_palette(32);
-  copypic(scrbuf, screen);
+  blankpal();
+  fade_palette_begin(32);
   disable_keyboard();
-  ticks = 0;
   iCopyScreensActive = -1;
-#ifndef _DEBUG
-  ullCopyScreensEndTicksMs = SDL_GetTicks() + 5000;
-#else
+  iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_IN;
   ullCopyScreensEndTicksMs = 0;
-#endif
 }
 
 int CopyScreensUpdate(void)
 {
   if (!iCopyScreensActive)
     return -1;
+
+  switch (iCopyScreensPhase) {
+    case COPY_SCREENS_PHASE_FADE_IN:
+      fade_palette_update();
+      UpdateSDLWindow();
+      if (fade_palette_active())
+        return 0;
+      ticks = 0;
 #ifndef _DEBUG
-  if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
-    UpdateSDLWindow();
-    return 0;
-  }
+      ullCopyScreensEndTicksMs = SDL_GetTicks() + 5000;
+#else
+      ullCopyScreensEndTicksMs = 0;
 #endif
-  iCopyScreensActive = 0;
-  return -1;
+      iCopyScreensPhase = COPY_SCREENS_PHASE_WAIT;
+      return 0;
+
+    case COPY_SCREENS_PHASE_WAIT:
+#ifndef _DEBUG
+      if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
+        UpdateSDLWindow();
+        return 0;
+      }
+#endif
+      fade_palette_begin(0);
+      iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_OUT;
+      return 0;
+
+    case COPY_SCREENS_PHASE_FADE_OUT:
+      fade_palette_update();
+      UpdateSDLWindow();
+      if (fade_palette_active())
+        return 0;
+      iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
+      iCopyScreensActive = 0;
+      return -1;
+
+    default:
+      iCopyScreensActive = 0;
+      return -1;
+  }
 }
 
 void CopyScreensExit(void)
 {
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void**)&front_vga[0]);
-  fade_palette(0);
   iCopyScreensActive = 0;
   ullCopyScreensEndTicksMs = 0;
+  iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
 }
 
 // Fade callback: redraws menu background so fade overlay is visible over content
