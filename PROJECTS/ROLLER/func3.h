@@ -144,7 +144,6 @@ void AllocateCars();
 void check_cars();
 void select_messages();
 void show_received_mesage();
-int select_netslot();
 
 //-------------------------------------------------------------------------------------------------
 #endif
