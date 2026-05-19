@@ -94,6 +94,16 @@ static int NetworkPlayerCarOrNone(int iCarIdx, const char *szContext, int iNode)
   return -1;
 }
 
+static int NetworkRecordIdxIsValid(int iRecordIdx, const char *szContext)
+{
+  if (iRecordIdx > 0 && iRecordIdx < 25)
+    return -1;
+
+  SDL_Log("[NET] ignored invalid record index %d in %s",
+          iRecordIdx, szContext ? szContext : "record-sync");
+  return 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static int IsInvalidPacketAddress(const int32 pAddress[4])
@@ -568,6 +578,9 @@ void send_ready()
 void send_record_to_master(int iRecordIdx)
 {
   if (network_on) {
+    if (!NetworkRecordIdxIsValid(iRecordIdx, "send-record-master"))
+      return;
+
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RECORD;
     p_record.fRecordLap = RecordLaps[iRecordIdx];
@@ -585,6 +598,9 @@ void send_record_to_master(int iRecordIdx)
 void send_record_to_slaves(int iRecordIdx)
 {
   if (network_on) {
+    if (!NetworkRecordIdxIsValid(iRecordIdx, "send-record-slaves"))
+      return;
+
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RECORD;
     p_record.fRecordLap = RecordLaps[iRecordIdx];
@@ -1970,6 +1986,8 @@ void CheckNewNodes()
         ROLLERCommsGetBlock(pPacket2, &recordPacket, 16);
         SDL_Log("[NET-START] received record from node=%d count=%d/%d",
                 syncHeader.byConsoleNode, received_records, network_on);
+        if (!NetworkRecordIdxIsValid(TrackLoad, "receive-record"))
+          goto LABEL_40;
         if (recordPacket.fRecordLap < (double)RecordLaps[TrackLoad]) {
           RecordLaps[TrackLoad] = recordPacket.fRecordLap;
           RecordCars[TrackLoad] = (int16)recordPacket.unRecordCar;

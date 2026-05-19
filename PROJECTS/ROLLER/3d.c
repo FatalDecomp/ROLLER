@@ -4071,9 +4071,10 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
       }
       small_zoom(buffer);
 
-      for (k = 0; k < 24; ++k) {
+      for (k = 0; k < (int)sizeof(received_message); ++k) {
         buffer[k] = received_message[k];
       }
+      buffer[sizeof(received_message)] = '\0';
       //for (k = 0; k < 24; currentdir[k + 255] = p_data[k + 13])// Copy received message data (24 bytes) with unrolled loop
       //{
       //  k += 8;

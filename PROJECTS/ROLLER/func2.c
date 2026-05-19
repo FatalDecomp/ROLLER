@@ -4673,8 +4673,7 @@ void LoadRecords()
 
     //loop without optimizations
     for (int i = 0; i < 25; ++i) {
-      int iRecordNamesPos = 9 * i;
-      strcpy(RecordNames[iRecordNamesPos], "-----");
+      strcpy(RecordNames[i], "-----");
       RecordLaps[i] = 128.0f;
       RecordCars[i] = -1;
       RecordKills[i] = 0;
@@ -4751,8 +4750,7 @@ void LoadRecords()
 
       //loop without optimizations
       for (int i = 0; i < 25; ++i) {
-        int iRecordNamesPos = 9 * i;
-        strcpy(RecordNames[iRecordNamesPos], "----");
+        strcpy(RecordNames[i], "----");
         RecordLaps[i] = 128.0f;
         RecordCars[i] = -1;
         RecordKills[i] = 0;
