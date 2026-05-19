@@ -1667,9 +1667,13 @@ void play_game_init()
       if (players <= 1) {
         iPlayerSearchIndex = -1;
       } else {
-        iPlayerSearchIndex = 0;
-        for (i = 0; !human_control[i] || iPlayerSearchIndex == player1_car; ++i)
-          ++iPlayerSearchIndex;
+        iPlayerSearchIndex = -1;
+        for (i = 0; i < MAX_PLAYERS; ++i) {
+          if (i != player1_car && human_control[i]) {
+            iPlayerSearchIndex = i;
+            break;
+          }
+        }
       }
       network_mes_mode = iPlayerSearchIndex;
       team_mate = -1;
