@@ -119,16 +119,19 @@ void EndChampSequenceEnter(void);
 int EndChampSequenceUpdate(void);
 void EndChampSequenceExit(void);
 void EndChampSequence();
+void NetworkFuckedEnter(void);
+int NetworkFuckedUpdate(void);
+void NetworkFuckedExit(void);
 void network_fucked();
 void no_cd();
 int name_cmp(char *szName1, char *szName2);
 void name_copy(char *szDest, char *szSrc);
 void loadtracksample(int track_number);
 void front_letter(tBlockHeader *pFont, uint8 byCharIdx, int *iX, int *iY, const char *szStr, uint8 byColorReplace);
-void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, char byColorReplace, int iScaleSize);
+void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, uint8 byColorReplace, int iScaleSize);
 void front_text(tBlockHeader *pFont,
                 const char *szText,
-                const uint8 *mappingTable,
+                const char *mappingTable,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
@@ -140,7 +143,7 @@ void scale_text(tBlockHeader *pFont,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
-                char byColorReplace,
+                uint8 byColorReplace,
                 unsigned int uiAlignment,
                 int iClipLeft,
                 int iClipRight);

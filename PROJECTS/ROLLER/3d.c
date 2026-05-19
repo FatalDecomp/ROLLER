@@ -2257,6 +2257,7 @@ static eFrontendPostRaceFlow eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_
 static int iFrontendPostRaceCleanup = 0;
 static int iFrontendTimeTrialCarIdx = 0;
 static int iFrontendTimeTrialScreenActive = 0;
+static int iFrontendNetworkErrorHandled = 0;
 
 static int frontend_should_show_winner_screen(void)
 {
@@ -2417,9 +2418,14 @@ void frontend_results_update(void)
     return;
   }
 
-  if (network_buggered) {
-    network_fucked();
+  if (!network_buggered)
+    iFrontendNetworkErrorHandled = 0;
+
+  if (network_buggered && !iFrontendNetworkErrorHandled) {
     iFrontendGameFlags = 0;
+    iFrontendNetworkErrorHandled = -1;
+    eFrontendNextState = eFRONTEND_STATE_NETWORK_ERROR;
+    return;
   }
   if (net_quit || network_buggered) {
     iFrontendGameFlags = 0;
@@ -2469,6 +2475,24 @@ void frontend_results_update(void)
   }
 
   frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_network_error_enter(void)
+{
+  NetworkFuckedEnter();
+}
+
+void frontend_network_error_update(void)
+{
+  if (NetworkFuckedUpdate())
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+}
+
+void frontend_network_error_exit(void)
+{
+  NetworkFuckedExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2740,6 +2764,7 @@ void race_enter(void)
   game_track = iFrontendRaceTrack;              // Initialize game state and track
   lagdone = 0;
   I_Want_Out = 0;
+  iFrontendNetworkErrorHandled = 0;
   play_game_init();                             // Initialize game systems and memory tracking
   reset_net_wait();
   max_mem = mem_used_low + mem_used;

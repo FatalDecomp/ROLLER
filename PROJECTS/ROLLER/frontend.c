@@ -37,6 +37,8 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
+  [eFRONTEND_STATE_NETWORK_ERROR] = {
+    frontend_network_error_enter, frontend_network_error_update, NULL, frontend_network_error_exit },
   [eFRONTEND_STATE_WINNER_SCREEN] = {
     frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
   [eFRONTEND_STATE_WINNER_RACE] = {

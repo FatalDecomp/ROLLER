@@ -4906,22 +4906,77 @@ void EndChampSequence()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005D2B0
-void network_fucked()
+typedef enum {
+  eNETWORK_FUCKED_PHASE_NONE = 0,
+  eNETWORK_FUCKED_PHASE_INPUT,
+  eNETWORK_FUCKED_PHASE_QUIT_BROADCAST,
+  eNETWORK_FUCKED_PHASE_DONE
+} eNetworkFuckedPhase;
+
+static int iNetworkFuckedOriginalScreenSize = 0;
+static int iNetworkFuckedActive = 0;
+static int iNetworkFuckedScreenActive = 0;
+static eNetworkFuckedPhase eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
+
+static void NetworkFuckedCleanupScreen(void)
+{
+  if (!iNetworkFuckedScreenActive)
+    return;
+
+  fre((void **)&title_vga);
+  fre((void **)&font_vga);
+  fre((void **)front_vga);
+  scr_size = iNetworkFuckedOriginalScreenSize;
+  holdmusic = -1;
+  fade_palette(0);
+  iNetworkFuckedScreenActive = 0;
+}
+
+static void NetworkFuckedBeginQuitBroadcast(void)
+{
+  NetworkFuckedCleanupScreen();
+  network_broadcast_wait_start(-666, 1);
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_QUIT_BROADCAST;
+}
+
+static int NetworkFuckedProcessInput(void)
+{
+  int iKeyCode; // eax
+
+  if (network_buggered != 666)
+    return fatkbhit() || ticks >= 2160;
+
+  while (fatkbhit()) {
+    iKeyCode = fatgetch();
+    if (iKeyCode) {
+      if (iKeyCode == 0x79 || iKeyCode == 0x59) {
+        restart_net = -1;
+        return -1;
+      }
+      if (iKeyCode == 0x6E || iKeyCode == 0x4E) {
+        restart_net = 0;
+        return -1;
+      }
+    } else {
+      fatgetch();
+    }
+  }
+
+  return 0;
+}
+
+void NetworkFuckedEnter(void)
 {                                               // Check if network is in error state and close if needed
-  int iOriginalScreenSize; // ebp
   uint8 *pbyScreenBuffer; // edi
   char *pszTitleImageData; // esi
   unsigned int uiBufferSize; // ecx
   char byBufferSizeRemainder; // al
   unsigned int uiDwordCopyCount; // ecx
-  int iInputReceived; // ebx
-  int iKeyCode; // eax
 
   if (network_buggered != 666)
     close_network();
   tick_on = 0;                                  // Disable game ticking
-  iOriginalScreenSize = scr_size;               // Save original screen size for restoration later
+  iNetworkFuckedOriginalScreenSize = scr_size;  // Save original screen size for restoration later
   SVGA_ON = -1;                                 // Enable SVGA mode for error display
   init_screen();                                // Initialize screen for error display
   setpal("resround.pal");
@@ -4958,46 +5013,59 @@ void network_fucked()
   startmusic(leaderboardsong);
   fade_palette(32);                             // Fade in the error screen
   ticks = 0;
-  if (network_buggered == 666)                // Handle user input based on error type
-  {
-    iInputReceived = 0;                         // Data loss error: wait for Y/N input to restart network
-    do {
-      while (fatkbhit()) {
-        UpdateSDL();
-        iKeyCode = fatgetch();
-        if (iKeyCode) {                                       // Handle Y/y key: restart network
-          if (iKeyCode == 0x79 || iKeyCode == 0x59) {
-            iInputReceived = -1;
-            restart_net = -1;
-          }
-          if (iKeyCode == 0x6E || iKeyCode == 0x4E)// Handle N/n key: don't restart network
-          {
-            iInputReceived = -1;
-            restart_net = 0;
-          }
-        } else {
-          fatgetch();
-        }
-      }
-      UpdateSDL();
-    } while (!iInputReceived);
-  } else {                                             // General network error: wait for any key or timeout (2160 ticks)
-    while (!fatkbhit() && ticks < 2160)
-      UpdateSDL();
+  iNetworkFuckedActive = -1;
+  iNetworkFuckedScreenActive = -1;
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_INPUT;
+}
+
+int NetworkFuckedUpdate(void)
+{
+  if (!iNetworkFuckedActive)
+    return -1;
+
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_INPUT) {
+    if (!NetworkFuckedProcessInput())
+      return 0;
+
+    if (network_buggered == 666 && !restart_net) {
+      NetworkFuckedBeginQuitBroadcast();
+      return 0;
+    }
+
+    NetworkFuckedCleanupScreen();
+    eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_DONE;
+    iNetworkFuckedActive = 0;
+    return -1;
   }
-  fre(&title_vga);                              // Clean up loaded images and restore original screen settings
-  fre(&font_vga);
-  fre((void **)front_vga);
-  scr_size = iOriginalScreenSize;
-  holdmusic = -1;                               // Hold music and fade out screen
-  fade_palette(0);
-  if (network_buggered == 666 && !restart_net)// If data loss occurred and user chose not to restart, close network
-  {
-    broadcast_mode = -666;
-    while (broadcast_mode)
-      UpdateSDL();
+
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_QUIT_BROADCAST) {
+    if (!network_broadcast_wait_update())
+      return 0;
+
     close_network();
+    eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_DONE;
+    iNetworkFuckedActive = 0;
+    return -1;
   }
+
+  iNetworkFuckedActive = 0;
+  return -1;
+}
+
+void NetworkFuckedExit(void)
+{
+  NetworkFuckedCleanupScreen();
+  iNetworkFuckedActive = 0;
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
+}
+
+//0005D2B0
+void network_fucked()
+{
+  NetworkFuckedEnter();
+  while (!NetworkFuckedUpdate())
+    UpdateSDL();
+  NetworkFuckedExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5171,7 +5239,7 @@ void front_letter(tBlockHeader *pFont, uint8 byCharIdx, int *iX, int *iY, const 
 
 //-------------------------------------------------------------------------------------------------
 //0005D840
-void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, char byColorReplace, int iScaleSize)
+void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, uint8 byColorReplace, int iScaleSize)
 {
   int byCharIndex; // edx
   int iCharWidth; // ebp
@@ -5228,7 +5296,7 @@ void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursor
 void front_text(
     tBlockHeader *pFont,
     const char *szText,
-    const uint8 *mappingTable,
+    const char *mappingTable,
     int *pCharVOffsets,
     int iX,
     int iY,
@@ -5315,7 +5383,7 @@ void scale_text(tBlockHeader *pFont,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
-                char byColorReplace,
+                uint8 byColorReplace,
                 unsigned int uiAlignment,
                 int iClipLeft,
                 int iClipRight)
