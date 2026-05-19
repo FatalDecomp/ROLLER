@@ -964,6 +964,14 @@ SDL_AudioStream *midi_stream;
 float midi_volume;
 midi *midi_music;
 
+static void MIDI_CloseMidiBufferUnlocked(void)
+{
+  if (midi_music) {
+    WildMidi_Close(midi_music);
+    midi_music = NULL;
+  }
+}
+
 void MIDI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
 {
   //int available = SDL_GetAudioStreamAvailable(stream);
@@ -1047,6 +1055,7 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
   SDL_AudioStream *stream = midi_stream;
 
   if (stream != NULL) {
+    SDL_LockAudioStream(stream);
     float master_volume = (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
     SDL_SetAudioStreamGain(stream, midi_volume * master_volume); // Set the gain for the audio stream
     SDL_Log("MIDIDigi_PlayBuffer: Volume: %f", midi_volume * master_volume);
@@ -1074,6 +1083,7 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
     free(output_buffer);
 
     SDL_ResumeAudioStreamDevice(stream);
+    SDL_UnlockAudioStream(stream);
 
     SDL_Log("MIDIDigi_PlayBuffer: Total: %i", total_pcm_bytes);
   }
@@ -1084,8 +1094,10 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
 void MIDIDigi_ClearBuffer()
 {
   if (midi_stream) {
+    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
     SDL_ClearAudioStream(midi_stream);
+    SDL_UnlockAudioStream(midi_stream);
   }
   MIDI_CloseMidiBuffer();
 }
@@ -1093,11 +1105,15 @@ void MIDIDigi_ClearBuffer()
 void MIDI_Shutdown()
 {
   if (midi_stream) {
+    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
+    SDL_SetAudioStreamGetCallback(midi_stream, NULL, NULL);
+    MIDI_CloseMidiBufferUnlocked();
+    SDL_UnlockAudioStream(midi_stream);
     SDL_DestroyAudioStream(midi_stream);
     midi_stream = NULL;
   }
-  MIDI_CloseMidiBuffer();
+  MIDI_CloseMidiBufferUnlocked();
   WildMidi_Shutdown();
 }
 
@@ -1106,10 +1122,11 @@ void MIDI_Shutdown()
 /// </summary>
 void MIDI_CloseMidiBuffer()
 {
-  if (midi_music) {
-    WildMidi_Close(midi_music);
-    midi_music = NULL;
-  }
+  if (midi_stream)
+    SDL_LockAudioStream(midi_stream);
+  MIDI_CloseMidiBufferUnlocked();
+  if (midi_stream)
+    SDL_UnlockAudioStream(midi_stream);
 }
 
 /// <summary>
@@ -1128,15 +1145,21 @@ void MIDIInitStream()
 
   // Set Volume Stream
   float master_volume = (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
+  SDL_LockAudioStream(midi_stream);
   SDL_SetAudioStreamGain(midi_stream, midi_volume * master_volume); // Set the gain for the audio stream
+  SDL_UnlockAudioStream(midi_stream);
   SDL_Log("MIDIInitSong: Volume: %f", midi_volume * master_volume);
 }
 
 void MIDIClearStream()
 {
   if (midi_stream) {
+    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
+    SDL_SetAudioStreamGetCallback(midi_stream, NULL, NULL);
     SDL_ClearAudioStream(midi_stream);
+    SDL_UnlockAudioStream(midi_stream);
+    SDL_DestroyAudioStream(midi_stream);
     midi_stream = NULL;
   }
 }
@@ -1154,10 +1177,14 @@ void MIDIInitSong(tInitSong *data)
 
   SDL_Log("MIDIInitSong: Midi - Length: %i", data->iLength);
 
-  MIDI_CloseMidiBuffer();
+  if (midi_stream)
+    SDL_LockAudioStream(midi_stream);
+  MIDI_CloseMidiBufferUnlocked();
 
   midi_music = WildMidi_OpenBuffer(((uint8 *)data->pData), data->iLength);
   if (!midi_music) {
+    if (midi_stream)
+      SDL_UnlockAudioStream(midi_stream);
     SDL_Log("MIDIInitSong: WildMidi_OpenBuffer failed: %s", WildMidi_GetError());
     return;
   }
@@ -1178,6 +1205,8 @@ void MIDIInitSong(tInitSong *data)
     SDL_Log("MIDIInitSong: Total Midi time %i", wm_info->total_midi_time);
     SDL_Log("MIDIInitSong: Mix Options %i", wm_info->mixer_options);
   }
+  if (midi_stream)
+    SDL_UnlockAudioStream(midi_stream);
 
   MIDIInitStream();
 }
@@ -1201,7 +1230,9 @@ void MIDIStopSong()
   }
 
   SDL_Log("MIDIStopSong: Pause Audio Stream.");
+  SDL_LockAudioStream(midi_stream);
   SDL_PauseAudioStreamDevice(midi_stream);
+  SDL_UnlockAudioStream(midi_stream);
 }
 
 int8 MIDIMasterVolume = 127; // Default master volume (0-127)
@@ -1217,7 +1248,11 @@ void MIDISetMasterVolume(int8 volume)
   float master_volume = (float)volume / 127.0f; // Normalize to [0.0, 1.0] range
 
   // Change the gain for the MIDI stream
-  SDL_SetAudioStreamGain(midi_stream, midi_volume * master_volume);
+  if (midi_stream) {
+    SDL_LockAudioStream(midi_stream);
+    SDL_SetAudioStreamGain(midi_stream, midi_volume * master_volume);
+    SDL_UnlockAudioStream(midi_stream);
+  }
 }
 
 /// <summary>
@@ -1278,9 +1313,11 @@ static void DIGIReleaseStreamSlot(int index)
 {
   SDL_AudioStream *stream = digi_stream[index];
   if (stream) {
+    SDL_LockAudioStream(stream);
     SDL_PauseAudioStreamDevice(stream);
     SDL_SetAudioStreamGetCallback(stream, NULL, NULL);
     SDL_ClearAudioStream(stream);
+    SDL_UnlockAudioStream(stream);
   }
   DIGIResetSlotState(index);
 }
@@ -1339,9 +1376,10 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
   tSampleData *data = (tSampleData *)userdata;
   if (!data || !data->pSample || additional_amount <= 0)
     return;
+  tSampleData sampleData = *data;
   int index = (int)(data - digi_sample_data);
   float pan = (index >= 0 && index < NUM_DIGI_STREAMS) ? digi_pan[index] : 0.0f;
-  DIGIQueueSampleData(stream, data, pan);
+  DIGIQueueSampleData(stream, &sampleData, pan);
 }
 
 int DIGISampleStart(tSampleData *data)
@@ -1394,6 +1432,8 @@ int DIGISampleStart(tSampleData *data)
     return -1;
   }
 
+  SDL_LockAudioStream(digi_stream[index]);
+
   if (bLoop) {
     digi_sample_data[index] = *data;
     SDL_SetAudioStreamGetCallback(digi_stream[index], DIGI_AudioStreamCallback, &digi_sample_data[index]);
@@ -1413,6 +1453,7 @@ int DIGISampleStart(tSampleData *data)
   // Convert mono to stereo with pan applied and push to stream
   DIGIQueueSampleData(digi_stream[index], data, fInitialPan);
   SDL_ResumeAudioStreamDevice(digi_stream[index]);
+  SDL_UnlockAudioStream(digi_stream[index]);
 
   DIGIUnlock();
   return index;
@@ -1465,7 +1506,9 @@ void DIGISetMasterVolume(int volume)
   DIGILock();
   for (size_t i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
+      SDL_LockAudioStream(digi_stream[i]);
       SDL_SetAudioStreamGain(digi_stream[i], digi_volume[i] * normalized_volume);
+      SDL_UnlockAudioStream(digi_stream[i]);
     }
   }
   DIGIUnlock();
@@ -1532,7 +1575,9 @@ void DIGISetSampleVolume(int iHandle, int iVolume)
 
   // Set the gain for the audio stream
   float fMasterVolume = (float)DIGIGetMasterVolume() / 0x7FFF; // Normalize to [0.0, 1.0] range
+  SDL_LockAudioStream(digi_stream[iHandle]);
   SDL_SetAudioStreamGain(digi_stream[iHandle], fStreamVolume * fMasterVolume);
+  SDL_UnlockAudioStream(digi_stream[iHandle]);
   DIGIUnlock();
 }
 
@@ -1548,7 +1593,9 @@ void DIGISetPitch(int iHandle, int iPitch)
   }
 
   float fStreamPitch = (float)iPitch / 0x10000;
+  SDL_LockAudioStream(digi_stream[iHandle]);
   SDL_SetAudioStreamFrequencyRatio(digi_stream[iHandle], fStreamPitch);
+  SDL_UnlockAudioStream(digi_stream[iHandle]);
   DIGIUnlock();
 }
 
@@ -1564,6 +1611,7 @@ void DIGISetPanLocation(int iHandle, int iPan)
   float fNewPan = ((float)((int32)iPan) / (int32)0x8000) - 1.0f;
   if (fNewPan < -1.0f) fNewPan = -1.0f;
   if (fNewPan >  1.0f) fNewPan =  1.0f;
+  SDL_LockAudioStream(digi_stream[iHandle]);
   digi_pan[iHandle] = fNewPan;
   // For looping samples (callback-driven), flush queued audio so the new pan
   // takes effect immediately rather than after the current loop finishes.
@@ -1572,6 +1620,7 @@ void DIGISetPanLocation(int iHandle, int iPan)
     SDL_ClearAudioStream(digi_stream[iHandle]);
     DIGIQueueSampleData(digi_stream[iHandle], data, fNewPan);
   }
+  SDL_UnlockAudioStream(digi_stream[iHandle]);
   DIGIUnlock();
 }
 
