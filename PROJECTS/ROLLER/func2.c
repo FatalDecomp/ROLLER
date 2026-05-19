@@ -3612,10 +3612,7 @@ void display_paused()
 //0001ABF0
 void enable_keyboard()
 {
-  // Process all pending events first to ensure buffer is current
-  UpdateSDL();
-
-  // Flush the keyboard buffer
+  // Flush already-buffered keyboard state; SDL event pumping belongs to the frame loop.
   while (write_key != read_key || twoparter != 0) {
     fatgetch();
   }
@@ -3625,10 +3622,7 @@ void enable_keyboard()
 //0001AC30
 void disable_keyboard()
 {
-  // Process all pending events first to ensure buffer is current
-  UpdateSDL();
-
-  // Flush the keyboard buffer
+  // Flush already-buffered keyboard state; SDL event pumping belongs to the frame loop.
   while (write_key != read_key || twoparter != 0) {
     fatgetch();
   }
