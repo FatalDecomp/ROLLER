@@ -4406,15 +4406,6 @@ void ResultRoundUpExit(void)
   iResultRoundUpScreenActive = 0;
 }
 
-void ResultRoundUp()
-{
-  ResultRoundUpEnter();
-  while (!ResultRoundUpUpdate())
-    UpdateSDL();
-  ResultRoundUpExit();
-}
-
-//-------------------------------------------------------------------------------------------------
 typedef enum {
   eROLL_CREDITS_PHASE_INACTIVE = 0,
   eROLL_CREDITS_PHASE_TITLE,
@@ -4930,15 +4921,6 @@ void EndChampSequenceExit(void)
   iEndChampSequenceImageIndex = 0;
 }
 
-void EndChampSequence()
-{
-  EndChampSequenceEnter();
-  while (!EndChampSequenceUpdate())
-    UpdateSDL();
-  EndChampSequenceExit();
-}
-
-//-------------------------------------------------------------------------------------------------
 typedef enum {
   eNETWORK_FUCKED_PHASE_NONE = 0,
   eNETWORK_FUCKED_PHASE_INPUT,
@@ -5092,15 +5074,6 @@ void NetworkFuckedExit(void)
   eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
 }
 
-//0005D2B0
-void network_fucked()
-{
-  NetworkFuckedEnter();
-  while (!NetworkFuckedUpdate())
-    UpdateSDL();
-  NetworkFuckedExit();
-}
-
 //-------------------------------------------------------------------------------------------------
 //0005D560
 static int iNoCdOriginalScreenSize = 0;
@@ -5187,15 +5160,6 @@ void NoCdExit(void)
 {
   NoCdCleanupScreen();
   iNoCdActive = 0;
-}
-
-void no_cd()
-{
-  NoCdEnter();
-  while (!NoCdUpdate())
-    UpdateSDL();
-  NoCdExit();
-  doexit();
 }
 
 //-------------------------------------------------------------------------------------------------
