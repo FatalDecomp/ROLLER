@@ -59,6 +59,56 @@ static float get_effective_game_scale(int iPlayerIdx)
   return fPrevGameScale[iPlayerIdx] + (game_scale[iPlayerIdx] - fPrevGameScale[iPlayerIdx]) * fInterp;
 }
 
+static int control_key_is_joystick_axis(int iKey)
+{
+  return iKey > 0x83;
+}
+
+static int control_key_left_pair_index(int iControlIdx)
+{
+  if (iControlIdx == USERKEY_P1RIGHT)
+    return USERKEY_P1LEFT;
+  if (iControlIdx == USERKEY_P2RIGHT)
+    return USERKEY_P2LEFT;
+  return -1;
+}
+
+int control_key_matches_required_pair_type(int iControlIdx, int iKey)
+{
+  int iLeftControlIdx = control_key_left_pair_index(iControlIdx);
+  if (iLeftControlIdx < 0)
+    return 1;
+
+  return control_key_is_joystick_axis(userkey[iLeftControlIdx]) == control_key_is_joystick_axis(iKey);
+}
+
+int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
+{
+  int iStartIdx;
+  int iEndIdx;
+
+  if (iControlIdx >= USERKEY_P2LEFT && iControlIdx <= USERKEY_P2DOWNGEAR) {
+    iStartIdx = USERKEY_P2LEFT;
+    iEndIdx = iControlIdx;
+  } else if (iControlIdx == USERKEY_P2CHEAT) {
+    iStartIdx = USERKEY_P2LEFT;
+    iEndIdx = USERKEY_P2DOWNGEAR + 1;
+  } else if (iControlIdx == USERKEY_P1CHEAT) {
+    iStartIdx = USERKEY_P1LEFT;
+    iEndIdx = USERKEY_P1DOWNGEAR + 1;
+  } else {
+    iStartIdx = USERKEY_P1LEFT;
+    iEndIdx = iControlIdx;
+  }
+
+  for (int i = iStartIdx; i < iEndIdx; ++i) {
+    if (userkey[i] == iKey)
+      return -1;
+  }
+
+  return 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 // Symbol names defined by ROLLER
@@ -3060,7 +3110,7 @@ void display_paused()
                 iKeyPressed = 133;
             }
           }
-          if (iKeyPressed != -1 && (control_edit == 1 || control_edit == 7) && (userkey[control_edit] <= 0x83u) != (iKeyPressed <= 131)) {
+          if (iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
             iKeyPressed = -1;  // Reject mixed keyboard/joystick input types
           }
           //if (iKeyPressed != -1
@@ -3069,11 +3119,7 @@ void display_paused()
           //  iKeyPressed = -1;
           //}
           if (iKeyPressed != -1) {
-            iDuplicateCheck = 0;
-            for (i = 0; i < control_edit; ++i) {
-              if (userkey[i] == iKeyPressed)
-                iDuplicateCheck = -1;
-            }
+            iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
             if (!iDuplicateCheck) {
               iControlNext = control_edit + 1;
               iControlSelect = control_select;

@@ -1046,26 +1046,14 @@ void frontend_config_update(void)
           }
         }
 
-        // Validate input type compatibility for throttle controls
-        //TODO
-        //if ( iFoundKey != -1
-        //          && (control_edit == 1 || control_edit == 7)
-        //          && (userkey[control_edit] <= 0x83u && iFoundKey > 131 || userkey[control_edit] > 0x83u && iFoundKey <= 131) ) {
-        ////if (iFoundKey != -1
-        ////  && (control_edit == 1 || control_edit == 7)
-        ////  && (*((_BYTE *)&keyname[139] + control_edit + 3) <= 0x83u && iFoundKey > 131 || *((_BYTE *)&keyname[139] + control_edit + 3) > 0x83u && iFoundKey <= 131)) {
-        //  iFoundKey = -1;                       // reject incompatible input type
-        //}
+        if (iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
+          iFoundKey = -1;                       // reject incompatible steering pair type
 
         if (iFoundKey == -1)
           goto CHECK_CONTROL_INPUT;
 
         // Check for duplicate key assignments
-        iDuplicateCheck = 0;
-        for (i = 0; i < control_edit; ++i) {
-          if (userkey[i] == iFoundKey)
-            iDuplicateCheck = -1;
-        }
+        iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
         if (iDuplicateCheck)
           goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
 

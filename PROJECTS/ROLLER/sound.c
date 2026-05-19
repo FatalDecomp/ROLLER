@@ -771,21 +771,19 @@ LABEL_14:
 
   // Process special buttons
   if (iPlayer) {
-    if (userkey[13] > 0x83u)                  // USERKEY_P2CHEAT
+    if (userkey[USERKEY_P2CHEAT] > 0x83u)
     {
-      //if ((unsigned int)musicbuffer_variable_1[userkey[13]] <= 0xC8)// joyvalue[userkey[USERKEY_P2CHEAT]]
-      if ((unsigned int)joyvalue[userkey[USERKEY_P2CHEAT]- 132] <= 0xC8)// 
+      if ((unsigned int)joyvalue[userkey[USERKEY_P2CHEAT]- 132] <= 0xC8)
         goto LABEL_57;
-    } else if (!keys[userkey[13]])              // USERKEY_P2CHEAT
+    } else if (!keys[userkey[USERKEY_P2CHEAT]])
     {
       goto LABEL_57;
     }
-  } else if (userkey[12] > 0x83u)               // USERKEY_P2DOWNGEAR
+  } else if (userkey[USERKEY_P1CHEAT] > 0x83u)
   {
-    //if ((unsigned int)musicbuffer_variable_1[userkey[12]] <= 0xC8)// joyvalue[userkey[USERKEY_P2DOWNGEAR]]
-    if ((unsigned int)joyvalue[userkey[USERKEY_P2DOWNGEAR]- 132] <= 0xC8)// 
+    if ((unsigned int)joyvalue[userkey[USERKEY_P1CHEAT]- 132] <= 0xC8)
       goto LABEL_57;
-  } else if (!keys[userkey[12]])                // USERKEY_P2DOWNGEAR
+  } else if (!keys[userkey[USERKEY_P1CHEAT]])
   {
     goto LABEL_57;
   }
