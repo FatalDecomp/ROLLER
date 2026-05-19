@@ -1082,8 +1082,8 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
 
     free(output_buffer);
 
-    SDL_ResumeAudioStreamDevice(stream);
     SDL_UnlockAudioStream(stream);
+    SDL_ResumeAudioStreamDevice(stream);
 
     SDL_Log("MIDIDigi_PlayBuffer: Total: %i", total_pcm_bytes);
   }
@@ -1094,8 +1094,8 @@ void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
 void MIDIDigi_ClearBuffer()
 {
   if (midi_stream) {
-    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
+    SDL_LockAudioStream(midi_stream);
     SDL_ClearAudioStream(midi_stream);
     SDL_UnlockAudioStream(midi_stream);
   }
@@ -1105,8 +1105,8 @@ void MIDIDigi_ClearBuffer()
 void MIDI_Shutdown()
 {
   if (midi_stream) {
-    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
+    SDL_LockAudioStream(midi_stream);
     SDL_SetAudioStreamGetCallback(midi_stream, NULL, NULL);
     MIDI_CloseMidiBufferUnlocked();
     SDL_UnlockAudioStream(midi_stream);
@@ -1154,8 +1154,8 @@ void MIDIInitStream()
 void MIDIClearStream()
 {
   if (midi_stream) {
-    SDL_LockAudioStream(midi_stream);
     SDL_PauseAudioStreamDevice(midi_stream);
+    SDL_LockAudioStream(midi_stream);
     SDL_SetAudioStreamGetCallback(midi_stream, NULL, NULL);
     SDL_ClearAudioStream(midi_stream);
     SDL_UnlockAudioStream(midi_stream);
@@ -1230,9 +1230,7 @@ void MIDIStopSong()
   }
 
   SDL_Log("MIDIStopSong: Pause Audio Stream.");
-  SDL_LockAudioStream(midi_stream);
   SDL_PauseAudioStreamDevice(midi_stream);
-  SDL_UnlockAudioStream(midi_stream);
 }
 
 int8 MIDIMasterVolume = 127; // Default master volume (0-127)
@@ -1313,8 +1311,8 @@ static void DIGIReleaseStreamSlot(int index)
 {
   SDL_AudioStream *stream = digi_stream[index];
   if (stream) {
-    SDL_LockAudioStream(stream);
     SDL_PauseAudioStreamDevice(stream);
+    SDL_LockAudioStream(stream);
     SDL_SetAudioStreamGetCallback(stream, NULL, NULL);
     SDL_ClearAudioStream(stream);
     SDL_UnlockAudioStream(stream);
@@ -1452,8 +1450,8 @@ int DIGISampleStart(tSampleData *data)
 
   // Convert mono to stereo with pan applied and push to stream
   DIGIQueueSampleData(digi_stream[index], data, fInitialPan);
-  SDL_ResumeAudioStreamDevice(digi_stream[index]);
   SDL_UnlockAudioStream(digi_stream[index]);
+  SDL_ResumeAudioStreamDevice(digi_stream[index]);
 
   DIGIUnlock();
   return index;
