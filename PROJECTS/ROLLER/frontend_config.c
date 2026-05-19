@@ -2490,12 +2490,6 @@ void frontend_config_update(void)
     }
 }
 
-void select_configure(void)
-{
-  frontend_config_enter();
-  frontend_config_update();
-}
-
 void snapshot_render_menu_configure(void)
 {
   snapshot_setup_frontend_menu_state(0);

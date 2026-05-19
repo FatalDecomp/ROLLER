@@ -29,10 +29,12 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_track_select_run_snapshot(void);
+
 void snapshot_render_menu_select_track(void)
 {
   snapshot_setup_frontend_menu_state(0);
-  select_track();
+  frontend_track_select_run_snapshot();
 }
 
 static int iFrontendTrackAnimationTimer = 0;
@@ -462,13 +464,13 @@ void frontend_track_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00049070
-void select_track()
+static void frontend_track_select_run_snapshot(void)
 {
   frontend_track_select_enter();
   while (!iFrontendTrackExitFlag && !SnapshotShouldStop()) {
     frontend_track_select_update();
     if (!iFrontendTrackExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_track_select_exit();

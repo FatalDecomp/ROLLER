@@ -28,12 +28,14 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_players_select_run_snapshot(void);
+
 void snapshot_render_menu_select_players(void)
 {
   snapshot_setup_frontend_menu_state(0);
   player_type = 2;
   players = 2;
-  select_players();
+  frontend_players_select_run_snapshot();
 }
 
 static unsigned int iFrontendPlayersSelectedPlayerType = 0;
@@ -637,13 +639,13 @@ void frontend_players_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00047000
-void select_players()
+static void frontend_players_select_run_snapshot(void)
 {
   frontend_players_select_enter();
   while (!iFrontendPlayersExitFlag && !SnapshotShouldStop()) {
     frontend_players_select_update();
     if (!iFrontendPlayersExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_players_select_exit();

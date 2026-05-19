@@ -422,13 +422,13 @@ void frontend_disk_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //000411D0
-void select_disk()
+static void frontend_disk_select_run_snapshot(void)
 {
   frontend_disk_select_enter();
   while (!iFrontendDiskExitFlag && !SnapshotShouldStop()) {
     frontend_disk_select_update();
     if (!iFrontendDiskExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_disk_select_exit();
@@ -437,7 +437,7 @@ void select_disk()
 void snapshot_render_menu_select_disk(void)
 {
   snapshot_setup_frontend_menu_state(1);
-  select_disk();
+  frontend_disk_select_run_snapshot();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -29,10 +29,12 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_car_select_run_snapshot(void);
+
 void snapshot_render_menu_select_car(void)
 {
   snapshot_setup_frontend_menu_state(0);
-  select_car();
+  frontend_car_select_run_snapshot();
 }
 
 static int iFrontendCarBlockIdxAy[7];
@@ -612,13 +614,13 @@ void frontend_car_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00041CA0
-void select_car()
+static void frontend_car_select_run_snapshot(void)
 {
   frontend_car_select_enter();
   while (!iFrontendCarExitFlag && !SnapshotShouldStop()) {
     frontend_car_select_update();
     if (!iFrontendCarExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_car_select_exit();

@@ -29,12 +29,14 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_type_select_run_snapshot(void);
+
 void snapshot_render_menu_select_type(void)
 {
   snapshot_setup_frontend_menu_state(0);
   for (int i = 0; i < 5; ++i)
     SnapshotQueueRawKey(0x48); // Up arrow: real input path from Exit to Game Type.
-  select_type();
+  frontend_type_select_run_snapshot();
 }
 
 static int iFrontendTypeMenuSelection = 0;
@@ -772,13 +774,13 @@ void frontend_type_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00047AE0
-void select_type()
+static void frontend_type_select_run_snapshot(void)
 {
   frontend_type_select_enter();
   while (!iFrontendTypeExitFlag && !SnapshotShouldStop()) {
     frontend_type_select_update();
     if (!iFrontendTypeExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_type_select_exit();
