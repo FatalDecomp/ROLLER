@@ -6312,55 +6312,82 @@ MAIN_UI_LOOP:
 
 //-------------------------------------------------------------------------------------------------
 //0005EDE0
-void show_received_mesage()
-{                                               // Check if there's a message to display and screen is not fading
+static int iReceivedMessageActive = 0;
+static uint64 ullReceivedMessageDismissTicksMs = 0;
+static char szReceivedMessageBuf[sizeof(rec_mes_buf) + 1];
+static char szReceivedMessageName[sizeof(rec_mes_name) + 1];
+
+static void drain_received_message_keys(void)
+{
+  while (fatkbhit()) {
+    if (!fatgetch())
+      fatgetch();
+  }
+}
+
+static void draw_received_message(void)
+{
   int iRecMesWidth; // ebx
   int iBufStrWidth; // eax
   int iWindowLeft; // ecx
   int iWindowRight; // edx
   int iAdjustedLeft; // ecx
 
-  if (rec_status > 0 && front_fade) {
-    sprintf(buffer, "%s %s", &language_buffer[7744], rec_mes_name);// Format message header with sender name
-    iRecMesWidth = stringwidth(rec_mes_buf);    // Calculate width of the actual message text
-    iBufStrWidth = stringwidth(buffer);         // Calculate width of the header (sender info)
-    if (iBufStrWidth > iRecMesWidth)          // Use the wider of the two strings for window width
-      iRecMesWidth = iBufStrWidth;
-    iWindowLeft = 400 - iRecMesWidth / 2;       // Calculate left edge of window (center at x=400)
-    if (iWindowLeft < 180)                    // Ensure window doesn't go too far left (min x=180)
-      iWindowLeft = 180;
-    iWindowRight = iRecMesWidth / 2 + 408;      // Calculate right edge of window
-    iAdjustedLeft = iWindowLeft - 8;
-    if (iWindowRight > 639)                   // Ensure window doesn't go past screen edge (max x=639)
-      iWindowRight = 639;
-    blankwindow(iAdjustedLeft / 2, 86, iWindowRight / 2, 118);// Draw message window background (coordinates are halved for some reason)
-    scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 400, 180, 143, 1u, 180, 640);// Draw sender info text at y=180
-    scale_text(front_vga[15], rec_mes_buf, font1_ascii, font1_offsets, 400, 210, 143, 1u, 180, 640);// Draw message text at y=210
-    copypic(scrbuf, screen);                    // Copy rendered screen buffer to display
-    rec_status = 0;                             // Clear message received flag
-    frames = 0;                                 // Reset frame counter for message display duration
-    do {
-      if (time_to_start)
-        break;
-      while (fatkbhit()) {
-        if (!fatgetch())
-          fatgetch();
-        UpdateSDL();
-      }
-      UpdateSDL();
-    } while (frames < 72);                      // Show message for at least 72 frames
-    if (frames >= 72 && !time_to_start)       // After 72 frames, wait for any key press to dismiss
-    {
-      while (!fatkbhit() && !time_to_start)
-        UpdateSDL();
-      while (fatkbhit() && !time_to_start) {
-        if (!fatgetch())
-          fatgetch();
-        UpdateSDL();
-      }
-    }
-    frames = 0;                                 // Reset frame counter when done
+  sprintf(buffer, "%s %s", &language_buffer[7744], szReceivedMessageName);// Format message header with sender name
+  iRecMesWidth = stringwidth(szReceivedMessageBuf);// Calculate width of the actual message text
+  iBufStrWidth = stringwidth(buffer);           // Calculate width of the header (sender info)
+  if (iBufStrWidth > iRecMesWidth)              // Use the wider of the two strings for window width
+    iRecMesWidth = iBufStrWidth;
+  iWindowLeft = 400 - iRecMesWidth / 2;         // Calculate left edge of window (center at x=400)
+  if (iWindowLeft < 180)                        // Ensure window doesn't go too far left (min x=180)
+    iWindowLeft = 180;
+  iWindowRight = iRecMesWidth / 2 + 408;        // Calculate right edge of window
+  iAdjustedLeft = iWindowLeft - 8;
+  if (iWindowRight > 639)                       // Ensure window doesn't go past screen edge (max x=639)
+    iWindowRight = 639;
+  blankwindow(iAdjustedLeft / 2, 86, iWindowRight / 2, 118);// Draw message window background (coordinates are halved for some reason)
+  scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 400, 180, 143, 1u, 180, 640);// Draw sender info text at y=180
+  scale_text(front_vga[15], szReceivedMessageBuf, font1_ascii, font1_offsets, 400, 210, 143, 1u, 180, 640);// Draw message text at y=210
+  copypic(scrbuf, screen);                      // Copy rendered screen buffer to display
+}
+
+void show_received_mesage()
+{                                               // Check if there's a message to display and screen is not fading
+  if (!front_fade) {
+    iReceivedMessageActive = 0;
+    return;
   }
+
+  if (!iReceivedMessageActive) {
+    if (rec_status <= 0)
+      return;
+
+    strncpy(szReceivedMessageBuf, rec_mes_buf, sizeof(szReceivedMessageBuf) - 1);
+    szReceivedMessageBuf[sizeof(szReceivedMessageBuf) - 1] = '\0';
+    strncpy(szReceivedMessageName, rec_mes_name, sizeof(szReceivedMessageName) - 1);
+    szReceivedMessageName[sizeof(szReceivedMessageName) - 1] = '\0';
+    rec_status = 0;                             // Clear message received flag
+    ullReceivedMessageDismissTicksMs = SDL_GetTicks() + 2000;
+    iReceivedMessageActive = -1;
+  }
+
+  draw_received_message();
+
+  if (time_to_start) {
+    iReceivedMessageActive = 0;
+    return;
+  }
+
+  if (SDL_GetTicks() < ullReceivedMessageDismissTicksMs) {
+    drain_received_message_keys();
+    return;
+  }
+
+  if (!fatkbhit())
+    return;
+
+  drain_received_message_keys();
+  iReceivedMessageActive = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
