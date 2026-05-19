@@ -3414,6 +3414,24 @@ void SOSTimerCallbackS7()
 }
 
 //-------------------------------------------------------------------------------------------------
+static void fade_palette_wait_timer_tick(void)
+{
+  if (current_mode == 0 || g_bSnapshotMode)
+    return;
+
+  int iPrevS7 = s7;
+  while (s7 == iPrevS7)
+    SDL_Delay(1);
+}
+
+//-------------------------------------------------------------------------------------------------
+static void fade_palette_present_step(void)
+{
+  g_bPaletteSet = true;
+  UpdateSDLWindow();
+}
+
+//-------------------------------------------------------------------------------------------------
 //0003E680
 void fade_palette(int iTargetBrightness)
 {
@@ -3464,17 +3482,14 @@ void fade_palette(int iTargetBrightness)
         //while (SDL_GetTicks() - uiStartTime < 70) {
         //  SDL_Delay(1);
         //}
-        int iPrev = s7;
-        while (s7 == iPrev); // Wait for timer tick
+        fade_palette_wait_timer_tick();
       } else {
         //wait for retrace
         //aka VSYNC for DOS
       }
 
       //set dac palette
-      g_bPaletteSet = true;
-      UpdateSDL();
-      UpdateSDLWindow();
+      fade_palette_present_step();
     }
   } else {
       // FADE OUT LOOP
@@ -3504,17 +3519,14 @@ void fade_palette(int iTargetBrightness)
       }
 
       if (current_mode != 0 && !g_bSnapshotMode) {
-        int iPrevS7 = s7;
-        while (s7 == iPrevS7); // Wait for timer tick
+        fade_palette_wait_timer_tick();
       } else {
         //wait for retrace
         //aka VSYNC for DOS
       }
 
       //set dac palette
-      g_bPaletteSet = true;
-      UpdateSDL();
-      UpdateSDLWindow();
+      fade_palette_present_step();
 
       iVolumeStep -= 0x7FFF;
     }

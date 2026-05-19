@@ -21,6 +21,7 @@
 #include "crashdump.h"
 #include "snapshot.h"
 #include "snapshot_scenes.h"
+#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -753,7 +754,7 @@ void doexit()
 {
   frontend_shutdown_begin();
   while (!frontend_shutdown_pump()) {
-    UpdateSDL();
+    SDL_Delay(1);
   }
   exit(0);
 }
