@@ -64,6 +64,7 @@ bool DIGISampleDone(int index);
 int DIGISampleAvailable(int index);
 int DIGISampleGeneration(int index);
 void DIGIStopSample(int index);
+void DIGIClearAllStream();
 void DIGISetMasterVolume(int volume);
 int DIGIGetMasterVolume();
 void DIGISetSampleVolume(int iHandle, int iVolume);

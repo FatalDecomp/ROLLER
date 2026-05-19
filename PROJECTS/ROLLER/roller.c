@@ -11,6 +11,7 @@
 #include "rollercd.h"
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <ctype.h>
 #include <SDL3_image/SDL_image.h>
@@ -577,6 +578,7 @@ void InitREPLAYS(const char *szDataRoot)
 void ShutdownSDL()
 {
   if (!g_bSnapshotMode) {
+    DIGIClearAllStream();
     MIDI_Shutdown();
 
     if (g_pController1) SDL_CloseGamepad(g_pController1);
@@ -1165,6 +1167,7 @@ int MIDIGetMasterVolume()
 //-------------------------------------------------------------------------------------------------
 #pragma region DIGI
 #define NUM_DIGI_STREAMS 32
+#define DIGI_SAMPLE_LOOP_FLAGS 18176
 SDL_AudioStream *digi_stream[NUM_DIGI_STREAMS];
 float digi_volume[NUM_DIGI_STREAMS];
 float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
@@ -1199,6 +1202,53 @@ static void mono_to_stereo_pan_u8(const Uint8 *in, int in_length, Uint8 *out, fl
   }
 }
 
+static void DIGIResetSlotState(int index)
+{
+  memset(&digi_sample_data[index], 0, sizeof(tSampleData));
+  digi_volume[index] = 0.0f;
+  digi_pan[index] = 0.0f;
+}
+
+static void DIGIReleaseStreamSlot(int index)
+{
+  SDL_AudioStream *stream = digi_stream[index];
+  if (stream) {
+    SDL_PauseAudioStreamDevice(stream);
+    SDL_SetAudioStreamGetCallback(stream, NULL, NULL);
+    SDL_ClearAudioStream(stream);
+  }
+  DIGIResetSlotState(index);
+}
+
+static void DIGIDestroyStreamSlot(int index)
+{
+  SDL_AudioStream *stream = digi_stream[index];
+  if (!stream) {
+    DIGIResetSlotState(index);
+    return;
+  }
+
+  DIGIReleaseStreamSlot(index);
+  digi_stream[index] = NULL;
+  SDL_DestroyAudioStream(stream);
+}
+
+static bool DIGIQueueSampleData(SDL_AudioStream *stream, const tSampleData *data, float pan)
+{
+  if (!stream || !data || !data->pSample || data->iLength <= 0 || data->iLength > INT_MAX / 2)
+    return false;
+
+  int stereo_len = data->iLength * 2;
+  Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
+  if (!stereo_buf)
+    return false;
+
+  mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, pan);
+  bool bQueued = SDL_PutAudioStreamData(stream, stereo_buf, stereo_len);
+  SDL_free(stereo_buf);
+  return bQueued;
+}
+
 static int DIGISampleAvailableUnlocked(int iHandle)
 {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
@@ -1226,17 +1276,15 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
     return;
   int index = (int)(data - digi_sample_data);
   float pan = (index >= 0 && index < NUM_DIGI_STREAMS) ? digi_pan[index] : 0.0f;
-  int stereo_len = data->iLength * 2;
-  Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
-  if (!stereo_buf) return;
-  mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, pan);
-  SDL_PutAudioStreamData(stream, stereo_buf, stereo_len);
-  SDL_free(stereo_buf);
+  DIGIQueueSampleData(stream, data, pan);
 }
 
 int DIGISampleStart(tSampleData *data)
 {
   if (g_bSnapshotMode) return -1;
+  if (!data || !data->pSample || data->iLength <= 0)
+    return -1;
+
   DIGILock();
 
   int index = -1;
@@ -1253,15 +1301,11 @@ int DIGISampleStart(tSampleData *data)
   }
 
   float volume = (float)data->iVolume / 0x7FFF; // Convert volume to [0.0, 1.0] range
-  int iFlags = data->iFlags;
+  bool bLoop = data->iFlags == DIGI_SAMPLE_LOOP_FLAGS;
   int iPan = data->iPan;
 
   if (digi_stream[index]) {
-    //audio stream is available but needs to be destroyed
-    SDL_PauseAudioStreamDevice(digi_stream[index]);
-    SDL_DestroyAudioStream(digi_stream[index]);
-    digi_stream[index] = NULL;
-    memset(&digi_sample_data[index], 0, sizeof(tSampleData));
+    DIGIReleaseStreamSlot(index);
   }
   ++digi_generation[index];
 
@@ -1276,24 +1320,18 @@ int DIGISampleStart(tSampleData *data)
     spec.channels = 2; // Stereo (panning applied manually per-sample)
     spec.freq = 11025; // Sample rate
     spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
-    if (iFlags != 18176) //one of these means loop the audio
-      digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-    else {
-      //need to copy what's in SampleData first
-      digi_sample_data[index].pSample = data->pSample;
-      digi_sample_data[index].iLength = data->iLength;
-      digi_sample_data[index].iSampleIndex = data->iSampleIndex;
-
-      digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, DIGI_AudioStreamCallback, &digi_sample_data[index]);
-    }
-  } else {
-    assert(0); //should never happen
+    digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
   }
 
   if (!digi_stream[index]) {
     //SDL_Log("DIGISampleStart: Couldn't create audio stream: %s", SDL_GetError());
     DIGIUnlock();
     return -1;
+  }
+
+  if (bLoop) {
+    digi_sample_data[index] = *data;
+    SDL_SetAudioStreamGetCallback(digi_stream[index], DIGI_AudioStreamCallback, &digi_sample_data[index]);
   }
 
   // Set pitch in the stream
@@ -1308,13 +1346,7 @@ int DIGISampleStart(tSampleData *data)
   SDL_SetAudioStreamGain(digi_stream[index], volume * master_volume);
 
   // Convert mono to stereo with pan applied and push to stream
-  int stereo_len = data->iLength * 2;
-  Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
-  if (stereo_buf) {
-    mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fInitialPan);
-    SDL_PutAudioStreamData(digi_stream[index], stereo_buf, stereo_len);
-    SDL_free(stereo_buf);
-  }
+  DIGIQueueSampleData(digi_stream[index], data, fInitialPan);
   SDL_ResumeAudioStreamDevice(digi_stream[index]);
 
   DIGIUnlock();
@@ -1391,11 +1423,7 @@ void DIGIStopSample(int index)
   }
   DIGILock();
   if (digi_stream[index]) {
-    SDL_PauseAudioStreamDevice(digi_stream[index]);
-    SDL_DestroyAudioStream(digi_stream[index]);
-    digi_stream[index] = NULL;
-    memset(&digi_sample_data[index], 0, sizeof(tSampleData));
-    digi_pan[index] = 0.0f;
+    DIGIReleaseStreamSlot(index);
     ++digi_generation[index];
   }
   DIGIUnlock();
@@ -1406,11 +1434,7 @@ void DIGIClearAllStream()
   DIGILock();
   for (int i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
-      SDL_PauseAudioStreamDevice(digi_stream[i]);
-      SDL_DestroyAudioStream(digi_stream[i]);
-      digi_stream[i] = NULL;
-      memset(&digi_sample_data[i], 0, sizeof(tSampleData));
-      digi_pan[i] = 0.0f;
+      DIGIDestroyStreamSlot(i);
       ++digi_generation[i];
     }
   }
@@ -1481,13 +1505,7 @@ void DIGISetPanLocation(int iHandle, int iPan)
   tSampleData *data = &digi_sample_data[iHandle];
   if (data->pSample) {
     SDL_ClearAudioStream(digi_stream[iHandle]);
-    int stereo_len = data->iLength * 2;
-    Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
-    if (stereo_buf) {
-      mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, fNewPan);
-      SDL_PutAudioStreamData(digi_stream[iHandle], stereo_buf, stereo_len);
-      SDL_free(stereo_buf);
-    }
+    DIGIQueueSampleData(digi_stream[iHandle], data, fNewPan);
   }
   DIGIUnlock();
 }

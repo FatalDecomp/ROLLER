@@ -1918,7 +1918,9 @@ void initsounds()
   //} while (iLoopItr != 32);
 
   for (int i = 0; i < 120; ++i) {
-    SampleHandleCar[i].handles[0] = -1;
+    for (int j = 0; j < 16; ++j) {
+      SampleHandleCar[i].handles[j] = -1;
+    }
   }
   //for (i = 0; i != 7680; i += 64) {
   //  iCar = 0;
