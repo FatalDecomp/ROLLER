@@ -481,6 +481,8 @@ static void frontend_main_menu_black_palette(void)
   }
 }
 
+static void fade_redraw_main_menu(void *ctx);
+
 static void frontend_main_menu_fade_out(int iFadeMusic)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -488,7 +490,7 @@ static void frontend_main_menu_fade_out(int iFadeMusic)
   menu_render_begin_fade(mr, 0, 32);
   if (iFadeMusic)
     fade_music_start(0);
-  menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  menu_render_fade_wait(mr, fade_redraw_main_menu, mr);
   if (iFadeMusic)
     fade_music_finish(0);
   frontend_main_menu_black_palette();
@@ -708,12 +710,9 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuInitialized = -1;
 }
 
-static void frontend_main_menu_draw(void)
+static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 {
   int iBlockIdx2;
-  MenuRenderer *mr = GetMenuRenderer();
-
-  menu_render_begin_frame(mr);
   menu_render_background(mr, 0);
   menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
   menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
@@ -864,6 +863,18 @@ static void frontend_main_menu_draw(void)
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
   show_received_mesage();
+}
+
+static void fade_redraw_main_menu(void *ctx)
+{
+  frontend_main_menu_emit_draw((MenuRenderer *)ctx);
+}
+
+static void frontend_main_menu_draw(void)
+{
+  MenuRenderer *mr = GetMenuRenderer();
+  menu_render_begin_frame(mr);
+  frontend_main_menu_emit_draw(mr);
   menu_render_end_frame(mr);
 }
 
@@ -1139,8 +1150,8 @@ static void frontend_main_menu_prepare_to_start(void)
 
 static void frontend_main_menu_begin_child(eFrontendState eState)
 {
-  frontend_main_menu_free_selected_car_textures();
   frontend_main_menu_fade_out(0);
+  frontend_main_menu_free_selected_car_textures();
   frontend_main_menu_free_preview_title_assets();
   iFrontendMainMenuResumeFromChild = -1;
   eFrontendNextState = eState;
@@ -1196,8 +1207,8 @@ static void frontend_main_menu_handle_enter(void)
     case 8:
       if (iFrontendMainMenuBlockIdx >= CAR_DESIGN_AUTO) {
         iFrontendMainMenuContinue = -1;
-        frontend_main_menu_free_selected_car_textures();
         frontend_main_menu_fade_out(0);
+        frontend_main_menu_free_selected_car_textures();
         frontend_main_menu_free_preview_title_assets();
         sfxsample(SOUND_SAMPLE_START, 0x8000);
         netCD = 0;
@@ -1334,10 +1345,10 @@ void frontend_menu_update(void)
   if (!front_fade) {
     front_fade = -1;
     menu_render_begin_fade(mr, 1, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
-    palette_brightness = 32;
     frames = 0;
     if (network_on) {
+      menu_render_fade_wait(mr, fade_redraw_bg, mr);
+      palette_brightness = 32;
       if (broadcast_mode) {
         eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
       } else {
@@ -1351,6 +1362,10 @@ void frontend_menu_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (menu_render_fade_active(mr))
+    return;
+
+  palette_brightness = 32;
   frontend_main_menu_apply_same_car_switch();
   print_data = 0;
 

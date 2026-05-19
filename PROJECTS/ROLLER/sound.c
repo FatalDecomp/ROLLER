@@ -3538,7 +3538,8 @@ void fade_palette_finish()
 
   palette_brightness = sPaletteFadeState.iTargetBrightness;
   tick_on = sPaletteFadeState.iOriginalTickOn;
-  ticks = sPaletteFadeState.iOriginalTicks;
+  if (replaytype != 2)
+    ticks = sPaletteFadeState.iOriginalTicks;
 
   if (sPaletteFadeState.iTargetBrightness == 0)
     enable_keyboard();
