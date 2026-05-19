@@ -2411,13 +2411,12 @@ void remove_messages(int iClear)
   // first message processing loop
   do {
     ROLLERCommsPostListen();                       // check for incoming messages
-    UpdateSDL(); //added by ROLLER
   } while (ROLLERCommsGetHeader(&in_header, sizeof(tSyncHeader), &pPacketData));// continue until there are no more messages
   
   // additional clearing if condition is true
   if (iClear) {
     while (ROLLERCommsPostListen())
-      UpdateSDL(); //added by ROLLER
+      ;
   }
   clear_network_game();
 }
