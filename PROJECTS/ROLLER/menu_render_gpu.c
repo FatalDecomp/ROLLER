@@ -664,6 +664,10 @@ void menu_render_gpu_begin_frame(MenuRendererGPU *r)
     r->drawCommandCount = 0;
     r->meshDrawCount = 0;
     r->currentLayer = MENU_LAYER_BACKGROUND;
+    r->cmdBuf = NULL;
+    r->swapchainTexture = NULL;
+
+    if (ROLLERGpuPresentationSuspended()) return;
 
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
     if (!r->cmdBuf) return;

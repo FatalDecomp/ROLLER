@@ -43,6 +43,7 @@ void InitREPLAYS(const char *szDataRoot);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();
+bool ROLLERGpuPresentationSuspended(void);
 void ROLLERRefreshStartupOverlay();
 void UpdateSDLAudioEvents(SDL_Event e);
 

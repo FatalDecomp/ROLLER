@@ -71,6 +71,7 @@ static SDL_Window *s_pWindow = NULL;
 static SDL_GPUDevice *s_pGPUDevice = NULL;
 static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
+static int s_iGPUPresentSkipFrames = 0;
 SDL_Gamepad *g_pController1 = NULL;
 SDL_Gamepad *g_pController2 = NULL;
 tJoyPos g_rollerJoyPos;
@@ -97,6 +98,35 @@ void SnapshotEnsureMenuRenderer(void)
 
 static DebugOverlay *s_pDebugOverlay = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
+
+static void DeferGPUPresentation(int iFrames)
+{
+  if (s_iGPUPresentSkipFrames < iFrames)
+    s_iGPUPresentSkipFrames = iFrames;
+}
+
+bool ROLLERGpuPresentationSuspended(void)
+{
+  if (!s_pWindow)
+    return true;
+
+  if (s_iGPUPresentSkipFrames > 0) {
+    --s_iGPUPresentSkipFrames;
+    return true;
+  }
+
+  SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
+  if (uiFlags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED))
+    return true;
+
+  int iPixelW = 0;
+  int iPixelH = 0;
+  if (!SDL_GetWindowSizeInPixels(s_pWindow, &iPixelW, &iPixelH) ||
+      iPixelW <= 0 || iPixelH <= 0)
+    return true;
+
+  return false;
+}
 
 SDL_Mutex *g_pTimerMutex = NULL;
 tTimerData timerDataAy[MAX_TIMERS] = { 0 };
@@ -219,6 +249,7 @@ void UpdateSDLWindow()
   }
 
   if (!g_bPaletteSet) return;
+  if (ROLLERGpuPresentationSuspended()) return;
 
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
@@ -291,6 +322,8 @@ static void PresentDebugOverlayOnly(void)
 {
   if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
     return;
+  if (ROLLERGpuPresentationSuspended())
+    return;
 
   SDL_GPUCommandBuffer *pCmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!pCmdBuf)
@@ -342,9 +375,25 @@ void ROLLERRefreshStartupOverlay()
 
 void ToggleFullscreen()
 {
-  static bool s_bIsFullscreen = false;
-  s_bIsFullscreen = !s_bIsFullscreen;
-  SDL_SetWindowFullscreen(s_pWindow, s_bIsFullscreen ? SDL_WINDOW_FULLSCREEN : 0);
+  if (!s_pWindow)
+    return;
+
+  SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
+  bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
+
+  DeferGPUPresentation(3);
+  if (s_pGPUDevice)
+    SDL_WaitForGPUIdle(s_pGPUDevice);
+
+  if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
+    SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
+  } else {
+    SDL_SyncWindow(s_pWindow);
+  }
+
+  if (s_pGPUDevice)
+    SDL_WaitForGPUIdle(s_pGPUDevice);
+  DeferGPUPresentation(3);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -771,6 +820,22 @@ void UpdateSDL()
       quit_game = 1;
       eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
       continue;
+    }
+    if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
+      switch (e.type) {
+        case SDL_EVENT_WINDOW_RESIZED:
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        case SDL_EVENT_WINDOW_MINIMIZED:
+        case SDL_EVENT_WINDOW_RESTORED:
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+        case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+          DeferGPUPresentation(2);
+          break;
+        default:
+          break;
+      }
     }
     debug_overlay_handle_event(s_pDebugOverlay, &e);
 
