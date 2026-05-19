@@ -416,6 +416,11 @@ void frontend_players_select_update(void)
   char *szText;
   int iPlayerListCount;
 
+  if (select_messages_active()) {
+    select_messages();
+    return;
+  }
+
   frontend_players_select_clamp_selection();
 
   if (switch_types) {

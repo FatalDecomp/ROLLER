@@ -5875,6 +5875,24 @@ LABEL_8:
 }
 
 //-------------------------------------------------------------------------------------------------
+typedef struct
+{
+  int iActive;
+  int iExitFlag;
+  int iSelectedPlayer;
+  int iMenuSelection;
+  unsigned int uiCurrentMenu;
+  int iSendConfirmation;
+  int iMessageLength;
+} tSelectMessagesState;
+
+static tSelectMessagesState s_SelectMessages;
+
+int select_messages_active(void)
+{
+  return s_SelectMessages.iActive;
+}
+
 //0005E300
 void select_messages()
 {
@@ -5894,29 +5912,28 @@ void select_messages()
   unsigned int uiExtendedKey; // eax
   int j; // eax
   int i; // eax
-  int iSendConfirmation; // [esp+4h] [ebp-1Ch]
-  int iMessageLength; // [esp+8h] [ebp-18h]
-  unsigned int uiCurrentMenu; // [esp+Ch] [ebp-14h]
   unsigned int uiPreviousMenu; // [esp+Ch] [ebp-14h]
-  int iSelectedPlayer; // [esp+10h] [ebp-10h]
-  int iMenuSelection; // [esp+14h] [ebp-Ch]
-  int iExitFlag; // [esp+18h] [ebp-8h]
   int iY; // [esp+1Ch] [ebp-4h]
 
-  // Initialize UI state variables
-  iExitFlag = 0;
-  iSelectedPlayer = 0;
-  iMenuSelection = 0;
-  uiCurrentMenu = 0;
-  send_status = 0;
-  send_message_to = -1;
-  iSendConfirmation = 0;
-  iMessageLength = 0;
+#define iExitFlag s_SelectMessages.iExitFlag
+#define iSelectedPlayer s_SelectMessages.iSelectedPlayer
+#define iMenuSelection s_SelectMessages.iMenuSelection
+#define uiCurrentMenu s_SelectMessages.uiCurrentMenu
+#define iSendConfirmation s_SelectMessages.iSendConfirmation
+#define iMessageLength s_SelectMessages.iMessageLength
 
-  // Calculate current message length in send buffer
-  if (send_buffer[0]) {
-    while (send_buffer[++iMessageLength])
-      ;
+  if (!s_SelectMessages.iActive) {
+    // Initialize UI state variables
+    memset(&s_SelectMessages, 0, sizeof(s_SelectMessages));
+    s_SelectMessages.iActive = -1;
+    send_status = 0;
+    send_message_to = -1;
+
+    // Calculate current message length in send buffer
+    if (send_buffer[0]) {
+      while (send_buffer[++iMessageLength])
+        ;
+    }
   }
 MAIN_UI_LOOP:
   if (!iExitFlag)                             // MAIN_UI_LOOP: Main display and input processing loop
@@ -6045,10 +6062,12 @@ MAIN_UI_LOOP:
         show_received_mesage();                 // UPDATE_DISPLAY: Show received messages and copy screen buffer
         copypic(scrbuf, screen);
         while (1) {
-          UpdateSDL();
           // Main input processing loop
-          if (!fatkbhit())
-            goto MAIN_UI_LOOP;
+          if (!fatkbhit()) {
+            if (iExitFlag)
+              s_SelectMessages.iActive = 0;
+            goto SELECT_MESSAGES_DONE;
+          }
           uiKeyCode = fatgetch();
           iCharCode = uiKeyCode;
           if (uiKeyCode < 8) {
@@ -6242,6 +6261,15 @@ MAIN_UI_LOOP:
         goto UPDATE_DISPLAY;                    // Main menu state machine - handle different UI screens
     }
   }
+  s_SelectMessages.iActive = 0;
+
+SELECT_MESSAGES_DONE:
+#undef iExitFlag
+#undef iSelectedPlayer
+#undef iMenuSelection
+#undef uiCurrentMenu
+#undef iSendConfirmation
+#undef iMessageLength
 }
 
 //-------------------------------------------------------------------------------------------------

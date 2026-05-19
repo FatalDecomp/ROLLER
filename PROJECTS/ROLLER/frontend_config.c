@@ -369,6 +369,11 @@ void frontend_config_update(void)
   int iHighlightColor; // [esp+80h] [ebp+7Ah]
   int iCarLoop; // [esp+84h] [ebp+7Eh]
 
+  if (select_messages_active()) {
+    select_messages();
+    return;
+  }
+
   if (switch_types) {
       game_type = switch_types - 1;
       if (switch_types == 1 && competitors == 1)

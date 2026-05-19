@@ -143,6 +143,7 @@ uint8 *load_picture(const char *szFile);
 void AllocateCars();
 void check_cars();
 void select_messages();
+int select_messages_active(void);
 void show_received_mesage();
 
 //-------------------------------------------------------------------------------------------------
