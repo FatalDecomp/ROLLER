@@ -332,7 +332,6 @@ static void lobby_handle_input(void)
   unsigned int uiKeyPressed;
 
   while (fatkbhit()) {
-    UpdateSDL();
     uiKeyPressed = fatgetch();
     if (uiKeyPressed < 0xD) {
       if (!uiKeyPressed)

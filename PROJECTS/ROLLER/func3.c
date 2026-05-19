@@ -1700,14 +1700,6 @@ void TeamStandingsExit(void)
   iTeamStandingsScreenActive = 0;
 }
 
-void TeamStandings()
-{
-  TeamStandingsEnter();
-  while (!TeamStandingsUpdate())
-    UpdateSDL();
-  TeamStandingsExit();
-}
-
 //-------------------------------------------------------------------------------------------------
 static int iLapRecordsScreenActive = 0;
 static int iLapRecordsSavedScreenSize = 0;
@@ -4089,16 +4081,6 @@ int load_champ_begin(int iSlot)
   return iChecksumOk;
 }
 
-int load_champ(int iSlot)
-{
-  int iResult = load_champ_begin(iSlot);
-
-  while (load_champ_active() && !load_champ_update())
-    UpdateSDL();
-
-  return iResult;
-}
-
 //-------------------------------------------------------------------------------------------------
 //0005C000
 uint8 *lod_champ_char(uint8 *pSrc, int *piValue)
@@ -4526,14 +4508,6 @@ void RollCreditsExit(void)
   front_fade = 0;
   eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
   iRollCreditsImagesLoaded = 0;
-}
-
-void RollCredits()
-{
-  RollCreditsEnter();
-  while (!RollCreditsUpdate())
-    UpdateSDL();
-  RollCreditsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
