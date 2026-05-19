@@ -36,6 +36,7 @@ typedef enum {
   eFRONTEND_STATE_PAUSE_OVERLAY,
   eFRONTEND_STATE_RESULTS,
   eFRONTEND_STATE_NETWORK_ERROR,
+  eFRONTEND_STATE_NO_CD_ERROR,
   eFRONTEND_STATE_WINNER_SCREEN,
   eFRONTEND_STATE_WINNER_RACE,
   eFRONTEND_STATE_RESULT_ROUNDUP,
@@ -79,6 +80,9 @@ void frontend_results_update(void);
 void frontend_network_error_enter(void);
 void frontend_network_error_update(void);
 void frontend_network_error_exit(void);
+void frontend_no_cd_enter(void);
+void frontend_no_cd_update(void);
+void frontend_no_cd_exit(void);
 void frontend_winner_screen_enter(void);
 void frontend_winner_screen_update(void);
 void frontend_winner_screen_exit(void);

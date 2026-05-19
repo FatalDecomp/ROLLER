@@ -2445,8 +2445,11 @@ void frontend_results_update(void)
     if (net_quit)
       close_network();
   }
-  if (cd_error)
-    no_cd();
+  if (cd_error) {
+    iFrontendGameFlags = 0;
+    eFrontendNextState = eFRONTEND_STATE_NO_CD_ERROR;
+    return;
+  }
   VIEWDIST = 270;
 
   if (!quit_game && iFrontendGameFlags) {
@@ -2502,6 +2505,26 @@ void frontend_network_error_update(void)
 void frontend_network_error_exit(void)
 {
   NetworkFuckedExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_no_cd_enter(void)
+{
+  NoCdEnter();
+}
+
+void frontend_no_cd_update(void)
+{
+  if (NoCdUpdate()) {
+    quit_game = -1;
+    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+  }
+}
+
+void frontend_no_cd_exit(void)
+{
+  NoCdExit();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -5103,44 +5103,55 @@ void network_fucked()
 
 //-------------------------------------------------------------------------------------------------
 //0005D560
-void no_cd()
+static int iNoCdOriginalScreenSize = 0;
+static int iNoCdActive = 0;
+static int iNoCdScreenActive = 0;
+
+static void NoCdCleanupScreen(void)
 {
-  int iScrSize; // ebp
+  if (!iNoCdScreenActive)
+    return;
+
+  fre((void**)&title_vga);
+  fre((void**)&font_vga);
+  fre((void**)&front_vga[0]);
+  scr_size = iNoCdOriginalScreenSize;
+  holdmusic = 0;
+  fade_palette(0);
+  iNoCdScreenActive = 0;
+}
+
+void NoCdEnter(void)
+{
   uint8 *pScrBuf; // edi
   char *pTitleVga; // esi
   unsigned int uiScreenTotalBytes; // ecx
   char uiRemainderBytes; // al
   unsigned int uiAlignedCopySize; // ecx
 
-  // disable timing to prepare for error screen display
   tick_on = 0;
-  iScrSize = scr_size;
+  iNoCdOriginalScreenSize = scr_size;
   SVGA_ON = -1;
 
-  // show init screen
   init_screen();
   setpal("resround.pal");
 
-  // set viewport
   winx = 0;
   winw = XMAX;
   winy = 0;
   winh = YMAX;
   mirror = 0;
 
-  // load resources
   title_vga = load_picture("resround.bm");
   font_vga = load_picture("font4.bm");
   front_vga[0] = (tBlockHeader *)load_picture("font5.bm");
 
-  // enable frontend and timing
   frontend_on = -1;
   tick_on = -1;
 
   pScrBuf = scrbuf;
   pTitleVga = (char *)title_vga;
 
-  // determine screen buffer size based on video mode
   if (SVGA_ON)
     uiScreenTotalBytes = 256000;
   else
@@ -5148,32 +5159,42 @@ void no_cd()
   uiRemainderBytes = uiScreenTotalBytes;
   uiAlignedCopySize = uiScreenTotalBytes >> 2;
 
-  // Copy 4-bytes at a time then remainder
   memcpy(scrbuf, title_vga, 4 * uiAlignedCopySize);
   memcpy(&pScrBuf[4 * uiAlignedCopySize], &pTitleVga[4 * uiAlignedCopySize], uiRemainderBytes & 3);
 
-  // Display error text
   front_text(font_vga, &language_buffer[6336], font4_ascii, font4_offsets, 320, 192, 0x8Fu, 1u);
 
-  // Copy to scrbuf and fade in
   copypic(scrbuf, screen);
   fade_palette(32);
 
-  // Wait for user input
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
-    UpdateSDL(); //added by ROLLER
+  iNoCdActive = -1;
+  iNoCdScreenActive = -1;
+}
 
-  // Cleanup
-  fre((void**)&title_vga);
-  fre((void**)&font_vga);
-  fre((void**)&front_vga[0]);
+int NoCdUpdate(void)
+{
+  if (!iNoCdActive)
+    return -1;
+  if (!fatkbhit() && ticks < 2160)
+    return 0;
 
-  // Fade out and exit
-  scr_size = iScrSize;
-  holdmusic = 0;
-  fade_palette(0);
-  //__asm { int     10h; -VIDEO - SET VIDEO MODE }
+  iNoCdActive = 0;
+  return -1;
+}
+
+void NoCdExit(void)
+{
+  NoCdCleanupScreen();
+  iNoCdActive = 0;
+}
+
+void no_cd()
+{
+  NoCdEnter();
+  while (!NoCdUpdate())
+    UpdateSDL();
+  NoCdExit();
   doexit();
 }
 

@@ -39,6 +39,8 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
   [eFRONTEND_STATE_NETWORK_ERROR] = {
     frontend_network_error_enter, frontend_network_error_update, NULL, frontend_network_error_exit },
+  [eFRONTEND_STATE_NO_CD_ERROR] = {
+    frontend_no_cd_enter, frontend_no_cd_update, NULL, frontend_no_cd_exit },
   [eFRONTEND_STATE_WINNER_SCREEN] = {
     frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
   [eFRONTEND_STATE_WINNER_RACE] = {
