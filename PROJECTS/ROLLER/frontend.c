@@ -25,6 +25,8 @@ static eFrontendState aOverlayStack[OVERLAY_STACK_DEPTH];
 static int iOverlayStackTop = 0;
 
 static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
+  [eFRONTEND_STATE_COPYRIGHT] = {
+    frontend_copy_screens_enter, frontend_copy_screens_update, NULL, frontend_copy_screens_exit },
   [eFRONTEND_STATE_TITLE] = { frontend_title_enter, frontend_title_update, NULL, frontend_title_exit },
   [eFRONTEND_STATE_MAIN_MENU] = { frontend_menu_enter, frontend_menu_update, NULL, NULL },
   [eFRONTEND_STATE_CAR_SELECT] = { frontend_car_select_enter, frontend_car_select_update, NULL, frontend_car_select_exit },

@@ -181,7 +181,10 @@ void title_screens()
 
 //-------------------------------------------------------------------------------------------------
 //0003F6B0
-void copy_screens()
+static int iCopyScreensActive = 0;
+static uint64 ullCopyScreensEndTicksMs = 0;
+
+void CopyScreensEnter(void)
 {
   SVGA_ON = -1;
   init_screen();
@@ -200,14 +203,42 @@ void copy_screens()
   copypic(scrbuf, screen);
   disable_keyboard();
   ticks = 0;
+  iCopyScreensActive = -1;
 #ifndef _DEBUG
-  while (ticks < 180) {
-    UpdateSDL();
+  ullCopyScreensEndTicksMs = SDL_GetTicks() + 5000;
+#else
+  ullCopyScreensEndTicksMs = 0;
+#endif
+}
+
+int CopyScreensUpdate(void)
+{
+  if (!iCopyScreensActive)
+    return -1;
+#ifndef _DEBUG
+  if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
     UpdateSDLWindow();
+    return 0;
   }
 #endif
+  iCopyScreensActive = 0;
+  return -1;
+}
+
+void CopyScreensExit(void)
+{
   fre((void**)&front_vga[0]);
   fade_palette(0);
+  iCopyScreensActive = 0;
+  ullCopyScreensEndTicksMs = 0;
+}
+
+void copy_screens()
+{
+  CopyScreensEnter();
+  while (!CopyScreensUpdate())
+    UpdateSDL();
+  CopyScreensExit();
 }
 
 // Fade callback: redraws menu background so fade overlay is visible over content

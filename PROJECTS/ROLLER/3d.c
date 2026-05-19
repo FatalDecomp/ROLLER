@@ -1514,10 +1514,6 @@ int main(int argc, const char **argv, const char **envp)
   }
   print_data = 0;
   tick_on = 0;
-  if (!g_bSnapshotMode) {
-    copy_screens();                               // Copy screen buffers and display title screens
-    title_screens();
-  }
   time_to_start = 0;                            // Initialize race state variables
   replaytype = 2;
   start_race = 0;
@@ -1530,7 +1526,7 @@ int main(int argc, const char **argv, const char **envp)
   winner_mode = 0;
   intro = -1;
   race_set_track(TrackLoad);                    // Start initial intro replay through the dispatcher.
-  frontend_run_game_loop(eFRONTEND_STATE_RACING);
+  frontend_run_game_loop(g_bSnapshotMode ? eFRONTEND_STATE_RACING : eFRONTEND_STATE_COPYRIGHT);
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   if (!frontend_shutdown_complete())
     doexit();
@@ -2353,6 +2349,24 @@ static void frontend_run_game_loop(eFrontendState eInitialState)
   while (main_loop_iteration()) {
   }
 }
+
+void frontend_copy_screens_enter(void)
+{
+  CopyScreensEnter();
+}
+
+void frontend_copy_screens_update(void)
+{
+  if (CopyScreensUpdate())
+    eFrontendNextState = eFRONTEND_STATE_TITLE;
+}
+
+void frontend_copy_screens_exit(void)
+{
+  CopyScreensExit();
+}
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_loading_enter(void)
 {

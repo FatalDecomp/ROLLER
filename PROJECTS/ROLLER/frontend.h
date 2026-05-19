@@ -21,6 +21,7 @@ typedef struct
 
 typedef enum {
   eFRONTEND_STATE_NONE = 0,
+  eFRONTEND_STATE_COPYRIGHT,
   eFRONTEND_STATE_TITLE,
   eFRONTEND_STATE_MAIN_MENU,
   eFRONTEND_STATE_CAR_SELECT,
@@ -71,6 +72,9 @@ void frontend_pause_exit(void);
 void frontend_menu_enter(void);
 void frontend_menu_update(void);
 void frontend_menu_resume_from_child(void);
+void frontend_copy_screens_enter(void);
+void frontend_copy_screens_update(void);
+void frontend_copy_screens_exit(void);
 void frontend_loading_enter(void);
 void frontend_loading_update(void);
 void frontend_title_enter(void);
@@ -244,6 +248,9 @@ extern char font4_ascii_br[256];
 //-------------------------------------------------------------------------------------------------
 
 void fade_redraw_bg(void *ctx);
+void CopyScreensEnter(void);
+int CopyScreensUpdate(void);
+void CopyScreensExit(void);
 void title_screens();
 void copy_screens();
 void snapshot_setup_frontend_menu_state(int iGameType);
