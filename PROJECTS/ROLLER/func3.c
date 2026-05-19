@@ -3400,7 +3400,6 @@ void save_champ(int iSlot)
   uint8 *pbyAfterTeamKills; // eax
   uint8 *pbyAfterTeamFasts; // eax
   int iTeamWins; // edx
-  int iNameEndIndex; // edi
   int iTeamIndex; // esi
   int iNameStartIndex; // edx
   uint8 *pbyNameChar; // eax
@@ -3487,17 +3486,14 @@ void save_champ(int iSlot)
     pbyAfterHeader = sav_champ_int(pbyAfterTeamFasts, iTeamWins);
   }
 
-  iNameEndIndex = 9;
   for (iTeamIndex = 0; iTeamIndex < 16; ++iTeamIndex) {
-    iNameStartIndex = 9 * iTeamIndex;
-    do {
+    for (iNameStartIndex = 0; iNameStartIndex < 9; ++iNameStartIndex) {
       pbyNameChar = pbyAfterHeader + 1;
-      *(pbyNameChar - 1) = default_names[0][iNameStartIndex];
+      *(pbyNameChar - 1) = default_names[iTeamIndex][iNameStartIndex];
       pbyAfterHeader = pbyNameChar + 1;
-      byPlayerNameChar = player_names[0][iNameStartIndex++];
+      byPlayerNameChar = player_names[iTeamIndex][iNameStartIndex];
       *(pbyAfterHeader - 1) = byPlayerNameChar;
-    } while (iNameStartIndex != iNameEndIndex);
-    iNameEndIndex += 9;
+    }
   }
 
   pbyAfterSerial = sav_champ_int(pbyAfterHeader, serial_port);
@@ -3535,33 +3531,66 @@ void save_champ(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 //0005B9A0
-static int s_iLoadChampNetworkInitPending = 0;
+enum {
+  LOAD_CHAMP_PENDING_NONE = 0,
+  LOAD_CHAMP_PENDING_BROADCAST = 1,
+  LOAD_CHAMP_PENDING_NETWORK_INIT = 2
+};
+
+static int s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+static int s_iLoadChampPendingSlot = 0;
+static int s_iLoadChampBroadcastSettled = 0;
+
+static int load_champ_read_int(const uint8 *pSrc)
+{
+  uint32 uiValue = (uint32)pSrc[0] | ((uint32)pSrc[1] << 8) |
+                   ((uint32)pSrc[2] << 16) | ((uint32)pSrc[3] << 24);
+  return (int)uiValue;
+}
 
 static void load_champ_begin_network_init(void)
 {
   network_initialise_begin(0);
-  s_iLoadChampNetworkInitPending = network_initialise_active() ? -1 : 0;
+  s_iLoadChampPendingPhase = network_initialise_active()
+                                  ? LOAD_CHAMP_PENDING_NETWORK_INIT
+                                  : LOAD_CHAMP_PENDING_NONE;
 }
 
 int load_champ_update(void)
 {
-  if (!s_iLoadChampNetworkInitPending)
+  if (s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_NONE)
     return -1;
+
+  if (s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_BROADCAST) {
+    int iPendingSlot;
+
+    if (!network_broadcast_wait_update())
+      return 0;
+
+    iPendingSlot = s_iLoadChampPendingSlot;
+    s_iLoadChampPendingSlot = 0;
+    s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+    s_iLoadChampBroadcastSettled = -1;
+    (void)load_champ_begin(iPendingSlot);
+    s_iLoadChampBroadcastSettled = 0;
+    return s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_NONE ? -1 : 0;
+  }
 
   if (!network_initialise_update())
     return 0;
 
-  s_iLoadChampNetworkInitPending = 0;
+  s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
   return -1;
 }
 
 int load_champ_active(void)
 {
-  return s_iLoadChampNetworkInitPending;
+  return s_iLoadChampPendingPhase != LOAD_CHAMP_PENDING_NONE;
 }
 
 int load_champ_begin(int iSlot)
 {
+  int iBroadcastSettled = s_iLoadChampBroadcastSettled;
   int iFileHandle; // edx
   int iFileLength; // esi
   char *pbyCurrentPos; // eax
@@ -3576,41 +3605,39 @@ int load_champ_begin(int iSlot)
   //int i; // eax
   uint8 byPlayerByte; // dl
   //uint8 *pbyNextPlayerByte; // ebx
-  int *piDataPointer; // ecx
+  uint8 *pbyDataPointer; // ecx
   int iPlayerSecondByte; // edx
   int iBitFlag; // ebx
-  int *piNextData; // edx
   int iNonCompetitorFlags; // eax
   //int iArraySize; // esi
   //int iByteOffset; // eax
   int iFlags = 0; // ebp
   int iFlagCheck; // ecx
-  int *piStatsPointer; // edx
+  uint8 *pbyStatsPointer; // edx
   int iNetType; // eax
-  int *piTeamStatsPointer; // edx
+  uint8 *pbyTeamStatsPointer; // edx
   int iStatsLoop; // eax
   int *piTotalWinsPtr; // ecx
   int *piTotalFastsPtr; // esi
   int *piTotalKillsPtr; // ebx
   int *piChampionshipPointsPtr; // edi
   int iTeamStatsValue; // ebp
-  int *piNextTeamData; // edx
+  uint8 *pbyNextTeamData; // edx
   int iSecondTeamValue; // ebp
   int *piTeamWinsPtr; // ebx
   int *piTeamPointsPtr; // eax
   int *piTeamFastsPtr; // esi
   int *piTeamKillsPtr; // ecx
   int iCurrentTeamValue; // edi
-  int *piTeamDataPtr; // edx
+  uint8 *pbyTeamDataPtr; // edx
   int iTeamKillsValue; // edi
-  int iNameEndIndex; // edi
   int iTeamIndex; // ecx
   int iNameIndex; // eax
   char byNameChar; // bl
   uint8 *pbyNamePtr; // edx
   char *pszTempPointer; // ebx
   int iSerialPortValue; // eax
-  int *piModemDataPtr; // edx
+  uint8 *pbyModemDataPtr; // edx
   int iModemPortValue; // eax
   int iModemCallValue; // eax
   int iModemBaudValue; // eax
@@ -3658,7 +3685,11 @@ int load_champ_begin(int iSlot)
   char *pszDefaultNameEnd; // [esp+10h] [ebp-20h]
   signed int iSortIndex; // [esp+14h] [ebp-1Ch]
 
-  s_iLoadChampNetworkInitPending = 0;
+  if (iBroadcastSettled)
+    s_iLoadChampBroadcastSettled = 0;
+  else
+    s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+  s_iLoadChampPendingSlot = 0;
   iFileLength = ROLLERfilelength(save_slots[iSlot - 1]);
 
   iFileHandle = ROLLERopen(save_slots[iSlot - 1], O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
@@ -3683,9 +3714,13 @@ int load_champ_begin(int iSlot)
     }
     if (iChecksumOk) {
       iSavedRacers = racers;                    // NETWORK CLEANUP: Disconnect from network before loading saved state
-      broadcast_mode = -666;
-      while (broadcast_mode)
-        UpdateSDL();
+      if (!iBroadcastSettled) {
+        network_broadcast_wait_start(-666, 1);
+        s_iLoadChampPendingSlot = iSlot;
+        s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_BROADCAST;
+        fre((void **)&pFileBuf);
+        return iChecksumOk;
+      }
       tick_on = 0;
       TrackLoad = *pFileBuf;                    // BASIC GAME SETTINGS: Load track, competitors, texture/cheat flags
       byGameSettings = pFileBuf[1];
@@ -3726,8 +3761,7 @@ int load_champ_begin(int iSlot)
         // Store manual control flags for this player
         manual_control[i] = iPlayerSecondByte;
 
-        // Update data pointer to current position (as int pointer for next section)
-        piDataPointer = (int *)pbyPlayerData;
+        pbyDataPointer = pbyPlayerData;
       }
       //for (i = 0; i != 16; *(int *)((char *)&competitors + i * 4) = iPlayerSecondByte)// Load 16 players' car choices and starting status
       //{
@@ -3741,10 +3775,10 @@ int load_champ_begin(int iSlot)
       //}
 
       iBitFlag = 1;
-      piNextData = piDataPointer + 1;
-      iNonCompetitorFlags = *piDataPointer;
+      iNonCompetitorFlags = load_champ_read_int(pbyDataPointer);
       racers = iSavedRacers;
       iFlags2 = iNonCompetitorFlags;
+      iFlags = iNonCompetitorFlags;
       if (numcars > 0)                        // NON-COMPETITOR FLAGS: Parse bit flags to determine which cars are competitors
       {
         if (numcars > 0) {
@@ -3765,11 +3799,13 @@ int load_champ_begin(int iSlot)
         //  TrackArrow_variable_1[iByteOffset / 4u] = iFlagCheck;// offset into non_competitors
         //} while (iByteOffset < iArraySize);
       }
-      piStatsPointer = piNextData + 1;
-      network_champ_on = *(piStatsPointer++ - 1);// NETWORK SETTINGS: Load network championship flag, slot, and type
-      network_slot = *(piStatsPointer - 1);
-      iNetType = *piStatsPointer;
-      piTeamStatsPointer = piStatsPointer + 1;
+      pbyStatsPointer = pbyDataPointer + 4;
+      network_champ_on = load_champ_read_int(pbyStatsPointer);// NETWORK SETTINGS: Load network championship flag, slot, and type
+      pbyStatsPointer += 4;
+      network_slot = load_champ_read_int(pbyStatsPointer);
+      pbyStatsPointer += 4;
+      iNetType = load_champ_read_int(pbyStatsPointer);
+      pbyTeamStatsPointer = pbyStatsPointer + 4;
       net_type = iNetType;
       if (player_type == 1 && net_type)
         net_type = 0;
@@ -3782,20 +3818,19 @@ int load_champ_begin(int iSlot)
         piTotalKillsPtr = total_kills;
         piChampionshipPointsPtr = championship_points;
         do {
-          iTeamStatsValue = *piTeamStatsPointer;
-          piNextTeamData = piTeamStatsPointer + 1;
+          iTeamStatsValue = load_champ_read_int(pbyTeamStatsPointer);
+          pbyNextTeamData = pbyTeamStatsPointer + 4;
           ++piTotalWinsPtr;
           *piChampionshipPointsPtr = iTeamStatsValue;
           ++piTotalKillsPtr;
           ++piTotalFastsPtr;
-          *(piTotalKillsPtr - 1) = *piNextTeamData;
+          *(piTotalKillsPtr - 1) = load_champ_read_int(pbyNextTeamData);
           ++piChampionshipPointsPtr;
-          iSecondTeamValue = piNextTeamData[1];
-          ++piNextTeamData;
+          iSecondTeamValue = load_champ_read_int(pbyNextTeamData + 4);
           *(piTotalFastsPtr - 1) = iSecondTeamValue;
           ++iStatsLoop;
-          *(piTotalWinsPtr - 1) = piNextTeamData[1];
-          piTeamStatsPointer = piNextTeamData + 2;
+          *(piTotalWinsPtr - 1) = load_champ_read_int(pbyNextTeamData + 8);
+          pbyTeamStatsPointer = pbyNextTeamData + 12;
         } while (iStatsLoop < numcars);
       }
       piTeamWinsPtr = team_wins;                // TEAM STATISTICS: Load team points, kills, fastest laps, wins for 8 teams
@@ -3804,47 +3839,45 @@ int load_champ_begin(int iSlot)
       piTeamKillsPtr = team_kills;
       piTeamPointsEnd = &team_points[8];
       do {
-        iCurrentTeamValue = *piTeamStatsPointer;
-        piTeamDataPtr = piTeamStatsPointer + 1;
+        iCurrentTeamValue = load_champ_read_int(pbyTeamStatsPointer);
+        pbyTeamDataPtr = pbyTeamStatsPointer + 4;
         *piTeamPointsPtr = iCurrentTeamValue;
         ++piTeamWinsPtr;
         ++piTeamFastsPtr;
-        *piTeamKillsPtr++ = *piTeamDataPtr;
-        iTeamKillsValue = piTeamDataPtr[1];
-        ++piTeamDataPtr;
+        *piTeamKillsPtr++ = load_champ_read_int(pbyTeamDataPtr);
+        iTeamKillsValue = load_champ_read_int(pbyTeamDataPtr + 4);
         *(piTeamFastsPtr - 1) = iTeamKillsValue;
         ++piTeamPointsPtr;
-        *(piTeamWinsPtr - 1) = piTeamDataPtr[1];
-        piTeamStatsPointer = piTeamDataPtr + 2;
+        *(piTeamWinsPtr - 1) = load_champ_read_int(pbyTeamDataPtr + 8);
+        pbyTeamStatsPointer = pbyTeamDataPtr + 12;
       } while (piTeamPointsPtr != piTeamPointsEnd);
 
-      iNameEndIndex = 9;
       for (iTeamIndex = 0; iTeamIndex < 16; ++iTeamIndex)// PLAYER NAMES: Load 16 players * 9 * 2 character names (288 bytes total)
       {
-        iNameIndex = 9 * iTeamIndex;
-        do {
-          byNameChar = *(uint8 *)piTeamStatsPointer;// Copy name bytes to both default_names and player_names arrays
-          pbyNamePtr = (uint8 *)piTeamStatsPointer + 1;
-          default_names[0][iNameIndex] = byNameChar;
+        for (iNameIndex = 0; iNameIndex < 9; ++iNameIndex) {
+          byNameChar = *pbyTeamStatsPointer;// Copy name bytes to both default_names and player_names arrays
+          pbyNamePtr = pbyTeamStatsPointer + 1;
+          default_names[iTeamIndex][iNameIndex] = byNameChar;
           //pszTempPointer = (char *)pbyNamePtr;
-          ++iNameIndex;
           uint8 byte = *pbyNamePtr;
-          piTeamStatsPointer = (int *)(pbyNamePtr + 1);
-          player_names[0][iNameIndex - 1] = (char)byte;
-        } while (iNameIndex != iNameEndIndex);
-        iNameEndIndex += 9;
+          pbyTeamStatsPointer = pbyNamePtr + 1;
+          player_names[iTeamIndex][iNameIndex] = (char)byte;
+        }
       }
-      iSerialPortValue = *piTeamStatsPointer;   // COMMUNICATION SETTINGS: Load serial port, modem settings, and phone/init strings
-      piModemDataPtr = piTeamStatsPointer + 1;
+      iSerialPortValue = load_champ_read_int(pbyTeamStatsPointer);   // COMMUNICATION SETTINGS: Load serial port, modem settings, and phone/init strings
+      pbyModemDataPtr = pbyTeamStatsPointer + 4;
       serial_port = iSerialPortValue;
-      iModemPortValue = *piModemDataPtr++;
+      iModemPortValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_port = iModemPortValue;
-      iModemCallValue = *piModemDataPtr++;
+      iModemCallValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_call = iModemCallValue;
-      iModemBaudValue = *piModemDataPtr++;
+      iModemBaudValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_baud = iModemBaudValue;
-      iModemBaudValue = *(uint8 *)piModemDataPtr;
-      pszPhonePtr = (char *)piModemDataPtr + 1;
+      iModemBaudValue = *pbyModemDataPtr;
+      pszPhonePtr = (char *)pbyModemDataPtr + 1;
 
       // Load modem phone number and init string (51 chars each, 102 bytes total)
       memcpy(modem_phone, pszPhonePtr, 51);
@@ -4087,7 +4120,7 @@ uint8 *sav_champ_char(uint8 *pSrc, int *piValue)
   int iValue; // ebx
   uint8 *pNextPos; // eax
 
-  iValue = *(int *)pSrc;                     // Read 4-byte integer from buffer at current position
+  iValue = load_champ_read_int(pSrc);           // Read 4-byte integer from packed save buffer
   pNextPos = pSrc + 4;                          // Advance buffer pointer by 4 bytes to next data position
   *piValue = iValue;                            // Store loaded value in output parameter
   return pNextPos;                              // Return advanced buffer pointer for chaining reads
