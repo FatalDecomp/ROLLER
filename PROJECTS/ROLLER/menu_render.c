@@ -6,6 +6,8 @@
 
 #include <stdlib.h>
 
+#define MENU_RENDER_MAX_SLOTS 16
+
 struct MenuRenderer {
     MenuRenderMode mode;
     MenuRenderMode pendingMode;
@@ -13,7 +15,39 @@ struct MenuRenderer {
     MenuRendererSoftware *sw;
     SDL_GPUDevice *device;
     SDL_Window *window;
+    tBlockHeader *cachedBlocks[MENU_RENDER_MAX_SLOTS];
+    const tColor *cachedPalettes[MENU_RENDER_MAX_SLOTS];
+    int gpuBlockLoaded[MENU_RENDER_MAX_SLOTS];
+    int gpuBlockDirty[MENU_RENDER_MAX_SLOTS];
 };
+
+static int menu_render_wants_gpu_assets(MenuRenderer *renderer) {
+    return renderer && renderer->gpu &&
+           (renderer->mode == MENU_RENDER_GPU ||
+            renderer->pendingMode == MENU_RENDER_GPU);
+}
+
+static int menu_render_upload_gpu_slot(MenuRenderer *renderer, int slot) {
+    if (!renderer || !renderer->gpu || slot < 0 || slot >= MENU_RENDER_MAX_SLOTS)
+        return 0;
+    if (!renderer->cachedBlocks[slot] || !renderer->cachedPalettes[slot])
+        return 0;
+
+    int uploaded = menu_render_gpu_load_blocks(renderer->gpu, slot,
+        renderer->cachedBlocks[slot], renderer->cachedPalettes[slot]);
+    renderer->gpuBlockLoaded[slot] = uploaded != 0;
+    renderer->gpuBlockDirty[slot] = 0;
+    return uploaded;
+}
+
+static void menu_render_upload_dirty_gpu_blocks(MenuRenderer *renderer) {
+    if (!renderer || !renderer->gpu)
+        return;
+    for (int i = 0; i < MENU_RENDER_MAX_SLOTS; i++) {
+        if (renderer->gpuBlockDirty[i])
+            menu_render_upload_gpu_slot(renderer, i);
+    }
+}
 
 MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     MenuRenderer *r = calloc(1, sizeof(MenuRenderer));
@@ -40,6 +74,12 @@ void menu_render_set_mode(MenuRenderer *renderer, MenuRenderMode mode) {
     if (!renderer) return;
     if (mode == MENU_RENDER_GPU && !renderer->gpu)
         mode = MENU_RENDER_SOFTWARE;
+    if (mode == MENU_RENDER_GPU && renderer->pendingMode != MENU_RENDER_GPU) {
+        for (int i = 0; i < MENU_RENDER_MAX_SLOTS; i++) {
+            if (renderer->cachedBlocks[i])
+                renderer->gpuBlockDirty[i] = 1;
+        }
+    }
     renderer->pendingMode = mode;
 }
 
@@ -51,16 +91,30 @@ MenuRenderMode menu_render_get_mode(MenuRenderer *renderer) {
 int menu_render_load_blocks(MenuRenderer *renderer, int slot,
                             tBlockHeader *blocks, const tColor *palette) {
     if (!renderer) return 1;
+    if (slot >= 0 && slot < MENU_RENDER_MAX_SLOTS) {
+        renderer->cachedBlocks[slot] = blocks;
+        renderer->cachedPalettes[slot] = palette;
+        renderer->gpuBlockDirty[slot] = 1;
+    }
     menu_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
-    if (renderer->gpu)
-        return menu_render_gpu_load_blocks(renderer->gpu, slot, blocks, palette);
+    if (menu_render_wants_gpu_assets(renderer) &&
+        slot >= 0 && slot < MENU_RENDER_MAX_SLOTS)
+        return menu_render_upload_gpu_slot(renderer, slot);
     return 0;
 }
 
 void menu_render_free_blocks(MenuRenderer *renderer, int slot) {
     if (!renderer) return;
-    if (renderer->gpu)
+    if (slot >= 0 && slot < MENU_RENDER_MAX_SLOTS) {
+        renderer->cachedBlocks[slot] = NULL;
+        renderer->cachedPalettes[slot] = NULL;
+        renderer->gpuBlockDirty[slot] = 0;
+    }
+    if (renderer->gpu && slot >= 0 && slot < MENU_RENDER_MAX_SLOTS &&
+        renderer->gpuBlockLoaded[slot]) {
         menu_render_gpu_free_blocks(renderer->gpu, slot);
+        renderer->gpuBlockLoaded[slot] = 0;
+    }
     menu_render_sw_free_blocks(renderer->sw, slot);
 }
 
@@ -68,6 +122,9 @@ void menu_render_begin_frame(MenuRenderer *renderer) {
     if (!renderer) return;
     if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
         renderer->pendingMode = MENU_RENDER_SOFTWARE;
+
+    if (renderer->pendingMode == MENU_RENDER_GPU)
+        menu_render_upload_dirty_gpu_blocks(renderer);
 
     if (renderer->pendingMode != renderer->mode) {
         if (renderer->pendingMode == MENU_RENDER_SOFTWARE) {
@@ -188,7 +245,7 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
 void menu_render_load_car_mesh(MenuRenderer *renderer, int carIdx,
                                const tColor *palette) {
     if (!renderer) return;
-    if (renderer->gpu)
+    if (menu_render_wants_gpu_assets(renderer))
         menu_render_gpu_load_car_mesh(renderer->gpu, carIdx, palette);
     menu_render_sw_load_car_mesh(renderer->sw, carIdx, palette);
 }
@@ -214,7 +271,7 @@ void menu_render_draw_car_preview(MenuRenderer *renderer, float angle,
 
 void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette) {
     if (!renderer) return;
-    if (renderer->gpu)
+    if (menu_render_wants_gpu_assets(renderer))
         menu_render_gpu_load_track_mesh(renderer->gpu, palette);
     menu_render_sw_load_track_mesh(renderer->sw, palette);
 }
