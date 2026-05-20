@@ -247,7 +247,6 @@ extern char font4_ascii_br[256];
 
 //-------------------------------------------------------------------------------------------------
 
-void fade_redraw_bg(void *ctx);
 void CopyScreensEnter(void);
 int CopyScreensUpdate(void);
 void CopyScreensExit(void);

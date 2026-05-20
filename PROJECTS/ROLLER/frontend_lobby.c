@@ -53,8 +53,11 @@ static int iLobbyLastRecordWaitLog;
 static int iLobbyLastStartResend;
 static int iLobbyLastRecordResend;
 static int iLobbyRacePrepared;
+static int iLobbyExitFading;
+static eFrontendState eLobbyExitTarget;
 
 static void lobby_draw_frame(void);
+static void lobby_begin_exit(eFrontendState eTarget);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -97,6 +100,8 @@ void frontend_lobby_enter(void)
   iLobbyLastStartResend = -1000;
   iLobbyLastRecordResend = -1000;
   iLobbyRacePrepared = 0;
+  iLobbyExitFading = 0;
+  eLobbyExitTarget = eFRONTEND_STATE_NONE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -163,7 +168,7 @@ static void lobby_finish_post_sync(void)
 {
   check_cars();
   eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_NONE;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+  lobby_begin_exit(quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -318,9 +323,28 @@ static void lobby_emit_draw(MenuRenderer *mr)
   show_received_mesage();
 }
 
-static void lobby_redraw(void *ctx)
+static void lobby_begin_exit(eFrontendState eTarget)
 {
-  lobby_emit_draw((MenuRenderer *)ctx);
+  if (iLobbyExitFading)
+    return;
+
+  iLobbyExitFading = -1;
+  eLobbyExitTarget = eTarget;
+  menu_render_begin_fade(GetMenuRenderer(), 0, 32);
+}
+
+static int lobby_update_exit_fade(void)
+{
+  if (!iLobbyExitFading)
+    return 0;
+
+  lobby_draw_frame();
+  if (!menu_render_fade_active(GetMenuRenderer())) {
+    iLobbyExitFading = 0;
+    eFrontendNextState = eLobbyExitTarget;
+    eLobbyExitTarget = eFRONTEND_STATE_NONE;
+  }
+  return -1;
 }
 
 static void lobby_draw_frame(void)
@@ -369,6 +393,9 @@ static void lobby_handle_input(void)
 
 void frontend_lobby_update(void)
 {
+  if (lobby_update_exit_fade())
+    return;
+
   if (lobby_update_broadcast_wait())
     return;
 
@@ -421,7 +448,7 @@ void frontend_lobby_update(void)
       }
       lobby_begin_post_sync();
     } else {
-      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+      lobby_begin_exit(eFRONTEND_STATE_MAIN_MENU);
     }
   }
 }
@@ -432,18 +459,15 @@ void frontend_lobby_exit(void)
 {
   check_cars();
 
-  {
-    MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, lobby_redraw, mr);
-    palette_brightness = 0;
-    for (int i = 0; i < 256; i++) {
-      pal_addr[i].byR = 0;
-      pal_addr[i].byB = 0;
-      pal_addr[i].byG = 0;
-    }
+  palette_brightness = 0;
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = 0;
+    pal_addr[i].byB = 0;
+    pal_addr[i].byG = 0;
   }
 
+  iLobbyExitFading = 0;
+  eLobbyExitTarget = eFRONTEND_STATE_NONE;
   front_fade = 0;
   fre((void **)front_vga);
   fre((void **)&front_vga[1]);

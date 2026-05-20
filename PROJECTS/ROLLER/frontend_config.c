@@ -31,6 +31,7 @@
 
 // File-static state for frontend config screen (persists across dispatcher ticks)
 static int iFrontendConfigExitFlag;
+static int iFrontendConfigExitFading;
 static int iFrontendConfigMenuSelection;
 static int iFrontendConfigEditingName;
 static int iFrontendConfigControlsInEdit;
@@ -89,10 +90,21 @@ static int frontend_config_update_broadcast_wait(void)
   return -1;
 }
 
+static void frontend_config_request_exit(void)
+{
+  if (iFrontendConfigExitFading)
+    return;
+
+  iFrontendConfigExitFlag = -1;
+  iFrontendConfigExitFading = 1;
+  menu_render_begin_fade(GetMenuRenderer(), 0, 32);
+}
+
 void frontend_config_enter(void)
 {
   fade_palette(0);
   iFrontendConfigExitFlag = 0;
+  iFrontendConfigExitFading = 0;
   iFrontendConfigMenuSelection = 7;
   iFrontendConfigEditingName = 0;
   iFrontendConfigControlsInEdit = 0;
@@ -108,18 +120,13 @@ void frontend_config_enter(void)
 
 void frontend_config_exit(void)
 {
-  MenuRenderer *mr = GetMenuRenderer();
-  menu_render_begin_fade(mr, 0, 32);
-  if (menu_render_get_mode(mr) == MENU_RENDER_SOFTWARE)
-    menu_render_fade_wait(mr, NULL, NULL);
-  else
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
   palette_brightness = 0;
   for (int i = 0; i < 256; i++) {
     pal_addr[i].byR = 0;
     pal_addr[i].byB = 0;
     pal_addr[i].byG = 0;
   }
+  iFrontendConfigExitFading = 0;
   front_fade = 0;
 }
 
@@ -1117,6 +1124,14 @@ void frontend_config_update(void)
         if (SnapshotShouldStop())
           return;
 
+        if (iFrontendConfigExitFading) {
+          if (!menu_render_fade_active(mr)) {
+            iFrontendConfigExitFading = 0;
+            eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+          }
+          return;
+        }
+
         // Handle CHEAT_MODE_CLONES
         if (switch_same > 0) {
           // Clone all player cars to same type
@@ -1235,15 +1250,15 @@ void frontend_config_update(void)
                       break;
                     case 7:                     // exit
                       sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-                      iFrontendConfigExitFlag = -1;
+                      frontend_config_request_exit();
                       break;
                     default:
                       continue;
                   }
                 } else if (uiKeyCode == 27)     // ESC key
                 {
-                  iFrontendConfigExitFlag = -1;
                   sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+                  frontend_config_request_exit();
                 }
                 continue;
               case 1:                           // DRIVER/CAR CONFIG
@@ -1993,9 +2008,8 @@ void frontend_config_update(void)
             }
           }
         }
-        if (!iFrontendConfigExitFlag)
-          return;
-        eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+        if (iFrontendConfigExitFlag && !iFrontendConfigExitFading)
+          frontend_config_request_exit();
         return;
       case 4:
         if (iFrontendConfigState != 5)

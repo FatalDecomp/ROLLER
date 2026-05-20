@@ -260,9 +260,3 @@ int game_render_fade_active(GameRenderer *renderer) {
         return game_render_sw_fade_active(renderer->sw);
     return 0;
 }
-
-void game_render_fade_wait(GameRenderer *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx) {
-    if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_fade_wait(renderer->sw, redraw_fn, ctx);
-}

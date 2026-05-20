@@ -282,19 +282,6 @@ void CopyScreensExit(void)
   iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
 }
 
-static void frontend_main_menu_emit_draw(MenuRenderer *mr);
-
-// Fade callback: redraws menu background so fade overlay is visible over content
-void fade_redraw_bg(void *ctx)
-{
-  menu_render_background((MenuRenderer *)ctx, 0);
-}
-
-static void fade_redraw_main_menu(void *ctx)
-{
-  frontend_main_menu_emit_draw((MenuRenderer *)ctx);
-}
-
 void snapshot_setup_frontend_menu_state(int iGameType)
 {
   load_language_file(szSelectEng, 0);
@@ -385,6 +372,7 @@ typedef enum {
 
 static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
 static int iFrontendMainMenuQuitTickTarget = 0;
+static int iFrontendMainMenuNetworkFadeInWait = 0;
 
 typedef enum {
   eMAIN_MENU_FADE_OUT_NONE = 0,
@@ -588,6 +576,7 @@ static void frontend_main_menu_resume_after_child(void)
   frames = 0;
   iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
+  iFrontendMainMenuNetworkFadeInWait = 0;
   iFrontendMainMenuInitialized = -1;
 }
 
@@ -614,6 +603,7 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuRotation = 0;
   eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
   iFrontendMainMenuQuitTickTarget = 0;
+  iFrontendMainMenuNetworkFadeInWait = 0;
   iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
   player1_car = 0;
@@ -1399,14 +1389,7 @@ void frontend_menu_update(void)
     menu_render_begin_fade(mr, 1, 32);
     frames = 0;
     if (network_on) {
-      menu_render_fade_wait(mr, fade_redraw_main_menu, mr);
-      palette_brightness = 32;
-      if (broadcast_mode) {
-        eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
-      } else {
-        frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
-      }
-      return;
+      iFrontendMainMenuNetworkFadeInWait = -1;
     }
   }
 
@@ -1416,6 +1399,19 @@ void frontend_menu_update(void)
 
   if (frontend_main_menu_update_fade_out(mr))
     return;
+
+  if (iFrontendMainMenuNetworkFadeInWait) {
+    if (menu_render_fade_active(mr))
+      return;
+    iFrontendMainMenuNetworkFadeInWait = 0;
+    palette_brightness = 32;
+    if (broadcast_mode) {
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
+    } else {
+      frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
+    }
+    return;
+  }
 
   if (menu_render_fade_active(mr))
     return;

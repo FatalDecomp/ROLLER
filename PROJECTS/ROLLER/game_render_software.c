@@ -366,17 +366,3 @@ void game_render_sw_begin_fade(GameRendererSoftware *sw, int direction,
 int game_render_sw_fade_active(GameRendererSoftware *sw) {
     return sw->fadeInPending || fade_palette_active();
 }
-
-void game_render_sw_fade_wait(GameRendererSoftware *sw,
-                              void (*redraw_fn)(void *ctx), void *ctx) {
-    while (game_render_sw_fade_active(sw)) {
-        if (redraw_fn)
-            redraw_fn(ctx);
-        game_render_sw_start_pending_fade_in(sw);
-        if (fade_palette_active())
-            fade_palette_update();
-        UpdateSDLWindow();
-        if (game_render_sw_fade_active(sw))
-            SDL_Delay(1);
-    }
-}

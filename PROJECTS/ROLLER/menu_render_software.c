@@ -155,21 +155,6 @@ int menu_render_sw_fade_active(MenuRendererSoftware *sw) {
     return sw->fadeInPending || fade_palette_active();
 }
 
-void menu_render_sw_fade_wait(MenuRendererSoftware *sw,
-                              void (*redraw_fn)(void *ctx), void *ctx) {
-    while (menu_render_sw_fade_active(sw)) {
-        if (redraw_fn)
-            redraw_fn(ctx);
-        menu_render_sw_start_pending_fade_in(sw);
-        if (fade_palette_active())
-            fade_palette_update();
-        g_bPaletteSet = true;
-        UpdateSDLWindow();
-        if (menu_render_sw_fade_active(sw))
-            SDL_Delay(1);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Text rendering
 // ---------------------------------------------------------------------------

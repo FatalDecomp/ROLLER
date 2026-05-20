@@ -41,8 +41,6 @@ void menu_render_gpu_sprite(MenuRendererGPU *renderer, int slot, int blockIdx,
 // Fade system
 void menu_render_gpu_begin_fade(MenuRendererGPU *renderer, int direction, int durationFrames);
 int menu_render_gpu_fade_active(MenuRendererGPU *renderer);
-void menu_render_gpu_fade_wait(MenuRendererGPU *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx);
 
 // Text rendering
 void menu_render_gpu_text(MenuRendererGPU *renderer, int fontSlot, const char *text,

@@ -201,15 +201,6 @@ int menu_render_fade_active(MenuRenderer *renderer) {
         return menu_render_sw_fade_active(renderer->sw);
 }
 
-void menu_render_fade_wait(MenuRenderer *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx) {
-    if (!renderer) return;
-    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
-        menu_render_gpu_fade_wait(renderer->gpu, redraw_fn, ctx);
-    else
-        menu_render_sw_fade_wait(renderer->sw, redraw_fn, ctx);
-}
-
 void menu_render_text(MenuRenderer *renderer, int fontSlot, const char *text,
                       const char *mappingTable, int *charVOffsets,
                       int x, int y, uint8 colorReplace, int alignment,

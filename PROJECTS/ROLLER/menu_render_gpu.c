@@ -992,15 +992,6 @@ void menu_render_gpu_begin_fade(MenuRendererGPU *r, int direction, int durationF
 
 int menu_render_gpu_fade_active(MenuRendererGPU *r) { return r->fadeActive; }
 
-void menu_render_gpu_fade_wait(MenuRendererGPU *r, void (*redraw_fn)(void *ctx), void *ctx)
-{
-    while (menu_render_gpu_fade_active(r)) {
-        menu_render_gpu_begin_frame(r);
-        if (redraw_fn) redraw_fn(ctx);
-        menu_render_gpu_end_frame(r);
-    }
-}
-
 //---------------------------------------------------------------------------
 // 4x4 matrix helpers (column-major, matching GPU convention)
 // Column-major: m[col*4 + row], i.e. m[0..3]=col0, m[4..7]=col1, etc.

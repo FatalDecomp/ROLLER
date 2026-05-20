@@ -32,8 +32,6 @@ void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
 void menu_render_sw_begin_fade(MenuRendererSoftware *sw, int direction,
                                int durationFrames);
 int menu_render_sw_fade_active(MenuRendererSoftware *sw);
-void menu_render_sw_fade_wait(MenuRendererSoftware *sw,
-                              void (*redraw_fn)(void *ctx), void *ctx);
 
 // Text rendering
 void menu_render_sw_text(MenuRendererSoftware *sw, int fontSlot,

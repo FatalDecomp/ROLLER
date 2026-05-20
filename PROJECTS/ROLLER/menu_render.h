@@ -49,8 +49,6 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
 // Fade system
 void menu_render_begin_fade(MenuRenderer *renderer, int direction, int durationFrames);
 int menu_render_fade_active(MenuRenderer *renderer);
-void menu_render_fade_wait(MenuRenderer *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx);
 
 // Text rendering
 void menu_render_text(MenuRenderer *renderer, int fontSlot, const char *text,

@@ -136,7 +136,5 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette);
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames);
 int game_render_fade_active(GameRenderer *renderer);
-void game_render_fade_wait(GameRenderer *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx);
 
 #endif
