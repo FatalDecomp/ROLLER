@@ -43,6 +43,7 @@ static int iFrontendPlayersNetworkStatus = 0;
 static int iFrontendPlayersNetworkMode = 0;
 static int iFrontendPlayersNetworkSetupFlag = 0;
 static int iFrontendPlayersExitFlag = 0;
+static int iFrontendPlayersExitFading = 0;
 static int iFrontendPlayersNetSlotPhase = 0;
 static int iFrontendPlayersNetSlotCurrent = 0;
 static int iFrontendPlayersBroadcastWaitAction = 0;
@@ -368,13 +369,17 @@ static int frontend_players_net_slot_update(void)
 static void frontend_players_select_request_exit(void)
 {
   iFrontendPlayersExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendPlayersExitFading = 1;
+  }
 }
 
 void frontend_players_select_enter(void)
 {
   iFrontendPlayersExitFlag = 0;
+  iFrontendPlayersExitFading = 0;
   iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
   iFrontendPlayersNetSlotCurrent = 0;
   iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
@@ -520,6 +525,15 @@ void frontend_players_select_update(void)
     return;
   }                                           // end RENDER FRAME (GPU)
 
+  if (iFrontendPlayersExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendPlayersExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   if (frontend_players_select_update_broadcast_wait())
     return;
 
@@ -624,11 +638,8 @@ void frontend_players_select_exit(void)
   } else {
     player_type = (int)iFrontendPlayersSelectedPlayerType;
   }
-  // GPU fade-out
-  {
-    MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendPlayersExitFading = 0;
+  if (!SnapshotShouldStop()) {
     palette_brightness = 0;
     for (int i = 0; i < 256; i++) {
       pal_addr[i].byR = 0;

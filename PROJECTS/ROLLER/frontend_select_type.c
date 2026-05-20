@@ -43,6 +43,7 @@ static int iFrontendTypeMenuSelection = 0;
 static int iFrontendTypeCurrentOption = 5;
 static int iFrontendTypeCheatModesAvailable = 0;
 static int iFrontendTypeExitFlag = 0;
+static int iFrontendTypeExitFading = 0;
 static int iFrontendTypeSkipColor = 0;
 static int iFrontendTypeBlockIdx = 0;
 static int iFrontendTypeBroadcastWaitAction = 0;
@@ -68,8 +69,11 @@ static void frontend_type_select_black_palette(void)
 static void frontend_type_select_finish_exit(void)
 {
   iFrontendTypeExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendTypeExitFading = 1;
+  }
 }
 
 static void frontend_type_select_begin_broadcast_wait(int iMode, int iAction)
@@ -713,6 +717,7 @@ static void frontend_type_select_handle_input(void)
 void frontend_type_select_enter(void)
 {
   iFrontendTypeExitFlag = 0;
+  iFrontendTypeExitFading = 0;
   iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
   iFrontendTypeCloseNetworkPending = 0;
   iFrontendTypeCloseNetworkStartFrame = 0;
@@ -749,6 +754,15 @@ void frontend_type_select_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (iFrontendTypeExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendTypeExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   if (frontend_type_select_update_broadcast_wait())
     return;
 
@@ -758,13 +772,9 @@ void frontend_type_select_update(void)
 
 void frontend_type_select_exit(void)
 {
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendTypeExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_type_select_black_palette();
-  }
   fre((void **)&front_vga[14]);
   front_fade = 0;
 

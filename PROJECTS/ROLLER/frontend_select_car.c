@@ -44,6 +44,7 @@ static int iFrontendCarDelayBeforeRotation;
 static int iFrontendCarZoomSpeed;
 static int iFrontendCarZoomDistance;
 static int iFrontendCarExitFlag;
+static int iFrontendCarExitFading;
 static int iFrontendCarCurrentSelectorPos;
 static int iFrontendCarSpeechPending;
 static int iFrontendCarPlayer1Car;
@@ -77,8 +78,11 @@ static void frontend_car_select_black_palette(void)
 static void frontend_car_select_request_exit(void)
 {
   iFrontendCarExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_CAR_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_CAR_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendCarExitFading = 1;
+  }
 }
 
 void frontend_car_select_enter(void)
@@ -91,6 +95,7 @@ void frontend_car_select_enter(void)
   int iInvertedPieValue;
 
   iFrontendCarExitFlag = 0;
+  iFrontendCarExitFading = 0;
   iFrontendCarOriginalCarSelection = -1;
   iFrontendCarPlayer1Car = Players_Cars[player1_car];
 
@@ -317,6 +322,15 @@ void frontend_car_select_update(void)
       return;
   }
 
+  if (iFrontendCarExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendCarExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   if (frontend_car_select_update_broadcast_wait())
     return;
 
@@ -361,8 +375,10 @@ void frontend_car_select_update(void)
       iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
       if (iCarAllocationStatus < 2) {
         if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+          MenuRenderer *mr = GetMenuRenderer();
           iCarDesignIndex = iFrontendCarPlayer1Car;
           ppTextureArray = cartex_vga;
+          menu_render_free_car_mesh(mr);
           car_texs_loaded[CarDesigns[iCarDesignIndex].carType] = -1;
           do {
             ppCurrentTexture = (void **)ppTextureArray++;
@@ -587,17 +603,16 @@ void frontend_car_select_exit(void)
   uint8 **ppCleanupTextureArray;
   void **ppCleanupTexture;
 
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendCarExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_car_select_black_palette();
-  }
   fre((void **)&front_vga[7]);
   remove_frontendspeech();
   front_fade = 0;
   if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+    MenuRenderer *mr = GetMenuRenderer();
     ppCleanupTextureArray = cartex_vga;
+    menu_render_free_car_mesh(mr);
     car_texs_loaded[CarDesigns[iFrontendCarPlayer1Car].carType] = -1;
     do {
       ppCleanupTexture = (void **)ppCleanupTextureArray++;

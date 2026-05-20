@@ -401,6 +401,7 @@ void ToggleFullscreen()
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+  SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
 
   Uint32 uiSdlInitFlags = SDL_INIT_VIDEO;
   if (!g_bSnapshotMode)
@@ -813,8 +814,9 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+  SDL_PumpEvents();
   SDL_Event e;
-  while (SDL_PollEvent(&e)) {
+  while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0) {
     UpdateSDLAudioEvents(e);
     if (e.type == SDL_EVENT_QUIT) {
       quit_game = 1;

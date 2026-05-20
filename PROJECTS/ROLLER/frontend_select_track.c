@@ -43,6 +43,7 @@ static int iFrontendTrackCurrentTrack = 0;
 static int iFrontendTrackSoundFlag = 0;
 static int iFrontendTrackYaw = 0;
 static int iFrontendTrackExitFlag = 0;
+static int iFrontendTrackExitFading = 0;
 static int iFrontendTrackSpeechPending = 0;
 static float fFrontendTrackZoom = 0.0f;
 static float fFrontendTrackAnimatedZoom = 0.0f;
@@ -75,8 +76,11 @@ static void frontend_track_select_black_palette(void)
 static void frontend_track_select_request_exit(void)
 {
   iFrontendTrackExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendTrackExitFading = 1;
+  }
 }
 
 static void frontend_track_select_apply_type_switch(void)
@@ -374,6 +378,7 @@ void frontend_track_select_enter(void)
   iFrontendTrackSoundFlag = 0;
   front_fade = 0;
   iFrontendTrackExitFlag = 0;
+  iFrontendTrackExitFading = 0;
   iFrontendTrackSpeechPending = 0;
   if (TrackLoad > 0) {
     iFrontendTrackSelectedTrack = ((uint8)TrackLoad - 1) & 7;
@@ -429,6 +434,15 @@ void frontend_track_select_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (iFrontendTrackExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendTrackExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   frontend_track_select_apply_same_car_switch();
   if (frontend_track_select_update_broadcast_wait())
     return;
@@ -443,13 +457,9 @@ void frontend_track_select_update(void)
 
 void frontend_track_select_exit(void)
 {
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendTrackExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_track_select_black_palette();
-  }
 
   front_fade = 0;
   fre((void **)&front_vga[3]);

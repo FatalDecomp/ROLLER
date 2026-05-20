@@ -14,6 +14,9 @@
 struct MenuRendererSoftware {
     SceneRenderer *scene;
     int loadedCarIdx; // stored by _sw_load_car_mesh for DrawCar()
+    int loadedCarTexIdx;
+    uint8 *loadedCarTexPixels;
+    int loadedCarGfxSize;
     int fadeInPending; // deferred fade-in (so content is drawn before the fade)
 };
 
@@ -33,6 +36,7 @@ MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device,
     if (!sw)
         return NULL;
     sw->loadedCarIdx = -1;
+    sw->loadedCarTexIdx = -1;
     sw->scene = scene_render_create(device, window);
     return sw;
 }
@@ -193,22 +197,61 @@ void menu_render_sw_scaled_text(MenuRendererSoftware *sw, int fontSlot,
 // 3D mesh previews -- car
 // ---------------------------------------------------------------------------
 
+static void menu_render_sw_release_car_textures(MenuRendererSoftware *sw) {
+    if (!sw)
+        return;
+
+    if (sw->scene) {
+        for (int texIdx = 1; texIdx <= 16; ++texIdx) {
+            SceneTextureHandle handle =
+                scene_render_get_texture_handle(sw->scene, texIdx);
+            if (handle != SCENE_TEXTURE_HANDLE_INVALID)
+                scene_render_free_texture(sw->scene, handle);
+        }
+    }
+
+    sw->loadedCarIdx = -1;
+    sw->loadedCarTexIdx = -1;
+    sw->loadedCarTexPixels = NULL;
+    sw->loadedCarGfxSize = 0;
+}
+
 void menu_render_sw_load_car_mesh(MenuRendererSoftware *sw, int carIdx,
                                   const tColor *palette) {
     (void)palette;
-    sw->loadedCarIdx = carIdx;
-    if (!sw->scene || carIdx < 0 || carIdx > CAR_DESIGN_DEATH)
+    if (!sw)
         return;
-    int texIdx = car_texmap[carIdx];
-    if (texIdx > 0 && cartex_vga[texIdx - 1]) {
-        scene_render_load_texture(sw->scene, cartex_vga[texIdx - 1],
-                                  256, 0, texIdx, gfx_size);
+
+    if (!sw->scene || carIdx < 0 || carIdx > CAR_DESIGN_DEATH) {
+        menu_render_sw_release_car_textures(sw);
+        return;
     }
+
+    int texIdx = car_texmap[carIdx];
+    if (texIdx <= 0 || texIdx > 16 || !cartex_vga[texIdx - 1]) {
+        menu_render_sw_release_car_textures(sw);
+        return;
+    }
+
+    uint8 *pixels = cartex_vga[texIdx - 1];
+    if (sw->loadedCarIdx == carIdx && sw->loadedCarTexIdx == texIdx &&
+        sw->loadedCarTexPixels == pixels && sw->loadedCarGfxSize == gfx_size)
+        return;
+
+    menu_render_sw_release_car_textures(sw);
+    SceneTextureHandle handle =
+        scene_render_load_texture(sw->scene, pixels, 256, 0, texIdx, gfx_size);
+    if (handle == SCENE_TEXTURE_HANDLE_INVALID)
+        return;
+
+    sw->loadedCarIdx = carIdx;
+    sw->loadedCarTexIdx = texIdx;
+    sw->loadedCarTexPixels = pixels;
+    sw->loadedCarGfxSize = gfx_size;
 }
 
 void menu_render_sw_free_car_mesh(MenuRendererSoftware *sw) {
-    (void)sw;
-    // No-op
+    menu_render_sw_release_car_textures(sw);
 }
 
 void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,

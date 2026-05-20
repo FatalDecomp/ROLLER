@@ -379,6 +379,17 @@ typedef enum {
 static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
 static int iFrontendMainMenuQuitTickTarget = 0;
 
+typedef enum {
+  eMAIN_MENU_FADE_OUT_NONE = 0,
+  eMAIN_MENU_FADE_OUT_CHILD,
+  eMAIN_MENU_FADE_OUT_START_SOUND,
+  eMAIN_MENU_FADE_OUT_FINISH_START,
+} eMainMenuFadeOutAction;
+
+static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
+static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
+static int iFrontendMainMenuFadeOutMusic = 0;
+
 static void frontend_main_menu_load_renderer_blocks(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -481,19 +492,11 @@ static void frontend_main_menu_black_palette(void)
   }
 }
 
-static void fade_redraw_main_menu(void *ctx);
-
 static void frontend_main_menu_fade_out(int iFadeMusic)
 {
   MenuRenderer *mr = GetMenuRenderer();
-
   menu_render_begin_fade(mr, 0, 32);
-  if (iFadeMusic)
-    fade_music_start(0);
-  menu_render_fade_wait(mr, fade_redraw_main_menu, mr);
-  if (iFadeMusic)
-    fade_music_finish(0);
-  frontend_main_menu_black_palette();
+  iFrontendMainMenuFadeOutMusic = iFadeMusic;
 }
 
 static void frontend_main_menu_free_selected_car_textures(void)
@@ -501,6 +504,8 @@ static void frontend_main_menu_free_selected_car_textures(void)
   if (iFrontendMainMenuBlockIdx < CAR_DESIGN_AUTO)
     return;
 
+  MenuRenderer *mr = GetMenuRenderer();
+  menu_render_free_car_mesh(mr);
   car_texs_loaded[CarDesigns[iFrontendMainMenuBlockIdx].carType] = -1;
   for (int i = 0; i < 16; ++i)
     fre((void **)&cartex_vga[i]);
@@ -865,11 +870,6 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   show_received_mesage();
 }
 
-static void fade_redraw_main_menu(void *ctx)
-{
-  frontend_main_menu_emit_draw((MenuRenderer *)ctx);
-}
-
 static void frontend_main_menu_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -1091,46 +1091,10 @@ void frontend_main_menu_prepare_race_start(void)
 
 static void frontend_main_menu_finish_prepare_to_start(void)
 {
-  releasesamples();
   if (game_type != 4 && game_type != 3)
     holdmusic = 0;
   frontend_main_menu_fade_out(-1);
-  if (game_type != 4 && game_type != 3)
-    stopmusic();
-  front_fade = 0;
-  Players_Cars[player1_car] = iFrontendMainMenuBlockIdx;
-
-  for (int i = 0; i < 16; ++i)
-    fre((void **)&front_vga[i]);
-  frontend_main_menu_free_selected_car_textures();
-
-  gfx_size = iFrontendMainMenuPtexSize;
-  no_clear = 0;
-  if (!quit_game && !intro) {
-    check_cars();
-    if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
-      // Hand off to the LOBBY dispatcher state; it calls
-      // frontend_main_menu_prepare_race_start() and sets the next state
-      // when the lobby resolves.  restart_net re-entry uses the same
-      // dispatcher lobby path.
-      iFrontendMainMenuInitialized = 0;
-      iFrontendMainMenuStartDelayTarget = 0;
-      eFrontendNextState = eFRONTEND_STATE_LOBBY;
-      return;
-    }
-  }
-  if (iFrontendMainMenuSelection < 8 || !network_on || intro)
-    time_to_start = 45;
-  if (!time_to_start && !quit_game) {
-    frontend_main_menu_setup();
-    return;
-  }
-  if (time_to_start)
-    frontend_main_menu_prepare_race_start();
-
-  iFrontendMainMenuInitialized = 0;
-  iFrontendMainMenuStartDelayTarget = 0;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_FINISH_START;
 }
 
 static void frontend_main_menu_prepare_to_start(void)
@@ -1151,10 +1115,8 @@ static void frontend_main_menu_prepare_to_start(void)
 static void frontend_main_menu_begin_child(eFrontendState eState)
 {
   frontend_main_menu_fade_out(0);
-  frontend_main_menu_free_selected_car_textures();
-  frontend_main_menu_free_preview_title_assets();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eState;
+  eFrontendMainMenuPendingChildState = eState;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_CHILD;
 }
 
 static void frontend_main_menu_handle_enter(void)
@@ -1208,16 +1170,7 @@ static void frontend_main_menu_handle_enter(void)
       if (iFrontendMainMenuBlockIdx >= CAR_DESIGN_AUTO) {
         iFrontendMainMenuContinue = -1;
         frontend_main_menu_fade_out(0);
-        frontend_main_menu_free_selected_car_textures();
-        frontend_main_menu_free_preview_title_assets();
-        sfxsample(SOUND_SAMPLE_START, 0x8000);
-        netCD = 0;
-        if (soundon) {
-          iFrontendMainMenuStartDelayTarget = ticks + 108;
-        } else {
-          replaytype = replay_record;
-          frontend_main_menu_prepare_to_start();
-        }
+        eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_START_SOUND;
       }
       break;
     default:
@@ -1286,6 +1239,78 @@ static void frontend_main_menu_update_rotation(int nFrames)
                               0x3FFF;
 }
 
+static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
+{
+  if (eFrontendMainMenuFadeOutAction == eMAIN_MENU_FADE_OUT_NONE)
+    return 0;
+
+  if (menu_render_fade_active(mr))
+    return 1;
+
+  if (iFrontendMainMenuFadeOutMusic)
+    fade_music_finish(0);
+  frontend_main_menu_black_palette();
+
+  eMainMenuFadeOutAction action = eFrontendMainMenuFadeOutAction;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
+
+  switch (action) {
+    case eMAIN_MENU_FADE_OUT_CHILD:
+      frontend_main_menu_free_selected_car_textures();
+      frontend_main_menu_free_preview_title_assets();
+      iFrontendMainMenuResumeFromChild = -1;
+      eFrontendNextState = eFrontendMainMenuPendingChildState;
+      eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
+      break;
+    case eMAIN_MENU_FADE_OUT_START_SOUND:
+      sfxsample(SOUND_SAMPLE_START, 0x8000);
+      netCD = 0;
+      if (soundon) {
+        iFrontendMainMenuStartDelayTarget = ticks + 108;
+      } else {
+        replaytype = replay_record;
+        frontend_main_menu_prepare_to_start();
+      }
+      break;
+    case eMAIN_MENU_FADE_OUT_FINISH_START:
+      releasesamples();
+      if (game_type != 4 && game_type != 3)
+        stopmusic();
+      front_fade = 0;
+      Players_Cars[player1_car] = iFrontendMainMenuBlockIdx;
+      for (int i = 0; i < 16; ++i)
+        fre((void **)&front_vga[i]);
+      frontend_main_menu_free_selected_car_textures();
+      gfx_size = iFrontendMainMenuPtexSize;
+      no_clear = 0;
+      if (!quit_game && !intro) {
+        check_cars();
+        if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
+          iFrontendMainMenuInitialized = 0;
+          iFrontendMainMenuStartDelayTarget = 0;
+          eFrontendNextState = eFRONTEND_STATE_LOBBY;
+          break;
+        }
+      }
+      if (iFrontendMainMenuSelection < 8 || !network_on || intro)
+        time_to_start = 45;
+      if (!time_to_start && !quit_game) {
+        frontend_main_menu_setup();
+        break;
+      }
+      if (time_to_start)
+        frontend_main_menu_prepare_race_start();
+      iFrontendMainMenuInitialized = 0;
+      iFrontendMainMenuStartDelayTarget = 0;
+      eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+      break;
+    default:
+      break;
+  }
+
+  return 1;
+}
+
 void frontend_menu_enter(void)
 {
   start_race = 0;
@@ -1321,6 +1346,7 @@ void frontend_menu_update(void)
 
   if (iFrontendMainMenuStartDelayTarget) {
     if (ticks >= iFrontendMainMenuStartDelayTarget) {
+      iFrontendMainMenuStartDelayTarget = 0;
       while (fatkbhit())
         fatgetch();
       replaytype = replay_record;
@@ -1332,7 +1358,8 @@ void frontend_menu_update(void)
   frontend_main_menu_apply_type_switch();
   nFrames = frames;
   frames = 0;
-  if (ticks > 1080 && !iFrontendMainMenuQuitConfirmed && !network_on) {
+  if (ticks > 1080 && !iFrontendMainMenuQuitConfirmed && !network_on
+      && eFrontendMainMenuFadeOutAction == eMAIN_MENU_FADE_OUT_NONE) {
     intro = -1;
     iFrontendMainMenuContinue = -1;
     replaytype = 2;
@@ -1360,6 +1387,9 @@ void frontend_menu_update(void)
 
   frontend_main_menu_draw();
   if (SnapshotShouldStop())
+    return;
+
+  if (frontend_main_menu_update_fade_out(mr))
     return;
 
   if (menu_render_fade_active(mr))
