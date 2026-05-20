@@ -21,6 +21,7 @@
 #include "crashdump.h"
 #include "snapshot.h"
 #include "snapshot_scenes.h"
+#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -373,11 +374,6 @@ void init_screen()
           SDL_Log("at it's optimum level. Please contact your video board manufacturer for\n");
           SDL_Log("more information. The program will now continue using lower resolution\n");
           SDL_Log("graphics.\n");
-          SDL_Log("Press any key to continue...");
-          fflush(stdout);
-          while (fatkbhit())
-            fatgetch();
-          fatgetch();
         }
         firstrun = 0;
       }
@@ -758,7 +754,7 @@ void doexit()
 {
   frontend_shutdown_begin();
   while (!frontend_shutdown_pump()) {
-    UpdateSDL();
+    SDL_Delay(1);
   }
   exit(0);
 }
@@ -1514,10 +1510,6 @@ int main(int argc, const char **argv, const char **envp)
   }
   print_data = 0;
   tick_on = 0;
-  if (!g_bSnapshotMode) {
-    copy_screens();                               // Copy screen buffers and display title screens
-    title_screens();
-  }
   time_to_start = 0;                            // Initialize race state variables
   replaytype = 2;
   start_race = 0;
@@ -1530,7 +1522,7 @@ int main(int argc, const char **argv, const char **envp)
   winner_mode = 0;
   intro = -1;
   race_set_track(TrackLoad);                    // Start initial intro replay through the dispatcher.
-  frontend_run_game_loop(eFRONTEND_STATE_RACING);
+  frontend_run_game_loop(g_bSnapshotMode ? eFRONTEND_STATE_RACING : eFRONTEND_STATE_COPYRIGHT);
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   if (!frontend_shutdown_complete())
     doexit();
@@ -1667,9 +1659,13 @@ void play_game_init()
       if (players <= 1) {
         iPlayerSearchIndex = -1;
       } else {
-        iPlayerSearchIndex = 0;
-        for (i = 0; !human_control[i] || iPlayerSearchIndex == player1_car; ++i)
-          ++iPlayerSearchIndex;
+        iPlayerSearchIndex = -1;
+        for (i = 0; i < MAX_PLAYERS; ++i) {
+          if (i != player1_car && human_control[i]) {
+            iPlayerSearchIndex = i;
+            break;
+          }
+        }
       }
       network_mes_mode = iPlayerSearchIndex;
       team_mate = -1;
@@ -1993,6 +1989,7 @@ void play_game_uninit()
 //-------------------------------------------------------------------------------------------------
 static int iWinnerRaceSavedRacers = 0;
 static int iWinnerRaceSavedPlayerType = 0;
+static int iWinnerRaceSavedNetworkOn = 0;
 static int iWinnerRaceActive = 0;
 
 static void winner_race_setup(void)
@@ -2034,6 +2031,9 @@ static void winner_race_setup(void)
   readptr = 0;
   iWinnerRaceSavedRacers = racers;
   iWinnerRaceSavedPlayerType = player_type;
+  iWinnerRaceSavedNetworkOn = network_on;
+  // Winner race is a local one-car showcase even after a network race.
+  network_on = 0;
   player_type = 0;
   replaytype = 0;
   racers = 1;
@@ -2053,6 +2053,7 @@ static void winner_race_teardown(void)
   winner_mode = 0;
   racers = iWinnerRaceSavedRacers;
   player_type = iWinnerRaceSavedPlayerType;
+  network_on = iWinnerRaceSavedNetworkOn;
   VIEWDIST = 270;
 
   for (int i = 0; i < numcars; ++i) {
@@ -2257,6 +2258,7 @@ static eFrontendPostRaceFlow eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_
 static int iFrontendPostRaceCleanup = 0;
 static int iFrontendTimeTrialCarIdx = 0;
 static int iFrontendTimeTrialScreenActive = 0;
+static int iFrontendNetworkErrorHandled = 0;
 
 static int frontend_should_show_winner_screen(void)
 {
@@ -2344,6 +2346,24 @@ static void frontend_run_game_loop(eFrontendState eInitialState)
   }
 }
 
+void frontend_copy_screens_enter(void)
+{
+  CopyScreensEnter();
+}
+
+void frontend_copy_screens_update(void)
+{
+  if (CopyScreensUpdate())
+    eFrontendNextState = eFRONTEND_STATE_TITLE;
+}
+
+void frontend_copy_screens_exit(void)
+{
+  CopyScreensExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_loading_enter(void)
 {
   countdown = 144;
@@ -2417,9 +2437,14 @@ void frontend_results_update(void)
     return;
   }
 
-  if (network_buggered) {
-    network_fucked();
+  if (!network_buggered)
+    iFrontendNetworkErrorHandled = 0;
+
+  if (network_buggered && !iFrontendNetworkErrorHandled) {
     iFrontendGameFlags = 0;
+    iFrontendNetworkErrorHandled = -1;
+    eFrontendNextState = eFRONTEND_STATE_NETWORK_ERROR;
+    return;
   }
   if (net_quit || network_buggered) {
     iFrontendGameFlags = 0;
@@ -2430,8 +2455,11 @@ void frontend_results_update(void)
     if (net_quit)
       close_network();
   }
-  if (cd_error)
-    no_cd();
+  if (cd_error) {
+    iFrontendGameFlags = 0;
+    eFrontendNextState = eFRONTEND_STATE_NO_CD_ERROR;
+    return;
+  }
   VIEWDIST = 270;
 
   if (!quit_game && iFrontendGameFlags) {
@@ -2469,6 +2497,44 @@ void frontend_results_update(void)
   }
 
   frontend_finish_post_race_sequence();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_network_error_enter(void)
+{
+  NetworkFuckedEnter();
+}
+
+void frontend_network_error_update(void)
+{
+  if (NetworkFuckedUpdate())
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+}
+
+void frontend_network_error_exit(void)
+{
+  NetworkFuckedExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_no_cd_enter(void)
+{
+  NoCdEnter();
+}
+
+void frontend_no_cd_update(void)
+{
+  if (NoCdUpdate()) {
+    quit_game = -1;
+    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+  }
+}
+
+void frontend_no_cd_exit(void)
+{
+  NoCdExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2740,6 +2806,7 @@ void race_enter(void)
   game_track = iFrontendRaceTrack;              // Initialize game state and track
   lagdone = 0;
   I_Want_Out = 0;
+  iFrontendNetworkErrorHandled = 0;
   play_game_init();                             // Initialize game systems and memory tracking
   reset_net_wait();
   max_mem = mem_used_low + mem_used;
@@ -3042,6 +3109,7 @@ void game_keys()
   unsigned int uiKeyCode; // eax
   int iExtendedKey; // eax
   int iGameReqState; // eax
+  int iProcessedKey; // eax
   bool bToggleState; // zf
   //uint32 uiTextureFlags1; // eax
   //uint32 uiTextureFlags2; // eax
@@ -3051,6 +3119,7 @@ void game_keys()
   if (define_mode)
     EXIT_FUNCTION:
   return;
+  iProcessedKey = 0;
   //JUMPOUT(0x1381B);
   while (1) {
     do {
@@ -3059,8 +3128,10 @@ void game_keys()
           while (1) {
             while (1) {
               while (1) {
-                UpdateSDL();
               PROCESS_NEXT_KEY:
+                if (iProcessedKey)
+                  goto EXIT_FUNCTION;
+                iProcessedKey = -1;
                 if (!fatkbhit())
                   goto EXIT_FUNCTION;               // Check if a key is available in the keyboard buffer
                 uiKeyCode = fatgetch();         // Get the key code from the keyboard buffer
@@ -4033,9 +4104,10 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
       }
       small_zoom(buffer);
 
-      for (k = 0; k < 24; ++k) {
+      for (k = 0; k < (int)sizeof(received_message); ++k) {
         buffer[k] = received_message[k];
       }
+      buffer[sizeof(received_message)] = '\0';
       //for (k = 0; k < 24; currentdir[k + 255] = p_data[k + 13])// Copy received message data (24 bytes) with unrolled loop
       //{
       //  k += 8;

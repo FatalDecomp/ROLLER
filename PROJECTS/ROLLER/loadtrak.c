@@ -1147,11 +1147,13 @@ void activatestunts()
   pScrBuf = scrbuf;
   iRampIdx = 0;
   totalramps = 0;
+  memset(ramp, 0, sizeof(ramp));
   do {
     iGeometryIdx = *(int *)pScrBuf;
     pScrBuf += 4;
     if (iGeometryIdx == -1) {
-      ramp[iRampIdx] = 0;
+      if (iRampIdx < (int)(sizeof(ramp) / sizeof(ramp[0])))
+        ramp[iRampIdx] = 0;
     } else {
       iChunkCount_1 = *(int *)pScrBuf;
       pBufItr = (int *)(pScrBuf + 4);
@@ -1173,9 +1175,16 @@ void activatestunts()
       iFlags = *pBufItr;
       pScrBuf = (uint8 *)(pBufItr + 1);
       pRampBuf = initramp(iGeometryIdx, iChunkCount, iNumTicks, iTickStartIdx, iTimingGroup, iHeight, iTimeBulging, iTimeFlat, iRampSideLength, iFlags);
-      iNewTotalRamps = totalramps + 1;
-      ramp[iRampIdx] = pRampBuf;
-      totalramps = iNewTotalRamps;
+      if (iRampIdx < (int)(sizeof(ramp) / sizeof(ramp[0]))) {
+        iNewTotalRamps = totalramps + 1;
+        ramp[iRampIdx] = pRampBuf;
+        totalramps = iNewTotalRamps;
+      } else if (pRampBuf) {
+        void *pRampToFree = pRampBuf;
+        if (pRampBuf->chunkDataAy)
+          fre((void **)&pRampBuf->chunkDataAy);
+        fre(&pRampToFree);
+      }
     }
     ++iRampIdx;
   } while (iGeometryIdx != -1);

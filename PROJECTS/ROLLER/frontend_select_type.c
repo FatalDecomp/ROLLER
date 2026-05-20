@@ -29,20 +29,32 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_type_select_run_snapshot(void);
+
 void snapshot_render_menu_select_type(void)
 {
   snapshot_setup_frontend_menu_state(0);
   for (int i = 0; i < 5; ++i)
     SnapshotQueueRawKey(0x48); // Up arrow: real input path from Exit to Game Type.
-  select_type();
+  frontend_type_select_run_snapshot();
 }
 
 static int iFrontendTypeMenuSelection = 0;
 static int iFrontendTypeCurrentOption = 5;
 static int iFrontendTypeCheatModesAvailable = 0;
 static int iFrontendTypeExitFlag = 0;
+static int iFrontendTypeExitFading = 0;
 static int iFrontendTypeSkipColor = 0;
 static int iFrontendTypeBlockIdx = 0;
+static int iFrontendTypeBroadcastWaitAction = 0;
+static int iFrontendTypeCloseNetworkPending = 0;
+static int iFrontendTypeCloseNetworkStartFrame = 0;
+
+enum {
+  eTYPE_BROADCAST_WAIT_NONE = 0,
+  eTYPE_BROADCAST_WAIT_EXIT,
+  eTYPE_BROADCAST_WAIT_CLOSE_NETWORK
+};
 
 static void frontend_type_select_black_palette(void)
 {
@@ -54,18 +66,95 @@ static void frontend_type_select_black_palette(void)
   }
 }
 
-static void frontend_type_select_wait_broadcast(int iMode)
+static void frontend_type_select_finish_exit(void)
 {
-  broadcast_mode = iMode;
-  while (broadcast_mode)
-    UpdateSDL();
+  iFrontendTypeExitFlag = -1;
+  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendTypeExitFading = 1;
+  }
+}
+
+static void frontend_type_select_begin_broadcast_wait(int iMode, int iAction)
+{
+  iFrontendTypeBroadcastWaitAction = iAction;
+  network_broadcast_wait_start(iMode, 1);
+}
+
+static void frontend_type_select_finish_broadcast_wait(void)
+{
+  int iAction = iFrontendTypeBroadcastWaitAction;
+  iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
+
+  switch (iAction) {
+    case eTYPE_BROADCAST_WAIT_EXIT:
+      frontend_type_select_finish_exit();
+      break;
+    case eTYPE_BROADCAST_WAIT_CLOSE_NETWORK:
+      iFrontendTypeCloseNetworkStartFrame = frames;
+      iFrontendTypeCloseNetworkPending = -1;
+      break;
+    default:
+      break;
+  }
+}
+
+static int frontend_type_select_update_broadcast_wait(void)
+{
+  if (iFrontendTypeCloseNetworkPending) {
+    if ((uint16)(frames - iFrontendTypeCloseNetworkStartFrame) < 3)
+      return -1;
+
+    iFrontendTypeCloseNetworkPending = 0;
+    iFrontendTypeCloseNetworkStartFrame = 0;
+    close_network();
+    network_champ_on = 0;
+    return -1;
+  }
+
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  if (network_broadcast_wait_update())
+    frontend_type_select_finish_broadcast_wait();
+
+  return -1;
 }
 
 static void frontend_type_select_request_exit(void)
 {
-  iFrontendTypeExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (iFrontendTypeSkipColor) {
+    frontend_type_select_finish_exit();
+    return;
+  }
+
+  network_champ_on = 0;
+  int iTrackUpperLimit = 8 * iFrontendTypeBlockIdx + 8;
+  int iTrackLowerLimit = 8 * iFrontendTypeBlockIdx + 1;
+  if (game_type) {
+    if ((unsigned int)game_type <= 1) {
+      Race = 0;
+      memset(championship_points, 0, sizeof(championship_points));
+      memset(team_points, 0, sizeof(team_points));
+      memset(total_kills, 0, sizeof(total_kills));
+      memset(total_fasts, 0, sizeof(total_fasts));
+      memset(total_wins, 0, sizeof(total_wins));
+      memset(team_kills, 0, sizeof(team_kills));
+      memset(team_fasts, 0, sizeof(team_fasts));
+      memset(team_wins, 0, sizeof(team_wins));
+      TrackLoad = 8 * iFrontendTypeBlockIdx + 1;
+    } else if (game_type == 2) {
+      NoOfLaps = 5;
+      competitors = 1;
+      if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad)
+        TrackLoad =
+            8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
+    }
+  } else if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad) {
+    TrackLoad = 8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
+  }
+  frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_EXIT);
 }
 
 static void frontend_type_select_apply_type_switch(void)
@@ -437,7 +526,7 @@ static void frontend_type_select_handle_enter(void)
       TrackLoad = 8 * iFrontendTypeBlockIdx + 1;
     }
     iFrontendTypeMenuSelection = 0;
-    frontend_type_select_wait_broadcast(-1);
+    frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_NONE);
     return;
   }
 
@@ -568,7 +657,7 @@ static void frontend_type_select_handle_space(void)
   if (iFrontendTypeBlockIdx > 2)
     iFrontendTypeBlockIdx = 0;
   TrackLoad = 8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
-  frontend_type_select_wait_broadcast(-1);
+  frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_NONE);
 }
 
 static void frontend_type_select_handle_championship_reset(void)
@@ -583,14 +672,10 @@ static void frontend_type_select_handle_championship_reset(void)
     return;
 
   if (Race <= 0) {
-    frontend_type_select_wait_broadcast(-1);
+    frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_NONE);
   } else {
-    frontend_type_select_wait_broadcast(-666);
-    frames = 0;
-    while (frames < 3)
-      ;
-    close_network();
-    network_champ_on = 0;
+    frontend_type_select_begin_broadcast_wait(
+        -666, eTYPE_BROADCAST_WAIT_CLOSE_NETWORK);
   }
 }
 
@@ -621,50 +706,21 @@ static void frontend_type_select_handle_input(void)
       frontend_type_select_handle_championship_reset();
     }
 
+    if (network_broadcast_wait_active() || iFrontendTypeCloseNetworkPending)
+      return;
+
     if (iFrontendTypeExitFlag)
       return;
   }
 }
 
-static void frontend_type_select_apply_final_settings(void)
-{
-  int iTrackUpperLimit;
-  int iTrackLowerLimit;
-
-  if (iFrontendTypeSkipColor)
-    return;
-
-  network_champ_on = 0;
-  iTrackUpperLimit = 8 * iFrontendTypeBlockIdx + 8;
-  iTrackLowerLimit = 8 * iFrontendTypeBlockIdx + 1;
-  if (game_type) {
-    if ((unsigned int)game_type <= 1) {
-      Race = 0;
-      memset(championship_points, 0, sizeof(championship_points));
-      memset(team_points, 0, sizeof(team_points));
-      memset(total_kills, 0, sizeof(total_kills));
-      memset(total_fasts, 0, sizeof(total_fasts));
-      memset(total_wins, 0, sizeof(total_wins));
-      memset(team_kills, 0, sizeof(team_kills));
-      memset(team_fasts, 0, sizeof(team_fasts));
-      memset(team_wins, 0, sizeof(team_wins));
-      TrackLoad = 8 * iFrontendTypeBlockIdx + 1;
-    } else if (game_type == 2) {
-      NoOfLaps = 5;
-      competitors = 1;
-      if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad)
-        TrackLoad =
-            8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
-    }
-  } else if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad) {
-    TrackLoad = 8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
-  }
-  frontend_type_select_wait_broadcast(-1);
-}
-
 void frontend_type_select_enter(void)
 {
   iFrontendTypeExitFlag = 0;
+  iFrontendTypeExitFading = 0;
+  iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
+  iFrontendTypeCloseNetworkPending = 0;
+  iFrontendTypeCloseNetworkStartFrame = 0;
   if (game_type == 1 && Race > 0)
     iFrontendTypeSkipColor = -1;
   else
@@ -698,20 +754,27 @@ void frontend_type_select_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (iFrontendTypeExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendTypeExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
+  if (frontend_type_select_update_broadcast_wait())
+    return;
+
   frontend_type_select_apply_same_car_switch();
   frontend_type_select_handle_input();
 }
 
 void frontend_type_select_exit(void)
 {
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-
-    frontend_type_select_apply_final_settings();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendTypeExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_type_select_black_palette();
-  }
   fre((void **)&front_vga[14]);
   front_fade = 0;
 
@@ -721,13 +784,13 @@ void frontend_type_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00047AE0
-void select_type()
+static void frontend_type_select_run_snapshot(void)
 {
   frontend_type_select_enter();
   while (!iFrontendTypeExitFlag && !SnapshotShouldStop()) {
     frontend_type_select_update();
     if (!iFrontendTypeExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_type_select_exit();

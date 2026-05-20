@@ -31,6 +31,7 @@
 
 // File-static state for frontend config screen (persists across dispatcher ticks)
 static int iFrontendConfigExitFlag;
+static int iFrontendConfigExitFading;
 static int iFrontendConfigMenuSelection;
 static int iFrontendConfigEditingName;
 static int iFrontendConfigControlsInEdit;
@@ -44,16 +45,72 @@ static char szFrontendConfigNewNameBuf[12];
 static tJoyPos jFrontendConfigJoyPos;
 static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
+static int iFrontendConfigBroadcastWaitAction;
+
+enum {
+  FRONTEND_CONFIG_BROADCAST_WAIT_NONE = 0,
+  FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME,
+  FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS
+};
+
+static void frontend_config_begin_broadcast_wait(int iBroadcastMode, int iAction)
+{
+  iFrontendConfigBroadcastWaitAction = iAction;
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static void frontend_config_finish_broadcast_wait(void)
+{
+  int iAction = iFrontendConfigBroadcastWaitAction;
+  iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
+
+  switch (iAction) {
+    case FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS:
+      if (!network_on)
+        waste = CheckNames(player_names[player1_car], player1_car);
+      check_cars();
+      break;
+    case FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME:
+      if (!network_on)
+        waste = CheckNames(player_names[player1_car], player1_car);
+      break;
+    default:
+      break;
+  }
+}
+
+static int frontend_config_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  if (network_broadcast_wait_update())
+    frontend_config_finish_broadcast_wait();
+
+  return -1;
+}
+
+static void frontend_config_request_exit(void)
+{
+  if (iFrontendConfigExitFading)
+    return;
+
+  iFrontendConfigExitFlag = -1;
+  iFrontendConfigExitFading = 1;
+  menu_render_begin_fade(GetMenuRenderer(), 0, 32);
+}
 
 void frontend_config_enter(void)
 {
   fade_palette(0);
   iFrontendConfigExitFlag = 0;
+  iFrontendConfigExitFading = 0;
   iFrontendConfigMenuSelection = 7;
   iFrontendConfigEditingName = 0;
   iFrontendConfigControlsInEdit = 0;
   front_fade = 0;
   iFrontendConfigState = 0;
+  iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
   {
     extern tColor palette[];
     memcpy(pal_addr, palette, 256 * sizeof(tColor));
@@ -63,15 +120,13 @@ void frontend_config_enter(void)
 
 void frontend_config_exit(void)
 {
-  MenuRenderer *mr = GetMenuRenderer();
-  menu_render_begin_fade(mr, 0, 32);
-  menu_render_fade_wait(mr, fade_redraw_bg, mr);
   palette_brightness = 0;
   for (int i = 0; i < 256; i++) {
     pal_addr[i].byR = 0;
     pal_addr[i].byB = 0;
     pal_addr[i].byG = 0;
   }
+  iFrontendConfigExitFading = 0;
   front_fade = 0;
 }
 
@@ -323,6 +378,11 @@ void frontend_config_update(void)
   int iNormalColor; // [esp+7Ch] [ebp+76h]
   int iHighlightColor; // [esp+80h] [ebp+7Ah]
   int iCarLoop; // [esp+84h] [ebp+7Eh]
+
+  if (select_messages_active()) {
+    select_messages();
+    return;
+  }
 
   if (switch_types) {
       game_type = switch_types - 1;
@@ -1001,26 +1061,14 @@ void frontend_config_update(void)
           }
         }
 
-        // Validate input type compatibility for throttle controls
-        //TODO
-        //if ( iFoundKey != -1
-        //          && (control_edit == 1 || control_edit == 7)
-        //          && (userkey[control_edit] <= 0x83u && iFoundKey > 131 || userkey[control_edit] > 0x83u && iFoundKey <= 131) ) {
-        ////if (iFoundKey != -1
-        ////  && (control_edit == 1 || control_edit == 7)
-        ////  && (*((_BYTE *)&keyname[139] + control_edit + 3) <= 0x83u && iFoundKey > 131 || *((_BYTE *)&keyname[139] + control_edit + 3) > 0x83u && iFoundKey <= 131)) {
-        //  iFoundKey = -1;                       // reject incompatible input type
-        //}
+        if (iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
+          iFoundKey = -1;                       // reject incompatible steering pair type
 
         if (iFoundKey == -1)
           goto CHECK_CONTROL_INPUT;
 
         // Check for duplicate key assignments
-        iDuplicateCheck = 0;
-        for (i = 0; i < control_edit; ++i) {
-          if (userkey[i] == iFoundKey)
-            iDuplicateCheck = -1;
-        }
+        iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
         if (iDuplicateCheck)
           goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
 
@@ -1076,6 +1124,14 @@ void frontend_config_update(void)
         if (SnapshotShouldStop())
           return;
 
+        if (iFrontendConfigExitFading) {
+          if (!menu_render_fade_active(mr)) {
+            iFrontendConfigExitFading = 0;
+            eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+          }
+          return;
+        }
+
         // Handle CHEAT_MODE_CLONES
         if (switch_same > 0) {
           // Clone all player cars to same type
@@ -1121,6 +1177,9 @@ void frontend_config_update(void)
           cheat_mode &= ~CHEAT_MODE_CLONES;
           //cheat_mode &= ~0x4000u;
         }
+
+        if (frontend_config_update_broadcast_wait())
+          return;
 
         // Process keyboard input when not editing controls
         if (!iFrontendConfigControlsInEdit) {
@@ -1191,15 +1250,15 @@ void frontend_config_update(void)
                       break;
                     case 7:                     // exit
                       sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-                      iFrontendConfigExitFlag = -1;
+                      frontend_config_request_exit();
                       break;
                     default:
                       continue;
                   }
                 } else if (uiKeyCode == 27)     // ESC key
                 {
-                  iFrontendConfigExitFlag = -1;
                   sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+                  frontend_config_request_exit();
                 }
                 continue;
               case 1:                           // DRIVER/CAR CONFIG
@@ -1275,12 +1334,9 @@ void frontend_config_update(void)
                         //for (j = 0; j < 9; cheat_names[player1_car + 31][j + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + j + 3))
                         //  ++j;
 
-                        broadcast_mode = -669;
-                        while (broadcast_mode)
-                          UpdateSDL();
-                        if (!network_on)
-                          waste = CheckNames(player_names[player1_car], player1_car);
-                        check_cars();
+                        frontend_config_begin_broadcast_wait(
+                            -669, FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS);
+                        return;
                       } else {
                         if (iFrontendConfigSelectedCar != 2)
                           goto SAVE_AI_DRIVER_NAME;
@@ -1321,9 +1377,8 @@ void frontend_config_update(void)
                         sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[iDefaultNamesIdx], buffer);
                       }
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                     }
                   } else {
                     // Start editing name
@@ -1401,11 +1456,9 @@ void frontend_config_update(void)
                         }
                         //for (ii = 0; ii < 9; cheat_names[player1_car + 31][ii + 8] = *((_BYTE *)&pJoyPos.iJ2YAxis + ii + 3))
                         //  ++ii;
-                        broadcast_mode = -669;
-                        while (broadcast_mode)
-                          UpdateSDL();
-                        if (!network_on)
-                          waste = CheckNames(player_names[player1_car], player1_car);
+                        frontend_config_begin_broadcast_wait(
+                            -669, FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME);
+                        return;
                       } else {
                         if (iFrontendConfigSelectedCar != 2)// player 2
                           goto CANCEL_AI_NAME_EDIT;
@@ -1447,9 +1500,8 @@ void frontend_config_update(void)
                         sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
                         name_copy(default_names[v197], buffer);
                       }
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                     }
                   } else {
                   EXIT_NAME_EDITING:
@@ -1636,9 +1688,8 @@ void frontend_config_update(void)
                         manual_control[player1_car] = 1;// Switch to keyboard
                       else
                         manual_control[player1_car] = 2;// Switch to joystick
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                       break;
                     case 3:                     // Customize player 2
                       iFrontendConfigControlsInEdit = 2;
@@ -1841,9 +1892,8 @@ void frontend_config_update(void)
                       goto EXIT_AUDIO_MENU_2;
                     case 1:
                       false_starts = false_starts == 0;
-                      broadcast_mode = -1;
-                      while (broadcast_mode)
-                        UpdateSDL();
+                      frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+                      return;
                       break;
                     case 2:
                       if (lots_of_mem)
@@ -1958,9 +2008,8 @@ void frontend_config_update(void)
             }
           }
         }
-        if (!iFrontendConfigExitFlag)
-          return;
-        eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+        if (iFrontendConfigExitFlag && !iFrontendConfigExitFading)
+          frontend_config_request_exit();
         return;
       case 4:
         if (iFrontendConfigState != 5)
@@ -2461,12 +2510,6 @@ void frontend_config_update(void)
       default:
         goto RENDER_FRAME;
     }
-}
-
-void select_configure(void)
-{
-  frontend_config_enter();
-  frontend_config_update();
 }
 
 void snapshot_render_menu_configure(void)

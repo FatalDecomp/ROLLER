@@ -643,6 +643,47 @@ static void ApplyPendingTransport(tNodeInfo *pNode)
   }
 }
 
+static int NetAddrEquals(const tROLLERNetAddr *pA, const tROLLERNetAddr *pB)
+{
+  return memcmp(pA, pB, sizeof(tROLLERNetAddr)) == 0;
+}
+
+static int NodeMatchesAlias(const tNodeInfo *pNode,
+                            const tROLLERNetAddr *pAddress,
+                            const tROLLERNetAddr *pTransportAddress)
+{
+  return NetAddrEquals(&pNode->address, pAddress) ||
+         NetAddrEquals(&pNode->address, pTransportAddress) ||
+         NetAddrEquals(&pNode->transportAddress, pAddress) ||
+         NetAddrEquals(&pNode->transportAddress, pTransportAddress);
+}
+
+static int MergeNodeAliases(int iKeepNode,
+                            const tROLLERNetAddr *pAddress,
+                            const tROLLERNetAddr *pTransportAddress)
+{
+  int iMerged = 0;
+
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (i == iKeepNode || !g_commsState.nodes[i].bActive)
+      continue;
+
+    if (NodeMatchesAlias(&g_commsState.nodes[i], pAddress, pTransportAddress)) {
+      char szAddress[32];
+      char szTransport[32];
+      ROLLERCommsFormatAddr(&g_commsState.nodes[i].address,
+                            szAddress, sizeof(szAddress));
+      ROLLERCommsFormatAddr(&g_commsState.nodes[i].transportAddress,
+                            szTransport, sizeof(szTransport));
+      SDL_Log("[NET-DISCOVERY] merged alias node %s via %s", szAddress, szTransport);
+      g_commsState.nodes[i].bActive = false;
+      iMerged = 1;
+    }
+  }
+
+  return iMerged;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void ROLLERCommsUnInitSystem()
@@ -1041,6 +1082,35 @@ void ROLLERCommsUpdateNodeTransportAddr(const void *pAddress, const void *pTrans
         SDL_Log("[NET-DISCOVERY] route %s via %s", szAddress, szTransport);
         g_commsState.nodes[i].transportAddress = transportAddress;
       }
+      if (MergeNodeAliases(i, &address, &transportAddress))
+        ROLLERCommsSortNodes();
+      return;
+    }
+  }
+
+  for (int i = 0; i < g_commsState.iActiveNodes; i++) {
+    if (!g_commsState.nodes[i].bActive)
+      continue;
+
+    if (NetAddrEquals(&g_commsState.nodes[i].address, &g_commsState.myAddress))
+      continue;
+
+    if (NetAddrEquals(&g_commsState.nodes[i].address, &transportAddress) ||
+        NetAddrEquals(&g_commsState.nodes[i].transportAddress, &transportAddress)) {
+      char szOldAddress[32];
+      char szAddress[32];
+      char szTransport[32];
+      ROLLERCommsFormatAddr(&g_commsState.nodes[i].address,
+                            szOldAddress, sizeof(szOldAddress));
+      ROLLERCommsFormatAddr(&address, szAddress, sizeof(szAddress));
+      ROLLERCommsFormatAddr(&transportAddress, szTransport, sizeof(szTransport));
+      SDL_Log("[NET-DISCOVERY] promoted peer %s to %s via %s",
+              szOldAddress, szAddress, szTransport);
+      g_commsState.nodes[i].address = address;
+      g_commsState.nodes[i].transportAddress = transportAddress;
+      ApplyPendingTransport(&g_commsState.nodes[i]);
+      MergeNodeAliases(i, &address, &transportAddress);
+      ROLLERCommsSortNodes();
       return;
     }
   }

@@ -9,6 +9,11 @@ int totalramps = 0; //000A7508
 tStuntData *ramp[50];     //001A1A80
 int replaytype;     //001A1B48
 
+static int stunt_ramp_slot_count(void)
+{
+  return (int)(sizeof(ramp) / sizeof(ramp[0]));
+}
+
 //-------------------------------------------------------------------------------------------------
 //00073E90
 tStuntData *initramp(
@@ -443,16 +448,16 @@ void updateramp(tStuntData *pStunt)
 //00074BA0
 void updatestunts()
 {
-  tStuntData **pStuntItr; // edx
-  tStuntData *pCurrStunt; // ecx
+  int iRampLimit = totalramps;
 
-  pStuntItr = ramp;
-  if (ramp[0]) {
-    do {
-      updateramp(*pStuntItr);
-      pCurrStunt = pStuntItr[1];
-      ++pStuntItr;
-    } while (pCurrStunt);
+  if (iRampLimit < 0)
+    iRampLimit = 0;
+  if (iRampLimit > stunt_ramp_slot_count())
+    iRampLimit = stunt_ramp_slot_count();
+
+  for (int i = 0; i < iRampLimit; ++i) {
+    if (ramp[i])
+      updateramp(ramp[i]);
   }
 }
 
@@ -460,16 +465,16 @@ void updatestunts()
 //00074BD0
 void reinitstunts()
 {
-  tStuntData **pStuntItr; // edx
-  tStuntData *pCurrStunt; // ecx
+  int iRampLimit = totalramps;
 
-  pStuntItr = ramp;
-  if (ramp[0]) {
-    do {
-      reinitramp(*pStuntItr);
-      pCurrStunt = pStuntItr[1];
-      ++pStuntItr;
-    } while (pCurrStunt);
+  if (iRampLimit < 0)
+    iRampLimit = 0;
+  if (iRampLimit > stunt_ramp_slot_count())
+    iRampLimit = stunt_ramp_slot_count();
+
+  for (int i = 0; i < iRampLimit; ++i) {
+    if (ramp[i])
+      reinitramp(ramp[i]);
   }
 }
 
@@ -491,28 +496,23 @@ void freeramp(void **pRampData)
 //00074C30
 void freestunts(uint8 **pTrackData, int *pBuf)
 {
-  tStuntData **ppRampArray; // edx
   tStuntData *pRampData; // eax
-  tStuntData *pNextRamp; // ecx
   void *pRampToFree; // [esp+0h] [ebp-10h] BYREF
-  int *pBufSaved; // [esp+4h] [ebp-Ch]
 
-  pBufSaved = pBuf;
-  ppRampArray = ramp;                           // Start at the beginning of the global ramp pointer array
-  if (ramp[0])                                // Check if there are any ramps to free
-  {
-    do {
-      pRampData = *ppRampArray;                 // Get pointer to current ramp structure
-      pRampToFree = pRampData;
-      if (pRampData) {                                         // Check if ramp has allocated data at offset 0x50 (80 bytes)
-        if (pRampData->chunkDataAy)
-          fre((void **)&pRampData->chunkDataAy);// Free the allocated data at offset 0x50
-        fre(&pRampToFree);                      // Free the ramp structure itself
-      }
-      pNextRamp = ppRampArray[1];               // Get next ramp pointer for loop condition
-      ++ppRampArray;                            // Move to next ramp pointer in array
-    } while (pNextRamp);                        // Continue until we find a NULL pointer
+  (void)pTrackData;
+  (void)pBuf;
+
+  for (int i = 0; i < stunt_ramp_slot_count(); ++i) {
+    pRampData = ramp[i];
+    pRampToFree = pRampData;
+    if (pRampData) {
+      if (pRampData->chunkDataAy)
+        fre((void **)&pRampData->chunkDataAy);
+      fre(&pRampToFree);
+      ramp[i] = NULL;
+    }
   }
+  totalramps = 0;
 }
 
 //-------------------------------------------------------------------------------------------------

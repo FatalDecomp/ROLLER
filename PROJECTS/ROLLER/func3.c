@@ -340,15 +340,6 @@ void WinnerScreenExit(void)
   iWinnerScreenActive = 0;
 }
 
-int winner_screen(int carDesign, char byFlags)
-{
-  WinnerScreenEnter(carDesign, byFlags);
-  while (!WinnerScreenUpdate())
-    UpdateSDL();
-  WinnerScreenExit();
-  return WinnerScreenResult();
-}
-
 void snapshot_render_winner_race(void)
 {
   int iWinnerCar = 0;
@@ -359,7 +350,10 @@ void snapshot_render_winner_race(void)
   if (!driver_names[iWinnerCar][0])
     name_copy(driver_names[iWinnerCar], "HUMAN");
 
-  (void)winner_screen(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+  WinnerScreenEnter(Car[carorder[0]].byCarDesignIdx, carorder[0] & 1);
+  while (!WinnerScreenUpdate()) {
+  }
+  WinnerScreenExit();
 }
 
 static void snapshot_copy_driver_name(int iDriver, const char *szName)
@@ -426,7 +420,10 @@ static void snapshot_setup_championship_standings_fixture(void)
 void snapshot_render_championship_standings(void)
 {
   snapshot_setup_championship_standings_fixture();
-  ChampionshipStandings();
+  ChampionshipStandingsEnter();
+  while (!ChampionshipStandingsUpdate()) {
+  }
+  ChampionshipStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -735,14 +732,6 @@ void RaceResultExit(void)
   iRaceResultScreenActive = 0;
 }
 
-void RaceResult()
-{
-  RaceResultEnter();
-  while (!RaceResultUpdate())
-    UpdateSDL();
-  RaceResultExit();
-}
-
 void snapshot_render_race_result(void)
 {
   static char szNames[8][9] = {
@@ -825,9 +814,11 @@ void snapshot_render_race_result(void)
     name_copy(driver_names[iDriver], szNames[iDriver]);
   }
 
-  // RaceResult() is the real post-race screen. It presents once after its
+  // The scene path presents once during RaceResultEnter() after the
   // snapshot-mode fade skip, then exits through the snapshot stop check.
-  RaceResult();
+  RaceResultEnter();
+  (void)RaceResultUpdate();
+  RaceResultExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1122,14 +1113,6 @@ void TimeTrialsExit(void)
   iTimeTrialsScreenActive = 0;
 }
 
-void TimeTrials(int iDriverIdx)
-{
-  TimeTrialsEnter(iDriverIdx);
-  while (!TimeTrialsUpdate())
-    UpdateSDL();
-  TimeTrialsExit();
-}
-
 static void snapshot_copy_name9(char szDest[9], const char *szSrc)
 {
   memset(szDest, 0, 9);
@@ -1183,7 +1166,9 @@ void snapshot_render_lap_records(void)
   // static page. Queue a key so the snapshot exits through the normal input
   // condition, then capture the rendered framebuffer directly.
   SnapshotQueueRawKey(0x1C);
-  ShowLapRecords();
+  ShowLapRecordsEnter();
+  (void)ShowLapRecordsUpdate();
+  ShowLapRecordsExit();
   if (!SnapshotShouldStop())
     SnapshotPresent();
 }
@@ -1209,7 +1194,9 @@ void snapshot_render_time_trials(void)
   trial_times[3] = 63.50f;
 
   SnapshotQueueRawKey(0x1C);
-  TimeTrials(iDriverIdx);
+  TimeTrialsEnter(iDriverIdx);
+  (void)TimeTrialsUpdate();
+  TimeTrialsExit();
   if (!SnapshotShouldStop())
     SnapshotPresent();
 }
@@ -1440,14 +1427,6 @@ void ChampionshipStandingsExit(void)
   holdmusic = -1;
   fade_palette(0);
   iChampionshipStandingsScreenActive = 0;
-}
-
-void ChampionshipStandings()
-{
-  ChampionshipStandingsEnter();
-  while (!ChampionshipStandingsUpdate())
-    UpdateSDL();
-  ChampionshipStandingsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1700,14 +1679,6 @@ void TeamStandingsExit(void)
   iTeamStandingsScreenActive = 0;
 }
 
-void TeamStandings()
-{
-  TeamStandingsEnter();
-  while (!TeamStandingsUpdate())
-    UpdateSDL();
-  TeamStandingsExit();
-}
-
 //-------------------------------------------------------------------------------------------------
 static int iLapRecordsScreenActive = 0;
 static int iLapRecordsSavedScreenSize = 0;
@@ -1912,14 +1883,6 @@ void ShowLapRecordsExit(void)
     holdmusic = 0;
   iLapRecordsScreenActive = 0;
   iLapRecordsPage = 0;
-}
-
-void ShowLapRecords()
-{
-  ShowLapRecordsEnter();
-  while (!ShowLapRecordsUpdate())
-    UpdateSDL();
-  ShowLapRecordsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3239,18 +3202,12 @@ void ChampionshipWinnerExit(void)
   iChampionshipWinnerActive = 0;
 }
 
-//0005B490
-void championship_winner()
-{
-  ChampionshipWinnerEnter();
-  while (!ChampionshipWinnerUpdate())
-    UpdateSDL();
-  ChampionshipWinnerExit();
-}
-
 void snapshot_render_winner_championship(void)
 {
-  championship_winner();
+  ChampionshipWinnerEnter();
+  while (!ChampionshipWinnerUpdate()) {
+  }
+  ChampionshipWinnerExit();
 }
 
 void snapshot_render_championship_over(void)
@@ -3336,7 +3293,10 @@ void snapshot_render_championship_over(void)
   FastestLap = champorder[0];
   BestTime = result_best[FastestLap];
 
-  ChampionshipOver();
+  ChampionshipOverEnter();
+  while (!ChampionshipOverUpdate()) {
+  }
+  ChampionshipOverExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3400,7 +3360,6 @@ void save_champ(int iSlot)
   uint8 *pbyAfterTeamKills; // eax
   uint8 *pbyAfterTeamFasts; // eax
   int iTeamWins; // edx
-  int iNameEndIndex; // edi
   int iTeamIndex; // esi
   int iNameStartIndex; // edx
   uint8 *pbyNameChar; // eax
@@ -3487,17 +3446,14 @@ void save_champ(int iSlot)
     pbyAfterHeader = sav_champ_int(pbyAfterTeamFasts, iTeamWins);
   }
 
-  iNameEndIndex = 9;
   for (iTeamIndex = 0; iTeamIndex < 16; ++iTeamIndex) {
-    iNameStartIndex = 9 * iTeamIndex;
-    do {
+    for (iNameStartIndex = 0; iNameStartIndex < 9; ++iNameStartIndex) {
       pbyNameChar = pbyAfterHeader + 1;
-      *(pbyNameChar - 1) = default_names[0][iNameStartIndex];
+      *(pbyNameChar - 1) = default_names[iTeamIndex][iNameStartIndex];
       pbyAfterHeader = pbyNameChar + 1;
-      byPlayerNameChar = player_names[0][iNameStartIndex++];
+      byPlayerNameChar = player_names[iTeamIndex][iNameStartIndex];
       *(pbyAfterHeader - 1) = byPlayerNameChar;
-    } while (iNameStartIndex != iNameEndIndex);
-    iNameEndIndex += 9;
+    }
   }
 
   pbyAfterSerial = sav_champ_int(pbyAfterHeader, serial_port);
@@ -3535,33 +3491,66 @@ void save_champ(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 //0005B9A0
-static int s_iLoadChampNetworkInitPending = 0;
+enum {
+  LOAD_CHAMP_PENDING_NONE = 0,
+  LOAD_CHAMP_PENDING_BROADCAST = 1,
+  LOAD_CHAMP_PENDING_NETWORK_INIT = 2
+};
+
+static int s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+static int s_iLoadChampPendingSlot = 0;
+static int s_iLoadChampBroadcastSettled = 0;
+
+static int load_champ_read_int(const uint8 *pSrc)
+{
+  uint32 uiValue = (uint32)pSrc[0] | ((uint32)pSrc[1] << 8) |
+                   ((uint32)pSrc[2] << 16) | ((uint32)pSrc[3] << 24);
+  return (int)uiValue;
+}
 
 static void load_champ_begin_network_init(void)
 {
   network_initialise_begin(0);
-  s_iLoadChampNetworkInitPending = network_initialise_active() ? -1 : 0;
+  s_iLoadChampPendingPhase = network_initialise_active()
+                                  ? LOAD_CHAMP_PENDING_NETWORK_INIT
+                                  : LOAD_CHAMP_PENDING_NONE;
 }
 
 int load_champ_update(void)
 {
-  if (!s_iLoadChampNetworkInitPending)
+  if (s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_NONE)
     return -1;
+
+  if (s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_BROADCAST) {
+    int iPendingSlot;
+
+    if (!network_broadcast_wait_update())
+      return 0;
+
+    iPendingSlot = s_iLoadChampPendingSlot;
+    s_iLoadChampPendingSlot = 0;
+    s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+    s_iLoadChampBroadcastSettled = -1;
+    (void)load_champ_begin(iPendingSlot);
+    s_iLoadChampBroadcastSettled = 0;
+    return s_iLoadChampPendingPhase == LOAD_CHAMP_PENDING_NONE ? -1 : 0;
+  }
 
   if (!network_initialise_update())
     return 0;
 
-  s_iLoadChampNetworkInitPending = 0;
+  s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
   return -1;
 }
 
 int load_champ_active(void)
 {
-  return s_iLoadChampNetworkInitPending;
+  return s_iLoadChampPendingPhase != LOAD_CHAMP_PENDING_NONE;
 }
 
 int load_champ_begin(int iSlot)
 {
+  int iBroadcastSettled = s_iLoadChampBroadcastSettled;
   int iFileHandle; // edx
   int iFileLength; // esi
   char *pbyCurrentPos; // eax
@@ -3576,41 +3565,39 @@ int load_champ_begin(int iSlot)
   //int i; // eax
   uint8 byPlayerByte; // dl
   //uint8 *pbyNextPlayerByte; // ebx
-  int *piDataPointer; // ecx
+  uint8 *pbyDataPointer; // ecx
   int iPlayerSecondByte; // edx
   int iBitFlag; // ebx
-  int *piNextData; // edx
   int iNonCompetitorFlags; // eax
   //int iArraySize; // esi
   //int iByteOffset; // eax
   int iFlags = 0; // ebp
   int iFlagCheck; // ecx
-  int *piStatsPointer; // edx
+  uint8 *pbyStatsPointer; // edx
   int iNetType; // eax
-  int *piTeamStatsPointer; // edx
+  uint8 *pbyTeamStatsPointer; // edx
   int iStatsLoop; // eax
   int *piTotalWinsPtr; // ecx
   int *piTotalFastsPtr; // esi
   int *piTotalKillsPtr; // ebx
   int *piChampionshipPointsPtr; // edi
   int iTeamStatsValue; // ebp
-  int *piNextTeamData; // edx
+  uint8 *pbyNextTeamData; // edx
   int iSecondTeamValue; // ebp
   int *piTeamWinsPtr; // ebx
   int *piTeamPointsPtr; // eax
   int *piTeamFastsPtr; // esi
   int *piTeamKillsPtr; // ecx
   int iCurrentTeamValue; // edi
-  int *piTeamDataPtr; // edx
+  uint8 *pbyTeamDataPtr; // edx
   int iTeamKillsValue; // edi
-  int iNameEndIndex; // edi
   int iTeamIndex; // ecx
   int iNameIndex; // eax
   char byNameChar; // bl
   uint8 *pbyNamePtr; // edx
   char *pszTempPointer; // ebx
   int iSerialPortValue; // eax
-  int *piModemDataPtr; // edx
+  uint8 *pbyModemDataPtr; // edx
   int iModemPortValue; // eax
   int iModemCallValue; // eax
   int iModemBaudValue; // eax
@@ -3658,7 +3645,11 @@ int load_champ_begin(int iSlot)
   char *pszDefaultNameEnd; // [esp+10h] [ebp-20h]
   signed int iSortIndex; // [esp+14h] [ebp-1Ch]
 
-  s_iLoadChampNetworkInitPending = 0;
+  if (iBroadcastSettled)
+    s_iLoadChampBroadcastSettled = 0;
+  else
+    s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_NONE;
+  s_iLoadChampPendingSlot = 0;
   iFileLength = ROLLERfilelength(save_slots[iSlot - 1]);
 
   iFileHandle = ROLLERopen(save_slots[iSlot - 1], O_RDONLY | O_BINARY); //0x200 is O_BINARY in WATCOM/h/fcntl.h
@@ -3683,9 +3674,13 @@ int load_champ_begin(int iSlot)
     }
     if (iChecksumOk) {
       iSavedRacers = racers;                    // NETWORK CLEANUP: Disconnect from network before loading saved state
-      broadcast_mode = -666;
-      while (broadcast_mode)
-        UpdateSDL();
+      if (!iBroadcastSettled) {
+        network_broadcast_wait_start(-666, 1);
+        s_iLoadChampPendingSlot = iSlot;
+        s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_BROADCAST;
+        fre((void **)&pFileBuf);
+        return iChecksumOk;
+      }
       tick_on = 0;
       TrackLoad = *pFileBuf;                    // BASIC GAME SETTINGS: Load track, competitors, texture/cheat flags
       byGameSettings = pFileBuf[1];
@@ -3726,8 +3721,7 @@ int load_champ_begin(int iSlot)
         // Store manual control flags for this player
         manual_control[i] = iPlayerSecondByte;
 
-        // Update data pointer to current position (as int pointer for next section)
-        piDataPointer = (int *)pbyPlayerData;
+        pbyDataPointer = pbyPlayerData;
       }
       //for (i = 0; i != 16; *(int *)((char *)&competitors + i * 4) = iPlayerSecondByte)// Load 16 players' car choices and starting status
       //{
@@ -3741,10 +3735,10 @@ int load_champ_begin(int iSlot)
       //}
 
       iBitFlag = 1;
-      piNextData = piDataPointer + 1;
-      iNonCompetitorFlags = *piDataPointer;
+      iNonCompetitorFlags = load_champ_read_int(pbyDataPointer);
       racers = iSavedRacers;
       iFlags2 = iNonCompetitorFlags;
+      iFlags = iNonCompetitorFlags;
       if (numcars > 0)                        // NON-COMPETITOR FLAGS: Parse bit flags to determine which cars are competitors
       {
         if (numcars > 0) {
@@ -3765,11 +3759,13 @@ int load_champ_begin(int iSlot)
         //  TrackArrow_variable_1[iByteOffset / 4u] = iFlagCheck;// offset into non_competitors
         //} while (iByteOffset < iArraySize);
       }
-      piStatsPointer = piNextData + 1;
-      network_champ_on = *(piStatsPointer++ - 1);// NETWORK SETTINGS: Load network championship flag, slot, and type
-      network_slot = *(piStatsPointer - 1);
-      iNetType = *piStatsPointer;
-      piTeamStatsPointer = piStatsPointer + 1;
+      pbyStatsPointer = pbyDataPointer + 4;
+      network_champ_on = load_champ_read_int(pbyStatsPointer);// NETWORK SETTINGS: Load network championship flag, slot, and type
+      pbyStatsPointer += 4;
+      network_slot = load_champ_read_int(pbyStatsPointer);
+      pbyStatsPointer += 4;
+      iNetType = load_champ_read_int(pbyStatsPointer);
+      pbyTeamStatsPointer = pbyStatsPointer + 4;
       net_type = iNetType;
       if (player_type == 1 && net_type)
         net_type = 0;
@@ -3782,20 +3778,19 @@ int load_champ_begin(int iSlot)
         piTotalKillsPtr = total_kills;
         piChampionshipPointsPtr = championship_points;
         do {
-          iTeamStatsValue = *piTeamStatsPointer;
-          piNextTeamData = piTeamStatsPointer + 1;
+          iTeamStatsValue = load_champ_read_int(pbyTeamStatsPointer);
+          pbyNextTeamData = pbyTeamStatsPointer + 4;
           ++piTotalWinsPtr;
           *piChampionshipPointsPtr = iTeamStatsValue;
           ++piTotalKillsPtr;
           ++piTotalFastsPtr;
-          *(piTotalKillsPtr - 1) = *piNextTeamData;
+          *(piTotalKillsPtr - 1) = load_champ_read_int(pbyNextTeamData);
           ++piChampionshipPointsPtr;
-          iSecondTeamValue = piNextTeamData[1];
-          ++piNextTeamData;
+          iSecondTeamValue = load_champ_read_int(pbyNextTeamData + 4);
           *(piTotalFastsPtr - 1) = iSecondTeamValue;
           ++iStatsLoop;
-          *(piTotalWinsPtr - 1) = piNextTeamData[1];
-          piTeamStatsPointer = piNextTeamData + 2;
+          *(piTotalWinsPtr - 1) = load_champ_read_int(pbyNextTeamData + 8);
+          pbyTeamStatsPointer = pbyNextTeamData + 12;
         } while (iStatsLoop < numcars);
       }
       piTeamWinsPtr = team_wins;                // TEAM STATISTICS: Load team points, kills, fastest laps, wins for 8 teams
@@ -3804,47 +3799,45 @@ int load_champ_begin(int iSlot)
       piTeamKillsPtr = team_kills;
       piTeamPointsEnd = &team_points[8];
       do {
-        iCurrentTeamValue = *piTeamStatsPointer;
-        piTeamDataPtr = piTeamStatsPointer + 1;
+        iCurrentTeamValue = load_champ_read_int(pbyTeamStatsPointer);
+        pbyTeamDataPtr = pbyTeamStatsPointer + 4;
         *piTeamPointsPtr = iCurrentTeamValue;
         ++piTeamWinsPtr;
         ++piTeamFastsPtr;
-        *piTeamKillsPtr++ = *piTeamDataPtr;
-        iTeamKillsValue = piTeamDataPtr[1];
-        ++piTeamDataPtr;
+        *piTeamKillsPtr++ = load_champ_read_int(pbyTeamDataPtr);
+        iTeamKillsValue = load_champ_read_int(pbyTeamDataPtr + 4);
         *(piTeamFastsPtr - 1) = iTeamKillsValue;
         ++piTeamPointsPtr;
-        *(piTeamWinsPtr - 1) = piTeamDataPtr[1];
-        piTeamStatsPointer = piTeamDataPtr + 2;
+        *(piTeamWinsPtr - 1) = load_champ_read_int(pbyTeamDataPtr + 8);
+        pbyTeamStatsPointer = pbyTeamDataPtr + 12;
       } while (piTeamPointsPtr != piTeamPointsEnd);
 
-      iNameEndIndex = 9;
       for (iTeamIndex = 0; iTeamIndex < 16; ++iTeamIndex)// PLAYER NAMES: Load 16 players * 9 * 2 character names (288 bytes total)
       {
-        iNameIndex = 9 * iTeamIndex;
-        do {
-          byNameChar = *(uint8 *)piTeamStatsPointer;// Copy name bytes to both default_names and player_names arrays
-          pbyNamePtr = (uint8 *)piTeamStatsPointer + 1;
-          default_names[0][iNameIndex] = byNameChar;
+        for (iNameIndex = 0; iNameIndex < 9; ++iNameIndex) {
+          byNameChar = *pbyTeamStatsPointer;// Copy name bytes to both default_names and player_names arrays
+          pbyNamePtr = pbyTeamStatsPointer + 1;
+          default_names[iTeamIndex][iNameIndex] = byNameChar;
           //pszTempPointer = (char *)pbyNamePtr;
-          ++iNameIndex;
           uint8 byte = *pbyNamePtr;
-          piTeamStatsPointer = (int *)(pbyNamePtr + 1);
-          player_names[0][iNameIndex - 1] = (char)byte;
-        } while (iNameIndex != iNameEndIndex);
-        iNameEndIndex += 9;
+          pbyTeamStatsPointer = pbyNamePtr + 1;
+          player_names[iTeamIndex][iNameIndex] = (char)byte;
+        }
       }
-      iSerialPortValue = *piTeamStatsPointer;   // COMMUNICATION SETTINGS: Load serial port, modem settings, and phone/init strings
-      piModemDataPtr = piTeamStatsPointer + 1;
+      iSerialPortValue = load_champ_read_int(pbyTeamStatsPointer);   // COMMUNICATION SETTINGS: Load serial port, modem settings, and phone/init strings
+      pbyModemDataPtr = pbyTeamStatsPointer + 4;
       serial_port = iSerialPortValue;
-      iModemPortValue = *piModemDataPtr++;
+      iModemPortValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_port = iModemPortValue;
-      iModemCallValue = *piModemDataPtr++;
+      iModemCallValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_call = iModemCallValue;
-      iModemBaudValue = *piModemDataPtr++;
+      iModemBaudValue = load_champ_read_int(pbyModemDataPtr);
+      pbyModemDataPtr += 4;
       modem_baud = iModemBaudValue;
-      iModemBaudValue = *(uint8 *)piModemDataPtr;
-      pszPhonePtr = (char *)piModemDataPtr + 1;
+      iModemBaudValue = *pbyModemDataPtr;
+      pszPhonePtr = (char *)pbyModemDataPtr + 1;
 
       // Load modem phone number and init string (51 chars each, 102 bytes total)
       memcpy(modem_phone, pszPhonePtr, 51);
@@ -4056,16 +4049,6 @@ int load_champ_begin(int iSlot)
   return iChecksumOk;
 }
 
-int load_champ(int iSlot)
-{
-  int iResult = load_champ_begin(iSlot);
-
-  while (load_champ_active() && !load_champ_update())
-    UpdateSDL();
-
-  return iResult;
-}
-
 //-------------------------------------------------------------------------------------------------
 //0005C000
 uint8 *lod_champ_char(uint8 *pSrc, int *piValue)
@@ -4087,7 +4070,7 @@ uint8 *sav_champ_char(uint8 *pSrc, int *piValue)
   int iValue; // ebx
   uint8 *pNextPos; // eax
 
-  iValue = *(int *)pSrc;                     // Read 4-byte integer from buffer at current position
+  iValue = load_champ_read_int(pSrc);           // Read 4-byte integer from packed save buffer
   pNextPos = pSrc + 4;                          // Advance buffer pointer by 4 bytes to next data position
   *piValue = iValue;                            // Store loaded value in output parameter
   return pNextPos;                              // Return advanced buffer pointer for chaining reads
@@ -4373,15 +4356,6 @@ void ResultRoundUpExit(void)
   iResultRoundUpScreenActive = 0;
 }
 
-void ResultRoundUp()
-{
-  ResultRoundUpEnter();
-  while (!ResultRoundUpUpdate())
-    UpdateSDL();
-  ResultRoundUpExit();
-}
-
-//-------------------------------------------------------------------------------------------------
 typedef enum {
   eROLL_CREDITS_PHASE_INACTIVE = 0,
   eROLL_CREDITS_PHASE_TITLE,
@@ -4502,14 +4476,6 @@ void RollCreditsExit(void)
   front_fade = 0;
   eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
   iRollCreditsImagesLoaded = 0;
-}
-
-void RollCredits()
-{
-  RollCreditsEnter();
-  while (!RollCreditsUpdate())
-    UpdateSDL();
-  RollCreditsExit();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4818,14 +4784,6 @@ void ChampionshipOverDraw(void)
     champion_race_draw();
 }
 
-void ChampionshipOver()
-{
-  ChampionshipOverEnter();
-  while (!ChampionshipOverUpdate())
-    UpdateSDL();
-  ChampionshipOverExit();
-}
-
 //-------------------------------------------------------------------------------------------------
 static int iEndChampSequenceActive = 0;
 static int iEndChampSequenceImageIndex = 0;
@@ -4897,31 +4855,77 @@ void EndChampSequenceExit(void)
   iEndChampSequenceImageIndex = 0;
 }
 
-void EndChampSequence()
+typedef enum {
+  eNETWORK_FUCKED_PHASE_NONE = 0,
+  eNETWORK_FUCKED_PHASE_INPUT,
+  eNETWORK_FUCKED_PHASE_QUIT_BROADCAST,
+  eNETWORK_FUCKED_PHASE_DONE
+} eNetworkFuckedPhase;
+
+static int iNetworkFuckedOriginalScreenSize = 0;
+static int iNetworkFuckedActive = 0;
+static int iNetworkFuckedScreenActive = 0;
+static eNetworkFuckedPhase eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
+
+static void NetworkFuckedCleanupScreen(void)
 {
-  EndChampSequenceEnter();
-  while (!EndChampSequenceUpdate())
-    UpdateSDL();
-  EndChampSequenceExit();
+  if (!iNetworkFuckedScreenActive)
+    return;
+
+  fre((void **)&title_vga);
+  fre((void **)&font_vga);
+  fre((void **)front_vga);
+  scr_size = iNetworkFuckedOriginalScreenSize;
+  holdmusic = -1;
+  fade_palette(0);
+  iNetworkFuckedScreenActive = 0;
 }
 
-//-------------------------------------------------------------------------------------------------
-//0005D2B0
-void network_fucked()
+static void NetworkFuckedBeginQuitBroadcast(void)
+{
+  NetworkFuckedCleanupScreen();
+  network_broadcast_wait_start(-666, 1);
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_QUIT_BROADCAST;
+}
+
+static int NetworkFuckedProcessInput(void)
+{
+  int iKeyCode; // eax
+
+  if (network_buggered != 666)
+    return fatkbhit() || ticks >= 2160;
+
+  while (fatkbhit()) {
+    iKeyCode = fatgetch();
+    if (iKeyCode) {
+      if (iKeyCode == 0x79 || iKeyCode == 0x59) {
+        restart_net = -1;
+        return -1;
+      }
+      if (iKeyCode == 0x6E || iKeyCode == 0x4E) {
+        restart_net = 0;
+        return -1;
+      }
+    } else {
+      fatgetch();
+    }
+  }
+
+  return 0;
+}
+
+void NetworkFuckedEnter(void)
 {                                               // Check if network is in error state and close if needed
-  int iOriginalScreenSize; // ebp
   uint8 *pbyScreenBuffer; // edi
   char *pszTitleImageData; // esi
   unsigned int uiBufferSize; // ecx
   char byBufferSizeRemainder; // al
   unsigned int uiDwordCopyCount; // ecx
-  int iInputReceived; // ebx
-  int iKeyCode; // eax
 
   if (network_buggered != 666)
     close_network();
   tick_on = 0;                                  // Disable game ticking
-  iOriginalScreenSize = scr_size;               // Save original screen size for restoration later
+  iNetworkFuckedOriginalScreenSize = scr_size;  // Save original screen size for restoration later
   SVGA_ON = -1;                                 // Enable SVGA mode for error display
   init_screen();                                // Initialize screen for error display
   setpal("resround.pal");
@@ -4958,88 +4962,103 @@ void network_fucked()
   startmusic(leaderboardsong);
   fade_palette(32);                             // Fade in the error screen
   ticks = 0;
-  if (network_buggered == 666)                // Handle user input based on error type
-  {
-    iInputReceived = 0;                         // Data loss error: wait for Y/N input to restart network
-    do {
-      while (fatkbhit()) {
-        UpdateSDL();
-        iKeyCode = fatgetch();
-        if (iKeyCode) {                                       // Handle Y/y key: restart network
-          if (iKeyCode == 0x79 || iKeyCode == 0x59) {
-            iInputReceived = -1;
-            restart_net = -1;
-          }
-          if (iKeyCode == 0x6E || iKeyCode == 0x4E)// Handle N/n key: don't restart network
-          {
-            iInputReceived = -1;
-            restart_net = 0;
-          }
-        } else {
-          fatgetch();
-        }
-      }
-      UpdateSDL();
-    } while (!iInputReceived);
-  } else {                                             // General network error: wait for any key or timeout (2160 ticks)
-    while (!fatkbhit() && ticks < 2160)
-      UpdateSDL();
+  iNetworkFuckedActive = -1;
+  iNetworkFuckedScreenActive = -1;
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_INPUT;
+}
+
+int NetworkFuckedUpdate(void)
+{
+  if (!iNetworkFuckedActive)
+    return -1;
+
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_INPUT) {
+    if (!NetworkFuckedProcessInput())
+      return 0;
+
+    if (network_buggered == 666 && !restart_net) {
+      NetworkFuckedBeginQuitBroadcast();
+      return 0;
+    }
+
+    NetworkFuckedCleanupScreen();
+    eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_DONE;
+    iNetworkFuckedActive = 0;
+    return -1;
   }
-  fre(&title_vga);                              // Clean up loaded images and restore original screen settings
-  fre(&font_vga);
-  fre((void **)front_vga);
-  scr_size = iOriginalScreenSize;
-  holdmusic = -1;                               // Hold music and fade out screen
-  fade_palette(0);
-  if (network_buggered == 666 && !restart_net)// If data loss occurred and user chose not to restart, close network
-  {
-    broadcast_mode = -666;
-    while (broadcast_mode)
-      UpdateSDL();
+
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_QUIT_BROADCAST) {
+    if (!network_broadcast_wait_update())
+      return 0;
+
     close_network();
+    eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_DONE;
+    iNetworkFuckedActive = 0;
+    return -1;
   }
+
+  iNetworkFuckedActive = 0;
+  return -1;
+}
+
+void NetworkFuckedExit(void)
+{
+  NetworkFuckedCleanupScreen();
+  iNetworkFuckedActive = 0;
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
 }
 
 //-------------------------------------------------------------------------------------------------
 //0005D560
-void no_cd()
+static int iNoCdOriginalScreenSize = 0;
+static int iNoCdActive = 0;
+static int iNoCdScreenActive = 0;
+
+static void NoCdCleanupScreen(void)
 {
-  int iScrSize; // ebp
+  if (!iNoCdScreenActive)
+    return;
+
+  fre((void**)&title_vga);
+  fre((void**)&font_vga);
+  fre((void**)&front_vga[0]);
+  scr_size = iNoCdOriginalScreenSize;
+  holdmusic = 0;
+  fade_palette(0);
+  iNoCdScreenActive = 0;
+}
+
+void NoCdEnter(void)
+{
   uint8 *pScrBuf; // edi
   char *pTitleVga; // esi
   unsigned int uiScreenTotalBytes; // ecx
   char uiRemainderBytes; // al
   unsigned int uiAlignedCopySize; // ecx
 
-  // disable timing to prepare for error screen display
   tick_on = 0;
-  iScrSize = scr_size;
+  iNoCdOriginalScreenSize = scr_size;
   SVGA_ON = -1;
 
-  // show init screen
   init_screen();
   setpal("resround.pal");
 
-  // set viewport
   winx = 0;
   winw = XMAX;
   winy = 0;
   winh = YMAX;
   mirror = 0;
 
-  // load resources
   title_vga = load_picture("resround.bm");
   font_vga = load_picture("font4.bm");
   front_vga[0] = (tBlockHeader *)load_picture("font5.bm");
 
-  // enable frontend and timing
   frontend_on = -1;
   tick_on = -1;
 
   pScrBuf = scrbuf;
   pTitleVga = (char *)title_vga;
 
-  // determine screen buffer size based on video mode
   if (SVGA_ON)
     uiScreenTotalBytes = 256000;
   else
@@ -5047,33 +5066,34 @@ void no_cd()
   uiRemainderBytes = uiScreenTotalBytes;
   uiAlignedCopySize = uiScreenTotalBytes >> 2;
 
-  // Copy 4-bytes at a time then remainder
   memcpy(scrbuf, title_vga, 4 * uiAlignedCopySize);
   memcpy(&pScrBuf[4 * uiAlignedCopySize], &pTitleVga[4 * uiAlignedCopySize], uiRemainderBytes & 3);
 
-  // Display error text
   front_text(font_vga, &language_buffer[6336], font4_ascii, font4_offsets, 320, 192, 0x8Fu, 1u);
 
-  // Copy to scrbuf and fade in
   copypic(scrbuf, screen);
   fade_palette(32);
 
-  // Wait for user input
   ticks = 0;
-  while (!fatkbhit() && ticks < 2160)
-    UpdateSDL(); //added by ROLLER
+  iNoCdActive = -1;
+  iNoCdScreenActive = -1;
+}
 
-  // Cleanup
-  fre((void**)&title_vga);
-  fre((void**)&font_vga);
-  fre((void**)&front_vga[0]);
+int NoCdUpdate(void)
+{
+  if (!iNoCdActive)
+    return -1;
+  if (!fatkbhit() && ticks < 2160)
+    return 0;
 
-  // Fade out and exit
-  scr_size = iScrSize;
-  holdmusic = 0;
-  fade_palette(0);
-  //__asm { int     10h; -VIDEO - SET VIDEO MODE }
-  doexit();
+  iNoCdActive = 0;
+  return -1;
+}
+
+void NoCdExit(void)
+{
+  NoCdCleanupScreen();
+  iNoCdActive = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5171,7 +5191,7 @@ void front_letter(tBlockHeader *pFont, uint8 byCharIdx, int *iX, int *iY, const 
 
 //-------------------------------------------------------------------------------------------------
 //0005D840
-void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, char byColorReplace, int iScaleSize)
+void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, uint8 byColorReplace, int iScaleSize)
 {
   int byCharIndex; // edx
   int iCharWidth; // ebp
@@ -5228,7 +5248,7 @@ void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursor
 void front_text(
     tBlockHeader *pFont,
     const char *szText,
-    const uint8 *mappingTable,
+    const char *mappingTable,
     int *pCharVOffsets,
     int iX,
     int iY,
@@ -5315,7 +5335,7 @@ void scale_text(tBlockHeader *pFont,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
-                char byColorReplace,
+                uint8 byColorReplace,
                 unsigned int uiAlignment,
                 int iClipLeft,
                 int iClipRight)
@@ -5855,6 +5875,24 @@ LABEL_8:
 }
 
 //-------------------------------------------------------------------------------------------------
+typedef struct
+{
+  int iActive;
+  int iExitFlag;
+  int iSelectedPlayer;
+  int iMenuSelection;
+  unsigned int uiCurrentMenu;
+  int iSendConfirmation;
+  int iMessageLength;
+} tSelectMessagesState;
+
+static tSelectMessagesState s_SelectMessages;
+
+int select_messages_active(void)
+{
+  return s_SelectMessages.iActive;
+}
+
 //0005E300
 void select_messages()
 {
@@ -5874,29 +5912,28 @@ void select_messages()
   unsigned int uiExtendedKey; // eax
   int j; // eax
   int i; // eax
-  int iSendConfirmation; // [esp+4h] [ebp-1Ch]
-  int iMessageLength; // [esp+8h] [ebp-18h]
-  unsigned int uiCurrentMenu; // [esp+Ch] [ebp-14h]
   unsigned int uiPreviousMenu; // [esp+Ch] [ebp-14h]
-  int iSelectedPlayer; // [esp+10h] [ebp-10h]
-  int iMenuSelection; // [esp+14h] [ebp-Ch]
-  int iExitFlag; // [esp+18h] [ebp-8h]
   int iY; // [esp+1Ch] [ebp-4h]
 
-  // Initialize UI state variables
-  iExitFlag = 0;
-  iSelectedPlayer = 0;
-  iMenuSelection = 0;
-  uiCurrentMenu = 0;
-  send_status = 0;
-  send_message_to = -1;
-  iSendConfirmation = 0;
-  iMessageLength = 0;
+#define iExitFlag s_SelectMessages.iExitFlag
+#define iSelectedPlayer s_SelectMessages.iSelectedPlayer
+#define iMenuSelection s_SelectMessages.iMenuSelection
+#define uiCurrentMenu s_SelectMessages.uiCurrentMenu
+#define iSendConfirmation s_SelectMessages.iSendConfirmation
+#define iMessageLength s_SelectMessages.iMessageLength
 
-  // Calculate current message length in send buffer
-  if (send_buffer[0]) {
-    while (send_buffer[++iMessageLength])
-      ;
+  if (!s_SelectMessages.iActive) {
+    // Initialize UI state variables
+    memset(&s_SelectMessages, 0, sizeof(s_SelectMessages));
+    s_SelectMessages.iActive = -1;
+    send_status = 0;
+    send_message_to = -1;
+
+    // Calculate current message length in send buffer
+    if (send_buffer[0]) {
+      while (send_buffer[++iMessageLength])
+        ;
+    }
   }
 MAIN_UI_LOOP:
   if (!iExitFlag)                             // MAIN_UI_LOOP: Main display and input processing loop
@@ -6025,10 +6062,12 @@ MAIN_UI_LOOP:
         show_received_mesage();                 // UPDATE_DISPLAY: Show received messages and copy screen buffer
         copypic(scrbuf, screen);
         while (1) {
-          UpdateSDL();
           // Main input processing loop
-          if (!fatkbhit())
-            goto MAIN_UI_LOOP;
+          if (!fatkbhit()) {
+            if (iExitFlag)
+              s_SelectMessages.iActive = 0;
+            goto SELECT_MESSAGES_DONE;
+          }
           uiKeyCode = fatgetch();
           iCharCode = uiKeyCode;
           if (uiKeyCode < 8) {
@@ -6222,383 +6261,95 @@ MAIN_UI_LOOP:
         goto UPDATE_DISPLAY;                    // Main menu state machine - handle different UI screens
     }
   }
+  s_SelectMessages.iActive = 0;
+
+SELECT_MESSAGES_DONE:
+#undef iExitFlag
+#undef iSelectedPlayer
+#undef iMenuSelection
+#undef uiCurrentMenu
+#undef iSendConfirmation
+#undef iMessageLength
 }
 
 //-------------------------------------------------------------------------------------------------
 //0005EDE0
-void show_received_mesage()
-{                                               // Check if there's a message to display and screen is not fading
+static int iReceivedMessageActive = 0;
+static uint64 ullReceivedMessageDismissTicksMs = 0;
+static char szReceivedMessageBuf[sizeof(rec_mes_buf) + 1];
+static char szReceivedMessageName[sizeof(rec_mes_name) + 1];
+
+static void drain_received_message_keys(void)
+{
+  while (fatkbhit()) {
+    if (!fatgetch())
+      fatgetch();
+  }
+}
+
+static void draw_received_message(void)
+{
   int iRecMesWidth; // ebx
   int iBufStrWidth; // eax
   int iWindowLeft; // ecx
   int iWindowRight; // edx
   int iAdjustedLeft; // ecx
 
-  if (rec_status > 0 && front_fade) {
-    sprintf(buffer, "%s %s", &language_buffer[7744], rec_mes_name);// Format message header with sender name
-    iRecMesWidth = stringwidth(rec_mes_buf);    // Calculate width of the actual message text
-    iBufStrWidth = stringwidth(buffer);         // Calculate width of the header (sender info)
-    if (iBufStrWidth > iRecMesWidth)          // Use the wider of the two strings for window width
-      iRecMesWidth = iBufStrWidth;
-    iWindowLeft = 400 - iRecMesWidth / 2;       // Calculate left edge of window (center at x=400)
-    if (iWindowLeft < 180)                    // Ensure window doesn't go too far left (min x=180)
-      iWindowLeft = 180;
-    iWindowRight = iRecMesWidth / 2 + 408;      // Calculate right edge of window
-    iAdjustedLeft = iWindowLeft - 8;
-    if (iWindowRight > 639)                   // Ensure window doesn't go past screen edge (max x=639)
-      iWindowRight = 639;
-    blankwindow(iAdjustedLeft / 2, 86, iWindowRight / 2, 118);// Draw message window background (coordinates are halved for some reason)
-    scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 400, 180, 143, 1u, 180, 640);// Draw sender info text at y=180
-    scale_text(front_vga[15], rec_mes_buf, font1_ascii, font1_offsets, 400, 210, 143, 1u, 180, 640);// Draw message text at y=210
-    copypic(scrbuf, screen);                    // Copy rendered screen buffer to display
+  sprintf(buffer, "%s %s", &language_buffer[7744], szReceivedMessageName);// Format message header with sender name
+  iRecMesWidth = stringwidth(szReceivedMessageBuf);// Calculate width of the actual message text
+  iBufStrWidth = stringwidth(buffer);           // Calculate width of the header (sender info)
+  if (iBufStrWidth > iRecMesWidth)              // Use the wider of the two strings for window width
+    iRecMesWidth = iBufStrWidth;
+  iWindowLeft = 400 - iRecMesWidth / 2;         // Calculate left edge of window (center at x=400)
+  if (iWindowLeft < 180)                        // Ensure window doesn't go too far left (min x=180)
+    iWindowLeft = 180;
+  iWindowRight = iRecMesWidth / 2 + 408;        // Calculate right edge of window
+  iAdjustedLeft = iWindowLeft - 8;
+  if (iWindowRight > 639)                       // Ensure window doesn't go past screen edge (max x=639)
+    iWindowRight = 639;
+  blankwindow(iAdjustedLeft / 2, 86, iWindowRight / 2, 118);// Draw message window background (coordinates are halved for some reason)
+  scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 400, 180, 143, 1u, 180, 640);// Draw sender info text at y=180
+  scale_text(front_vga[15], szReceivedMessageBuf, font1_ascii, font1_offsets, 400, 210, 143, 1u, 180, 640);// Draw message text at y=210
+  copypic(scrbuf, screen);                      // Copy rendered screen buffer to display
+}
+
+void show_received_mesage()
+{                                               // Check if there's a message to display and screen is not fading
+  if (!front_fade) {
+    iReceivedMessageActive = 0;
+    return;
+  }
+
+  if (!iReceivedMessageActive) {
+    if (rec_status <= 0)
+      return;
+
+    strncpy(szReceivedMessageBuf, rec_mes_buf, sizeof(szReceivedMessageBuf) - 1);
+    szReceivedMessageBuf[sizeof(szReceivedMessageBuf) - 1] = '\0';
+    strncpy(szReceivedMessageName, rec_mes_name, sizeof(szReceivedMessageName) - 1);
+    szReceivedMessageName[sizeof(szReceivedMessageName) - 1] = '\0';
     rec_status = 0;                             // Clear message received flag
-    frames = 0;                                 // Reset frame counter for message display duration
-    do {
-      if (time_to_start)
-        break;
-      while (fatkbhit()) {
-        if (!fatgetch())
-          fatgetch();
-        UpdateSDL();
-      }
-      UpdateSDL();
-    } while (frames < 72);                      // Show message for at least 72 frames
-    if (frames >= 72 && !time_to_start)       // After 72 frames, wait for any key press to dismiss
-    {
-      while (!fatkbhit() && !time_to_start)
-        UpdateSDL();
-      while (fatkbhit() && !time_to_start) {
-        if (!fatgetch())
-          fatgetch();
-        UpdateSDL();
-      }
-    }
-    frames = 0;                                 // Reset frame counter when done
+    ullReceivedMessageDismissTicksMs = SDL_GetTicks() + 2000;
+    iReceivedMessageActive = -1;
   }
-}
 
-//-------------------------------------------------------------------------------------------------
-static void AddCachedNetworkSlotNodes(int iSlot)
-{
-  if (iSlot < 0 || iSlot >= 4)
+  draw_received_message();
+
+  if (time_to_start) {
+    iReceivedMessageActive = 0;
+    return;
+  }
+
+  if (SDL_GetTicks() < ullReceivedMessageDismissTicksMs) {
+    drain_received_message_keys();
+    return;
+  }
+
+  if (!fatkbhit())
     return;
 
-  int iCachedNodes = gamers_playing[iSlot];
-  if (iCachedNodes <= 0 || iCachedNodes > 16)
-    return;
-
-  for (int i = 0; i < iCachedNodes; i++) {
-    ROLLERCommsAddNode(&gamers_address[iSlot][i]);
-  }
-  ROLLERCommsSortNodes();
-}
-
-//-------------------------------------------------------------------------------------------------
-//0005EFB0
-int select_netslot()
-{
-  int iSlot1PlayerCount; // ebx
-  int iStringIndex; // esi
-  int iCurrentSlot; // ebp
-  int iDigitIndex; // edx
-  int i; // eax
-  //char byDigitChar; // bl
-  int iSlotCounter; // edx
-  int iSlotIndex; // eax
-  uint8 *pScreenBuffer; // edi
-  tBlockHeader *pBlockHeader; // esi
-  unsigned int uiBufferSize; // ecx
-  char byBufferSizeByte; // al
-  unsigned int uiQwordCopySize; // ecx
-  char *pSlot1Names; // esi
-  int iSlot1YPos; // edi
-  int iSlot2PlayerIndex; // edi
-  char *pSlot2Names; // esi
-  char *pSlot3Names; // esi
-  int iSlot3YPos; // edi
-  int iSlot4PlayerIndex; // edi
-  char *pSlot4Names; // esi
-  unsigned int uiKeyCode; // eax
-  int iNextSlot; // ebx
-  unsigned int uiExtendedKey; // eax
-  int iPrevSlot; // edx
-  int iLeftSearchSlot; // eax
-  int iRightSearchSlot; // edx
-  int iRightSearchIndex; // eax
-  int textColor[4]; // [esp+0h] [ebp-4Ch]
-  char szSlotNumberBuffer[12]; // [esp+10h] [ebp-3Ch]
-  int iY; // [esp+1Ch] [ebp-30h]
-  int iReturnValue; // [esp+20h] [ebp-2Ch]
-  int iExitFlag; // [esp+24h] [ebp-28h]
-  int iSlot4YPos; // [esp+28h] [ebp-24h]
-  int iSlot3PlayerIndex; // [esp+2Ch] [ebp-20h]
-  int iSlot1PlayerIndex; // [esp+30h] [ebp-1Ch]
-
-  iExitFlag = 0;                                // Initialize network slot selection variables
-  network_slot = -1;
-  iReturnValue = -1;
-  Initialise_Network(-1);                       // Initialize network with slot -1 (discovery mode)
-  if (network_on) {
-    iReturnValue = 0;
-    iSlot1PlayerCount = 0;
-    iStringIndex = 7;
-    iCurrentSlot = 0;
-    szSlotNumberBuffer[8] = 0;                  // Setup slot number string conversion and text colors
-    textColor[1] = 0x83;
-    textColor[2] = 0x83;
-    textColor[3] = 0x83;
-    textColor[0] = 0xAB;
-    do {
-      szSlotNumberBuffer[iStringIndex--] = iSlot1PlayerCount % 10 + '0';// Convert slot number to ASCII digits (reverse order)
-      iSlot1PlayerCount /= 10;
-    } while (iSlot1PlayerCount > 0);
-
-    // Copy digits from conversion area to display area of buffer
-    iDigitIndex = 0;
-    for (i = iStringIndex + 1; i < 8; ++i) {
-        szSlotNumberBuffer[iDigitIndex + 3] = szSlotNumberBuffer[i];
-        ++iDigitIndex;
-    }
-    //for (i = iStringIndex + 1; i < 8; *((_BYTE *)&textColor[3] + iDigitIndex + 3) = byDigitChar)// Copy converted digits to buffer in correct order
-    //{
-    //  ++iDigitIndex;
-    //  byDigitChar = szSlotNumberBuffer[i++];
-    //}                                           // 
-                                                // 
-    while (1)                                 // MAIN_DISPLAY_LOOP: Main UI display and input loop
-    {
-      if (network_on) {
-        CheckNewNodes();
-        BroadcastNews();
-      }
-      UpdateSDL();
-      if (iExitFlag)
-        return iReturnValue;
-
-      // Update slot selection colors (highlight current slot)
-      iSlotCounter = 0;
-      iSlotIndex = 0;
-      do {
-        if (gamers_playing[iSlotIndex] == 16) {
-          if (iSlotCounter == iCurrentSlot)
-            textColor[iSlotIndex] = 0xA8;
-          else
-            textColor[iSlotIndex] = 0x7F;
-        }
-        ++iSlotCounter;
-        ++iSlotIndex;
-      } while (iSlotCounter < 4);
-
-      // Setup screen buffer and copy VGA frame
-      pScreenBuffer = scrbuf;
-      pBlockHeader = front_vga[0];
-      if (SVGA_ON)
-        uiBufferSize = 256000;
-      else
-        uiBufferSize = 64000;
-      byBufferSizeByte = uiBufferSize;
-      uiQwordCopySize = uiBufferSize >> 2;
-      memcpy(scrbuf, front_vga[0], 4 * uiQwordCopySize);
-      memcpy(&pScreenBuffer[4 * uiQwordCopySize], &pBlockHeader->iWidth + uiQwordCopySize, byBufferSizeByte & 3);
-
-      // Display UI elements: header, panels, game type
-      display_block(scrbuf, front_vga[1], 3, head_x, head_y, 0);
-      display_block(scrbuf, front_vga[6], 0, 36, 2, 0);
-      display_block(scrbuf, front_vga[5], 1, -4, 247, 0);
-      display_block(scrbuf, front_vga[5], game_type + 5, 135, 247, 0);
-      display_block(scrbuf, front_vga[4], 4, 76, 257, -1);
-      display_block(scrbuf, front_vga[6], 4, 62, 336, -1);
-      scale_text(front_vga[15], &language_buffer[6528], font1_ascii, font1_offsets, 400, 55, 143, 1u, 200, 640);// Display slot selection instructions
-      scale_text(front_vga[15], &language_buffer[6592], font1_ascii, font1_offsets, 400, 73, 143, 1u, 200, 640);
-      sprintf(buffer, "%s1", &language_buffer[7808]);// Display Slot 1 header and status
-      scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 260, 92, textColor[0], 1u, 200, 320);
-      if (gamers_playing[0] < 0) {
-        if (gamers_playing[0] == -2) {
-          scale_text(front_vga[15], &language_buffer[8000], font1_ascii, font1_offsets, 260, 200, textColor[0], 1u, 200, 319);
-          goto SLOT2_DISPLAY;
-        }
-      } else {
-        if (gamers_playing[0] <= 0) {
-          scale_text(front_vga[15], &language_buffer[7872], font1_ascii, font1_offsets, 260, 200, textColor[0], 1u, 200, 319);
-          goto SLOT2_DISPLAY;
-        }
-        if (gamers_playing[0] == 16) {
-          scale_text(front_vga[15], &language_buffer[7936], font1_ascii, font1_offsets, 260, 200, textColor[0], 1u, 200, 319);
-          goto SLOT2_DISPLAY;
-        }
-      }
-      iSlot1PlayerIndex = 0;
-
-      // Display Slot 1 player names if slot has players
-      if (gamers_playing[0] > 0) {
-        pSlot1Names = gamers_names[0];
-        iSlot1YPos = 110;
-        do {
-          scale_text(front_vga[15], pSlot1Names, font1_ascii, font1_offsets, 260, iSlot1YPos, textColor[0], 1u, 200, 319);
-          pSlot1Names += 9;
-          iSlot1YPos += 18;
-          ++iSlot1PlayerIndex;
-        } while (iSlot1PlayerIndex < gamers_playing[0]);
-      }
-    SLOT2_DISPLAY:
-          // SLOT2_DISPLAY: Display Slot 2 header and status
-      sprintf(buffer, "%s2", &language_buffer[7808]);
-      scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 370, 92, textColor[1], 1u, 200, 640);
-      if (gamers_playing[1] < 0) {
-        if (gamers_playing[1] == -2) {
-          scale_text(front_vga[15], &language_buffer[8000], font1_ascii, font1_offsets, 370, 200, textColor[1], 1u, 321, 419);
-          goto SLOT3_DISPLAY;
-        }
-      } else {
-        if (gamers_playing[1] <= 0) {
-          scale_text(front_vga[15], &language_buffer[7872], font1_ascii, font1_offsets, 370, 200, textColor[1], 1u, 321, 419);
-          goto SLOT3_DISPLAY;
-        }
-        if (gamers_playing[1] == 16) {
-          scale_text(front_vga[15], &language_buffer[7936], font1_ascii, font1_offsets, 370, 200, textColor[1], 1u, 321, 419);
-          goto SLOT3_DISPLAY;
-        }
-      }
-      iSlot2PlayerIndex = 0;
-
-      // Display Slot 2 player names if slot has players
-      if (gamers_playing[1] > 0) {
-        pSlot2Names = gamers_names[1];
-        iY = 110;
-        do {
-          scale_text(front_vga[15], pSlot2Names, font1_ascii, font1_offsets, 370, iY, textColor[1], 1u, 321, 419);
-          ++iSlot2PlayerIndex;
-          pSlot2Names += 9;
-          iY += 18;
-        } while (iSlot2PlayerIndex < gamers_playing[1]);
-      }
-    SLOT3_DISPLAY:
-          // SLOT3_DISPLAY: Display Slot 3 header and status
-      sprintf(buffer, "%s3", &language_buffer[7808]);
-      scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 474, 92, textColor[2], 1u, 200, 640);
-      if (gamers_playing[2] < 0) {
-        if (gamers_playing[2] == -2) {
-          scale_text(front_vga[15], &language_buffer[8000], font1_ascii, font1_offsets, 474, 200, textColor[2], 1u, 421, 519);
-          goto SLOT4_DISPLAY;
-        }
-      } else {
-        if (gamers_playing[2] <= 0) {
-          scale_text(front_vga[15], &language_buffer[7872], font1_ascii, font1_offsets, 474, 200, textColor[2], 1u, 421, 519);
-          goto SLOT4_DISPLAY;
-        }
-        if (gamers_playing[2] == 16) {
-          scale_text(front_vga[15], &language_buffer[7936], font1_ascii, font1_offsets, 474, 200, textColor[2], 1u, 421, 519);
-          goto SLOT4_DISPLAY;
-        }
-      }
-      iSlot3PlayerIndex = 0;
-
-      // Display Slot 3 player names if slot has players
-      if (gamers_playing[2] > 0) {
-        pSlot3Names = gamers_names[2];
-        iSlot3YPos = 110;
-        do {
-          scale_text(front_vga[15], pSlot3Names, font1_ascii, font1_offsets, 474, iSlot3YPos, textColor[2], 1u, 421, 519);
-          pSlot3Names += 9;
-          iSlot3YPos += 18;
-          ++iSlot3PlayerIndex;
-        } while (iSlot3PlayerIndex < gamers_playing[2]);
-      }
-    SLOT4_DISPLAY:
-          // SLOT4_DISPLAY: Display Slot 4 header and status
-      sprintf(buffer, "%s4", &language_buffer[7808]);
-      scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 580, 92, textColor[3], 1u, 520, 640);
-      if (gamers_playing[3] < 0) {
-        if (gamers_playing[3] == -2) {
-          scale_text(front_vga[15], &language_buffer[8000], font1_ascii, font1_offsets, 580, 200, textColor[3], 1u, 521, 639);
-          goto UPDATE_DISPLAY;
-        }
-      } else {
-        if (gamers_playing[3] <= 0) {
-          scale_text(front_vga[15], &language_buffer[7872], font1_ascii, font1_offsets, 580, 200, textColor[3], 1u, 521, 639);
-          goto UPDATE_DISPLAY;
-        }
-        if (gamers_playing[3] == 16) {
-          scale_text(front_vga[15], &language_buffer[7936], font1_ascii, font1_offsets, 580, 200, textColor[3], 1u, 521, 639);
-          goto UPDATE_DISPLAY;
-        }
-      }
-      iSlot4PlayerIndex = 0;
-
-      // Display Slot 4 player names if slot has players
-      if (gamers_playing[3] > 0) {
-        pSlot4Names = gamers_names[3];
-        iSlot4YPos = 110;
-        do {
-          scale_text(front_vga[15], pSlot4Names, font1_ascii, font1_offsets, 580, iSlot4YPos, textColor[3], 1u, 521, 639);
-          ++iSlot4PlayerIndex;
-          pSlot4Names += 9;
-          iSlot4YPos += 18;
-        } while (iSlot4PlayerIndex < gamers_playing[3]);
-      }
-    UPDATE_DISPLAY:
-          // UPDATE_DISPLAY: Show received messages and update screen
-      show_received_mesage();
-      copypic(scrbuf, screen);
-
-      // Input processing loop - handle keyboard input
-      while (fatkbhit()) {
-        uiKeyCode = fatgetch();
-        iNextSlot = iCurrentSlot + 1;
-        if (uiKeyCode < 0xD) {                                       // Handle extended keys (arrows)
-          if (!uiKeyCode) {
-            uiExtendedKey = fatgetch();
-            if (uiExtendedKey >= WHIP_SCANCODE_LEFT) {
-              if (uiExtendedKey <= WHIP_SCANCODE_LEFT) {                                 // Left arrow - move to previous available slot
-                if (iCurrentSlot > 0) {
-                  textColor[iCurrentSlot] = 131;
-                  iPrevSlot = iCurrentSlot - 1;
-                  if (iCurrentSlot - 1 > 0) {
-                    iLeftSearchSlot = iPrevSlot;
-                    do {
-                      if (gamers_playing[iLeftSearchSlot] != 16)
-                        break;                  // Skip slots with status 16 (unavailable) when going left
-                      --iLeftSearchSlot;
-                      --iPrevSlot;
-                    } while (iLeftSearchSlot > 0);
-                  }
-                  if (gamers_playing[iPrevSlot] < 16)
-                    iCurrentSlot = iPrevSlot;
-                  textColor[iCurrentSlot] = 171;
-                }
-              } else if (uiExtendedKey == WHIP_SCANCODE_RIGHT && iCurrentSlot < 3)// Right arrow - move to next available slot
-              {
-                textColor[iCurrentSlot] = 131;
-                iRightSearchSlot = iCurrentSlot + 1;
-                if (iNextSlot < 3) {
-                  iRightSearchIndex = iNextSlot;
-                  do {
-                    if (gamers_playing[iRightSearchIndex] != 16)
-                      break;                    // Skip slots with status 16 (unavailable) when going right
-                    ++iRightSearchIndex;
-                    ++iRightSearchSlot;
-                  } while (iRightSearchIndex < 3);
-                }
-                if (gamers_playing[iRightSearchSlot] < 16)
-                  iCurrentSlot = iRightSearchSlot;
-                textColor[iCurrentSlot] = 171;
-              }
-            }
-          }
-        } else if (uiKeyCode <= 0xD) {                                       // Enter key - select current slot if available
-          if ((unsigned int)gamers_playing[iCurrentSlot] < 16) {
-            AddCachedNetworkSlotNodes(iCurrentSlot);
-            iExitFlag = -1;
-            iReturnValue = iCurrentSlot + 1;
-          }
-        } else if (uiKeyCode == 27) {
-          iExitFlag = -1;                       // Escape key - cancel slot selection
-          iReturnValue = -2;
-        }
-      }
-    }
-  }
-  return iReturnValue;
+  drain_received_message_keys();
+  iReceivedMessageActive = 0;
 }
 
 //-------------------------------------------------------------------------------------------------

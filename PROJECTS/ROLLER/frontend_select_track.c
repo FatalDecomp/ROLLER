@@ -29,10 +29,12 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_track_select_run_snapshot(void);
+
 void snapshot_render_menu_select_track(void)
 {
   snapshot_setup_frontend_menu_state(0);
-  select_track();
+  frontend_track_select_run_snapshot();
 }
 
 static int iFrontendTrackAnimationTimer = 0;
@@ -41,10 +43,25 @@ static int iFrontendTrackCurrentTrack = 0;
 static int iFrontendTrackSoundFlag = 0;
 static int iFrontendTrackYaw = 0;
 static int iFrontendTrackExitFlag = 0;
+static int iFrontendTrackExitFading = 0;
 static int iFrontendTrackSpeechPending = 0;
 static float fFrontendTrackZoom = 0.0f;
 static float fFrontendTrackAnimatedZoom = 0.0f;
 static float fFrontendTrackTargetZoom = 0.0f;
+
+static void frontend_track_select_begin_broadcast_wait(int iBroadcastMode)
+{
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static int frontend_track_select_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  (void)network_broadcast_wait_update();
+  return -1;
+}
 
 static void frontend_track_select_black_palette(void)
 {
@@ -59,8 +76,11 @@ static void frontend_track_select_black_palette(void)
 static void frontend_track_select_request_exit(void)
 {
   iFrontendTrackExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendTrackExitFading = 1;
+  }
 }
 
 static void frontend_track_select_apply_type_switch(void)
@@ -241,11 +261,8 @@ static void frontend_track_select_update_animation(int iFrameCount,
       fFrontendTrackZoom = cur_TrackZ;
       iFrontendTrackSoundFlag = -1;
       fFrontendTrackTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
-      if (*piPrevTrackLoad != -1) {
-        broadcast_mode = -1;
-        while (broadcast_mode)
-          UpdateSDL();
-      }
+      if (*piPrevTrackLoad != -1)
+        frontend_track_select_begin_broadcast_wait(-1);
       *piPrevTrackLoad = -1;
       frames = 0;
     }
@@ -361,6 +378,7 @@ void frontend_track_select_enter(void)
   iFrontendTrackSoundFlag = 0;
   front_fade = 0;
   iFrontendTrackExitFlag = 0;
+  iFrontendTrackExitFading = 0;
   iFrontendTrackSpeechPending = 0;
   if (TrackLoad > 0) {
     iFrontendTrackSelectedTrack = ((uint8)TrackLoad - 1) & 7;
@@ -416,9 +434,22 @@ void frontend_track_select_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (iFrontendTrackExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendTrackExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   frontend_track_select_apply_same_car_switch();
+  if (frontend_track_select_update_broadcast_wait())
+    return;
   frontend_track_select_update_animation(iFrameCount, &iPrevTrackLoad,
                                          iStartedFadeIn);
+  if (frontend_track_select_update_broadcast_wait())
+    return;
   frontend_track_select_handle_input(iBlockIdx);
   iFrontendTrackYaw =
       ((uint16)iFrontendTrackYaw + 32 * (uint16)iFrameCount) & 0x3FFF;
@@ -426,13 +457,9 @@ void frontend_track_select_update(void)
 
 void frontend_track_select_exit(void)
 {
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendTrackExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_track_select_black_palette();
-  }
 
   front_fade = 0;
   fre((void **)&front_vga[3]);
@@ -447,13 +474,13 @@ void frontend_track_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00049070
-void select_track()
+static void frontend_track_select_run_snapshot(void)
 {
   frontend_track_select_enter();
   while (!iFrontendTrackExitFlag && !SnapshotShouldStop()) {
     frontend_track_select_update();
     if (!iFrontendTrackExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_track_select_exit();

@@ -64,6 +64,8 @@ void game_render_set_projection(GameRenderer *renderer,
 // Unified texture loading
 // tex_idx: use TEXTURE_BANK_* constants.
 // gfx_size determines layout: 0=64x64, 1=32x32.
+// Returned handles are GameRenderer-level texture-bank tokens. The renderer
+// translates them to the active backend's internal slot at draw time.
 TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        uint8 *pixelData,
                                        int width, int height,
@@ -71,7 +73,7 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
 void game_render_free_texture(GameRenderer *renderer,
                               TextureHandle handle);
 
-// Look up the handle registered for a given texture bank index
+// Look up the GameRenderer-level handle registered for a texture bank index.
 TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
                                              int tex_idx);
 
@@ -134,7 +136,5 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette);
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames);
 int game_render_fade_active(GameRenderer *renderer);
-void game_render_fade_wait(GameRenderer *renderer,
-                           void (*redraw_fn)(void *ctx), void *ctx);
 
 #endif

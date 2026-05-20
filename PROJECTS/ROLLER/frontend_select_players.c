@@ -28,12 +28,14 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_players_select_run_snapshot(void);
+
 void snapshot_render_menu_select_players(void)
 {
   snapshot_setup_frontend_menu_state(0);
   player_type = 2;
   players = 2;
-  select_players();
+  frontend_players_select_run_snapshot();
 }
 
 static unsigned int iFrontendPlayersSelectedPlayerType = 0;
@@ -41,8 +43,12 @@ static int iFrontendPlayersNetworkStatus = 0;
 static int iFrontendPlayersNetworkMode = 0;
 static int iFrontendPlayersNetworkSetupFlag = 0;
 static int iFrontendPlayersExitFlag = 0;
+static int iFrontendPlayersExitFading = 0;
 static int iFrontendPlayersNetSlotPhase = 0;
 static int iFrontendPlayersNetSlotCurrent = 0;
+static int iFrontendPlayersBroadcastWaitAction = 0;
+static int iFrontendPlayersCloseNetworkStartFrame = 0;
+static int iFrontendPlayersCloseNetworkPending = 0;
 
 enum {
   ePLAYERS_NET_SLOT_NONE = 0,
@@ -52,6 +58,61 @@ enum {
   ePLAYERS_NET_SLOT_LEAVE_WAIT,
   ePLAYERS_NET_SLOT_SETUP_WAIT
 };
+
+enum {
+  ePLAYERS_BROADCAST_WAIT_NONE = 0,
+  ePLAYERS_BROADCAST_WAIT_NETWORK_SETUP,
+  ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK,
+  ePLAYERS_BROADCAST_WAIT_SAME_CAR
+};
+
+static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
+                                                         int iAction)
+{
+  iFrontendPlayersBroadcastWaitAction = iAction;
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static void frontend_players_select_finish_broadcast_wait(void)
+{
+  int iAction = iFrontendPlayersBroadcastWaitAction;
+  iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
+
+  switch (iAction) {
+    case ePLAYERS_BROADCAST_WAIT_NETWORK_SETUP:
+      iFrontendPlayersNetworkSetupFlag = 0;
+      break;
+    case ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK:
+      iFrontendPlayersCloseNetworkStartFrame = frames;
+      iFrontendPlayersCloseNetworkPending = -1;
+      break;
+    default:
+      break;
+  }
+}
+
+static int frontend_players_select_update_broadcast_wait(void)
+{
+  if (iFrontendPlayersCloseNetworkPending) {
+    if ((uint16)(frames - iFrontendPlayersCloseNetworkStartFrame) < 3)
+      return -1;
+
+    iFrontendPlayersCloseNetworkPending = 0;
+    iFrontendPlayersCloseNetworkStartFrame = 0;
+    close_network();
+    iFrontendPlayersNetworkMode = 0;
+    iFrontendPlayersSelectedPlayerType = 0;
+    return -1;
+  }
+
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  if (network_broadcast_wait_update())
+    frontend_players_select_finish_broadcast_wait();
+
+  return -1;
+}
 
 static void frontend_players_select_clamp_selection(void)
 {
@@ -308,15 +369,22 @@ static int frontend_players_net_slot_update(void)
 static void frontend_players_select_request_exit(void)
 {
   iFrontendPlayersExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendPlayersExitFading = 1;
+  }
 }
 
 void frontend_players_select_enter(void)
 {
   iFrontendPlayersExitFlag = 0;
+  iFrontendPlayersExitFading = 0;
   iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
   iFrontendPlayersNetSlotCurrent = 0;
+  iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
+  iFrontendPlayersCloseNetworkPending = 0;
+  iFrontendPlayersCloseNetworkStartFrame = 0;
   fade_palette(0);
   iFrontendPlayersSelectedPlayerType = player_type;
   front_fade = 0;
@@ -340,7 +408,6 @@ void frontend_players_select_enter(void)
 
 void frontend_players_select_update(void)
 {
-  uint32 uiCheatArrayOffset;
   int iCheatPlayerLoop;
   int iCheatPlayerIndex;
   int iPlayerCarIndex;
@@ -353,6 +420,11 @@ void frontend_players_select_update(void)
   int iY;
   char *szText;
   int iPlayerListCount;
+
+  if (select_messages_active()) {
+    select_messages();
+    return;
+  }
 
   frontend_players_select_clamp_selection();
 
@@ -387,33 +459,24 @@ void frontend_players_select_update(void)
   if (iFrontendPlayersNetworkStatus &&
       iFrontendPlayersSelectedPlayerType == 1)
     menu_render_scaled_text(mr, 15, &language_buffer[4992], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
-  do {
-    uiCheatArrayOffset = broadcast_mode;
-    UpdateSDL();
-  } while (broadcast_mode);
-  (void)uiCheatArrayOffset;
   if (switch_same > 0) {                      // CHEAT MODE HANDLING: Process switch_same command for car synchronization
     for (iCheatPlayerIndex = 0; iCheatPlayerIndex < players; ++iCheatPlayerIndex)
       Players_Cars[iCheatPlayerIndex] = switch_same - 666;
     if ((cheat_mode & 0x4000) == 0)
-      broadcast_mode = -1;
-    while (broadcast_mode)
-      UpdateSDL();
+      frontend_players_select_begin_broadcast_wait(
+          -1, ePLAYERS_BROADCAST_WAIT_SAME_CAR);
     cheat_mode |= CHEAT_MODE_CLONES;
   } else if (switch_same < 0) {
-    switch_same = broadcast_mode;
+    switch_same = 0;
     for (iCheatPlayerLoop = 0; iCheatPlayerLoop < players; ++iCheatPlayerLoop)
       Players_Cars[iCheatPlayerLoop] = -1;
     cheat_mode &= ~CHEAT_MODE_CLONES;
   }
   if (iFrontendPlayersNetworkMode) {          // NETWORK MODE UI: Show connection info and player list
     if (iFrontendPlayersNetworkSetupFlag) {
-      while (broadcast_mode)
-        UpdateSDL();
-      broadcast_mode = -667;
-      while (broadcast_mode)
-        UpdateSDL();
-      iFrontendPlayersNetworkSetupFlag = 0;
+      if (!network_broadcast_wait_active())
+        frontend_players_select_begin_broadcast_wait(
+            -667, ePLAYERS_BROADCAST_WAIT_NETWORK_SETUP);
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
     iPlayerListCount = 0;
@@ -433,7 +496,6 @@ void frontend_players_select_update(void)
         iY += 18;
         ++iPlayerListCount;
 
-        UpdateSDL();
       } while (iPlayerListCount < network_on);
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
@@ -462,6 +524,19 @@ void frontend_players_select_update(void)
   if (SnapshotShouldStop())
     return;
   }                                           // end RENDER FRAME (GPU)
+
+  if (iFrontendPlayersExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendPlayersExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
+  if (frontend_players_select_update_broadcast_wait())
+    return;
+
   while (fatkbhit())                          // KEYBOARD INPUT PROCESSING: Handle navigation and selection
   {
     byInputKey = fatgetch();
@@ -546,19 +621,12 @@ void frontend_players_select_update(void)
       if (byInputKey == 113) {                // Q/q keys: Quit network and return to player selection
       LABEL_121:
         if (network_on) {
-          broadcast_mode = -666;
-          while (broadcast_mode)
-            UpdateSDL();
-          frames = 0;
-          while (frames < 3)
-            ;
-          close_network();
-          iFrontendPlayersNetworkMode = 0;
-          iFrontendPlayersSelectedPlayerType = 0;
+          frontend_players_select_begin_broadcast_wait(
+              -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
+          return;
         }
       }
     }
-    UpdateSDL();
   }
 }
 
@@ -570,11 +638,8 @@ void frontend_players_select_exit(void)
   } else {
     player_type = (int)iFrontendPlayersSelectedPlayerType;
   }
-  // GPU fade-out
-  {
-    MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendPlayersExitFading = 0;
+  if (!SnapshotShouldStop()) {
     palette_brightness = 0;
     for (int i = 0; i < 256; i++) {
       pal_addr[i].byR = 0;
@@ -590,13 +655,13 @@ void frontend_players_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00047000
-void select_players()
+static void frontend_players_select_run_snapshot(void)
 {
   frontend_players_select_enter();
   while (!iFrontendPlayersExitFlag && !SnapshotShouldStop()) {
     frontend_players_select_update();
     if (!iFrontendPlayersExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_players_select_exit();

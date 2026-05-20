@@ -1386,6 +1386,15 @@ static void scene_render_sw_bind_target(SceneRendererSoftware *sw) {
     screen_pointer = sw->targetBuffer + sw->viewportY * sw->targetStride + sw->viewportX;
 }
 
+static SceneTextureSlot *scene_render_sw_texture_slot(SceneRendererSoftware *sw,
+                                                      SceneTextureHandle handle) {
+    if (!sw || handle <= 0 || handle >= SCENE_RENDER_MAX_TEXTURE_SLOTS)
+        return NULL;
+    if (!sw->texSlots[handle].in_use || !sw->texSlots[handle].pixels)
+        return NULL;
+    return &sw->texSlots[handle];
+}
+
 SceneRendererSoftware *scene_render_sw_create(SDL_GPUDevice *device,
                                               SDL_Window *window) {
     (void)device;
@@ -1472,6 +1481,9 @@ SceneTextureHandle scene_render_sw_load_texture(SceneRendererSoftware *sw,
             scene_render_sw_free_texture(sw, old);
     }
 
+    if (!pixelData)
+        return SCENE_TEXTURE_HANDLE_INVALID;
+
     for (int i = 1; i < SCENE_RENDER_MAX_TEXTURE_SLOTS; i++) {
         if (!sw->texSlots[i].in_use) {
             sw->texSlots[i].pixels = pixelData;
@@ -1519,6 +1531,7 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
 
     const SceneRenderCamera *cam = &sw->camera;
     const SceneRenderProjection *proj = &sw->proj;
+    SceneTextureSlot *slot = scene_render_sw_texture_slot(sw, handle);
 
     int useCloudProjection = options.subdivideType == SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD;
     int subpolyType;
@@ -1526,9 +1539,7 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
         subpolyType = SUBPOLY_STANDARD;
     } else if (options.subdivideType != SCENE_RENDER_SUBDIVIDE_TYPE_AUTO) {
         subpolyType = options.subdivideType;
-    } else if (handle > 0 && handle < SCENE_RENDER_MAX_TEXTURE_SLOTS
-        && sw->texSlots[handle].in_use
-        && sw->texSlots[handle].tex_idx == TEXTURE_BANK_BUILDING) {
+    } else if (slot && slot->tex_idx == TEXTURE_BANK_BUILDING) {
         subpolyType = SUBPOLY_BUILDING;
     } else if ((surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) && wide_on) {
         subpolyType = SUBPOLY_WALL;
@@ -1615,10 +1626,9 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
             useDirect = 1;
     }
 
-    if (useDirect && handle == SCENE_TEXTURE_HANDLE_INVALID) {
+    if (useDirect && !slot) {
         POLYFLAT(screen_pointer, &poly);
     } else if (useDirect) {
-        SceneTextureSlot *slot = &sw->texSlots[handle];
         POLYTEX(slot->pixels, screen_pointer, &poly,
                 slot->tex_idx, slot->texHalfRes);
     } else {

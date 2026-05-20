@@ -94,6 +94,16 @@ static int NetworkPlayerCarOrNone(int iCarIdx, const char *szContext, int iNode)
   return -1;
 }
 
+static int NetworkRecordIdxIsValid(int iRecordIdx, const char *szContext)
+{
+  if (iRecordIdx > 0 && iRecordIdx < 25)
+    return -1;
+
+  SDL_Log("[NET] ignored invalid record index %d in %s",
+          iRecordIdx, szContext ? szContext : "record-sync");
+  return 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static int IsInvalidPacketAddress(const int32 pAddress[4])
@@ -145,6 +155,48 @@ static void UpdateDiscoveryTransport(const int32 pAddress[4], const int32 pTrans
   if (IsInvalidPacketAddress(pTransportAddress) || IsLocalPacketAddress(pTransportAddress))
     return;
   ROLLERCommsUpdateNodeTransportAddr(pAddress, pTransportAddress);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int LobbyAddressMatchesPacket(const int32 pLobbyAddress[4],
+                                     const int32 pAddress[4],
+                                     const int32 pTransportAddress[4])
+{
+  if (memcmp(pLobbyAddress, pAddress, sizeof(tROLLERNetAddr)) == 0)
+    return -1;
+
+  if (!IsInvalidPacketAddress(pTransportAddress) &&
+      memcmp(pLobbyAddress, pTransportAddress, sizeof(tROLLERNetAddr)) == 0)
+    return -1;
+
+  int iPacketNode = ROLLERCommsNetAddrToNode(pAddress);
+  if (iPacketNode >= 0 && ROLLERCommsNetAddrToNode(pLobbyAddress) == iPacketNode)
+    return -1;
+
+  return 0;
+}
+
+static int FindLobbyNodeForPacketAddress(const int32 pAddress[4],
+                                         const int32 pTransportAddress[4])
+{
+  for (int i = 1; i < network_on && i < MAX_PLAYERS; ++i) {
+    if (LobbyAddressMatchesPacket(&address[i * 4], pAddress, pTransportAddress))
+      return i;
+  }
+
+  return -1;
+}
+
+static void UpdateLobbyNodeAddress(int iNode, const int32 pAddress[4])
+{
+  if (iNode <= 0 || iNode >= MAX_PLAYERS || IsInvalidPacketAddress(pAddress))
+    return;
+
+  if (memcmp(&address[iNode * 4], pAddress, sizeof(tROLLERNetAddr)) == 0)
+    return;
+
+  memcpy(&address[iNode * 4], pAddress, sizeof(tROLLERNetAddr));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -301,15 +353,6 @@ int network_initialise_update(void)
 int network_initialise_active(void)
 {
   return s_iNetworkInitialiseActive;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void Initialise_Network(int iSelectNetSlot)
-{
-  network_initialise_begin(iSelectNetSlot);
-  while (network_initialise_active() && !network_initialise_update())
-    UpdateSDL(); //added by ROLLER
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -526,6 +569,9 @@ void send_ready()
 void send_record_to_master(int iRecordIdx)
 {
   if (network_on) {
+    if (!NetworkRecordIdxIsValid(iRecordIdx, "send-record-master"))
+      return;
+
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RECORD;
     p_record.fRecordLap = RecordLaps[iRecordIdx];
@@ -543,6 +589,9 @@ void send_record_to_master(int iRecordIdx)
 void send_record_to_slaves(int iRecordIdx)
 {
   if (network_on) {
+    if (!NetworkRecordIdxIsValid(iRecordIdx, "send-record-slaves"))
+      return;
+
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RECORD;
     p_record.fRecordLap = RecordLaps[iRecordIdx];
@@ -1489,7 +1538,10 @@ void CheckNewNodes()
           {
 
             //This byte-by-byte comparison could be simplified to: 
-            iAddressMatchFlag2 = memcmp(&address[iNetworkNodeIndex * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
+            iAddressMatchFlag2 =
+              !LobbyAddressMatchesPacket(&address[iNetworkNodeIndex * 4],
+                                         transmitInitPacket.address,
+                                         packetTransportAddress);
             //pTxInitPacketByteCmp_1 = (char *)&transmitInitPacket;
             //iAddressMatchFlag2 = 0;
             //pNodeAddrByteCmp = (char *)&address[iNetworkNodeIndex];
@@ -1503,6 +1555,7 @@ void CheckNewNodes()
 
             if (!iAddressMatchFlag2) {
               iFoundNodeOffset = iNetworkNodeIndex + 10;
+              UpdateLobbyNodeAddress(iNetworkNodeIndex, transmitInitPacket.address);
               iNetworkNodeIndex = network_on + 6;
             }
           }
@@ -1524,6 +1577,16 @@ void CheckNewNodes()
             LogDiscoveryAddress("discovered", transmitInitPacket.address);
             test = 6;
             ROLLERCommsSortNodes();
+            iNetworkNodeIndex =
+              FindLobbyNodeForPacketAddress(transmitInitPacket.address,
+                                            packetTransportAddress);
+            if (iNetworkNodeIndex > 0) {
+              iFoundNodeOffset = iNetworkNodeIndex + 10;
+              UpdateLobbyNodeAddress(iNetworkNodeIndex, transmitInitPacket.address);
+              goto UPDATE_TRANSMIT_INIT_NODE;
+            }
+            if (ROLLERCommsGetActiveNodes() <= network_on)
+              goto LABEL_40;
 
             memcpy(&address[network_on * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
             //pNetNowNodeAddr3 = &address[network_on * 4];// Manual address copying - could be simplified to: memcpy(&address[network_on * 4], &transmitInitPacket.address, sizeof(_NETNOW_NODE_ADDR));
@@ -1663,6 +1726,7 @@ void CheckNewNodes()
             continue;
           }
           test = 8;
+        UPDATE_TRANSMIT_INIT_NODE:
           iNodeIndex = iFoundNodeOffset - 10;
           ++my_age;
           if (iNodeIndex <= 0 || iNodeIndex >= MAX_PLAYERS)
@@ -1913,6 +1977,8 @@ void CheckNewNodes()
         ROLLERCommsGetBlock(pPacket2, &recordPacket, 16);
         SDL_Log("[NET-START] received record from node=%d count=%d/%d",
                 syncHeader.byConsoleNode, received_records, network_on);
+        if (!NetworkRecordIdxIsValid(TrackLoad, "receive-record"))
+          goto LABEL_40;
         if (recordPacket.fRecordLap < (double)RecordLaps[TrackLoad]) {
           RecordLaps[TrackLoad] = recordPacket.fRecordLap;
           RecordCars[TrackLoad] = (int16)recordPacket.unRecordCar;
@@ -2336,13 +2402,12 @@ void remove_messages(int iClear)
   // first message processing loop
   do {
     ROLLERCommsPostListen();                       // check for incoming messages
-    UpdateSDL(); //added by ROLLER
   } while (ROLLERCommsGetHeader(&in_header, sizeof(tSyncHeader), &pPacketData));// continue until there are no more messages
   
   // additional clearing if condition is true
   if (iClear) {
     while (ROLLERCommsPostListen())
-      UpdateSDL(); //added by ROLLER
+      ;
   }
   clear_network_game();
 }

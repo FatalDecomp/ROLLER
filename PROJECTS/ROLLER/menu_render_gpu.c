@@ -363,6 +363,9 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 
 static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, int h)
 {
+    if (!dev || !rgba || w <= 0 || h <= 0)
+        return NULL;
+
     SDL_GPUTextureCreateInfo ti = {0};
     ti.type = SDL_GPU_TEXTURETYPE_2D;
     ti.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -383,12 +386,18 @@ static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, 
     SDL_UnmapGPUTransferBuffer(dev, tb);
 
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     SDL_GPUTextureTransferInfo src = { .transfer_buffer = tb };
     SDL_GPUTextureRegion dst = { .texture = tex, .w = w, .h = h, .d = 1 };
     SDL_UploadToGPUTexture(cp, &src, &dst, false);
     SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+        SDL_ReleaseGPUTexture(dev, tex);
+        return NULL;
+    }
 
     SDL_ReleaseGPUTransferBuffer(dev, tb);
     return tex;
@@ -397,6 +406,9 @@ static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, 
 static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
                                        const void *data, Uint32 size)
 {
+    if (!dev || !data || size == 0)
+        return NULL;
+
     SDL_GPUBufferCreateInfo bi = {0};
     bi.usage = usage;
     bi.size = size;
@@ -414,12 +426,18 @@ static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlag
     SDL_UnmapGPUTransferBuffer(dev, tb);
 
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
+    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     SDL_GPUTransferBufferLocation src = { .transfer_buffer = tb };
     SDL_GPUBufferRegion dst = { .buffer = buf, .size = size };
     SDL_UploadToGPUBuffer(cp, &src, &dst, false);
     SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+        SDL_ReleaseGPUBuffer(dev, buf);
+        return NULL;
+    }
 
     SDL_ReleaseGPUTransferBuffer(dev, tb);
     return buf;
@@ -646,6 +664,10 @@ void menu_render_gpu_begin_frame(MenuRendererGPU *r)
     r->drawCommandCount = 0;
     r->meshDrawCount = 0;
     r->currentLayer = MENU_LAYER_BACKGROUND;
+    r->cmdBuf = NULL;
+    r->swapchainTexture = NULL;
+
+    if (ROLLERGpuPresentationSuspended()) return;
 
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
     if (!r->cmdBuf) return;
@@ -752,7 +774,7 @@ void menu_render_gpu_end_frame(MenuRendererGPU *r)
 
 int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *blocks, const tColor *pal)
 {
-    if (slot < 0 || slot >= MAX_SLOTS || !blocks) return 0;
+    if (!r || slot < 0 || slot >= MAX_SLOTS || !blocks || !pal) return 0;
     menu_render_gpu_free_blocks(r, slot);
 
     // Count valid sub-blocks
@@ -768,24 +790,35 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
     if (count == 0) {
         // Full-screen background (raw pixels, no block headers)
         uint8 *rgba = malloc(MENU_WIDTH * MENU_HEIGHT * 4);
+        if (!rgba) return 0;
         IndexedToRGBA((uint8 *)blocks, pal, rgba, MENU_WIDTH * MENU_HEIGHT);
         r->backgroundTextures[slot] = UploadRGBA(r->device, rgba, MENU_WIDTH, MENU_HEIGHT);
         free(rgba);
-        return 1;
+        return r->backgroundTextures[slot] != NULL;
     }
 
     r->slotTextures[slot] = calloc(count, sizeof(MenuTexture));
+    if (!r->slotTextures[slot])
+        return 0;
     r->slotTextureCount[slot] = count;
 
     for (int i = 0; i < count; i++) {
         int w = blocks[i].iWidth, h = blocks[i].iHeight;
         uint8 *src = (uint8 *)blocks + blocks[i].iDataOffset;
         uint8 *rgba = malloc(w * h * 4);
+        if (!rgba) {
+            menu_render_gpu_free_blocks(r, slot);
+            return 0;
+        }
         IndexedToRGBA(src, pal, rgba, w * h);
         r->slotTextures[slot][i].texture = UploadRGBA(r->device, rgba, w, h);
         r->slotTextures[slot][i].width = w;
         r->slotTextures[slot][i].height = h;
         free(rgba);
+        if (!r->slotTextures[slot][i].texture) {
+            menu_render_gpu_free_blocks(r, slot);
+            return 0;
+        }
     }
     return count;
 }
@@ -958,15 +991,6 @@ void menu_render_gpu_begin_fade(MenuRendererGPU *r, int direction, int durationF
 }
 
 int menu_render_gpu_fade_active(MenuRendererGPU *r) { return r->fadeActive; }
-
-void menu_render_gpu_fade_wait(MenuRendererGPU *r, void (*redraw_fn)(void *ctx), void *ctx)
-{
-    while (menu_render_gpu_fade_active(r)) {
-        menu_render_gpu_begin_frame(r);
-        if (redraw_fn) redraw_fn(ctx);
-        menu_render_gpu_end_frame(r);
-    }
-}
 
 //---------------------------------------------------------------------------
 // 4x4 matrix helpers (column-major, matching GPU convention)

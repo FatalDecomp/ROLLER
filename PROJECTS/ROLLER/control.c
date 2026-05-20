@@ -6949,7 +6949,7 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
                 pCarSpray->iColor |= 0x1000u;
                 //BYTE1(pCarSpray->iColor) |= 0x10u;
               if (ROLLERrand() < 0x4000)
-                pCarSpray->iColor |= 40000u;
+                pCarSpray->iColor |= SURFACE_FLAG_FLIP_VERT;
                 //BYTE2(pCarSpray->iColor) |= 4u;
               if (iCinematicMode) {
                 iRandomVelY9 = ROLLERrandRaw();          // Calculate menu/replay mode velocities with screen scaling
@@ -7046,7 +7046,7 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
           pCarSpray->iColor ^= 0x1000u;
           //BYTE1(pCarSpray->iColor) ^= 0x10u;
         if (ROLLERrand() < 0x4000)
-          pCarSpray->iColor ^= 40000u;
+          pCarSpray->iColor ^= SURFACE_FLAG_FLIP_VERT;
           //BYTE2(pCarSpray->iColor) ^= 4u;
         goto CONTINUE_COLOR_ANIMATION;
       }

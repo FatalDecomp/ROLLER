@@ -84,6 +84,13 @@ void font_ascii_replace_accent(char *font)
 //-------------------------------------------------------------------------------------------------
 static int iFrontendTitleScreenActive = 0;
 static int iFrontendTitleScreenWaitFatal = 0;
+static int iFrontendTitleScreenPhase = 0;
+
+enum {
+  TITLE_SCREEN_PHASE_INACTIVE = 0,
+  TITLE_SCREEN_PHASE_FADE_IN,
+  TITLE_SCREEN_PHASE_WAIT
+};
 
 static int frontend_title_fatal_sample_done(void)
 {
@@ -138,22 +145,32 @@ void frontend_title_screen_enter(void)
   if (front_vga[0] && scrbuf) //check added by ROLLER
     display_picture(scrbuf, front_vga[0]);
 
-  copypic(scrbuf, screen);
   loadfatalsample();
-  fade_palette(32);
-  if ((cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0)
-    dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+  blankpal();
+  fade_palette_begin(32);
   disable_keyboard();
 
   iFrontendTitleScreenActive = -1;
   iFrontendTitleScreenWaitFatal =
     (cheat_mode & (CHEAT_MODE_KILLER_OPPONENTS | CHEAT_MODE_DEATH_MODE)) != 0;
+  iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_FADE_IN;
 }
 
 int frontend_title_screen_update(void)
 {
   if (!iFrontendTitleScreenActive)
     return -1;
+
+  if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_FADE_IN) {
+    fade_palette_update();
+    UpdateSDLWindow();
+    if (fade_palette_active())
+      return 0;
+    if (iFrontendTitleScreenWaitFatal)
+      dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+    iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_WAIT;
+  }
+
   if (!iFrontendTitleScreenWaitFatal)
     return -1;
   return frontend_title_fatal_sample_done();
@@ -164,24 +181,29 @@ void frontend_title_screen_exit(void)
   if (!iFrontendTitleScreenActive)
     return;
 
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void**)&front_vga[0]);
   freefatalsample();
   frontend_title_apply_language_font_replacements();
   iFrontendTitleScreenActive = 0;
   iFrontendTitleScreenWaitFatal = 0;
+  iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_INACTIVE;
 }
 
-void title_screens()
-{
-  frontend_title_screen_enter();
-  while (!frontend_title_screen_update())
-    UpdateSDL();
-  frontend_title_screen_exit();
-}
-
-//-------------------------------------------------------------------------------------------------
 //0003F6B0
-void copy_screens()
+static int iCopyScreensActive = 0;
+static uint64 ullCopyScreensEndTicksMs = 0;
+static int iCopyScreensPhase = 0;
+
+enum {
+  COPY_SCREENS_PHASE_INACTIVE = 0,
+  COPY_SCREENS_PHASE_FADE_IN,
+  COPY_SCREENS_PHASE_WAIT,
+  COPY_SCREENS_PHASE_FADE_OUT
+};
+
+void CopyScreensEnter(void)
 {
   SVGA_ON = -1;
   init_screen();
@@ -196,24 +218,68 @@ void copy_screens()
 
   display_picture(scrbuf, front_vga[0]);
 
-  fade_palette(32);
-  copypic(scrbuf, screen);
+  blankpal();
+  fade_palette_begin(32);
   disable_keyboard();
-  ticks = 0;
-#ifndef _DEBUG
-  while (ticks < 180) {
-    UpdateSDL();
-    UpdateSDLWindow();
-  }
-#endif
-  fre((void**)&front_vga[0]);
-  fade_palette(0);
+  iCopyScreensActive = -1;
+  iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_IN;
+  ullCopyScreensEndTicksMs = 0;
 }
 
-// Fade callback: redraws menu background so fade overlay is visible over content
-void fade_redraw_bg(void *ctx)
+int CopyScreensUpdate(void)
 {
-  menu_render_background((MenuRenderer *)ctx, 0);
+  if (!iCopyScreensActive)
+    return -1;
+
+  switch (iCopyScreensPhase) {
+    case COPY_SCREENS_PHASE_FADE_IN:
+      fade_palette_update();
+      UpdateSDLWindow();
+      if (fade_palette_active())
+        return 0;
+      ticks = 0;
+#ifndef _DEBUG
+      ullCopyScreensEndTicksMs = SDL_GetTicks() + 5000;
+#else
+      ullCopyScreensEndTicksMs = 0;
+#endif
+      iCopyScreensPhase = COPY_SCREENS_PHASE_WAIT;
+      return 0;
+
+    case COPY_SCREENS_PHASE_WAIT:
+#ifndef _DEBUG
+      if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
+        UpdateSDLWindow();
+        return 0;
+      }
+#endif
+      fade_palette_begin(0);
+      iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_OUT;
+      return 0;
+
+    case COPY_SCREENS_PHASE_FADE_OUT:
+      fade_palette_update();
+      UpdateSDLWindow();
+      if (fade_palette_active())
+        return 0;
+      iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
+      iCopyScreensActive = 0;
+      return -1;
+
+    default:
+      iCopyScreensActive = 0;
+      return -1;
+  }
+}
+
+void CopyScreensExit(void)
+{
+  if (fade_palette_active())
+    fade_palette_finish();
+  fre((void**)&front_vga[0]);
+  iCopyScreensActive = 0;
+  ullCopyScreensEndTicksMs = 0;
+  iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
 }
 
 void snapshot_setup_frontend_menu_state(int iGameType)
@@ -306,6 +372,19 @@ typedef enum {
 
 static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
 static int iFrontendMainMenuQuitTickTarget = 0;
+static int iFrontendMainMenuNetworkFadeInWait = 0;
+
+typedef enum {
+  eMAIN_MENU_FADE_OUT_NONE = 0,
+  eMAIN_MENU_FADE_OUT_CHILD,
+  eMAIN_MENU_FADE_OUT_START_SOUND,
+  eMAIN_MENU_FADE_OUT_FINISH_START,
+} eMainMenuFadeOutAction;
+
+static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
+static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
+static int iFrontendMainMenuFadeOutMusic = 0;
+static int iFrontendMainMenuFadeOutVisualGameType = -1;
 
 static void frontend_main_menu_load_renderer_blocks(void)
 {
@@ -412,14 +491,10 @@ static void frontend_main_menu_black_palette(void)
 static void frontend_main_menu_fade_out(int iFadeMusic)
 {
   MenuRenderer *mr = GetMenuRenderer();
-
+  if (iFrontendMainMenuFadeOutVisualGameType < 0)
+    iFrontendMainMenuFadeOutVisualGameType = game_type;
   menu_render_begin_fade(mr, 0, 32);
-  if (iFadeMusic)
-    fade_music_start(0);
-  menu_render_fade_wait(mr, fade_redraw_bg, mr);
-  if (iFadeMusic)
-    fade_music_finish(0);
-  frontend_main_menu_black_palette();
+  iFrontendMainMenuFadeOutMusic = iFadeMusic;
 }
 
 static void frontend_main_menu_free_selected_car_textures(void)
@@ -427,6 +502,8 @@ static void frontend_main_menu_free_selected_car_textures(void)
   if (iFrontendMainMenuBlockIdx < CAR_DESIGN_AUTO)
     return;
 
+  MenuRenderer *mr = GetMenuRenderer();
+  menu_render_free_car_mesh(mr);
   car_texs_loaded[CarDesigns[iFrontendMainMenuBlockIdx].carType] = -1;
   for (int i = 0; i < 16; ++i)
     fre((void **)&cartex_vga[i]);
@@ -497,8 +574,16 @@ static void frontend_main_menu_resume_after_child(void)
   frontend_main_menu_load_current_preview_assets();
   ticks = 0;
   frames = 0;
+  iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
+  iFrontendMainMenuNetworkFadeInWait = 0;
   iFrontendMainMenuInitialized = -1;
+}
+
+static int frontend_main_menu_base_assets_loaded(void)
+{
+  return front_vga[0] && front_vga[1] && front_vga[2] && front_vga[4] &&
+         front_vga[5] && front_vga[6] && front_vga[15];
 }
 
 static void frontend_main_menu_setup(void)
@@ -518,6 +603,9 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuRotation = 0;
   eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
   iFrontendMainMenuQuitTickTarget = 0;
+  iFrontendMainMenuNetworkFadeInWait = 0;
+  iFrontendMainMenuFadeOutVisualGameType = -1;
+  iFrontendMainMenuResumeFromChild = 0;
   player1_car = 0;
   player2_car = 1;
   if (!network_on) {
@@ -636,12 +724,12 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuInitialized = -1;
 }
 
-static void frontend_main_menu_draw(void)
+static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 {
   int iBlockIdx2;
-  MenuRenderer *mr = GetMenuRenderer();
-
-  menu_render_begin_frame(mr);
+  int iDrawGameType = iFrontendMainMenuFadeOutVisualGameType >= 0
+                      ? iFrontendMainMenuFadeOutVisualGameType
+                      : game_type;
   menu_render_background(mr, 0);
   menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
   menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
@@ -654,7 +742,7 @@ static void frontend_main_menu_draw(void)
                      sel_posns[iFrontendMainMenuSelection].y, 0x8Fu, 0,
                      pal_addr);
   }
-  if (game_type == 1) {
+  if (iDrawGameType == 1) {
     menu_render_text(mr, 2, language_buffer, font2_ascii, font2_offsets,
                      sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u,
                      pal_addr);
@@ -693,7 +781,7 @@ static void frontend_main_menu_draw(void)
                    sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u,
                    pal_addr);
 
-  if (game_type == 1) {
+  if (iDrawGameType == 1) {
     menu_render_sprite(mr, 14, (TrackLoad - 1) / 8, 500, 300, 0, pal_addr);
     if (TrackLoad <= 0) {
       if (TrackLoad)
@@ -712,7 +800,7 @@ static void frontend_main_menu_draw(void)
                                    iFrontendMainMenuRotation, PREVIEW_X,
                                    TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
     menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
-    if (game_type < 2) {
+    if (iDrawGameType < 2) {
       int iCurLaps = cur_laps[level];
       NoOfLaps = iCurLaps;
       if (competitors == 2)
@@ -756,17 +844,17 @@ static void frontend_main_menu_draw(void)
 
   menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
   menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
-  menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+  menu_render_sprite(mr, 5, iDrawGameType + 5, 135, 247, 0, pal_addr);
   switch (iFrontendMainMenuSelection) {
     case 1:
-      if (game_type == 1)
+      if (iDrawGameType == 1)
         iBlockIdx2 = 8;
       else
         iBlockIdx2 = 1;
       menu_render_sprite(mr, 4, iBlockIdx2, 76, 257, -1, pal_addr);
       break;
     case 3:
-      if (game_type == 1 && Race > 0)
+      if (iDrawGameType == 1 && Race > 0)
         goto FRONTEND_MAIN_MENU_CONTINUE_ICON;
       menu_render_sprite(mr, 4, 3, 76, 257, -1, pal_addr);
       break;
@@ -792,6 +880,13 @@ static void frontend_main_menu_draw(void)
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
   show_received_mesage();
+}
+
+static void frontend_main_menu_draw(void)
+{
+  MenuRenderer *mr = GetMenuRenderer();
+  menu_render_begin_frame(mr);
+  frontend_main_menu_emit_draw(mr);
   menu_render_end_frame(mr);
 }
 
@@ -1008,46 +1103,10 @@ void frontend_main_menu_prepare_race_start(void)
 
 static void frontend_main_menu_finish_prepare_to_start(void)
 {
-  releasesamples();
   if (game_type != 4 && game_type != 3)
     holdmusic = 0;
   frontend_main_menu_fade_out(-1);
-  if (game_type != 4 && game_type != 3)
-    stopmusic();
-  front_fade = 0;
-  Players_Cars[player1_car] = iFrontendMainMenuBlockIdx;
-
-  for (int i = 0; i < 16; ++i)
-    fre((void **)&front_vga[i]);
-  frontend_main_menu_free_selected_car_textures();
-
-  gfx_size = iFrontendMainMenuPtexSize;
-  no_clear = 0;
-  if (!quit_game && !intro) {
-    check_cars();
-    if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
-      // Hand off to the LOBBY dispatcher state; it calls
-      // frontend_main_menu_prepare_race_start() and sets the next state
-      // when the lobby resolves.  restart_net re-entry uses the same
-      // dispatcher lobby path.
-      iFrontendMainMenuInitialized = 0;
-      iFrontendMainMenuStartDelayTarget = 0;
-      eFrontendNextState = eFRONTEND_STATE_LOBBY;
-      return;
-    }
-  }
-  if (iFrontendMainMenuSelection < 8 || !network_on || intro)
-    time_to_start = 45;
-  if (!time_to_start && !quit_game) {
-    frontend_main_menu_setup();
-    return;
-  }
-  if (time_to_start)
-    frontend_main_menu_prepare_race_start();
-
-  iFrontendMainMenuInitialized = 0;
-  iFrontendMainMenuStartDelayTarget = 0;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_FINISH_START;
 }
 
 static void frontend_main_menu_prepare_to_start(void)
@@ -1067,11 +1126,9 @@ static void frontend_main_menu_prepare_to_start(void)
 
 static void frontend_main_menu_begin_child(eFrontendState eState)
 {
-  frontend_main_menu_free_selected_car_textures();
   frontend_main_menu_fade_out(0);
-  frontend_main_menu_free_preview_title_assets();
-  iFrontendMainMenuResumeFromChild = -1;
-  eFrontendNextState = eState;
+  eFrontendMainMenuPendingChildState = eState;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_CHILD;
 }
 
 static void frontend_main_menu_handle_enter(void)
@@ -1097,6 +1154,7 @@ static void frontend_main_menu_handle_enter(void)
     case 3:
       if (game_type == 1 && Race > 0) {
         last_type = game_type;
+        iFrontendMainMenuFadeOutVisualGameType = game_type;
         game_type = 3;
         iFrontendMainMenuContinue = -1;
         frontend_main_menu_prepare_to_start();
@@ -1114,6 +1172,7 @@ static void frontend_main_menu_handle_enter(void)
       break;
     case 6:
       last_type = game_type;
+      iFrontendMainMenuFadeOutVisualGameType = game_type;
       game_type = 4;
       iFrontendMainMenuContinue = -1;
       frontend_main_menu_prepare_to_start();
@@ -1124,17 +1183,8 @@ static void frontend_main_menu_handle_enter(void)
     case 8:
       if (iFrontendMainMenuBlockIdx >= CAR_DESIGN_AUTO) {
         iFrontendMainMenuContinue = -1;
-        frontend_main_menu_free_selected_car_textures();
         frontend_main_menu_fade_out(0);
-        frontend_main_menu_free_preview_title_assets();
-        sfxsample(SOUND_SAMPLE_START, 0x8000);
-        netCD = 0;
-        if (soundon) {
-          iFrontendMainMenuStartDelayTarget = ticks + 108;
-        } else {
-          replaytype = replay_record;
-          frontend_main_menu_prepare_to_start();
-        }
+        eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_START_SOUND;
       }
       break;
     default:
@@ -1203,6 +1253,79 @@ static void frontend_main_menu_update_rotation(int nFrames)
                               0x3FFF;
 }
 
+static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
+{
+  if (eFrontendMainMenuFadeOutAction == eMAIN_MENU_FADE_OUT_NONE)
+    return 0;
+
+  if (menu_render_fade_active(mr))
+    return 1;
+
+  if (iFrontendMainMenuFadeOutMusic)
+    fade_music_finish(0);
+  frontend_main_menu_black_palette();
+
+  eMainMenuFadeOutAction action = eFrontendMainMenuFadeOutAction;
+  eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
+
+  switch (action) {
+    case eMAIN_MENU_FADE_OUT_CHILD:
+      frontend_main_menu_free_selected_car_textures();
+      frontend_main_menu_free_preview_title_assets();
+      iFrontendMainMenuResumeFromChild = -1;
+      eFrontendNextState = eFrontendMainMenuPendingChildState;
+      eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
+      break;
+    case eMAIN_MENU_FADE_OUT_START_SOUND:
+      sfxsample(SOUND_SAMPLE_START, 0x8000);
+      netCD = 0;
+      if (soundon) {
+        iFrontendMainMenuStartDelayTarget = ticks + 108;
+      } else {
+        replaytype = replay_record;
+        frontend_main_menu_prepare_to_start();
+      }
+      break;
+    case eMAIN_MENU_FADE_OUT_FINISH_START:
+      releasesamples();
+      if (game_type != 4 && game_type != 3)
+        stopmusic();
+      front_fade = 0;
+      Players_Cars[player1_car] = iFrontendMainMenuBlockIdx;
+      for (int i = 0; i < 16; ++i)
+        fre((void **)&front_vga[i]);
+      frontend_main_menu_free_selected_car_textures();
+      gfx_size = iFrontendMainMenuPtexSize;
+      no_clear = 0;
+      if (!quit_game && !intro) {
+        check_cars();
+        if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
+          iFrontendMainMenuInitialized = 0;
+          iFrontendMainMenuStartDelayTarget = 0;
+          eFrontendNextState = eFRONTEND_STATE_LOBBY;
+          break;
+        }
+      }
+      if (iFrontendMainMenuSelection < 8 || !network_on || intro)
+        time_to_start = 45;
+      if (!time_to_start && !quit_game) {
+        frontend_main_menu_setup();
+        break;
+      }
+      if (time_to_start)
+        frontend_main_menu_prepare_race_start();
+      iFrontendMainMenuInitialized = 0;
+      iFrontendMainMenuStartDelayTarget = 0;
+      eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+      break;
+    default:
+      break;
+  }
+
+  iFrontendMainMenuFadeOutVisualGameType = -1;
+  return 1;
+}
+
 void frontend_menu_enter(void)
 {
   start_race = 0;
@@ -1211,7 +1334,7 @@ void frontend_menu_enter(void)
     iFrontendMainMenuInitialized = 0;
     return;
   }
-  if (iFrontendMainMenuResumeFromChild)
+  if (iFrontendMainMenuResumeFromChild && frontend_main_menu_base_assets_loaded())
     frontend_main_menu_resume_after_child();
   else
     frontend_main_menu_setup();
@@ -1238,6 +1361,7 @@ void frontend_menu_update(void)
 
   if (iFrontendMainMenuStartDelayTarget) {
     if (ticks >= iFrontendMainMenuStartDelayTarget) {
+      iFrontendMainMenuStartDelayTarget = 0;
       while (fatkbhit())
         fatgetch();
       replaytype = replay_record;
@@ -1249,7 +1373,8 @@ void frontend_menu_update(void)
   frontend_main_menu_apply_type_switch();
   nFrames = frames;
   frames = 0;
-  if (ticks > 1080 && !iFrontendMainMenuQuitConfirmed && !network_on) {
+  if (ticks > 1080 && !iFrontendMainMenuQuitConfirmed && !network_on
+      && eFrontendMainMenuFadeOutAction == eMAIN_MENU_FADE_OUT_NONE) {
     intro = -1;
     iFrontendMainMenuContinue = -1;
     replaytype = 2;
@@ -1262,16 +1387,9 @@ void frontend_menu_update(void)
   if (!front_fade) {
     front_fade = -1;
     menu_render_begin_fade(mr, 1, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
-    palette_brightness = 32;
     frames = 0;
     if (network_on) {
-      if (broadcast_mode) {
-        eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
-      } else {
-        frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
-      }
-      return;
+      iFrontendMainMenuNetworkFadeInWait = -1;
     }
   }
 
@@ -1279,6 +1397,26 @@ void frontend_menu_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (frontend_main_menu_update_fade_out(mr))
+    return;
+
+  if (iFrontendMainMenuNetworkFadeInWait) {
+    if (menu_render_fade_active(mr))
+      return;
+    iFrontendMainMenuNetworkFadeInWait = 0;
+    palette_brightness = 32;
+    if (broadcast_mode) {
+      eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;
+    } else {
+      frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_FADE_DISCOVERY, -1, 1);
+    }
+    return;
+  }
+
+  if (menu_render_fade_active(mr))
+    return;
+
+  palette_brightness = 32;
   frontend_main_menu_apply_same_car_switch();
   print_data = 0;
 

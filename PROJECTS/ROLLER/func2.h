@@ -13,13 +13,13 @@ typedef enum
   USERKEY_P1DOWN = 3,
   USERKEY_P1UPGEAR = 4,
   USERKEY_P1DOWNGEAR = 5,
-  USERKEY_P1CHEAT = 6,
-  USERKEY_P2LEFT = 7,
-  USERKEY_P2RIGHT = 8,
-  USERKEY_P2UP = 9,
-  USERKEY_P2DOWN = 10,
-  USERKEY_P2UPGEAR = 11,
-  USERKEY_P2DOWNGEAR = 12,
+  USERKEY_P2LEFT = 6,
+  USERKEY_P2RIGHT = 7,
+  USERKEY_P2UP = 8,
+  USERKEY_P2DOWN = 9,
+  USERKEY_P2UPGEAR = 10,
+  USERKEY_P2DOWNGEAR = 11,
+  USERKEY_P1CHEAT = 12,
   USERKEY_P2CHEAT = 13
 } eUserKey;
 
@@ -76,6 +76,8 @@ void key_handler(uint8 byScancode);
 void claim_key_int();
 int fatkbhit();
 int fatgetch();
+int control_key_matches_required_pair_type(int iControlIdx, int iKey);
+int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey);
 void release_key_int();
 void clear_border(int x, int y, int iWidth, int iLines);
 void DisplayFree();

@@ -60,44 +60,36 @@ void WinnerScreenEnter(int carDesign, char byFlags);
 int WinnerScreenUpdate(void);
 int WinnerScreenResult(void);
 void WinnerScreenExit(void);
-int winner_screen(int carDesign, char byFlags);
 void StoreResult();
 void RaceResultEnter(void);
 int RaceResultUpdate(void);
 void RaceResultExit(void);
-void RaceResult();
 void TimeTrialsEnter(int iDriverIdx);
 int TimeTrialsUpdate(void);
 void TimeTrialsExit(void);
-void TimeTrials(int iDriverIdx);
 void snapshot_render_time_trials(void);
 void ChampionshipStandingsEnter(void);
 int ChampionshipStandingsUpdate(void);
 void ChampionshipStandingsExit(void);
-void ChampionshipStandings();
 void TeamStandingsEnter(void);
 int TeamStandingsUpdate(void);
 void TeamStandingsExit(void);
-void TeamStandings();
 void snapshot_render_championship_standings(void);
 void ShowLapRecordsEnter(void);
 int ShowLapRecordsUpdate(void);
 void ShowLapRecordsExit(void);
-void ShowLapRecords();
 void snapshot_render_lap_records(void);
 void show_3dmap(float fZ, int iElevation, int iYaw);
 void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAngle, char byAnimFrame);
 void ChampionshipWinnerEnter(void);
 int ChampionshipWinnerUpdate(void);
 void ChampionshipWinnerExit(void);
-void championship_winner();
 void print_mem_used(const char *szMsg);
 uint8 *try_load_picture(const char *szFile);
 void save_champ(int iSlot);
 int load_champ_begin(int iSlot);
 int load_champ_update(void);
 int load_champ_active(void);
-int load_champ(int iSlot);
 uint8 *lod_champ_char(uint8 *pSrc, int *piValue);
 uint8 *sav_champ_char(uint8 *pSrc, int *piValue); //actually loads an int
 uint8 *sav_champ_int(uint8 *pDest, int iValue);
@@ -105,30 +97,30 @@ void check_saves();
 void ResultRoundUpEnter(void);
 int ResultRoundUpUpdate(void);
 void ResultRoundUpExit(void);
-void ResultRoundUp();
 void RollCreditsEnter(void);
 int RollCreditsUpdate(void);
 void RollCreditsExit(void);
-void RollCredits();
 void ChampionshipOverEnter(void);
 int ChampionshipOverUpdate(void);
 void ChampionshipOverDraw(void);
 void ChampionshipOverExit(void);
-void ChampionshipOver();
 void EndChampSequenceEnter(void);
 int EndChampSequenceUpdate(void);
 void EndChampSequenceExit(void);
-void EndChampSequence();
-void network_fucked();
-void no_cd();
+void NetworkFuckedEnter(void);
+int NetworkFuckedUpdate(void);
+void NetworkFuckedExit(void);
+void NoCdEnter(void);
+int NoCdUpdate(void);
+void NoCdExit(void);
 int name_cmp(char *szName1, char *szName2);
 void name_copy(char *szDest, char *szSrc);
 void loadtracksample(int track_number);
 void front_letter(tBlockHeader *pFont, uint8 byCharIdx, int *iX, int *iY, const char *szStr, uint8 byColorReplace);
-void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, char byColorReplace, int iScaleSize);
+void scale_letter(tBlockHeader *pFont, uint8 byChar, int *iCursorX, int *iCursorY, char *mappingTable, uint8 byColorReplace, int iScaleSize);
 void front_text(tBlockHeader *pFont,
                 const char *szText,
-                const uint8 *mappingTable,
+                const char *mappingTable,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
@@ -140,7 +132,7 @@ void scale_text(tBlockHeader *pFont,
                 int *pCharVOffsets,
                 int iX,
                 int iY,
-                char byColorReplace,
+                uint8 byColorReplace,
                 unsigned int uiAlignment,
                 int iClipLeft,
                 int iClipRight);
@@ -151,8 +143,8 @@ uint8 *load_picture(const char *szFile);
 void AllocateCars();
 void check_cars();
 void select_messages();
+int select_messages_active(void);
 void show_received_mesage();
-int select_netslot();
 
 //-------------------------------------------------------------------------------------------------
 #endif

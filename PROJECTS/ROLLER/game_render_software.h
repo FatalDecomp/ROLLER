@@ -68,7 +68,5 @@ void game_render_sw_set_palette(GameRendererSoftware *sw,
 void game_render_sw_begin_fade(GameRendererSoftware *sw, int direction,
                                int durationFrames);
 int game_render_sw_fade_active(GameRendererSoftware *sw);
-void game_render_sw_fade_wait(GameRendererSoftware *sw,
-                              void (*redraw_fn)(void *ctx), void *ctx);
 
 #endif

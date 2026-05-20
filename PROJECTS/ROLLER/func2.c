@@ -59,6 +59,64 @@ static float get_effective_game_scale(int iPlayerIdx)
   return fPrevGameScale[iPlayerIdx] + (game_scale[iPlayerIdx] - fPrevGameScale[iPlayerIdx]) * fInterp;
 }
 
+static void screen_put_pixel_clipped(int iX, int iY, uint8 byPixel)
+{
+  if (!screen_pointer || iX < 0 || iY < 0 || iX >= winw || iY >= winh)
+    return;
+
+  screen_pointer[winw * iY + iX] = byPixel;
+}
+
+static int control_key_is_joystick_axis(int iKey)
+{
+  return iKey > 0x83;
+}
+
+static int control_key_left_pair_index(int iControlIdx)
+{
+  if (iControlIdx == USERKEY_P1RIGHT)
+    return USERKEY_P1LEFT;
+  if (iControlIdx == USERKEY_P2RIGHT)
+    return USERKEY_P2LEFT;
+  return -1;
+}
+
+int control_key_matches_required_pair_type(int iControlIdx, int iKey)
+{
+  int iLeftControlIdx = control_key_left_pair_index(iControlIdx);
+  if (iLeftControlIdx < 0)
+    return 1;
+
+  return control_key_is_joystick_axis(userkey[iLeftControlIdx]) == control_key_is_joystick_axis(iKey);
+}
+
+int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
+{
+  int iStartIdx;
+  int iEndIdx;
+
+  if (iControlIdx >= USERKEY_P2LEFT && iControlIdx <= USERKEY_P2DOWNGEAR) {
+    iStartIdx = USERKEY_P2LEFT;
+    iEndIdx = iControlIdx;
+  } else if (iControlIdx == USERKEY_P2CHEAT) {
+    iStartIdx = USERKEY_P2LEFT;
+    iEndIdx = USERKEY_P2DOWNGEAR + 1;
+  } else if (iControlIdx == USERKEY_P1CHEAT) {
+    iStartIdx = USERKEY_P1LEFT;
+    iEndIdx = USERKEY_P1DOWNGEAR + 1;
+  } else {
+    iStartIdx = USERKEY_P1LEFT;
+    iEndIdx = iControlIdx;
+  }
+
+  for (int i = iStartIdx; i < iEndIdx; ++i) {
+    if (userkey[i] == iKey)
+      return -1;
+  }
+
+  return 0;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 // Symbol names defined by ROLLER
@@ -1380,19 +1438,20 @@ void zoom_letter(tBlockHeader *pBlockHeader, uint8 byCharCode, int *puiXPos, int
   int byCharIndex; // esi
   int iScreenWidth; // ebx
   int iCharWidth; // edi
-  uint8 *pbyScreenPos; // ecx
   int iXOffset; // edx
   uint8 *pbyCharData; // eax
   int iRow; // ebp
-  uint8 *pbyPixel; // esi
   int iCol; // edx
   int iScaledWidth; // eax
   int *puiXPos_1; // edx
   int iCharHeight; // [esp+Ch] [ebp-20h]
-  uint8 *pbyRowStart; // [esp+10h] [ebp-1Ch]
   uint8 *pbyCharRowStart; // [esp+14h] [ebp-18h]
   int iVertZoom; // [esp+18h] [ebp-14h]
   int iHorizZoom; // [esp+1Ch] [ebp-10h]
+  int iDestX;
+  int iDestXStart;
+  int iDestY;
+  uint8 byPixel;
 
   byCharIndex = (uint8)mappingTable[byCharCode];// Get character index from font table
   if (byCharIndex == 255)                     // Check if character is invalid (255 = no character)
@@ -1408,24 +1467,26 @@ void zoom_letter(tBlockHeader *pBlockHeader, uint8 byCharCode, int *puiXPos, int
 
     pbyCharData = (uint8 *)pBlockHeader + pBlockHeader[byCharIndex].iDataOffset; //MISSING decompiler artifact
 
-    pbyScreenPos = &screen_pointer[winw * ((scr_size * *puiYPos) >> 6)];// Calculate screen position: Y offset with scaling
     iXOffset = scr_size * *puiXPos;             // Calculate X offset with scaling
+    iDestXStart = iXOffset >> 6;
+    iDestY = (scr_size * *puiYPos) >> 6;
     //_CHP();
     iVertZoom = iScreenWidth;                   // Initialize vertical zoom counter
     iRow = 0;                                   // Initialize row counter
-    for (pbyPixel = &pbyScreenPos[iXOffset >> 6]; iRow < iCharHeight; pbyPixel = &pbyRowStart[winw])// Loop through each row of the character
+    for (; iRow < iCharHeight; ++iDestY)// Loop through each row of the character
     {
       iHorizZoom = iScreenWidth;                // Reset horizontal zoom counter for this row
-      pbyRowStart = pbyPixel;
+      iDestX = iDestXStart;
       pbyCharRowStart = pbyCharData;
       iCol = 0;                                 // Initialize column counter
       while (iCol < iCharWidth)               // Loop through each column of the character
       {                                         // Check if pixel is set in character data
-        if (*pbyCharData)
-          *pbyPixel = *pbyCharData;             // Copy pixel to screen buffer
+        byPixel = *pbyCharData;
+        if (byPixel)
+          screen_put_pixel_clipped(iDestX, iDestY, byPixel); // Copy pixel to screen buffer
         //_CHP();
         iHorizZoom = (int)((double)iHorizZoom - fZoomFactor);// Apply horizontal zoom scaling
-        ++pbyPixel;                             // Move to next screen pixel
+        ++iDestX;                               // Move to next screen pixel
         for (; iHorizZoom <= 0; iHorizZoom += iScreenWidth)// Check if zoom counter requires advancing char data
         {
           ++pbyCharData;                        // Advance to next character data pixel
@@ -1814,18 +1875,14 @@ int fatgetch()
     iTwoParter = 0;                             // clear stored value
   } else {
 
-    // Wait until keys are available in the buffer
-    while (write_key == read_key)
-      UpdateSDL(); //added by ROLLER
+    if (write_key == read_key)
+      return 0;
 
     // Read next scancode from buffer and get mapped character
     int iTestReadKey = read_key++;
     uint8 byKey = key_buffer[iTestReadKey];
     uint8 byMapping = mapping[byKey];
     iResult = (char)byMapping;
-
-    int iTest = -69;
-    uint8 byTest = (uint8)iTest;
 
     read_key &= 0x3Fu;
 
@@ -2297,21 +2354,20 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
   tBlockHeader *pCharData; // eax
   int iCharWidth; // edi
   uint8 *pCharBitmap; // ebx
-  uint8 *pScreenDest; // eax
   int iRowIdx; // ebp
   int i; // edx
   uint8 byPixel; // cl
   uint8 *pRowStart; // edx
   int iScaleAccum; // edi
-  uint8 *pScaledDest; // ebp
   int iTempScale; // eax
   int iScaledColIdx; // ebx
-  uint8 *pScaledRowBase; // [esp+0h] [ebp-28h]
   int iCharHeight; // [esp+8h] [ebp-20h]
   int iCharWidth2; // [esp+Ch] [ebp-1Ch]
   uint8 *pBitmapRowStart; // [esp+10h] [ebp-18h]
   int iRowIdx2; // [esp+14h] [ebp-14h]
   int iScaledCharWidth; // [esp+18h] [ebp-10h]
+  int iDestX;
+  int iDestY;
 
   iSavedScrSize = scr_size;                     // Save current screen scaling factor
   if (iFontType)                              // Check font type selection: a5 != 0 uses ascii_conv3, a5 == 0 uses font6
@@ -2336,19 +2392,20 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
     iCharWidth2 = pCharData->iHeight;
     pRowStart = (uint8 *)pBlockHeader + pCharData->iDataOffset;
     iScaleAccum = scr_size;
-    pScaledRowBase = &screen_pointer[*piXPos + winw * *piYPos];// Calculate destination screen pointer for scaled rendering
-    for (iRowIdx2 = 0; iRowIdx2 < iCharWidth2; pScaledRowBase += winw)// Scaled rendering: outer loop for each row of the character
+    iDestY = *piYPos;
+    for (iRowIdx2 = 0; iRowIdx2 < iCharWidth2; ++iDestY)// Scaled rendering: outer loop for each row of the character
     {
-      pScaledDest = pScaledRowBase;
+      iDestX = *piXPos;
       pBitmapRowStart = pRowStart;
       iTempScale = iSavedScrSize;
       iScaledColIdx = 0;
       while (iScaledColIdx < iScaledCharWidth)// Inner loop: render each column with scaling algorithm
       {                                         // Non-zero pixel: copy to screen buffer (transparent = 0)
-        if (*pRowStart)
-          *pScaledDest = *pRowStart;
+        byPixel = *pRowStart;
+        if (byPixel)
+          screen_put_pixel_clipped(iDestX, iDestY, byPixel);
         iTempScale -= 64;
-        ++pScaledDest;
+        ++iDestX;
         for (; iTempScale <= 0; ++iScaledColIdx) {
           ++pRowStart;
           iTempScale += iSavedScrSize;
@@ -2372,13 +2429,14 @@ void prt_letter(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *piYPo
   iCharHeight = pCharData->iHeight;
   iCharWidth = pCharData->iWidth;
   pCharBitmap = (uint8 *)pBlockHeader + pCharData->iDataOffset;
-  pScreenDest = &screen_pointer[*piXPos + winw * (*piYPos + iYOffset)];// Calculate screen destination for unscaled 1:1 rendering
-  for (iRowIdx = 0; iRowIdx < iCharHeight; pScreenDest += winw - iCharWidth)// Unscaled rendering: simple row-by-row bitmap copy
+  iDestY = *piYPos + iYOffset;
+  for (iRowIdx = 0; iRowIdx < iCharHeight; ++iDestY)// Unscaled rendering: simple row-by-row bitmap copy
   {
-    for (i = 0; i < iCharWidth; ++pScreenDest) {
+    iDestX = *piXPos;
+    for (i = 0; i < iCharWidth; ++iDestX) {
       byPixel = *pCharBitmap++;                 // Copy non-zero pixels (0 = transparent)
       if (byPixel)
-        *pScreenDest = byPixel;
+        screen_put_pixel_clipped(iDestX, iDestY, byPixel);
       ++i;
     }
     ++iRowIdx;
@@ -2397,21 +2455,20 @@ void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *p
   tBlockHeader *pCharData; // eax
   int iCharWidth; // edi
   uint8 *pCharBitmap; // ebx
-  uint8 *pScreenDest; // eax
   int iRowIdx; // ebp
   int i; // edx
   uint8 byPixel; // cl
   uint8 *pRowStart; // edx
   int iScrSize; // edi
-  uint8 *pScaledDest; // ebp
   int iTempScale; // eax
   int iScaledColIdx; // ebx
-  uint8 *pScaledRowBase; // [esp+0h] [ebp-28h]
   int iCharHeight; // [esp+8h] [ebp-20h]
   int iHeight; // [esp+Ch] [ebp-1Ch]
   uint8 *pBitmapRowStart; // [esp+10h] [ebp-18h]
   int iRowIdx2; // [esp+14h] [ebp-14h]
   int iWidth; // [esp+18h] [ebp-10h]
+  int iDestX;
+  int iDestY;
 
   iSavedScrSize = scr_size;                     // Save current screen scaling factor
   if (iFontType)                              // Font selection: iFontType != 0 uses ascii_conv3, == 0 uses font6
@@ -2441,19 +2498,20 @@ void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *p
     iHeight = pCharData->iHeight;
     pRowStart = (uint8 *)pBlockHeader + pCharData->iDataOffset;
     iScrSize = scr_size;
-    pScaledRowBase = &screen_pointer[*piXPos + winw * *piYPos];// Calculate destination screen pointer for scaled reverse rendering
-    for (iRowIdx2 = 0; iRowIdx2 < iHeight; pScaledRowBase += winw)// Scaled reverse rendering: outer loop for each row
+    iDestY = *piYPos;
+    for (iRowIdx2 = 0; iRowIdx2 < iHeight; ++iDestY)// Scaled reverse rendering: outer loop for each row
     {
-      pScaledDest = pScaledRowBase;
+      iDestX = *piXPos;
       pBitmapRowStart = pRowStart;
       iTempScale = iSavedScrSize;
       iScaledColIdx = 0;
       while (iScaledColIdx < iWidth)          // Inner loop: render each column right-to-left with scaling
       {                                         // Non-zero pixel: copy to screen buffer (transparent = 0)
-        if (*pRowStart)
-          *pScaledDest = *pRowStart;
+        byPixel = *pRowStart;
+        if (byPixel)
+          screen_put_pixel_clipped(iDestX, iDestY, byPixel);
         iTempScale -= 64;
-        --pScaledDest;                          // Move destination pointer leftward (reverse direction)
+        --iDestX;                                // Move destination position leftward (reverse direction)
         for (; iTempScale <= 0; ++iScaledColIdx) {
           ++pRowStart;
           iTempScale += iSavedScrSize;
@@ -2477,13 +2535,14 @@ void prt_letter_rev(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *p
   iCharHeight = pCharData->iHeight;
   iCharWidth = pCharData->iWidth;
   pCharBitmap = (uint8 *)pBlockHeader + pCharData->iDataOffset;
-  pScreenDest = &screen_pointer[*piXPos + winw * (*piYPos + iYOffset)];// Calculate screen destination for unscaled reverse rendering
-  for (iRowIdx = 0; iRowIdx < iCharHeight; pScreenDest += iCharWidth + winw)// Unscaled reverse rendering: row-by-row bitmap copy right-to-left
+  iDestY = *piYPos + iYOffset;
+  for (iRowIdx = 0; iRowIdx < iCharHeight; ++iDestY)// Unscaled reverse rendering: row-by-row bitmap copy right-to-left
   {
-    for (i = 0; i < iCharWidth; --pScreenDest) {
+    iDestX = *piXPos;
+    for (i = 0; i < iCharWidth; --iDestX) {
       byPixel = *pCharBitmap++;                 // Copy non-zero pixels, decrement screen pointer (reverse direction)
       if (byPixel)
-        *pScreenDest = byPixel;
+        screen_put_pixel_clipped(iDestX, iDestY, byPixel);
       ++i;
     }
     ++iRowIdx;
@@ -2599,15 +2658,15 @@ void prt_lettercol(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *pi
   int byCharIndex; // ebx
   uint8 *pCharBitmap; // edx
   int iScaleAccum; // ebp
-  uint8 *pScreenDest; // edi
   int iTempScale; // eax
   int iColIdx; // ebx
   uint8 byPixel; // cl
   int iHeight; // [esp+0h] [ebp-24h]
   int iRowIdx; // [esp+4h] [ebp-20h]
   uint8 *pBitmapRowStart; // [esp+Ch] [ebp-18h]
-  uint8 *pRowBase; // [esp+10h] [ebp-14h]
   int iWidth; // [esp+14h] [ebp-10h]
+  int iDestX;
+  int iDestY;
 
   iSavedScrSize = scr_size;                     // Save current screen scaling factor
   byCharIndex = (uint8)font6_ascii[(uint8)byChar];// Only uses font6_ascii (no alternate font support)
@@ -2619,10 +2678,10 @@ void prt_lettercol(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *pi
     iHeight = pBlockHeader[byCharIndex].iHeight;
     pCharBitmap = (uint8 *)pBlockHeader + pBlockHeader[byCharIndex].iDataOffset;// Get pointer to character bitmap data
     iScaleAccum = scr_size;
-    pRowBase = &screen_pointer[*piXPos + winw * (font6_offsets[byCharIndex] + *piYPos)];// Calculate screen destination with Y offset from font6_offsets
-    for (iRowIdx = 0; iRowIdx < iHeight; pRowBase += winw)// Scaled rendering: outer loop for each row of character
+    iDestY = font6_offsets[byCharIndex] + *piYPos;
+    for (iRowIdx = 0; iRowIdx < iHeight; ++iDestY)// Scaled rendering: outer loop for each row of character
     {
-      pScreenDest = pRowBase;
+      iDestX = *piXPos;
       pBitmapRowStart = pCharBitmap;
       iTempScale = iSavedScrSize;
       iColIdx = 0;
@@ -2632,10 +2691,10 @@ void prt_lettercol(tBlockHeader *pBlockHeader, char byChar, int *piXPos, int *pi
         if (*pCharBitmap) {                                       // Color substitution: replace 0x8F (143) with custom color (a5)
           if (byPixel == 0x8F)
             byPixel = byColor;
-          *pScreenDest = byPixel;               // Write pixel to screen buffer
+          screen_put_pixel_clipped(iDestX, iDestY, byPixel); // Write pixel to screen buffer
         }
         iTempScale -= 64;                       // Scaling algorithm: decrement scale accumulator
-        ++pScreenDest;
+        ++iDestX;
         for (; iTempScale <= 0; ++iColIdx)    // Scale loop: advance bitmap pointer when scale threshold reached
         {
           ++pCharBitmap;
@@ -3060,7 +3119,7 @@ void display_paused()
                 iKeyPressed = 133;
             }
           }
-          if (iKeyPressed != -1 && (control_edit == 1 || control_edit == 7) && (userkey[control_edit] <= 0x83u) != (iKeyPressed <= 131)) {
+          if (iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
             iKeyPressed = -1;  // Reject mixed keyboard/joystick input types
           }
           //if (iKeyPressed != -1
@@ -3069,11 +3128,7 @@ void display_paused()
           //  iKeyPressed = -1;
           //}
           if (iKeyPressed != -1) {
-            iDuplicateCheck = 0;
-            for (i = 0; i < control_edit; ++i) {
-              if (userkey[i] == iKeyPressed)
-                iDuplicateCheck = -1;
-            }
+            iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
             if (!iDuplicateCheck) {
               iControlNext = control_edit + 1;
               iControlSelect = control_select;
@@ -3553,10 +3608,7 @@ void display_paused()
 //0001ABF0
 void enable_keyboard()
 {
-  // Process all pending events first to ensure buffer is current
-  UpdateSDL();
-
-  // Flush the keyboard buffer
+  // Flush already-buffered keyboard state; SDL event pumping belongs to the frame loop.
   while (write_key != read_key || twoparter != 0) {
     fatgetch();
   }
@@ -3566,10 +3618,7 @@ void enable_keyboard()
 //0001AC30
 void disable_keyboard()
 {
-  // Process all pending events first to ensure buffer is current
-  UpdateSDL();
-
-  // Flush the keyboard buffer
+  // Flush already-buffered keyboard state; SDL event pumping belongs to the frame loop.
   while (write_key != read_key || twoparter != 0) {
     fatgetch();
   }
@@ -4627,8 +4676,7 @@ void LoadRecords()
 
     //loop without optimizations
     for (int i = 0; i < 25; ++i) {
-      int iRecordNamesPos = 9 * i;
-      strcpy(RecordNames[iRecordNamesPos], "-----");
+      strcpy(RecordNames[i], "-----");
       RecordLaps[i] = 128.0f;
       RecordCars[i] = -1;
       RecordKills[i] = 0;
@@ -4705,8 +4753,7 @@ void LoadRecords()
 
       //loop without optimizations
       for (int i = 0; i < 25; ++i) {
-        int iRecordNamesPos = 9 * i;
-        strcpy(RecordNames[iRecordNamesPos], "----");
+        strcpy(RecordNames[i], "----");
         RecordLaps[i] = 128.0f;
         RecordCars[i] = -1;
         RecordKills[i] = 0;

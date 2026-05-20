@@ -957,7 +957,7 @@ void DoReplayData()
         ppRamp = ramp;
         for (i = 0; i < 8; ++i) {
           int16 nRampTiming;
-          if (*ppRamp) {
+          if (i < totalramps && *ppRamp) {
               // Ramp exists - get its activation timing
             nRampTiming = (*ppRamp)->iTickStartIdx;
           } else {
@@ -1321,7 +1321,7 @@ void DoReplayData()
           ppRampReplay = ramp;
           for (j = 0; j < 8; ++j) {
             fread(&pRampData_1, 2u, 1u, replayfile);
-            if (*ppRampReplay)
+            if (j < totalramps && *ppRampReplay)
               (*ppRampReplay)->iTickStartIdx = (uint16)(uintptr_t)pRampData_1;
             ++ppRampReplay;
           }

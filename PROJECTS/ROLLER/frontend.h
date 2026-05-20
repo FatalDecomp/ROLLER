@@ -21,6 +21,7 @@ typedef struct
 
 typedef enum {
   eFRONTEND_STATE_NONE = 0,
+  eFRONTEND_STATE_COPYRIGHT,
   eFRONTEND_STATE_TITLE,
   eFRONTEND_STATE_MAIN_MENU,
   eFRONTEND_STATE_CAR_SELECT,
@@ -35,6 +36,8 @@ typedef enum {
   eFRONTEND_STATE_RACING,
   eFRONTEND_STATE_PAUSE_OVERLAY,
   eFRONTEND_STATE_RESULTS,
+  eFRONTEND_STATE_NETWORK_ERROR,
+  eFRONTEND_STATE_NO_CD_ERROR,
   eFRONTEND_STATE_WINNER_SCREEN,
   eFRONTEND_STATE_WINNER_RACE,
   eFRONTEND_STATE_RESULT_ROUNDUP,
@@ -69,12 +72,21 @@ void frontend_pause_exit(void);
 void frontend_menu_enter(void);
 void frontend_menu_update(void);
 void frontend_menu_resume_from_child(void);
+void frontend_copy_screens_enter(void);
+void frontend_copy_screens_update(void);
+void frontend_copy_screens_exit(void);
 void frontend_loading_enter(void);
 void frontend_loading_update(void);
 void frontend_title_enter(void);
 void frontend_title_update(void);
 void frontend_title_exit(void);
 void frontend_results_update(void);
+void frontend_network_error_enter(void);
+void frontend_network_error_update(void);
+void frontend_network_error_exit(void);
+void frontend_no_cd_enter(void);
+void frontend_no_cd_update(void);
+void frontend_no_cd_exit(void);
 void frontend_winner_screen_enter(void);
 void frontend_winner_screen_update(void);
 void frontend_winner_screen_exit(void);
@@ -235,31 +247,23 @@ extern char font4_ascii_br[256];
 
 //-------------------------------------------------------------------------------------------------
 
-void fade_redraw_bg(void *ctx);
-void title_screens();
-void copy_screens();
+void CopyScreensEnter(void);
+int CopyScreensUpdate(void);
+void CopyScreensExit(void);
 void snapshot_setup_frontend_menu_state(int iGameType);
 void snapshot_render_menu_main(void);
-void select_disk();
 void snapshot_render_menu_select_disk(void);
-void select_car();
 void snapshot_render_menu_select_car(void);
-void select_configure();
 void snapshot_render_menu_configure(void);
 void front_displaycalibrationbar(int iY, int iX, int iValue);
 void front_volumebar(int iY, int iVolumeLevel, int iFillColor);
-void select_players();
 void snapshot_render_menu_select_players(void);
-void select_type();
 void snapshot_render_menu_select_type(void);
-void select_track();
 void snapshot_render_menu_select_track(void);
 void save_params();
 void reset_params();
-void NetworkWait();
 void loadcheatnames();
 int CheckNames(char *szPlayerName, int iPlayerIdx);
-void restart_net_game();
 
 //-------------------------------------------------------------------------------------------------
 #endif

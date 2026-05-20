@@ -35,6 +35,7 @@ static int iFrontendDiskChampResult = 0;
 static int iFrontendDiskStatusMessage = 0;
 static int iFrontendDiskMenuCursor = 2;
 static int iFrontendDiskExitFlag = 0;
+static int iFrontendDiskExitFading = 0;
 static int iFrontendDiskLoadPending = 0;
 
 static void frontend_disk_select_black_palette(void)
@@ -50,8 +51,11 @@ static void frontend_disk_select_black_palette(void)
 static void frontend_disk_select_request_exit(void)
 {
   iFrontendDiskExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendDiskExitFading = 1;
+  }
 }
 
 static int frontend_disk_select_update_load(void)
@@ -380,6 +384,7 @@ void frontend_disk_select_enter(void)
     palette_brightness = 32;
   }
   iFrontendDiskExitFlag = 0;
+  iFrontendDiskExitFading = 0;
   iFrontendDiskSelectedSlot = 0;
   iFrontendDiskMenuCursor = 2;
   iFrontendDiskStatusMessage = 0;
@@ -398,6 +403,15 @@ void frontend_disk_select_update(void)
   if (SnapshotShouldStop())
     return;
 
+  if (iFrontendDiskExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendDiskExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
   if (frontend_disk_select_update_load())
     return;
 
@@ -407,13 +421,9 @@ void frontend_disk_select_update(void)
 
 void frontend_disk_select_exit(void)
 {
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendDiskExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_disk_select_black_palette();
-  }
   front_fade = 0;
 
   if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT)
@@ -422,13 +432,13 @@ void frontend_disk_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //000411D0
-void select_disk()
+static void frontend_disk_select_run_snapshot(void)
 {
   frontend_disk_select_enter();
   while (!iFrontendDiskExitFlag && !SnapshotShouldStop()) {
     frontend_disk_select_update();
     if (!iFrontendDiskExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_disk_select_exit();
@@ -437,7 +447,7 @@ void select_disk()
 void snapshot_render_menu_select_disk(void)
 {
   snapshot_setup_frontend_menu_state(1);
-  select_disk();
+  frontend_disk_select_run_snapshot();
 }
 
 //-------------------------------------------------------------------------------------------------

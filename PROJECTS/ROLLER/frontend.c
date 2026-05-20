@@ -25,6 +25,8 @@ static eFrontendState aOverlayStack[OVERLAY_STACK_DEPTH];
 static int iOverlayStackTop = 0;
 
 static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
+  [eFRONTEND_STATE_COPYRIGHT] = {
+    frontend_copy_screens_enter, frontend_copy_screens_update, NULL, frontend_copy_screens_exit },
   [eFRONTEND_STATE_TITLE] = { frontend_title_enter, frontend_title_update, NULL, frontend_title_exit },
   [eFRONTEND_STATE_MAIN_MENU] = { frontend_menu_enter, frontend_menu_update, NULL, NULL },
   [eFRONTEND_STATE_CAR_SELECT] = { frontend_car_select_enter, frontend_car_select_update, NULL, frontend_car_select_exit },
@@ -37,6 +39,10 @@ static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_RACING] = { race_enter, race_update, race_draw, race_exit },
   [eFRONTEND_STATE_PAUSE_OVERLAY] = { frontend_pause_enter, frontend_pause_update, frontend_pause_draw, frontend_pause_exit },
   [eFRONTEND_STATE_RESULTS] = { NULL, frontend_results_update, NULL, NULL },
+  [eFRONTEND_STATE_NETWORK_ERROR] = {
+    frontend_network_error_enter, frontend_network_error_update, NULL, frontend_network_error_exit },
+  [eFRONTEND_STATE_NO_CD_ERROR] = {
+    frontend_no_cd_enter, frontend_no_cd_update, NULL, frontend_no_cd_exit },
   [eFRONTEND_STATE_WINNER_SCREEN] = {
     frontend_winner_screen_enter, frontend_winner_screen_update, NULL, frontend_winner_screen_exit },
   [eFRONTEND_STATE_WINNER_RACE] = {

@@ -29,10 +29,12 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 
+static void frontend_car_select_run_snapshot(void);
+
 void snapshot_render_menu_select_car(void)
 {
   snapshot_setup_frontend_menu_state(0);
-  select_car();
+  frontend_car_select_run_snapshot();
 }
 
 static int iFrontendCarBlockIdxAy[7];
@@ -42,11 +44,26 @@ static int iFrontendCarDelayBeforeRotation;
 static int iFrontendCarZoomSpeed;
 static int iFrontendCarZoomDistance;
 static int iFrontendCarExitFlag;
+static int iFrontendCarExitFading;
 static int iFrontendCarCurrentSelectorPos;
 static int iFrontendCarSpeechPending;
 static int iFrontendCarPlayer1Car;
 static int iFrontendCarSelectedCar;
 static char *szFrontendCarCurrentCompanyName;
+
+static void frontend_car_select_begin_broadcast_wait(int iBroadcastMode)
+{
+  network_broadcast_wait_start(iBroadcastMode, 1);
+}
+
+static int frontend_car_select_update_broadcast_wait(void)
+{
+  if (!network_broadcast_wait_active())
+    return 0;
+
+  (void)network_broadcast_wait_update();
+  return -1;
+}
 
 static void frontend_car_select_black_palette(void)
 {
@@ -61,8 +78,11 @@ static void frontend_car_select_black_palette(void)
 static void frontend_car_select_request_exit(void)
 {
   iFrontendCarExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_CAR_SELECT)
-    eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+  if (eFrontendCurrentState == eFRONTEND_STATE_CAR_SELECT) {
+    MenuRenderer *mr = GetMenuRenderer();
+    menu_render_begin_fade(mr, 0, 32);
+    iFrontendCarExitFading = 1;
+  }
 }
 
 void frontend_car_select_enter(void)
@@ -75,6 +95,7 @@ void frontend_car_select_enter(void)
   int iInvertedPieValue;
 
   iFrontendCarExitFlag = 0;
+  iFrontendCarExitFading = 0;
   iFrontendCarOriginalCarSelection = -1;
   iFrontendCarPlayer1Car = Players_Cars[player1_car];
 
@@ -301,6 +322,18 @@ void frontend_car_select_update(void)
       return;
   }
 
+  if (iFrontendCarExitFading) {
+    MenuRenderer *mr = GetMenuRenderer();
+    if (!menu_render_fade_active(mr)) {
+      iFrontendCarExitFading = 0;
+      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+    }
+    return;
+  }
+
+  if (frontend_car_select_update_broadcast_wait())
+    return;
+
   // ANIMATION UPDATE: pie chart
   if (iFrontendCarDelayBeforeRotation) {
     if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
@@ -342,8 +375,10 @@ void frontend_car_select_update(void)
       iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
       if (iCarAllocationStatus < 2) {
         if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+          MenuRenderer *mr = GetMenuRenderer();
           iCarDesignIndex = iFrontendCarPlayer1Car;
           ppTextureArray = cartex_vga;
+          menu_render_free_car_mesh(mr);
           car_texs_loaded[CarDesigns[iCarDesignIndex].carType] = -1;
           do {
             ppCurrentTexture = (void **)ppTextureArray++;
@@ -393,12 +428,13 @@ void frontend_car_select_update(void)
             frontendsample(0x8000);
         }
       }
-      broadcast_mode = -1;
-      while (broadcast_mode)
-        UpdateSDL();
+      frontend_car_select_begin_broadcast_wait(-1);
       frames = 0;
     }
   }
+
+  if (frontend_car_select_update_broadcast_wait())
+    return;
 
   // Network car request from another player
   if (car_request < 0) {
@@ -495,9 +531,8 @@ void frontend_car_select_update(void)
                        || (game_type == 1 && Race > 0))) {
           if (network_on) {
             car_request = iNextCarIndex;
-            broadcast_mode = -9999;
-            while (broadcast_mode)
-              UpdateSDL();
+            frontend_car_select_begin_broadcast_wait(-9999);
+            return;
           } else {
             iFrontendCarDelayBeforeRotation = 0;
             iFrontendCarZoomSpeed = 2000;
@@ -568,17 +603,16 @@ void frontend_car_select_exit(void)
   uint8 **ppCleanupTextureArray;
   void **ppCleanupTexture;
 
-  if (!SnapshotShouldStop()) {
-    MenuRenderer *mr = GetMenuRenderer();
-    menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  iFrontendCarExitFading = 0;
+  if (!SnapshotShouldStop())
     frontend_car_select_black_palette();
-  }
   fre((void **)&front_vga[7]);
   remove_frontendspeech();
   front_fade = 0;
   if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+    MenuRenderer *mr = GetMenuRenderer();
     ppCleanupTextureArray = cartex_vga;
+    menu_render_free_car_mesh(mr);
     car_texs_loaded[CarDesigns[iFrontendCarPlayer1Car].carType] = -1;
     do {
       ppCleanupTexture = (void **)ppCleanupTextureArray++;
@@ -595,13 +629,13 @@ void frontend_car_select_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 //00041CA0
-void select_car()
+static void frontend_car_select_run_snapshot(void)
 {
   frontend_car_select_enter();
   while (!iFrontendCarExitFlag && !SnapshotShouldStop()) {
     frontend_car_select_update();
     if (!iFrontendCarExitFlag && !SnapshotShouldStop())
-      UpdateSDL();
+      UpdateSDLWindow();
   }
   if (!SnapshotShouldStop())
     frontend_car_select_exit();
