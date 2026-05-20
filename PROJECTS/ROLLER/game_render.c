@@ -14,6 +14,18 @@ struct GameRenderer {
     SDL_Window *window;
 };
 
+static TextureHandle game_render_texture_handle_from_index(int tex_idx) {
+    if (tex_idx < 0 || tex_idx >= 32)
+        return TEXTURE_HANDLE_INVALID;
+    return tex_idx + 1;
+}
+
+static int game_render_texture_index_from_handle(TextureHandle handle) {
+    if (handle <= TEXTURE_HANDLE_INVALID || handle > 32)
+        return -1;
+    return handle - 1;
+}
+
 GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     GameRenderer *r = calloc(1, sizeof(GameRenderer));
     if (!r)
@@ -108,23 +120,32 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
                                                          width, height, tex_idx, gfx_size);
     TextureHandle sceneHandle = scene_render_load_texture(renderer->scene, pixelData,
                                                           width, height, tex_idx, gfx_size);
-    return sceneHandle != TEXTURE_HANDLE_INVALID ? sceneHandle : swHandle;
+    if (sceneHandle == TEXTURE_HANDLE_INVALID && swHandle == TEXTURE_HANDLE_INVALID)
+        return TEXTURE_HANDLE_INVALID;
+    return game_render_texture_handle_from_index(tex_idx);
 }
 
 void game_render_free_texture(GameRenderer *renderer,
                               TextureHandle handle) {
     if (!renderer)
         return;
-    scene_render_free_texture(renderer->scene, handle);
-    game_render_sw_free_texture(renderer->sw, handle);
+    int tex_idx = game_render_texture_index_from_handle(handle);
+    if (tex_idx < 0)
+        return;
+    scene_render_free_texture(renderer->scene,
+                              scene_render_get_texture_handle(renderer->scene, tex_idx));
+    game_render_sw_free_texture(renderer->sw,
+                                game_render_sw_get_texture_handle(renderer->sw, tex_idx));
 }
 
 TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
                                              int tex_idx) {
     if (!renderer)
         return TEXTURE_HANDLE_INVALID;
-    TextureHandle handle = scene_render_get_texture_handle(renderer->scene, tex_idx);
-    return handle != TEXTURE_HANDLE_INVALID ? handle : game_render_sw_get_texture_handle(renderer->sw, tex_idx);
+    if (scene_render_get_texture_handle(renderer->scene, tex_idx) != TEXTURE_HANDLE_INVALID ||
+        game_render_sw_get_texture_handle(renderer->sw, tex_idx) != TEXTURE_HANDLE_INVALID)
+        return game_render_texture_handle_from_index(tex_idx);
+    return TEXTURE_HANDLE_INVALID;
 }
 
 TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
@@ -148,8 +169,13 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
                       const uint8 *palette_remap) {
     if (!renderer)
         return;
-    if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_quad_screen(renderer->sw, poly, handle, palette_remap);
+    if (renderer->mode == GAME_RENDER_SOFTWARE) {
+        int tex_idx = game_render_texture_index_from_handle(handle);
+        TextureHandle swHandle = tex_idx >= 0
+            ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
+            : TEXTURE_HANDLE_INVALID;
+        game_render_sw_quad_screen(renderer->sw, poly, swHandle, palette_remap);
+    }
 }
 
 void game_render_quad_world(GameRenderer *renderer,
@@ -174,7 +200,11 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
         .subdivideType = subdivideType,
         .subThreshold = subThreshold,
     };
-    scene_render_quad_world_legacy(renderer->scene, verts, handle,
+    int tex_idx = game_render_texture_index_from_handle(handle);
+    SceneTextureHandle sceneHandle = tex_idx >= 0
+        ? scene_render_get_texture_handle(renderer->scene, tex_idx)
+        : SCENE_TEXTURE_HANDLE_INVALID;
+    scene_render_quad_world_legacy(renderer->scene, verts, sceneHandle,
                                    surfaceFlags, options);
 }
 

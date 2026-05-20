@@ -120,6 +120,8 @@ void menu_render_sw_clear(MenuRendererSoftware *sw, uint8 colorIndex,
 
 void menu_render_sw_background(MenuRendererSoftware *sw, int slot) {
     (void)sw;
+    if (slot < 0 || slot >= 16 || !front_vga[slot])
+        return;
     display_picture(scrbuf, front_vga[slot]);
 }
 
@@ -128,6 +130,8 @@ void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
                            const tColor *palette) {
     (void)sw;
     (void)palette;
+    if (slot < 0 || slot >= 16 || !front_vga[slot])
+        return;
     display_block(scrbuf, front_vga[slot], blockIdx, x, y,
                   transparentColorIndex);
 }
@@ -177,6 +181,8 @@ void menu_render_sw_text(MenuRendererSoftware *sw, int fontSlot,
                          const tColor *palette) {
     (void)sw;
     (void)palette;
+    if (fontSlot < 0 || fontSlot >= 16 || !front_vga[fontSlot])
+        return;
     front_text(front_vga[fontSlot], text, (const uint8 *)mappingTable,
                charVOffsets, x, y, colorReplace, alignment);
 }
@@ -189,6 +195,8 @@ void menu_render_sw_scaled_text(MenuRendererSoftware *sw, int fontSlot,
                                 const tColor *palette) {
     (void)sw;
     (void)palette;
+    if (fontSlot < 0 || fontSlot >= 16 || !front_vga[fontSlot])
+        return;
     scale_text(front_vga[fontSlot], (char *)text, mappingTable, charVOffsets,
                x, y, (char)colorReplace, alignment, clipLeft, clipRight);
 }

@@ -54,6 +54,8 @@ static int iLobbyLastStartResend;
 static int iLobbyLastRecordResend;
 static int iLobbyRacePrepared;
 
+static void lobby_draw_frame(void);
+
 //-------------------------------------------------------------------------------------------------
 
 void frontend_lobby_enter(void)
@@ -113,6 +115,8 @@ static int lobby_update_broadcast_wait(void)
 {
   if (eLobbyBroadcastActionCurrent == eLOBBY_BROADCAST_NONE)
     return 0;
+
+  lobby_draw_frame();
 
   if (!network_broadcast_wait_update())
     return -1;
@@ -233,7 +237,7 @@ static int lobby_update_post_sync(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void lobby_draw_frame(void)
+static void lobby_emit_draw(MenuRenderer *mr)
 {
   int iPlayerDisplayLoop;
   int iPlayerIndex;
@@ -243,11 +247,8 @@ static void lobby_draw_frame(void)
   int iTextYPos;
   int iY;
   char *szCurrentPlayerName;
-  MenuRenderer *mr = GetMenuRenderer();
 
-  menu_render_begin_frame(mr);
   menu_render_background(mr, 0);
-
   sprintf(buffer, "%s: %i", &language_buffer[64], players);
   menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 16, 4, 0x8Fu, 0, pal_addr);
   sprintf(buffer, "%s: %i", &language_buffer[256], TrackLoad);
@@ -314,9 +315,23 @@ static void lobby_draw_frame(void)
   if (time_to_start)
     iLobbyActive = 0;
 
+  show_received_mesage();
+}
+
+static void lobby_redraw(void *ctx)
+{
+  lobby_emit_draw((MenuRenderer *)ctx);
+}
+
+static void lobby_draw_frame(void)
+{
+  MenuRenderer *mr = GetMenuRenderer();
+
+  menu_render_begin_frame(mr);
+  lobby_emit_draw(mr);
+  menu_render_end_frame(mr);
+
   if (iLobbyActive) {
-    show_received_mesage();
-    menu_render_end_frame(mr);
     if (!front_fade) {
       front_fade = -1;
       menu_render_begin_fade(mr, 1, 32);
@@ -420,7 +435,7 @@ void frontend_lobby_exit(void)
   {
     MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
-    menu_render_fade_wait(mr, fade_redraw_bg, mr);
+    menu_render_fade_wait(mr, lobby_redraw, mr);
     palette_brightness = 0;
     for (int i = 0; i < 256; i++) {
       pal_addr[i].byR = 0;

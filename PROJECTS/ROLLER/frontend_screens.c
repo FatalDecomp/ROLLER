@@ -282,10 +282,17 @@ void CopyScreensExit(void)
   iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
 }
 
+static void frontend_main_menu_emit_draw(MenuRenderer *mr);
+
 // Fade callback: redraws menu background so fade overlay is visible over content
 void fade_redraw_bg(void *ctx)
 {
   menu_render_background((MenuRenderer *)ctx, 0);
+}
+
+static void fade_redraw_main_menu(void *ctx)
+{
+  frontend_main_menu_emit_draw((MenuRenderer *)ctx);
 }
 
 void snapshot_setup_frontend_menu_state(int iGameType)
@@ -389,6 +396,7 @@ typedef enum {
 static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
 static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
 static int iFrontendMainMenuFadeOutMusic = 0;
+static int iFrontendMainMenuFadeOutVisualGameType = -1;
 
 static void frontend_main_menu_load_renderer_blocks(void)
 {
@@ -495,6 +503,8 @@ static void frontend_main_menu_black_palette(void)
 static void frontend_main_menu_fade_out(int iFadeMusic)
 {
   MenuRenderer *mr = GetMenuRenderer();
+  if (iFrontendMainMenuFadeOutVisualGameType < 0)
+    iFrontendMainMenuFadeOutVisualGameType = game_type;
   menu_render_begin_fade(mr, 0, 32);
   iFrontendMainMenuFadeOutMusic = iFadeMusic;
 }
@@ -576,8 +586,15 @@ static void frontend_main_menu_resume_after_child(void)
   frontend_main_menu_load_current_preview_assets();
   ticks = 0;
   frames = 0;
+  iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
   iFrontendMainMenuInitialized = -1;
+}
+
+static int frontend_main_menu_base_assets_loaded(void)
+{
+  return front_vga[0] && front_vga[1] && front_vga[2] && front_vga[4] &&
+         front_vga[5] && front_vga[6] && front_vga[15];
 }
 
 static void frontend_main_menu_setup(void)
@@ -597,6 +614,8 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuRotation = 0;
   eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
   iFrontendMainMenuQuitTickTarget = 0;
+  iFrontendMainMenuFadeOutVisualGameType = -1;
+  iFrontendMainMenuResumeFromChild = 0;
   player1_car = 0;
   player2_car = 1;
   if (!network_on) {
@@ -718,6 +737,9 @@ static void frontend_main_menu_setup(void)
 static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 {
   int iBlockIdx2;
+  int iDrawGameType = iFrontendMainMenuFadeOutVisualGameType >= 0
+                      ? iFrontendMainMenuFadeOutVisualGameType
+                      : game_type;
   menu_render_background(mr, 0);
   menu_render_sprite(mr, 1, 0, head_x, head_y, 0, pal_addr);
   menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
@@ -730,7 +752,7 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
                      sel_posns[iFrontendMainMenuSelection].y, 0x8Fu, 0,
                      pal_addr);
   }
-  if (game_type == 1) {
+  if (iDrawGameType == 1) {
     menu_render_text(mr, 2, language_buffer, font2_ascii, font2_offsets,
                      sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u,
                      pal_addr);
@@ -769,7 +791,7 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
                    sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u,
                    pal_addr);
 
-  if (game_type == 1) {
+  if (iDrawGameType == 1) {
     menu_render_sprite(mr, 14, (TrackLoad - 1) / 8, 500, 300, 0, pal_addr);
     if (TrackLoad <= 0) {
       if (TrackLoad)
@@ -788,7 +810,7 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
                                    iFrontendMainMenuRotation, PREVIEW_X,
                                    TRACK_PREVIEW_Y, PREVIEW_W, PREVIEW_H);
     menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
-    if (game_type < 2) {
+    if (iDrawGameType < 2) {
       int iCurLaps = cur_laps[level];
       NoOfLaps = iCurLaps;
       if (competitors == 2)
@@ -832,17 +854,17 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 
   menu_render_set_layer(mr, MENU_LAYER_FOREGROUND);
   menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
-  menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
+  menu_render_sprite(mr, 5, iDrawGameType + 5, 135, 247, 0, pal_addr);
   switch (iFrontendMainMenuSelection) {
     case 1:
-      if (game_type == 1)
+      if (iDrawGameType == 1)
         iBlockIdx2 = 8;
       else
         iBlockIdx2 = 1;
       menu_render_sprite(mr, 4, iBlockIdx2, 76, 257, -1, pal_addr);
       break;
     case 3:
-      if (game_type == 1 && Race > 0)
+      if (iDrawGameType == 1 && Race > 0)
         goto FRONTEND_MAIN_MENU_CONTINUE_ICON;
       menu_render_sprite(mr, 4, 3, 76, 257, -1, pal_addr);
       break;
@@ -1142,6 +1164,7 @@ static void frontend_main_menu_handle_enter(void)
     case 3:
       if (game_type == 1 && Race > 0) {
         last_type = game_type;
+        iFrontendMainMenuFadeOutVisualGameType = game_type;
         game_type = 3;
         iFrontendMainMenuContinue = -1;
         frontend_main_menu_prepare_to_start();
@@ -1159,6 +1182,7 @@ static void frontend_main_menu_handle_enter(void)
       break;
     case 6:
       last_type = game_type;
+      iFrontendMainMenuFadeOutVisualGameType = game_type;
       game_type = 4;
       iFrontendMainMenuContinue = -1;
       frontend_main_menu_prepare_to_start();
@@ -1308,6 +1332,7 @@ static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
       break;
   }
 
+  iFrontendMainMenuFadeOutVisualGameType = -1;
   return 1;
 }
 
@@ -1319,7 +1344,7 @@ void frontend_menu_enter(void)
     iFrontendMainMenuInitialized = 0;
     return;
   }
-  if (iFrontendMainMenuResumeFromChild)
+  if (iFrontendMainMenuResumeFromChild && frontend_main_menu_base_assets_loaded())
     frontend_main_menu_resume_after_child();
   else
     frontend_main_menu_setup();
@@ -1374,7 +1399,7 @@ void frontend_menu_update(void)
     menu_render_begin_fade(mr, 1, 32);
     frames = 0;
     if (network_on) {
-      menu_render_fade_wait(mr, fade_redraw_bg, mr);
+      menu_render_fade_wait(mr, fade_redraw_main_menu, mr);
       palette_brightness = 32;
       if (broadcast_mode) {
         eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_FADE_EXISTING;

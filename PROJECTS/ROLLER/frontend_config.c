@@ -110,7 +110,10 @@ void frontend_config_exit(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
   menu_render_begin_fade(mr, 0, 32);
-  menu_render_fade_wait(mr, fade_redraw_bg, mr);
+  if (menu_render_get_mode(mr) == MENU_RENDER_SOFTWARE)
+    menu_render_fade_wait(mr, NULL, NULL);
+  else
+    menu_render_fade_wait(mr, fade_redraw_bg, mr);
   palette_brightness = 0;
   for (int i = 0; i < 256; i++) {
     pal_addr[i].byR = 0;

@@ -138,16 +138,78 @@ void game_render_sw_set_projection(GameRendererSoftware *sw,
 // Asset loading
 // ---------------------------------------------------------------------------
 
+static TextureSlot *game_render_sw_texture_slot(GameRendererSoftware *sw,
+                                                TextureHandle handle) {
+    if (!sw || handle <= 0 || handle >= GAME_RENDER_MAX_TEXTURE_SLOTS)
+        return NULL;
+    if (!sw->texSlots[handle].in_use || !sw->texSlots[handle].pixels)
+        return NULL;
+    return &sw->texSlots[handle];
+}
+
+static int game_render_sw_texture_count(const TextureSlot *slot) {
+    if (!slot)
+        return 0;
+    if (slot->tex_idx == 0)
+        return NoOfTextures;
+    if (slot->tex_idx == 17)
+        return BldTextures;
+    if (slot->tex_idx == 18)
+        return num_textures[18];
+    if (slot->tex_idx >= 1 && slot->tex_idx <= 16)
+        return num_textures[slot->tex_idx - 1];
+    if (slot->tex_idx >= 0 && slot->tex_idx < 32)
+        return num_textures[slot->tex_idx];
+    return 0;
+}
+
+static int game_render_sw_texture_tile_valid(const TextureSlot *slot,
+                                             const tPolyParams *poly) {
+    if (!slot || !poly)
+        return 0;
+
+    int surfaceType = poly->iSurfaceType;
+    if ((surfaceType & SURFACE_FLAG_SKIP_RENDER) != 0)
+        return 1;
+
+    int textureIdx = surfaceType & SURFACE_MASK_TEXTURE_INDEX;
+    int textureCount = game_render_sw_texture_count(slot);
+    if (textureCount <= 0 || textureIdx >= textureCount)
+        return 0;
+
+    if ((surfaceType & SURFACE_FLAG_PARTIAL_TRANS) != 0 &&
+        slot->gfx_size && textureIdx >= 128)
+        return 0;
+
+    return 1;
+}
+
+static void game_render_sw_quad_flat(GameRendererSoftware *sw,
+                                     const tPolyParams *poly) {
+    (void)sw;
+    if ((poly->iSurfaceType & SURFACE_FLAG_SKIP_RENDER) != 0)
+        return;
+    tPolyParams flat = *poly;
+    flat.iSurfaceType &= SURFACE_MASK_TEXTURE_INDEX;
+    POLYFLAT(screen_pointer, &flat);
+}
+
 TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
                                           uint8 *pixelData,
                                           int width, int height,
                                           int tex_idx, int gfx_size) {
+    if (!sw)
+        return TEXTURE_HANDLE_INVALID;
+
     // Free any existing handle for this tex_idx first
     if (tex_idx >= 0 && tex_idx < 32) {
         TextureHandle old = sw->texIdxToHandle[tex_idx];
         if (old != TEXTURE_HANDLE_INVALID)
             game_render_sw_free_texture(sw, old);
     }
+
+    if (!pixelData)
+        return TEXTURE_HANDLE_INVALID;
 
     // Find a free slot (skip 0 — reserved for TEXTURE_HANDLE_INVALID)
     for (int i = 1; i < GAME_RENDER_MAX_TEXTURE_SLOTS; i++) {
@@ -171,7 +233,7 @@ TextureHandle game_render_sw_load_texture(GameRendererSoftware *sw,
 
 void game_render_sw_free_texture(GameRendererSoftware *sw,
                                  TextureHandle handle) {
-    if (handle <= 0 || handle >= GAME_RENDER_MAX_TEXTURE_SLOTS)
+    if (!sw || handle <= 0 || handle >= GAME_RENDER_MAX_TEXTURE_SLOTS)
         return;
     int tex_idx = sw->texSlots[handle].tex_idx;
     if (tex_idx >= 0 && tex_idx < 32
@@ -182,7 +244,7 @@ void game_render_sw_free_texture(GameRendererSoftware *sw,
 
 TextureHandle game_render_sw_get_texture_handle(GameRendererSoftware *sw,
                                                  int tex_idx) {
-    if (tex_idx >= 0 && tex_idx < 32)
+    if (sw && tex_idx >= 0 && tex_idx < 32)
         return sw->texIdxToHandle[tex_idx];
     return TEXTURE_HANDLE_INVALID;
 }
@@ -214,11 +276,14 @@ void game_render_sw_quad_screen(GameRendererSoftware *sw, tPolyParams *poly,
                          TextureHandle handle,
                          const uint8 *palette_remap) {
     (void)palette_remap;
-    if (handle > 0 && handle < GAME_RENDER_MAX_TEXTURE_SLOTS
-        && sw->texSlots[handle].in_use) {
-        TextureSlot *slot = &sw->texSlots[handle];
+    if (!sw || !poly)
+        return;
+    TextureSlot *slot = game_render_sw_texture_slot(sw, handle);
+    if (slot && game_render_sw_texture_tile_valid(slot, poly)) {
         POLYTEX(slot->pixels, screen_pointer, poly,
                 slot->tex_idx, slot->gfx_size);
+    } else if ((poly->iSurfaceType & SURFACE_FLAG_APPLY_TEXTURE) != 0) {
+        game_render_sw_quad_flat(sw, poly);
     } else {
         POLYFLAT(screen_pointer, poly);
     }
