@@ -72,8 +72,6 @@ void DIGISetSampleVolume(int iHandle, int iVolume);
 void DIGISetPitch(int iHandle, int iPitch);
 void DIGISetPanLocation(int iHandle, int iPan);
 
-void PlayAudioSampleWait(int iIndex);
-void PlayAudioDataWait(Uint8 *buffer, Uint32 length);
 bool ROLLERfexists(const char *szFile);
 const char *ROLLERfindpath(const char *szFile); // case-insensitive path resolution (no-op on Windows)
 bool ROLLERdirexists(const char *szDir);

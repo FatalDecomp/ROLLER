@@ -1549,14 +1549,6 @@ void DIGIClearAllStream()
   DIGIUnlock();
 }
 
-void PlayAudioSampleWait(int iIndex)
-{
-  if (iIndex >= 120) return;
-  SDL_Log("Play Sample[%i]: %s", iIndex, Sample[iIndex]);
-  loadasample(iIndex);
-  PlayAudioDataWait(SamplePtr[iIndex], SampleLen[iIndex]);
-}
-
 void DIGISetSampleVolume(int iHandle, int iVolume)
 {
   if (iHandle < 0 || iHandle >= NUM_DIGI_STREAMS)
@@ -1624,32 +1616,6 @@ void DIGISetPanLocation(int iHandle, int iPan)
   DIGIUnlock();
 }
 
-void PlayAudioDataWait(Uint8 *buffer, Uint32 length)
-{
-  // https://wiki.libsdl.org/SDL3/QuickReference
-  SDL_AudioSpec wav_spec;
-  wav_spec.channels = 1; // Stereo
-  wav_spec.freq = 11025; // Sample rate
-  wav_spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
-
-  SDL_AudioStream *stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &wav_spec, NULL, NULL);
-  if (!stream) {
-    SDL_Log("Couldn't create audio stream: %s", SDL_GetError());
-    return;
-  }
-
-  float volume = 0.5f;
-  SDL_SetAudioStreamGain(stream, volume); // Set the gain for the audio stream
-  SDL_PutAudioStreamData(stream, buffer, length);
-  SDL_ResumeAudioStreamDevice(stream);
-
-  // wait from the audio stream to finish playing
-  while (SDL_GetAudioStreamAvailable(stream) > 0) {
-    SDL_Delay(10);
-  }
-
-  SDL_ClearAudioStream(stream);
-}
 #pragma endregion
 //-------------------------------------------------------------------------------------------------
 /// <summary>
