@@ -748,6 +748,12 @@ void frontend_shutdown_enter(void)
   frontend_shutdown_begin();
 }
 
+void frontend_shutdown_request(void)
+{
+  frontend_shutdown_begin();
+  eFrontendNextState = iFrontendShutdownComplete ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_SHUTDOWN;
+}
+
 void frontend_shutdown_update(void)
 {
   if (frontend_shutdown_pump())
@@ -762,11 +768,20 @@ int frontend_shutdown_complete(void)
 //00010AF0
 void doexit()
 {
-  frontend_shutdown_begin();
-  while (!frontend_shutdown_pump()) {
-    SDL_Delay(1);
-  }
-  exit(0);
+  frontend_shutdown_request();
+
+  if (!frontend_shutdown_complete() &&
+      (eFrontendCurrentState == eFRONTEND_STATE_NONE ||
+       eFrontendCurrentState == eFRONTEND_STATE_QUIT))
+    frontend_set_state(eFRONTEND_STATE_SHUTDOWN);
+
+  if (eFrontendCurrentState == eFRONTEND_STATE_SHUTDOWN)
+    frontend_shutdown_update();
+
+#ifndef __EMSCRIPTEN__
+  if (frontend_shutdown_complete())
+    exit(0);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1694,6 +1709,7 @@ void play_game_init()
   if (frontendspeechptr) {
     SDL_Log("Front end speech memory still allocated!!!!!!!\n");
     doexit();
+    return;
   }
   if ((cheat_mode & CHEAT_MODE_DEATH_MODE) != 0)
   {
@@ -2818,6 +2834,8 @@ void race_enter(void)
   I_Want_Out = 0;
   iFrontendNetworkErrorHandled = 0;
   play_game_init();                             // Initialize game systems and memory tracking
+  if (quit_game)
+    return;
   reset_net_wait();
   max_mem = mem_used_low + mem_used;
   enable_keyboard();

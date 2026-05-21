@@ -144,6 +144,7 @@ void frontend_lobby_update(void);
 void frontend_lobby_exit(void);
 void frontend_main_menu_prepare_race_start(void);
 void frontend_shutdown_enter(void);
+void frontend_shutdown_request(void);
 void frontend_shutdown_update(void);
 int frontend_shutdown_complete(void);
 

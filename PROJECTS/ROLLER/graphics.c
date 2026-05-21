@@ -673,6 +673,7 @@ void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx)
   if (!iCartexIdx) {
     printf("Exiting name is %s\n", szTexFile);
     doexit();
+    return;
   }
 
   // Advanced cars
@@ -693,6 +694,7 @@ void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx)
   if (iCompressedFileLength == -1) {
     printf("File size error in texture map data file\n\n");
     doexit();
+    return;
   }
 
   // Caclulate number of texture blocks (4096 bytes or 64x64 px)

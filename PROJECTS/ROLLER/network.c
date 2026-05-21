@@ -373,6 +373,7 @@ void close_network()
       if (ROLLERCommsDeleteNode(0)) {
         SDL_Log("FAILED TO DELETE NODE a (%d)!!!\n", iNode);
         doexit();
+        return;
       }
       ROLLERCommsSortNodes();
       ++iNode;
@@ -381,6 +382,7 @@ void close_network()
       if (ROLLERCommsDeleteNode(1)) {
         SDL_Log("FAILED TO DELETE NODE b (%d)!!!\n", i);
         doexit();
+        return;
       }
       ROLLERCommsSortNodes();
     }
@@ -2429,6 +2431,7 @@ void reset_network(int iResetBroadcastMode)
     if (ROLLERCommsDeleteNode(0)) {
       SDL_Log("FAILED TO DELETE NODE c (%d)!!!\n", iNode);
       doexit();
+      return;
     }
     ROLLERCommsSortNodes();
     ++iNode;
@@ -2437,6 +2440,7 @@ void reset_network(int iResetBroadcastMode)
     if (ROLLERCommsDeleteNode(1)) {
       SDL_Log("FAILED TO DELETE NODE (%d)!!!\n", i);
       doexit();
+      return;
     }
     ROLLERCommsSortNodes();
   }

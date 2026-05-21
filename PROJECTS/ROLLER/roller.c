@@ -772,6 +772,7 @@ void UpdateDebugLoop()
         if (e.type == SDL_EVENT_QUIT) {
           quit_game = 1;
           doexit();
+          return;
         }
         if (e.type == SDL_EVENT_KEY_DOWN) {
           if (e.key.key == SDLK_UP) {
