@@ -374,7 +374,7 @@ static void frontend_track_select_handle_input(int iBlockIdx)
 void frontend_track_select_enter(void)
 {
   iFrontendTrackAnimationTimer = 36;
-  fade_palette(0);
+  frontend_track_select_black_palette();
   iFrontendTrackSoundFlag = 0;
   front_fade = 0;
   iFrontendTrackExitFlag = 0;

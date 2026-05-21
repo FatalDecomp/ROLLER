@@ -625,7 +625,7 @@ static void frontend_main_menu_setup(void)
   front_vga[6] = (tBlockHeader *)load_picture("selexit.bm");
   front_vga[15] = (tBlockHeader *)load_picture("font1.bm");
 
-  fade_palette(0);
+  frontend_main_menu_black_palette();
   iFrontendMainMenuQuitConfirmed = 0;
   SVGA_ON = -1;
   init_screen();

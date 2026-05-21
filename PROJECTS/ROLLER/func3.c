@@ -96,6 +96,51 @@ int result_p2;            //00188834
 int result_p2_pos;        //00188838
 int result_p1_pos;        //0018883C
 
+typedef enum {
+  eFUNC3_SCREEN_PHASE_INACTIVE = 0,
+  eFUNC3_SCREEN_PHASE_FADE_IN,
+  eFUNC3_SCREEN_PHASE_WAIT,
+  eFUNC3_SCREEN_PHASE_FADE_OUT,
+  eFUNC3_SCREEN_PHASE_DONE
+} eFunc3ScreenPhase;
+
+static int Func3PaletteFadeComplete(void)
+{
+  if (fade_palette_active()) {
+    fade_palette_update();
+    UpdateSDLWindow();
+  }
+
+  return !fade_palette_active();
+}
+
+static int Func3FinishFadeIn(eFunc3ScreenPhase *pePhase)
+{
+  if (*pePhase != eFUNC3_SCREEN_PHASE_FADE_IN)
+    return 0;
+  if (!Func3PaletteFadeComplete())
+    return 0;
+
+  ticks = 0;
+  if (!g_bSnapshotMode)
+    enable_keyboard();
+  if (g_bSnapshotMode && !SnapshotShouldStop())
+    UpdateSDLWindow();
+  *pePhase = eFUNC3_SCREEN_PHASE_WAIT;
+  return -1;
+}
+
+static int Func3FinishFadeOut(eFunc3ScreenPhase *pePhase)
+{
+  if (*pePhase != eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return 0;
+  if (!Func3PaletteFadeComplete())
+    return 0;
+
+  *pePhase = eFUNC3_SCREEN_PHASE_DONE;
+  return -1;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static void sync_scene_render_from_legacy_view(SceneRenderer *scene)
@@ -140,6 +185,7 @@ static int iWinnerScreenOldGfxSize = 0;
 static int iWinnerScreenCarDesign = 0;
 static char byWinnerScreenAnimFrame = 0;
 static int iWinnerScreenDisplayDuration = 0;
+static eFunc3ScreenPhase eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 static SceneRenderer *pWinnerScreenScene = NULL;
 
 //00056070
@@ -159,6 +205,7 @@ void WinnerScreenEnter(int carDesign, char byFlags)
   SVGA_ON = -1;
   iWinnerScreenOldGfxSize = gfx_size;
   front_fade = 0;
+  eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
   init_screen();
   winx = 0;
   winy = 0;
@@ -271,8 +318,20 @@ int WinnerScreenUpdate(void)
   if ( !front_fade )
   {
     front_fade = -1;
-    fade_palette(32);
+    fade_palette_begin(32);
+    eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
+  }
+  if (eWinnerScreenPhase == eFUNC3_SCREEN_PHASE_FADE_IN) {
+    if (!Func3PaletteFadeComplete())
+      return 0;
     frames = 0;
+    eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_WAIT;
+    return 0;
+  }
+  if (eWinnerScreenPhase == eFUNC3_SCREEN_PHASE_FADE_OUT) {
+    if (!Func3FinishFadeOut(&eWinnerScreenPhase))
+      return 0;
+    return -1;
   }
 
   iKeyPressed = 0;
@@ -284,7 +343,10 @@ int WinnerScreenUpdate(void)
   }
   if (iKeyPressed) {
     iWinnerScreenRetVal = 0;
-    return -1;
+    fade_palette_begin(0);
+    eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+    front_fade = 0;
+    return 0;
   }
 
   if ( ticks > iWinnerScreenDisplayDuration )
@@ -313,6 +375,8 @@ void WinnerScreenExit(void)
 
   if (!iWinnerScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   ppFrontVgaItr = front_vga;
   do
@@ -333,11 +397,9 @@ void WinnerScreenExit(void)
   pWinnerScreenScene = NULL;
   gfx_size = iWinnerScreenOldGfxSize;
   if ( !iWinnerScreenRetVal )
-  {
-    fade_palette(0);
     front_fade = 0;
-  }
   iWinnerScreenActive = 0;
+  eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 void snapshot_render_winner_race(void)
@@ -510,6 +572,7 @@ void StoreResult()
 //-------------------------------------------------------------------------------------------------
 static int iRaceResultScreenActive = 0;
 static int iRaceResultSavedScreenSize = 0;
+static eFunc3ScreenPhase eRaceResultPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 //00056570
 void RaceResultEnter(void)
@@ -699,10 +762,10 @@ void RaceResultEnter(void)
 
   // Display completed result screen and wait for input
   copypic(scrbuf, screen);
-  fade_palette(32);
+  fade_palette_begin(32);
   if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE)
     UpdateSDLWindow();
-  ticks = 0;
+  eRaceResultPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iRaceResultScreenActive = -1;
 }
 
@@ -710,26 +773,35 @@ int RaceResultUpdate(void)
 {
   if (!iRaceResultScreenActive)
     return -1;
+  if (Func3FinishFadeIn(&eRaceResultPhase))
+    return 0;
+  if (eRaceResultPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return Func3FinishFadeOut(&eRaceResultPhase);
   if (SnapshotShouldStop())
     return -1;
-  if (fatkbhit())
-    return -1;
-  return ticks >= 2160;
+  if (fatkbhit() || ticks >= 2160) {
+    holdmusic = -1;
+    fade_palette_begin(0);
+    eRaceResultPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+    return 0;
+  }
+  return 0;
 }
 
 void RaceResultExit(void)
 {
   if (!iRaceResultScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[2]);
   fre((void **)&front_vga[3]);
   scr_size = iRaceResultSavedScreenSize;
-  holdmusic = -1;
-  fade_palette(0);
   iRaceResultScreenActive = 0;
+  eRaceResultPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 void snapshot_render_race_result(void)
@@ -824,6 +896,7 @@ void snapshot_render_race_result(void)
 //-------------------------------------------------------------------------------------------------
 static int iTimeTrialsScreenActive = 0;
 static int iTimeTrialsSavedScreenSize = 0;
+static eFunc3ScreenPhase eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 //00056D60
 void TimeTrialsEnter(int iDriverIdx)
@@ -1085,8 +1158,8 @@ void TimeTrialsEnter(int iDriverIdx)
   // Display completed screen, start music, and wait for input
   copypic(scrbuf, screen);
   startmusic(leaderboardsong);
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iTimeTrialsScreenActive = -1;
 }
 
@@ -1094,23 +1167,32 @@ int TimeTrialsUpdate(void)
 {
   if (!iTimeTrialsScreenActive)
     return -1;
-  if (fatkbhit())
-    return -1;
-  return ticks >= 2160;
+  if (Func3FinishFadeIn(&eTimeTrialsPhase))
+    return 0;
+  if (eTimeTrialsPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return Func3FinishFadeOut(&eTimeTrialsPhase);
+  if (fatkbhit() || ticks >= 2160) {
+    fade_palette_begin(0);
+    eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+    return 0;
+  }
+  return 0;
 }
 
 void TimeTrialsExit(void)
 {
   if (!iTimeTrialsScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
   scr_size = iTimeTrialsSavedScreenSize;
-  fade_palette(0);
   iTimeTrialsScreenActive = 0;
+  eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 static void snapshot_copy_name9(char szDest[9], const char *szSrc)
@@ -1204,6 +1286,7 @@ void snapshot_render_time_trials(void)
 //-------------------------------------------------------------------------------------------------
 static int iChampionshipStandingsScreenActive = 0;
 static int iChampionshipStandingsSavedScreenSize = 0;
+static eFunc3ScreenPhase eChampionshipStandingsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 //00057AD0
 void ChampionshipStandingsEnter(void)
@@ -1387,8 +1470,8 @@ void ChampionshipStandingsEnter(void)
   // Display completed screen and wait for input
   copypic(scrbuf, screen);
   holdmusic = -1;
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eChampionshipStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iChampionshipStandingsScreenActive = -1;
 }
 
@@ -1396,6 +1479,10 @@ int ChampionshipStandingsUpdate(void)
 {
   if (!iChampionshipStandingsScreenActive)
     return -1;
+  if (Func3FinishFadeIn(&eChampionshipStandingsPhase))
+    return 0;
+  if (eChampionshipStandingsPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return Func3FinishFadeOut(&eChampionshipStandingsPhase);
 
   // Different wait behavior: single race mode waits indefinitely, championship mode waits 2160 ticks
   if (g_bSnapshotMode) {
@@ -1406,32 +1493,39 @@ int ChampionshipStandingsUpdate(void)
       SnapshotAdvanceTick();
     return SnapshotShouldStop();
   } else if (game_type == 3) {
-    return fatkbhit();
+    if (!fatkbhit())
+      return 0;
   } else {
-    if (fatkbhit())
-      return -1;
-    return ticks >= 2160;
+    if (!fatkbhit() && ticks < 2160)
+      return 0;
   }
+
+  holdmusic = -1;
+  fade_palette_begin(0);
+  eChampionshipStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+  return 0;
 }
 
 void ChampionshipStandingsExit(void)
 {
   if (!iChampionshipStandingsScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
   scr_size = iChampionshipStandingsSavedScreenSize;
-  holdmusic = -1;
-  fade_palette(0);
   iChampionshipStandingsScreenActive = 0;
+  eChampionshipStandingsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
 static int iTeamStandingsScreenActive = 0;
 static int iTeamStandingsSavedScreenSize = 0;
+static eFunc3ScreenPhase eTeamStandingsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 //00058100
 void TeamStandingsEnter(void)
@@ -1647,8 +1741,8 @@ void TeamStandingsEnter(void)
   // display completed standings screen
   copypic(scrbuf, screen);
   holdmusic = -1;
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eTeamStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iTeamStandingsScreenActive = -1;
 }
 
@@ -1656,33 +1750,47 @@ int TeamStandingsUpdate(void)
 {
   if (!iTeamStandingsScreenActive)
     return -1;
+  if (Func3FinishFadeIn(&eTeamStandingsPhase))
+    return 0;
+  if (eTeamStandingsPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return Func3FinishFadeOut(&eTeamStandingsPhase);
+
   // wait for user input or timeout
-  if ( game_type == 3 )
-    return fatkbhit();
-  if (fatkbhit())
-    return -1;
-  return ticks >= 2160;
+  if (game_type == 3) {
+    if (!fatkbhit())
+      return 0;
+  } else if (!fatkbhit() && ticks < 2160) {
+    return 0;
+  }
+
+  holdmusic = -1;
+  fade_palette_begin(0);
+  eTeamStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+  return 0;
 }
 
 void TeamStandingsExit(void)
 {
   if (!iTeamStandingsScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[2]);
   scr_size = iTeamStandingsSavedScreenSize;
-  holdmusic = -1;
-  fade_palette(0);
   iTeamStandingsScreenActive = 0;
+  eTeamStandingsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
 static int iLapRecordsScreenActive = 0;
 static int iLapRecordsSavedScreenSize = 0;
 static int iLapRecordsPage = 0;
+static int iLapRecordsFinalFade = 0;
+static eFunc3ScreenPhase eLapRecordsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 static void ShowLapRecordsDrawPage(int iFirstRecordIdx, int iLastRecordIdx)
 {
@@ -1803,8 +1911,8 @@ static void ShowLapRecordsPresentPage(int iFirstRecordIdx, int iLastRecordIdx)
   ShowLapRecordsDrawPage(iFirstRecordIdx, iLastRecordIdx);
   copypic(scrbuf, screen);
   holdmusic = -1;
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eLapRecordsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
 }
 
 //00058780
@@ -1835,6 +1943,7 @@ void ShowLapRecordsEnter(void)
   tick_on = -1;
 
   iLapRecordsPage = 1;
+  iLapRecordsFinalFade = 0;
   ShowLapRecordsPresentPage(1, 17);
   iLapRecordsScreenActive = -1;
 }
@@ -1852,37 +1961,58 @@ int ShowLapRecordsUpdate(void)
 {
   if (!iLapRecordsScreenActive)
     return -1;
+  if (Func3FinishFadeIn(&eLapRecordsPhase))
+    return 0;
+  if (eLapRecordsPhase == eFUNC3_SCREEN_PHASE_FADE_OUT) {
+    if (!Func3FinishFadeOut(&eLapRecordsPhase))
+      return 0;
+    if (iLapRecordsFinalFade) {
+      if (game_type != 4)
+        holdmusic = 0;
+      return -1;
+    }
+    iLapRecordsPage = 2;
+    ShowLapRecordsPresentPage(17, 25);
+    return 0;
+  }
+
   if (!ShowLapRecordsWaitComplete())
     return 0;
 
   scr_size = iLapRecordsSavedScreenSize;
   if (iLapRecordsPage == 1 && (textures_off & TEX_OFF_BONUS_CUP_AVAILABLE) != 0) {
     holdmusic = -1;
-    fade_palette(0);
-    iLapRecordsPage = 2;
-    ShowLapRecordsPresentPage(17, 25);
+    iLapRecordsFinalFade = 0;
+    fade_palette_begin(0);
+    eLapRecordsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
     return 0;
   }
 
-  return -1;
+  holdmusic = (game_type != 4) - 1;
+  iLapRecordsFinalFade = -1;
+  fade_palette_begin(0);
+  eLapRecordsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+  return 0;
 }
 
 void ShowLapRecordsExit(void)
 {
   if (!iLapRecordsScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   // cleanup
   fre((void **)&front_vga[0]);
   fre((void **)&front_vga[1]);
   fre((void **)&front_vga[2]);
   fre((void **)&front_vga[3]);
   scr_size = iLapRecordsSavedScreenSize;
-  holdmusic = (game_type != 4) - 1;
-  fade_palette(0);
   if ( game_type != 4 )
     holdmusic = 0;
   iLapRecordsScreenActive = 0;
   iLapRecordsPage = 0;
+  iLapRecordsFinalFade = 0;
+  eLapRecordsPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3112,6 +3242,7 @@ static int iChampionshipWinnerCurrentFrame = 0;
 static int iChampionshipWinnerFrameTimer = 0;
 static int iChampionshipWinnerNumAnimFrames = 0;
 static int iChampionshipWinnerDuration = 0;
+static eFunc3ScreenPhase eChampionshipWinnerPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 static void ChampionshipWinnerShowFrame(void)
 {
@@ -3158,14 +3289,15 @@ void ChampionshipWinnerEnter(void)
   iChampionshipWinnerCurrentFrame = 0;          // Copy first frame to screen buffer
   iChampionshipWinnerFrameTimer = 0;
   iChampionshipWinnerActive = -1;
+  eChampionshipWinnerPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
   ChampionshipWinnerShowFrame();                // Display initial frame and start championship music
   if (SnapshotShouldStop())
     return;
   startmusic(winchampsong);
   enable_keyboard();
-  fade_palette(32);                             // Enable input, fade in display, and initialize animation timing
+  fade_palette_begin(32);                       // Enable input, fade in display, and initialize animation timing
+  eChampionshipWinnerPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   front_fade = -1;
-  ticks = 0;
   frames = 1;
 }
 
@@ -3173,6 +3305,10 @@ int ChampionshipWinnerUpdate(void)
 {
   if (!iChampionshipWinnerActive)
     return -1;
+  if (Func3FinishFadeIn(&eChampionshipWinnerPhase)) {
+    frames = 1;
+    return 0;
+  }
   if (SnapshotShouldStop())
     return -1;
   if (fatkbhit())
@@ -3198,8 +3334,11 @@ void ChampionshipWinnerExit(void)
 {
   if (!iChampionshipWinnerActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void **)front_vga);                      // Clean up championship image resources
   iChampionshipWinnerActive = 0;
+  eChampionshipWinnerPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 void snapshot_render_winner_championship(void)
@@ -4134,6 +4273,7 @@ void check_saves()
 //-------------------------------------------------------------------------------------------------
 static int iResultRoundUpScreenActive = 0;
 static int iResultRoundUpSavedScreenSize = 0;
+static eFunc3ScreenPhase eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 //0005C180
 void ResultRoundUpEnter(void)
@@ -4329,8 +4469,8 @@ void ResultRoundUpEnter(void)
   }
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
   startmusic(leaderboardsong);
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iResultRoundUpScreenActive = -1;
 }
 
@@ -4338,29 +4478,41 @@ int ResultRoundUpUpdate(void)
 {
   if (!iResultRoundUpScreenActive)
     return -1;
-  if (fatkbhit())
-    return -1;
-  return ticks >= 2160;
+  if (Func3FinishFadeIn(&eResultRoundUpPhase))
+    return 0;
+  if (eResultRoundUpPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
+    return Func3FinishFadeOut(&eResultRoundUpPhase);
+  if (fatkbhit() || ticks >= 2160) {
+    holdmusic = -1;
+    fade_palette_begin(0);
+    eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+    return 0;
+  }
+  return 0;
 }
 
 void ResultRoundUpExit(void)
 {
   if (!iResultRoundUpScreenActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void **)&front_vga[2]);                  // Clean up resources and restore screen settings
   fre((void **)&front_vga[1]);
   fre((void **)front_vga);
   scr_size = iResultRoundUpSavedScreenSize;
-  holdmusic = -1;
-  fade_palette(0);
   iResultRoundUpScreenActive = 0;
+  eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 typedef enum {
   eROLL_CREDITS_PHASE_INACTIVE = 0,
   eROLL_CREDITS_PHASE_TITLE,
   eROLL_CREDITS_PHASE_INITIAL_WAIT,
+  eROLL_CREDITS_PHASE_INITIAL_FADE_OUT,
+  eROLL_CREDITS_PHASE_CARD_FADE_IN,
   eROLL_CREDITS_PHASE_CARD_WAIT,
+  eROLL_CREDITS_PHASE_CARD_FADE_OUT,
   eROLL_CREDITS_PHASE_DONE
 } eRollCreditsPhase;
 
@@ -4368,6 +4520,7 @@ static eRollCreditsPhase eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE
 static int iRollCreditsCurrImageIdx = 0;
 static int iRollCreditsOrderIdx = 0;
 static int iRollCreditsImagesLoaded = 0;
+static eFunc3ScreenPhase eRollCreditsFadePhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 static void RollCreditsShowCurrentCard(void)
 {
@@ -4389,8 +4542,8 @@ static void RollCreditsShowCurrentCard(void)
   llBlockHeight = pCurrImage[iBlockIdx].iHeight;
   display_block(scrbuf, pCurrImage, iBlockIdx, XMAX / 2 - pCurrImage[iBlockIdx].iWidth / 2, YMAX / 2 - (int)llBlockHeight / 2, -1);
   copypic(scrbuf, screen);
-  fade_palette(32);
-  ticks = 0;
+  fade_palette_begin(32);
+  eRollCreditsFadePhase = eFUNC3_SCREEN_PHASE_FADE_IN;
 }
 
 //0005CB20
@@ -4424,11 +4577,24 @@ int RollCreditsUpdate(void)
     case eROLL_CREDITS_PHASE_INITIAL_WAIT:
       if (ticks < 108)
         return 0;
-      fade_palette(0);
+      fade_palette_begin(0);
+      eRollCreditsFadePhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INITIAL_FADE_OUT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_INITIAL_FADE_OUT:
+      if (!Func3FinishFadeOut(&eRollCreditsFadePhase))
+        return 0;
       iRollCreditsCurrImageIdx = 0;
       iRollCreditsOrderIdx = 0;
       setpal("credit1.pal");
       RollCreditsShowCurrentCard();
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_FADE_IN;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_CARD_FADE_IN:
+      if (!Func3FinishFadeIn(&eRollCreditsFadePhase))
+        return 0;
       eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_WAIT;
       return 0;
 
@@ -4447,12 +4613,20 @@ int RollCreditsUpdate(void)
         ++iRollCreditsOrderIdx;
       if ( credit_order[iRollCreditsOrderIdx] == -2 )
         holdmusic = 0;
-      fade_palette(0);
+      fade_palette_begin(0);
+      eRollCreditsFadePhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_FADE_OUT;
+      return 0;
+
+    case eROLL_CREDITS_PHASE_CARD_FADE_OUT:
+      if (!Func3FinishFadeOut(&eRollCreditsFadePhase))
+        return 0;
       if ( credit_order[iRollCreditsOrderIdx] == -2 ) {
         eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_DONE;
         return -1;
       }
       RollCreditsShowCurrentCard();
+      eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_CARD_FADE_IN;
       return 0;
 
     case eROLL_CREDITS_PHASE_DONE:
@@ -4467,6 +4641,8 @@ void RollCreditsExit(void)
 {
   if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_INACTIVE)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   if (eRollCreditsPhaseCurrent == eROLL_CREDITS_PHASE_TITLE)
     frontend_title_screen_exit();
   if (iRollCreditsImagesLoaded) {
@@ -4476,6 +4652,7 @@ void RollCreditsExit(void)
   front_fade = 0;
   eRollCreditsPhaseCurrent = eROLL_CREDITS_PHASE_INACTIVE;
   iRollCreditsImagesLoaded = 0;
+  eRollCreditsFadePhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4483,8 +4660,10 @@ typedef enum {
   eCHAMPIONSHIP_OVER_PHASE_INACTIVE = 0,
   eCHAMPIONSHIP_OVER_PHASE_CHAMPIONSHIP_WINNER,
   eCHAMPIONSHIP_OVER_PHASE_CHAMPION_RACE,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_IN,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT,
   eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT,
+  eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_OUT,
   eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE,
   eCHAMPIONSHIP_OVER_PHASE_CREDITS,
   eCHAMPIONSHIP_OVER_PHASE_DONE
@@ -4647,13 +4826,9 @@ static void ChampionshipOverStart(void)
       Race = 0;
   }
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
-  fade_palette(32);
+  fade_palette_begin(32);
   iChampionshipOverResultScreenActive = -1;
-  eChampionshipOverPhaseCurrent = g_bSnapshotMode
-    ? eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT
-    : eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
-  if (!g_bSnapshotMode)
-    ticks = 0;
+  eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_IN;
 }
 
 void ChampionshipOverEnter(void)
@@ -4679,6 +4854,16 @@ int ChampionshipOverUpdate(void)
       champion_race_exit();
       ChampionshipOverStart();
       return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_IN: {
+      eFunc3ScreenPhase ePhase = eFUNC3_SCREEN_PHASE_FADE_IN;
+      if (!Func3FinishFadeIn(&ePhase))
+        return 0;
+      eChampionshipOverPhaseCurrent = g_bSnapshotMode
+        ? eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT
+        : eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT;
+      return 0;
+    }
 
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
       if (SnapshotShouldStop()) {
@@ -4711,7 +4896,14 @@ int ChampionshipOverUpdate(void)
         eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
         return -1;
       }
-      fade_palette(0);
+      fade_palette_begin(0);
+      eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_OUT;
+      return 0;
+
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_OUT: {
+      eFunc3ScreenPhase ePhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+      if (!Func3FinishFadeOut(&ePhase))
+        return 0;
       if (SnapshotShouldStop()) {
         eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
         return -1;
@@ -4719,6 +4911,7 @@ int ChampionshipOverUpdate(void)
       EndChampSequenceEnter();                  // Run championship end sequence and credits
       eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE;
       return 0;
+    }
 
     case eCHAMPIONSHIP_OVER_PHASE_END_SEQUENCE:
       if (!EndChampSequenceUpdate())
@@ -4756,8 +4949,12 @@ void ChampionshipOverExit(void)
       champion_race_exit();
       break;
 
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_IN:
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_SNAPSHOT_PRESENT:
     case eCHAMPIONSHIP_OVER_PHASE_RESULT_WAIT:
+    case eCHAMPIONSHIP_OVER_PHASE_RESULT_FADE_OUT:
+      if (fade_palette_active())
+        fade_palette_finish();
       ChampionshipOverReleaseResultScreen();
       break;
 
@@ -4787,6 +4984,7 @@ void ChampionshipOverDraw(void)
 //-------------------------------------------------------------------------------------------------
 static int iEndChampSequenceActive = 0;
 static int iEndChampSequenceImageIndex = 0;
+static eFunc3ScreenPhase eEndChampSequencePhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 static void EndChampSequenceShowCurrentImage(void)
 {
@@ -4801,8 +4999,8 @@ static void EndChampSequenceShowCurrentImage(void)
   display_block(scrbuf, front_vga[0], 0, iRandomYPosition / 4, 0, -1);
   //display_block(scrbuf, front_vga[0], 0, (iRandomYPosition - (__CFSHL__(iRandomYPosition >> 31, 2) + 4 * (iRandomYPosition >> 31))) >> 2, 0, -1);// Display championship image at random Y position, centered horizontally
   copypic(scrbuf, screen);                    // Copy buffer to screen and fade in
-  fade_palette(32);
-  ticks = 0;                                  // Reset timing for image display duration
+  fade_palette_begin(32);
+  eEndChampSequencePhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   if (++iEndChampSequenceImageIndex < 8)                    // Advance to next image if not at end of sequence
   {
     fre((void **)front_vga);                  // Free current image and load next championship image
@@ -4817,6 +5015,7 @@ void EndChampSequenceEnter(void)
   frontend_on = -1;
   tick_on = -1;
   iEndChampSequenceImageIndex = 0;              // Start with first championship image (index 0)
+  eEndChampSequencePhase = eFUNC3_SCREEN_PHASE_INACTIVE;
   front_vga[0] = (tBlockHeader *)load_picture(round_pics[0]);// Load the first championship sequence image
   iEndChampSequenceActive = -1;
   EndChampSequenceShowCurrentImage();
@@ -4826,6 +5025,16 @@ int EndChampSequenceUpdate(void)
 {
   if (!iEndChampSequenceActive)
     return -1;
+  if (Func3FinishFadeIn(&eEndChampSequencePhase))
+    return 0;
+  if (eEndChampSequencePhase == eFUNC3_SCREEN_PHASE_FADE_OUT) {
+    if (!Func3FinishFadeOut(&eEndChampSequencePhase))
+      return 0;
+    if (iEndChampSequenceImageIndex >= 8)
+      return -1;
+    EndChampSequenceShowCurrentImage();
+    return 0;
+  }
 
   // Check for user input to skip sequence
   if (fatkbhit()) {
@@ -4837,11 +5046,8 @@ int EndChampSequenceUpdate(void)
   if (ticks < 144)
     return 0;
 
-  fade_palette(0);                              // Fade out current image before next iteration
-  if (iEndChampSequenceImageIndex >= 8)
-    return -1;
-
-  EndChampSequenceShowCurrentImage();
+  fade_palette_begin(0);                        // Fade out current image before next iteration
+  eEndChampSequencePhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
   return 0;
 }
 
@@ -4849,15 +5055,20 @@ void EndChampSequenceExit(void)
 {
   if (!iEndChampSequenceActive)
     return;
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void **)front_vga);                      // Clean up resources and reset fade state
   front_fade = 0;
   iEndChampSequenceActive = 0;
   iEndChampSequenceImageIndex = 0;
+  eEndChampSequencePhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 typedef enum {
   eNETWORK_FUCKED_PHASE_NONE = 0,
+  eNETWORK_FUCKED_PHASE_FADE_IN,
   eNETWORK_FUCKED_PHASE_INPUT,
+  eNETWORK_FUCKED_PHASE_FADE_OUT,
   eNETWORK_FUCKED_PHASE_QUIT_BROADCAST,
   eNETWORK_FUCKED_PHASE_DONE
 } eNetworkFuckedPhase;
@@ -4865,9 +5076,10 @@ typedef enum {
 static int iNetworkFuckedOriginalScreenSize = 0;
 static int iNetworkFuckedActive = 0;
 static int iNetworkFuckedScreenActive = 0;
+static int iNetworkFuckedBroadcastAfterFade = 0;
 static eNetworkFuckedPhase eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
 
-static void NetworkFuckedCleanupScreen(void)
+static void NetworkFuckedReleaseScreen(void)
 {
   if (!iNetworkFuckedScreenActive)
     return;
@@ -4876,16 +5088,24 @@ static void NetworkFuckedCleanupScreen(void)
   fre((void **)&font_vga);
   fre((void **)front_vga);
   scr_size = iNetworkFuckedOriginalScreenSize;
-  holdmusic = -1;
-  fade_palette(0);
   iNetworkFuckedScreenActive = 0;
 }
 
-static void NetworkFuckedBeginQuitBroadcast(void)
+static void NetworkFuckedBeginFadeOut(int iBroadcastAfterFade)
 {
-  NetworkFuckedCleanupScreen();
-  network_broadcast_wait_start(-666, 1);
-  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_QUIT_BROADCAST;
+  NetworkFuckedReleaseScreen();
+  holdmusic = -1;
+  iNetworkFuckedBroadcastAfterFade = iBroadcastAfterFade;
+  fade_palette_begin(0);
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_FADE_OUT;
+}
+
+static void NetworkFuckedCleanupScreen(void)
+{
+  if (fade_palette_active())
+    fade_palette_finish();
+  NetworkFuckedReleaseScreen();
+  iNetworkFuckedBroadcastAfterFade = 0;
 }
 
 static int NetworkFuckedProcessInput(void)
@@ -4960,11 +5180,11 @@ void NetworkFuckedEnter(void)
   }
   copypic(scrbuf, screen);                      // Display the error screen and start background music
   startmusic(leaderboardsong);
-  fade_palette(32);                             // Fade in the error screen
-  ticks = 0;
+  fade_palette_begin(32);                       // Fade in the error screen
   iNetworkFuckedActive = -1;
   iNetworkFuckedScreenActive = -1;
-  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_INPUT;
+  iNetworkFuckedBroadcastAfterFade = 0;
+  eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_FADE_IN;
 }
 
 int NetworkFuckedUpdate(void)
@@ -4972,16 +5192,39 @@ int NetworkFuckedUpdate(void)
   if (!iNetworkFuckedActive)
     return -1;
 
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_FADE_IN) {
+    eFunc3ScreenPhase ePhase = eFUNC3_SCREEN_PHASE_FADE_IN;
+    if (!Func3FinishFadeIn(&ePhase))
+      return 0;
+    eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_INPUT;
+    return 0;
+  }
+
   if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_INPUT) {
     if (!NetworkFuckedProcessInput())
       return 0;
 
     if (network_buggered == 666 && !restart_net) {
-      NetworkFuckedBeginQuitBroadcast();
+      NetworkFuckedBeginFadeOut(-1);
       return 0;
     }
 
-    NetworkFuckedCleanupScreen();
+    NetworkFuckedBeginFadeOut(0);
+    return 0;
+  }
+
+  if (eNetworkFuckedCurrentPhase == eNETWORK_FUCKED_PHASE_FADE_OUT) {
+    eFunc3ScreenPhase ePhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+    if (!Func3FinishFadeOut(&ePhase))
+      return 0;
+
+    if (iNetworkFuckedBroadcastAfterFade) {
+      iNetworkFuckedBroadcastAfterFade = 0;
+      network_broadcast_wait_start(-666, 1);
+      eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_QUIT_BROADCAST;
+      return 0;
+    }
+
     eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_DONE;
     iNetworkFuckedActive = 0;
     return -1;
@@ -5005,6 +5248,7 @@ void NetworkFuckedExit(void)
 {
   NetworkFuckedCleanupScreen();
   iNetworkFuckedActive = 0;
+  iNetworkFuckedBroadcastAfterFade = 0;
   eNetworkFuckedCurrentPhase = eNETWORK_FUCKED_PHASE_NONE;
 }
 
@@ -5013,19 +5257,22 @@ void NetworkFuckedExit(void)
 static int iNoCdOriginalScreenSize = 0;
 static int iNoCdActive = 0;
 static int iNoCdScreenActive = 0;
+static eFunc3ScreenPhase eNoCdPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 
 static void NoCdCleanupScreen(void)
 {
   if (!iNoCdScreenActive)
     return;
 
+  if (fade_palette_active())
+    fade_palette_finish();
   fre((void**)&title_vga);
   fre((void**)&font_vga);
   fre((void**)&front_vga[0]);
   scr_size = iNoCdOriginalScreenSize;
   holdmusic = 0;
-  fade_palette(0);
   iNoCdScreenActive = 0;
+  eNoCdPhase = eFUNC3_SCREEN_PHASE_INACTIVE;
 }
 
 void NoCdEnter(void)
@@ -5072,9 +5319,9 @@ void NoCdEnter(void)
   front_text(font_vga, &language_buffer[6336], font4_ascii, font4_offsets, 320, 192, 0x8Fu, 1u);
 
   copypic(scrbuf, screen);
-  fade_palette(32);
+  fade_palette_begin(32);
 
-  ticks = 0;
+  eNoCdPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iNoCdActive = -1;
   iNoCdScreenActive = -1;
 }
@@ -5083,11 +5330,22 @@ int NoCdUpdate(void)
 {
   if (!iNoCdActive)
     return -1;
+  if (Func3FinishFadeIn(&eNoCdPhase))
+    return 0;
+  if (eNoCdPhase == eFUNC3_SCREEN_PHASE_FADE_OUT) {
+    if (!Func3FinishFadeOut(&eNoCdPhase))
+      return 0;
+    iNoCdActive = 0;
+    return -1;
+  }
+
   if (!fatkbhit() && ticks < 2160)
     return 0;
 
-  iNoCdActive = 0;
-  return -1;
+  holdmusic = 0;
+  fade_palette_begin(0);
+  eNoCdPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
+  return 0;
 }
 
 void NoCdExit(void)

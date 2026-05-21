@@ -99,7 +99,7 @@ void frontend_car_select_enter(void)
   iFrontendCarOriginalCarSelection = -1;
   iFrontendCarPlayer1Car = Players_Cars[player1_car];
 
-  fade_palette(0);
+  frontend_car_select_black_palette();
   front_fade = 0;
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
   front_vga[7] = (tBlockHeader *)load_picture("selcar2.bm");

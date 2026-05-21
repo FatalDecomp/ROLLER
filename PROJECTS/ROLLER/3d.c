@@ -279,6 +279,16 @@ void set_game_scale(int iPlayerIdx, float fNew)
   ullGameScaleTimeNs[iPlayerIdx] = ullScaleTimeNs;
 }
 
+static void set_black_palette_now(void)
+{
+  if (!pal_addr)
+    return;
+
+  blankpal();
+  g_bPaletteSet = true;
+  UpdateSDLWindow();
+}
+
 //-------------------------------------------------------------------------------------------------
 //00010020
 void copypic(uint8 *pSrc, uint8 *pDest)
@@ -1757,7 +1767,7 @@ void play_game_init()
   loadsamples();                                // Initialize audio system - load samples, setup collisions and sounds
   initcollisions();
   initsounds();
-  fade_palette(0); // Before game renderer exists — use direct call
+  set_black_palette_now();
   init_screen();
   if (intro || replaytype == 2)               // Set screen size based on intro mode or replay
   {
@@ -1955,7 +1965,7 @@ void play_game_uninit()
   }
   network_error = 0;
   network_sync_error = 0;
-  fade_palette(0); // After game renderer destroyed — use direct call
+  set_black_palette_now();
   if (!loading_replay)
     stopmusic();
   stopallsamples();
