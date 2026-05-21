@@ -90,6 +90,16 @@ static int frontend_config_update_broadcast_wait(void)
   return -1;
 }
 
+static void frontend_config_black_palette(void)
+{
+  palette_brightness = 0;
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = 0;
+    pal_addr[i].byB = 0;
+    pal_addr[i].byG = 0;
+  }
+}
+
 static void frontend_config_request_exit(void)
 {
   if (iFrontendConfigExitFading)
@@ -102,7 +112,7 @@ static void frontend_config_request_exit(void)
 
 void frontend_config_enter(void)
 {
-  fade_palette(0);
+  frontend_config_black_palette();
   iFrontendConfigExitFlag = 0;
   iFrontendConfigExitFading = 0;
   iFrontendConfigMenuSelection = 7;
@@ -120,12 +130,7 @@ void frontend_config_enter(void)
 
 void frontend_config_exit(void)
 {
-  palette_brightness = 0;
-  for (int i = 0; i < 256; i++) {
-    pal_addr[i].byR = 0;
-    pal_addr[i].byB = 0;
-    pal_addr[i].byG = 0;
-  }
+  frontend_config_black_palette();
   iFrontendConfigExitFading = 0;
   front_fade = 0;
 }

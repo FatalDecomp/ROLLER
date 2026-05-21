@@ -3580,20 +3580,6 @@ int fade_palette_update()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003E680
-void fade_palette(int iTargetBrightness)
-{
-  fade_palette_begin(iTargetBrightness);
-
-  while (fade_palette_active()) {
-    fade_palette_update();
-    UpdateSDLWindow();
-    if (fade_palette_active())
-      SDL_Delay(1);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 
 void fade_music_start(int iTargetBrightness)
 {

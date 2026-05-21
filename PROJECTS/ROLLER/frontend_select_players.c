@@ -114,6 +114,16 @@ static int frontend_players_select_update_broadcast_wait(void)
   return -1;
 }
 
+static void frontend_players_select_black_palette(void)
+{
+  palette_brightness = 0;
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = 0;
+    pal_addr[i].byB = 0;
+    pal_addr[i].byG = 0;
+  }
+}
+
 static void frontend_players_select_clamp_selection(void)
 {
   if (iFrontendPlayersSelectedPlayerType != 0 &&
@@ -385,7 +395,7 @@ void frontend_players_select_enter(void)
   iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
   iFrontendPlayersCloseNetworkPending = 0;
   iFrontendPlayersCloseNetworkStartFrame = 0;
-  fade_palette(0);
+  frontend_players_select_black_palette();
   iFrontendPlayersSelectedPlayerType = player_type;
   front_fade = 0;
   {
@@ -640,12 +650,7 @@ void frontend_players_select_exit(void)
   }
   iFrontendPlayersExitFading = 0;
   if (!SnapshotShouldStop()) {
-    palette_brightness = 0;
-    for (int i = 0; i < 256; i++) {
-      pal_addr[i].byR = 0;
-      pal_addr[i].byB = 0;
-      pal_addr[i].byG = 0;
-    }
+    frontend_players_select_black_palette();
   }
   front_fade = 0;
 

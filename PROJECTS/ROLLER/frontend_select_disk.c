@@ -375,7 +375,7 @@ static void frontend_disk_select_handle_input(void)
 
 void frontend_disk_select_enter(void)
 {
-  fade_palette(0);
+  frontend_disk_select_black_palette();
   uiFrontendDiskMenuMode = 0;
   front_fade = 0;
   {

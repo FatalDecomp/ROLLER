@@ -733,7 +733,7 @@ void frontend_type_select_enter(void)
   iFrontendTypeBlockIdx = (TrackLoad - 1) / 8;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
   iFrontendTypeMenuSelection = 0;
-  fade_palette(0);
+  frontend_type_select_black_palette();
   front_fade = 0;
   memcpy(pal_addr, palette, 256 * sizeof(tColor));
   palette_brightness = 32;

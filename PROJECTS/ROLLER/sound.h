@@ -460,7 +460,6 @@ void fade_palette_begin(int iPaletteBrightness);
 int fade_palette_update();
 int fade_palette_active();
 void fade_palette_finish();
-void fade_palette(int iPaletteBrightness);
 void fade_music_start(int iTargetBrightness);
 void fade_music_step(int iStep);
 void fade_music_finish(int iTargetBrightness);
