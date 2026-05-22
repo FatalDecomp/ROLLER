@@ -59,7 +59,6 @@ int ROLLERCommsNetAddrToNode(const int *pAddress);
 // Address
 void ROLLERCommsGetNetworkAddr(int *pAddressOut);
 void ROLLERCommsGetLastPacketAddr(tROLLERNetAddr *pAddressOut);
-void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen);
 void ROLLERCommsGetNodeAddrStr(int iNode, char *szBuf, int iBufLen);
 void ROLLERCommsFormatAddr(const tROLLERNetAddr *pAddress, char *szBuf, int iBufLen);
 int  ROLLERCommsEnumLocalAddrs(tROLLERNetIface *pOut, int iMax);
@@ -101,19 +100,12 @@ int ROLLERCommsPostListen(void);
 void ROLLERCommsSetCommandBase(int iCommandBase);
 void ROLLERCommsSetComPort(int iPort);
 void ROLLERCommsSetComPort(int iPort);
-void ROLLERCommsSetComBaudRate(int iBaudRate);
-int ROLLER16550(int iPort); // Always returns true
 
 // Buffer management
 void ROLLERclrrx(void); // Clear receive buffer
 void ROLLERclrtx(void); // Clear transmit buffer
 
 // Modem emulation (for compatibility)
-int ROLLERModemHangUp(void);
-int ROLLERModemInit(const char *szInitString, int iParam1, int iParam2, int iParam3);
-int ROLLERModemDial(const char *szPhoneNumber, int iToneMode);
-int ROLLERModemAnswer(void);
-int ROLLERModemCheckResponse(int iParam1, int iParam2, int iParam3, int iParam4);
 
 //-------------------------------------------------------------------------------------------------
 #endif // _ROLLER_ROLLERCOMMS_H

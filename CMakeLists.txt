@@ -72,7 +72,6 @@ add_executable(roller
     PROJECTS/ROLLER/graphics.c
     PROJECTS/ROLLER/horizon.c
     PROJECTS/ROLLER/loadtrak.c
-    PROJECTS/ROLLER/mouse.c
     PROJECTS/ROLLER/moving.c
     PROJECTS/ROLLER/network.c
     PROJECTS/ROLLER/plans.c
@@ -86,7 +85,6 @@ add_executable(roller
     PROJECTS/ROLLER/rollersound.c
     PROJECTS/ROLLER/snapshot.c
     PROJECTS/ROLLER/sound.c
-    PROJECTS/ROLLER/svgacpy.c
     PROJECTS/ROLLER/tower.c
     PROJECTS/ROLLER/transfrm.c
     PROJECTS/ROLLER/userfns.c

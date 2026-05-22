@@ -1753,20 +1753,6 @@ void DoRstop()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00065ED0
-void Rstop()
-{
-  if (replaytype == 2) {
-    //_disable();
-    replayspeed = 0;
-    fraction = 0;
-    replaydirection = 0;
-    ticks = currentreplayframe;
-    //_enable();
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //00065F00
 void Rrewindstart()
 {
@@ -1892,59 +1878,6 @@ void setdisable(int iFrame)
     iArrayIndex = iFrame / 32;  // Calculate array index: divide by 32 to get DWORD index
     //iArrayIndex = (iFrame - (__CFSHL__(iFrame >> 31, 5) + 32 * (iFrame >> 31))) >> 5;
     disabled[iArrayIndex] |= 1 << (byBitPosition - 32 * iArrayIndex);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-//00066170
-void deleteframes(int iStartFrame, int iEndFrame)
-{
-  int iEndFrameFixed; // esi
-  int iTemp; // ebx
-  int iCurrentFrame; // ebx
-  int iArrayIndex; // eax
-
-  iEndFrameFixed = iEndFrame;
-  if (replaytype == 2)                        // Check if we're in replay mode (type 2)
-  {                                             // Ensure start frame <= end frame by swapping if necessary
-    if (iEndFrame < iStartFrame) {
-      iTemp = iStartFrame;
-      iStartFrame = iEndFrame;
-      iEndFrameFixed = iTemp;
-    }
-    for (iCurrentFrame = iStartFrame; iCurrentFrame <= iEndFrameFixed; ++iCurrentFrame)// Loop through all frames in the range to mark as disabled
-    {                                           // Check frame is within valid range (< 128K frames max)
-      if (iCurrentFrame < 0x20000) {
-        iArrayIndex = iCurrentFrame / 32;  // Calculate array index: divide by 32 to get DWORD index
-        //iArrayIndex = (iCurrentFrame - (__CFSHL__(iCurrentFrame >> 31, 5) + 32 * (iCurrentFrame >> 31))) >> 5;// Calculate array index: iCurrentFrame / 32
-        disabled[iArrayIndex] |= 1 << (iCurrentFrame - 32 * iArrayIndex);// Set bit in disabled[] bitfield to mark frame as disabled
-      }
-    }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-//000661E0
-void undeleteframes(int iStartFrame, int iEndFrame)
-{
-  int iEndFrameFixed; // ebx
-  int iTemp; // edx
-  int iCurrentFrame; // edx
-  int iFrameToUndelete; // eax
-
-  iEndFrameFixed = iEndFrame;
-  if (replaytype == 2)                        // Check if we're in replay mode (type 2)
-  {                                             // Ensure start frame <= end frame by swapping if necessary
-    if (iEndFrame < iStartFrame) {
-      iTemp = iStartFrame;
-      iStartFrame = iEndFrameFixed;
-      iEndFrameFixed = iTemp;
-    }
-    for (iCurrentFrame = iStartFrame; iCurrentFrame <= iEndFrameFixed; ++iCurrentFrame)// Loop through all frames in the range to undelete them
-    {
-      iFrameToUndelete = iCurrentFrame;
-      cleardisable(iFrameToUndelete);           // Clear the disabled bit for this frame
-    }
   }
 }
 
@@ -2436,32 +2369,6 @@ void removecut()
     }
   }
   cuts = iNumCuts;                              // Update global cuts count
-}
-
-//-------------------------------------------------------------------------------------------------
-//00066C50
-int readcut()
-{
-  int iLastValidCut; // ecx
-  int iCutIndex; // eax
-  int iArrayIndex; // edx
-
-  iLastValidCut = -1;                           // Initialize to -1 (no valid cut found)
-  if (cuts)                                   // Check if any camera cuts exist
-  {
-    iCutIndex = 0;
-    if (cuts > 0)                             // Iterate through all camera cuts to find the active one
-    {
-      iArrayIndex = 0;
-      do {                                         // Check if this cut's frame is at or before current replay frame
-        if (camera[iArrayIndex].iFrame <= currentreplayframe)
-          iLastValidCut = iCutIndex;            // Update to this cut index (keeps the latest valid cut)
-        ++iCutIndex;
-        ++iArrayIndex;
-      } while (iCutIndex < cuts);
-    }
-  }
-  return iLastValidCut;                         // Return index of most recent valid cut, or -1 if none found
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3494,38 +3401,6 @@ void deletereplay()
   ticks = currentreplayframe;                   // Reset replay state and clear menu flags
   filingmenu = 0;
   lastfile = 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00068070
-void updatedirectory()
-{
-  int iNewTopFile; // edx
-  char *szDst; // edi
-  char *szSrc; // esi
-  char byChar1; // al
-  char byChar2; // al
-
-  iNewTopFile = topfile;                        // Initialize with current top file position
-  if (!filefiles)                             // If no files available, reset current file selection
-    filefile = 0;
-  if (filefile < topfile)                     // If selected file is above view window, scroll up 3 positions
-    iNewTopFile = topfile - 3;
-  if (iNewTopFile + 18 <= filefile)           // If selected file is below view window (18 files visible), scroll down 3 positions
-    iNewTopFile += 3;
-  szDst = selectfilename;                       // Copy currently selected filename to selectfilename buffer (2 chars at a time)
-  szSrc = filename[filefile];
-  topfile = iNewTopFile;                        // Update top file position for scrolled view
-  do {
-    byChar1 = *szSrc;
-    *szDst = *szSrc;
-    if (!byChar1)
-      break;
-    byChar2 = szSrc[1];
-    szSrc += 2;
-    szDst[1] = byChar2;
-    szDst += 2;
-  } while (byChar2);
 }
 
 //-------------------------------------------------------------------------------------------------

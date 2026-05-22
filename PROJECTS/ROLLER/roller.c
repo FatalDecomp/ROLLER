@@ -82,7 +82,6 @@ bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = false; //TODO: figure out why this causes some flickering, also load from INI file
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 int g_iCurrentSong = 0;
-uint8 testbuf[4096];
 uint64 g_ullTimer150Ms = 0;
 
 SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
@@ -656,20 +655,6 @@ void ShutdownSDL()
   }
 
   SDL_Quit();
-}
-
-uint8 songId = 4;
-void playMusic()
-{
-  MIDIDigi_ClearBuffer();
-  MIDISetMasterVolume(127);
-  uint8 *songBuffer;
-  uint32 songLen;
-  SDL_Log("Song[%i]: %s", songId, Song[songId]);
-  loadfile((const char *)&Song[songId], (void *)&songBuffer, &songLen, 0);
-  MIDIDigi_PlayBuffer(songBuffer, songLen);
-  fre((void **)&songBuffer);
-  songId = (songId + 1) % 9;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1509,16 +1494,6 @@ int ReadUnalignedInt(const void *pData)
 {
   const uint8 *pBytes = (const uint8*)pData;
   return (uint32)pBytes[0] | ((uint32)pBytes[1] << 8) | ((uint32)pBytes[2] << 16) | ((uint32)pBytes[3] << 24);
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void LBAToMSF(uint32 uiLBA, uint8 *pbyMinute, uint8 *pbySecond, uint8 *pbyFrame)
-{
-  uint32 uiAdjustedLBA = uiLBA + 150;  // Add CD lead-in offset
-  *pbyFrame = uiAdjustedLBA % 75;
-  *pbySecond = (uiAdjustedLBA / 75) % 60;
-  *pbyMinute = (uiAdjustedLBA / 75) / 60;
 }
 
 //-------------------------------------------------------------------------------------------------

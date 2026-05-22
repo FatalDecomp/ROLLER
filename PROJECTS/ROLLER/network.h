@@ -195,10 +195,8 @@ int network_initialise_update(void);
 int network_initialise_active(void);
 void close_network();
 void send_net_error();
-void send_game_error();
 void send_network_sync_error();
 void send_resync(int iFrameNumber);
-void send_nocd_error();
 void send_quit();
 void send_ready();
 void send_record_to_master(int iRecordIdx);
@@ -214,11 +212,9 @@ int receive_multiple(); // returns number of copy_multiple slots received
 void receive_all_singles();
 void do_sync_stuff();
 int TransmitInit();
-void StartNode(int iNode);
 void CheckNewNodes();
 void FoundNodes();
 void SendPlayerInfo();
-void prepare_net_message(int iMessageMode, int iMessageNumber);
 void SendAMessage();
 void BroadcastNews();
 void network_broadcast_wait_start(int iBroadcastMode, int iRepeatCount);
@@ -229,7 +225,6 @@ void reset_network(int iResetBroadcastMode);
 void clear_network_game();
 void reset_net_wait();
 unsigned int send_broadcast(unsigned int uiBroadcastMode);
-void send_here(int iNode, int iFrame);
 
 //-------------------------------------------------------------------------------------------------
 #endif

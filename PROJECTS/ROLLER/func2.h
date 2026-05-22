@@ -23,21 +23,6 @@ typedef enum
   USERKEY_P2CHEAT = 13
 } eUserKey;
 
-
-//-------------------------------------------------------------------------------------------------
-
-struct DPMI_MemInfo
-{
-  uint32 largestFreeBlock;
-  uint32 maxUnlockedPages;
-  uint32 maxLockedPages;
-  uint32 totalLinearPages;
-  uint32 totalUnlockedPages;
-  uint32 totalFreePages;
-  uint32 totalPhysicalPages;
-  uint32 freeLinearPages;
-};
-
 //-------------------------------------------------------------------------------------------------
 
 extern int dam_remap[256];
@@ -80,7 +65,6 @@ int control_key_matches_required_pair_type(int iControlIdx, int iKey);
 int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey);
 void release_key_int();
 void clear_border(int x, int y, int iWidth, int iLines);
-void DisplayFree();
 void setdirectory(const char *szAppPath);
 void FindShades();
 int nearest_colour(int iR, int iB, int iG);
@@ -113,8 +97,6 @@ void SaveRecords();
 uint8 *copy_int(uint8 *pDest, uint32 uiValue);
 void ShowATime(float fTime, int iX, int iY);
 void setmodex();
-void modexsethardware();
-void modexclearscreen();
 void copyscreenmodex(uint8 *pSrc, uint8 *pDest);
 void start_zoom(const char *szStr, int iPlayerIdx);
 void small_zoom(const char *szStr);

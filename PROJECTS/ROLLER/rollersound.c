@@ -72,84 +72,6 @@ bool MIDI_Init(const char *config_file)
   return true;
 }
 
-void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length)
-{
-  if (g_bSnapshotMode) return;
-  midi *midi_ptr = WildMidi_OpenBuffer(midi_buffer, midi_length);
-  if (!midi_ptr) {
-    SDL_Log("WildMidi_OpenBuffer failed: %s", WildMidi_GetError());
-    return;
-  }
-
-  // Enable Loop
-  WildMidi_SetOption(midi_ptr, WM_MO_LOOP, WM_MO_LOOP);
-  // Disable Loop
-  WildMidi_SetOption(midi_ptr, WM_MO_LOOP, 0);
-
-  struct _WM_Info *wm_info = WildMidi_GetInfo(midi_ptr);
-  if (wm_info) {
-
-    int apr_mins = wm_info->approx_total_samples / (MIDI_RATE * 60);
-    int apr_secs = (wm_info->approx_total_samples % (MIDI_RATE * 60)) / MIDI_RATE;
-
-    SDL_Log("MIDIDigi_PlayBuffer: [Approx %2um %2us Total]", apr_mins, apr_secs);
-
-    SDL_Log("MIDIDigi_PlayBuffer: Total Samples %i", wm_info->approx_total_samples);
-    SDL_Log("MIDIDigi_PlayBuffer: Current Samples %i", wm_info->current_sample);
-    SDL_Log("MIDIDigi_PlayBuffer: Total Midi time %i", wm_info->total_midi_time);
-    SDL_Log("MIDIDigi_PlayBuffer: Mix Options %i", wm_info->mixer_options);
-  }
-
-  SDL_AudioStream *stream = midi_stream;
-
-  if (stream != NULL) {
-    SDL_LockAudioStream(stream);
-    float master_volume = (float)MIDIGetMasterVolume() / 127.0f; // Normalize to [0.0, 1.0] range
-    SDL_SetAudioStreamGain(stream, midi_volume * master_volume); // Set the gain for the audio stream
-    SDL_Log("MIDIDigi_PlayBuffer: Volume: %f", midi_volume * master_volume);
-
-    void *output_buffer;
-    uint32_t len = 0;
-    int32_t res = 0;
-    uint32_t samples = 16384;
-
-    output_buffer = malloc(samples);
-    if (output_buffer != NULL)
-      memset(output_buffer, 0, samples);
-
-    uint32_t total_pcm_bytes = 0;
-
-    while ((res = WildMidi_GetOutput(midi_ptr, output_buffer, samples)) > 0) {
-      SDL_PutAudioStreamData(stream, output_buffer, res);
-      total_pcm_bytes += res;
-      if (total_pcm_bytes > 64e6) {
-        SDL_Log("MIDIDigi_PlayBuffer: Stopping put audio stream due to large buffer size.");
-        break;
-      }
-    }
-
-    free(output_buffer);
-
-    SDL_UnlockAudioStream(stream);
-    SDL_ResumeAudioStreamDevice(stream);
-
-    SDL_Log("MIDIDigi_PlayBuffer: Total: %i", total_pcm_bytes);
-  }
-
-  WildMidi_Close(midi_ptr);
-}
-
-void MIDIDigi_ClearBuffer()
-{
-  if (midi_stream) {
-    SDL_PauseAudioStreamDevice(midi_stream);
-    SDL_LockAudioStream(midi_stream);
-    SDL_ClearAudioStream(midi_stream);
-    SDL_UnlockAudioStream(midi_stream);
-  }
-  MIDI_CloseMidiBuffer();
-}
-
 void MIDI_Shutdown()
 {
   if (midi_stream) {
@@ -165,21 +87,6 @@ void MIDI_Shutdown()
   WildMidi_Shutdown();
 }
 
-/// <summary>
-/// Close midi buffer
-/// </summary>
-void MIDI_CloseMidiBuffer()
-{
-  if (midi_stream)
-    SDL_LockAudioStream(midi_stream);
-  MIDI_CloseMidiBufferUnlocked();
-  if (midi_stream)
-    SDL_UnlockAudioStream(midi_stream);
-}
-
-/// <summary>
-/// Initializes the MIDI audio stream if it hasn't been initialized yet.
-/// </summary>
 void MIDIInitStream()
 {
   if (!midi_stream) {
@@ -212,12 +119,6 @@ void MIDIClearStream()
   }
 }
 
-/// <summary>
-/// Initializes a MIDI song for playback using the provided song data.
-/// This function closes any currently loaded MIDI song, opens the new song buffer,
-/// enables looping, logs song information, and sets the audio stream volume.
-/// </summary>
-/// <param name="data">Pointer to a tInitSong structure containing the MIDI song data and its length.</param>
 void MIDIInitSong(tInitSong *data)
 {
   if (g_bSnapshotMode) return;
@@ -515,14 +416,6 @@ bool DIGISampleDone(int index)
   bool bDone = DIGISampleDoneUnlocked(index);
   DIGIUnlock();
   return bDone;
-}
-
-int DIGISampleAvailable(int index)
-{
-  DIGILock();
-  int iAvailable = DIGISampleAvailableUnlocked(index);
-  DIGIUnlock();
-  return iAvailable;
 }
 
 int DIGISampleGeneration(int index)

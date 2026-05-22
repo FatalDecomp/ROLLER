@@ -445,31 +445,6 @@ void send_net_error()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0004EFD0
-void send_game_error()
-{
-  int iDataSent = 0; // eax
-  int i; // esi
-
-  if (network_on) {
-    p_header.byConsoleNode = (uint8)wConsoleNode;
-    p_header.uiId = PACKET_ID_GAME_ERROR;
-    network_mistake = -1;
-    if (wConsoleNode == master) {
-      for (i = 0; i < network_on; ++i) {
-        if (i != wConsoleNode) {
-          iDataSent = ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
-          if (!iDataSent)
-            i = network_on;
-        }
-      }
-      if (iDataSent)
-        network_error = 666;
-    }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //0004F070
 void send_network_sync_error()
 {
@@ -499,27 +474,6 @@ void send_resync(int iFrameNumber)
     p_header.byConsoleNode = (uint8)wConsoleNode;
     p_header.uiId = PACKET_ID_RESYNC;
     ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), &resync, sizeof(int32), master);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0004F150
-void send_nocd_error()
-{
-  int i; // esi
-
-  if (network_on) {
-    p_header.byConsoleNode = (uint8)wConsoleNode;
-    p_header.uiId = PACKET_ID_NOCD;
-    if (wConsoleNode == (int16)master) {
-      for (i = 0; i < network_on; ++i) {
-        if (i != wConsoleNode) {
-          ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, i);
-        }
-      }
-    } else {
-      ROLLERCommsSendData(&p_header, sizeof(tSyncHeader), p_data, 0, master);
-    }
   }
 }
 
@@ -1415,21 +1369,6 @@ int TransmitInit()
 }
 
 //-------------------------------------------------------------------------------------------------
-//000509B0
-void StartNode(int iNode)
-{
-  my_age = 0;
-  ROLLERCommsGetNetworkAddr(address);
-  ROLLERCommsGetConsoleNode();
-  network_on = 1;
-  if (iNode || network_slot < 0)
-    broadcast_mode = 0xFFFFFE38;
-  else
-    broadcast_mode = -1;
-  tick_on = -1;
-}
-
-//-------------------------------------------------------------------------------------------------
 //00050A60
 void CheckNewNodes()
 {
@@ -2140,14 +2079,6 @@ void SendPlayerInfo()
 }
 
 //-------------------------------------------------------------------------------------------------
-//000518F0
-void prepare_net_message(int iMessageMode, int iMessageNumber)
-{
-  message_node = iMessageMode;
-  message_number = iMessageNumber;
-}
-
-//-------------------------------------------------------------------------------------------------
 //00051900
 void SendAMessage()
 {
@@ -2535,30 +2466,6 @@ unsigned int send_broadcast(unsigned int uiBroadcastMode)
     uiBroadcastMode = network_on ? (unsigned int)TransmitInit() : (unsigned int)-1;
   }
   return uiBroadcastMode;
-}
-
-//-------------------------------------------------------------------------------------------------
-//000521D0
-void send_here(int iNode, int iFrame)
-{
-  int i; // esi
-  tSyncHeader syncHeader; // [esp+0h] [ebp-1Ch] BYREF
-  int iData; // [esp+Ch] [ebp-10h] BYREF
-
-  if (network_on) {
-    syncHeader.byConsoleNode = iNode;
-    syncHeader.unFrameId = iFrame;
-    syncHeader.uiId = PACKET_ID_SEND_HERE;
-    if (iNode == master) {
-      for (i = 0; i < network_on; ++i) {
-        if (i != master) {
-          ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iData, sizeof(int), i);
-        }
-      }
-    } else {
-      ROLLERCommsSendData(&syncHeader, sizeof(tSyncHeader), &iData, sizeof(int), master);
-    }
-  }
 }
 
 //-------------------------------------------------------------------------------------------------

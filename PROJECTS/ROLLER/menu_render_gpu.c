@@ -844,12 +844,6 @@ void menu_render_gpu_free_blocks(MenuRendererGPU *r, int slot)
 // Draw calls
 //---------------------------------------------------------------------------
 
-void menu_render_gpu_clear(MenuRendererGPU *r, uint8 colorIndex, const tColor *pal)
-{
-    (void)r; (void)colorIndex; (void)pal;
-    // Clear already done by render pass LOADOP_CLEAR (black).
-}
-
 void menu_render_gpu_background(MenuRendererGPU *r, int slot)
 {
     if (slot < 0 || slot >= MAX_SLOTS || !r->backgroundTextures[slot]) return;

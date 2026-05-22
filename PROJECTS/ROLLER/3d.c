@@ -7,7 +7,6 @@
 #include "func2.h"
 #include "func3.h"
 #include "replay.h"
-#include "svgacpy.h"
 #include "sound.h"
 #include "network.h"
 #include "roller.h"
@@ -103,7 +102,6 @@ int game_view[2] = { 0, 0 }; //000A31B8
 int svga_possible = -1;     //000A31C0
 int autoswitch = -1;        //000A31C4
 int hibuffers = 0;          //000A32E0
-int lobuffers = 0;          //000A32E4
 int mem_used = 0;           //000A32E8
 int mem_used_low = 0;       //000A32EC
 int gosound = 3;            //000A3334
@@ -116,26 +114,15 @@ int TrackLoad = 1;          //000A34B0
 int paused = 0;             //000A34C4
 int pause_request = 0;      //000A34C8
 char alltrackflag = 0xFF;   //000A34E1
-int dxmouse = 0;            //000A34E8
-int dymouse = 0;            //000A34EC
-int mousex = 159;           //000A34F0
-int mousey = 115;           //000A34F4
-int mbut = 0;               //000A34F8
-int oldbut = 0;             //000A34FC
-int mclick = 0;             //000A3500
-int mouse = 0;              //000A3504
 int wide_on = -1;           //000A350C
 int network_on = 0;         //000A3510
 char Banks_On = -1;         //000A3514
-char Buildings_On = 0;      //000A3515
 char Road_On = -1;          //000A3516
 char Walls_On = -1;         //000A3517
 char Play_View = 0;         //000A3518
 int DriveView[2] = { 0, 0 }; //000A351C
 int mirror = 0;             //000A3524
 float TopViewHeight = 12288.0f; //000A3528
-int mpressed = 0;           //000A352C
-int jpressed = 0;           //000A352D
 int start_time = 0;         //000A3534
 uint8 *screen = NULL; //= 0xA0000; //000A3538
 uint8 *scrbuf = NULL;       //000A353C
@@ -186,12 +173,9 @@ int frame_count;            //0013E934
 float k1;                   //0013E938
 float k2;                   //0013E93C
 float k3;                   //0013E940
-float k4;                   //0013E944
-float k5;                   //0013E948
-float k6;                   //0013E94C
-float k7;                   //0013E950
-float k8;                   //0013E954
-float k9;                   //0013E958
+//0013E944
+//0013E948
+//0013E94C
 float tatn[1025];           //0013E95C
 uint32 textures_off;        //0013F960
 int tex_count;              //0013F964
@@ -223,7 +207,6 @@ float DDZ;                  //0013FA50
 float ext_x;                //0013FA54
 int test_f1;                //0013FA58
 int test_f2;                //0013FA5C
-int test_f3;                //0013FA60
 int print_data;             //0013FA68
 int demo_control;           //0013FA6C
 int tick_on;                //0013FA70
@@ -1711,12 +1694,6 @@ void copypic(uint8 *pSrc, uint8 *pDest)
     if (SVGA_ON == 1) {
       // Mode X (planar VGA mode)
       copyscreenmodex(pSrc, pDest);
-    } else if (scrmode == 257) {
-      // SVGA mode with 40-pixel Y offset
-      svgacopy(pSrc, winx, winy + 40, (int16)winw, (int16)winh);
-    } else {
-      // Standard SVGA mode
-      svgacopy(pSrc, winx, winy, (int16)winw, (int16)winh);
     }
   } else if (winw != XMAX || winx || mirror) {
     if (mirror) {
@@ -1773,7 +1750,7 @@ void init_screen()
   }
   if (SVGA_ON && current_mode != -1) {
     current_mode = -1;
-    iVesaMode = VESAmode(vesaModes);
+    iVesaMode = 0;//VESAmode(vesaModes);
     scrmode = iVesaMode;
     if (iVesaMode == -1) {
       if (firstrun) {
@@ -1799,11 +1776,6 @@ void init_screen()
       YMAX = 400;
       scr_size = 128;
       if (iVesaMode == 0x101) {
-        memset(blank_line, 0, sizeof(blank_line));
-        for (i = 0; i < 40; ++i) {
-          nY = i;
-          svgacopy(blank_line, 0, nY, 640, 1);
-        }
         memset(blank_line, 112, sizeof(blank_line));
       }
     }
@@ -3209,43 +3181,6 @@ void play_game_uninit()
     scrbuf = (uint8 *)getbuffer(256000u);
   }
   tick_on = -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00012B90
-void winner_race()
-{
-  winner_race_setup();
-  play_game(prev_track);
-  winner_race_teardown();
-}
-
-//-------------------------------------------------------------------------------------------------
-//00012CE0
-void champion_race()
-{
-  int iTrack = champion_race_setup();
-  play_game(iTrack);
-  champion_race_teardown();
-}
-
-//-------------------------------------------------------------------------------------------------
-//00012EF0
-void play_game(int iTrack)
-{
-  race_set_track(iTrack);
-  frontend_set_state(eFRONTEND_STATE_RACING);
-
-  while ((eFrontendCurrentState == eFRONTEND_STATE_RACING ||
-          eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
-          eFrontendNextState == eFRONTEND_STATE_RACING ||
-          eFrontendNextState == eFRONTEND_STATE_PAUSE_OVERLAY) &&
-         main_loop_iteration()) {
-  }
-
-  // Legacy callers use play_game() synchronously and own their post-race flow.
-  if (eFrontendCurrentState == eFRONTEND_STATE_RESULTS)
-    frontend_set_state(eFRONTEND_STATE_NONE);
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -22,147 +22,21 @@ int track_playing = 0;    //000A7510
 int last_audio_track = 0; //000A7514
 int numCDdrives = 0;      //000A7518
 int firstCDdrive;         //001A1B4C
-int last_track;           //001A1B50
-int first_track;          //001A1B54
-int sector_size;          //001A1B58
 int tracklengths[99];     //001A1B5C
 int track_duration;       //001A1CE8
 void *iobuffer;           //001A1CEC
 void *cdbuffer;           //001A1CF0
-int trackstarts[99];      //001A1CF8
 int16 ioselector;         //001A1E88
 int16 cdselector;         //001A1E8C
-tAudioControlParams playControl; //001A1EB8 renamed from "play" by ROLLER
 tIOControlBlock io;       //001A1ED0
-DPMI_RMI RMIcd;           //001A1EEC
 char volscale[129];       //001A1F1E
 int drive;                //001A1F9F
-
-//-------------------------------------------------------------------------------------------------
-//00074C80
-int FinishedAudio()
-{
-  tAudioFinished audioFinished; // [esp+0h] [ebp-14h] BYREF
-  audioFinished.byCommand = 12;
-
-  WriteIOCTL(3u, 0xBu, &audioFinished);
-
-  // Check if audio is still playing (bit 1 of status byte)
-  if ((io.unFlags2 & 0x200) != 0)
-    return 0;
-
-  track_playing = 0;
-  return -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00074CC0
-void OpenDoor()
-{
-  uint8 byCommand = 0;  // Open door command
-  WriteIOCTL(0x0C, 1, &byCommand);
-}
-
-//-------------------------------------------------------------------------------------------------
-//00074CF0
-void CloseDoor()
-{
-  uint8 byCommand = 5;  // Close door command
-  WriteIOCTL(0xCu, 1u, &byCommand);
-  ResetDrive();
-}
 
 //-------------------------------------------------------------------------------------------------
 //00074D10
 void ResetDrive()
 {
   ;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00074D20
-void GetCDStatus()
-{
-  uint8 szBuf[16]; // [esp+0h] [ebp-10h] BYREF
-  memset(szBuf, 0, sizeof(szBuf));
-
-  szBuf[0] = 6;
-  WriteIOCTL(3u, 5u, szBuf);
-  printf("\n\nStatus:\n");
-  if ((szBuf[1] & 1) != 0)
-    printf("\nDoor Open");
-  else
-    printf("\nDoor Closed");
-  if ((szBuf[1] & 2) != 0)
-    printf("\nDoor unlocked");
-  else
-    printf("\nDoor locked");
-  if ((szBuf[1] & 4) != 0)
-    printf("\nSupports Cooked and Raw");
-  else
-    printf("\nSupports only Cooked");
-  if ((szBuf[1] & 8) != 0)
-    printf("\nRead/Write");
-  else
-    printf("\nRead only");
-  if ((szBuf[1] & 0x10) != 0)
-    printf("\nCan play Audio tracks");
-  else
-    printf("\nCannot play Audio tracks");
-  if ((szBuf[1] & 0x20) != 0)
-    printf("\nSupports interleaving");
-  else
-    printf("\nNo interleaving");
-  if ((szBuf[1] & 0x80u) == 0)
-    printf("\nNo prefetching");
-  else
-    printf("\nSupprots prefetching");
-  if ((szBuf[2] & 1) != 0)
-    printf("\nSupports audio channel manipulation");
-  else
-    printf("\nNo audio channel manipulation");
-  if ((szBuf[2] & 2) != 0)
-    printf("\nSupports HSG and Red Book addressing");
-  else
-    printf("\nSupports only HSG addressing, no Red Book");
-  fflush(stdout);
-}
-
-//-------------------------------------------------------------------------------------------------
-//00074E60
-void WriteIOCTL(uint8 bySubCommand, unsigned int uiSize, void *pBuffer)
-{
-  io.bySubCommand = bySubCommand;
-  io.unFlags2 = 0;
-  io.unCount = 0;
-  io.byCommand = uiSize + 13;
-  io.byFlags1 = 0;
-  io.byStatus = 0;
-  io.uiLba = 0;
-  io.unSector = uiSize;
-
-  // Copy input buffer to CD buffer
-  memcpy(cdbuffer, pBuffer, uiSize);
-
-  // segment_of(cdbuffer)
-  int32 addr = (int32)(int64)cdbuffer;
-  int32 sign_mask = addr >> 31;
-  int32 adjustment = sign_mask & 15;
-  int32 segment = (addr + adjustment) >> 4;
-  io.uiDataOffset = (uint32)segment << 16;
-
-  memcpy(iobuffer, &io, sizeof(tIOControlBlock));
-
-  // Prepare real mode call structure
-  memset(&RMIcd, 0, sizeof(RMIcd));
-  RMIcd.ecx = (uint8)drive;           // CD drive number
-  RMIcd.ebx = 0;
-  RMIcd.es = (uint16)(((int64)iobuffer + ((int64)iobuffer < 0 ? 15 : 0)) >> 4); // segment_of(iobuffer)
-  RMIcd.eax = 0x1510;                           // (Function: Get CD-ROM Drive Information)
-  intRM(0x2Fu);                                 // Get address of the driver for a specific CD-ROM drive
-  memcpy(pBuffer, cdbuffer, uiSize);
-
-  memcpy(&io, iobuffer, sizeof(tIOControlBlock));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -292,18 +166,6 @@ void PlayTrack4(int iStartTrack)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00075260
-void RepeatTrack()
-{
-  g_bRepeat = true;
-  //playControl.byPlayFlag = 1;
-  //playControl.uiStartSector = trackstarts[last_audio_track];
-  //playControl.uiSectorCount = track_duration;
-  //AudioIOCTL(0x84u);
-  track_playing = -1;
-}
-
-//-------------------------------------------------------------------------------------------------
 //000752A0
 void StopTrack()
 {
@@ -343,60 +205,6 @@ void SetAudioVolume(int iVolume)
   //
   //// Send volume command
   //WriteIOCTL(0xCu, 9u, &volCtrl);
-}
-
-//-------------------------------------------------------------------------------------------------
-//00075340
-void AudioIOCTL(uint8 bySubcommand)
-{
-  // Prepare audio control structure
-  playControl.byCommand = 0x16;            // Audio command group
-  playControl.bySubcommand = bySubcommand; // Specific audio function
-  playControl.byParam0 = 0;                // Clear parameter 1
-  playControl.unParam1 = 0;                // Clear parameter 2
-
-  // Copy control structure to I/O buffer
-  memcpy(iobuffer, &playControl, sizeof(tAudioControlParams));
-
-  // Prepare DPMI request structure
-  memset(&RMIcd, 0, sizeof(DPMI_RMI));
-  RMIcd.eax = 0x1510;                  // CD-ROM IOCTL function
-  RMIcd.ecx = drive;                   // Current CD-ROM drive
-
-  // Convert linear address to segment:offset format
-  uint32 uiLinearAddr = (uint32)(uint64)iobuffer;
-  uint16 unSegment = (uiLinearAddr >> 4) & 0xFFFF;  // Segment calculation
-  RMIcd.es = unSegment;                      // Set segment register
-  RMIcd.ebx = 0;                           // Offset = 0
-
-  // Execute real-mode interrupt
-  intRM(0x2F);  // CD-ROM driver interrupt
-
-  // Copy results back from I/O buffer
-  memcpy(&playControl, iobuffer, sizeof(tAudioControlParams));
-}
-
-//-------------------------------------------------------------------------------------------------
-//00075400
-void FreeDOSMemory(uint16 unSegment)
-{
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.w.dx = nSegment;
-  //regs.w.ax = 0x101;
-  //int386x(0x31, &regs, &regs, &sregs);
-}
-
-//-------------------------------------------------------------------------------------------------
-//00075450
-void intRM(uint8 byInterruptNumber)
-{
-  /*
-  regs.w.ax = 768;                              // DPMI: Simulate Real Mode Interrupt
-  regs.w.bx = byInterruptNumber;                // Interrupt number to simulate
-  regs.w.cx = 0;                                // Reserved
-  sregs.es = __DS__;                            // Segment of RMIcd
-  regs.x.edi = (unsigned int)&RMIcd;            // Offset of RMIcd (real mode register set)
-  int386x(0x31, &regs, &regs, &sregs);*/
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -510,49 +318,6 @@ int cdpresent()
   //    iSuccess = checkCD(i + firstCDdrive);
   //}
   //return iSuccess;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00075690
-int checkCD(uint8 byDriveIdx)
-{
-  char szFilename[128];
-  char buffer[20];
-  FILE *fp;
-  uint32 uiBytesRead;
-
-  // Construct filename
-  //TODO: linux compatibility
-  sprintf(szFilename, "%c:/FATAL.EXE", byDriveIdx + 'A');
-
-  // Try to open the file
-  fp = ROLLERfopen(szFilename, "rb");
-  if (!fp) {
-    //added by ROLLER, check for WHIP.EXE too
-    sprintf(szFilename, "%c:/WHIP.EXE", byDriveIdx + 'A');
-    fp = ROLLERfopen(szFilename, "rb");
-    if (!fp)
-      return 0;
-  }
-
-  // Read 20 bytes
-  uiBytesRead = (int)fread(buffer, 1, 20, fp);
-  fclose(fp);
-
-  // Return -1 if read was exactly 20 bytes, else 0
-  return (uiBytesRead == 20) ? -1 : 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-//000756F0
-int criticalhandler()
-{
-  return 3;
-  /*
-  _BYTE retaddr[8]; // [esp+0h] [ebp+0h]
-
-  // returning 3 is sending a signal "Ignore" to DOS critical error handler
-  return MK_FP(*(_WORD *)retaddr, *(_DWORD *)retaddr)(3);*/
 }
 
 //-------------------------------------------------------------------------------------------------

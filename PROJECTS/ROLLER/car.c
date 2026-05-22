@@ -2133,22 +2133,6 @@ LABEL_117:
   }
 }
 
-void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar)
-{
-  tCar *pCar = &Car[iCarIndex];
-  CarRenderPose pose = {
-    .position = pCar->pos,
-    .yaw = pCar->nYaw,
-    .pitch = pCar->nPitch,
-    .roll = pCar->nRoll,
-  };
-  CarRenderOptions options = {
-    .anim_frame = pCar->byWheelAnimationFrame,
-    .color_remap = NULL,
-  };
-  DisplayCarWithPose(iCarIndex, pScreenBuffer, fDistanceToCar, &pose, &options);
-}
-
 //-------------------------------------------------------------------------------------------------
 //00056030
 int carZcmp(const void *pCar1, const void *pCar2)

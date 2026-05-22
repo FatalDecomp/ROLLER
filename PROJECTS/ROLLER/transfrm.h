@@ -22,7 +22,6 @@ void calculatetransform(int iTrackChunkIdx, int iDirection, int iElevation, int 
 void initlocaltrack();
 void initlocalsection(int iChunkIdx);
 void dopitchchanges(int iLLaneIdx, int iRLaneIdx);
-int getpitchchange(int iChunkIdx, int iLLaneIdx, int iRLaneIdx);
 void getworldangles(int iYaw, int iPitch, int iRoll, int iChunkIdx, int *piAzimuth, int *piElevation, int *piBank);
 void getlocalangles(int iYaw, int iPitch, int iRoll, int iChunkIdx, int *piAzimuth, int *piElevation, int *piBank);
 

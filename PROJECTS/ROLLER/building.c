@@ -18,11 +18,9 @@ uint8 BuildingSub[24] =                 //000A745C
 };
 tBuildingZOrderEntry BuildingZOrder[32];//0018EEC0
 int BuildingSect[MAX_TRACK_CHUNKS];     //0018F040
-tVec3 BuildingView[32];                 //0018F810
 float BuildingAngles[768];              //0018F990
 int BuildingBase[256][4];               //00190590
 tVec3 BuildingBox[256][8];              //00191590
-tBuildingCoord BuildingCoords[32];      //00197590
 float BuildingBaseX[256];               //00197710
 float BuildingBaseY[256];               //00197B10
 float BuildingBaseZ[256];               //00197F10
@@ -31,7 +29,6 @@ float BuildingY[256];                   //00198710
 float BuildingZ[256];                   //00198B10
 tVisibleBuilding VisibleBuildings[256]; //00198F10
 int16 advert_list[256];                 //00199710
-tPolyParams BuildingPol;                //00199910
 int NumBuildings;                       //0019993C
 int NumVisibleBuildings;                //00199940
 

@@ -1228,20 +1228,6 @@ void ROLLERCommsSetComPort(int iPort)
 
 //-------------------------------------------------------------------------------------------------
 
-void ROLLERCommsSetComBaudRate(int iBaudRate)
-{
-// No-op for modern networking
-}
-
-//-------------------------------------------------------------------------------------------------
-
-int ROLLER16550(int iPort)
-{
-  return 1;  // Always return success
-}
-
-//-------------------------------------------------------------------------------------------------
-
 void ROLLERCommsGetNetworkAddr(int *pAddressOut)
 {
   if (pAddressOut) {
@@ -1269,27 +1255,6 @@ int ROLLERCommsNetAddrToNode(const int *pAddress)
     }
   }
   return -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void ROLLERCommsGetLocalAddrStr(char *szBuf, int iBufLen)
-{
-  if (!szBuf || iBufLen <= 0) return;
-  uint32_t uiIP;
-  uint16_t unPort;
-  if (g_commsState.bInitialized) {
-    uiIP   = g_commsState.myAddress.uiIPAddress;
-    unPort = g_commsState.myAddress.unPort;
-  } else {
-    uiIP   = GetConfiguredLocalIPv4();
-    unPort = s_unLocalPort;
-  }
-  char szIP[INET_ADDRSTRLEN];
-  struct in_addr addr;
-  addr.s_addr = uiIP;
-  inet_ntop(AF_INET, &addr, szIP, sizeof(szIP));
-  snprintf(szBuf, iBufLen, "%s:%u", szIP, (unsigned)unPort);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1347,14 +1312,5 @@ void ROLLERclrtx(void)
 {
   ClearSendQueues();
 }
-
-//-------------------------------------------------------------------------------------------------
-
-// Modem stubs (always succeed immediately for local network)
-int ROLLERModemHangUp(void) { return 1; }
-int ROLLERModemInit(const char *szInitString, int p1, int p2, int p3) { return 1; }
-int ROLLERModemDial(const char *szPhoneNumber, int iToneMode) { return 1; }
-int ROLLERModemAnswer(void) { return 1; }
-int ROLLERModemCheckResponse(int p1, int p2, int p3, int p4) { return 0; /* Ready */ }
 
 //-------------------------------------------------------------------------------------------------

@@ -651,14 +651,6 @@ void POLYTEX(uint8 *pTexture, uint8 *pScrBuf, tPolyParams *pPolyParams, int iTex
 }
 
 //-------------------------------------------------------------------------------------------------
-
-static int iTestPol = 0;
-//if (iTestPol == 16) {
-//  memcpy(testbuf, pTex, sizeof(testbuf));
-//}
-//++iTestPol;
-
-//-------------------------------------------------------------------------------------------------
 //0006C8D0
 void polym(tPoint *vertices, int iNumVerts, uint8 *pTex)
 {

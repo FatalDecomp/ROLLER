@@ -84,14 +84,11 @@ void DrawCar(SceneRenderer *scene, int iCarDesignIndex, float fDistance, int iAn
 void ChampionshipWinnerEnter(void);
 int ChampionshipWinnerUpdate(void);
 void ChampionshipWinnerExit(void);
-void print_mem_used(const char *szMsg);
 uint8 *try_load_picture(const char *szFile);
 void save_champ(int iSlot);
 int load_champ_begin(int iSlot);
 int load_champ_update(void);
 int load_champ_active(void);
-uint8 *lod_champ_char(uint8 *pSrc, int *piValue);
-uint8 *sav_champ_char(uint8 *pSrc, int *piValue); //actually loads an int
 uint8 *sav_champ_int(uint8 *pDest, int iValue);
 void check_saves();
 void ResultRoundUpEnter(void);
@@ -136,7 +133,6 @@ void scale_text(tBlockHeader *pFont,
                 unsigned int uiAlignment,
                 int iClipLeft,
                 int iClipRight);
-void clear_screen(void *pDest, int iVal);
 void display_picture(void *pDest, const void *pSrc);
 void display_block(uint8 *pDest, tBlockHeader *pSrc, int iBlockIdx, int iX, int iY, int iTransparentColor);
 uint8 *load_picture(const char *szFile);

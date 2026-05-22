@@ -65,8 +65,6 @@ tStuntData *initramp(
 void reinitramp(tStuntData *pStunt);
 void updateramp(tStuntData *pStunt);
 void updatestunts();
-void reinitstunts();
-void freeramp(void **pRampData);
 void freestunts(uint8 **pTrackData, int *pBuf);
 
 //-------------------------------------------------------------------------------------------------

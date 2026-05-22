@@ -7,9 +7,6 @@
 //-------------------------------------------------------------------------------------------------
 
 bool MIDI_Init(const char *config_file);
-void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length);
-void MIDIDigi_ClearBuffer();
-void MIDI_CloseMidiBuffer();
 void MIDI_Shutdown();
 
 void MIDIInitSong(tInitSong *data);
@@ -21,7 +18,6 @@ int MIDIGetMasterVolume();
 
 int DIGISampleStart(tSampleData *data);
 bool DIGISampleDone(int index);
-int DIGISampleAvailable(int index);
 int DIGISampleGeneration(int index);
 void DIGIStopSample(int index);
 void DIGIClearAllStream();

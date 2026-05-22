@@ -213,7 +213,6 @@ extern int total_fasts[16];
 extern int non_competitors[16];
 extern int player_started[16];
 extern int player_invul[16];
-extern int p_texs_off;
 extern int p_tex_size;
 extern int quit_game;
 extern int players;
@@ -261,8 +260,6 @@ void front_volumebar(int iY, int iVolumeLevel, int iFillColor);
 void snapshot_render_menu_select_players(void);
 void snapshot_render_menu_select_type(void);
 void snapshot_render_menu_select_track(void);
-void save_params();
-void reset_params();
 void loadcheatnames();
 int CheckNames(char *szPlayerName, int iPlayerIdx);
 

@@ -103,21 +103,6 @@ int menu_render_load_blocks(MenuRenderer *renderer, int slot,
     return 0;
 }
 
-void menu_render_free_blocks(MenuRenderer *renderer, int slot) {
-    if (!renderer) return;
-    if (slot >= 0 && slot < MENU_RENDER_MAX_SLOTS) {
-        renderer->cachedBlocks[slot] = NULL;
-        renderer->cachedPalettes[slot] = NULL;
-        renderer->gpuBlockDirty[slot] = 0;
-    }
-    if (renderer->gpu && slot >= 0 && slot < MENU_RENDER_MAX_SLOTS &&
-        renderer->gpuBlockLoaded[slot]) {
-        menu_render_gpu_free_blocks(renderer->gpu, slot);
-        renderer->gpuBlockLoaded[slot] = 0;
-    }
-    menu_render_sw_free_blocks(renderer->sw, slot);
-}
-
 void menu_render_begin_frame(MenuRenderer *renderer) {
     if (!renderer) return;
     if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
@@ -153,15 +138,6 @@ void menu_render_set_layer(MenuRenderer *renderer, MenuDrawLayer layer) {
     if (!renderer) return;
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_set_layer(renderer->gpu, layer);
-}
-
-void menu_render_clear(MenuRenderer *renderer, uint8 colorIndex,
-                       const tColor *palette) {
-    if (!renderer) return;
-    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
-        menu_render_gpu_clear(renderer->gpu, colorIndex, palette);
-    else
-        menu_render_sw_clear(renderer->sw, colorIndex, palette);
 }
 
 void menu_render_background(MenuRenderer *renderer, int slot) {
@@ -265,13 +241,6 @@ void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette) 
     if (menu_render_wants_gpu_assets(renderer))
         menu_render_gpu_load_track_mesh(renderer->gpu, palette);
     menu_render_sw_load_track_mesh(renderer->sw, palette);
-}
-
-void menu_render_free_track_mesh(MenuRenderer *renderer) {
-    if (!renderer) return;
-    if (renderer->gpu)
-        menu_render_gpu_free_track_mesh(renderer->gpu);
-    menu_render_sw_free_track_mesh(renderer->sw);
 }
 
 void menu_render_draw_track_preview(MenuRenderer *renderer, float cameraZ,

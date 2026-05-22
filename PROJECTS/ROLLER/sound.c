@@ -88,7 +88,6 @@ int MusicCard = 0;          //000A4794
 int MusicCD = 0;            //000A4798
 int MusicPort = 0;          //000A479C
 uint8 *SongPtr = NULL;      //000A47A0
-int SongHandle = 0;         //000A47A4
 int CDSong[20] = { 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0 }; //000A47A8
 int GMSong[21] = { 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0 }; //000A47F8
 tSampleData SampleData = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 18176, 0, 0, 0, 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1701995379 } }; //000A484C
@@ -151,12 +150,9 @@ void *FMInstruments;        //0016F674
 int network_sync_error;     //0016F678
 int ticks_received;         //0016F680
 int network_limit;          //0016F684
-int MIDIHandle;             //0016F68C
-int DIGIHandle;             //0016F690
 volatile int frames;        //0016F694
 char Song[20][15];          //0016F708
 uint32 tickhandle;          //0016F834
-DPMI_RMI RMI;               //0016F838
 tColor *pal_addr;           //0016F86C
 int user_inp;               //0016F87C
 int nummusictracks;         //0016F8A8
@@ -771,30 +767,6 @@ int fade_palette_update()
 
 //-------------------------------------------------------------------------------------------------
 
-void fade_music_start(int iTargetBrightness)
-{
-    if (iTargetBrightness == 32 && soundon) {
-        DIGISetMasterVolume(0x7FFF);
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void fade_music_step(int iStep)
-{
-    if (holdmusic) return;
-    if (musicon)
-        MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    if (soundon) {
-        int iVolumeStep = (iStep << 15) - iStep;
-        DIGISetMasterVolume(iVolumeStep >> 5);
-    }
-    if (MusicCD)
-        SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-}
-
-//-------------------------------------------------------------------------------------------------
-
 void fade_music_finish(int iTargetBrightness)
 {
     if (iTargetBrightness != 0 || holdmusic) return;
@@ -804,32 +776,6 @@ void fade_music_finish(int iTargetBrightness)
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------------
-//000394C0
-void realmode(uint8 byRealModeInterrupt)
-{
-  /*union REGS regs; // [esp+0h] [ebp-34h] BYREF
-  struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
-
-  // 49 is DPMI interrupt
-  // 768 Simulate Real Mode Interrupt
-  // bx is being set to the real mode interrupt to simulate
-  // all calls to this function set it to 0x10
-  //   to simulate a BIOS video interrupt in real mode
-  // __DS__ represents the current value of the DS (Data Segment)
-  //   register in your program's segment context
-  // By setting sregs.es = __DS__; and regs.x.edi = (unsigned int)&RMI;,
-  //   we are telling the DPMI host that the RMI structure is located
-  //   at offset &RMI in the segment __DS__
-  memset(&sregs, 0, sizeof(sregs));
-  regs.w.bx = byRealModeInterrupt;
-  regs.w.ax = 768;
-  regs.w.cx = 0;
-  sregs.es = __DS__;
-  regs.x.edi = (unsigned int)&RMI;
-  int386x(49, &regs, &regs, &sregs);*/
-}
-
 //-------------------------------------------------------------------------------------------------
 //00039520
 bool loadDOS(const char *szFilename, void **out_buffer)
@@ -910,47 +856,6 @@ bool loadDOS(const char *szFilename, void **out_buffer)
   close_(handle);
 
   return true;*/
-}
-
-//-------------------------------------------------------------------------------------------------
-//000395D0
-int claimDOS(int iSizeParagraphs, uint32 *uiSelectorOut)
-{
-  //int iRequestedParagraphs; // ecx
-  //uint16 ax; // dx
-  //union REGS regs; // [esp+0h] [ebp-34h] BYREF
-  //struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
-  //
-  //// Calculate adjusted size in paragraphs
-  //iRequestedParagraphs = ((iSizeParagraphs - (__CFSHL__(iSizeParagraphs >> 31, 4) + 16 * (iSizeParagraphs >> 31))) >> 4)
-  //  + 1;
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.w.bx = iRequestedParagraphs;
-  //regs.w.ax = 0x100;                            // AX = 0x100 (Allocate DOS Memory Block)
-  //int386x(0x31, &regs, &regs, &sregs);
-  //
-  //// // Check if allocation failed (carry flag set)
-  //if (regs.x.cflag) {
-    *uiSelectorOut = -1;                        // Return error indicator
-    return 0;                                   // Failed allocation
-  //} else {
-  //  ax = regs.w.ax;
-  //  *uiSelectorOut = regs.w.dx;                 // Store real-mode segment
-  //  return 16 * ax;                             // Return linear address (real-mode segment * 16)
-  //}
-}
-
-//-------------------------------------------------------------------------------------------------
-//00039650
-void releaseDOS(uint16 nSegment)
-{
-  //union REGS regs; // [esp+0h] [ebp-34h] BYREF
-  //struct SREGS sregs; // [esp+1Ch] [ebp-18h] BYREF
-  //
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.w.dx = nSegment;
-  //regs.w.ax = 0x101;                            // EAX = 0x101 (Function: Free DOS Memory Block)
-  //int386x(0x31, &regs, &regs, &sregs);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1060,26 +965,6 @@ void blankpal()
   int386x(49, &regs2, &regs2, &sregs2);
   */
   palette_brightness = 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00039890
-void resetpal()
-{
-  /*
-  RMI.eax = 4114;
-  RMI.ebx = 0;
-  RMI.ecx = 256;
-  RMI.es = (unsigned int)pal_addr >> 4;
-  RMI.edx = 0;
-  realmode(0x10u);
-  */
-
-  // Clean up heap-allocated palette memory
-  if (pal_addr) {
-    free(pal_addr);
-    pal_addr = NULL;
-  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1532,13 +1417,6 @@ LABEL_107:
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003A270
-void tickhandler()
-{
-  tick_clock_step();
-}
-
-//-------------------------------------------------------------------------------------------------
 //0003B0E0
 void claim_ticktimer(unsigned int uiRateHz)
 {
@@ -1735,23 +1613,6 @@ void releasesamples()
 }
 
 //-------------------------------------------------------------------------------------------------
-//0003B4D0
-void play()
-{
-  if (musicon) {
-    if (SongPtr) {
-      MIDIStartSong();
-
-      //InitSong.nSection = __DS__;
-      //InitSong.pData = (void *)SongPtr;
-      //InitSong.nUnk2 = 0;
-      //InitSong.iUnk1 = 0;
-      //return sosMIDIStartSong(*(int *)&SongHandle);
-    }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //0003B520
 void stop()
 {
@@ -1761,69 +1622,6 @@ void stop()
       //sosMIDIStopSong(SongHandle);
       //sosMIDIResetSong(SongHandle);
     }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003B580
-void devicespecificinit()
-{
-  int i; // esi
-  unsigned int uiSize;
-
-  switch (MusicCard) {
-    case 40961:
-      printf("Resetting SCC-1...");
-      fflush(stdout);
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&SCreset, __DS__);
-      printf("OK\n");
-      break;
-    case 40962:
-    case 40969:
-      printf("Loading Instrument bank file...");
-      fflush(stdout);
-      loadfile("melodic.bnk", &FMInstruments, &uiSize, 0);
-      if (FMInstruments) {
-        printf("OK\n");
-        //sosMIDISetInsData(MIDIHandle, 1, (int)FMInstruments, __DS__);
-      } else {
-        printf("Failed\n");
-        MusicCard = 0;
-      }
-      printf("Loading Drums bank file...");
-      fflush(stdout);
-      loadfile("drum.bnk", &FMDrums, &uiSize, 0);
-      if (FMDrums) {
-        printf("OK\n");
-        //sosMIDISetInsData(MIDIHandle, 1, (int)FMDrums, __DS__);
-      } else {
-        printf("Failed\n");
-        MusicCard = 0;
-      }
-      if (!MusicCard) {
-        //sosMIDIUnInitDriver(MIDIHandle, 1);
-        //sosMIDIUnInitSystem();
-      }
-      break;
-    case 40964:
-      printf("Resetting LAPC-1...");
-      //sosMIDISendMIDIData(MIDIHandle, 11, (int)&MT32reset, __DS__);
-      fflush(stdout);
-      loadfile("mt32map.mtx", &MT32Data, &uiSize, 0);
-      if (MT32Data) {
-        fflush(stdout);
-        for (i = 0; i != 1104; i += 138) {
-          //sosMIDISendMIDIData(MIDIHandle, 138, (int)MT32Data + i, __DS__);
-          printf(".");
-          fflush(stdout);
-        }
-        printf("OK\n");
-      } else {
-        printf("Failed\n");
-      }
-      break;
-    default:
-      return;
   }
 }
 
@@ -3993,25 +3791,6 @@ void reinitmusic()
       SongPtr = 0;
     }
   }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003F0D0
-void waitsampledone(int iSampleIdx)
-{
-  if (!soundon)
-    return;
-
-  // Check sample pointer is valid
-  if (SamplePtr[iSampleIdx] == 0)
-    return;
-
-  for (int i = 0; i < 16; i++) {
-    int iSampleHandle = SampleHandleCar[iSampleIdx].handles[i];
-    (void)DIGISampleDone(iSampleHandle);
-  }
-
-  return;
 }
 
 //-------------------------------------------------------------------------------------------------

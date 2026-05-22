@@ -3439,15 +3439,6 @@ void snapshot_render_championship_over(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0005B660
-void print_mem_used(const char *szMsg)
-{
-  printf("%s\n", szMsg);
-  printf("hi mem used: %i\n", mem_used);
-  printf("lo mem used: %i\n\n", mem_used_low);
-}
-
-//-------------------------------------------------------------------------------------------------
 //0005B6A0
 uint8 *try_load_picture(const char *szFile)
 {
@@ -4186,33 +4177,6 @@ int load_champ_begin(int iSlot)
     fre((void **)&pFileBuf);                    // Cleanup: Free file buffer and return success/failure status
   }
   return iChecksumOk;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0005C000
-uint8 *lod_champ_char(uint8 *pSrc, int *piValue)
-{
-  int iValue; // ebx
-  uint8 *pNextPos; // eax
-
-  iValue = *pSrc;
-  pNextPos = pSrc + 1;
-  *piValue = iValue;
-  return pNextPos;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0005C020
-// MISLEADING NAME: Actually LOADS a 4-byte integer from buffer (should be named load_champ_int)
-uint8 *sav_champ_char(uint8 *pSrc, int *piValue)
-{
-  int iValue; // ebx
-  uint8 *pNextPos; // eax
-
-  iValue = load_champ_read_int(pSrc);           // Read 4-byte integer from packed save buffer
-  pNextPos = pSrc + 4;                          // Advance buffer pointer by 4 bytes to next data position
-  *piValue = iValue;                            // Store loaded value in output parameter
-  return pNextPos;                              // Return advanced buffer pointer for chaining reads
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5700,13 +5664,6 @@ LABEL_14:
     }
     ++pRenderPtr;
   } while (!iFinishedFlag);
-}
-
-//-------------------------------------------------------------------------------------------------
-//0005DC50
-void clear_screen(void *pDest, int iVal)
-{
-  memset(pDest, iVal, 256000u);
 }
 
 //-------------------------------------------------------------------------------------------------

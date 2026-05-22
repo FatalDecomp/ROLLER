@@ -26,7 +26,6 @@ void changemateto(int iCarIndex, int iNewStrategy);
 bool linevalid(int iChunkIdx, float fStartCoord, float fEndCoord);
 void analysefalloff(tCar *pCar);
 void showmap(uint8 *pScrPtr, int iCarIdx);
-void firework_display();
 
 //-------------------------------------------------------------------------------------------------
 #endif

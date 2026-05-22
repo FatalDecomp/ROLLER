@@ -681,35 +681,6 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
 
 //-------------------------------------------------------------------------------------------------
 
-char *GetBinPathFromCue(const char *szCuePath, char *szBinPath, int nBufSize)
-{
-  FILE *pCue = fopen(szCuePath, "r");
-  if (!pCue) return NULL;
-
-  char szLine[256];
-  while (fgets(szLine, sizeof(szLine), pCue)) {
-    char szFile[256];
-    if (sscanf(szLine, " FILE \"%255[^\"]\"", szFile) == 1) {
-      char szDir[ROLLER_MAX_PATH];
-      SDL_strlcpy(szDir, szCuePath, ROLLER_MAX_PATH);
-      char *szSlash = SDL_strrchr(szDir, '/');
-      if (!szSlash) szSlash = SDL_strrchr(szDir, '\\');
-      if (szSlash) {
-        *(szSlash + 1) = '\0';
-        SDL_snprintf(szBinPath, nBufSize, "%s%s", szDir, szFile);
-      } else {
-        SDL_strlcpy(szBinPath, szFile, nBufSize);
-      }
-      fclose(pCue);
-      return szBinPath;
-    }
-  }
-  fclose(pCue);
-  return NULL;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 static bool WriteSingleTrackCue(const char *szSourceCuePath, const tCueTrackInfo *pTrack, char *szCuePath, int nBufSize)
 {
   char szTempCueDir[ROLLER_MAX_PATH];

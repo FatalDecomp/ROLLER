@@ -1532,24 +1532,6 @@ void setgpoint(int iChunkIdx, int iPointIdx, double dX, double dY, double dZ)
 }
 
 //-------------------------------------------------------------------------------------------------
-//0004E370
-void resetcars()
-{
-  int iCarIdx; // esi
-  tCar *pCurrCar; // ecx
-
-  iCarIdx = 0;
-  if (numcars > 0) {
-    pCurrCar = Car;
-    do {
-      memset(pCurrCar, 0, sizeof(tCar));
-      ++iCarIdx;
-      ++pCurrCar;
-    } while (iCarIdx < numcars);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //0004E3B0
 void min_skip_stuff(uint8 **ppFileData)
 {

@@ -503,7 +503,6 @@ int total_fasts[16];      //0016FD20
 int non_competitors[16];  //0016FDE0
 int player_started[16];   //0016FE20
 int player_invul[16];     //0016FE60
-int p_texs_off;           //0016FEA0
 int p_tex_size;           //0016FEA4
 int quit_game;            //0016FEA8
 int players;              //0016FEAC

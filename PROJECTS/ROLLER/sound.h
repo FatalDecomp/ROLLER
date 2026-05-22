@@ -166,14 +166,6 @@
 
 typedef struct
 {
-  DWORD edi, esi, ebp, reserved, ebx, edx, ecx, eax;
-  WORD  flags, es, ds, fs, gs, ip, cs, sp, ss;
-} DPMI_RMI;
-
-//-------------------------------------------------------------------------------------------------
-
-typedef struct
-{
   int handles[16];
 } tSampleHandleCar;
 
@@ -312,7 +304,6 @@ extern int MusicCard;
 extern int MusicCD;
 extern int MusicPort;
 extern uint8 *SongPtr;
-extern int SongHandle;
 extern int CDSong[20];
 extern int GMSong[21];
 extern tSampleData SampleData;
@@ -373,12 +364,9 @@ extern void *FMInstruments;
 extern int network_sync_error;
 extern int ticks_received;
 extern int network_limit;
-extern int MIDIHandle;
-extern int DIGIHandle;
 extern volatile int frames;
 extern char Song[20][15];
 extern uint32 tickhandle;
-extern DPMI_RMI RMI;
 extern tColor *pal_addr;
 extern int user_inp;
 extern int nummusictracks;
@@ -399,18 +387,12 @@ extern int already_quit;
 extern int network_error;
 
 //-------------------------------------------------------------------------------------------------
-
-void realmode(uint8 byRealModeInterrupt);
 bool loadDOS(const char *szFilename, void **out_buffer);
-int claimDOS(int iSizeParagraphs, uint32 *uiSelectorOut);
-void releaseDOS(uint16 nSegment);
 bool setpal(const char *szFilename);
 void blankpal();
-void resetpal();
 void Initialise_SOS();
 void updatejoy();
 void readuserdata(int iPlayer);
-void tickhandler();
 void tick_clock_step(void);
 void game_tick_step(void);
 void DrainEngineDelay(void);
@@ -422,9 +404,7 @@ void loadsamples();
 void loadfatalsample();
 void freefatalsample();
 void releasesamples();
-void play();
 void stop();
-void devicespecificinit();
 int initgus();
 void devicespecificuninit();
 void readsoundconfig();
@@ -460,8 +440,6 @@ void fade_palette_begin(int iPaletteBrightness);
 int fade_palette_update();
 int fade_palette_active();
 void fade_palette_finish();
-void fade_music_start(int iTargetBrightness);
-void fade_music_step(int iStep);
 void fade_music_finish(int iTargetBrightness);
 void set_palette(int iBrightness);
 void check_joystick_usage();
@@ -471,7 +449,6 @@ void loadasample(int iIndex);
 void select8bitdriver();
 void resetsamplearray();
 void reinitmusic();
-void waitsampledone(int iSampleIdx);
 int getcompactedfilelength(const char *szFile);
 int initmangle(const char *szFile);
 int uninitmangle();

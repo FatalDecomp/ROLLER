@@ -61,11 +61,6 @@ int menu_render_sw_load_blocks(MenuRendererSoftware *sw, int slot,
     return 0;
 }
 
-void menu_render_sw_free_blocks(MenuRendererSoftware *sw, int slot) {
-    (void)sw;
-    (void)slot;
-}
-
 // ---------------------------------------------------------------------------
 // Frame lifecycle
 // ---------------------------------------------------------------------------
@@ -110,13 +105,6 @@ void menu_render_sw_end_frame(MenuRendererSoftware *sw) {
 // ---------------------------------------------------------------------------
 // Draw calls
 // ---------------------------------------------------------------------------
-
-void menu_render_sw_clear(MenuRendererSoftware *sw, uint8 colorIndex,
-                          const tColor *palette) {
-    (void)sw;
-    (void)palette;
-    memset(scrbuf, colorIndex, winw * winh);
-}
 
 void menu_render_sw_background(MenuRendererSoftware *sw, int slot) {
     (void)sw;
@@ -270,11 +258,6 @@ void menu_render_sw_load_track_mesh(MenuRendererSoftware *sw,
                                     const tColor *palette) {
     (void)sw;
     (void)palette;
-    // No-op
-}
-
-void menu_render_sw_free_track_mesh(MenuRendererSoftware *sw) {
-    (void)sw;
     // No-op
 }
 

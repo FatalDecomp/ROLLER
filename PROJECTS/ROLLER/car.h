@@ -237,7 +237,6 @@ void CalcCarSizes();
 void InitCars();
 void placecars();
 void DrawCars(int iCarIdx, int iViewMode);
-void DisplayCar(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar);
 void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCar,
                         const CarRenderPose *pose,
                         const CarRenderOptions *options);

@@ -86,7 +86,6 @@ void readline2(uint8 **ppFileData, const char *pszFormat, ...);
 void rotatepoint(double dX, double dY, double dZ, double dYaw, double dPitch, double dRoll, double *pdOutX, double *pdOutY, double *pdOutZ);
 void setpoint(int iChunkIdx, int iPointIdx, double dX, double dY, double dZ);
 void setgpoint(int iChunkIdx, int iPointIdx, double dX, double dY, double dZ);
-void resetcars();
 void min_skip_stuff(uint8 **ppFileData);
 
 //-------------------------------------------------------------------------------------------------

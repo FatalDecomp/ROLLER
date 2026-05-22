@@ -462,37 +462,6 @@ void updatestunts()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00074BD0
-void reinitstunts()
-{
-  int iRampLimit = totalramps;
-
-  if (iRampLimit < 0)
-    iRampLimit = 0;
-  if (iRampLimit > stunt_ramp_slot_count())
-    iRampLimit = stunt_ramp_slot_count();
-
-  for (int i = 0; i < iRampLimit; ++i) {
-    if (ramp[i])
-      reinitramp(ramp[i]);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-//00074C00
-void freeramp(void **pRampData)
-{
-  void *pRampToFree; // [esp+0h] [ebp-4h] BYREF
-
-  pRampToFree = pRampData;
-  if (pRampData) {
-    if (pRampData[20])
-      fre(pRampData + 20);
-    fre(&pRampToFree);
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //00074C30
 void freestunts(uint8 **pTrackData, int *pBuf)
 {

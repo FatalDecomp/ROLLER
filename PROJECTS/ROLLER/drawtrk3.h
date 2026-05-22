@@ -19,16 +19,6 @@ extern int subpolytype;
 extern tPolyParams *subpoly;
 extern int tex_wid;
 extern int flatpol;
-extern tPolyParams RoofPoly;
-extern tPolyParams G5Poly;
-extern tPolyParams G4Poly;
-extern tPolyParams G3Poly;
-extern tPolyParams G2Poly;
-extern tPolyParams G1Poly;
-extern tPolyParams RWallPoly;
-extern tPolyParams LWallPoly;
-extern tPolyParams RightPoly;
-extern tPolyParams LeftPoly;
 extern tPolyParams RoadPoly;
 extern int start_sect;
 extern int gap_size;
@@ -57,7 +47,6 @@ int facing_ok(float fX0, float fY0, float fZ0,
               float fX1, float fY1, float fZ1,
               float fX2, float fY2, float fZ2,
               float fX3, float fY3, float fZ3);
-int Zcmp(const void *pTrackView1, const void *pTrackView2);
 void set_starts(unsigned int uiType);
 
 //-------------------------------------------------------------------------------------------------

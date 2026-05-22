@@ -28,16 +28,6 @@ int subpolytype;    //0014447C
 tPolyParams *subpoly; //00144480
 int tex_wid;        //00144484
 int flatpol;        //00144488
-tPolyParams RoofPoly; //0014448C
-tPolyParams G5Poly;   //001444B8
-tPolyParams G4Poly;   //001444E4
-tPolyParams G3Poly;   //00144510
-tPolyParams G2Poly;   //0014453C
-tPolyParams G1Poly;   //00144568
-tPolyParams RWallPoly;//00144594
-tPolyParams LWallPoly;//001445C0
-tPolyParams RightPoly;//001445EC
-tPolyParams LeftPoly; //00144618
 tPolyParams RoadPoly; //00144644
 int start_sect;     //00144670
 int gap_size;       //00144674
@@ -59,25 +49,6 @@ int small_poly;     //001446AC
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-// World-space vertex builders — three winding patterns (forward, cross_first, reverse)
-// reading from the caller-provided point array (tGroundPt or tTrakPt).
-
-// Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
-static void world_verts_forward(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
-    verts[1].x = c->pointAy[ptA].fX; verts[1].y = c->pointAy[ptA].fY; verts[1].z = c->pointAy[ptA].fZ;
-    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
-    verts[3].x = n->pointAy[ptB].fX; verts[3].y = n->pointAy[ptB].fY; verts[3].z = n->pointAy[ptB].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
 // Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
 static void world_verts_cross_first(GameRenderVertex *verts,
     const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
@@ -88,22 +59,6 @@ static void world_verts_cross_first(GameRenderVertex *verts,
     verts[1].x = n->pointAy[ptB].fX; verts[1].y = n->pointAy[ptB].fY; verts[1].z = n->pointAy[ptB].fZ;
     verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
     verts[3].x = c->pointAy[ptA].fX; verts[3].y = c->pointAy[ptA].fY; verts[3].z = c->pointAy[ptA].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-// Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
-static void world_verts_reverse(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = c->pointAy[ptA].fX; verts[0].y = c->pointAy[ptA].fY; verts[0].z = c->pointAy[ptA].fZ;
-    verts[1].x = n->pointAy[ptA].fX; verts[1].y = n->pointAy[ptA].fY; verts[1].z = n->pointAy[ptA].fZ;
-    verts[2].x = n->pointAy[ptB].fX; verts[2].y = n->pointAy[ptB].fY; verts[2].z = n->pointAy[ptB].fZ;
-    verts[3].x = c->pointAy[ptB].fX; verts[3].y = c->pointAy[ptB].fY; verts[3].z = c->pointAy[ptB].fZ;
     verts[0].u = 0; verts[0].v = 0;
     verts[1].u = 0; verts[1].v = 0;
     verts[2].u = 0; verts[2].v = 0;
@@ -2719,13 +2674,6 @@ int facing_ok(float fX0, float fY0, float fZ0,
         + ((fZ2 - fZ0) * (fX1 - fX3) - (fZ1 - fZ3) * fDeltaX20) * fY1
         + ((fY1 - fY3) * fDeltaX20 - (fX1 - fX3) * (fY2 - fY0)) * fZ1 >= 0.0)
     - 1;
-}
-
-//-------------------------------------------------------------------------------------------------
-//00027A10
-int Zcmp(const void *pCommand1, const void *pCommand2)
-{
-  return render_queue_3d_compare_legacy_z_order(pCommand1, pCommand2);
 }
 
 //-------------------------------------------------------------------------------------------------

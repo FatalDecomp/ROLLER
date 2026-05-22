@@ -1957,35 +1957,6 @@ void clear_border(int x, int y, int iWidth, int iLines)
 }
 
 //-------------------------------------------------------------------------------------------------
-//000184E0
-void DisplayFree()
-{
-  //DPMI_MemInfo memInfo; // [esp+0h] [ebp-88h] BYREF
-  //union REGS regs; // [esp+50h] [ebp-38h] BYREF
-  //struct SREGS sregs; // [esp+6Ch] [ebp-1Ch] BYREF
-  //
-  //memset(&sregs, 0, sizeof(sregs));
-  //regs.x.eax = 0x500;
-  //sregs.es = __DS__;
-  //regs.x.edi = (unsigned int)&memInfo;
-  //int386x(0x31, &regs, &regs, &sregs);
-  //printf("\nLargest block: %d\n", memInfo.largestFreeBlock);
-  //printf("Total free   : %d\n\n", memInfo.freeLinearPages << 12);
-  //no_mem = 0;
-  //lots_of_mem = 0;
-  //if ((int)(memInfo.freeLinearPages << 12) >= 4500000) {
-  //  printf("RUNNING 8 MEG VERSION.\n");
-  //  gfx_size = 0;
-  //  lots_of_mem = -1;
-  //} else {
-  //  printf("RUNNING 4 MEG VERSION.\n");
-  //  gfx_size = 1;
-  //  if ((int)(memInfo.freeLinearPages << 12) < 2000000)
-  //    no_mem = -1;
-  //}
-}
-
-//-------------------------------------------------------------------------------------------------
 //000185C0
 void setdirectory(const char *szAppPath)
 {
@@ -4921,45 +4892,6 @@ void setmodex()
   //modexsethardware();                           // Configure VGA hardware registers for Mode X tweaks
   //__outword(0x3C4u, 0xF02u);                    // Set Sequencer register 02h to 0Fh - enable all 4 bit planes
   //memset(screen, 0, 0x10000u);                  // Clear video memory (64KB) - initialize screen buffer to black
-}
-
-//-------------------------------------------------------------------------------------------------
-//0001D0C0
-void modexsethardware()
-{
-  //uint8 bySequencerMemMode; // al
-  //uint8 byGraphicsMode; // al
-  //uint8 byMemoryMap; // al
-  //uint8 byMaxScanLine; // al
-  //uint8 byUnderlineLocation; // al
-  //uint8 byModeControl; // al
-  //
-  //__outbyte(0x3C4u, 4u);                        // Sequencer Register 04h (Memory Mode) - configure memory access mode
-  //bySequencerMemMode = __inbyte(0x3C5u);
-  //__outbyte(0x3C5u, bySequencerMemMode & 3 | 4);// Clear Chain-4 mode, enable planar memory organization for Mode X
-  //__outbyte(0x3CEu, 5u);                        // Graphics Controller Register 05h (Graphics Mode) - set read/write mode
-  //byGraphicsMode = __inbyte(0x3CFu);
-  //__outbyte(0x3CFu, byGraphicsMode & 0xEF);     // Clear bit 4 (Host Odd/Even) - disable odd/even addressing
-  //__outbyte(0x3CEu, 6u);                        // Graphics Controller Register 06h (Memory Map) - set memory mapping
-  //byMemoryMap = __inbyte(0x3CFu);
-  //__outbyte(0x3CFu, byMemoryMap & 0xFD);        // Clear bit 1 (Chain Odd/Even) - disable odd/even chaining
-  //__outbyte(0x3D4u, 9u);                        // CRTC Register 09h (Maximum Scan Line) - configure scan line behavior
-  //byMaxScanLine = __inbyte(0x3D5u);
-  //__outbyte(0x3D5u, byMaxScanLine & 0xE0);      // Clear bits 4-0 (Max Scan Line) - set to 0 for single-scan lines
-  //__outbyte(0x3D4u, 0x14u);                     // CRTC Register 14h (Underline Location) - configure memory addressing
-  //byUnderlineLocation = __inbyte(0x3D5u);
-  //__outbyte(0x3D5u, byUnderlineLocation & 0xBF);// Clear bit 6 (Double Word) - disable double word addressing mode
-  //__outbyte(0x3D4u, 0x17u);                     // CRTC Register 17h (Mode Control) - configure display timing mode
-  //byModeControl = __inbyte(0x3D5u);
-  //__outbyte(0x3D5u, byModeControl | 0x40);
-}
-
-//-------------------------------------------------------------------------------------------------
-//0001D140
-void modexclearscreen()
-{
-  //__outword(0x3C4u, 0xF02u);                    // Set Sequencer Map Mask to 0Fh - enable writing to all 4 bit planes
-  //memset(screen, 0, 0x10000u);                  // Clear all 64KB of video memory to black (color 0)
 }
 
 //-------------------------------------------------------------------------------------------------

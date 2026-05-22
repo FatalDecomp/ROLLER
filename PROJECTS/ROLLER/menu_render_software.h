@@ -14,15 +14,12 @@ void menu_render_sw_destroy(MenuRendererSoftware *sw);
 // Asset conversion
 int menu_render_sw_load_blocks(MenuRendererSoftware *sw, int slot,
                                tBlockHeader *blocks, const tColor *palette);
-void menu_render_sw_free_blocks(MenuRendererSoftware *sw, int slot);
 
 // Frame lifecycle
 void menu_render_sw_begin_frame(MenuRendererSoftware *sw);
 void menu_render_sw_end_frame(MenuRendererSoftware *sw);
 
 // Draw calls (between begin_frame / end_frame)
-void menu_render_sw_clear(MenuRendererSoftware *sw, uint8 colorIndex,
-                          const tColor *palette);
 void menu_render_sw_background(MenuRendererSoftware *sw, int slot);
 void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
                            int x, int y, int transparentColorIndex,
@@ -57,7 +54,6 @@ void menu_render_sw_draw_car_preview(MenuRendererSoftware *sw, float angle,
 
 void menu_render_sw_load_track_mesh(MenuRendererSoftware *sw,
                                     const tColor *palette);
-void menu_render_sw_free_track_mesh(MenuRendererSoftware *sw);
 void menu_render_sw_draw_track_preview(MenuRendererSoftware *sw, float cameraZ,
                                        int elevation, int yaw,
                                        int destX, int destY,

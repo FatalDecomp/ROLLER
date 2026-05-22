@@ -420,10 +420,6 @@ void debug_overlay_destroy(DebugOverlay *pOverlay) {
 // Public API
 // ---------------------------------------------------------------------------
 
-bool debug_overlay_is_visible(DebugOverlay *pOverlay) {
-  return pOverlay && pOverlay->bVisible;
-}
-
 void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   if (!pOverlay) return;
   if (pOverlay->bVisible == bVisible) return;

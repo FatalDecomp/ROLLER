@@ -29,7 +29,6 @@ MenuRenderMode menu_render_get_mode(MenuRenderer *renderer);
 // Asset conversion
 int menu_render_load_blocks(MenuRenderer *renderer, int slot,
                             tBlockHeader *blocks, const tColor *palette);
-void menu_render_free_blocks(MenuRenderer *renderer, int slot);
 
 // Frame lifecycle
 void menu_render_begin_frame(MenuRenderer *renderer);
@@ -39,8 +38,6 @@ void menu_render_end_frame(MenuRenderer *renderer);
 void menu_render_set_layer(MenuRenderer *renderer, MenuDrawLayer layer);
 
 // Draw calls (between begin_frame / end_frame)
-void menu_render_clear(MenuRenderer *renderer, uint8 colorIndex,
-                       const tColor *palette);
 void menu_render_background(MenuRenderer *renderer, int slot);
 void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
@@ -70,7 +67,6 @@ void menu_render_draw_car_preview(MenuRenderer *renderer, float angle, float dis
                                   int destX, int destY, int destW, int destH);
 
 void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette);
-void menu_render_free_track_mesh(MenuRenderer *renderer);
 void menu_render_draw_track_preview(MenuRenderer *renderer, float cameraZ,
                                     int elevation, int yaw,
                                     int destX, int destY, int destW, int destH);

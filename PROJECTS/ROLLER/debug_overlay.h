@@ -7,8 +7,6 @@ typedef struct DebugOverlay DebugOverlay;
 
 DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow);
 void          debug_overlay_destroy(DebugOverlay *pOverlay);
-
-bool debug_overlay_is_visible(DebugOverlay *pOverlay);
 void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible);
 void debug_overlay_toggle(DebugOverlay *pOverlay);
 void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent);

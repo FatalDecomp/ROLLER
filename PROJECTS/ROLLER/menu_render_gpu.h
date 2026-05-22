@@ -31,8 +31,6 @@ void menu_render_gpu_end_frame(MenuRendererGPU *renderer);
 void menu_render_gpu_set_layer(MenuRendererGPU *renderer, MenuDrawLayer layer);
 
 // Draw calls (between begin_frame / end_frame)
-void menu_render_gpu_clear(MenuRendererGPU *renderer, uint8 colorIndex,
-                       const tColor *palette);
 void menu_render_gpu_background(MenuRendererGPU *renderer, int slot);
 void menu_render_gpu_sprite(MenuRendererGPU *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
