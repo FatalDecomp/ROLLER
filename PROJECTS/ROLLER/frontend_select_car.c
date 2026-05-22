@@ -388,6 +388,8 @@ void frontend_car_select_update(void)
         iFrontendCarDelayBeforeRotation = 72;
       }
     } else {
+      if (iFrontendCarSelectedCar < 0 || iFrontendCarSelectedCar >= 14)
+        iFrontendCarSelectedCar = 0;
       iCarAllocationStatus = allocated_cars[iFrontendCarSelectedCar];
       iFrontendCarZoomDistance = 40000;
       iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
