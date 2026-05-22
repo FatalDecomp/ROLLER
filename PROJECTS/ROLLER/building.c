@@ -27,7 +27,7 @@ float BuildingBaseZ[256];               //00197F10
 float BuildingX[256];                   //00198310
 float BuildingY[256];                   //00198710
 float BuildingZ[256];                   //00198B10
-tVisibleBuilding VisibleBuildings[256]; //00198F10
+tVisibleBuilding VisibleBuildings[257]; //00198F10
 int16 advert_list[256];                 //00199710
 int NumBuildings;                       //0019993C
 int NumVisibleBuildings;                //00199940

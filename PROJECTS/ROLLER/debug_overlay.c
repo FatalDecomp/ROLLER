@@ -555,6 +555,14 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    int bForceMaxDraw = (int)g_bForceMaxDraw;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw))
+      g_bForceMaxDraw = (bool)bForceMaxDraw;
+
+    nk_layout_row_dynamic(pCtx, 8, 1);
+    nk_spacing(pCtx, 1);
+
     nk_layout_row_dynamic(pCtx, 20, 1);
     nk_label(pCtx, "Network", NK_TEXT_LEFT);
     DrawNetworkAdapterCombo(pOverlay);
@@ -591,11 +599,6 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU))
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
     }
-
-    int bForceMaxDraw = (int)g_bForceMaxDraw;
-    nk_layout_row_dynamic(pCtx, 20, 1);
-    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw))
-      g_bForceMaxDraw = (bool)bForceMaxDraw;
 
     int iNodes = ROLLERCommsGetActiveNodes();
     char szNodesLine[32];

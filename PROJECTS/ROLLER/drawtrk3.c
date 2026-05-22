@@ -428,42 +428,28 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   backwards = (fViewAlignment >= 0.0) - 1;
 
 
-  //added by ROLLER to force maximum draw distance
-  //if (g_bForceMaxDraw) {
-  //  byForwardMainChunks = 255;
-  //  nForwardExtraStart = -1;
-  //  byForwardExtraChunks = 0;
-  //  byBackwardMainChunks = 255;
-  //  nBackwardExtraStart = -1;
-  //  byBackwardExtraChunks = 0;
-  //}
-
   // Load pre-calculated view ranges from track data
   if (iCurrChunk >= 0 && TrackSize < 0) {
     if (backwards)                            // looking backward along track
     {
-      if (g_bForceMaxDraw) { //added by ROLLER for max draw distance
-        TrackSize = 255 - iViewOffset;
-        iExtraViewStart = -1;
-        byExtraChunks = 0;
-      } else {
-        TrackSize = TrakView[iCurrChunk].byBackwardMainChunks - iViewOffset;
-        iExtraViewStart = TrakView[iCurrChunk].nBackwardExtraStart;
-        byExtraChunks = TrakView[iCurrChunk].byBackwardExtraChunks;
-      }
+      TrackSize = TrakView[iCurrChunk].byBackwardMainChunks - iViewOffset;
+      iExtraViewStart = TrakView[iCurrChunk].nBackwardExtraStart;
+      byExtraChunks = TrakView[iCurrChunk].byBackwardExtraChunks;
     } else                                        // looking forward along track
     {
-      if (g_bForceMaxDraw) {
-        TrackSize = 255 - iViewOffset;
-        iExtraViewStart = -1;
-        byExtraChunks = 0;
-      } else {
-        TrackSize = TrakView[iCurrChunk].byForwardMainChunks - iViewOffset;
-        iExtraViewStart = TrakView[iCurrChunk].nForwardExtraStart;
-        byExtraChunks = TrakView[iCurrChunk].byForwardExtraChunks;
-      }
+      TrackSize = TrakView[iCurrChunk].byForwardMainChunks - iViewOffset;
+      iExtraViewStart = TrakView[iCurrChunk].nForwardExtraStart;
+      byExtraChunks = TrakView[iCurrChunk].byForwardExtraChunks;
     }
     iHasExtraView = byExtraChunks;
+  }
+
+  if (g_bForceMaxDraw && TRAK_LEN > 0) {
+    TrackSize = TRAK_LEN - 1;
+    iHasExtraView = 0;
+    iExtraViewStart = -1;
+    byExtraChunks = 0;
+    alltrackflag = -1;
   }
 
   // Apply view distance limits for certain game modes

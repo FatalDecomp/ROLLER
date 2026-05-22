@@ -44,7 +44,7 @@ extern float BuildingBaseZ[256];
 extern float BuildingX[256];
 extern float BuildingY[256];
 extern float BuildingZ[256];
-extern tVisibleBuilding VisibleBuildings[256];
+extern tVisibleBuilding VisibleBuildings[257];
 extern int16 advert_list[256];
 extern int NumBuildings;
 extern int NumVisibleBuildings;
