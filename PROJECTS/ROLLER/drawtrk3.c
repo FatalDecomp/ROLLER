@@ -783,7 +783,6 @@ void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
   int iNamesDisplayCount; // eax
   tVisibleBuilding *pVisibleBuildingsPtr; // ebx
   int iLightIndex; // ebx
-  int iLightArrayOffset; // edx
   float fLightDepth; // eax
   tTrackZOrderEntry *pRenderCommand; // eax
   const RenderCommand3D *pTypedRenderCommand; // eax
@@ -2216,17 +2215,15 @@ LABEL_393:
   if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
     iLightIndex = 0;
-    iLightArrayOffset = 3 * iChaseCamIdx_1;
     do {
-      fLightZ = (SLight[0][iLightArrayOffset].currentPos.fX - viewx) * vk3
-        + (SLight[0][iLightArrayOffset].currentPos.fY - viewy) * vk6
-        + (SLight[0][iLightArrayOffset].currentPos.fZ - viewz) * vk9;
+      fLightZ = (SLight[iChaseCamIdx_1][iLightIndex].currentPos.fX - viewx) * vk3
+        + (SLight[iChaseCamIdx_1][iLightIndex].currentPos.fY - viewy) * vk6
+        + (SLight[iChaseCamIdx_1][iLightIndex].currentPos.fZ - viewz) * vk9;
       if (fLightZ > 0.0) {
         fLightDepth = fLightZ;
         render_queue_3d_add_start_light(pRenderQueue3D, iLightIndex, fLightDepth);
       }
       ++iLightIndex;
-      ++iLightArrayOffset;
     } while (iLightIndex < 3);
   }
   // Gameplay 3D queue phase: sorted dispatch of world commands by Z-depth.

@@ -571,7 +571,8 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
   int iCarUpdateIdx; // edx
   uint8 byUnk43; // bh
   int i; // ecx
-  unsigned int uiSLightOffset; // edx
+  int iLightIdx; // edx
+  tSLight *pLight; // edx
   float fLightSpeed; // esi
   double dLightPosX; // st7
   double dLightPosY; // st7
@@ -799,57 +800,56 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
       if (countdown > -72 && replaytype != 2) // Update dynamic lighting effects for local players
       {
         for (i = 0; i < local_players; ++i) {
-          uiSLightOffset = 0x90 * i;
-          do {
-            fLightDeltaX = SLight[0][uiSLightOffset / 0x30].targetPos.fX - SLight[0][uiSLightOffset / 0x30].currentPos.fX;// Animate lights toward target positions with speed limiting
+          for (iLightIdx = 0; iLightIdx < 3; ++iLightIdx) {
+            pLight = &SLight[i][iLightIdx];
+            fLightDeltaX = pLight->targetPos.fX - pLight->currentPos.fX;// Animate lights toward target positions with speed limiting
             fLightSpeed = fLightDeltaX;
-            SLight[0][uiSLightOffset / 0x30].uiRotation = (SLight[0][uiSLightOffset / 0x30].uiRotation + 128) & 0x3FFF;
+            pLight->uiRotation = (pLight->uiRotation + 128) & 0x3FFF;
             //if ((LODWORD(fLightSpeed) & 0x7FFFFFFF) != 0) {
             if (fabs(fLightSpeed) > FLT_EPSILON) {
-              fX = SLight[0][uiSLightOffset / 0x30].speed.fX;
+              fX = pLight->speed.fX;
               dLightDistanceX = fabs(fLightDeltaX);
               if (fX > dLightDistanceX)
                 fX = (float)dLightDistanceX;
               if (fLightDeltaX <= 0.0)
-                dLightPosX = SLight[0][uiSLightOffset / 0x30].currentPos.fX - fX;
+                dLightPosX = pLight->currentPos.fX - fX;
               else
-                dLightPosX = SLight[0][uiSLightOffset / 0x30].currentPos.fX + fX;
-              SLight[0][uiSLightOffset / 0x30].currentPos.fX = (float)dLightPosX;
+                dLightPosX = pLight->currentPos.fX + fX;
+              pLight->currentPos.fX = (float)dLightPosX;
             }
-            fLightDeltaY = SLight[0][uiSLightOffset / 0x30].targetPos.fY - SLight[0][uiSLightOffset / 0x30].currentPos.fY;
+            fLightDeltaY = pLight->targetPos.fY - pLight->currentPos.fY;
             //if ((LODWORD(fLightDeltaY) & 0x7FFFFFFF) != 0) {
             if (fabs(fLightDeltaY) > FLT_EPSILON) {
-              fY = SLight[0][uiSLightOffset / 0x30].speed.fY;
+              fY = pLight->speed.fY;
               dLightDistanceY = fabs(fLightDeltaY);
               if (fY > dLightDistanceY)
                 fY = (float)dLightDistanceY;
               if (fLightDeltaY <= 0.0)
-                dLightPosY = SLight[0][uiSLightOffset / 0x30].currentPos.fY - fY;
+                dLightPosY = pLight->currentPos.fY - fY;
               else
-                dLightPosY = SLight[0][uiSLightOffset / 0x30].currentPos.fY + fY;
-              SLight[0][uiSLightOffset / 0x30].currentPos.fY = (float)dLightPosY;
+                dLightPosY = pLight->currentPos.fY + fY;
+              pLight->currentPos.fY = (float)dLightPosY;
             }
-            fLightDeltaZ = SLight[0][uiSLightOffset / 0x30].targetPos.fZ - SLight[0][uiSLightOffset / 0x30].currentPos.fZ;
+            fLightDeltaZ = pLight->targetPos.fZ - pLight->currentPos.fZ;
             //if ((LODWORD(fLightDeltaZ) & 0x7FFFFFFF) != 0) {
             if (fabs(fLightDeltaZ) > FLT_EPSILON) {
-              fZ = SLight[0][uiSLightOffset / 0x30].speed.fZ;
+              fZ = pLight->speed.fZ;
               dLightDistanceZ = fabs(fLightDeltaZ);
               if (fZ > dLightDistanceZ)
                 fZ = (float)dLightDistanceZ;
               if (fLightDeltaZ <= 0.0)
-                dLightPosZ = SLight[0][uiSLightOffset / 0x30].currentPos.fZ - fZ;
+                dLightPosZ = pLight->currentPos.fZ - fZ;
               else
-                dLightPosZ = SLight[0][uiSLightOffset / 0x30].currentPos.fZ + fZ;
-              SLight[0][uiSLightOffset / 0x30].currentPos.fZ = (float)dLightPosZ;
+                dLightPosZ = pLight->currentPos.fZ + fZ;
+              pLight->currentPos.fZ = (float)dLightPosZ;
               if (countdown < 126) {
-                dLightSpeedZ = SLight[0][uiSLightOffset / 0x30].speed.fZ + -2.5;
-                SLight[0][uiSLightOffset / 0x30].speed.fZ = (float)dLightSpeedZ;
+                dLightSpeedZ = pLight->speed.fZ + -2.5;
+                pLight->speed.fZ = (float)dLightSpeedZ;
                 if (dLightSpeedZ < 20.0)
-                  SLight[0][uiSLightOffset / 0x30].speed.fZ = 20.0;
+                  pLight->speed.fZ = 20.0;
               }
             }
-            uiSLightOffset += 48;
-          } while (uiSLightOffset != 0x90 * i + 144);
+          }
         }
       }
       if (fudge_wait < 0)                     // Test collisions and check lap line crossings

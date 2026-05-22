@@ -338,10 +338,11 @@ void placecars()
   tData *pTrackLocalData; // ebp
   double dTrackYPos; // st7
   int iPlayers; // edi
-  int iMaxOffset; // ebp
   int iPlayerIdx; // esi
   int iPlayerCarIdx; // eax
-  unsigned int iSLightOffset; // edx
+  int iLightIdx; // edx
+  tSLight *pPlayerLights; // edx
+  tSLight *pLight; // edx
   double dZ; // st7
   int nPlayerChunk; // ebx
   float *pLightTrackData; // ebx
@@ -516,73 +517,70 @@ void placecars()
   }
   iPlayers = 0;
   if (local_players > 0) {
-    iMaxOffset = 144;
     iPlayerIdx = 0;
     do {
       iPlayerCarIdx = ViewType[iPlayerIdx];
-      iSLightOffset = 144 * iPlayers;
+      pPlayerLights = SLight[iPlayers];
       fLightPosX = Car[iPlayerCarIdx].pos.fX + 2000.0f;
-      SLight[0][iSLightOffset / 0x30].targetPos.fY = Car[iPlayerCarIdx].pos.fY;
+      pPlayerLights[0].targetPos.fY = Car[iPlayerCarIdx].pos.fY;
       fLightPosZ = Car[iPlayerCarIdx].pos.fZ + 500.0f;
-      SLight[0][iSLightOffset / 0x30].targetPos.fX = fLightPosX;
-      SLight[0][iSLightOffset / 0x30].currentPos.fX = SLight[iPlayers][0].targetPos.fX + 10000.0f;
-      SLight[0][iSLightOffset / 0x30].currentPos.fY = SLight[iPlayers][0].targetPos.fY;
-      SLight[0][iSLightOffset / 0x30].targetPos.fZ = fLightPosZ;
-      SLight[0][iSLightOffset / 0x30].currentPos.fZ = SLight[iPlayers][0].targetPos.fZ + 5000.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].targetPos.fY = Car[iPlayerCarIdx].pos.fY + -500.0f;
-      SLight[0][iSLightOffset / 0x30].speed.fX = 100.0f;
-      SLight[0][iSLightOffset / 0x30].speed.fY = 100.0f;
-      SLight[0][iSLightOffset / 0x30].speed.fZ = 40.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].targetPos.fX = fLightPosX;
-      SLight[0][iSLightOffset / 0x30 + 1].currentPos.fX = SLight[iPlayers][1].targetPos.fX + 10000.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].currentPos.fY = SLight[iPlayers][1].targetPos.fY + -1000.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].targetPos.fZ = fLightPosZ;
-      SLight[0][iSLightOffset / 0x30 + 1].currentPos.fZ = SLight[iPlayers][1].targetPos.fZ + 5000.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].targetPos.fY = Car[iPlayerCarIdx].pos.fY + 500.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].targetPos.fX = fLightPosX;
-      SLight[0][iSLightOffset / 0x30 + 2].currentPos.fX = SLight[iPlayers][2].targetPos.fX + 10000.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].currentPos.fY = SLight[iPlayers][2].targetPos.fY + 1000.0f;
-      SLight[0][iSLightOffset / 0x30].uiRotation = 0;
-      SLight[0][iSLightOffset / 0x30 + 1].uiRotation = 0;
-      SLight[0][iSLightOffset / 0x30 + 2].targetPos.fZ = fLightPosZ;
-      dZ = SLight[iPlayers][2].targetPos.fZ;
-      SLight[0][iSLightOffset / 0x30 + 1].speed.fX = 100.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].speed.fY = 100.0f;
-      SLight[0][iSLightOffset / 0x30 + 1].speed.fZ = 40.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].speed.fX = 100.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].speed.fY = 100.0f;
-      SLight[0][iSLightOffset / 0x30 + 2].uiRotation = 0;
+      pPlayerLights[0].targetPos.fX = fLightPosX;
+      pPlayerLights[0].currentPos.fX = pPlayerLights[0].targetPos.fX + 10000.0f;
+      pPlayerLights[0].currentPos.fY = pPlayerLights[0].targetPos.fY;
+      pPlayerLights[0].targetPos.fZ = fLightPosZ;
+      pPlayerLights[0].currentPos.fZ = pPlayerLights[0].targetPos.fZ + 5000.0f;
+      pPlayerLights[1].targetPos.fY = Car[iPlayerCarIdx].pos.fY + -500.0f;
+      pPlayerLights[0].speed.fX = 100.0f;
+      pPlayerLights[0].speed.fY = 100.0f;
+      pPlayerLights[0].speed.fZ = 40.0f;
+      pPlayerLights[1].targetPos.fX = fLightPosX;
+      pPlayerLights[1].currentPos.fX = pPlayerLights[1].targetPos.fX + 10000.0f;
+      pPlayerLights[1].currentPos.fY = pPlayerLights[1].targetPos.fY + -1000.0f;
+      pPlayerLights[1].targetPos.fZ = fLightPosZ;
+      pPlayerLights[1].currentPos.fZ = pPlayerLights[1].targetPos.fZ + 5000.0f;
+      pPlayerLights[2].targetPos.fY = Car[iPlayerCarIdx].pos.fY + 500.0f;
+      pPlayerLights[2].targetPos.fX = fLightPosX;
+      pPlayerLights[2].currentPos.fX = pPlayerLights[2].targetPos.fX + 10000.0f;
+      pPlayerLights[2].currentPos.fY = pPlayerLights[2].targetPos.fY + 1000.0f;
+      pPlayerLights[0].uiRotation = 0;
+      pPlayerLights[1].uiRotation = 0;
+      pPlayerLights[2].targetPos.fZ = fLightPosZ;
+      dZ = pPlayerLights[2].targetPos.fZ;
+      pPlayerLights[1].speed.fX = 100.0f;
+      pPlayerLights[1].speed.fY = 100.0f;
+      pPlayerLights[1].speed.fZ = 40.0f;
+      pPlayerLights[2].speed.fX = 100.0f;
+      pPlayerLights[2].speed.fY = 100.0f;
+      pPlayerLights[2].uiRotation = 0;
       nPlayerChunk = Car[iPlayerCarIdx].nCurrChunk;
-      SLight[0][iSLightOffset / 0x30 + 2].speed.fZ = 40.0f;
+      pPlayerLights[2].speed.fZ = 40.0f;
       pLightTrackData = (float *)&localdata[nPlayerChunk];
-      SLight[0][iSLightOffset / 0x30 + 2].currentPos.fZ = (float)dZ + 5000.0f;
-      do {
+      pPlayerLights[2].currentPos.fZ = (float)dZ + 5000.0f;
+      for (iLightIdx = 0; iLightIdx < 3; ++iLightIdx) {
+        pLight = &pPlayerLights[iLightIdx];
         dTransform1 = pLightTrackData[1];
-        fX = SLight[0][iSLightOffset / 0x30].currentPos.fX;
-        fY = SLight[0][iSLightOffset / 0x30].currentPos.fY;
+        fX = pLight->currentPos.fX;
+        fY = pLight->currentPos.fY;
         dTransform2 = dTransform1 * fY + *pLightTrackData * fX;
         dTransform3 = pLightTrackData[2];
-        fTempZ = SLight[0][iSLightOffset / 0x30].currentPos.fZ;
-        SLight[0][iSLightOffset / 0x30].currentPos.fX = (float)(dTransform2 + dTransform3 * fTempZ - pLightTrackData[9]);
-        SLight[0][iSLightOffset / 0x30].currentPos.fY = pLightTrackData[3] * fX + pLightTrackData[4] * fY + pLightTrackData[5] * fTempZ - pLightTrackData[10];
-        SLight[0][iSLightOffset / 0x30].currentPos.fZ = pLightTrackData[6] * fX + pLightTrackData[7] * fY + pLightTrackData[8] * fTempZ - pLightTrackData[11];
+        fTempZ = pLight->currentPos.fZ;
+        pLight->currentPos.fX = (float)(dTransform2 + dTransform3 * fTempZ - pLightTrackData[9]);
+        pLight->currentPos.fY = pLightTrackData[3] * fX + pLightTrackData[4] * fY + pLightTrackData[5] * fTempZ - pLightTrackData[10];
+        pLight->currentPos.fZ = pLightTrackData[6] * fX + pLightTrackData[7] * fY + pLightTrackData[8] * fTempZ - pLightTrackData[11];
         dTransform4 = pLightTrackData[1];
-        fX = SLight[0][iSLightOffset / 0x30].targetPos.fX;
-        fY = SLight[0][iSLightOffset / 0x30].targetPos.fY;
+        fX = pLight->targetPos.fX;
+        fY = pLight->targetPos.fY;
         dTransform5 = dTransform4 * fY + *pLightTrackData * fX;
         dTransform6 = pLightTrackData[2];
-        fTempZ = SLight[0][iSLightOffset / 0x30].targetPos.fZ;
-        SLight[0][iSLightOffset / 0x30].targetPos.fX = (float)(dTransform5 + dTransform6 * fTempZ - pLightTrackData[9]);
-        SLight[0][iSLightOffset / 0x30].targetPos.fY = pLightTrackData[3] * fX + pLightTrackData[4] * fY + pLightTrackData[5] * fTempZ - pLightTrackData[10];
-        SLight[0][iSLightOffset / 0x30].targetPos.fZ = pLightTrackData[6] * fX + pLightTrackData[7] * fY + pLightTrackData[8] * fTempZ - pLightTrackData[11];
-        SLight[0][iSLightOffset / 0x30].speed.fX = (float)(fabs(SLight[0][iSLightOffset / 0x30].targetPos.fX - SLight[0][iSLightOffset / 0x30].currentPos.fX) * 0.01388888888888889);
-        SLight[0][iSLightOffset / 0x30].speed.fY = (float)(fabs(SLight[0][iSLightOffset / 0x30].targetPos.fY - SLight[0][iSLightOffset / 0x30].currentPos.fY) * 0.01388888888888889);
-        dLightSpeedZ = fabs(SLight[0][iSLightOffset / 0x30].targetPos.fZ - SLight[0][iSLightOffset / 0x30].currentPos.fZ) * 0.02777777777777778;
-        SLight[0][iSLightOffset / 0x30].speed.fZ = (float)dLightSpeedZ;
-        iSLightOffset += 48;
-        //StoreEngines[iSLightOffset / 0x18 + 13].speeds[2] = (float)dLightSpeedZ;
-      } while (iSLightOffset != iMaxOffset);
-      iMaxOffset += 144;
+        fTempZ = pLight->targetPos.fZ;
+        pLight->targetPos.fX = (float)(dTransform5 + dTransform6 * fTempZ - pLightTrackData[9]);
+        pLight->targetPos.fY = pLightTrackData[3] * fX + pLightTrackData[4] * fY + pLightTrackData[5] * fTempZ - pLightTrackData[10];
+        pLight->targetPos.fZ = pLightTrackData[6] * fX + pLightTrackData[7] * fY + pLightTrackData[8] * fTempZ - pLightTrackData[11];
+        pLight->speed.fX = (float)(fabs(pLight->targetPos.fX - pLight->currentPos.fX) * 0.01388888888888889);
+        pLight->speed.fY = (float)(fabs(pLight->targetPos.fY - pLight->currentPos.fY) * 0.01388888888888889);
+        dLightSpeedZ = fabs(pLight->targetPos.fZ - pLight->currentPos.fZ) * 0.02777777777777778;
+        pLight->speed.fZ = (float)dLightSpeedZ;
+      }
       ++iPlayers;
       ++iPlayerIdx;
     } while (iPlayers < local_players);
