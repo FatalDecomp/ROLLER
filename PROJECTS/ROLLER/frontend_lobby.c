@@ -359,8 +359,6 @@ static void lobby_draw_frame(void)
 
   menu_render_begin_frame(mr);
   lobby_emit_draw(mr);
-  menu_render_end_frame(mr);
-
   if (iLobbyActive) {
     if (!front_fade) {
       front_fade = -1;
@@ -368,6 +366,7 @@ static void lobby_draw_frame(void)
       lobby_begin_broadcast_wait(eLOBBY_BROADCAST_FADE_IN, -668, 2);
     }
   }
+  menu_render_end_frame(mr);
 }
 
 //-------------------------------------------------------------------------------------------------
