@@ -1,6 +1,7 @@
 #include "rollersound.h"
 #include "roller.h"
 #include "snapshot.h"
+#include <limits.h>
 #include <wildmidi_lib.h>
 //-------------------------------------------------------------------------------------------------
 
