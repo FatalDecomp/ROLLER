@@ -38,7 +38,8 @@ static int iFrontendTitleScreenPhase = 0;
 enum {
   TITLE_SCREEN_PHASE_INACTIVE = 0,
   TITLE_SCREEN_PHASE_FADE_IN,
-  TITLE_SCREEN_PHASE_WAIT
+  TITLE_SCREEN_PHASE_WAIT,
+  TITLE_SCREEN_PHASE_FADE_OUT
 };
 
 static int iCopyScreensActive = 0;
@@ -228,9 +229,26 @@ int frontend_title_screen_update(void)
     iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_WAIT;
   }
 
-  if (!iFrontendTitleScreenWaitFatal)
+  if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_WAIT) {
+    if (iFrontendTitleScreenWaitFatal && !frontend_title_fatal_sample_done()) {
+      UpdateSDLWindow();
+      return 0;
+    }
+
+    fade_palette_begin(0);
+    iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_FADE_OUT;
+    return 0;
+  }
+
+  if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_FADE_OUT) {
+    fade_palette_update();
+    UpdateSDLWindow();
+    if (fade_palette_active())
+      return 0;
     return -1;
-  return frontend_title_fatal_sample_done();
+  }
+
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------

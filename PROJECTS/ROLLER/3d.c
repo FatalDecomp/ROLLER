@@ -70,6 +70,7 @@ static int iFrontendTimeTrialCarIdx = 0;
 static int iFrontendTimeTrialScreenActive = 0;
 static int iFrontendNetworkErrorHandled = 0;
 static int iFrontendRaceTrack = 0;
+static int iFrontendRaceFadeOutPending = 0;
 
 //-------------------------------------------------------------------------------------------------
 //symbols defined by ROLLER
@@ -1382,6 +1383,7 @@ void race_enter(void)
   lagdone = 0;
   I_Want_Out = 0;
   iFrontendNetworkErrorHandled = 0;
+  iFrontendRaceFadeOutPending = 0;
   play_game_init();                             // Initialize game systems and memory tracking
   if (quit_game)
     return;
@@ -1415,7 +1417,22 @@ void race_update(void)
   bool bShiftKeyPressed; // eax
   int iSong; // eax
 
+  if (iFrontendRaceFadeOutPending) {
+    if (g_pGameRenderer && game_render_fade_active(g_pGameRenderer))
+      return;
+
+    iFrontendRaceFadeOutPending = 0;
+    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    return;
+  }
+
   if (!racing && lastsample <= 0) {
+    if (g_pGameRenderer) {
+      game_render_begin_fade(g_pGameRenderer, 0, 0);
+      iFrontendRaceFadeOutPending = -1;
+      return;
+    }
+
     eFrontendNextState = eFRONTEND_STATE_RESULTS;
     return;
   }

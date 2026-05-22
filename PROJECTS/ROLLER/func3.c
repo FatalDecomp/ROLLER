@@ -104,6 +104,43 @@ typedef enum {
   eFUNC3_SCREEN_PHASE_DONE
 } eFunc3ScreenPhase;
 
+static int iFunc3WaitForKeyRelease = 0;
+
+static int Func3AnyKeyDown(void)
+{
+  for (int i = 0; i < (int)sizeof(keys); ++i) {
+    if (keys[i])
+      return -1;
+  }
+  return 0;
+}
+
+static int Func3ScreenKeyPressed(void)
+{
+  if (iFunc3WaitForKeyRelease) {
+    if (Func3AnyKeyDown()) {
+      enable_keyboard();
+      return 0;
+    }
+
+    iFunc3WaitForKeyRelease = 0;
+    enable_keyboard();
+    return 0;
+  }
+
+  return fatkbhit();
+}
+
+static void Func3BeginInputWait(void)
+{
+  if (!g_bSnapshotMode) {
+    enable_keyboard();
+    iFunc3WaitForKeyRelease = Func3AnyKeyDown();
+  } else {
+    iFunc3WaitForKeyRelease = 0;
+  }
+}
+
 static int Func3PaletteFadeComplete(void)
 {
   if (fade_palette_active()) {
@@ -122,8 +159,7 @@ static int Func3FinishFadeIn(eFunc3ScreenPhase *pePhase)
     return 0;
 
   ticks = 0;
-  if (!g_bSnapshotMode)
-    enable_keyboard();
+  Func3BeginInputWait();
   if (g_bSnapshotMode && !SnapshotShouldStop())
     UpdateSDLWindow();
   *pePhase = eFUNC3_SCREEN_PHASE_WAIT;
@@ -325,6 +361,7 @@ int WinnerScreenUpdate(void)
     if (!Func3PaletteFadeComplete())
       return 0;
     frames = 0;
+    Func3BeginInputWait();
     eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_WAIT;
     return 0;
   }
@@ -335,7 +372,7 @@ int WinnerScreenUpdate(void)
   }
 
   iKeyPressed = 0;
-  while ( fatkbhit() )
+  while ( Func3ScreenKeyPressed() )
   {
     if ( !(uint8)fatgetch() )
       fatgetch();
@@ -779,7 +816,7 @@ int RaceResultUpdate(void)
     return Func3FinishFadeOut(&eRaceResultPhase);
   if (SnapshotShouldStop())
     return -1;
-  if (fatkbhit() || ticks >= 2160) {
+  if (Func3ScreenKeyPressed() || ticks >= 2160) {
     holdmusic = -1;
     fade_palette_begin(0);
     eRaceResultPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
@@ -1171,7 +1208,7 @@ int TimeTrialsUpdate(void)
     return 0;
   if (eTimeTrialsPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
     return Func3FinishFadeOut(&eTimeTrialsPhase);
-  if (fatkbhit() || ticks >= 2160) {
+  if (Func3ScreenKeyPressed() || ticks >= 2160) {
     fade_palette_begin(0);
     eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
     return 0;
@@ -1493,10 +1530,10 @@ int ChampionshipStandingsUpdate(void)
       SnapshotAdvanceTick();
     return SnapshotShouldStop();
   } else if (game_type == 3) {
-    if (!fatkbhit())
+    if (!Func3ScreenKeyPressed())
       return 0;
   } else {
-    if (!fatkbhit() && ticks < 2160)
+    if (!Func3ScreenKeyPressed() && ticks < 2160)
       return 0;
   }
 
@@ -1757,9 +1794,9 @@ int TeamStandingsUpdate(void)
 
   // wait for user input or timeout
   if (game_type == 3) {
-    if (!fatkbhit())
+    if (!Func3ScreenKeyPressed())
       return 0;
-  } else if (!fatkbhit() && ticks < 2160) {
+  } else if (!Func3ScreenKeyPressed() && ticks < 2160) {
     return 0;
   }
 
@@ -1951,8 +1988,8 @@ void ShowLapRecordsEnter(void)
 static int ShowLapRecordsWaitComplete(void)
 {
   if ( game_type == 4 )
-    return fatkbhit();
-  if (fatkbhit())
+    return Func3ScreenKeyPressed();
+  if (Func3ScreenKeyPressed())
     return -1;
   return ticks >= 720;
 }
@@ -3311,7 +3348,7 @@ int ChampionshipWinnerUpdate(void)
   }
   if (SnapshotShouldStop())
     return -1;
-  if (fatkbhit())
+  if (Func3ScreenKeyPressed())
     return -1;
 
   iChampionshipWinnerFrameTimer -= frames;       // Update frame timer based on game frame rate
@@ -4446,7 +4483,7 @@ int ResultRoundUpUpdate(void)
     return 0;
   if (eResultRoundUpPhase == eFUNC3_SCREEN_PHASE_FADE_OUT)
     return Func3FinishFadeOut(&eResultRoundUpPhase);
-  if (fatkbhit() || ticks >= 2160) {
+  if (Func3ScreenKeyPressed() || ticks >= 2160) {
     holdmusic = -1;
     fade_palette_begin(0);
     eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
@@ -4563,7 +4600,7 @@ int RollCreditsUpdate(void)
       return 0;
 
     case eROLL_CREDITS_PHASE_CARD_WAIT:
-      while ( fatkbhit() )
+      while ( Func3ScreenKeyPressed() )
       {
         ticks = 74;
         if ( !fatgetch() )
@@ -4851,7 +4888,7 @@ int ChampionshipOverUpdate(void)
         eChampionshipOverPhaseCurrent = eCHAMPIONSHIP_OVER_PHASE_DONE;
         return -1;
       }
-      if (!fatkbhit() && ticks < 2160) {
+      if (!Func3ScreenKeyPressed() && ticks < 2160) {
         SnapshotAdvanceTick();
         return 0;
       }
@@ -5001,7 +5038,7 @@ int EndChampSequenceUpdate(void)
   }
 
   // Check for user input to skip sequence
-  if (fatkbhit()) {
+  if (Func3ScreenKeyPressed()) {
     iEndChampSequenceImageIndex = 8;            // Skip to end of sequence and set timeout on key press
     if (!fatgetch())
       fatgetch();
@@ -5077,9 +5114,9 @@ static int NetworkFuckedProcessInput(void)
   int iKeyCode; // eax
 
   if (network_buggered != 666)
-    return fatkbhit() || ticks >= 2160;
+    return Func3ScreenKeyPressed() || ticks >= 2160;
 
-  while (fatkbhit()) {
+  while (Func3ScreenKeyPressed()) {
     iKeyCode = fatgetch();
     if (iKeyCode) {
       if (iKeyCode == 0x79 || iKeyCode == 0x59) {
@@ -5303,7 +5340,7 @@ int NoCdUpdate(void)
     return -1;
   }
 
-  if (!fatkbhit() && ticks < 2160)
+  if (!Func3ScreenKeyPressed() && ticks < 2160)
     return 0;
 
   holdmusic = 0;
