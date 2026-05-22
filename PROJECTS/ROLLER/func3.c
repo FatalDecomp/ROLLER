@@ -141,6 +141,12 @@ static void Func3BeginInputWait(void)
   }
 }
 
+static void Func3IdleScreenWait(void)
+{
+  if (!g_bSnapshotMode)
+    SDL_Delay(1);
+}
+
 static int Func3PaletteFadeComplete(void)
 {
   if (fade_palette_active()) {
@@ -1530,11 +1536,15 @@ int ChampionshipStandingsUpdate(void)
       SnapshotAdvanceTick();
     return SnapshotShouldStop();
   } else if (game_type == 3) {
-    if (!Func3ScreenKeyPressed())
+    if (!Func3ScreenKeyPressed()) {
+      Func3IdleScreenWait();
       return 0;
+    }
   } else {
-    if (!Func3ScreenKeyPressed() && ticks < 2160)
+    if (!Func3ScreenKeyPressed() && ticks < 2160) {
+      Func3IdleScreenWait();
       return 0;
+    }
   }
 
   holdmusic = -1;
@@ -1794,9 +1804,12 @@ int TeamStandingsUpdate(void)
 
   // wait for user input or timeout
   if (game_type == 3) {
-    if (!Func3ScreenKeyPressed())
+    if (!Func3ScreenKeyPressed()) {
+      Func3IdleScreenWait();
       return 0;
+    }
   } else if (!Func3ScreenKeyPressed() && ticks < 2160) {
+    Func3IdleScreenWait();
     return 0;
   }
 
