@@ -2109,6 +2109,7 @@ void updatescreen()
   int iXMaxCopy; // ebx
   int iWinHeightPlusY; // edx
   int iYMaxCopy; // ecx
+  uint8 *pMainScrPtr; // ecx
   int iMirrorYOffset; // [esp+0h] [ebp-24h]
   int iShowRearView; // [esp+4h] [ebp-20h]
 
@@ -2256,6 +2257,7 @@ void updatescreen()
     goto LABEL_59;
   }
 LABEL_30:
+  pMainScrPtr = scrbuf;
   if (player_type == 2)                       // Handle 2-player split screen mode
   {                                             // Setup split screen for 2-player mode
     if (SVGA_ON)
@@ -2319,6 +2321,9 @@ LABEL_30:
     xbase = 319;
     winy = YMAX / 4;  // Position window at 1/4 down from top of screen
     //winy = (YMAX - (__CFSHL__(YMAX >> 31, 2) + 4 * (YMAX >> 31))) >> 2;
+    memset(scrbuf, 0, winw * winy);
+    memset(&scrbuf[winw * (winy + winh)], 0, winw * (YMAX - (winy + winh)));
+    pMainScrPtr = &scrbuf[winw * winy];
     if (clear_borders) {
       clear_borders = 0;
       // Clear top border area (top quarter of screen)
@@ -2331,7 +2336,7 @@ LABEL_30:
       clear_border(0, iWinHeightPlusY, iXMaxCopy, iYMaxCopy - iWinHeightPlusY);
     }
   }
-  draw_road(scrbuf, ViewType[0], DriveView[0], -1, 0);// Draw main road view
+  draw_road(pMainScrPtr, ViewType[0], DriveView[0], -1, 0);// Draw main road view
   // CHEAT_MODE_WIDESCREEN
   if ((cheat_mode & CHEAT_MODE_WIDESCREEN) == 0)               // Check for widescreen cheat mode to copy to final screen
   {
