@@ -36,6 +36,188 @@ int mapsect[25] =         //000A4624
 int invulnerable[16];     //00149EB0
 
 //-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+
+static void firework_display_ticks(int iMaxTicks)
+{
+  int i; // ebp
+  tCarSpray *pSprayData; // ebx
+  uint8 byType; // al
+  int iRandTimer; // eax
+  int iTimerCount; // esi
+  int iWidthDiv3; // edx
+  int iRandX; // eax
+  int iRandVelX; // eax
+  int iRandLifetime; // eax
+  int iLifetimeCount; // eax
+  int iRandColor; // eax
+  int iParticleCount; // ecx
+  int iFireworkColor; // esi
+  int iRandAngle; // eax
+  int iAngleIndex; // edx
+  double dRandVelocity; // st7
+  int iRandParticleLife; // eax
+  double dVelocityY; // st6
+  double dVelocityX; // st7
+  int iActiveParticles; // edx
+  int j; // eax
+  int iLifeTime; // ecx
+  double dParticleVelY; // st6
+  double dParticleVelX; // st7
+  tCarSpray *pCleanupSpray; // eax
+  float fOrigVelY; // [esp+10h] [ebp-28h]
+  float fY; // [esp+14h] [ebp-24h]
+  float fX; // [esp+18h] [ebp-20h]
+  float fOrigVelX; // [esp+1Ch] [ebp-1Ch]
+  int iTicksProcessed = 0;
+
+  for (; readptr != writeptr && (iMaxTicks < 0 || iTicksProcessed < iMaxTicks); readptr = ((uint16)readptr + 1) & 0x1FF, ++iTicksProcessed) {                                             // Only advance animation if not paused
+    if (!paused)
+      ++updates;
+    dozoomstuff(0);
+    if (readptr >= 0) {                                           // Process all 18 firework spray slots
+      for (i = 0; i != 18; ++i) {
+        pSprayData = CarSpray[i];
+        byType = CarSpray[i][0].iType;
+        if (byType) {                                       // Handle ascending rocket (type 1)
+          if (byType <= 1u) {
+            iLifetimeCount = pSprayData->iLifeTime - 1;
+            pSprayData->iLifeTime = iLifetimeCount;
+            if (iLifetimeCount > 0) {
+              memcpy(&CarSpray[i][4], &CarSpray[i][3], sizeof(CarSpray[i][4]));
+              memcpy(&CarSpray[i][3], &CarSpray[i][2], sizeof(CarSpray[i][3]));
+              memcpy(&CarSpray[i][2], &CarSpray[i][1], sizeof(CarSpray[i][2]));
+              memcpy(&CarSpray[i][1], CarSpray[i], sizeof(CarSpray[i][1]));
+              dVelocityY = pSprayData->velocity.fY + 0.1;// Apply gravity and update rocket position
+              pSprayData->velocity.fY = (float)dVelocityY;
+              pSprayData->position.fY = (float)dVelocityY + pSprayData->position.fY;
+              dVelocityX = pSprayData->velocity.fX + pSprayData->position.fX;
+              pSprayData->iColor = 0x8F;
+              pSprayData->position.fX = (float)dVelocityX;
+            } else {
+              sfxsample(SOUND_SAMPLE_EXPLO, 0x8000);             // Rocket reached peak - create explosion particles
+              fX = pSprayData->position.fX;
+              fY = pSprayData->position.fY;
+              fOrigVelX = pSprayData->velocity.fX;
+              fOrigVelY = pSprayData->velocity.fY;
+              iRandColor = ROLLERrandRaw();
+              iParticleCount = 0;
+              iFireworkColor = firework_colours[GetHighOrderRand(12, iRandColor)];
+              do {
+                pSprayData->iType = 2;
+                //LOBYTE(pSprayData->iType) = 2;
+
+                pSprayData->iColor = iFireworkColor;
+                pSprayData->position.fX = fX;
+                pSprayData->position.fY = fY;
+                iRandAngle = ROLLERrandRaw();
+
+                iAngleIndex = GetHighOrderRand(32768, iRandAngle);
+                //iAngleIndex = ((iRandAngle << 14) - (__CFSHL__(iRandAngle << 14 >> 31, 15) + (iRandAngle << 14 >> 31 << 15))) >> 15;
+                
+                dRandVelocity = (double)ROLLERrandRaw() * 2.0 * 0.000030517578125;
+                pSprayData->velocity.fX = (float)dRandVelocity * tcos[iAngleIndex] + fOrigVelX;
+                pSprayData->velocity.fY = (float)dRandVelocity * tsin[iAngleIndex] + fOrigVelY;
+                iRandParticleLife = ROLLERrandRaw();
+                ++pSprayData;
+                ++iParticleCount;
+                pSprayData[-1].iLifeTime = GetHighOrderRand(36, iRandParticleLife) + 36;
+              } while (iParticleCount < 32);
+            }
+          } else if (byType == 2)                // Handle explosion particles (type 2)
+          {
+            iActiveParticles = 0;
+            for (j = 0; j < 32; ++j) {
+              iLifeTime = pSprayData->iLifeTime;
+              if (iLifeTime > 0) {
+                dParticleVelY = pSprayData->velocity.fY + 0.1;// Apply gravity to particle and update position
+                pSprayData->velocity.fY = (float)dParticleVelY;
+                pSprayData->position.fY = (float)dParticleVelY + pSprayData->position.fY;
+                dParticleVelX = pSprayData->velocity.fX + pSprayData->position.fX;
+                pSprayData->iLifeTime = iLifeTime - 1;
+                ++iActiveParticles;
+                pSprayData->position.fX = (float)dParticleVelX;
+              }
+              ++pSprayData;
+            }
+            if (!iActiveParticles) {
+              pCleanupSpray = CarSpray[i];      // All particles expired - reset spray slot
+              do {
+                pCleanupSpray += 4;
+
+                pCleanupSpray[-4].iType = 0;
+                //LOBYTE(pCleanupSpray[-4].iType) = 0;
+
+                pCleanupSpray[-4].iTimer = 0;
+                pCleanupSpray[-4].position.fZ = 0.0;
+                pCleanupSpray[-4].iColor = 0x8F;
+
+                pCleanupSpray[-3].iType = 0;
+                //LOBYTE(pCleanupSpray[-3].iType) = 0;
+
+                pCleanupSpray[-3].iTimer = 0;
+                pCleanupSpray[-3].position.fZ = 0.0;
+                pCleanupSpray[-3].iColor = 0x8F;
+
+                pCleanupSpray[-2].iType = 0;
+                //LOBYTE(pCleanupSpray[-2].iType) = 0;
+
+                pCleanupSpray[-2].iTimer = 0;
+                pCleanupSpray[-2].position.fZ = 0.0;
+                pCleanupSpray[-2].iColor = 0x8F;
+
+                pCleanupSpray[-1].iType = 0;
+                //LOBYTE(pCleanupSpray[-1].iType) = 0;
+
+                pCleanupSpray[-1].iTimer = 0;
+                pCleanupSpray[-1].position.fZ = 0.0;
+                iActiveParticles += 4;
+                pCleanupSpray[-1].iColor = 0x8F;
+              } while (iActiveParticles < 32);
+            }
+          }
+        //} else if ((LODWORD(pSprayData->position.fZ) & 0x7FFFFFFF) != 0) {
+        } else if (fabs(pSprayData->position.fZ) != 0) {
+          iTimerCount = pSprayData->iTimer - 1;
+          pSprayData->iTimer = iTimerCount;
+          if (iTimerCount < 0) {
+            iWidthDiv3 = winw / 3;              // Launch new rocket with random position and velocity
+            iRandX = ROLLERrandRaw();
+            pSprayData->position.fX = (float)(2 * winw / 3 - GetHighOrderRand(iWidthDiv3, iRandX));
+            pSprayData->position.fY = (float)winh;
+            iRandVelX = ROLLERrandRaw();
+            pSprayData->velocity.fX = (float)(2 - GetHighOrderRand(4, iRandVelX));
+            pSprayData->velocity.fY = (float)(-4.8 - (double)ROLLERrandRaw() * 1.2 * 0.000030517578125);
+            iRandLifetime = ROLLERrandRaw();
+            pSprayData->iColor = 0x8F;
+
+            pSprayData->iType = 1;
+            //LOBYTE(pSprayData->iType) = 1;
+
+            pSprayData->iLifeTime = GetHighOrderRand(48, iRandLifetime) + 18;
+          }
+        } else {
+          pSprayData->position.fZ = -1.0;       // Initialize new firework with random launch delay
+          iRandTimer = ROLLERrandRaw();
+          pSprayData->iTimer = GetHighOrderRand(36, iRandTimer);
+        }
+      }
+    }
+    analysespeechsamples();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void firework_display_one_tick(void)
+{
+  firework_display_ticks(1);
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 //00036C00
 void finish_race()
 {
@@ -1556,185 +1738,11 @@ void showmap(uint8 *pScrPtr, int iCarIdx)
 }
 
 //-------------------------------------------------------------------------------------------------
-//000390D0
-static void firework_display_ticks(int iMaxTicks)
-{
-  int i; // ebp
-  tCarSpray *pSprayData; // ebx
-  uint8 byType; // al
-  int iRandTimer; // eax
-  int iTimerCount; // esi
-  int iWidthDiv3; // edx
-  int iRandX; // eax
-  int iRandVelX; // eax
-  int iRandLifetime; // eax
-  int iLifetimeCount; // eax
-  int iRandColor; // eax
-  int iParticleCount; // ecx
-  int iFireworkColor; // esi
-  int iRandAngle; // eax
-  int iAngleIndex; // edx
-  double dRandVelocity; // st7
-  int iRandParticleLife; // eax
-  double dVelocityY; // st6
-  double dVelocityX; // st7
-  int iActiveParticles; // edx
-  int j; // eax
-  int iLifeTime; // ecx
-  double dParticleVelY; // st6
-  double dParticleVelX; // st7
-  tCarSpray *pCleanupSpray; // eax
-  float fOrigVelY; // [esp+10h] [ebp-28h]
-  float fY; // [esp+14h] [ebp-24h]
-  float fX; // [esp+18h] [ebp-20h]
-  float fOrigVelX; // [esp+1Ch] [ebp-1Ch]
-  int iTicksProcessed = 0;
-
-  for (; readptr != writeptr && (iMaxTicks < 0 || iTicksProcessed < iMaxTicks); readptr = ((uint16)readptr + 1) & 0x1FF, ++iTicksProcessed) {                                             // Only advance animation if not paused
-    if (!paused)
-      ++updates;
-    dozoomstuff(0);
-    if (readptr >= 0) {                                           // Process all 18 firework spray slots
-      for (i = 0; i != 18; ++i) {
-        pSprayData = CarSpray[i];
-        byType = CarSpray[i][0].iType;
-        if (byType) {                                       // Handle ascending rocket (type 1)
-          if (byType <= 1u) {
-            iLifetimeCount = pSprayData->iLifeTime - 1;
-            pSprayData->iLifeTime = iLifetimeCount;
-            if (iLifetimeCount > 0) {
-              memcpy(&CarSpray[i][4], &CarSpray[i][3], sizeof(CarSpray[i][4]));
-              memcpy(&CarSpray[i][3], &CarSpray[i][2], sizeof(CarSpray[i][3]));
-              memcpy(&CarSpray[i][2], &CarSpray[i][1], sizeof(CarSpray[i][2]));
-              memcpy(&CarSpray[i][1], CarSpray[i], sizeof(CarSpray[i][1]));
-              dVelocityY = pSprayData->velocity.fY + 0.1;// Apply gravity and update rocket position
-              pSprayData->velocity.fY = (float)dVelocityY;
-              pSprayData->position.fY = (float)dVelocityY + pSprayData->position.fY;
-              dVelocityX = pSprayData->velocity.fX + pSprayData->position.fX;
-              pSprayData->iColor = 0x8F;
-              pSprayData->position.fX = (float)dVelocityX;
-            } else {
-              sfxsample(SOUND_SAMPLE_EXPLO, 0x8000);             // Rocket reached peak - create explosion particles
-              fX = pSprayData->position.fX;
-              fY = pSprayData->position.fY;
-              fOrigVelX = pSprayData->velocity.fX;
-              fOrigVelY = pSprayData->velocity.fY;
-              iRandColor = ROLLERrandRaw();
-              iParticleCount = 0;
-              iFireworkColor = firework_colours[GetHighOrderRand(12, iRandColor)];
-              do {
-                pSprayData->iType = 2;
-                //LOBYTE(pSprayData->iType) = 2;
-
-                pSprayData->iColor = iFireworkColor;
-                pSprayData->position.fX = fX;
-                pSprayData->position.fY = fY;
-                iRandAngle = ROLLERrandRaw();
-
-                iAngleIndex = GetHighOrderRand(32768, iRandAngle);
-                //iAngleIndex = ((iRandAngle << 14) - (__CFSHL__(iRandAngle << 14 >> 31, 15) + (iRandAngle << 14 >> 31 << 15))) >> 15;
-                
-                dRandVelocity = (double)ROLLERrandRaw() * 2.0 * 0.000030517578125;
-                pSprayData->velocity.fX = (float)dRandVelocity * tcos[iAngleIndex] + fOrigVelX;
-                pSprayData->velocity.fY = (float)dRandVelocity * tsin[iAngleIndex] + fOrigVelY;
-                iRandParticleLife = ROLLERrandRaw();
-                ++pSprayData;
-                ++iParticleCount;
-                pSprayData[-1].iLifeTime = GetHighOrderRand(36, iRandParticleLife) + 36;
-              } while (iParticleCount < 32);
-            }
-          } else if (byType == 2)                // Handle explosion particles (type 2)
-          {
-            iActiveParticles = 0;
-            for (j = 0; j < 32; ++j) {
-              iLifeTime = pSprayData->iLifeTime;
-              if (iLifeTime > 0) {
-                dParticleVelY = pSprayData->velocity.fY + 0.1;// Apply gravity to particle and update position
-                pSprayData->velocity.fY = (float)dParticleVelY;
-                pSprayData->position.fY = (float)dParticleVelY + pSprayData->position.fY;
-                dParticleVelX = pSprayData->velocity.fX + pSprayData->position.fX;
-                pSprayData->iLifeTime = iLifeTime - 1;
-                ++iActiveParticles;
-                pSprayData->position.fX = (float)dParticleVelX;
-              }
-              ++pSprayData;
-            }
-            if (!iActiveParticles) {
-              pCleanupSpray = CarSpray[i];      // All particles expired - reset spray slot
-              do {
-                pCleanupSpray += 4;
-
-                pCleanupSpray[-4].iType = 0;
-                //LOBYTE(pCleanupSpray[-4].iType) = 0;
-
-                pCleanupSpray[-4].iTimer = 0;
-                pCleanupSpray[-4].position.fZ = 0.0;
-                pCleanupSpray[-4].iColor = 0x8F;
-
-                pCleanupSpray[-3].iType = 0;
-                //LOBYTE(pCleanupSpray[-3].iType) = 0;
-
-                pCleanupSpray[-3].iTimer = 0;
-                pCleanupSpray[-3].position.fZ = 0.0;
-                pCleanupSpray[-3].iColor = 0x8F;
-
-                pCleanupSpray[-2].iType = 0;
-                //LOBYTE(pCleanupSpray[-2].iType) = 0;
-
-                pCleanupSpray[-2].iTimer = 0;
-                pCleanupSpray[-2].position.fZ = 0.0;
-                pCleanupSpray[-2].iColor = 0x8F;
-
-                pCleanupSpray[-1].iType = 0;
-                //LOBYTE(pCleanupSpray[-1].iType) = 0;
-
-                pCleanupSpray[-1].iTimer = 0;
-                pCleanupSpray[-1].position.fZ = 0.0;
-                iActiveParticles += 4;
-                pCleanupSpray[-1].iColor = 0x8F;
-              } while (iActiveParticles < 32);
-            }
-          }
-        //} else if ((LODWORD(pSprayData->position.fZ) & 0x7FFFFFFF) != 0) {
-        } else if (fabs(pSprayData->position.fZ) != 0) {
-          iTimerCount = pSprayData->iTimer - 1;
-          pSprayData->iTimer = iTimerCount;
-          if (iTimerCount < 0) {
-            iWidthDiv3 = winw / 3;              // Launch new rocket with random position and velocity
-            iRandX = ROLLERrandRaw();
-            pSprayData->position.fX = (float)(2 * winw / 3 - GetHighOrderRand(iWidthDiv3, iRandX));
-            pSprayData->position.fY = (float)winh;
-            iRandVelX = ROLLERrandRaw();
-            pSprayData->velocity.fX = (float)(2 - GetHighOrderRand(4, iRandVelX));
-            pSprayData->velocity.fY = (float)(-4.8 - (double)ROLLERrandRaw() * 1.2 * 0.000030517578125);
-            iRandLifetime = ROLLERrandRaw();
-            pSprayData->iColor = 0x8F;
-
-            pSprayData->iType = 1;
-            //LOBYTE(pSprayData->iType) = 1;
-
-            pSprayData->iLifeTime = GetHighOrderRand(48, iRandLifetime) + 18;
-          }
-        } else {
-          pSprayData->position.fZ = -1.0;       // Initialize new firework with random launch delay
-          iRandTimer = ROLLERrandRaw();
-          pSprayData->iTimer = GetHighOrderRand(36, iRandTimer);
-        }
-      }
-    }
-    analysespeechsamples();
-  }
-}
-
+//00390D0
 void firework_display()
 {
   updates = 0;
   firework_display_ticks(-1);
-}
-
-void firework_display_one_tick(void)
-{
-  firework_display_ticks(1);
 }
 
 //-------------------------------------------------------------------------------------------------

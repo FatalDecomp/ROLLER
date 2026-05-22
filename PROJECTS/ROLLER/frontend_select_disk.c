@@ -28,6 +28,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+//-------------------------------------------------------------------------------------------------
 
 static unsigned int uiFrontendDiskMenuMode = 0;
 static int iFrontendDiskSelectedSlot = 0;
@@ -37,6 +38,8 @@ static int iFrontendDiskMenuCursor = 2;
 static int iFrontendDiskExitFlag = 0;
 static int iFrontendDiskExitFading = 0;
 static int iFrontendDiskLoadPending = 0;
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_black_palette(void)
 {
@@ -48,6 +51,8 @@ static void frontend_disk_select_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_disk_select_request_exit(void)
 {
   iFrontendDiskExitFlag = -1;
@@ -57,6 +62,8 @@ static void frontend_disk_select_request_exit(void)
     iFrontendDiskExitFading = 1;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_disk_select_update_load(void)
 {
@@ -69,6 +76,8 @@ static int frontend_disk_select_update_load(void)
   iFrontendDiskLoadPending = 0;
   return -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_apply_type_switch(void)
 {
@@ -85,6 +94,8 @@ static void frontend_disk_select_apply_type_switch(void)
     network_champ_on = 0;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_disk_select_apply_same_car_switch(void)
 {
   if (switch_same > 0) {
@@ -98,6 +109,8 @@ static void frontend_disk_select_apply_same_car_switch(void)
     cheat_mode &= ~CHEAT_MODE_CLONES;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_draw_current_game(MenuRenderer *mr)
 {
@@ -159,6 +172,8 @@ static void frontend_disk_select_draw_current_game(MenuRenderer *mr)
                      pal_addr);
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_draw_saves(MenuRenderer *mr)
 {
@@ -235,6 +250,8 @@ static void frontend_disk_select_draw_saves(MenuRenderer *mr)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_disk_select_draw_status(MenuRenderer *mr)
 {
   switch (iFrontendDiskStatusMessage) {
@@ -262,6 +279,8 @@ static void frontend_disk_select_draw_status(MenuRenderer *mr)
       break;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_draw(void)
 {
@@ -297,6 +316,8 @@ static void frontend_disk_select_draw(void)
   show_received_mesage();
   menu_render_end_frame(mr);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_disk_select_handle_input(void)
 {
@@ -373,6 +394,8 @@ static void frontend_disk_select_handle_input(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_disk_select_enter(void)
 {
   frontend_disk_select_black_palette();
@@ -419,6 +442,8 @@ void frontend_disk_select_update(void)
   frontend_disk_select_handle_input();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_disk_select_exit(void)
 {
   iFrontendDiskExitFading = 0;
@@ -431,7 +456,7 @@ void frontend_disk_select_exit(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//000411D0
+
 static void frontend_disk_select_run_snapshot(void)
 {
   frontend_disk_select_enter();
@@ -443,6 +468,8 @@ static void frontend_disk_select_run_snapshot(void)
   if (!SnapshotShouldStop())
     frontend_disk_select_exit();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void snapshot_render_menu_select_disk(void)
 {

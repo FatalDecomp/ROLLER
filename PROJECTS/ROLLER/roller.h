@@ -9,6 +9,7 @@
 #include <SDL3/SDL_gamepad.h>
 //-------------------------------------------------------------------------------------------------
 
+extern SDL_Mutex *g_pDigiMutex;
 extern SDL_Gamepad *g_pController1;
 extern SDL_Gamepad *g_pController2;
 extern tJoyPos g_rollerJoyPos;
@@ -45,32 +46,6 @@ void UpdateSDL();
 void UpdateSDLWindow();
 bool ROLLERGpuPresentationSuspended(void);
 void ROLLERRefreshStartupOverlay();
-void UpdateSDLAudioEvents(SDL_Event e);
-
-bool MIDI_Init(const char *config_file);
-void MIDIDigi_PlayBuffer(uint8 *midi_buffer, uint32 midi_length);
-void MIDIDigi_ClearBuffer();
-void MIDI_CloseMidiBuffer();
-void MIDI_Shutdown();
-
-void MIDIInitSong(tInitSong *data);
-void MIDIStartSong();
-void MIDIStopSong();
-
-void MIDISetMasterVolume(int8 volume);
-int MIDIGetMasterVolume();
-
-int DIGISampleStart(tSampleData *data);
-bool DIGISampleDone(int index);
-int DIGISampleAvailable(int index);
-int DIGISampleGeneration(int index);
-void DIGIStopSample(int index);
-void DIGIClearAllStream();
-void DIGISetMasterVolume(int volume);
-int DIGIGetMasterVolume();
-void DIGISetSampleVolume(int iHandle, int iVolume);
-void DIGISetPitch(int iHandle, int iPitch);
-void DIGISetPanLocation(int iHandle, int iPan);
 
 bool ROLLERfexists(const char *szFile);
 const char *ROLLERfindpath(const char *szFile); // case-insensitive path resolution (no-op on Windows)

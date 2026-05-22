@@ -9,14 +9,6 @@
 #include "transfrm.h"
 #include "drawtrk3.h"
 #include "moving.h"
-
-// Saturating double-to-int cast — avoids UB when screen/projection
-// coordinates overflow int32 range (caught by UBSan in Debug builds).
-static inline int d2i(double d) {
-    if (d >= (double)INT_MAX) return INT_MAX;
-    if (d <= (double)INT_MIN) return INT_MIN;
-    return (int)d;
-}
 #include "func2.h"
 #include "function.h"
 #include "polyf.h"
@@ -28,6 +20,16 @@ static inline int d2i(double d) {
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+//-------------------------------------------------------------------------------------------------
+
+// Saturating double-to-int cast — avoids UB when screen/projection
+// coordinates overflow int32 range (caught by UBSan in Debug builds).
+static inline int d2i(double d) {
+    if (d >= (double)INT_MAX) return INT_MAX;
+    if (d <= (double)INT_MIN) return INT_MIN;
+    return (int)d;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 const int car_c_reference_1[4] = { 0, 1, 1, 2 };

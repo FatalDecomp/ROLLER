@@ -45,3 +45,5 @@ int RollerWriteIndexedPng(const char *szPath,
   SDL_DestroySurface(surface);
   return bOk ? 0 : 1;
 }
+
+//-------------------------------------------------------------------------------------------------

@@ -83,6 +83,7 @@ add_executable(roller
     PROJECTS/ROLLER/roller.c
     PROJECTS/ROLLER/rollercd.c
     PROJECTS/ROLLER/rollercomms.c
+    PROJECTS/ROLLER/rollersound.c
     PROJECTS/ROLLER/snapshot.c
     PROJECTS/ROLLER/sound.c
     PROJECTS/ROLLER/svgacpy.c

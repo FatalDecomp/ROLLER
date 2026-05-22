@@ -4,6 +4,7 @@
 #include "func2.h"
 #include "sound.h"
 #include "roller.h"
+#include "rollersound.h"
 #include "car.h"
 #include "moving.h"
 #include "network.h"
@@ -28,14 +29,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-
-static void frontend_track_select_run_snapshot(void);
-
-void snapshot_render_menu_select_track(void)
-{
-  snapshot_setup_frontend_menu_state(0);
-  frontend_track_select_run_snapshot();
-}
+//-------------------------------------------------------------------------------------------------
 
 static int iFrontendTrackAnimationTimer = 0;
 static int iFrontendTrackSelectedTrack = 0;
@@ -49,10 +43,26 @@ static float fFrontendTrackZoom = 0.0f;
 static float fFrontendTrackAnimatedZoom = 0.0f;
 static float fFrontendTrackTargetZoom = 0.0f;
 
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+void snapshot_render_menu_select_track(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  frontend_track_select_run_snapshot();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_begin_broadcast_wait(int iBroadcastMode)
 {
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_track_select_update_broadcast_wait(void)
 {
@@ -62,6 +72,8 @@ static int frontend_track_select_update_broadcast_wait(void)
   (void)network_broadcast_wait_update();
   return -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_black_palette(void)
 {
@@ -73,6 +85,8 @@ static void frontend_track_select_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_request_exit(void)
 {
   iFrontendTrackExitFlag = -1;
@@ -82,6 +96,8 @@ static void frontend_track_select_request_exit(void)
     iFrontendTrackExitFading = 1;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_apply_type_switch(void)
 {
@@ -98,6 +114,8 @@ static void frontend_track_select_apply_type_switch(void)
     network_champ_on = 0;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_apply_same_car_switch(void)
 {
   if (switch_same > 0) {
@@ -111,6 +129,8 @@ static void frontend_track_select_apply_same_car_switch(void)
     cheat_mode &= ~CHEAT_MODE_CLONES;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
 {
@@ -232,6 +252,8 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   menu_render_end_frame(mr);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_update_animation(int iFrameCount,
                                                    int *piPrevTrackLoad,
                                                    int iStartedFadeIn)
@@ -285,6 +307,8 @@ static void frontend_track_select_update_animation(int iFrameCount,
     iFrontendTrackAnimationTimer = 0;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_handle_input(int iBlockIdx)
 {
@@ -371,6 +395,8 @@ static void frontend_track_select_handle_input(int iBlockIdx)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_track_select_enter(void)
 {
   iFrontendTrackAnimationTimer = 36;
@@ -410,6 +436,8 @@ void frontend_track_select_enter(void)
   fFrontendTrackAnimatedZoom = cur_TrackZ;
   fFrontendTrackTargetZoom = -(cur_TrackZ + -10000000.0f) * 0.05f;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_track_select_update(void)
 {
@@ -455,6 +483,8 @@ void frontend_track_select_update(void)
       ((uint16)iFrontendTrackYaw + 32 * (uint16)iFrameCount) & 0x3FFF;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_track_select_exit(void)
 {
   iFrontendTrackExitFading = 0;
@@ -473,7 +503,7 @@ void frontend_track_select_exit(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00049070
+
 static void frontend_track_select_run_snapshot(void)
 {
   frontend_track_select_enter();

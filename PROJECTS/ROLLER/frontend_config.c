@@ -4,6 +4,7 @@
 #include "func2.h"
 #include "sound.h"
 #include "roller.h"
+#include "rollersound.h"
 #include "car.h"
 #include "moving.h"
 #include "network.h"
@@ -28,6 +29,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+//-------------------------------------------------------------------------------------------------
 
 // File-static state for frontend config screen (persists across dispatcher ticks)
 static int iFrontendConfigExitFlag;
@@ -47,17 +49,23 @@ static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
 
+//-------------------------------------------------------------------------------------------------
+
 enum {
   FRONTEND_CONFIG_BROADCAST_WAIT_NONE = 0,
   FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME,
   FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS
 };
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_begin_broadcast_wait(int iBroadcastMode, int iAction)
 {
   iFrontendConfigBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_config_finish_broadcast_wait(void)
 {
@@ -79,6 +87,8 @@ static void frontend_config_finish_broadcast_wait(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_config_update_broadcast_wait(void)
 {
   if (!network_broadcast_wait_active())
@@ -90,6 +100,8 @@ static int frontend_config_update_broadcast_wait(void)
   return -1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_black_palette(void)
 {
   palette_brightness = 0;
@@ -100,6 +112,8 @@ static void frontend_config_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_request_exit(void)
 {
   if (iFrontendConfigExitFading)
@@ -109,6 +123,8 @@ static void frontend_config_request_exit(void)
   iFrontendConfigExitFading = 1;
   menu_render_begin_fade(GetMenuRenderer(), 0, 32);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_config_enter(void)
 {
@@ -128,6 +144,8 @@ void frontend_config_enter(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_config_exit(void)
 {
   frontend_config_black_palette();
@@ -135,6 +153,17 @@ void frontend_config_exit(void)
   front_fade = 0;
 }
 
+//-------------------------------------------------------------------------------------------------
+
+void snapshot_render_menu_configure(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  frontend_config_enter();
+  frontend_config_update();
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //00042D40
 void frontend_config_update(void)
@@ -2515,13 +2544,6 @@ void frontend_config_update(void)
       default:
         goto RENDER_FRAME;
     }
-}
-
-void snapshot_render_menu_configure(void)
-{
-  snapshot_setup_frontend_menu_state(0);
-  frontend_config_enter();
-  frontend_config_update();
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -28,16 +28,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-
-static void frontend_type_select_run_snapshot(void);
-
-void snapshot_render_menu_select_type(void)
-{
-  snapshot_setup_frontend_menu_state(0);
-  for (int i = 0; i < 5; ++i)
-    SnapshotQueueRawKey(0x48); // Up arrow: real input path from Exit to Game Type.
-  frontend_type_select_run_snapshot();
-}
+//-------------------------------------------------------------------------------------------------
 
 static int iFrontendTypeMenuSelection = 0;
 static int iFrontendTypeCurrentOption = 5;
@@ -56,6 +47,22 @@ enum {
   eTYPE_BROADCAST_WAIT_CLOSE_NETWORK
 };
 
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+void snapshot_render_menu_select_type(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  for (int i = 0; i < 5; ++i)
+    SnapshotQueueRawKey(0x48); // Up arrow: real input path from Exit to Game Type.
+  frontend_type_select_run_snapshot();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_black_palette(void)
 {
   palette_brightness = 0;
@@ -65,6 +72,8 @@ static void frontend_type_select_black_palette(void)
     pal_addr[i].byG = 0;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_finish_exit(void)
 {
@@ -76,11 +85,15 @@ static void frontend_type_select_finish_exit(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_begin_broadcast_wait(int iMode, int iAction)
 {
   iFrontendTypeBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iMode, 1);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_finish_broadcast_wait(void)
 {
@@ -99,6 +112,8 @@ static void frontend_type_select_finish_broadcast_wait(void)
       break;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_type_select_update_broadcast_wait(void)
 {
@@ -121,6 +136,8 @@ static int frontend_type_select_update_broadcast_wait(void)
 
   return -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_request_exit(void)
 {
@@ -157,6 +174,8 @@ static void frontend_type_select_request_exit(void)
   frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_EXIT);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_apply_type_switch(void)
 {
   if (!switch_types)
@@ -172,6 +191,8 @@ static void frontend_type_select_apply_type_switch(void)
     network_champ_on = 0;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_apply_same_car_switch(void)
 {
   if (switch_same > 0) {
@@ -185,6 +206,8 @@ static void frontend_type_select_apply_same_car_switch(void)
     cheat_mode &= ~CHEAT_MODE_CLONES;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_draw(void)
 {
@@ -516,6 +539,8 @@ static void frontend_type_select_draw(void)
   menu_render_end_frame(mr);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_handle_enter(void)
 {
   sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
@@ -553,6 +578,8 @@ static void frontend_type_select_handle_enter(void)
       break;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_handle_extended_key(uint8 byExtendedKey)
 {
@@ -642,6 +669,8 @@ static void frontend_type_select_handle_extended_key(uint8 byExtendedKey)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_handle_space(void)
 {
   int iCupIncrement;
@@ -659,6 +688,8 @@ static void frontend_type_select_handle_space(void)
   TrackLoad = 8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
   frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_NONE);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_handle_championship_reset(void)
 {
@@ -678,6 +709,8 @@ static void frontend_type_select_handle_championship_reset(void)
         -666, eTYPE_BROADCAST_WAIT_CLOSE_NETWORK);
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_handle_input(void)
 {
@@ -714,6 +747,8 @@ static void frontend_type_select_handle_input(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_type_select_enter(void)
 {
   iFrontendTypeExitFlag = 0;
@@ -746,6 +781,8 @@ void frontend_type_select_enter(void)
   frames = 0;
   iFrontendTypeCurrentOption = 5;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_type_select_update(void)
 {
@@ -783,7 +820,7 @@ void frontend_type_select_exit(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00047AE0
+
 static void frontend_type_select_run_snapshot(void)
 {
   frontend_type_select_enter();

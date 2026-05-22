@@ -27,16 +27,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-
-static void frontend_players_select_run_snapshot(void);
-
-void snapshot_render_menu_select_players(void)
-{
-  snapshot_setup_frontend_menu_state(0);
-  player_type = 2;
-  players = 2;
-  frontend_players_select_run_snapshot();
-}
+//-------------------------------------------------------------------------------------------------
 
 static unsigned int iFrontendPlayersSelectedPlayerType = 0;
 static int iFrontendPlayersNetworkStatus = 0;
@@ -66,12 +57,30 @@ enum {
   ePLAYERS_BROADCAST_WAIT_SAME_CAR
 };
 
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+void snapshot_render_menu_select_players(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  player_type = 2;
+  players = 2;
+  frontend_players_select_run_snapshot();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
                                                          int iAction)
 {
   iFrontendPlayersBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_players_select_finish_broadcast_wait(void)
 {
@@ -90,6 +99,8 @@ static void frontend_players_select_finish_broadcast_wait(void)
       break;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_players_select_update_broadcast_wait(void)
 {
@@ -114,6 +125,8 @@ static int frontend_players_select_update_broadcast_wait(void)
   return -1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_select_black_palette(void)
 {
   palette_brightness = 0;
@@ -124,6 +137,8 @@ static void frontend_players_select_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_select_clamp_selection(void)
 {
   if (iFrontendPlayersSelectedPlayerType != 0 &&
@@ -131,6 +146,8 @@ static void frontend_players_select_clamp_selection(void)
       iFrontendPlayersSelectedPlayerType != 2)
     iFrontendPlayersSelectedPlayerType = 1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_players_select_add_cached_slot_nodes(int iSlot)
 {
@@ -147,6 +164,8 @@ static void frontend_players_select_add_cached_slot_nodes(int iSlot)
   ROLLERCommsSortNodes();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_select_finish_network_setup(void)
 {
   iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
@@ -159,6 +178,8 @@ static void frontend_players_select_finish_network_setup(void)
     iFrontendPlayersNetworkStatus = -1;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_players_select_begin_net_slot(void)
 {
@@ -180,6 +201,8 @@ static void frontend_players_select_begin_net_slot(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static uint8 frontend_players_net_slot_color(int iSlot)
 {
   if (gamers_playing[iSlot] == 16)
@@ -187,6 +210,8 @@ static uint8 frontend_players_net_slot_color(int iSlot)
 
   return iFrontendPlayersNetSlotCurrent == iSlot ? 0xAB : 0x83;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_players_net_slot_draw_slot(MenuRenderer *mr,
                                                 int iSlot,
@@ -231,6 +256,8 @@ static void frontend_players_net_slot_draw_slot(MenuRenderer *mr,
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_net_slot_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -263,6 +290,8 @@ static void frontend_players_net_slot_draw(void)
   menu_render_end_frame(mr);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_players_net_slot_move_left(int iSlot)
 {
   int iPrevSlot = iSlot - 1;
@@ -276,6 +305,8 @@ static int frontend_players_net_slot_move_left(int iSlot)
   return iSlot;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_players_net_slot_move_right(int iSlot)
 {
   int iNextSlot = iSlot + 1;
@@ -288,6 +319,8 @@ static int frontend_players_net_slot_move_right(int iSlot)
 
   return iSlot;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_players_net_slot_handle_input(void)
 {
@@ -318,6 +351,8 @@ static void frontend_players_net_slot_handle_input(void)
     }
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_players_net_slot_update(void)
 {
@@ -376,6 +411,8 @@ static int frontend_players_net_slot_update(void)
   return -1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_select_request_exit(void)
 {
   iFrontendPlayersExitFlag = -1;
@@ -385,6 +422,8 @@ static void frontend_players_select_request_exit(void)
     iFrontendPlayersExitFading = 1;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_players_select_enter(void)
 {
@@ -415,6 +454,8 @@ void frontend_players_select_enter(void)
     iFrontendPlayersNetworkMode = 0;
   iFrontendPlayersNetworkStatus = 0;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_players_select_update(void)
 {
@@ -640,6 +681,8 @@ void frontend_players_select_update(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_players_select_exit(void)
 {
   if (iFrontendPlayersSelectedPlayerType == 1) { // CLEANUP: Set final player type and network settings based on selection
@@ -659,7 +702,7 @@ void frontend_players_select_exit(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00047000
+
 static void frontend_players_select_run_snapshot(void)
 {
   frontend_players_select_enter();

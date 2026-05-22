@@ -4,6 +4,7 @@
 #include "func2.h"
 #include "sound.h"
 #include "roller.h"
+#include "rollersound.h"
 #include "car.h"
 #include "moving.h"
 #include "network.h"
@@ -28,6 +29,65 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+//-------------------------------------------------------------------------------------------------
+
+static int iFrontendTitleScreenActive = 0;
+static int iFrontendTitleScreenWaitFatal = 0;
+static int iFrontendTitleScreenPhase = 0;
+
+enum {
+  TITLE_SCREEN_PHASE_INACTIVE = 0,
+  TITLE_SCREEN_PHASE_FADE_IN,
+  TITLE_SCREEN_PHASE_WAIT
+};
+
+static int iCopyScreensActive = 0;
+static uint64 ullCopyScreensEndTicksMs = 0;
+static int iCopyScreensPhase = 0;
+
+enum {
+  COPY_SCREENS_PHASE_INACTIVE = 0,
+  COPY_SCREENS_PHASE_FADE_IN,
+  COPY_SCREENS_PHASE_WAIT,
+  COPY_SCREENS_PHASE_FADE_OUT
+};
+static int iFrontendMainMenuInitialized = 0;
+static int iFrontendMainMenuResumeFromChild = 0;
+static int iFrontendMainMenuSelection = 8;
+static int iFrontendMainMenuContinue = 0;
+static int iFrontendMainMenuQuitConfirmed = 0;
+static int iFrontendMainMenuRotation = 0;
+static int iFrontendMainMenuBlockIdx = 0;
+static int iFrontendMainMenuPtexSize = 0;
+static int iFrontendMainMenuStartDelayTarget = 0;
+
+typedef enum {
+  eMAIN_MENU_NET_WAIT_NONE = 0,
+  eMAIN_MENU_NET_WAIT_SETUP_SYNC,
+  eMAIN_MENU_NET_WAIT_FADE_EXISTING,
+  eMAIN_MENU_NET_WAIT_FADE_DISCOVERY,
+  eMAIN_MENU_NET_WAIT_QUIT_BROADCAST,
+  eMAIN_MENU_NET_WAIT_QUIT_TICKS,
+  eMAIN_MENU_NET_WAIT_RESTART_SYNC
+} eMainMenuNetworkWait;
+
+static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
+static int iFrontendMainMenuQuitTickTarget = 0;
+static int iFrontendMainMenuNetworkFadeInWait = 0;
+
+typedef enum {
+  eMAIN_MENU_FADE_OUT_NONE = 0,
+  eMAIN_MENU_FADE_OUT_CHILD,
+  eMAIN_MENU_FADE_OUT_START_SOUND,
+  eMAIN_MENU_FADE_OUT_FINISH_START,
+} eMainMenuFadeOutAction;
+
+static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
+static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
+static int iFrontendMainMenuFadeOutMusic = 0;
+static int iFrontendMainMenuFadeOutVisualGameType = -1;
+
+//-------------------------------------------------------------------------------------------------
 
 static int NetworkGridRand(int *pSeed)
 {
@@ -37,11 +97,14 @@ static int NetworkGridRand(int *pSeed)
   return (int)((uiSeed >> 16) & 0x7FFFu);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int NetworkGridRandRange(int iRange, int *pSeed)
 {
   return (int)(((uint32)iRange * (uint32)NetworkGridRand(pSeed)) >> 15);
 }
 
+//-------------------------------------------------------------------------------------------------
 // Replace accented characters with non-accented equivalents in the font table - add by ROLLER
 void font_ascii_replace_accent(char *font)
 {
@@ -82,15 +145,6 @@ void font_ascii_replace_accent(char *font)
 }
 
 //-------------------------------------------------------------------------------------------------
-static int iFrontendTitleScreenActive = 0;
-static int iFrontendTitleScreenWaitFatal = 0;
-static int iFrontendTitleScreenPhase = 0;
-
-enum {
-  TITLE_SCREEN_PHASE_INACTIVE = 0,
-  TITLE_SCREEN_PHASE_FADE_IN,
-  TITLE_SCREEN_PHASE_WAIT
-};
 
 static int frontend_title_fatal_sample_done(void)
 {
@@ -117,7 +171,8 @@ static void frontend_title_apply_language_font_replacements(void)
   }
 }
 
-//0003F5B0
+//-------------------------------------------------------------------------------------------------
+
 void frontend_title_screen_enter(void)
 {
   winx = 0;
@@ -156,6 +211,8 @@ void frontend_title_screen_enter(void)
   iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_FADE_IN;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 int frontend_title_screen_update(void)
 {
   if (!iFrontendTitleScreenActive)
@@ -176,6 +233,8 @@ int frontend_title_screen_update(void)
   return frontend_title_fatal_sample_done();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_title_screen_exit(void)
 {
   if (!iFrontendTitleScreenActive)
@@ -191,17 +250,7 @@ void frontend_title_screen_exit(void)
   iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_INACTIVE;
 }
 
-//0003F6B0
-static int iCopyScreensActive = 0;
-static uint64 ullCopyScreensEndTicksMs = 0;
-static int iCopyScreensPhase = 0;
-
-enum {
-  COPY_SCREENS_PHASE_INACTIVE = 0,
-  COPY_SCREENS_PHASE_FADE_IN,
-  COPY_SCREENS_PHASE_WAIT,
-  COPY_SCREENS_PHASE_FADE_OUT
-};
+//-------------------------------------------------------------------------------------------------
 
 void CopyScreensEnter(void)
 {
@@ -225,6 +274,8 @@ void CopyScreensEnter(void)
   iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_IN;
   ullCopyScreensEndTicksMs = 0;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 int CopyScreensUpdate(void)
 {
@@ -272,6 +323,8 @@ int CopyScreensUpdate(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void CopyScreensExit(void)
 {
   if (fade_palette_active())
@@ -281,6 +334,8 @@ void CopyScreensExit(void)
   ullCopyScreensEndTicksMs = 0;
   iCopyScreensPhase = COPY_SCREENS_PHASE_INACTIVE;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void snapshot_setup_frontend_menu_state(int iGameType)
 {
@@ -350,42 +405,6 @@ void snapshot_setup_frontend_menu_state(int iGameType)
 
 //-------------------------------------------------------------------------------------------------
 
-static int iFrontendMainMenuInitialized = 0;
-static int iFrontendMainMenuResumeFromChild = 0;
-static int iFrontendMainMenuSelection = 8;
-static int iFrontendMainMenuContinue = 0;
-static int iFrontendMainMenuQuitConfirmed = 0;
-static int iFrontendMainMenuRotation = 0;
-static int iFrontendMainMenuBlockIdx = 0;
-static int iFrontendMainMenuPtexSize = 0;
-static int iFrontendMainMenuStartDelayTarget = 0;
-
-typedef enum {
-  eMAIN_MENU_NET_WAIT_NONE = 0,
-  eMAIN_MENU_NET_WAIT_SETUP_SYNC,
-  eMAIN_MENU_NET_WAIT_FADE_EXISTING,
-  eMAIN_MENU_NET_WAIT_FADE_DISCOVERY,
-  eMAIN_MENU_NET_WAIT_QUIT_BROADCAST,
-  eMAIN_MENU_NET_WAIT_QUIT_TICKS,
-  eMAIN_MENU_NET_WAIT_RESTART_SYNC
-} eMainMenuNetworkWait;
-
-static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
-static int iFrontendMainMenuQuitTickTarget = 0;
-static int iFrontendMainMenuNetworkFadeInWait = 0;
-
-typedef enum {
-  eMAIN_MENU_FADE_OUT_NONE = 0,
-  eMAIN_MENU_FADE_OUT_CHILD,
-  eMAIN_MENU_FADE_OUT_START_SOUND,
-  eMAIN_MENU_FADE_OUT_FINISH_START,
-} eMainMenuFadeOutAction;
-
-static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
-static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
-static int iFrontendMainMenuFadeOutMusic = 0;
-static int iFrontendMainMenuFadeOutVisualGameType = -1;
-
 static void frontend_main_menu_load_renderer_blocks(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -399,7 +418,12 @@ static void frontend_main_menu_load_renderer_blocks(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_main_menu_update_network_wait(void);
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_finish_prepare_to_start(void);
 
 //-------------------------------------------------------------------------------------------------
@@ -488,6 +512,8 @@ static void frontend_main_menu_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_fade_out(int iFadeMusic)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -496,6 +522,8 @@ static void frontend_main_menu_fade_out(int iFadeMusic)
   menu_render_begin_fade(mr, 0, 32);
   iFrontendMainMenuFadeOutMusic = iFadeMusic;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_free_selected_car_textures(void)
 {
@@ -509,6 +537,8 @@ static void frontend_main_menu_free_selected_car_textures(void)
     fre((void **)&cartex_vga[i]);
   remove_mapsels();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_load_current_preview_assets(void)
 {
@@ -541,12 +571,16 @@ static void frontend_main_menu_load_current_preview_assets(void)
   frontend_main_menu_load_renderer_blocks();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_free_preview_title_assets(void)
 {
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[13]);
   fre((void **)&front_vga[14]);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_begin_restart_net(void)
 {
@@ -568,6 +602,8 @@ static void frontend_main_menu_begin_restart_net(void)
   frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_RESTART_SYNC, -667, 1);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_resume_after_child(void)
 {
   frontend_main_menu_free_preview_title_assets();
@@ -580,11 +616,15 @@ static void frontend_main_menu_resume_after_child(void)
   iFrontendMainMenuInitialized = -1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_main_menu_base_assets_loaded(void)
 {
   return front_vga[0] && front_vga[1] && front_vga[2] && front_vga[4] &&
          front_vga[5] && front_vga[6] && front_vga[15];
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_setup(void)
 {
@@ -723,6 +763,8 @@ static void frontend_main_menu_setup(void)
   iFrontendMainMenuStartDelayTarget = 0;
   iFrontendMainMenuInitialized = -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 {
@@ -882,6 +924,8 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   show_received_mesage();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
@@ -889,6 +933,8 @@ static void frontend_main_menu_draw(void)
   frontend_main_menu_emit_draw(mr);
   menu_render_end_frame(mr);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void snapshot_render_menu_main(void)
 {
@@ -899,6 +945,8 @@ void snapshot_render_menu_main(void)
   frontend_main_menu_load_current_preview_assets();
   frontend_main_menu_draw();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_apply_type_switch(void)
 {
@@ -938,6 +986,8 @@ static void frontend_main_menu_apply_type_switch(void)
   }
   frontend_main_menu_load_renderer_blocks();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_apply_same_car_switch(void)
 {
@@ -990,6 +1040,8 @@ static void frontend_main_menu_apply_same_car_switch(void)
     switch_sets = 0;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_main_menu_prepare_race_start(void)
 {
@@ -1101,6 +1153,8 @@ void frontend_main_menu_prepare_race_start(void)
     stopmusic();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_finish_prepare_to_start(void)
 {
   if (game_type != 4 && game_type != 3)
@@ -1108,6 +1162,8 @@ static void frontend_main_menu_finish_prepare_to_start(void)
   frontend_main_menu_fade_out(-1);
   eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_FINISH_START;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_prepare_to_start(void)
 {
@@ -1124,12 +1180,16 @@ static void frontend_main_menu_prepare_to_start(void)
   frontend_main_menu_finish_prepare_to_start();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_begin_child(eFrontendState eState)
 {
   frontend_main_menu_fade_out(0);
   eFrontendMainMenuPendingChildState = eState;
   eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_CHILD;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_handle_enter(void)
 {
@@ -1192,6 +1252,8 @@ static void frontend_main_menu_handle_enter(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_handle_quit_confirmation(uint8 byKey)
 {
   if (byKey < 0x59u) {
@@ -1208,6 +1270,8 @@ static void frontend_main_menu_handle_quit_confirmation(uint8 byKey)
   quit_game = -1;
   frontend_main_menu_prepare_to_start();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_main_menu_handle_input(void)
 {
@@ -1242,6 +1306,8 @@ static void frontend_main_menu_handle_input(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_update_rotation(int nFrames)
 {
   int16 nNewYaw = Car[0].nYaw + 32 * nFrames;
@@ -1252,6 +1318,8 @@ static void frontend_main_menu_update_rotation(int nFrames)
                                32 * nFrames) &
                               0x3FFF;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
 {
@@ -1326,6 +1394,8 @@ static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
   return 1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_menu_enter(void)
 {
   start_race = 0;
@@ -1339,6 +1409,8 @@ void frontend_menu_enter(void)
   else
     frontend_main_menu_setup();
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_menu_update(void)
 {
@@ -1426,7 +1498,11 @@ void frontend_menu_update(void)
   frontend_main_menu_update_rotation(nFrames);
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_menu_resume_from_child(void)
 {
   iFrontendMainMenuResumeFromChild = -1;
 }
+
+//-------------------------------------------------------------------------------------------------

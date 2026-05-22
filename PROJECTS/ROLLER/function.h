@@ -13,6 +13,8 @@ extern int invulnerable[16];
 
 //-------------------------------------------------------------------------------------------------
 
+void firework_display_one_tick(void);
+
 void finish_race();
 double getbankz(float fInput, int iChunkIdx, tData *pData);
 void calculate_aheadbehindtime(int iCarIdx, float *pfAheadTime, float *pfBehindTime);
@@ -25,7 +27,6 @@ bool linevalid(int iChunkIdx, float fStartCoord, float fEndCoord);
 void analysefalloff(tCar *pCar);
 void showmap(uint8 *pScrPtr, int iCarIdx);
 void firework_display();
-void firework_display_one_tick(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif

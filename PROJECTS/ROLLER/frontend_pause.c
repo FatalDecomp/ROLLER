@@ -58,3 +58,5 @@ void frontend_pause_exit(void)
     stopallsamples();
   SDL_SetAtomicInt(&iTicksPending, 0);
 }
+
+//-------------------------------------------------------------------------------------------------

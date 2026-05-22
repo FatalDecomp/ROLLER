@@ -8,6 +8,7 @@
 #include "loadtrak.h"
 #include "car.h"
 #include "roller.h"
+#include "rollersound.h"
 #include "control.h"
 #include "network.h"
 #include "rollercomms.h"
@@ -33,15 +34,30 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-
 //-------------------------------------------------------------------------------------------------
+
+typedef struct {
+  int iActive;
+  int iTargetBrightness;
+  int iCurrentStep;
+  int iStepDirection;
+  int iOriginalTickOn;
+  int iOriginalTicks;
+  int iLastS7;
+  uint32 uiTimerHandle;
+} tPaletteFadeState;
+
+static tPaletteFadeState sPaletteFadeState;
 
 volatile uint64 ullLastTickTimeNs = 0;
 volatile uint64 ullTickIntervalNs = HZ_TO_NS(36u);
 SDL_AtomicInt iTicksPending;
 static SDL_AtomicInt iNetworkMasterInput;
 static SDL_AtomicInt iNetworkMasterInputValid;
+static int frontendspeechgeneration = -1;
 
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 
 int samplespending = 0;     //000A4690
@@ -161,8 +177,8 @@ int already_quit;           //0016F8E0
 int network_error;          //0017C97C
 
 //-------------------------------------------------------------------------------------------------
-
-static int frontendspeechgeneration = -1;
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 
 static int frontendspeech_current_handle()
 {
@@ -175,11 +191,15 @@ static int frontendspeech_current_handle()
   return iGeneration != -1 && iGeneration == frontendspeechgeneration;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void clear_frontendspeech_handle()
 {
   frontendspeechhandle = -1;
   frontendspeechgeneration = -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void stop_frontendspeech_handle()
 {
@@ -188,6 +208,602 @@ static void stop_frontendspeech_handle()
   clear_frontendspeech_handle();
 }
 
+//-------------------------------------------------------------------------------------------------
+
+static void drain_engine_delay_car(int iCarIdx, int iDelayReadIdx)
+{
+  tEngineSoundData *pSound = &enginedelay[iCarIdx].engineSoundData[iDelayReadIdx];
+
+  if (pSound->iEngineVol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
+  if (pSound->iEngine2Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
+  if (pSound->iSkid1Vol >= 0)
+    loopsample(iCarIdx, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void DrainEngineDelay(void)
+{
+  if (!soundon || paused || delayread >= delaywrite)
+    return;
+
+  delayreadx = delayread % DELAY_BUFFER_SIZE;
+
+  if (replaytype == 2 || allengines) {
+    for (int i = 0; i < numcars; i++)
+      drain_engine_delay_car(i, delayreadx);
+  } else if (player_type == 2 && (!network_on || winner_mode)) {
+    drain_engine_delay_car(ViewType[0], delayreadx);
+    drain_engine_delay_car(ViewType[1], delayreadx);
+  } else {
+    drain_engine_delay_car(ViewType[0], delayreadx);
+  }
+
+  if (delaywrite - delayread >= 6)
+    delayread++;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void reset_tick_input_samples(void)
+{
+  SDL_SetAtomicInt(&iNetworkMasterInput, 0);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 0);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void local_input_tick(void)
+{
+  if (!start_race || paused)
+    return;
+
+  readuserdata(0);
+  last_inp[0] = user_inp;
+  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+
+  if (player_type == 2) {
+    readuserdata(1);
+    last_inp[1] = user_inp;
+    copy_multiple[writeptr][player2_car].uiFullData = user_inp;
+  }
+
+  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void network_master_tick(void)
+{
+  for (int i = 0; i < network_on; i++) {
+    if (paused)
+      net_time[i] = frames;
+    if (i != master && net_players[i] &&
+        (frames > net_time[i] + network_limit) &&
+        !send_finished)
+      network_error = 222;
+  }
+
+  if (network_error && network_error != 666)
+    send_net_error();
+
+  if (network_on - 1 == start_multiple) {
+    memcpy(copy_multiple[writeptr],
+           copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE],
+           sizeof(tCopyData) * MAX_CARS);
+
+    for (int i = 0; i < numcars; i++) {
+      uint16 unFlags = copy_multiple[writeptr][i].data.unFlags;
+
+      if (copy_multiple[writeptr][i].uiFullData & 0x4000000)
+        unFlags ^= FLAG_DISCONNECT;
+      if (copy_multiple[writeptr][i].uiFullData & 0x8000000)
+        unFlags = (unFlags ^ FLAG_MASTER_CHANGE) | FLAG_DISCONNECT;
+      copy_multiple[writeptr][i].data.unFlags = unFlags;
+    }
+
+    if (SDL_GetAtomicInt(&iNetworkMasterInputValid)) {
+      copy_multiple[writeptr][player1_car].uiFullData =
+        (uint32)SDL_GetAtomicInt(&iNetworkMasterInput);
+    } else {
+      readuserdata(0);
+      copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+      last_inp[0] = user_inp;
+    }
+
+    receive_all_singles();
+  }
+
+  if (countdown >= 0) {
+    active_nodes = 0;
+    for (int i = 0; i < network_on; i++) {
+      if (player_ready[i])
+        active_nodes++;
+      if (player_ready[i] == 666 && net_players[i]) {
+        copy_multiple[writeptr][player_to_car[i]].data.unFlags |= FLAG_DISCONNECT;
+        net_players[i] = 0;
+      }
+    }
+  }
+
+  if (active_nodes == network_on) {
+    net_loading = 0;
+    if (network_on - 1 != start_multiple || !paused) {
+      if (start_race && !paused && send_finished && numcars > 0) {
+        for (int i = 0; i < numcars; i++)
+          copy_multiple[writeptr][i].data.unFlags |= FLAG_FINISHED;
+      }
+      send_multiple();
+
+      if (network_on - 1 == start_multiple) {
+        for (int i = 0; i < numcars; i++) {
+          if (copy_multiple[writeptr][i].data.unFlags & FLAG_DISCONNECT) {
+            net_players[car_to_player[i]] = 0;
+            network_timeout = frames;
+          }
+        }
+
+        if (copy_multiple[writeptr][player1_car].data.unFlags & FLAG_MASTER_CHANGE) {
+          read_check = -1;
+          write_check = -1;
+          memset(player_checks, -1, sizeof(player_checks));
+
+          net_players[master] = 0;
+          while (!net_players[master] && master < MAX_PLAYERS)
+            master++;
+
+          for (int i = 0; i < network_on; i++)
+            net_time[i] = frames;
+
+          uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
+          unFlags ^= FLAG_DISCONNECT;
+          copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE][player1_car].data.unFlags = unFlags;
+
+          network_timeout = frames;
+        }
+
+        writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+        ticks_received++;
+      }
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int network_slave_tick(void)
+{
+  int iSlotsReceived;
+
+  if (paused)
+    network_timeout = frames;
+  if (frames > network_timeout + network_limit && human_finishers < players)
+    network_error = 123;
+
+  iSlotsReceived = receive_multiple();
+
+  if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
+    read_check = -1;
+    write_check = -1;
+    memset(player_checks, -1, sizeof(player_checks));
+
+    net_players[master] = 0;
+    while (!net_players[master] && master < MAX_PLAYERS)
+      master++;
+
+    active_nodes = network_on;
+    start_multiple = network_on - 1;
+
+    for (int i = 0; i < network_on; i++)
+      net_time[i] = frames;
+    network_timeout = frames;
+  }
+
+  for (int i = 0; i < numcars; i++) {
+    uint32 uiData = copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][i].uiFullData;
+
+    if (uiData & 0x10000000)
+      network_error = 0;
+    if (uiData & 0x4000000) {
+      net_players[car_to_player[i]] = 0;
+      network_timeout = frames;
+      memset(player_checks, -1, sizeof(player_checks));
+      read_check = 0;
+      write_check = 0;
+    }
+  }
+
+  return iSlotsReceived;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void network_master_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode != master || !net_players[wConsoleNode])
+    return;
+
+  // Master input needs the same timer-cadence sampling as slave input for
+  // long network races. Only the packed input word crosses to the main-thread
+  // game tick; writeptr, copy_multiple, and packet fan-out stay there.
+  readuserdata(0);
+  SDL_SetAtomicInt(&iNetworkMasterInput, (int)user_inp);
+  SDL_SetAtomicInt(&iNetworkMasterInputValid, 1);
+  last_inp[0] = user_inp;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void network_slave_input_tick(void)
+{
+  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
+    return;
+  if (!network_on || !start_race || wConsoleNode <= master || !net_players[wConsoleNode])
+    return;
+
+  // This deliberately runs from tick_clock_step() on the timer thread. Slave
+  // nodes need to sample and transmit fresh input at timer cadence; waiting for
+  // the main-thread network tick makes remote controls feel sluggish. Keep
+  // readuserdata() and send_single() safe for this path: they may touch input
+  // and network-send bookkeeping, but must not depend on render-thread state or
+  // pump SDL events.
+  readuserdata(0);
+  send_single(user_inp);
+  last_inp[0] = user_inp;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void network_orphan_tick(void)
+{
+  read_check = -1;
+  write_check = -1;
+
+  readuserdata(0);
+  last_inp[0] = user_inp;
+  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
+  copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
+
+  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void tick_clock_step(void)
+{
+  int iTickAdvance = 1;
+
+  if (network_on && syncleft) {
+    ROLLERCommsPumpSendQueue();
+    do_sync_stuff();
+    ROLLERCommsPumpSendQueue();
+    return;
+  }
+
+  if (network_on)
+    net_loading = 0;
+  else
+    broadcast_mode = 0;
+
+  ullLastTickTimeNs = SDL_GetTicksNS();
+  frames++;
+
+  if (replaytype == 2) {
+    if (forwarding) {
+      if (slowing) {
+        replayspeed = (4 * replayspeed) / 5;
+        if (replayspeed < 256) {
+          ROldStatus();
+          slowing = 0;
+        }
+      } else {
+        replayspeed = (17 * replayspeed) / 16;
+        if (replayspeed > REPLAY_SPEED_MAX)
+          replayspeed = REPLAY_SPEED_MAX;
+      }
+    }
+
+    if (rewinding) {
+      if (slowing) {
+        replayspeed = (4 * replayspeed) / 5;
+        if (replayspeed > -256) {
+          ROldStatus();
+          slowing = 0;
+        }
+      } else {
+        replayspeed = (17 * replayspeed) / 16;
+        if (replayspeed < REPLAY_SPEED_MIN)
+          replayspeed = REPLAY_SPEED_MIN;
+      }
+    }
+
+    int iTotal = replayspeed + fraction;
+    iTickAdvance = iTotal / 256;
+    fraction = iTotal % 256;
+
+    ticks += iTickAdvance;
+    if (ticks < 0)
+      ticks = 0;
+    if (ticks >= replayframes)
+      ticks = replayframes - 1;
+
+    if (ticks == 0 && fraction < 0)
+      fraction = 0;
+    if (ticks == replayframes - 1 && fraction > 0)
+      fraction = 0;
+  } else {
+    ticks++;
+    if (!paused && !frontend_on) {
+      updatejoy();
+      network_master_input_tick();
+      network_slave_input_tick();
+    }
+  }
+
+  if (tick_on) {
+    if (network_on && (replaytype == 2 || game_type > 2)) {
+      CheckNewNodes();
+      SendAMessage();
+      BroadcastNews();
+    } else if (replaytype != 2 && game_type < 3) {
+      if (frontend_on) {
+        if (network_on) {
+          CheckNewNodes();
+          SendAMessage();
+          BroadcastNews();
+        }
+      } else if (network_on && winner_mode) {
+        CheckNewNodes();
+        SendAMessage();
+        BroadcastNews();
+      }
+    }
+  }
+
+  if (network_on)
+    ROLLERCommsPumpSendQueue();
+
+  if (!frontend_on && iTickAdvance != 0)
+    SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void game_tick_step(void)
+{
+  int iControlTicks = 1;
+  int iDrainEngineDelay = 0;
+
+  if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
+    if (!network_on || winner_mode) {
+      local_input_tick();
+      iDrainEngineDelay = start_race;
+    } else if (start_race) {
+      ticks_received = 0;
+
+      if (wConsoleNode == master)
+        network_master_tick();
+      else if (wConsoleNode > master && net_players[wConsoleNode]) {
+        iControlTicks = network_slave_tick();
+        if (iControlTicks < 1)
+          iControlTicks = 1;
+      } else
+        network_orphan_tick();
+
+      iDrainEngineDelay = ticks_received > 0;
+    }
+  }
+
+  if (replaytype == 2 && replayspeed == REPLAY_NORMAL_SPEED)
+    iDrainEngineDelay = 1;
+
+  for (int i = 0; i < iControlTicks; i++) {
+    if (champ_mode < 16)
+      control_one_tick();
+    else
+      firework_display_one_tick();
+    if (iDrainEngineDelay)
+      DrainEngineDelay();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void fade_palette_apply_step(int iStep)
+{
+  for (int i = 0; i < 256; i++) {
+    pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
+    pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
+    pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void fade_palette_apply_audio_step(int iStep)
+{
+  if (sPaletteFadeState.iTargetBrightness != 0 || holdmusic)
+    return;
+
+  if (musicon) {
+    //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+  }
+
+  if (soundon) {
+    int iVolumeStep = (iStep << 15) - iStep;
+    //sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
+    DIGISetMasterVolume(iVolumeStep >> 5);
+  }
+
+  if (MusicCD)
+    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int fade_palette_timer_ready(void)
+{
+  if (current_mode == 0 || g_bSnapshotMode)
+    return -1;
+
+  int iCurrentS7 = s7;
+  if (iCurrentS7 == sPaletteFadeState.iLastS7)
+    return 0;
+
+  sPaletteFadeState.iLastS7 = iCurrentS7;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void fade_palette_begin(int iTargetBrightness)
+{
+  if (sPaletteFadeState.iActive)
+    fade_palette_finish();
+
+  if (g_bSnapshotMode) {
+    // In snapshot capture, fade animations are skipped: PNGs are the raw
+    // pixels with the active palette. Keep palette_brightness in sync and
+    // signal that the palette is valid so the snapshot hook will write.
+    palette_brightness = iTargetBrightness;
+    if (pal_addr) g_bPaletteSet = true;
+    return;
+  }
+
+  if (iTargetBrightness == 0)
+    disable_keyboard();
+
+  if (iTargetBrightness == 32 && soundon) {
+    //sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
+    DIGISetMasterVolume(0x7FFF); // Set max volume for sound effects
+  }
+
+  int iCurrentBrightness = palette_brightness;
+
+  if (iTargetBrightness == iCurrentBrightness)
+    return;
+
+  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
+  sPaletteFadeState.iActive = -1;
+  sPaletteFadeState.iTargetBrightness = iTargetBrightness;
+  sPaletteFadeState.iCurrentStep = iCurrentBrightness;
+  sPaletteFadeState.iStepDirection =
+      iTargetBrightness > iCurrentBrightness ? 1 : -1;
+  sPaletteFadeState.iOriginalTickOn = tick_on;
+  sPaletteFadeState.iOriginalTicks = ticks;
+
+  tick_on = 0;
+  s7 = 0;
+  sPaletteFadeState.iLastS7 = s7;
+
+  if (current_mode != 0)
+    sPaletteFadeState.uiTimerHandle =
+        ROLLERAddTimer(70, SDLS7TimerCallback, NULL); //added by ROLLER
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int fade_palette_active()
+{
+  return sPaletteFadeState.iActive;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void fade_palette_finish()
+{
+  if (!sPaletteFadeState.iActive)
+    return;
+
+  if (sPaletteFadeState.uiTimerHandle != 0)
+    ROLLERRemoveTimer(sPaletteFadeState.uiTimerHandle); //added by ROLLER
+
+  //memcpy(pal_addr, palette, 768); //REMOVED by ROLLER (why is this here? causes palette change flicker)
+
+  palette_brightness = sPaletteFadeState.iTargetBrightness;
+  tick_on = sPaletteFadeState.iOriginalTickOn;
+  if (replaytype != 2)
+    ticks = sPaletteFadeState.iOriginalTicks;
+
+  if (sPaletteFadeState.iTargetBrightness == 0)
+    enable_keyboard();
+
+  if (sPaletteFadeState.iTargetBrightness == 0 && !holdmusic) {
+    if (MusicCD && track_playing)
+      StopTrack();
+    else if (MusicCard && SongPtr) {
+      stop();
+      //sosMIDIUnInitSong(SongHandle);
+      SongPtr = 0;
+    }
+  }
+
+  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int fade_palette_update()
+{
+  if (!sPaletteFadeState.iActive)
+    return -1;
+
+  if (!fade_palette_timer_ready())
+    return 0;
+
+  fade_palette_apply_audio_step(sPaletteFadeState.iCurrentStep);
+  fade_palette_apply_step(sPaletteFadeState.iCurrentStep);
+  g_bPaletteSet = true;
+
+  if (sPaletteFadeState.iCurrentStep == sPaletteFadeState.iTargetBrightness) {
+    fade_palette_finish();
+    return -1;
+  }
+
+  sPaletteFadeState.iCurrentStep += sPaletteFadeState.iStepDirection;
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void fade_music_start(int iTargetBrightness)
+{
+    if (iTargetBrightness == 32 && soundon) {
+        DIGISetMasterVolume(0x7FFF);
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void fade_music_step(int iStep)
+{
+    if (holdmusic) return;
+    if (musicon)
+        MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+    if (soundon) {
+        int iVolumeStep = (iStep << 15) - iStep;
+        DIGISetMasterVolume(iVolumeStep >> 5);
+    }
+    if (MusicCD)
+        SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void fade_music_finish(int iTargetBrightness)
+{
+    if (iTargetBrightness != 0 || holdmusic) return;
+    if (MusicCD && track_playing) StopTrack();
+    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //000394C0
 void realmode(uint8 byRealModeInterrupt)
@@ -917,387 +1533,6 @@ LABEL_107:
 
 //-------------------------------------------------------------------------------------------------
 //0003A270
-static void drain_engine_delay_car(int iCarIdx, int iDelayReadIdx)
-{
-  tEngineSoundData *pSound = &enginedelay[iCarIdx].engineSoundData[iDelayReadIdx];
-
-  if (pSound->iEngineVol >= 0)
-    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE, pSound->iEngineVol, pSound->iEnginePitch, pSound->iPan);
-  if (pSound->iEngine2Vol >= 0)
-    loopsample(iCarIdx, SOUND_SAMPLE_ENGINE2, pSound->iEngine2Vol, pSound->iEngine2Pitch, pSound->iPan);
-  if (pSound->iSkid1Vol >= 0)
-    loopsample(iCarIdx, SOUND_SAMPLE_SKID1, pSound->iSkid1Vol, pSound->iSkid1Pitch, pSound->iPan);
-}
-
-void DrainEngineDelay(void)
-{
-  if (!soundon || paused || delayread >= delaywrite)
-    return;
-
-  delayreadx = delayread % DELAY_BUFFER_SIZE;
-
-  if (replaytype == 2 || allengines) {
-    for (int i = 0; i < numcars; i++)
-      drain_engine_delay_car(i, delayreadx);
-  } else if (player_type == 2 && (!network_on || winner_mode)) {
-    drain_engine_delay_car(ViewType[0], delayreadx);
-    drain_engine_delay_car(ViewType[1], delayreadx);
-  } else {
-    drain_engine_delay_car(ViewType[0], delayreadx);
-  }
-
-  if (delaywrite - delayread >= 6)
-    delayread++;
-}
-
-void reset_tick_input_samples(void)
-{
-  SDL_SetAtomicInt(&iNetworkMasterInput, 0);
-  SDL_SetAtomicInt(&iNetworkMasterInputValid, 0);
-}
-
-static void local_input_tick(void)
-{
-  if (!start_race || paused)
-    return;
-
-  readuserdata(0);
-  last_inp[0] = user_inp;
-  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-
-  if (player_type == 2) {
-    readuserdata(1);
-    last_inp[1] = user_inp;
-    copy_multiple[writeptr][player2_car].uiFullData = user_inp;
-  }
-
-  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-}
-
-static void network_master_tick(void)
-{
-  for (int i = 0; i < network_on; i++) {
-    if (paused)
-      net_time[i] = frames;
-    if (i != master && net_players[i] &&
-        (frames > net_time[i] + network_limit) &&
-        !send_finished)
-      network_error = 222;
-  }
-
-  if (network_error && network_error != 666)
-    send_net_error();
-
-  if (network_on - 1 == start_multiple) {
-    memcpy(copy_multiple[writeptr],
-           copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE],
-           sizeof(tCopyData) * MAX_CARS);
-
-    for (int i = 0; i < numcars; i++) {
-      uint16 unFlags = copy_multiple[writeptr][i].data.unFlags;
-
-      if (copy_multiple[writeptr][i].uiFullData & 0x4000000)
-        unFlags ^= FLAG_DISCONNECT;
-      if (copy_multiple[writeptr][i].uiFullData & 0x8000000)
-        unFlags = (unFlags ^ FLAG_MASTER_CHANGE) | FLAG_DISCONNECT;
-      copy_multiple[writeptr][i].data.unFlags = unFlags;
-    }
-
-    if (SDL_GetAtomicInt(&iNetworkMasterInputValid)) {
-      copy_multiple[writeptr][player1_car].uiFullData =
-        (uint32)SDL_GetAtomicInt(&iNetworkMasterInput);
-    } else {
-      readuserdata(0);
-      copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-      last_inp[0] = user_inp;
-    }
-
-    receive_all_singles();
-  }
-
-  if (countdown >= 0) {
-    active_nodes = 0;
-    for (int i = 0; i < network_on; i++) {
-      if (player_ready[i])
-        active_nodes++;
-      if (player_ready[i] == 666 && net_players[i]) {
-        copy_multiple[writeptr][player_to_car[i]].data.unFlags |= FLAG_DISCONNECT;
-        net_players[i] = 0;
-      }
-    }
-  }
-
-  if (active_nodes == network_on) {
-    net_loading = 0;
-    if (network_on - 1 != start_multiple || !paused) {
-      if (start_race && !paused && send_finished && numcars > 0) {
-        for (int i = 0; i < numcars; i++)
-          copy_multiple[writeptr][i].data.unFlags |= FLAG_FINISHED;
-      }
-      send_multiple();
-
-      if (network_on - 1 == start_multiple) {
-        for (int i = 0; i < numcars; i++) {
-          if (copy_multiple[writeptr][i].data.unFlags & FLAG_DISCONNECT) {
-            net_players[car_to_player[i]] = 0;
-            network_timeout = frames;
-          }
-        }
-
-        if (copy_multiple[writeptr][player1_car].data.unFlags & FLAG_MASTER_CHANGE) {
-          read_check = -1;
-          write_check = -1;
-          memset(player_checks, -1, sizeof(player_checks));
-
-          net_players[master] = 0;
-          while (!net_players[master] && master < MAX_PLAYERS)
-            master++;
-
-          for (int i = 0; i < network_on; i++)
-            net_time[i] = frames;
-
-          uint16 unFlags = copy_multiple[writeptr][player1_car].data.unFlags;
-          unFlags ^= FLAG_DISCONNECT;
-          copy_multiple[(writeptr + 1) % REPLAY_BUFFER_SIZE][player1_car].data.unFlags = unFlags;
-
-          network_timeout = frames;
-        }
-
-        writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-        ticks_received++;
-      }
-    }
-  }
-}
-
-static int network_slave_tick(void)
-{
-  int iSlotsReceived;
-
-  if (paused)
-    network_timeout = frames;
-  if (frames > network_timeout + network_limit && human_finishers < players)
-    network_error = 123;
-
-  iSlotsReceived = receive_multiple();
-
-  if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
-    read_check = -1;
-    write_check = -1;
-    memset(player_checks, -1, sizeof(player_checks));
-
-    net_players[master] = 0;
-    while (!net_players[master] && master < MAX_PLAYERS)
-      master++;
-
-    active_nodes = network_on;
-    start_multiple = network_on - 1;
-
-    for (int i = 0; i < network_on; i++)
-      net_time[i] = frames;
-    network_timeout = frames;
-  }
-
-  for (int i = 0; i < numcars; i++) {
-    uint32 uiData = copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][i].uiFullData;
-
-    if (uiData & 0x10000000)
-      network_error = 0;
-    if (uiData & 0x4000000) {
-      net_players[car_to_player[i]] = 0;
-      network_timeout = frames;
-      memset(player_checks, -1, sizeof(player_checks));
-      read_check = 0;
-      write_check = 0;
-    }
-  }
-
-  return iSlotsReceived;
-}
-
-static void network_master_input_tick(void)
-{
-  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
-    return;
-  if (!network_on || !start_race || wConsoleNode != master || !net_players[wConsoleNode])
-    return;
-
-  // Master input needs the same timer-cadence sampling as slave input for
-  // long network races. Only the packed input word crosses to the main-thread
-  // game tick; writeptr, copy_multiple, and packet fan-out stay there.
-  readuserdata(0);
-  SDL_SetAtomicInt(&iNetworkMasterInput, (int)user_inp);
-  SDL_SetAtomicInt(&iNetworkMasterInputValid, 1);
-  last_inp[0] = user_inp;
-}
-
-static void network_slave_input_tick(void)
-{
-  if (!tick_on || replaytype == 2 || game_type >= 3 || frontend_on || winner_mode)
-    return;
-  if (!network_on || !start_race || wConsoleNode <= master || !net_players[wConsoleNode])
-    return;
-
-  // This deliberately runs from tick_clock_step() on the timer thread. Slave
-  // nodes need to sample and transmit fresh input at timer cadence; waiting for
-  // the main-thread network tick makes remote controls feel sluggish. Keep
-  // readuserdata() and send_single() safe for this path: they may touch input
-  // and network-send bookkeeping, but must not depend on render-thread state or
-  // pump SDL events.
-  readuserdata(0);
-  send_single(user_inp);
-  last_inp[0] = user_inp;
-}
-
-static void network_orphan_tick(void)
-{
-  read_check = -1;
-  write_check = -1;
-
-  readuserdata(0);
-  last_inp[0] = user_inp;
-  copy_multiple[writeptr][player1_car].uiFullData = user_inp;
-  copy_multiple[writeptr][player1_car].data.unFlags |= FLAG_DISCONNECT;
-
-  writeptr = (writeptr + 1) % REPLAY_BUFFER_SIZE;
-}
-
-void tick_clock_step(void)
-{
-  int iTickAdvance = 1;
-
-  if (network_on && syncleft) {
-    ROLLERCommsPumpSendQueue();
-    do_sync_stuff();
-    ROLLERCommsPumpSendQueue();
-    return;
-  }
-
-  if (network_on)
-    net_loading = 0;
-  else
-    broadcast_mode = 0;
-
-  ullLastTickTimeNs = SDL_GetTicksNS();
-  frames++;
-
-  if (replaytype == 2) {
-    if (forwarding) {
-      if (slowing) {
-        replayspeed = (4 * replayspeed) / 5;
-        if (replayspeed < 256) {
-          ROldStatus();
-          slowing = 0;
-        }
-      } else {
-        replayspeed = (17 * replayspeed) / 16;
-        if (replayspeed > REPLAY_SPEED_MAX)
-          replayspeed = REPLAY_SPEED_MAX;
-      }
-    }
-
-    if (rewinding) {
-      if (slowing) {
-        replayspeed = (4 * replayspeed) / 5;
-        if (replayspeed > -256) {
-          ROldStatus();
-          slowing = 0;
-        }
-      } else {
-        replayspeed = (17 * replayspeed) / 16;
-        if (replayspeed < REPLAY_SPEED_MIN)
-          replayspeed = REPLAY_SPEED_MIN;
-      }
-    }
-
-    int iTotal = replayspeed + fraction;
-    iTickAdvance = iTotal / 256;
-    fraction = iTotal % 256;
-
-    ticks += iTickAdvance;
-    if (ticks < 0)
-      ticks = 0;
-    if (ticks >= replayframes)
-      ticks = replayframes - 1;
-
-    if (ticks == 0 && fraction < 0)
-      fraction = 0;
-    if (ticks == replayframes - 1 && fraction > 0)
-      fraction = 0;
-  } else {
-    ticks++;
-    if (!paused && !frontend_on) {
-      updatejoy();
-      network_master_input_tick();
-      network_slave_input_tick();
-    }
-  }
-
-  if (tick_on) {
-    if (network_on && (replaytype == 2 || game_type > 2)) {
-      CheckNewNodes();
-      SendAMessage();
-      BroadcastNews();
-    } else if (replaytype != 2 && game_type < 3) {
-      if (frontend_on) {
-        if (network_on) {
-          CheckNewNodes();
-          SendAMessage();
-          BroadcastNews();
-        }
-      } else if (network_on && winner_mode) {
-        CheckNewNodes();
-        SendAMessage();
-        BroadcastNews();
-      }
-    }
-  }
-
-  if (network_on)
-    ROLLERCommsPumpSendQueue();
-
-  if (!frontend_on && iTickAdvance != 0)
-    SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
-}
-
-void game_tick_step(void)
-{
-  int iControlTicks = 1;
-  int iDrainEngineDelay = 0;
-
-  if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
-    if (!network_on || winner_mode) {
-      local_input_tick();
-      iDrainEngineDelay = start_race;
-    } else if (start_race) {
-      ticks_received = 0;
-
-      if (wConsoleNode == master)
-        network_master_tick();
-      else if (wConsoleNode > master && net_players[wConsoleNode]) {
-        iControlTicks = network_slave_tick();
-        if (iControlTicks < 1)
-          iControlTicks = 1;
-      } else
-        network_orphan_tick();
-
-      iDrainEngineDelay = ticks_received > 0;
-    }
-  }
-
-  if (replaytype == 2 && replayspeed == REPLAY_NORMAL_SPEED)
-    iDrainEngineDelay = 1;
-
-  for (int i = 0; i < iControlTicks; i++) {
-    if (champ_mode < 16)
-      control_one_tick();
-    else
-      firework_display_one_tick();
-    if (iDrainEngineDelay)
-      DrainEngineDelay();
-  }
-}
-
 void tickhandler()
 {
   tick_clock_step();
@@ -2593,7 +2828,6 @@ void sfxsample(int iSample, int iVol)
   HandleCar[iNewHandle] = 0; // Always use first slot in handles array
 }
 
-
 //-------------------------------------------------------------------------------------------------
 //0003D020
 void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan, int iByteOffset)
@@ -3411,201 +3645,6 @@ void initmusic()
 void SOSTimerCallbackS7()
 {
   ++s7;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-typedef struct {
-  int iActive;
-  int iTargetBrightness;
-  int iCurrentStep;
-  int iStepDirection;
-  int iOriginalTickOn;
-  int iOriginalTicks;
-  int iLastS7;
-  uint32 uiTimerHandle;
-} tPaletteFadeState;
-
-static tPaletteFadeState sPaletteFadeState;
-
-//-------------------------------------------------------------------------------------------------
-static void fade_palette_apply_step(int iStep)
-{
-  for (int i = 0; i < 256; i++) {
-    pal_addr[i].byR = (palette[i].byR * iStep) >> 5;
-    pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
-    pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-static void fade_palette_apply_audio_step(int iStep)
-{
-  if (sPaletteFadeState.iTargetBrightness != 0 || holdmusic)
-    return;
-
-  if (musicon) {
-    //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-  }
-
-  if (soundon) {
-    int iVolumeStep = (iStep << 15) - iStep;
-    //sosDIGISetMasterVolume(DIGIHandle, (iVolumeStep >> 5));
-    DIGISetMasterVolume(iVolumeStep >> 5);
-  }
-
-  if (MusicCD)
-    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-}
-
-//-------------------------------------------------------------------------------------------------
-static int fade_palette_timer_ready(void)
-{
-  if (current_mode == 0 || g_bSnapshotMode)
-    return -1;
-
-  int iCurrentS7 = s7;
-  if (iCurrentS7 == sPaletteFadeState.iLastS7)
-    return 0;
-
-  sPaletteFadeState.iLastS7 = iCurrentS7;
-  return -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-void fade_palette_begin(int iTargetBrightness)
-{
-  if (sPaletteFadeState.iActive)
-    fade_palette_finish();
-
-  if (g_bSnapshotMode) {
-    // In snapshot capture, fade animations are skipped: PNGs are the raw
-    // pixels with the active palette. Keep palette_brightness in sync and
-    // signal that the palette is valid so the snapshot hook will write.
-    palette_brightness = iTargetBrightness;
-    if (pal_addr) g_bPaletteSet = true;
-    return;
-  }
-
-  if (iTargetBrightness == 0)
-    disable_keyboard();
-
-  if (iTargetBrightness == 32 && soundon) {
-    //sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
-    DIGISetMasterVolume(0x7FFF); // Set max volume for sound effects
-  }
-
-  int iCurrentBrightness = palette_brightness;
-
-  if (iTargetBrightness == iCurrentBrightness)
-    return;
-
-  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
-  sPaletteFadeState.iActive = -1;
-  sPaletteFadeState.iTargetBrightness = iTargetBrightness;
-  sPaletteFadeState.iCurrentStep = iCurrentBrightness;
-  sPaletteFadeState.iStepDirection =
-      iTargetBrightness > iCurrentBrightness ? 1 : -1;
-  sPaletteFadeState.iOriginalTickOn = tick_on;
-  sPaletteFadeState.iOriginalTicks = ticks;
-
-  tick_on = 0;
-  s7 = 0;
-  sPaletteFadeState.iLastS7 = s7;
-
-  if (current_mode != 0)
-    sPaletteFadeState.uiTimerHandle =
-        ROLLERAddTimer(70, SDLS7TimerCallback, NULL); //added by ROLLER
-}
-
-//-------------------------------------------------------------------------------------------------
-int fade_palette_active()
-{
-  return sPaletteFadeState.iActive;
-}
-
-//-------------------------------------------------------------------------------------------------
-void fade_palette_finish()
-{
-  if (!sPaletteFadeState.iActive)
-    return;
-
-  if (sPaletteFadeState.uiTimerHandle != 0)
-    ROLLERRemoveTimer(sPaletteFadeState.uiTimerHandle); //added by ROLLER
-
-  //memcpy(pal_addr, palette, 768); //REMOVED by ROLLER (why is this here? causes palette change flicker)
-
-  palette_brightness = sPaletteFadeState.iTargetBrightness;
-  tick_on = sPaletteFadeState.iOriginalTickOn;
-  if (replaytype != 2)
-    ticks = sPaletteFadeState.iOriginalTicks;
-
-  if (sPaletteFadeState.iTargetBrightness == 0)
-    enable_keyboard();
-
-  if (sPaletteFadeState.iTargetBrightness == 0 && !holdmusic) {
-    if (MusicCD && track_playing)
-      StopTrack();
-    else if (MusicCard && SongPtr) {
-      stop();
-      //sosMIDIUnInitSong(SongHandle);
-      SongPtr = 0;
-    }
-  }
-
-  memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
-}
-
-//-------------------------------------------------------------------------------------------------
-int fade_palette_update()
-{
-  if (!sPaletteFadeState.iActive)
-    return -1;
-
-  if (!fade_palette_timer_ready())
-    return 0;
-
-  fade_palette_apply_audio_step(sPaletteFadeState.iCurrentStep);
-  fade_palette_apply_step(sPaletteFadeState.iCurrentStep);
-  g_bPaletteSet = true;
-
-  if (sPaletteFadeState.iCurrentStep == sPaletteFadeState.iTargetBrightness) {
-    fade_palette_finish();
-    return -1;
-  }
-
-  sPaletteFadeState.iCurrentStep += sPaletteFadeState.iStepDirection;
-  return 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-void fade_music_start(int iTargetBrightness)
-{
-    if (iTargetBrightness == 32 && soundon) {
-        DIGISetMasterVolume(0x7FFF);
-    }
-}
-
-void fade_music_step(int iStep)
-{
-    if (holdmusic) return;
-    if (musicon)
-        MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    if (soundon) {
-        int iVolumeStep = (iStep << 15) - iStep;
-        DIGISetMasterVolume(iVolumeStep >> 5);
-    }
-    if (MusicCD)
-        SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-}
-
-void fade_music_finish(int iTargetBrightness)
-{
-    if (iTargetBrightness != 0 || holdmusic) return;
-    if (MusicCD && track_playing) StopTrack();
-    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
 }
 
 //-------------------------------------------------------------------------------------------------

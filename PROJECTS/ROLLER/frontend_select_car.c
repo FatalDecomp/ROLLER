@@ -4,6 +4,7 @@
 #include "func2.h"
 #include "sound.h"
 #include "roller.h"
+#include "rollersound.h"
 #include "car.h"
 #include "moving.h"
 #include "network.h"
@@ -28,14 +29,7 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-
-static void frontend_car_select_run_snapshot(void);
-
-void snapshot_render_menu_select_car(void)
-{
-  snapshot_setup_frontend_menu_state(0);
-  frontend_car_select_run_snapshot();
-}
+//-------------------------------------------------------------------------------------------------
 
 static int iFrontendCarBlockIdxAy[7];
 static int iFrontendCarOriginalCarSelection;
@@ -51,10 +45,26 @@ static int iFrontendCarPlayer1Car;
 static int iFrontendCarSelectedCar;
 static char *szFrontendCarCurrentCompanyName;
 
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_car_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+void snapshot_render_menu_select_car(void)
+{
+  snapshot_setup_frontend_menu_state(0);
+  frontend_car_select_run_snapshot();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_car_select_begin_broadcast_wait(int iBroadcastMode)
 {
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int frontend_car_select_update_broadcast_wait(void)
 {
@@ -64,6 +74,8 @@ static int frontend_car_select_update_broadcast_wait(void)
   (void)network_broadcast_wait_update();
   return -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void frontend_car_select_black_palette(void)
 {
@@ -75,6 +87,8 @@ static void frontend_car_select_black_palette(void)
   }
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_car_select_request_exit(void)
 {
   iFrontendCarExitFlag = -1;
@@ -84,6 +98,8 @@ static void frontend_car_select_request_exit(void)
     iFrontendCarExitFading = 1;
   }
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_car_select_enter(void)
 {
@@ -169,6 +185,8 @@ void frontend_car_select_enter(void)
   if (iFrontendCarOriginalCarSelection >= 0)
     szFrontendCarCurrentCompanyName = CompanyNames[iFrontendCarOriginalCarSelection];
 }
+
+//-------------------------------------------------------------------------------------------------
 
 void frontend_car_select_update(void)
 {
@@ -598,6 +616,8 @@ void frontend_car_select_update(void)
   Car[0].nYaw = nRotationAngle;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 void frontend_car_select_exit(void)
 {
   uint8 **ppCleanupTextureArray;
@@ -628,7 +648,7 @@ void frontend_car_select_exit(void)
 }
 
 //-------------------------------------------------------------------------------------------------
-//00041CA0
+
 static void frontend_car_select_run_snapshot(void)
 {
   frontend_car_select_enter();

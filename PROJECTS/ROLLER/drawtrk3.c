@@ -57,6 +57,277 @@ int num_pols;       //001446A8
 int small_poly;     //001446AC
 
 //-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+// World-space vertex builders — three winding patterns (forward, cross_first, reverse)
+// reading from the caller-provided point array (tGroundPt or tTrakPt).
+
+// Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
+static void world_verts_forward(GameRenderVertex *verts,
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
+{
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
+    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
+    verts[1].x = c->pointAy[ptA].fX; verts[1].y = c->pointAy[ptA].fY; verts[1].z = c->pointAy[ptA].fZ;
+    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
+    verts[3].x = n->pointAy[ptB].fX; verts[3].y = n->pointAy[ptB].fY; verts[3].z = n->pointAy[ptB].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+// Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
+static void world_verts_cross_first(GameRenderVertex *verts,
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
+{
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
+    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
+    verts[1].x = n->pointAy[ptB].fX; verts[1].y = n->pointAy[ptB].fY; verts[1].z = n->pointAy[ptB].fZ;
+    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
+    verts[3].x = c->pointAy[ptA].fX; verts[3].y = c->pointAy[ptA].fY; verts[3].z = c->pointAy[ptA].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+// Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
+static void world_verts_reverse(GameRenderVertex *verts,
+    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
+{
+    const tGroundPt *n = &src[nextSec];
+    const tGroundPt *c = &src[curSec];
+    verts[0].x = c->pointAy[ptA].fX; verts[0].y = c->pointAy[ptA].fY; verts[0].z = c->pointAy[ptA].fZ;
+    verts[1].x = n->pointAy[ptA].fX; verts[1].y = n->pointAy[ptA].fY; verts[1].z = n->pointAy[ptA].fZ;
+    verts[2].x = n->pointAy[ptB].fX; verts[2].y = n->pointAy[ptB].fY; verts[2].z = n->pointAy[ptB].fZ;
+    verts[3].x = c->pointAy[ptB].fX; verts[3].y = c->pointAy[ptB].fY; verts[3].z = c->pointAy[ptB].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+static const tVec3 *ground_world_point(int sec, int pt)
+{
+    if (GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2 && TrackScreenXYZ[sec].iClipCount != 99) {
+        if (pt == 2) return &TrakPt[sec].pointAy[0];
+        if (pt == 3) return &TrakPt[sec].pointAy[4];
+    }
+    return &GroundPt[sec].pointAy[pt];
+}
+
+static void world_verts_ground_forward(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptA, int ptB)
+{
+    const tVec3 *nA = ground_world_point(nextSec, ptA);
+    const tVec3 *cA = ground_world_point(curSec, ptA);
+    const tVec3 *cB = ground_world_point(curSec, ptB);
+    const tVec3 *nB = ground_world_point(nextSec, ptB);
+    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
+    verts[1].x = cA->fX; verts[1].y = cA->fY; verts[1].z = cA->fZ;
+    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
+    verts[3].x = nB->fX; verts[3].y = nB->fY; verts[3].z = nB->fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+static void world_verts_ground_cross_first(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptA, int ptB)
+{
+    const tVec3 *nA = ground_world_point(nextSec, ptA);
+    const tVec3 *nB = ground_world_point(nextSec, ptB);
+    const tVec3 *cB = ground_world_point(curSec, ptB);
+    const tVec3 *cA = ground_world_point(curSec, ptA);
+    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
+    verts[1].x = nB->fX; verts[1].y = nB->fY; verts[1].z = nB->fZ;
+    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
+    verts[3].x = cA->fX; verts[3].y = cA->fY; verts[3].z = cA->fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+// Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a 3-way
+// conditional on adjacent left-wall presence: pointAy[1] when both current and
+// previous sections have a left wall, else pointAy[0] when both wall types are
+// non-negative, else pointAy[2]. The fallback collapses the wall top to the
+// wall base at discontinuities so no stray geometry is drawn.
+static int left_wall_top_pt_idx(int sec)
+{
+    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+    int curLW  = TrakColour[sec][TRAK_COLOUR_LEFT_WALL];
+    int prevLW = TrakColour[prevSec][TRAK_COLOUR_LEFT_WALL];
+    if (curLW && prevLW) return 1;
+    if (curLW >= 0 && prevLW >= 0) return 0;
+    return 2;
+}
+
+// Left-wall forward quad: top vertex (v[0], v[1]) is chosen per-section by
+// left_wall_top_pt_idx; bottom vertex (v[2], v[3]) uses ptBottom (0 = low wall,
+// 2 = high wall). Mirrors master's case 0/8 LWallPoly construction.
+static void world_verts_left_wall(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptBottom)
+{
+    int nextTop = left_wall_top_pt_idx(nextSec);
+    int curTop  = left_wall_top_pt_idx(curSec);
+    const tGroundPt *n = &TrakPt[nextSec];
+    const tGroundPt *c = &TrakPt[curSec];
+    verts[0].x = n->pointAy[nextTop].fX;  verts[0].y = n->pointAy[nextTop].fY;  verts[0].z = n->pointAy[nextTop].fZ;
+    verts[1].x = c->pointAy[curTop].fX;   verts[1].y = c->pointAy[curTop].fY;   verts[1].z = c->pointAy[curTop].fZ;
+    verts[2].x = c->pointAy[ptBottom].fX; verts[2].y = c->pointAy[ptBottom].fY; verts[2].z = c->pointAy[ptBottom].fZ;
+    verts[3].x = n->pointAy[ptBottom].fX; verts[3].y = n->pointAy[ptBottom].fY; verts[3].z = n->pointAy[ptBottom].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+// Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source
+// for the right wall: pointAy[5] when both adjacent RW types are non-zero, else
+// pointAy[4] when both are non-negative, else pointAy[3].
+static int right_wall_top_pt_idx(int sec)
+{
+    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
+    int curRW  = TrakColour[sec][TRAK_COLOUR_RIGHT_WALL];
+    int prevRW = TrakColour[prevSec][TRAK_COLOUR_RIGHT_WALL];
+    if (curRW && prevRW) return 5;
+    if (curRW >= 0 && prevRW >= 0) return 4;
+    return 3;
+}
+
+// Right-wall reverse quad: top vertex (v[0], v[1]) chosen per-section; bottom
+// vertex (v[2], v[3]) uses ptBottom (4 = low wall, 3 = high wall). Mirrors
+// master's case 1/9 RWallPoly construction with reverse winding.
+static void world_verts_right_wall(GameRenderVertex *verts,
+    int nextSec, int curSec, int ptBottom)
+{
+    int nextTop = right_wall_top_pt_idx(nextSec);
+    int curTop  = right_wall_top_pt_idx(curSec);
+    const tGroundPt *n = &TrakPt[nextSec];
+    const tGroundPt *c = &TrakPt[curSec];
+    verts[0].x = c->pointAy[curTop].fX;   verts[0].y = c->pointAy[curTop].fY;   verts[0].z = c->pointAy[curTop].fZ;
+    verts[1].x = n->pointAy[nextTop].fX;  verts[1].y = n->pointAy[nextTop].fY;  verts[1].z = n->pointAy[nextTop].fZ;
+    verts[2].x = n->pointAy[ptBottom].fX; verts[2].y = n->pointAy[ptBottom].fY; verts[2].z = n->pointAy[ptBottom].fZ;
+    verts[3].x = c->pointAy[ptBottom].fX; verts[3].y = c->pointAy[ptBottom].fY; verts[3].z = c->pointAy[ptBottom].fZ;
+    verts[0].u = 0; verts[0].v = 0;
+    verts[1].u = 0; verts[1].v = 0;
+    verts[2].u = 0; verts[2].v = 0;
+    verts[3].u = 0; verts[3].v = 0;
+}
+
+static void draw_start_light_cube_world(GameRenderer *renderer,
+                                        const tSLight *light,
+                                        int countdownValue,
+                                        int worldDirection,
+                                        const GameRenderCamera *camera,
+                                        const GameRenderProjection *projection)
+{
+    static const int cubeFaces[6][4] = {
+        { 0, 1, 2, 3 },
+        { 4, 5, 6, 7 },
+        { 3, 2, 6, 7 },
+        { 0, 3, 7, 4 },
+        { 1, 2, 6, 5 },
+        { 0, 1, 5, 4 },
+    };
+    static const float cubeCorners[8][3] = {
+        { -100.0f,  100.0f, -100.0f },
+        { -100.0f, -100.0f, -100.0f },
+        {  100.0f, -100.0f, -100.0f },
+        {  100.0f,  100.0f, -100.0f },
+        { -100.0f,  100.0f,  100.0f },
+        { -100.0f, -100.0f,  100.0f },
+        {  100.0f, -100.0f,  100.0f },
+        {  100.0f,  100.0f,  100.0f },
+    };
+
+    if (!renderer || !light || !camera || !projection)
+        return;
+
+    int lightYaw = ((int16)light->uiRotation + (int16)worldDirection) & 0x3FFF;
+    float sinZero = tsin[0];
+    float cosZero = tcos[0];
+    float basisX0 = tcos[lightYaw] * cosZero;
+    float basisY0 = tsin[lightYaw] * cosZero;
+    double cosYaw = tcos[lightYaw];
+    float basisZ0 = sinZero;
+    double cosYawSinZero = cosYaw * sinZero;
+    float basisX1 = (float)cosYawSinZero * sinZero - basisY0;
+    double sinYawSinZero = tsin[lightYaw] * sinZero;
+    float basisY1 = (float)sinYawSinZero * sinZero + basisX0;
+    float basisZ1 = -sinZero * cosZero;
+    float basisX2 = -tcos[lightYaw] * sinZero * cosZero - (float)sinYawSinZero;
+    float basisY2 = (float)cosYawSinZero + -tsin[lightYaw] * sinZero * cosZero;
+    float basisZ2 = cosZero * cosZero;
+
+    GameRenderVertex cubeVerts[8];
+    float cubeDepth[8];
+    for (int i = 0; i < 8; i++) {
+        float sx = cubeCorners[i][0];
+        float sy = cubeCorners[i][1];
+        float sz = cubeCorners[i][2];
+        cubeVerts[i].x = sx * basisX0 + sy * basisX1 + sz * basisX2 + light->currentPos.fX;
+        cubeVerts[i].y = sx * basisY0 + sy * basisY1 + sz * basisY2 + light->currentPos.fY;
+        cubeVerts[i].z = sx * basisZ0 + sy * basisZ1 + sz * basisZ2 + light->currentPos.fZ;
+        cubeVerts[i].u = 0.0f;
+        cubeVerts[i].v = 0.0f;
+
+        double depth = (cubeVerts[i].x - camera->viewX) * projection->view[0][2]
+                     + (cubeVerts[i].y - camera->viewY) * projection->view[1][2]
+                     + (cubeVerts[i].z - camera->viewZ) * projection->view[2][2];
+        cubeDepth[i] = (float)(int)round(depth);
+    }
+
+    int surfaceFlags;
+    if (countdownValue >= 0) {
+        surfaceFlags = countdownValue >= 72 ? 0x2101 : 0x2102;
+    } else {
+        surfaceFlags = 0x2103;
+    }
+
+    TextureHandle texture = (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE)
+        ? game_render_get_texture_handle(renderer, TEXTURE_BANK_CARGEN)
+        : TEXTURE_HANDLE_INVALID;
+
+    float faceDepth[6];
+    for (int i = 0; i < 6; i++) {
+        faceDepth[i] = (cubeDepth[cubeFaces[i][0]]
+                      + cubeDepth[cubeFaces[i][1]]
+                      + cubeDepth[cubeFaces[i][2]]
+                      + cubeDepth[cubeFaces[i][3]]) * 0.25f;
+    }
+
+    set_starts(0);
+    for (int drawCount = 0; drawCount < 6; drawCount++) {
+        int face = 0;
+        float maxDepth = faceDepth[0];
+        for (int i = 1; i < 6; i++) {
+            if (faceDepth[i] > (double)maxDepth) {
+                face = i;
+                maxDepth = faceDepth[i];
+            }
+        }
+        faceDepth[face] = -9.9999998e17f;
+
+        GameRenderVertex faceVerts[4] = {
+            cubeVerts[cubeFaces[face][0]],
+            cubeVerts[cubeFaces[face][1]],
+            cubeVerts[cubeFaces[face][2]],
+            cubeVerts[cubeFaces[face][3]],
+        };
+        game_render_quad_world(renderer, faceVerts, texture, surfaceFlags, 1.0f);
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 //0001D740
 int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 {
@@ -375,275 +646,6 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   start_sect = result;
   return result;
 }
-
-//-------------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------------
-// World-space vertex builders — three winding patterns (forward, cross_first, reverse)
-// reading from the caller-provided point array (tGroundPt or tTrakPt).
-
-// Forward: NEXT[ptA], CUR[ptA], CUR[ptB], NEXT[ptB]
-static void world_verts_forward(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
-    verts[1].x = c->pointAy[ptA].fX; verts[1].y = c->pointAy[ptA].fY; verts[1].z = c->pointAy[ptA].fZ;
-    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
-    verts[3].x = n->pointAy[ptB].fX; verts[3].y = n->pointAy[ptB].fY; verts[3].z = n->pointAy[ptB].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-// Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
-static void world_verts_cross_first(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = n->pointAy[ptA].fX; verts[0].y = n->pointAy[ptA].fY; verts[0].z = n->pointAy[ptA].fZ;
-    verts[1].x = n->pointAy[ptB].fX; verts[1].y = n->pointAy[ptB].fY; verts[1].z = n->pointAy[ptB].fZ;
-    verts[2].x = c->pointAy[ptB].fX; verts[2].y = c->pointAy[ptB].fY; verts[2].z = c->pointAy[ptB].fZ;
-    verts[3].x = c->pointAy[ptA].fX; verts[3].y = c->pointAy[ptA].fY; verts[3].z = c->pointAy[ptA].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-// Reverse: CUR[ptA], NEXT[ptA], NEXT[ptB], CUR[ptB]
-static void world_verts_reverse(GameRenderVertex *verts,
-    const tGroundPt *src, int nextSec, int curSec, int ptA, int ptB)
-{
-    const tGroundPt *n = &src[nextSec];
-    const tGroundPt *c = &src[curSec];
-    verts[0].x = c->pointAy[ptA].fX; verts[0].y = c->pointAy[ptA].fY; verts[0].z = c->pointAy[ptA].fZ;
-    verts[1].x = n->pointAy[ptA].fX; verts[1].y = n->pointAy[ptA].fY; verts[1].z = n->pointAy[ptA].fZ;
-    verts[2].x = n->pointAy[ptB].fX; verts[2].y = n->pointAy[ptB].fY; verts[2].z = n->pointAy[ptB].fZ;
-    verts[3].x = c->pointAy[ptB].fX; verts[3].y = c->pointAy[ptB].fY; verts[3].z = c->pointAy[ptB].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-static const tVec3 *ground_world_point(int sec, int pt)
-{
-    if (GroundColour[sec][GROUND_COLOUR_OFLOOR] == -2 && TrackScreenXYZ[sec].iClipCount != 99) {
-        if (pt == 2) return &TrakPt[sec].pointAy[0];
-        if (pt == 3) return &TrakPt[sec].pointAy[4];
-    }
-    return &GroundPt[sec].pointAy[pt];
-}
-
-static void world_verts_ground_forward(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
-{
-    const tVec3 *nA = ground_world_point(nextSec, ptA);
-    const tVec3 *cA = ground_world_point(curSec, ptA);
-    const tVec3 *cB = ground_world_point(curSec, ptB);
-    const tVec3 *nB = ground_world_point(nextSec, ptB);
-    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
-    verts[1].x = cA->fX; verts[1].y = cA->fY; verts[1].z = cA->fZ;
-    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
-    verts[3].x = nB->fX; verts[3].y = nB->fY; verts[3].z = nB->fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-static void world_verts_ground_cross_first(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptA, int ptB)
-{
-    const tVec3 *nA = ground_world_point(nextSec, ptA);
-    const tVec3 *nB = ground_world_point(nextSec, ptB);
-    const tVec3 *cB = ground_world_point(curSec, ptB);
-    const tVec3 *cA = ground_world_point(curSec, ptA);
-    verts[0].x = nA->fX; verts[0].y = nA->fY; verts[0].z = nA->fZ;
-    verts[1].x = nB->fX; verts[1].y = nB->fY; verts[1].z = nB->fZ;
-    verts[2].x = cB->fX; verts[2].y = cB->fY; verts[2].z = cB->fZ;
-    verts[3].x = cA->fX; verts[3].y = cA->fY; verts[3].z = cA->fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-// Master's CalcVisibleTrack picks screenPtAy[4]'s world-space source via a 3-way
-// conditional on adjacent left-wall presence: pointAy[1] when both current and
-// previous sections have a left wall, else pointAy[0] when both wall types are
-// non-negative, else pointAy[2]. The fallback collapses the wall top to the
-// wall base at discontinuities so no stray geometry is drawn.
-static int left_wall_top_pt_idx(int sec)
-{
-    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
-    int curLW  = TrakColour[sec][TRAK_COLOUR_LEFT_WALL];
-    int prevLW = TrakColour[prevSec][TRAK_COLOUR_LEFT_WALL];
-    if (curLW && prevLW) return 1;
-    if (curLW >= 0 && prevLW >= 0) return 0;
-    return 2;
-}
-
-// Left-wall forward quad: top vertex (v[0], v[1]) is chosen per-section by
-// left_wall_top_pt_idx; bottom vertex (v[2], v[3]) uses ptBottom (0 = low wall,
-// 2 = high wall). Mirrors master's case 0/8 LWallPoly construction.
-static void world_verts_left_wall(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptBottom)
-{
-    int nextTop = left_wall_top_pt_idx(nextSec);
-    int curTop  = left_wall_top_pt_idx(curSec);
-    const tGroundPt *n = &TrakPt[nextSec];
-    const tGroundPt *c = &TrakPt[curSec];
-    verts[0].x = n->pointAy[nextTop].fX;  verts[0].y = n->pointAy[nextTop].fY;  verts[0].z = n->pointAy[nextTop].fZ;
-    verts[1].x = c->pointAy[curTop].fX;   verts[1].y = c->pointAy[curTop].fY;   verts[1].z = c->pointAy[curTop].fZ;
-    verts[2].x = c->pointAy[ptBottom].fX; verts[2].y = c->pointAy[ptBottom].fY; verts[2].z = c->pointAy[ptBottom].fZ;
-    verts[3].x = n->pointAy[ptBottom].fX; verts[3].y = n->pointAy[ptBottom].fY; verts[3].z = n->pointAy[ptBottom].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-// Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source
-// for the right wall: pointAy[5] when both adjacent RW types are non-zero, else
-// pointAy[4] when both are non-negative, else pointAy[3].
-static int right_wall_top_pt_idx(int sec)
-{
-    int prevSec = sec ? sec - 1 : TRAK_LEN - 1;
-    int curRW  = TrakColour[sec][TRAK_COLOUR_RIGHT_WALL];
-    int prevRW = TrakColour[prevSec][TRAK_COLOUR_RIGHT_WALL];
-    if (curRW && prevRW) return 5;
-    if (curRW >= 0 && prevRW >= 0) return 4;
-    return 3;
-}
-
-// Right-wall reverse quad: top vertex (v[0], v[1]) chosen per-section; bottom
-// vertex (v[2], v[3]) uses ptBottom (4 = low wall, 3 = high wall). Mirrors
-// master's case 1/9 RWallPoly construction with reverse winding.
-static void world_verts_right_wall(GameRenderVertex *verts,
-    int nextSec, int curSec, int ptBottom)
-{
-    int nextTop = right_wall_top_pt_idx(nextSec);
-    int curTop  = right_wall_top_pt_idx(curSec);
-    const tGroundPt *n = &TrakPt[nextSec];
-    const tGroundPt *c = &TrakPt[curSec];
-    verts[0].x = c->pointAy[curTop].fX;   verts[0].y = c->pointAy[curTop].fY;   verts[0].z = c->pointAy[curTop].fZ;
-    verts[1].x = n->pointAy[nextTop].fX;  verts[1].y = n->pointAy[nextTop].fY;  verts[1].z = n->pointAy[nextTop].fZ;
-    verts[2].x = n->pointAy[ptBottom].fX; verts[2].y = n->pointAy[ptBottom].fY; verts[2].z = n->pointAy[ptBottom].fZ;
-    verts[3].x = c->pointAy[ptBottom].fX; verts[3].y = c->pointAy[ptBottom].fY; verts[3].z = c->pointAy[ptBottom].fZ;
-    verts[0].u = 0; verts[0].v = 0;
-    verts[1].u = 0; verts[1].v = 0;
-    verts[2].u = 0; verts[2].v = 0;
-    verts[3].u = 0; verts[3].v = 0;
-}
-
-static void draw_start_light_cube_world(GameRenderer *renderer,
-                                        const tSLight *light,
-                                        int countdownValue,
-                                        int worldDirection,
-                                        const GameRenderCamera *camera,
-                                        const GameRenderProjection *projection)
-{
-    static const int cubeFaces[6][4] = {
-        { 0, 1, 2, 3 },
-        { 4, 5, 6, 7 },
-        { 3, 2, 6, 7 },
-        { 0, 3, 7, 4 },
-        { 1, 2, 6, 5 },
-        { 0, 1, 5, 4 },
-    };
-    static const float cubeCorners[8][3] = {
-        { -100.0f,  100.0f, -100.0f },
-        { -100.0f, -100.0f, -100.0f },
-        {  100.0f, -100.0f, -100.0f },
-        {  100.0f,  100.0f, -100.0f },
-        { -100.0f,  100.0f,  100.0f },
-        { -100.0f, -100.0f,  100.0f },
-        {  100.0f, -100.0f,  100.0f },
-        {  100.0f,  100.0f,  100.0f },
-    };
-
-    if (!renderer || !light || !camera || !projection)
-        return;
-
-    int lightYaw = ((int16)light->uiRotation + (int16)worldDirection) & 0x3FFF;
-    float sinZero = tsin[0];
-    float cosZero = tcos[0];
-    float basisX0 = tcos[lightYaw] * cosZero;
-    float basisY0 = tsin[lightYaw] * cosZero;
-    double cosYaw = tcos[lightYaw];
-    float basisZ0 = sinZero;
-    double cosYawSinZero = cosYaw * sinZero;
-    float basisX1 = (float)cosYawSinZero * sinZero - basisY0;
-    double sinYawSinZero = tsin[lightYaw] * sinZero;
-    float basisY1 = (float)sinYawSinZero * sinZero + basisX0;
-    float basisZ1 = -sinZero * cosZero;
-    float basisX2 = -tcos[lightYaw] * sinZero * cosZero - (float)sinYawSinZero;
-    float basisY2 = (float)cosYawSinZero + -tsin[lightYaw] * sinZero * cosZero;
-    float basisZ2 = cosZero * cosZero;
-
-    GameRenderVertex cubeVerts[8];
-    float cubeDepth[8];
-    for (int i = 0; i < 8; i++) {
-        float sx = cubeCorners[i][0];
-        float sy = cubeCorners[i][1];
-        float sz = cubeCorners[i][2];
-        cubeVerts[i].x = sx * basisX0 + sy * basisX1 + sz * basisX2 + light->currentPos.fX;
-        cubeVerts[i].y = sx * basisY0 + sy * basisY1 + sz * basisY2 + light->currentPos.fY;
-        cubeVerts[i].z = sx * basisZ0 + sy * basisZ1 + sz * basisZ2 + light->currentPos.fZ;
-        cubeVerts[i].u = 0.0f;
-        cubeVerts[i].v = 0.0f;
-
-        double depth = (cubeVerts[i].x - camera->viewX) * projection->view[0][2]
-                     + (cubeVerts[i].y - camera->viewY) * projection->view[1][2]
-                     + (cubeVerts[i].z - camera->viewZ) * projection->view[2][2];
-        cubeDepth[i] = (float)(int)round(depth);
-    }
-
-    int surfaceFlags;
-    if (countdownValue >= 0) {
-        surfaceFlags = countdownValue >= 72 ? 0x2101 : 0x2102;
-    } else {
-        surfaceFlags = 0x2103;
-    }
-
-    TextureHandle texture = (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE)
-        ? game_render_get_texture_handle(renderer, TEXTURE_BANK_CARGEN)
-        : TEXTURE_HANDLE_INVALID;
-
-    float faceDepth[6];
-    for (int i = 0; i < 6; i++) {
-        faceDepth[i] = (cubeDepth[cubeFaces[i][0]]
-                      + cubeDepth[cubeFaces[i][1]]
-                      + cubeDepth[cubeFaces[i][2]]
-                      + cubeDepth[cubeFaces[i][3]]) * 0.25f;
-    }
-
-    set_starts(0);
-    for (int drawCount = 0; drawCount < 6; drawCount++) {
-        int face = 0;
-        float maxDepth = faceDepth[0];
-        for (int i = 1; i < 6; i++) {
-            if (faceDepth[i] > (double)maxDepth) {
-                face = i;
-                maxDepth = faceDepth[i];
-            }
-        }
-        faceDepth[face] = -9.9999998e17f;
-
-        GameRenderVertex faceVerts[4] = {
-            cubeVerts[cubeFaces[face][0]],
-            cubeVerts[cubeFaces[face][1]],
-            cubeVerts[cubeFaces[face][2]],
-            cubeVerts[cubeFaces[face][3]],
-        };
-        game_render_quad_world(renderer, faceVerts, texture, surfaceFlags, 1.0f);
-    }
-}
-
 
 //-------------------------------------------------------------------------------------------------
 //0001DE40

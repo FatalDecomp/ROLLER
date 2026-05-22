@@ -53,11 +53,15 @@ static float compute_tick_fraction(int iPlayerIdx)
   return (float)dFraction;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static float get_effective_game_scale(int iPlayerIdx)
 {
   float fInterp = compute_tick_fraction(iPlayerIdx);
   return fPrevGameScale[iPlayerIdx] + (game_scale[iPlayerIdx] - fPrevGameScale[iPlayerIdx]) * fInterp;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void screen_put_pixel_clipped(int iX, int iY, uint8 byPixel)
 {
@@ -67,10 +71,14 @@ static void screen_put_pixel_clipped(int iX, int iY, uint8 byPixel)
   screen_pointer[winw * iY + iX] = byPixel;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static int control_key_is_joystick_axis(int iKey)
 {
   return iKey > 0x83;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int control_key_left_pair_index(int iControlIdx)
 {
@@ -81,6 +89,8 @@ static int control_key_left_pair_index(int iControlIdx)
   return -1;
 }
 
+//-------------------------------------------------------------------------------------------------
+
 int control_key_matches_required_pair_type(int iControlIdx, int iKey)
 {
   int iLeftControlIdx = control_key_left_pair_index(iControlIdx);
@@ -89,6 +99,8 @@ int control_key_matches_required_pair_type(int iControlIdx, int iKey)
 
   return control_key_is_joystick_axis(userkey[iLeftControlIdx]) == control_key_is_joystick_axis(iKey);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
 {
@@ -118,7 +130,8 @@ int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
 }
 
 //-------------------------------------------------------------------------------------------------
-
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 // Symbol names defined by ROLLER
 char szKey1[] = "1";
 char szKey2[] = "2";

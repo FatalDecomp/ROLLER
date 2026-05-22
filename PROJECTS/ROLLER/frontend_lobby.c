@@ -323,6 +323,8 @@ static void lobby_emit_draw(MenuRenderer *mr)
   show_received_mesage();
 }
 
+//-------------------------------------------------------------------------------------------------
+
 static void lobby_begin_exit(eFrontendState eTarget)
 {
   if (iLobbyExitFading)
@@ -332,6 +334,8 @@ static void lobby_begin_exit(eFrontendState eTarget)
   eLobbyExitTarget = eTarget;
   menu_render_begin_fade(GetMenuRenderer(), 0, 32);
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static int lobby_update_exit_fade(void)
 {
@@ -346,6 +350,8 @@ static int lobby_update_exit_fade(void)
   }
   return -1;
 }
+
+//-------------------------------------------------------------------------------------------------
 
 static void lobby_draw_frame(void)
 {
@@ -476,3 +482,5 @@ void frontend_lobby_exit(void)
   fre((void **)&front_vga[15]);
   scr_size = iLobbySavedScrSize;
 }
+
+//-------------------------------------------------------------------------------------------------
