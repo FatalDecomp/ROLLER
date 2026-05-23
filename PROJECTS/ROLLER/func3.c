@@ -808,6 +808,7 @@ void RaceResultEnter(void)
   fade_palette_begin(32);
   if (g_bSnapshotMode && g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE)
     UpdateSDLWindow();
+  ticks = 0;
   eRaceResultPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iRaceResultScreenActive = -1;
 }
@@ -1202,6 +1203,7 @@ void TimeTrialsEnter(int iDriverIdx)
   copypic(scrbuf, screen);
   startmusic(leaderboardsong);
   fade_palette_begin(32);
+  ticks = 0;
   eTimeTrialsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iTimeTrialsScreenActive = -1;
 }
@@ -1514,6 +1516,7 @@ void ChampionshipStandingsEnter(void)
   copypic(scrbuf, screen);
   holdmusic = -1;
   fade_palette_begin(32);
+  ticks = 0;
   eChampionshipStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iChampionshipStandingsScreenActive = -1;
 }
@@ -1789,6 +1792,7 @@ void TeamStandingsEnter(void)
   copypic(scrbuf, screen);
   holdmusic = -1;
   fade_palette_begin(32);
+  ticks = 0;
   eTeamStandingsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iTeamStandingsScreenActive = -1;
 }
@@ -1962,6 +1966,7 @@ static void ShowLapRecordsPresentPage(int iFirstRecordIdx, int iLastRecordIdx)
   copypic(scrbuf, screen);
   holdmusic = -1;
   fade_palette_begin(32);
+  ticks = 0;
   eLapRecordsPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
 }
 
@@ -4484,6 +4489,7 @@ void ResultRoundUpEnter(void)
   copypic(scrbuf, screen);                      // Display results screen and wait for user input
   startmusic(leaderboardsong);
   fade_palette_begin(32);
+  ticks = 0;
   eResultRoundUpPhase = eFUNC3_SCREEN_PHASE_FADE_IN;
   iResultRoundUpScreenActive = -1;
 }
