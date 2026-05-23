@@ -36,6 +36,11 @@
 
 //-------------------------------------------------------------------------------------------------
 
+#define ROLLER_PLAYER_NAME_BYTES 9
+#define ROLLER_PLAYER_NAME_MAX_CHARS (ROLLER_PLAYER_NAME_BYTES - 1)
+
+//-------------------------------------------------------------------------------------------------
+
 typedef enum {
   eFRONTEND_POST_RACE_NONE = 0,
   eFRONTEND_POST_RACE_SINGLE,
@@ -505,6 +510,7 @@ static void print_usage(FILE *f, const char *argv0)
   fprintf(f, " -h, --help             show this help message and exit\n");
   fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
   fprintf(f, " --midi-root DIR        specify midi data directory\n");
+  fprintf(f, " --player1name NAME     set player 1 name (letters, digits, spaces; max 8 chars)\n");
   fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
   fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
@@ -519,6 +525,36 @@ static void print_usage(FILE *f, const char *argv0)
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_run_game_loop(eFrontendState eInitialState);
+
+//-------------------------------------------------------------------------------------------------
+
+static int cli_player_name_copy(char *szDest, const char *szSrc)
+{
+  int iDst = 0;
+  int iHasVisibleChar = 0;
+
+  memset(szDest, 0, ROLLER_PLAYER_NAME_BYTES);
+  for (const char *p = szSrc; *p && iDst < ROLLER_PLAYER_NAME_MAX_CHARS; ++p) {
+    char c = *p;
+    if (c >= 'a' && c <= 'z')
+      c = (char)(c - 'a' + 'A');
+
+    if (c == ' ' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      szDest[iDst++] = c;
+      if (c != ' ')
+        iHasVisibleChar = 1;
+    }
+  }
+
+  return iHasVisibleChar;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void player_name_copy_bytes(char *szDest, const char *szSrc)
+{
+  memcpy(szDest, szSrc, ROLLER_PLAYER_NAME_BYTES);
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -2440,7 +2476,9 @@ int main(int argc, const char **argv, const char **envp)
 {
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
+  int iPlayer1NameOverride = 0;
   char whiplash_root[260] = { 0 };
+  char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
   const char *midi_root = NULL;
 
   for (int i = 1; i < argc;) {
@@ -2465,6 +2503,18 @@ int main(int argc, const char **argv, const char **envp)
         consumed = 2;
       } else {
         fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--player1name") == 0) {
+      if (i + 1 < argc) {
+        if (!cli_player_name_copy(szPlayer1NameOverride, argv[i + 1])) {
+          fprintf(stderr, "ERROR: '--player1name' must contain at least one letter or digit\n");
+          return 1;
+        }
+        iPlayer1NameOverride = 1;
+        consumed = 2;
+      } else {
+        fprintf(stderr, "ERROR: '--player1name' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--local-ip") == 0) {
@@ -2637,6 +2687,10 @@ int main(int argc, const char **argv, const char **envp)
     SnapshotApplyFixedSettings();
   } else {
     load_fatal_config();
+  }
+  if (iPlayer1NameOverride) {
+    player_name_copy_bytes(player_names[player1_car], szPlayer1NameOverride);
+    player_name_copy_bytes(my_name, szPlayer1NameOverride);
   }
   if ((textures_off & TEX_OFF_WIDESCREEN) != 0)           // Check for debug cheat flags in textures_off
   {
