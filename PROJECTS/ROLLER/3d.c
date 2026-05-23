@@ -27,12 +27,22 @@
 #include <math.h>
 #include <string.h>
 #include <assert.h>
+#include <stdarg.h>
 #ifdef IS_WINDOWS
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <direct.h>
 #define chdir _chdir
 #else
 #include <unistd.h>
 #endif
+
+//-------------------------------------------------------------------------------------------------
+
+#define ROLLER_PLAYER_NAME_BYTES 9
+#define ROLLER_PLAYER_NAME_MAX_CHARS (ROLLER_PLAYER_NAME_BYTES - 1)
 
 //-------------------------------------------------------------------------------------------------
 
@@ -498,27 +508,113 @@ static void LogMemBlocks(const char *pszReason, uint32 uiRequestedSize)
 
 //-------------------------------------------------------------------------------------------------
 
+static void cli_prepare_console(void)
+{
+#ifdef IS_WINDOWS
+  static int iPrepared = 0;
+  if (iPrepared)
+    return;
+  iPrepared = 1;
+
+  HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+  HANDLE hStderr = GetStdHandle(STD_ERROR_HANDLE);
+  int iStdoutValid = hStdout != NULL && hStdout != INVALID_HANDLE_VALUE &&
+                     GetFileType(hStdout) != FILE_TYPE_UNKNOWN;
+  int iStderrValid = hStderr != NULL && hStderr != INVALID_HANDLE_VALUE &&
+                     GetFileType(hStderr) != FILE_TYPE_UNKNOWN;
+  if (!iStdoutValid && !iStderrValid)
+    AttachConsole(ATTACH_PARENT_PROCESS);
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void cli_vfprintf(FILE *f, const char *fmt, va_list args)
+{
+#ifdef IS_WINDOWS
+  char szMessage[4096];
+  int iLen = vsnprintf(szMessage, sizeof(szMessage), fmt, args);
+  if (iLen < 0)
+    return;
+  if (iLen >= (int)sizeof(szMessage))
+    iLen = (int)sizeof(szMessage) - 1;
+
+  cli_prepare_console();
+  HANDLE hOut = GetStdHandle(f == stderr ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+  if (hOut != NULL && hOut != INVALID_HANDLE_VALUE && GetFileType(hOut) != FILE_TYPE_UNKNOWN) {
+    DWORD dwWritten = 0;
+    WriteFile(hOut, szMessage, (DWORD)iLen, &dwWritten, NULL);
+    return;
+  }
+#endif
+  vfprintf(f, fmt, args);
+  fflush(f);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void cli_fprintf(FILE *f, const char *fmt, ...)
+{
+  va_list args;
+  va_start(args, fmt);
+  cli_vfprintf(f, fmt, args);
+  va_end(args);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void print_usage(FILE *f, const char *argv0)
 {
-  fprintf(f, "usage: %s [options]\n\n", argv0);
-  fprintf(f, "options:\n");
-  fprintf(f, " -h, --help             show this help message and exit\n");
-  fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
-  fprintf(f, " --midi-root DIR        specify midi data directory\n");
-  fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
-  fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
-  fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
-  fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
-  fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
-  fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
-  fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
-  fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
-  fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
+  cli_fprintf(f, "usage: %s [options]\n\n", argv0);
+  cli_fprintf(f, "options:\n");
+  cli_fprintf(f, " -h, --help             show this help message and exit\n");
+  cli_fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
+  cli_fprintf(f, " --midi-root DIR        specify midi data directory\n");
+  cli_fprintf(f, " --player1name NAME     set player 1 name (letters, digits, spaces; max 8 chars)\n");
+  cli_fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
+  cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
+  cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
+  cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
+  cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
+  cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
+  cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
+  cli_fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
+  cli_fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
 }
 
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_run_game_loop(eFrontendState eInitialState);
+
+//-------------------------------------------------------------------------------------------------
+
+static int cli_player_name_copy(char *szDest, const char *szSrc)
+{
+  int iDst = 0;
+  int iHasVisibleChar = 0;
+
+  memset(szDest, 0, ROLLER_PLAYER_NAME_BYTES);
+  for (const char *p = szSrc; *p && iDst < ROLLER_PLAYER_NAME_MAX_CHARS; ++p) {
+    char c = *p;
+    if (c >= 'a' && c <= 'z')
+      c = (char)(c - 'a' + 'A');
+
+    if (c == ' ' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+      szDest[iDst++] = c;
+      if (c != ' ')
+        iHasVisibleChar = 1;
+    }
+  }
+
+  return iHasVisibleChar;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void player_name_copy_bytes(char *szDest, const char *szSrc)
+{
+  memcpy(szDest, szSrc, ROLLER_PLAYER_NAME_BYTES);
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -2440,7 +2536,9 @@ int main(int argc, const char **argv, const char **envp)
 {
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
+  int iPlayer1NameOverride = 0;
   char whiplash_root[260] = { 0 };
+  char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
   const char *midi_root = NULL;
 
   for (int i = 1; i < argc;) {
@@ -2456,7 +2554,7 @@ int main(int argc, const char **argv, const char **envp)
         strncpy(whiplash_root, argv[i + 1], sizeof(whiplash_root));
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--whiplash-root' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--whiplash-root' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--midi-root") == 0) {
@@ -2464,7 +2562,19 @@ int main(int argc, const char **argv, const char **envp)
         midi_root = argv[i + 1];
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--midi-root' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--player1name") == 0) {
+      if (i + 1 < argc) {
+        if (!cli_player_name_copy(szPlayer1NameOverride, argv[i + 1])) {
+          cli_fprintf(stderr, "ERROR: '--player1name' must contain at least one letter or digit\n");
+          return 1;
+        }
+        iPlayer1NameOverride = 1;
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr, "ERROR: '--player1name' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--local-ip") == 0) {
@@ -2472,20 +2582,20 @@ int main(int argc, const char **argv, const char **envp)
         ROLLERCommsSetLocalIP(argv[i + 1]);
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--local-ip' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--local-ip' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--port") == 0) {
       if (i + 1 < argc) {
         int iPort = atoi(argv[i + 1]);
         if (iPort <= 0 || iPort > 65535) {
-          fprintf(stderr, "ERROR: '--port' must be 1-65535\n");
+          cli_fprintf(stderr, "ERROR: '--port' must be 1-65535\n");
           return 1;
         }
         ROLLERCommsSetLocalPort((uint16_t)iPort);
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--port' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--port' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--peer") == 0) {
@@ -2495,19 +2605,19 @@ int main(int argc, const char **argv, const char **envp)
         szPeerBuf[sizeof(szPeerBuf) - 1] = '\0';
         char *pszColon = strrchr(szPeerBuf, ':');
         if (!pszColon) {
-          fprintf(stderr, "ERROR: '--peer' expects IP:PORT format\n");
+          cli_fprintf(stderr, "ERROR: '--peer' expects IP:PORT format\n");
           return 1;
         }
         *pszColon = '\0';
         int iPeerPort = atoi(pszColon + 1);
         if (iPeerPort <= 0 || iPeerPort > 65535) {
-          fprintf(stderr, "ERROR: '--peer' port must be 1-65535\n");
+          cli_fprintf(stderr, "ERROR: '--peer' port must be 1-65535\n");
           return 1;
         }
         ROLLERCommsSetPeer(szPeerBuf, (uint16_t)iPeerPort);
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--peer' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--peer' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--net-slot") == 0) {
@@ -2515,7 +2625,7 @@ int main(int argc, const char **argv, const char **envp)
         network_slot = atoi(argv[i + 1]);
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--snapshot") == 0) {
@@ -2524,7 +2634,7 @@ int main(int argc, const char **argv, const char **envp)
         g_bSnapshotMode = 1;
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--snapshot' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--snapshot' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--snapshot-scene") == 0) {
@@ -2533,18 +2643,18 @@ int main(int argc, const char **argv, const char **envp)
         g_bSnapshotMode = 1;
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--snapshot-scene' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--snapshot-scene' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--frames") == 0) {
       if (i + 1 < argc) {
         if (SnapshotParseFrames(argv[i + 1]) != 0) {
-          fprintf(stderr, "ERROR: '--frames' must be a comma-separated list of non-negative integers\n");
+          cli_fprintf(stderr, "ERROR: '--frames' must be a comma-separated list of non-negative integers\n");
           return 1;
         }
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--frames' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--frames' needs an argument\n");
         return 1;
       }
     } else if (strcmp(argv[i], "--out") == 0) {
@@ -2552,12 +2662,12 @@ int main(int argc, const char **argv, const char **envp)
         SnapshotSetOutDir(argv[i + 1]);
         consumed = 2;
       } else {
-        fprintf(stderr, "ERROR: '--out' needs an argument\n");
+        cli_fprintf(stderr, "ERROR: '--out' needs an argument\n");
         return 1;
       }
     }
     if (consumed < 0) {
-      fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
+      cli_fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
       print_usage(stderr, argv[0]);
       return 1;
     }
@@ -2566,23 +2676,23 @@ int main(int argc, const char **argv, const char **envp)
 
   if (g_bSnapshotMode) {
     if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_REPLAY && g_SnapshotConfig.szReplayName[0] == '\0') {
-      fprintf(stderr, "ERROR: '--snapshot' requires a replay filename\n");
+      cli_fprintf(stderr, "ERROR: '--snapshot' requires a replay filename\n");
       return 1;
     }
     if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_SCENE && g_SnapshotConfig.szSceneName[0] == '\0') {
-      fprintf(stderr, "ERROR: '--snapshot-scene' requires a scene name\n");
+      cli_fprintf(stderr, "ERROR: '--snapshot-scene' requires a scene name\n");
       return 1;
     }
     if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_NONE) {
-      fprintf(stderr, "ERROR: snapshot mode requires '--snapshot' or '--snapshot-scene'\n");
+      cli_fprintf(stderr, "ERROR: snapshot mode requires '--snapshot' or '--snapshot-scene'\n");
       return 1;
     }
     if (g_SnapshotConfig.iNumFrames == 0) {
-      fprintf(stderr, "ERROR: snapshot mode requires '--frames N[,M,...]'\n");
+      cli_fprintf(stderr, "ERROR: snapshot mode requires '--frames N[,M,...]'\n");
       return 1;
     }
     if (g_SnapshotConfig.szOutDir[0] == '\0') {
-      fprintf(stderr, "ERROR: snapshot mode requires '--out DIR'\n");
+      cli_fprintf(stderr, "ERROR: snapshot mode requires '--out DIR'\n");
       return 1;
     }
     iCrashHandlerEnabled = 0;
@@ -2637,6 +2747,10 @@ int main(int argc, const char **argv, const char **envp)
     SnapshotApplyFixedSettings();
   } else {
     load_fatal_config();
+  }
+  if (iPlayer1NameOverride) {
+    player_name_copy_bytes(player_names[player1_car], szPlayer1NameOverride);
+    player_name_copy_bytes(my_name, szPlayer1NameOverride);
   }
   if ((textures_off & TEX_OFF_WIDESCREEN) != 0)           // Check for debug cheat flags in textures_off
   {
