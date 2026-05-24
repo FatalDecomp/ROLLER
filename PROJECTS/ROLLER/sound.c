@@ -1850,33 +1850,19 @@ void ReadJoys(tJoyPos *pJoy)
   pJoy->iJ2YAxis = g_rollerJoyPos.iJ2YAxis;
 
   // Update presence flags based on controller status
-  x1ok = (g_pController1 != NULL);
-  y1ok = (g_pController1 != NULL);
-  x2ok = (g_pController2 != NULL);
-  y2ok = (g_pController2 != NULL);
+  x1ok = g_pController1 != NULL ? 1 : 0;
+  y1ok = g_pController1 != NULL ? 2 : 0;
+  x2ok = g_pController2 != NULL ? 4 : 0;
+  y2ok = g_pController2 != NULL ? 8 : 0;
 
   // Update global acceptance mask
-  bitaccept = (x1ok << 0) | (y1ok << 1) | (x2ok << 2) | (y2ok << 3);
+  bitaccept = y2ok | y1ok | x1ok | x2ok;
 }
 
 //-------------------------------------------------------------------------------------------------
 //0003BDD0
 void check_joystickpresence()
 {
-  //TODO: integrate this with SDL
-  int iTimeoutCounter; // ebx
-  int iY1Temp; // esi
-  int iX2Temp; // ecx
-  int iY2Temp; // edi
-  int iGameportStatus; // eax
-  int iX1Temp; // [esp+0h] [ebp-18h]
-
-  iTimeoutCounter = 0;                          // Initialize timeout counter
-  x1ok = 1;                                     // Initialize joystick axis detection flags (bit masks for port 0x201)
-  y1ok = 2;
-  x2ok = 4;
-  y2ok = 8;
-  bitaccept = 15;
   JAXmin = 10000;                               // Initialize joystick axis calibration min/max values
   JAXmax = -10000;
   JAYmin = 10000;
@@ -1885,32 +1871,11 @@ void check_joystickpresence()
   JBXmax = -10000;
   JBYmin = 10000;
   JBYmax = -10000;
-  //__outbyte(0x201u, 0xFFu);                     // Trigger joystick measurement by writing 0xFF to gameport 0x201
-  iX1Temp = x1ok;
-  iY1Temp = y1ok;
-  iX2Temp = x2ok;
-  iY2Temp = y2ok;
-  do {
-    iGameportStatus = 0;                        // Main detection loop: read gameport and test axis presence
-    //LOBYTE(iGameportStatus) = __inbyte(0x201u); // Read current status from gameport 0x201
-    if (x1ok)                                 // Test X1 axis (bit 0) - if enabled, check if still active
-      iX1Temp = iGameportStatus & 1;
-    if (y1ok)                                 // Test Y1 axis (bit 1) - if enabled, check if still active
-      iY1Temp = iGameportStatus & 2;
-    if (x2ok)                                 // Test X2 axis (bit 2) - if enabled, check if still active
-      iX2Temp = iGameportStatus & 4;
-    if (y2ok)                                 // Test Y2 axis (bit 3) - if enabled, check if still active
-      iY2Temp = iGameportStatus & 8;
-    ++iTimeoutCounter;
-  } while ((iGameportStatus & bitaccept) != 0 && iTimeoutCounter < 10000);// Continue loop while any expected axes are still active and timeout not reached
-  if (iX1Temp)                                // Disable axes that didn't respond (indicating no joystick connected to that axis)
-    x1ok = 0;
-  if (iX2Temp)
-    x2ok = 0;
-  if (iY1Temp)
-    y1ok = 0;
-  if (iY2Temp)
-    y2ok = 0;
+
+  x1ok = g_pController1 != NULL ? 1 : 0;
+  y1ok = g_pController1 != NULL ? 2 : 0;
+  x2ok = g_pController2 != NULL ? 4 : 0;
+  y2ok = g_pController2 != NULL ? 8 : 0;
   bitaccept = y2ok | y1ok | x1ok | x2ok;        // Update bitaccept mask with only the axes that are actually present
 }
 

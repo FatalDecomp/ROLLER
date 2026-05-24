@@ -99,6 +99,105 @@ void SnapshotEnsureMenuRenderer(void)
 static DebugOverlay *s_pDebugOverlay = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 
+static int SDLGamepadAxisToJoyValue(Sint16 nAxisValue)
+{
+  return ((int)nAxisValue + 32768) * 10000 / 65536;
+}
+
+static void ClearJoySlot(int iSlot)
+{
+  if (iSlot == 0) {
+    g_rollerJoyPos.iJ1Button1 = 0;
+    g_rollerJoyPos.iJ1Button2 = 0;
+    g_rollerJoyPos.iJ1XAxis = 0;
+    g_rollerJoyPos.iJ1YAxis = 0;
+  } else {
+    g_rollerJoyPos.iJ2Button1 = 0;
+    g_rollerJoyPos.iJ2Button2 = 0;
+    g_rollerJoyPos.iJ2XAxis = 0;
+    g_rollerJoyPos.iJ2YAxis = 0;
+  }
+}
+
+static bool OpenGamepadSlot(int iSlot, SDL_JoystickID joyId)
+{
+  SDL_Gamepad **ppController = iSlot == 0 ? &g_pController1 : &g_pController2;
+  SDL_JoystickID *pStoredJoyId = iSlot == 0 ? &g_joyId1 : &g_joyId2;
+
+  if (*ppController)
+    return true;
+
+  SDL_Gamepad *pGamepad = SDL_OpenGamepad(joyId);
+  if (!pGamepad)
+    return false;
+
+  *ppController = pGamepad;
+  *pStoredJoyId = joyId;
+  ClearJoySlot(iSlot);
+  return true;
+}
+
+static void CloseGamepadSlot(int iSlot)
+{
+  SDL_Gamepad **ppController = iSlot == 0 ? &g_pController1 : &g_pController2;
+  SDL_JoystickID *pStoredJoyId = iSlot == 0 ? &g_joyId1 : &g_joyId2;
+
+  if (*ppController) {
+    SDL_CloseGamepad(*ppController);
+    *ppController = NULL;
+  }
+  *pStoredJoyId = 0;
+  ClearJoySlot(iSlot);
+}
+
+static void OpenAvailableGamepads(void)
+{
+  int iCount = 0;
+  SDL_JoystickID *pJoystickIds = SDL_GetGamepads(&iCount);
+
+  for (int i = 0; pJoystickIds && i < iCount; ++i) {
+    if (pJoystickIds[i] == g_joyId1 || pJoystickIds[i] == g_joyId2)
+      continue;
+
+    if (!g_pController1) {
+      OpenGamepadSlot(0, pJoystickIds[i]);
+    } else if (!g_pController2) {
+      OpenGamepadSlot(1, pJoystickIds[i]);
+    }
+
+    if (g_pController1 && g_pController2)
+      break;
+  }
+
+  SDL_free(pJoystickIds);
+}
+
+static void UpdateGamepadJoySlot(SDL_Gamepad *pController, int iSlot)
+{
+  if (!pController) {
+    ClearJoySlot(iSlot);
+    return;
+  }
+
+  if (iSlot == 0) {
+    g_rollerJoyPos.iJ1Button1 = SDL_GetGamepadButton(pController, SDL_GAMEPAD_BUTTON_SOUTH) != 0;
+    g_rollerJoyPos.iJ1Button2 = SDL_GetGamepadButton(pController, SDL_GAMEPAD_BUTTON_EAST) != 0;
+    g_rollerJoyPos.iJ1XAxis = SDLGamepadAxisToJoyValue(SDL_GetGamepadAxis(pController, SDL_GAMEPAD_AXIS_LEFTY));
+    g_rollerJoyPos.iJ1YAxis = SDLGamepadAxisToJoyValue(SDL_GetGamepadAxis(pController, SDL_GAMEPAD_AXIS_LEFTX));
+  } else {
+    g_rollerJoyPos.iJ2Button1 = SDL_GetGamepadButton(pController, SDL_GAMEPAD_BUTTON_SOUTH) != 0;
+    g_rollerJoyPos.iJ2Button2 = SDL_GetGamepadButton(pController, SDL_GAMEPAD_BUTTON_EAST) != 0;
+    g_rollerJoyPos.iJ2XAxis = SDLGamepadAxisToJoyValue(SDL_GetGamepadAxis(pController, SDL_GAMEPAD_AXIS_LEFTY));
+    g_rollerJoyPos.iJ2YAxis = SDLGamepadAxisToJoyValue(SDL_GetGamepadAxis(pController, SDL_GAMEPAD_AXIS_LEFTX));
+  }
+}
+
+static void UpdateGamepadJoyState(void)
+{
+  UpdateGamepadJoySlot(g_pController1, 0);
+  UpdateGamepadJoySlot(g_pController2, 1);
+}
+
 static void DeferGPUPresentation(int iFrames)
 {
   if (s_iGPUPresentSkipFrames < iFrames)
@@ -401,7 +500,6 @@ void ToggleFullscreen()
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
-  SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
 
   Uint32 uiSdlInitFlags = SDL_INIT_VIDEO;
   if (!g_bSnapshotMode)
@@ -494,18 +592,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   // Initialize game controllers
   SDL_InitSubSystem(SDL_INIT_GAMEPAD);
 
-  // Open game controllers
-  int iCount;
-  SDL_JoystickID *joystickAy = SDL_GetGamepads(&iCount);
-  if (!g_pController1 && iCount > 0) {
-    g_pController1 = SDL_OpenGamepad(joystickAy[0]);
-    g_joyId1 = joystickAy[0];
-  }
-  if (!g_pController2 && iCount > 1) {
-    g_pController2 = SDL_OpenGamepad(joystickAy[1]);
-    g_joyId2 = joystickAy[1];
-  }
   memset(&g_rollerJoyPos, 0, sizeof(tJoyPos));
+  OpenAvailableGamepads();
+  UpdateGamepadJoyState();
 
   char localMidiPath[256];
   if (midi_root) {
@@ -828,6 +917,15 @@ void UpdateSDL()
     }
     debug_overlay_handle_event(s_pDebugOverlay, &e);
 
+    if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
+      OpenAvailableGamepads();
+    } else if (e.type == SDL_EVENT_GAMEPAD_REMOVED) {
+      if (e.gdevice.which == g_joyId1)
+        CloseGamepadSlot(0);
+      else if (e.gdevice.which == g_joyId2)
+        CloseGamepadSlot(1);
+    }
+
     if (e.type == SDL_EVENT_KEY_DOWN) {
       if (e.key.scancode == SDL_SCANCODE_GRAVE) {
         debug_overlay_toggle(s_pDebugOverlay);
@@ -934,6 +1032,7 @@ void UpdateSDL()
       }
     }
   }
+  UpdateGamepadJoyState();
   //UpdateSDLWindow();
 #if _DEBUG
   UpdateDebugLoop(); // Add by ROLLER
