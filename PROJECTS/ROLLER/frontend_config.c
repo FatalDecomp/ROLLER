@@ -1100,14 +1100,14 @@ void frontend_config_update(void)
           sprintf(buffer, "THRESHOLD %d", g_inputBindings[control_edit].iThreshold);
           menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 76, iTuneColor, 2u, pal_addr);
 
-          sprintf(buffer, "RAW %d  VALUE %d  %s", bindingPreview.iRawValue, bindingPreview.iNormalizedValue, bindingPreview.iPressed ? "ON" : "OFF");
-          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 94, 0x8F, 2u, pal_addr);
-
           if (iFrontendConfigAxisTuneField == 4)
             iTuneColor = 0xAB;
           else
             iTuneColor = 0x8F;
-          menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 475, iTuneY + 116, iTuneColor, 2u, pal_addr);
+          menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 475, iTuneY + 94, iTuneColor, 2u, pal_addr);
+
+          sprintf(buffer, "RAW %d  VALUE %d  %s", bindingPreview.iRawValue, bindingPreview.iNormalizedValue, bindingPreview.iPressed ? "ON" : "OFF");
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 130, 0x8F, 2u, pal_addr);
         }
         // Display player 1 control customization screen
         else if (frontend_config_is_player1_control_selection(iFrontendConfigControlSelection)) {
