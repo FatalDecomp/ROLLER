@@ -50,8 +50,6 @@ void frontend_pause_exit(void)
 {
   clear_borders = -1;
   scr_size = req_size;
-  remove_uncalibrated();
-  check_joystick_usage();
   game_req = 0;
   paused = 0;
   if (!racing)

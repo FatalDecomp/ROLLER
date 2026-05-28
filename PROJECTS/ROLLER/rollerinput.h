@@ -95,7 +95,6 @@ void InputRestoreBindings(void);
 void InputCaptureBegin(void);
 int InputCapturePoll(int iAction, tInputBinding *pBindingOut);
 void InputGetBindingPreview(const tInputBinding *pBinding, tInputBindingPreview *pPreview);
-int InputGetLegacyJoySlot(int iSlot, int *piButton1, int *piButton2, int *piXAxis, int *piYAxis);
 int InputGetDeviceCount(void);
 const tInputDevice *InputGetDevice(int iDeviceRef);
 

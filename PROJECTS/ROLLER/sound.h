@@ -227,20 +227,6 @@ typedef struct
 
 typedef struct
 {
-  int iJ1Button1;
-  int iJ1Button2;
-  int iJ1XAxis;
-  int iJ1YAxis;
-  int iJ2Button1;
-  int iJ2Button2;
-  int iJ2XAxis;
-  int iJ2YAxis;
-} tJoyPos;
-
-//-------------------------------------------------------------------------------------------------
-
-typedef struct
-{
   uint16 unInput;
   uint16 unFlags;
 } tCarInputData;
@@ -311,14 +297,7 @@ extern tSampleData SampleFixed;
 extern tSampleData SamplePanned;
 extern uint8 rud_gr[2];
 extern uint8 rud_strat[2];
-extern int Joy1used;
-extern int Joy2used;
 extern int fraction;
-extern int x1ok;
-extern int y1ok;
-extern int x2ok;
-extern int y2ok;
-extern int bitaccept;
 extern uint8 *frontendspeechptr;
 extern int frontendspeechhandle;
 extern int holdmusic;
@@ -328,8 +307,6 @@ extern int lastvolume[16];
 extern int lastpitch[16];
 extern int lastpan[16];
 extern int net_time[16];
-extern int joyvalue[8];
-extern tJoyPos rud_Joy_pos;
 extern int rud_turn[2];
 extern int rud_swheel[2];
 extern int rud_steer[2];
@@ -391,7 +368,6 @@ bool loadDOS(const char *szFilename, void **out_buffer);
 bool setpal(const char *szFilename);
 void blankpal();
 void Initialise_SOS();
-void updatejoy();
 void readuserdata(int iPlayer);
 void tick_clock_step(void);
 void game_tick_step(void);
@@ -410,8 +386,6 @@ void devicespecificuninit();
 void readsoundconfig();
 char *FindConfigVar(const char *szConfigText, const char *szVarName);
 void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSound);
-void ReadJoys(tJoyPos *pJoy);
-void check_joystickpresence();
 void initsounds();
 void stopallsamples();
 void pannedsample(int iSampleIdx, int iHandle, int iPan);
@@ -442,7 +416,6 @@ int fade_palette_active();
 void fade_palette_finish();
 void fade_music_finish(int iTargetBrightness);
 void set_palette(int iBrightness);
-void check_joystick_usage();
 void convertname(char *szFilename);
 void decode(uint8 *pData, int iLength, uint32 uiStep, uint32 uiOffset);
 void loadasample(int iIndex);

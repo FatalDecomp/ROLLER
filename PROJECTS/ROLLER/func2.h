@@ -91,7 +91,6 @@ void getconfigvalueuc(const char *szConfigText, const char *szVarName, uint8 *pb
 void displaycalibrationbar(int iX, int iY, int iValue);
 void blankwindow(int iX1, int iY1, int iX2, int iY2);
 void volumebar(int iX, int iVolume);
-void remove_uncalibrated();
 void LoadRecords();
 void SaveRecords();
 uint8 *copy_int(uint8 *pDest, uint32 uiValue);

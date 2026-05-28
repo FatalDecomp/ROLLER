@@ -2780,10 +2780,6 @@ void display_paused()
   int iKeyPressed; // ebx
   int iKeyLoop; // eax
   int iNameLoop; // edx
-  int iJoy2YCalc; // eax
-  int iJoy2XCalc; // eax
-  int iJoy1YCalc; // eax
-  int iJoy1XCalc; // eax
   int iDuplicateCheck; // esi
   int i; // eax
   int iControlNext; // eax
@@ -3176,7 +3172,6 @@ void display_paused()
           while (fatkbhit())
             fatgetch();
           pausewindow = 0;
-          check_joystick_usage();
         }
       }
       break;
@@ -3683,26 +3678,6 @@ void save_fatal_config()
   fprintf(fp, "P2upgear=%i\n", userkey[USERKEY_P2UPGEAR]);
   fprintf(fp, "P2downgear=%i\n", userkey[USERKEY_P2DOWNGEAR]);
   fprintf(fp, "P2cheat=%i\n", userkey[USERKEY_P2CHEAT]);
-  fprintf(fp, "Joy1X=%i\n", x1ok != 0);
-  fprintf(fp, "Joy1Y=%i\n", y1ok != 0);
-  fprintf(fp, "Joy2X=%i\n", x2ok != 0);
-  fprintf(fp, "Joy2Y=%i\n", y2ok != 0);
-  if (x1ok) {
-    fprintf(fp, "Joy1Xmin=%i\n", JAXmin);
-    fprintf(fp, "Joy1Xmax=%i\n", JAXmax);
-  }
-  if (y1ok) {
-    fprintf(fp, "Joy1Ymin=%i\n", JAYmin);
-    fprintf(fp, "Joy1Ymax=%i\n", JAYmax);
-  }
-  if (x2ok) {
-    fprintf(fp, "Joy2Xmin=%i\n", JBXmin);
-    fprintf(fp, "Joy2Xmax=%i\n", JBXmax);
-  }
-  if (y2ok) {
-    fprintf(fp, "Joy2Ymin=%i\n", JBYmin);
-    fprintf(fp, "Joy2Ymax=%i\n", JBYmax);
-  }
   name_copy(buffer, player_names[0]);
   fprintf(fp, "Nom=%s\n", buffer);
   fprintf(fp, "Car1=%i\n", Players_Cars[0]);
@@ -3858,25 +3833,9 @@ void load_fatal_config()
   char *pModemPhone; // ebx
   char *szEnd24; // eax
   char cEnd24; // dh
-  int iTemp; // [esp+0h] [ebp-24h] BYREF
   char *pData2; // [esp+4h] [ebp-20h] BYREF
   int iTemp2[7]; // [esp+8h] [ebp-1Ch] BYREF // not an array
 
-  JAXmin = 10000;
-  JAXmax = -10000;
-  JAYmin = 10000;
-  JAYmax = -10000;
-  JBXmin = 10000;
-  JBXmax = -10000;
-  JBYmin = 10000;
-  JBYmax = -10000;
-  x1ok = 0;
-  y1ok = 0;
-  x2ok = 0;
-  y2ok = 0;
-  bitaccept = 0;
-  Joy1used = 0;
-  Joy2used = 0;
   fatal_ini_loaded = 0;
 
   // Open FATAL.INI file
@@ -3957,84 +3916,6 @@ void load_fatal_config()
       getconfigvalueuc(pData2, "P2upgear",    (uint8*)&userkey[USERKEY_P2UPGEAR], 0, 139);
       getconfigvalueuc(pData2, "P2downgear",  (uint8*)&userkey[USERKEY_P2DOWNGEAR], 0, 139);
       getconfigvalueuc(pData2, "P2cheat",     (uint8*)&userkey[USERKEY_P2CHEAT], 0, 139);
-
-      // Read joystick config
-      getconfigvalue(pData2, "Joy1X", &iTemp, 0, 1);
-      x1ok = iTemp != 0;
-      getconfigvalue(pData2, "Joy1Y", &iTemp, 0, 1);
-      if (iTemp)
-        y1ok = 2;
-      else
-        y1ok = 0;
-      getconfigvalue(pData2, "Joy2X", &iTemp, 0, 1);
-      if (iTemp)
-        x2ok = 4;
-      else
-        x2ok = 0;
-      getconfigvalue(pData2, "Joy2Y", &iTemp, 0, 1);
-      if (iTemp)
-        y2ok = 8;
-      else
-        y2ok = 0;
-
-      // validate x1 calibration values
-      if (x1ok) {
-        JAXmin = 10000;
-        JAXmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy1Xmin", iTemp2, 0, 0x7FFFFFFF);
-        JAXmin = iTemp2[0];
-        iTemp2[0] = JAXmax;
-        getconfigvalue(pData2, "Joy1Xmax", iTemp2, 0, 0x7FFFFFFF);
-        JAXmax = iTemp2[0];
-        if (iTemp2[0] < JAXmin)
-          x1ok = 0;
-      }
-      if (y1ok) {
-        JAYmin = 10000;
-        JAYmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy1Ymin", iTemp2, 0, 0x7FFFFFFF);
-        JAYmin = iTemp2[0];
-        iTemp2[0] = JAYmax;
-        getconfigvalue(pData2, "Joy1Ymax", iTemp2, 0, 0x7FFFFFFF);
-        JAYmax = iTemp2[0];
-        if (iTemp2[0] < JAYmin)
-          y1ok = 0;
-      }
-      if (x2ok) {
-        JBXmin = 10000;
-        JBXmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy2Xmin", iTemp2, 0, 0x7FFFFFFF);
-        JBXmin = iTemp2[0];
-        iTemp2[0] = JBXmax;
-        getconfigvalue(pData2, "Joy2Xmax", iTemp2, 0, 0x7FFFFFFF);
-        JBXmax = iTemp2[0];
-        if (iTemp2[0] < JBXmin)
-          x2ok = 0;
-      }
-      if (y2ok) {
-        JBYmin = 10000;
-        JBYmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy2Ymin", iTemp2, 0, 0x7FFFFFFF);
-        JBYmin = iTemp2[0];
-        iTemp2[0] = JBYmax;
-        getconfigvalue(pData2, "Joy2Ymax", iTemp2, 0, 0x7FFFFFFF);
-        JBYmax = iTemp2[0];
-        if (iTemp2[0] < JBYmin)
-          y2ok = 0;
-      }
-      if (JAXmin == JAXmax)
-        JAXmax = JAXmin + 1;
-      if (JAYmin == JAYmax)
-        JAYmax = JAYmin + 1;
-      if (JBXmin == JBXmax)
-        JBXmax = JBXmin + 1;
-      if (JBYmin == JBYmax)
-        JBYmax = JBYmin + 1;
-      bitaccept = y2ok | x2ok | y1ok | x1ok;
 
       // process player names
       pBuffer = buffer;
@@ -4465,7 +4346,6 @@ void load_fatal_config()
       fclose(pFile2);
     }
   }
-  remove_uncalibrated();
   InputLoadConfig();
 }
 
@@ -4626,29 +4506,6 @@ void volumebar(int iX, int iVolume)
       ++iRowIdx;
     } while (iRowIdx < iBarHeight);
   }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0001C980
-void remove_uncalibrated()
-{
-  if (JAXmax - JAXmin < 100)
-    x1ok = 0;
-  if (JAYmax - JAYmin < 100)
-    y1ok = 0;
-  if (JBXmax - JBXmin < 100)
-    x2ok = 0;
-  if (JBYmax - JBYmin < 100)
-    y2ok = 0;
-  bitaccept = y2ok | y1ok | x1ok | x2ok;
-  if (x1ok || y1ok)
-    Joy1used = -1;
-  else
-    Joy1used = x1ok;
-  if (x2ok || y2ok)
-    Joy2used = -1;
-  else
-    Joy2used = x2ok;
 }
 
 //-------------------------------------------------------------------------------------------------

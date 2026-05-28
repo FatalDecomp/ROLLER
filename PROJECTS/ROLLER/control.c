@@ -46,15 +46,7 @@ int stops[10];                    //001497D0
 float trial_times[96];            //001497F8
 float eng_chg_revs[168];          //00149978
 int FirstTick;                    //00149C18
-int JBYmax;                       //00149C24
-int JBYmin;                       //00149C30
-int JBXmin;                       //00149C34
-int JBXmax;                       //00149C3C
-int JAYmax;                       //00149C40
-int JAXmax;                       //00149C44
 int numstops;                     //00149C48
-int JAYmin;                       //00149C4C
-int JAXmin;                       //00149C50
 int race_started;                 //00149C54
 int updates;                      //00149C58
 float RecordLaps[25];             //00149C5C

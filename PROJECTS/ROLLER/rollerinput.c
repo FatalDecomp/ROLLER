@@ -1389,56 +1389,6 @@ void InputGetActionBindingName(int iAction, char *szOut, int iOutLen)
 
 //-------------------------------------------------------------------------------------------------
 
-static int InputRawAxisToLegacyValue(int iValue)
-{
-  return ((iValue + 32768) * 10000) / 65536;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-int InputGetLegacyJoySlot(int iSlot, int *piButton1, int *piButton2, int *piXAxis, int *piYAxis)
-{
-  tInputDevice *pDevice;
-
-  if (piButton1)
-    *piButton1 = 0;
-  if (piButton2)
-    *piButton2 = 0;
-  if (piXAxis)
-    *piXAxis = 5000;
-  if (piYAxis)
-    *piYAxis = 5000;
-
-  if (iSlot < 0 || iSlot >= s_iNumDevices)
-    return 0;
-
-  pDevice = &s_pDevices[iSlot];
-  if (pDevice->bGamepad && pDevice->pGamepad) {
-    if (piButton1)
-      *piButton1 = SDL_GetGamepadButton(pDevice->pGamepad, SDL_GAMEPAD_BUTTON_SOUTH) ? 1 : 0;
-    if (piButton2)
-      *piButton2 = SDL_GetGamepadButton(pDevice->pGamepad, SDL_GAMEPAD_BUTTON_EAST) ? 1 : 0;
-    if (piXAxis)
-      *piXAxis = InputRawAxisToLegacyValue(SDL_GetGamepadAxis(pDevice->pGamepad, SDL_GAMEPAD_AXIS_LEFTY));
-    if (piYAxis)
-      *piYAxis = InputRawAxisToLegacyValue(SDL_GetGamepadAxis(pDevice->pGamepad, SDL_GAMEPAD_AXIS_LEFTX));
-    return 1;
-  }
-
-  if (piButton1 && pDevice->iNumButtons > 0)
-    *piButton1 = pDevice->pbyButtons[0] != 0;
-  if (piButton2 && pDevice->iNumButtons > 1)
-    *piButton2 = pDevice->pbyButtons[1] != 0;
-  if (piXAxis && pDevice->iNumAxes > 1)
-    *piXAxis = InputRawAxisToLegacyValue(pDevice->piAxes[1]);
-  if (piYAxis && pDevice->iNumAxes > 0)
-    *piYAxis = InputRawAxisToLegacyValue(pDevice->piAxes[0]);
-
-  return 1;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 int InputGetDeviceCount(void)
 {
   return s_iNumDevices;

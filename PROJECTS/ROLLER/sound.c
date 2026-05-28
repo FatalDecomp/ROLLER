@@ -96,14 +96,7 @@ tSampleData SampleFixed = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 256, 0, 0, 0, 
 tSampleData SamplePanned = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 768, 0, 0, 0, 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } }; //000A493C
 uint8 rud_gr[2] = { 0, 0 }; //000A4A08
 uint8 rud_strat[2] = { 0, 0 }; //000A4A0A
-int Joy1used = 0;           //000A4A0C
-int Joy2used = 0;           //000A4A0C
 int fraction = 0;           //000A4A14
-int x1ok = 0;               //000A4A30
-int y1ok = 0;               //000A4A34
-int x2ok = 0;               //000A4A38
-int y2ok = 0;               //000A4A3C
-int bitaccept = 0;          //000A4A40
 uint8 *frontendspeechptr = NULL;//000A4A44
 int frontendspeechhandle = -1;  //000A4A48
 uint32 frontendlen = 0;
@@ -115,8 +108,6 @@ int lastvolume[16];         //001603F8
 int lastpitch[16];          //00160438
 int lastpan[16];            //00160478
 int net_time[16];           //001604B8
-int joyvalue[8];            //001604F8
-tJoyPos rud_Joy_pos;        //00160518
 int rud_turn[2];            //00160538
 int rud_swheel[2];          //00160540
 int rud_steer[2];           //00160548
@@ -535,7 +526,6 @@ void tick_clock_step(void)
   } else {
     ticks++;
     if (!paused && !frontend_on) {
-      updatejoy();
       network_master_input_tick();
       network_slave_input_tick();
     }
@@ -1018,88 +1008,6 @@ void Initialise_SOS()
   // installed.
   if (!g_bSnapshotMode)
     claim_ticktimer(36u);
-}
-
-//-------------------------------------------------------------------------------------------------
-//00039A40
-void updatejoy()
-{
-  int iX1Scaled; // eax
-  int iX1Clamped2; // eax
-  int iX1Clamped; // eax
-  int iY1Scaled; // eax
-  int iY1Clamped2; // eax
-  int iY1Clamped; // eax
-  int iX2Scaled; // eax
-  int iX2Clamped2; // eax
-  int iX2Clamped; // eax
-  int iY2Scaled; // eax
-  int iY2Clamped2; // eax
-  int iY2Clamped; // eax
-
-  memset(joyvalue, 0, sizeof(joyvalue));
-  if (Joy1used || Joy2used)
-    ReadJoys(&rud_Joy_pos);
-  if (Joy1used) {
-    keys[WHIP_SCANCODE_J1B1] = rud_Joy_pos.iJ1Button1;
-    keys[WHIP_SCANCODE_J1B2] = rud_Joy_pos.iJ1Button2;
-    iX1Scaled = ((2 * rud_Joy_pos.iJ1XAxis - JAXmax - JAXmin) << 10) / (JAXmax - JAXmin);
-    //apply 100-unit deadzone
-    if (iX1Scaled >= 0) {
-      iX1Clamped = iX1Scaled - 100;
-      if (iX1Clamped < 0)
-        iX1Clamped = 0;
-      joyvalue[1] = iX1Clamped;
-    } else {
-      iX1Clamped2 = iX1Scaled + 100;
-      if (iX1Clamped2 > 0)
-        iX1Clamped2 = 0;
-      joyvalue[0] = -iX1Clamped2;
-    }
-    iY1Scaled = ((2 * rud_Joy_pos.iJ1YAxis - JAYmax - JAYmin) << 10) / (JAYmax - JAYmin);
-    //apply 100-unit deadzone
-    if (iY1Scaled >= 0) {
-      iY1Clamped = iY1Scaled - 100;
-      if (iY1Clamped < 0)
-        iY1Clamped = 0;
-      joyvalue[3] = iY1Clamped;
-    } else {
-      iY1Clamped2 = iY1Scaled + 100;
-      if (iY1Clamped2 > 0)
-        iY1Clamped2 = 0;
-      joyvalue[2] = -iY1Clamped2;
-    }
-  }
-  if (Joy2used) {
-    keys[WHIP_SCANCODE_J2B1] = rud_Joy_pos.iJ2Button1;
-    keys[WHIP_SCANCODE_J2B2] = rud_Joy_pos.iJ2Button2;
-    iX2Scaled = ((2 * rud_Joy_pos.iJ2XAxis - JBXmax - JBXmin) << 10) / (JBXmax - JBXmin);
-    //apply 100-unit deadzone
-    if (iX2Scaled >= 0) {
-      iX2Clamped = iX2Scaled - 100;
-      if (iX2Clamped < 0)
-        iX2Clamped = 0;
-      joyvalue[5] = iX2Clamped;
-    } else {
-      iX2Clamped2 = iX2Scaled + 100;
-      if (iX2Clamped2 > 0)
-        iX2Clamped2 = 0;
-      joyvalue[4] = -iX2Clamped2;
-    }
-    iY2Scaled = ((2 * rud_Joy_pos.iJ2YAxis - JBYmax - JBYmin) << 10) / (JBYmax - JBYmin);
-    //apply 100-unit deadzone
-    if (iY2Scaled >= 0) {
-      iY2Clamped = iY2Scaled - 100;
-      if (iY2Clamped < 0)
-        iY2Clamped = 0;
-      joyvalue[7] = iY2Clamped;
-    } else {
-      iY2Clamped2 = iY2Scaled + 100;
-      if (iY2Clamped2 > 0)
-        iY2Clamped2 = 0;
-      joyvalue[6] = -iY2Clamped2;
-    }
-  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1780,52 +1688,6 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
       }
     }
   }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003BBD0
-void ReadJoys(tJoyPos *pJoy)
-{
-  int iHasJoy1;
-  int iHasJoy2;
-
-  iHasJoy1 = InputGetLegacyJoySlot(0, &pJoy->iJ1Button1, &pJoy->iJ1Button2, &pJoy->iJ1XAxis, &pJoy->iJ1YAxis);
-  iHasJoy2 = InputGetLegacyJoySlot(1, &pJoy->iJ2Button1, &pJoy->iJ2Button2, &pJoy->iJ2XAxis, &pJoy->iJ2YAxis);
-
-  // Update presence flags based on controller status
-  x1ok = iHasJoy1 ? 1 : 0;
-  y1ok = iHasJoy1 ? 2 : 0;
-  x2ok = iHasJoy2 ? 4 : 0;
-  y2ok = iHasJoy2 ? 8 : 0;
-
-  // Update global acceptance mask
-  bitaccept = y2ok | y1ok | x1ok | x2ok;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003BDD0
-void check_joystickpresence()
-{
-  tJoyPos joyPos;
-  int iHasJoy1;
-  int iHasJoy2;
-
-  JAXmin = 0;
-  JAXmax = 10000;
-  JAYmin = 0;
-  JAYmax = 10000;
-  JBXmin = 0;
-  JBXmax = 10000;
-  JBYmin = 0;
-  JBYmax = 10000;
-
-  iHasJoy1 = InputGetLegacyJoySlot(0, &joyPos.iJ1Button1, &joyPos.iJ1Button2, &joyPos.iJ1XAxis, &joyPos.iJ1YAxis);
-  iHasJoy2 = InputGetLegacyJoySlot(1, &joyPos.iJ2Button1, &joyPos.iJ2Button2, &joyPos.iJ2XAxis, &joyPos.iJ2YAxis);
-  x1ok = iHasJoy1 ? 1 : 0;
-  y1ok = iHasJoy1 ? 2 : 0;
-  x2ok = iHasJoy2 ? 4 : 0;
-  y2ok = iHasJoy2 ? 8 : 0;
-  bitaccept = y2ok | y1ok | x1ok | x2ok;        // Update bitaccept mask with only the axes that are actually present
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3387,26 +3249,6 @@ void set_palette(int iBrightness)
   //SDL_SetPaletteColors(sdl_palette, sdl_colors, 0, 256);
 
   palette_brightness = iBrightness;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003EAB0
-void check_joystick_usage()
-{
-  int i; // eax
-  uint8 byKey1; // dl
-  uint8 byKey2; // cl
-
-  Joy1used = 0;
-  Joy2used = 0;
-  for (i = 0; i < 12; ++i) {
-    byKey1 = userkey[i];
-    if (byKey1 == 0x80 || byKey1 == 0x81 || byKey1 >= 0x84u && byKey1 <= 0x87u)
-      Joy1used = -1;
-    byKey2 = userkey[i];
-    if (byKey2 == 0x82 || byKey2 == 0x83 || byKey2 >= 0x88u && byKey2 <= 0x8Bu)
-      Joy2used = -1;
-  }
 }
 
 //-------------------------------------------------------------------------------------------------

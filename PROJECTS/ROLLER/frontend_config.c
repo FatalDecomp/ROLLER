@@ -300,10 +300,6 @@ void frontend_config_update(void)
   int iKeyCheckLoop; // eax
   int iFoundKey; // ecx
   int iKeySearchIndex; // edx
-  int iJoyValue1; // eax
-  int iJoyValue2; // eax
-  int iJoyValue3; // eax
-  int iJoyValue4; // eax
   int iDuplicateCheck; // ebx
   int iCapturedControllerInput; // ebx
   int i; // eax
@@ -1184,7 +1180,6 @@ void frontend_config_update(void)
           iFrontendConfigWheelDefineMode = 0;
           iFrontendConfigAxisTuneActive = 0;
           control_edit = -1;
-          check_joystick_usage();
         }
       RENDER_FRAME:
               // Display any received network messages
@@ -1306,8 +1301,6 @@ void frontend_config_update(void)
                       iFrontendConfigControlsInEdit = 0;
                       iFrontendConfigWheelDefineMode = 0;
                       iFrontendConfigAxisTuneActive = 0;
-                      Joy1used = 0;
-                      Joy2used = 0;
                       controlrelease = -1;
                       control_edit = -1;
                       break;

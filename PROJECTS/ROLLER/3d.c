@@ -3034,9 +3034,6 @@ void play_game_init()
   game_count[1] = -2;
   set_game_scale(0, 32768.0f);
   set_game_scale(1, 32768.0f);
-  Joy1used = 0;
-  Joy2used = 0;
-  check_joystick_usage();                       // Initialize joystick usage tracking
   memset(repsample, 1, sizeof(repsample));
   memcpy(newrepsample, repsample, sizeof(newrepsample));
   autoswitch = -1;
@@ -3769,8 +3766,6 @@ void game_keys()
               break;
             if (uiKeyCode <= 0x1B) {                                   // Escape key - Exit pause menus
               if (game_req && pausewindow) {
-                if (pausewindow == 2)
-                  remove_uncalibrated();
                 pausewindow = 0;
               } else if (filingmenu) {
                 filingmenu = 0;
@@ -3819,8 +3814,6 @@ void game_keys()
                 goto PROCESS_NEXT_KEY;
               case 3:
                 pausewindow = 2;
-                Joy1used = 0;
-                Joy2used = 0;
                 controlrelease = -1;
                 define_mode = 0;
                 control_select = 0;
@@ -3828,8 +3821,6 @@ void game_keys()
                 goto PROCESS_NEXT_KEY;
               case 4:
                 pausewindow = 2;
-                Joy1used = 0;
-                Joy2used = 0;
                 controlrelease = -1;
                 define_mode = 0;
                 control_select = 0;
