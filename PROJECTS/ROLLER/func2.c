@@ -2814,6 +2814,9 @@ void display_paused()
   tJoyPos joyPos; // [esp+0h] [ebp-28h] BYREF
   const char *pszConfigText1; // [esp+20h] [ebp-8h]
   const char *pszConfigText2; // [esp+24h] [ebp-4h]
+  tInputBinding capturedBinding;
+  char szBindingName[128];
+  int iCapturedControllerInput;
 
   switch (pausewindow) {
     case 0:
@@ -3029,7 +3032,9 @@ void display_paused()
             byKeyColor2 = 0x8F;
           else
             byKeyColor2 = 0x7B;
-          prt_stringcol(rev_vga[1], keyname[userkey[iControlIndex2++]], 200, iYPosition2, byKeyColor2);
+          InputGetActionBindingName(iControlIndex2, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition2, byKeyColor2);
+          ++iControlIndex2;
           iYPosition2 += 12;
           pszConfigText1 += 64;
         } while (iControlIndex2 < 12);
@@ -3047,7 +3052,9 @@ void display_paused()
             byKeyDisplayColor2 = 0x8F;
           else
             byKeyDisplayColor2 = 0x7B;
-          prt_stringcol(rev_vga[1], keyname[userkey[iControlIndex++]], 200, iYPosition, byKeyDisplayColor2);
+          InputGetActionBindingName(iControlIndex, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition, byKeyDisplayColor2);
+          ++iControlIndex;
           iYPosition += 12;
           pszConfigText2 += 64;
         } while (iControlIndex < 6);
@@ -3055,6 +3062,7 @@ void display_paused()
       if (define_mode) {
         if (!controlrelease) {
           iKeyPressed = -1;                     // Scan for pressed keys when in define mode
+          iCapturedControllerInput = 0;
           iKeyLoop = 0;
           iNameLoop = 0;
           do {
@@ -3063,48 +3071,9 @@ void display_paused()
             ++iKeyLoop;
             ++iNameLoop;
           } while (iKeyLoop < 128);
-          if (iKeyPressed == -1) {
-            ReadJoys(&joyPos);                 // Check joystick buttons if no keyboard input detected
-            if (joyPos.iJ1Button1)            // Joystick button mappings: 128=J1X, 129=J1Y, 130=J2X, 131=J2Y
-              iKeyPressed = 128;
-            if (joyPos.iJ1Button2)
-              iKeyPressed = 129;
-            if (joyPos.iJ2Button1)
-              iKeyPressed = 130;
-            if (joyPos.iJ2Button2)
-              iKeyPressed = 131;
-          }
-          if (iKeyPressed == -1) {
-            if (y2ok) {
-              iJoy2YCalc = 100 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-              if (iJoy2YCalc < -50)
-                iKeyPressed = 138;
-              if (iJoy2YCalc > 50)
-                iKeyPressed = 139;
-            }
-            if (x2ok) {
-              iJoy2XCalc = 100 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-              if (iJoy2XCalc < -50)
-                iKeyPressed = 136;
-              if (iJoy2XCalc > 50)
-                iKeyPressed = 137;
-            }
-            if (y1ok) {
-              iJoy1YCalc = 100 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-              if (iJoy1YCalc < -50)
-                iKeyPressed = 134;
-              if (iJoy1YCalc > 50)
-                iKeyPressed = 135;
-            }
-            if (x1ok) {
-              iJoy1XCalc = 100 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);// Calculate joystick axis positions: 132-139 are axis directions
-              if (iJoy1XCalc < -50)
-                iKeyPressed = 132;
-              if (iJoy1XCalc > 50)
-                iKeyPressed = 133;
-            }
-          }
-          if (iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
+          if (iKeyPressed == -1)
+            iCapturedControllerInput = InputCapturePoll(control_edit, &capturedBinding);
+          if (!iCapturedControllerInput && iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
             iKeyPressed = -1;  // Reject mixed keyboard/joystick input types
           }
           //if (iKeyPressed != -1
@@ -3112,14 +3081,18 @@ void display_paused()
           //  && (*((char *)&keyname[139] + control_edit + 3) <= 0x83u && iKeyPressed > 131 || *((char *)&keyname[139] + control_edit + 3) > 0x83u && iKeyPressed <= 131)) {
           //  iKeyPressed = -1;
           //}
-          if (iKeyPressed != -1) {
-            iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
+          if (iCapturedControllerInput || iKeyPressed != -1) {
+            iDuplicateCheck = iCapturedControllerInput ? 0 : control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
             if (!iDuplicateCheck) {
               iControlNext = control_edit + 1;
               iControlSelect = control_select;
               controlrelease = -1;
-              userkey[control_edit] = iKeyPressed;
-              //*((char *)&keyname[139] + iControlNext + 3) = iKeyPressed;
+              if (iCapturedControllerInput) {
+                InputSetControllerBinding(control_edit, &capturedBinding);
+              } else {
+                InputSetKeyboardBinding(control_edit, iKeyPressed);
+                InputCaptureBegin();
+              }
               control_edit = iControlNext;
               if (iControlSelect == 1) {
                 if (iControlNext == 6) {
@@ -3141,6 +3114,7 @@ void display_paused()
           define_mode = 0;
           memcpy(userkey, oldkeys, 0xCu);
           memcpy(&userkey[12], &oldkeys[12], 2u);
+          InputRestoreBindings();
           while (fatkbhit())
             fatgetch();
           pausewindow = 0;

@@ -18,6 +18,7 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include "rollerinput.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -247,6 +248,7 @@ void frontend_config_update(void)
   int iJoyValue3; // eax
   int iJoyValue4; // eax
   int iDuplicateCheck; // ebx
+  int iCapturedControllerInput; // ebx
   int i; // eax
   int iEditIndex; // eax
   int iControlState; // ebx
@@ -412,6 +414,8 @@ void frontend_config_update(void)
   int iNormalColor; // [esp+7Ch] [ebp+76h]
   int iHighlightColor; // [esp+80h] [ebp+7Ah]
   int iCarLoop; // [esp+84h] [ebp+7Eh]
+  tInputBinding capturedBinding;
+  char szBindingName[128];
 
   if (select_messages_active()) {
     select_messages();
@@ -976,7 +980,8 @@ void frontend_config_update(void)
               byColor_24 = 0xAB;
             else
               byColor_24 = 0x8F;
-            menu_render_scaled_text(mr, 15, keyname[userkey[iControlLoop]], font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640, pal_addr);
+            InputGetActionBindingName(iControlLoop, szBindingName, sizeof(szBindingName));
+            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640, pal_addr);
             szControlName += 64;                // next control name
             ++iControlLoop;
             iY_1 += 18;
@@ -991,7 +996,8 @@ void frontend_config_update(void)
               byColor_26 = 0xAB;
             else
               byColor_26 = 0x8F;
-            menu_render_scaled_text(mr, 15, keyname[userkey[12]], font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640, pal_addr);
+            InputGetActionBindingName(12, szBindingName, sizeof(szBindingName));
+            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640, pal_addr);
           }
         }
         // Display Player 2 control customization screen
@@ -1010,7 +1016,8 @@ void frontend_config_update(void)
               byColor_28 = 0xAB;
             else
               byColor_28 = 0x8F;
-            menu_render_text(mr, 15, keyname[userkey[iControlIndex2]], font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0, pal_addr);
+            InputGetActionBindingName(iControlIndex2, szBindingName, sizeof(szBindingName));
+            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0, pal_addr);
             szText += 64;                       // Next control name
             ++iControlIndex2;
             iY_2 += 18;
@@ -1027,7 +1034,8 @@ void frontend_config_update(void)
               byColor_30 = 0xAB;
             else
               byColor_30 = 0x8F;
-            menu_render_text(mr, 15, keyname[userkey[13]], font1_ascii, font1_offsets, 480, 308, byColor_30, 0, pal_addr);
+            InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
+            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 308, byColor_30, 0, pal_addr);
           }
         }
 
@@ -1042,6 +1050,7 @@ void frontend_config_update(void)
 
         // Scan for pressed keys
         iFoundKey = -1;
+        iCapturedControllerInput = 0;
         iKeySearchIndex = 0;
         do {
           if (keyname[iKeySearchIndex] && keys[iKeyCheckLoop])
@@ -1050,69 +1059,33 @@ void frontend_config_update(void)
           ++iKeySearchIndex;
         } while (iKeyCheckLoop < 128);
 
-        // If no keyboard key pressed check joystick buttons
-        if (iFoundKey == -1) {
-          ReadJoys(&jFrontendConfigJoyPos);
-          if (jFrontendConfigJoyPos.iJ1Button1)
-            iFoundKey = 128;
-          if (jFrontendConfigJoyPos.iJ1Button2)
-            iFoundKey = 129;
-          if (jFrontendConfigJoyPos.iJ2Button1)
-            iFoundKey = 130;
-          if (jFrontendConfigJoyPos.iJ2Button2)
-            iFoundKey = 131;
-        }
+        if (iFoundKey == -1)
+          iCapturedControllerInput = InputCapturePoll(control_edit, &capturedBinding);
 
-        // If still no input check joystick axis movements
-        if (iFoundKey == -1) {
-          if (y2ok) {
-            iJoyValue1 = 100 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-            if (iJoyValue1 < -50)
-              iFoundKey = 138;
-            if (iJoyValue1 > 50)
-              iFoundKey = 139;
-          }
-          if (x2ok) {
-            iJoyValue2 = 100 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-            if (iJoyValue2 < -50)
-              iFoundKey = 136;
-            if (iJoyValue2 > 50)
-              iFoundKey = 137;
-          }
-          if (y1ok) {
-            iJoyValue3 = 100 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-            if (iJoyValue3 < -50)
-              iFoundKey = 134;
-            if (iJoyValue3 > 50)
-              iFoundKey = 135;
-          }
-          if (x1ok) {
-            iJoyValue4 = 100 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-            if (iJoyValue4 < -50)
-              iFoundKey = 132;
-            if (iJoyValue4 > 50)
-              iFoundKey = 133;
-          }
-        }
-
-        if (iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
+        if (!iCapturedControllerInput && iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
           iFoundKey = -1;                       // reject incompatible steering pair type
 
-        if (iFoundKey == -1)
+        if (!iCapturedControllerInput && iFoundKey == -1)
           goto CHECK_CONTROL_INPUT;
 
         // Check for duplicate key assignments
-        iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
-        if (iDuplicateCheck)
-          goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
+        if (!iCapturedControllerInput) {
+          iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
+          if (iDuplicateCheck)
+            goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
+        }
 
         // Assign the new key
         iEditIndex = control_edit + 1;
         iControlState = iFrontendConfigControlsInEdit;
         controlrelease = -1;
 
-        userkey[control_edit] = iFoundKey;
-        //*((_BYTE *)&keyname[139] + iEditIndex + 3) = iFoundKey;
+        if (iCapturedControllerInput) {
+          InputSetControllerBinding(control_edit, &capturedBinding);
+        } else {
+          InputSetKeyboardBinding(control_edit, iFoundKey);
+          InputCaptureBegin();
+        }
 
         // Handle completion logic for each player
         control_edit = iEditIndex;
@@ -1144,6 +1117,7 @@ void frontend_config_update(void)
         if (keys[1]) {
           memcpy(userkey, oldkeys, 0xCu);      // restore original player 1 keys
           memcpy(&userkey[12], &oldkeys[12], 2u);// restore original cheat keys
+          InputRestoreBindings();
           enable_keyboard();
           iFrontendConfigControlsInEdit = 0;
           control_edit = -1;
@@ -1714,6 +1688,8 @@ void frontend_config_update(void)
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// Backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
                       iFrontendConfigControlsInEdit = 1;
                       controlrelease = -1;
                       break;
@@ -1731,6 +1707,8 @@ void frontend_config_update(void)
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
                       controlrelease = -1;
                       break;
                     case 4:

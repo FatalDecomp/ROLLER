@@ -19,6 +19,17 @@ typedef struct
   int iDefaultScancode;
 } tInputActionInfo;
 
+typedef struct
+{
+  SDL_JoystickID joyId;
+  int iNumAxes;
+  int iNumButtons;
+  int iNumHats;
+  int *piAxes;
+  uint8 *pbyButtons;
+  uint8 *pbyHats;
+} tInputCaptureDevice;
+
 //-------------------------------------------------------------------------------------------------
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
@@ -26,6 +37,12 @@ tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;
 static bool s_bInitialized = false;
+static tInputBinding s_backupBindings[INPUT_NUM_ACTIONS];
+static tInputBinding s_releaseBinding;
+static tInputCaptureDevice *s_pCaptureDevices = NULL;
+static int s_iNumCaptureDevices = 0;
+static bool s_bCaptureActive = false;
+static bool s_bWaitingForRelease = false;
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
   { "P1left", 44 },
@@ -43,6 +60,10 @@ static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
   { "P1cheat", 21 },
   { "P2cheat", 79 }
 };
+
+static int InputReadButton(tInputBinding *pBinding);
+static int InputReadHat(tInputBinding *pBinding);
+static int InputGetAxisValueInDirection(tInputBinding *pBinding);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -166,6 +187,20 @@ static void InputCloseAllDevices(void)
   SDL_free(s_pDevices);
   s_pDevices = NULL;
   s_iNumDevices = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+static void InputFreeCaptureSnapshot(void)
+{
+  for (int i = 0; i < s_iNumCaptureDevices; ++i) {
+    SDL_free(s_pCaptureDevices[i].piAxes);
+    SDL_free(s_pCaptureDevices[i].pbyButtons);
+    SDL_free(s_pCaptureDevices[i].pbyHats);
+  }
+
+  SDL_free(s_pCaptureDevices);
+  s_pCaptureDevices = NULL;
+  s_iNumCaptureDevices = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -343,6 +378,9 @@ void InputRefreshDevices(void)
   if (!s_bInitialized)
     return;
 
+  InputFreeCaptureSnapshot();
+  s_bCaptureActive = false;
+  s_bWaitingForRelease = false;
   InputCloseAllDevices();
 
   pJoystickIds = SDL_GetJoysticks(&iCount);
@@ -380,6 +418,9 @@ void InputShutdown(void)
   if (!s_bInitialized)
     return;
 
+  InputFreeCaptureSnapshot();
+  s_bCaptureActive = false;
+  s_bWaitingForRelease = false;
   InputCloseAllDevices();
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
@@ -445,6 +486,265 @@ static void InputCopyDeviceIdentity(tInputBinding *pBinding, const tInputDevice 
   pBinding->iOrdinal = pDevice->iOrdinal;
   InputCopyString(pBinding->szName, sizeof(pBinding->szName), pDevice->szName);
   InputCopyString(pBinding->szPath, sizeof(pBinding->szPath), pDevice->szPath);
+}
+
+//-------------------------------------------------------------------------------------------------
+void InputSetKeyboardBinding(int iAction, int iScancode)
+{
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
+    return;
+
+  InputClearBinding(&g_inputBindings[iAction]);
+  if (iScancode >= 0 && iScancode < 0x80)
+    userkey[iAction] = iScancode;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputGetOppositeSteeringAction(int iAction)
+{
+  switch (iAction) {
+    case USERKEY_P1LEFT:
+      return USERKEY_P1RIGHT;
+    case USERKEY_P1RIGHT:
+      return USERKEY_P1LEFT;
+    case USERKEY_P2LEFT:
+      return USERKEY_P2RIGHT;
+    case USERKEY_P2RIGHT:
+      return USERKEY_P2LEFT;
+    default:
+      break;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputSetControllerBinding(int iAction, const tInputBinding *pBinding)
+{
+  int iOppositeAction;
+
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS || !pBinding)
+    return;
+
+  if (userkey[iAction] < 0 || userkey[iAction] >= 0x80)
+    userkey[iAction] = s_actionInfo[iAction].iDefaultScancode;
+  g_inputBindings[iAction] = *pBinding;
+  g_inputBindings[iAction].iKeyScancode = userkey[iAction];
+  InputResolveBindingDevice(&g_inputBindings[iAction]);
+
+  iOppositeAction = InputGetOppositeSteeringAction(iAction);
+  if (iOppositeAction >= 0 &&
+      pBinding->eType == INPUT_BINDING_JOYSTICK_AXIS &&
+      pBinding->eAxisMode == INPUT_AXIS_CENTERED) {
+    g_inputBindings[iOppositeAction] = *pBinding;
+    g_inputBindings[iOppositeAction].iDirection = -g_inputBindings[iOppositeAction].iDirection;
+    if (userkey[iOppositeAction] < 0 || userkey[iOppositeAction] >= 0x80)
+      userkey[iOppositeAction] = s_actionInfo[iOppositeAction].iDefaultScancode;
+    g_inputBindings[iOppositeAction].iKeyScancode = userkey[iOppositeAction];
+    InputResolveBindingDevice(&g_inputBindings[iOppositeAction]);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputBackupBindings(void)
+{
+  memcpy(s_backupBindings, g_inputBindings, sizeof(s_backupBindings));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputRestoreBindings(void)
+{
+  memcpy(g_inputBindings, s_backupBindings, sizeof(g_inputBindings));
+  InputResolveAllBindings();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputIsSteeringAction(int iAction)
+{
+  return iAction == USERKEY_P1LEFT ||
+    iAction == USERKEY_P1RIGHT ||
+    iAction == USERKEY_P2LEFT ||
+    iAction == USERKEY_P2RIGHT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputCaptureWaitForRelease(const tInputBinding *pBinding)
+{
+  s_releaseBinding = *pBinding;
+  s_bWaitingForRelease = pBinding->eType != INPUT_BINDING_NONE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputCaptureReleaseStillActive(void)
+{
+  tInputBinding binding;
+  int iThreshold;
+
+  if (!s_bWaitingForRelease)
+    return 0;
+
+  binding = s_releaseBinding;
+  switch (binding.eType) {
+    case INPUT_BINDING_JOYSTICK_BUTTON:
+      return InputReadButton(&binding);
+    case INPUT_BINDING_JOYSTICK_HAT:
+      return InputReadHat(&binding);
+    case INPUT_BINDING_JOYSTICK_AXIS:
+      iThreshold = binding.eAxisMode == INPUT_AXIS_PEDAL ? binding.iThreshold : binding.iDeadzone;
+      if (iThreshold <= 0)
+        iThreshold = INPUT_DEFAULT_THRESHOLD;
+      return InputGetAxisValueInDirection(&binding) > iThreshold;
+    default:
+      break;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const tInputCaptureDevice *InputFindCaptureDevice(SDL_JoystickID joyId)
+{
+  for (int i = 0; i < s_iNumCaptureDevices; ++i) {
+    if (s_pCaptureDevices[i].joyId == joyId)
+      return &s_pCaptureDevices[i];
+  }
+
+  return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputCaptureBegin(void)
+{
+  InputUpdate();
+  InputFreeCaptureSnapshot();
+  s_bWaitingForRelease = false;
+
+  if (s_iNumDevices > 0) {
+    s_pCaptureDevices = (tInputCaptureDevice *)SDL_calloc((size_t)s_iNumDevices, sizeof(tInputCaptureDevice));
+    if (s_pCaptureDevices) {
+      s_iNumCaptureDevices = s_iNumDevices;
+      for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
+        const tInputDevice *pDevice = &s_pDevices[iDevice];
+        tInputCaptureDevice *pCaptureDevice = &s_pCaptureDevices[iDevice];
+
+        pCaptureDevice->joyId = pDevice->joyId;
+        pCaptureDevice->iNumAxes = pDevice->iNumAxes;
+        pCaptureDevice->iNumButtons = pDevice->iNumButtons;
+        pCaptureDevice->iNumHats = pDevice->iNumHats;
+
+        if (pDevice->iNumAxes > 0) {
+          pCaptureDevice->piAxes = (int *)SDL_malloc(sizeof(int) * (size_t)pDevice->iNumAxes);
+          if (pCaptureDevice->piAxes)
+            memcpy(pCaptureDevice->piAxes, pDevice->piAxes, sizeof(int) * (size_t)pDevice->iNumAxes);
+        }
+        if (pDevice->iNumButtons > 0) {
+          pCaptureDevice->pbyButtons = (uint8 *)SDL_malloc(sizeof(uint8) * (size_t)pDevice->iNumButtons);
+          if (pCaptureDevice->pbyButtons)
+            memcpy(pCaptureDevice->pbyButtons, pDevice->pbyButtons, sizeof(uint8) * (size_t)pDevice->iNumButtons);
+        }
+        if (pDevice->iNumHats > 0) {
+          pCaptureDevice->pbyHats = (uint8 *)SDL_malloc(sizeof(uint8) * (size_t)pDevice->iNumHats);
+          if (pCaptureDevice->pbyHats)
+            memcpy(pCaptureDevice->pbyHats, pDevice->pbyHats, sizeof(uint8) * (size_t)pDevice->iNumHats);
+        }
+      }
+    }
+  }
+
+  s_bCaptureActive = true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
+{
+  const int iAxisCaptureDelta = 12000;
+
+  if (!pBindingOut || iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
+    return 0;
+
+  if (!s_bCaptureActive)
+    InputCaptureBegin();
+
+  InputUpdate();
+  if (s_bWaitingForRelease) {
+    if (InputCaptureReleaseStillActive())
+      return 0;
+    InputCaptureBegin();
+    return 0;
+  }
+
+  for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
+    const tInputDevice *pDevice = &s_pDevices[iDevice];
+    const tInputCaptureDevice *pCaptureDevice = InputFindCaptureDevice(pDevice->joyId);
+
+    for (int iButton = 0; iButton < pDevice->iNumButtons; ++iButton) {
+      int iWasDown = pCaptureDevice && pCaptureDevice->pbyButtons && iButton < pCaptureDevice->iNumButtons
+        ? pCaptureDevice->pbyButtons[iButton] != 0
+        : 0;
+      if (pDevice->pbyButtons[iButton] && !iWasDown) {
+        InputClearBinding(pBindingOut);
+        pBindingOut->eType = INPUT_BINDING_JOYSTICK_BUTTON;
+        pBindingOut->iInputIndex = iButton;
+        pBindingOut->iKeyScancode = userkey[iAction];
+        InputCopyDeviceIdentity(pBindingOut, pDevice);
+        InputCaptureWaitForRelease(pBindingOut);
+        return 1;
+      }
+    }
+
+    for (int iHat = 0; iHat < pDevice->iNumHats; ++iHat) {
+      int iWasHat = pCaptureDevice && pCaptureDevice->pbyHats && iHat < pCaptureDevice->iNumHats
+        ? pCaptureDevice->pbyHats[iHat]
+        : SDL_HAT_CENTERED;
+      int iHatValue = pDevice->pbyHats[iHat];
+      if (iHatValue && iHatValue != iWasHat) {
+        int iHatDirection = iHatValue & ~iWasHat;
+        if (!iHatDirection)
+          iHatDirection = iHatValue;
+        InputClearBinding(pBindingOut);
+        pBindingOut->eType = INPUT_BINDING_JOYSTICK_HAT;
+        pBindingOut->iInputIndex = iHat;
+        pBindingOut->iDirection = iHatDirection;
+        pBindingOut->iKeyScancode = userkey[iAction];
+        InputCopyDeviceIdentity(pBindingOut, pDevice);
+        InputCaptureWaitForRelease(pBindingOut);
+        return 1;
+      }
+    }
+
+    for (int iAxis = 0; iAxis < pDevice->iNumAxes; ++iAxis) {
+      int iBaseValue = pCaptureDevice && pCaptureDevice->piAxes && iAxis < pCaptureDevice->iNumAxes
+        ? pCaptureDevice->piAxes[iAxis]
+        : 0;
+      int iDelta = pDevice->piAxes[iAxis] - iBaseValue;
+      if (abs(iDelta) >= iAxisCaptureDelta) {
+        InputClearBinding(pBindingOut);
+        pBindingOut->eType = INPUT_BINDING_JOYSTICK_AXIS;
+        pBindingOut->iInputIndex = iAxis;
+        pBindingOut->iDirection = iDelta < 0 ? -1 : 1;
+        pBindingOut->eAxisMode = InputIsSteeringAction(iAction) ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
+        pBindingOut->iDeadzone = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? INPUT_PEDAL_DEADZONE : INPUT_DEFAULT_DEADZONE;
+        pBindingOut->iThreshold = INPUT_DEFAULT_THRESHOLD;
+        pBindingOut->iRestValue = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? iBaseValue : 0;
+        pBindingOut->iKeyScancode = userkey[iAction];
+        InputCopyDeviceIdentity(pBindingOut, pDevice);
+        InputCaptureWaitForRelease(pBindingOut);
+        return 1;
+      }
+    }
+  }
+
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -675,6 +975,36 @@ static int InputReadAxisPressed(tInputBinding *pBinding)
     iThreshold = INPUT_DEFAULT_THRESHOLD;
 
   return iValue > iThreshold;
+}
+
+//-------------------------------------------------------------------------------------------------
+void InputGetBindingPreview(const tInputBinding *pBinding, tInputBindingPreview *pPreview)
+{
+  tInputBinding binding;
+
+  if (!pPreview)
+    return;
+
+  memset(pPreview, 0, sizeof(*pPreview));
+  if (!pBinding)
+    return;
+
+  binding = *pBinding;
+  switch (binding.eType) {
+    case INPUT_BINDING_JOYSTICK_BUTTON:
+      pPreview->iPressed = InputReadButton(&binding);
+      break;
+    case INPUT_BINDING_JOYSTICK_AXIS:
+      pPreview->iRawValue = InputReadAxisRaw(&binding);
+      pPreview->iNormalizedValue = InputGetAxisMagnitude(&binding);
+      pPreview->iPressed = InputReadAxisPressed(&binding);
+      break;
+    case INPUT_BINDING_JOYSTICK_HAT:
+      pPreview->iPressed = InputReadHat(&binding);
+      break;
+    default:
+      break;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1000,8 +1330,6 @@ void InputSaveConfig(void)
 
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen)
 {
-  const char *szDeviceName;
-
   if (!szOut || iOutLen <= 0)
     return;
 
@@ -1011,7 +1339,6 @@ void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen
     return;
   }
 
-  szDeviceName = pBinding->szName[0] ? pBinding->szName : "Controller";
   switch (pBinding->eType) {
     case INPUT_BINDING_KEYBOARD:
       if (pBinding->iKeyScancode >= 0 && pBinding->iKeyScancode < 140 && keyname[pBinding->iKeyScancode])
@@ -1020,18 +1347,46 @@ void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen
         snprintf(szOut, (size_t)iOutLen, "Keyboard %d", pBinding->iKeyScancode);
       break;
     case INPUT_BINDING_JOYSTICK_BUTTON:
-      snprintf(szOut, (size_t)iOutLen, "%s button %d", szDeviceName, pBinding->iInputIndex);
+      snprintf(szOut, (size_t)iOutLen, "button %d", pBinding->iInputIndex);
       break;
     case INPUT_BINDING_JOYSTICK_AXIS:
-      snprintf(szOut, (size_t)iOutLen, "%s axis %d %s", szDeviceName, pBinding->iInputIndex, pBinding->iDirection < 0 ? "-" : "+");
+      snprintf(szOut, (size_t)iOutLen, "axis %d %s", pBinding->iInputIndex, pBinding->iDirection < 0 ? "-" : "+");
       break;
     case INPUT_BINDING_JOYSTICK_HAT:
-      snprintf(szOut, (size_t)iOutLen, "%s hat %d", szDeviceName, pBinding->iInputIndex);
+      snprintf(szOut, (size_t)iOutLen, "hat %d", pBinding->iInputIndex);
       break;
     default:
       InputCopyString(szOut, iOutLen, "Unbound");
       break;
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+void InputGetActionBindingName(int iAction, char *szOut, int iOutLen)
+{
+  int iKey;
+
+  if (!szOut || iOutLen <= 0)
+    return;
+
+  szOut[0] = '\0';
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS) {
+    InputCopyString(szOut, iOutLen, "Unbound");
+    return;
+  }
+
+  if (g_inputBindings[iAction].eType != INPUT_BINDING_NONE) {
+    InputGetBindingName(&g_inputBindings[iAction], szOut, iOutLen);
+    return;
+  }
+
+  iKey = userkey[iAction];
+  if (iKey >= 0 && iKey < 140 && keyname[iKey]) {
+    InputCopyString(szOut, iOutLen, keyname[iKey]);
+    return;
+  }
+
+  snprintf(szOut, (size_t)iOutLen, "Keyboard %d", iKey);
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -66,6 +66,13 @@ typedef struct
   char szPath[ROLLER_MAX_PATH];
 } tInputBinding;
 
+typedef struct
+{
+  int iRawValue;
+  int iNormalizedValue;
+  int iPressed;
+} tInputBindingPreview;
+
 extern tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 
 void InputInit(void);
@@ -80,6 +87,14 @@ void InputSaveConfig(void);
 int InputGetActionPressed(int iAction);
 int InputGetSteeringValue(int iPlayer);
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen);
+void InputGetActionBindingName(int iAction, char *szOut, int iOutLen);
+void InputSetKeyboardBinding(int iAction, int iScancode);
+void InputSetControllerBinding(int iAction, const tInputBinding *pBinding);
+void InputBackupBindings(void);
+void InputRestoreBindings(void);
+void InputCaptureBegin(void);
+int InputCapturePoll(int iAction, tInputBinding *pBindingOut);
+void InputGetBindingPreview(const tInputBinding *pBinding, tInputBindingPreview *pPreview);
 int InputGetLegacyJoySlot(int iSlot, int *piButton1, int *piButton2, int *piXAxis, int *piYAxis);
 int InputGetDeviceCount(void);
 const tInputDevice *InputGetDevice(int iDeviceRef);

@@ -21,6 +21,7 @@
 #include "crashdump.h"
 #include "snapshot.h"
 #include "snapshot_scenes.h"
+#include "rollerinput.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -3865,6 +3866,8 @@ void game_keys()
                 controlrelease = -1;
                 memcpy(oldkeys, userkey, 0xCu);
                 memcpy(&oldkeys[12], &userkey[12], 2u);
+                InputBackupBindings();
+                InputCaptureBegin();
               } else if (control_select == 2) {
                 define_mode = -1;
                 control_edit = 6;
@@ -3872,6 +3875,8 @@ void game_keys()
                 controlrelease = -1;
                 memcpy(oldkeys, userkey, 0xCu);
                 memcpy(&oldkeys[12], &userkey[12], 2u);
+                InputBackupBindings();
+                InputCaptureBegin();
               }
             } else {
             EXIT_PAUSE_MENU:
