@@ -1450,6 +1450,7 @@ LABEL_105:
       //iShadowOffset += 0xC;                     // replace consolenode assign with this in for loop
     }
     iScreenSize = scr_size;
+    int iShadowProjectionValid = -1;
     for (ii = 0; ii != 4; ++ii)//carworld[ii + 3].fY = (float)iTemp)// offset into carpoint
     {
       dViewDeltaX = carworld[ii].fX - viewx;    // Render car shadow as flat polygon on ground
@@ -1458,52 +1459,62 @@ LABEL_105:
       fShadowViewX = (float)(dViewDeltaX * vk1 + dViewDeltaY * vk4 + dViewDeltaZ * vk7);
       fShadowViewY = (float)(dViewDeltaX * vk2 + dViewDeltaY * vk5 + dViewDeltaZ * vk8);
       dViewSpaceZ = dViewDeltaX * vk3 + dViewDeltaY * vk6 + dViewDeltaZ * vk9;
+      if (!isfinite(fShadowViewX) || !isfinite(fShadowViewY) || !isfinite(dViewSpaceZ)) {
+        iShadowProjectionValid = 0;
+        break;
+      }
+      if (dViewSpaceZ < 80.0) {
+        iShadowProjectionValid = 0;
+        break;
+      }
       fClampedZ = (float)dViewSpaceZ;
-      if (dViewSpaceZ < 80.0)
-        fClampedZ = 80.0;
       dViewDistance = (double)VIEWDIST;
       dInverseZ = 1.0 / fClampedZ;
       dScreenX = dViewDistance * fShadowViewX * dInverseZ + (double)xbase;
       //_CHP();
-      if (!isnan(dScreenX)) { //check added by ROLLER
-        xp = d2i(dScreenX);
-        dScreenY = dInverseZ * (dViewDistance * fShadowViewY) + (double)ybase;
-        //_CHP();
-        yp = d2i(dScreenY);
-        carpoint[ii].fX = (float)(xp * iScreenSize >> 6);
-        //carpoint[ii].fX = (float)(iScreenXInt >> 6);
-        iTemp = (iScreenSize * (199 - d2i(dScreenY))) >> 6;
-        carpoint[ii].fY = (float)iTemp;
+      dScreenY = dInverseZ * (dViewDistance * fShadowViewY) + (double)ybase;
+      if (!isfinite(dScreenX) || !isfinite(dScreenY)) {
+        iShadowProjectionValid = 0;
+        break;
       }
+      xp = d2i(dScreenX);
+      //_CHP();
+      yp = d2i(dScreenY);
+      carpoint[ii].fX = (float)(xp * iScreenSize >> 6);
+      //carpoint[ii].fX = (float)(iScreenXInt >> 6);
+      iTemp = (iScreenSize * (199 - d2i(dScreenY))) >> 6;
+      carpoint[ii].fY = (float)iTemp;
       //++ii;                                     // replace reference to carworld in for loop with this
     }
-    dShadowX = carpoint[0].fX;
-    //_CHP();
-    CarPol.vertices[0].x = d2i(dShadowX);
-    dShadowCorner0X = carpoint[0].fY;
-    //_CHP();
-    CarPol.vertices[0].y = d2i(dShadowCorner0X);
-    dX = carpoint[1].fX;
-    //_CHP();
-    CarPol.vertices[1].x = d2i(dX);
-    dShadowCorner1Y = carpoint[1].fY;
-    //_CHP();
-    CarPol.vertices[1].y = d2i(dShadowCorner1Y);
-    dShadowCorner2X = carpoint[2].fX;
-    //_CHP();
-    CarPol.vertices[2].x = d2i(dShadowCorner2X);
-    dShadowCorner2Y = carpoint[2].fY;
-    //_CHP();
-    CarPol.vertices[2].y = d2i(dShadowCorner2Y);
-    dShadowCorner3X = carpoint[3].fX;
-    //_CHP();
-    CarPol.vertices[3].x = d2i(dShadowCorner3X);
-    dShadowCorner3Y = carpoint[3].fY;
-    //_CHP();
-    CarPol.uiNumVerts = 4;
-    CarPol.iSurfaceType = 0x202002;
-    CarPol.vertices[3].y = d2i(dShadowCorner3Y);
-    game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+    if (iShadowProjectionValid) {
+      dShadowX = carpoint[0].fX;
+      //_CHP();
+      CarPol.vertices[0].x = d2i(dShadowX);
+      dShadowCorner0X = carpoint[0].fY;
+      //_CHP();
+      CarPol.vertices[0].y = d2i(dShadowCorner0X);
+      dX = carpoint[1].fX;
+      //_CHP();
+      CarPol.vertices[1].x = d2i(dX);
+      dShadowCorner1Y = carpoint[1].fY;
+      //_CHP();
+      CarPol.vertices[1].y = d2i(dShadowCorner1Y);
+      dShadowCorner2X = carpoint[2].fX;
+      //_CHP();
+      CarPol.vertices[2].x = d2i(dShadowCorner2X);
+      dShadowCorner2Y = carpoint[2].fY;
+      //_CHP();
+      CarPol.vertices[2].y = d2i(dShadowCorner2Y);
+      dShadowCorner3X = carpoint[3].fX;
+      //_CHP();
+      CarPol.vertices[3].x = d2i(dShadowCorner3X);
+      dShadowCorner3Y = carpoint[3].fY;
+      //_CHP();
+      CarPol.uiNumVerts = 4;
+      CarPol.iSurfaceType = 0x202002;
+      CarPol.vertices[3].y = d2i(dShadowCorner3Y);
+      game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+    }
   }
 LABEL_117:
   pCoords = CarDesigns[carDesignIndex].pCoords;
