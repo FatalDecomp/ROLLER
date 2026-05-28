@@ -19,16 +19,16 @@ uint8 BuildingSub[24] =                 //000A745C
 tBuildingZOrderEntry BuildingZOrder[32];//0018EEC0
 int BuildingSect[MAX_TRACK_CHUNKS];     //0018F040
 float BuildingAngles[768];              //0018F990
-int BuildingBase[256][4];               //00190590
-tVec3 BuildingBox[256][8];              //00191590
-float BuildingBaseX[256];               //00197710
-float BuildingBaseY[256];               //00197B10
-float BuildingBaseZ[256];               //00197F10
-float BuildingX[256];                   //00198310
-float BuildingY[256];                   //00198710
-float BuildingZ[256];                   //00198B10
-tVisibleBuilding VisibleBuildings[257]; //00198F10
-int16 advert_list[256];                 //00199710
+int BuildingBase[MAX_VISIBLE_BUILDINGS][4];               //00190590
+tVec3 BuildingBox[MAX_VISIBLE_BUILDINGS][8];              //00191590
+float BuildingBaseX[MAX_VISIBLE_BUILDINGS];               //00197710
+float BuildingBaseY[MAX_VISIBLE_BUILDINGS];               //00197B10
+float BuildingBaseZ[MAX_VISIBLE_BUILDINGS];               //00197F10
+float BuildingX[MAX_VISIBLE_BUILDINGS];                   //00198310
+float BuildingY[MAX_VISIBLE_BUILDINGS];                   //00198710
+float BuildingZ[MAX_VISIBLE_BUILDINGS];                   //00198B10
+tVisibleBuilding VisibleBuildings[MAX_VISIBLE_BUILDINGS]; //00198F10
+int16 advert_list[MAX_VISIBLE_BUILDINGS];                 //00199710
 int NumBuildings;                       //0019993C
 int NumVisibleBuildings;                //00199940
 
@@ -327,12 +327,15 @@ void CalcVisibleBuildings()
       //  iPointOffset2 += 12;
       //} while (iPointOffset2 != 96 * iBuildingIdx + 96);// Loop through all 8 bounding box points
     ADD_BUILDING_TO_LIST:
+      iCurrentCount = NumVisibleBuildings;
+      if (iCurrentCount >= MAX_VISIBLE_BUILDINGS)
+        goto NEXT_TRACK_SECTION;
       ++pVisibleBuilding;                       // Add building to visible list - advance pointer
       pVisibleBuilding[-1].fDepth = fBuildingDepth;// Store depth value in array (float)
-      iCurrentCount = NumVisibleBuildings;
       pVisibleBuilding[-1].iBuildingIdx = iBuildingIdx;// Store building index in array
-      pVisibleBuilding->iBuildingIdx = -1;      // Add array terminator (-1)
       NumVisibleBuildings = iCurrentCount + 1;  // Increment visible building count
+      if (NumVisibleBuildings < MAX_VISIBLE_BUILDINGS)
+        pVisibleBuilding->iBuildingIdx = -1;    // Add array terminator (-1)
       goto NEXT_TRACK_SECTION;
     }
 

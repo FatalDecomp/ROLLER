@@ -2190,13 +2190,11 @@ LABEL_357:
   }
 LABEL_393:
   pVisibleBuildingsPtr = &VisibleBuildings[0];     // Process building objects for rendering
-  if (VisibleBuildings[0].iBuildingIdx != -1) {
-    do {
-      render_queue_3d_add_building(pRenderQueue3D,
-                                   pVisibleBuildingsPtr->iBuildingIdx,
-                                   pVisibleBuildingsPtr->fDepth);
-      ++pVisibleBuildingsPtr;
-    } while (pVisibleBuildingsPtr->iBuildingIdx != -1);
+  for (int iVisibleBuildingIdx = 0; iVisibleBuildingIdx < NumVisibleBuildings; ++iVisibleBuildingIdx) {
+    render_queue_3d_add_building(pRenderQueue3D,
+                                 pVisibleBuildingsPtr->iBuildingIdx,
+                                 pVisibleBuildingsPtr->fDepth);
+    ++pVisibleBuildingsPtr;
   }
   if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
