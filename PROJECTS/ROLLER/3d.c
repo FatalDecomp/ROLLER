@@ -3445,8 +3445,11 @@ void game_keys()
                     break;
                   case WHIP_SCANCODE_UP:
                     if (game_req) {
-                      if (!pausewindow && req_edit > 0)
+                      if (!pausewindow && req_edit > 0) {
                         --req_edit;
+                        if (req_edit == 3)
+                          --req_edit;
+                      }
                       if (pausewindow == 1 && !calibrate_mode && calibrate_select < pausewindow)
                         calibrate_select += pausewindow;
                       if (pausewindow == 2 && control_select < 2)
@@ -3564,8 +3567,11 @@ void game_keys()
                     break;
                   case WHIP_SCANCODE_DOWN:
                     if (game_req) {
-                      if (!pausewindow && req_edit < 6)
+                      if (!pausewindow && req_edit < 6) {
                         ++req_edit;
+                        if (req_edit == 3)
+                          ++req_edit;
+                      }
                       if (pausewindow == 1 && calibrate_select > 0 && !calibrate_mode)
                         calibrate_select -= pausewindow;
                       if (pausewindow == 2 && control_select > 0)
@@ -3817,9 +3823,13 @@ void game_keys()
                 pausewindow = 4;
                 goto PROCESS_NEXT_KEY;
               case 3:
-                calibrate_select = 0;
-                calibrate_mode = 0;
-                pausewindow = 1;
+                pausewindow = 2;
+                Joy1used = 0;
+                Joy2used = 0;
+                controlrelease = -1;
+                define_mode = 0;
+                control_select = 0;
+                control_edit = -1;
                 goto PROCESS_NEXT_KEY;
               case 4:
                 pausewindow = 2;

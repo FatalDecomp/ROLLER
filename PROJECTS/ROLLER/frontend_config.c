@@ -341,6 +341,7 @@ void frontend_config_update(void)
   //uint32 uiTempCheatMode; // eax
   unsigned int uiKeyCode; // eax
   unsigned int uiExtendedKey; // eax
+  int iMenuDrawSelection; // eax
   int iMenuDir; // edi
   int iMenuDir2; // edi
   int iKeyInput; // eax
@@ -447,6 +448,10 @@ void frontend_config_update(void)
     menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
     menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
 
+    iMenuDrawSelection = iFrontendConfigMenuSelection;
+    if (iMenuDrawSelection > 2 && iMenuDrawSelection < 7)
+      --iMenuDrawSelection;
+
     // draw menu selector
     if (iFrontendConfigMenuSelection >= 7) {
       // no menu item selected (exit)
@@ -454,20 +459,19 @@ void frontend_config_update(void)
     } else {
       // draw menu selector
       menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
-      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iFrontendConfigMenuSelection].x, sel_posns[iFrontendConfigMenuSelection].y, 0x8Fu, 0, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuDrawSelection].x, sel_posns[iMenuDrawSelection].y, 0x8Fu, 0, pal_addr);
     }
 
     // menu options labels
     menu_render_text(mr, 2, &config_buffer[3968], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
     menu_render_text(mr, 2, &config_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[1664], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
 
     // network option if enabled
     if (network_on)
-      menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
 
     // Config state machine
     switch (iFrontendConfigMenuSelection) {
@@ -1112,6 +1116,7 @@ void frontend_config_update(void)
         iFrontendConfigControlsInEdit = 0;
         control_edit = -1;
         enable_keyboard();
+        InputSaveConfig();
       CHECK_CONTROL_INPUT:
               // Handle ESC key to restore original key mappings
         if (keys[1]) {
@@ -1203,6 +1208,8 @@ void frontend_config_update(void)
                     {
                       if (uiExtendedKey <= 0x48) {
                         iMenuDir2 = --iFrontendConfigMenuSelection;
+                        if (iMenuDir2 == 2)
+                          iFrontendConfigMenuSelection = 1;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir2 == 6)
                           iFrontendConfigMenuSelection = 5;
@@ -1211,6 +1218,8 @@ void frontend_config_update(void)
                       } else if (uiExtendedKey == 80)// Down arrow
                       {
                         iMenuDir = ++iFrontendConfigMenuSelection;
+                        if (iMenuDir == 2)
+                          iFrontendConfigMenuSelection = 3;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir == 6)
                           iFrontendConfigMenuSelection = 7;
@@ -1230,10 +1239,9 @@ void frontend_config_update(void)
                       iFrontendConfigState = 2;
                       iFrontendConfigVolumeSelection = 0;
                       break;
-                    case 2:                     // joystick
-                      iFrontendConfigState = 3;
-                      check_joystickpresence();
-                      break;
+                    case 2:                     // joystick calibration is replaced by controls
+                      iFrontendConfigMenuSelection = 3;
+                      // fall through
                     case 3:                     // controls
                       iFrontendConfigState = 4;
                       iFrontendConfigControlSelection = 0;

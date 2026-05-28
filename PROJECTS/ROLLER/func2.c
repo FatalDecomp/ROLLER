@@ -2846,26 +2846,21 @@ void display_paused()
       else
         byOption2Color = 0x83;
       prt_centrecol(rev_vga[1], &config_buffer[256], 160, 60, byOption2Color);
-      if (req_edit == 3)
-        byOption3Color = 0x8F;
-      else
-        byOption3Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[320], 160, 72, byOption3Color);
       if (req_edit == 4)
         byOption4Color = 0x8F;
       else
         byOption4Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[384], 160, 84, byOption4Color);
+      prt_centrecol(rev_vga[1], &config_buffer[384], 160, 72, byOption4Color);
       if (req_edit == 5)
         byOption5Color = 0x8F;
       else
         byOption5Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[576], 160, 96, byOption5Color);
+      prt_centrecol(rev_vga[1], &config_buffer[576], 160, 84, byOption5Color);
       if (req_edit == 6)
         byOption6Color = 0x8F;
       else
         byOption6Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[640], 160, 108, byOption6Color);
+      prt_centrecol(rev_vga[1], &config_buffer[640], 160, 96, byOption6Color);
       break;
     case 1:
       blankwindow(0, 0, 320, 200);              // Case 1: Joystick calibration window
@@ -3100,12 +3095,14 @@ void display_paused()
                   control_edit = -1;
                   while (fatkbhit())
                     fatgetch();
+                  InputSaveConfig();
                 }
               } else if (iControlNext == 12) {
                 control_edit = -1;
                 define_mode = 0;
                 while (fatkbhit())
                   fatgetch();
+                InputSaveConfig();
               }
             }
           }
