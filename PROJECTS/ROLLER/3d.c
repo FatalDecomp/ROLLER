@@ -3452,7 +3452,7 @@ void game_keys()
                       }
                       if (pausewindow == 1 && !calibrate_mode && calibrate_select < pausewindow)
                         calibrate_select += pausewindow;
-                      if (pausewindow == 2 && control_select < 2)
+                      if (pausewindow == 2 && control_select < 4)
                         ++control_select;
                       if (pausewindow == 3 && graphic_mode < 16)
                         ++graphic_mode;
@@ -3869,8 +3869,8 @@ void game_keys()
             break;
           case 2:
             if (control_select) {
-              if ((unsigned int)control_select <= 1) {
-                define_mode = -1;
+              if ((unsigned int)control_select <= 2) {
+                define_mode = control_select == 1 ? -2 : -1;
                 control_edit = 0;
                 disable_keyboard();
                 controlrelease = -1;
@@ -3878,8 +3878,8 @@ void game_keys()
                 memcpy(&oldkeys[12], &userkey[12], 2u);
                 InputBackupBindings();
                 InputCaptureBegin();
-              } else if (control_select == 2) {
-                define_mode = -1;
+              } else if (control_select == 3 || control_select == 4) {
+                define_mode = control_select == 3 ? -2 : -1;
                 control_edit = 6;
                 disable_keyboard();
                 controlrelease = -1;

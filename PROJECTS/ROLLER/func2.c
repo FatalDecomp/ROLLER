@@ -36,6 +36,11 @@
 #endif
 //-------------------------------------------------------------------------------------------------
 
+static int s_iPauseAxisTuneActive;
+static int s_iPauseAxisTuneField;
+
+//-------------------------------------------------------------------------------------------------
+
 static float compute_tick_fraction(int iPlayerIdx)
 {
   uint64 ullIntervalNs = ullTickIntervalNs;
@@ -128,6 +133,55 @@ int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
   }
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int pause_clamp_int(int iValue, int iMin, int iMax)
+{
+  if (iValue < iMin)
+    return iMin;
+  if (iValue > iMax)
+    return iMax;
+  return iValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void pause_apply_axis_tuning_key(int iAction, int iKey)
+{
+  tInputBinding binding;
+  tInputBindingPreview preview;
+  int iStep = 1000;
+
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
+    return;
+  if (g_inputBindings[iAction].eType != INPUT_BINDING_JOYSTICK_AXIS)
+    return;
+
+  binding = g_inputBindings[iAction];
+  InputUpdate();
+  InputGetBindingPreview(&binding, &preview);
+
+  switch (s_iPauseAxisTuneField) {
+    case 0:
+      binding.eAxisMode = binding.eAxisMode == INPUT_AXIS_PEDAL ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
+      binding.iRestValue = binding.eAxisMode == INPUT_AXIS_PEDAL ? preview.iRawValue : 0;
+      break;
+    case 1:
+      binding.bInvert = binding.bInvert == 0;
+      break;
+    case 2:
+      binding.iDeadzone = pause_clamp_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    case 3:
+      binding.iThreshold = pause_clamp_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    default:
+      break;
+  }
+
+  InputSetControllerBinding(iAction, &binding);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2815,8 +2869,11 @@ void display_paused()
   const char *pszConfigText1; // [esp+20h] [ebp-8h]
   const char *pszConfigText2; // [esp+24h] [ebp-4h]
   tInputBinding capturedBinding;
+  tInputBindingPreview bindingPreview;
   char szBindingName[128];
   int iCapturedControllerInput;
+  int iTuneY;
+  int iTuneColor;
 
   switch (pausewindow) {
     case 0:
@@ -2982,6 +3039,8 @@ void display_paused()
       }
       break;
     case 2:
+      if (define_mode != -2)
+        s_iPauseAxisTuneActive = 0;
       if (controlrelease)                     // Case 2: Controls configuration window
       {
         iKeyReleaseCheck = -1;
@@ -2998,24 +3057,89 @@ void display_paused()
       }
       blankwindow(0, 0, 320, 200);
       prt_centrecol(rev_vga[1], &config_buffer[384], 160, 16, 171);
-      if (control_select != 2 || define_mode)
+      if (control_select != 4 || define_mode)
         byControlColor1 = 0x83;
       else
         byControlColor1 = 0x8F;
       prt_centrecol(rev_vga[1], &config_buffer[704], 160, 36, byControlColor1);
+      if (control_select != 3 || define_mode)
+        byControlColor1 = 0x83;
+      else
+        byControlColor1 = 0x8F;
+      prt_centrecol(rev_vga[1], "PLAYER 2 WHEEL CONTROLS", 160, 48, byControlColor1);
+      if (control_select != 2 || define_mode)
+        byControlColor2 = 0x83;
+      else
+        byControlColor2 = 0x8F;
+      prt_centrecol(rev_vga[1], &config_buffer[768], 160, 60, byControlColor2);
       if (control_select != 1 || define_mode)
         byControlColor2 = 0x83;
       else
         byControlColor2 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[768], 160, 48, byControlColor2);
+      prt_centrecol(rev_vga[1], "PLAYER 1 WHEEL CONTROLS", 160, 72, byControlColor2);
       if (control_select || define_mode)
         byControlColor3 = 0x83;
       else
         byControlColor3 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 60, byControlColor3);
-      if (control_select > 1) {
+      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 84, byControlColor3);
+      if (s_iPauseAxisTuneActive &&
+          control_edit >= 0 &&
+          control_edit < INPUT_NUM_ACTIONS &&
+          g_inputBindings[control_edit].eType == INPUT_BINDING_JOYSTICK_AXIS) {
+        InputUpdate();
+        InputGetBindingPreview(&g_inputBindings[control_edit], &bindingPreview);
+        iTuneY = 104;
+
+        if (control_edit < 6)
+          pszConfigText1 = &config_buffer[896 + control_edit * 64];
+        else if (control_edit < 12)
+          pszConfigText1 = &config_buffer[1280 + (control_edit - 6) * 64];
+        else
+          pszConfigText1 = "CHEAT:";
+
+        InputGetActionBindingName(control_edit, szBindingName, sizeof(szBindingName));
+        sprintf(buffer, "%s %s", pszConfigText1, szBindingName);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY, 131);
+
+        if (s_iPauseAxisTuneField == 0)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "MODE %s", g_inputBindings[control_edit].eAxisMode == INPUT_AXIS_PEDAL ? "PEDAL" : "CENTERED");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 16, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 1)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "INVERT %s", g_inputBindings[control_edit].bInvert ? "ON" : "OFF");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 28, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 2)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "DEADZONE %d", g_inputBindings[control_edit].iDeadzone);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 40, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 3)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "THRESHOLD %d", g_inputBindings[control_edit].iThreshold);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 52, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 4)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        prt_centrecol(rev_vga[1], &config_buffer[832], 160, iTuneY + 64, iTuneColor);
+
+        sprintf(buffer, "RAW %d  VALUE %d  %s", bindingPreview.iRawValue, bindingPreview.iNormalizedValue, bindingPreview.iPressed ? "ON" : "OFF");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 88, 131);
+      } else if (control_select > 2) {
         iControlIndex2 = 6;
-        iYPosition2 = 80;
+        iYPosition2 = 104;
         pszConfigText1 = &config_buffer[1280];
         do {
           if (iControlIndex2 == control_edit)
@@ -3034,7 +3158,7 @@ void display_paused()
           pszConfigText1 += 64;
         } while (iControlIndex2 < 12);
       } else {
-        iYPosition = 80;
+        iYPosition = 104;
         iControlIndex = 0;
         pszConfigText2 = &config_buffer[896];
         do {
@@ -3056,6 +3180,45 @@ void display_paused()
       }
       if (define_mode) {
         if (!controlrelease) {
+          if (s_iPauseAxisTuneActive) {
+            if (keys[WHIP_SCANCODE_UP]) {
+              --s_iPauseAxisTuneField;
+              if (s_iPauseAxisTuneField < 0)
+                s_iPauseAxisTuneField = 4;
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_DOWN]) {
+              ++s_iPauseAxisTuneField;
+              if (s_iPauseAxisTuneField > 4)
+                s_iPauseAxisTuneField = 0;
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_LEFT]) {
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_LEFT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_RIGHT]) {
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_RETURN]) {
+              if (s_iPauseAxisTuneField == 4) {
+                iControlNext = control_edit + 1;
+                iControlSelect = control_select;
+                controlrelease = -1;
+                goto ADVANCE_PAUSE_CONTROL_EDIT;
+              }
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            goto CHECK_PAUSE_CONTROL_INPUT;
+          }
+
           iKeyPressed = -1;                     // Scan for pressed keys when in define mode
           iCapturedControllerInput = 0;
           iKeyLoop = 0;
@@ -3084,12 +3247,20 @@ void display_paused()
               controlrelease = -1;
               if (iCapturedControllerInput) {
                 InputSetControllerBinding(control_edit, &capturedBinding);
+                if (define_mode == -2 &&
+                    capturedBinding.eType == INPUT_BINDING_JOYSTICK_AXIS) {
+                  s_iPauseAxisTuneActive = -1;
+                  s_iPauseAxisTuneField = 0;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                }
               } else {
                 InputSetKeyboardBinding(control_edit, iKeyPressed);
                 InputCaptureBegin();
               }
+            ADVANCE_PAUSE_CONTROL_EDIT:
+              s_iPauseAxisTuneActive = 0;
               control_edit = iControlNext;
-              if (iControlSelect == 1) {
+              if (iControlSelect == 1 || iControlSelect == 2) {
                 if (iControlNext == 6) {
                   define_mode = 0;
                   control_edit = -1;
@@ -3107,8 +3278,10 @@ void display_paused()
             }
           }
         }
+      CHECK_PAUSE_CONTROL_INPUT:
         if (keys[WHIP_SCANCODE_ESCAPE]) {
           define_mode = 0;
+          s_iPauseAxisTuneActive = 0;
           memcpy(userkey, oldkeys, 0xCu);
           memcpy(&userkey[12], &oldkeys[12], 2u);
           InputRestoreBindings();
