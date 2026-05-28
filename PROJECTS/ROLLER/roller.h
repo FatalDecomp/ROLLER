@@ -10,9 +10,6 @@
 //-------------------------------------------------------------------------------------------------
 
 extern SDL_Mutex *g_pDigiMutex;
-extern SDL_Gamepad *g_pController1;
-extern SDL_Gamepad *g_pController2;
-extern tJoyPos g_rollerJoyPos;
 extern bool g_bPaletteSet;
 extern bool g_bForceMaxDraw;
 extern bool g_bAINoCheatStart;

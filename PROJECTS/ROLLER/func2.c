@@ -8,6 +8,7 @@
 #include "drawtrk3.h"
 #include "comms.h"
 #include "roller.h"
+#include "rollerinput.h"
 #include "polytex.h"
 #include "types.h"
 #include "view.h"
@@ -3741,6 +3742,7 @@ void save_fatal_config()
       ROLLERremove("FATAL.INI");
     }
   }
+  InputSaveConfig();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3955,8 +3957,6 @@ void load_fatal_config()
         JAXmax = iTemp2[0];
         if (iTemp2[0] < JAXmin)
           x1ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ1XAxis = (JAXmax - JAXmin) / 2;
       }
       if (y1ok) {
         JAYmin = 10000;
@@ -3969,8 +3969,6 @@ void load_fatal_config()
         JAYmax = iTemp2[0];
         if (iTemp2[0] < JAYmin)
           y1ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ1YAxis = (JAYmax - JAYmin) / 2;
       }
       if (x2ok) {
         JBXmin = 10000;
@@ -3983,8 +3981,6 @@ void load_fatal_config()
         JBXmax = iTemp2[0];
         if (iTemp2[0] < JBXmin)
           x2ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ2XAxis = (JBXmax - JBXmin) / 2;
       }
       if (y2ok) {
         JBYmin = 10000;
@@ -3997,8 +3993,6 @@ void load_fatal_config()
         JBYmax = iTemp2[0];
         if (iTemp2[0] < JBYmin)
           y2ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ2YAxis = (JBYmax - JBYmin) / 2;
       }
       if (JAXmin == JAXmax)
         JAXmax = JAXmin + 1;
@@ -4440,6 +4434,7 @@ void load_fatal_config()
     }
   }
   remove_uncalibrated();
+  InputLoadConfig();
 }
 
 //-------------------------------------------------------------------------------------------------

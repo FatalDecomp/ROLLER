@@ -80,6 +80,7 @@ add_executable(roller
     PROJECTS/ROLLER/polytex.c
     PROJECTS/ROLLER/replay.c
     PROJECTS/ROLLER/roller.c
+    PROJECTS/ROLLER/rollerinput.c
     PROJECTS/ROLLER/rollercd.c
     PROJECTS/ROLLER/rollercomms.c
     PROJECTS/ROLLER/rollersound.c
