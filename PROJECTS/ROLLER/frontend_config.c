@@ -48,7 +48,6 @@ static int iFrontendConfigAxisTuneField;
 static int iFrontendConfigSelectedCar;
 static int iFrontendConfigNameLength;
 static char szFrontendConfigNewNameBuf[12];
-static tJoyPos jFrontendConfigJoyPos;
 static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
@@ -279,16 +278,6 @@ void frontend_config_update(void)
   int byColor_17; // ebx
   int iFrontendConfigVolumeSelection_1; // ecx
   int byColor_18; // ebx
-  int iFrontendConfigState_1; // edi
-  int iJoyCalibValue1; // ebx
-  char *szJoyStatus1; // edx
-  int iJoyCalibValue2; // ebx
-  char *szJoyStatus2; // edx
-  int iX2CalibrationVal; // ebx
-  char *szX2Text; // edx
-  int iFrontendConfigState_2; // edi
-  int iY2CalibrationVal; // ebx
-  char *szY2Text; // edx
   int iKeyFound; // ebx
   int iKeyIndex; // eax
   int iKeyCounter; // edx
@@ -850,128 +839,8 @@ void frontend_config_update(void)
         front_volumebar(152, MusicVolume, byColor_18);
         goto RENDER_FRAME;
       case 2:
-        // Joystick calibration
-        if (iFrontendConfigState == 3) {
-          ReadJoys(&jFrontendConfigJoyPos);
-          //_disable();
-
-          // Update calibration ranges for all axes
-          if (jFrontendConfigJoyPos.iJ1XAxis < JAXmin)
-            JAXmin = jFrontendConfigJoyPos.iJ1XAxis;
-          if (jFrontendConfigJoyPos.iJ1XAxis > JAXmax)
-            JAXmax = jFrontendConfigJoyPos.iJ1XAxis;
-
-          if (jFrontendConfigJoyPos.iJ1YAxis < JAYmin)
-            JAYmin = jFrontendConfigJoyPos.iJ1YAxis;
-          if (jFrontendConfigJoyPos.iJ1YAxis > JAYmax)
-            JAYmax = jFrontendConfigJoyPos.iJ1YAxis;
-
-          if (jFrontendConfigJoyPos.iJ2XAxis < JBXmin)
-            JBXmin = jFrontendConfigJoyPos.iJ2XAxis;
-          if (jFrontendConfigJoyPos.iJ2XAxis > JBXmax)
-            JBXmax = jFrontendConfigJoyPos.iJ2XAxis;
-
-          if (jFrontendConfigJoyPos.iJ2YAxis < JBYmin)
-            JBYmin = jFrontendConfigJoyPos.iJ2YAxis;
-          if (jFrontendConfigJoyPos.iJ2YAxis > JBYmax)
-            JBYmax = jFrontendConfigJoyPos.iJ2YAxis;
-
-          if (JAXmin == JAXmax)
-            JAXmax = JAXmin + 1;
-          if (JAYmin == JAYmax)
-            JAYmax = JAYmin + 1;
-
-          if (JBXmin == JBXmax)
-            JBXmax = JBXmin + 1;
-          if (JBYmin == JBYmax)
-            JBYmax = JBYmin + 1;
-          //_enable();
-        }
-
-        // Display calibration instructions when active
-        if (iFrontendConfigState == 3) {
-          // MOVE JOYSTICKS TO FULL EXTENTS
-          menu_render_scaled_text(mr, 15, &config_buffer[2112], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
-          // THEN PRESS ANY KEY
-          menu_render_scaled_text(mr, 15, &config_buffer[2176], font1_ascii, font1_offsets, 400, 78, 143, 1u, 200, 640, pal_addr);
-        }
-
-        iFrontendConfigState_1 = iFrontendConfigState;
-
-        // X1 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1728], font1_ascii, font1_offsets, 400, 110, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState_1 == 3) {
-          // Show calibration bar
-          if (x1ok && JAXmax - JAXmin >= 100)
-            iJoyCalibValue1 = 140 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-          else
-            iJoyCalibValue1 = 0;
-          front_displaycalibrationbar(300, 128, iJoyCalibValue1);
-        } else {
-          // Show status text
-          if (x1ok)
-            szJoyStatus1 = &config_buffer[2048];
-          else
-            szJoyStatus1 = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szJoyStatus1, font1_ascii, font1_offsets, 400, 128, 143, 1u, 200, 640, pal_addr);
-        }
-
-        // Y1 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1792], font1_ascii, font1_offsets, 400, 160, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState == 3) {
-          // Show Calibration bar
-          if (y1ok && JAYmax - JAYmin >= 100)
-            iJoyCalibValue2 = 140 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-          else
-            iJoyCalibValue2 = 0;
-          front_displaycalibrationbar(300, 178, iJoyCalibValue2);
-        } else {
-          // Show status text
-          if (y1ok)
-            szJoyStatus2 = &config_buffer[2048];
-          else
-            szJoyStatus2 = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szJoyStatus2, font1_ascii, font1_offsets, 400, 178, 143, 1u, 200, 640, pal_addr);
-        }
-
-        // X2 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1856], font1_ascii, font1_offsets, 400, 210, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState == 3) {
-          // Calibration bar
-          if (x2ok && JBXmax - JBXmin >= 100)
-            iX2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-          else
-            iX2CalibrationVal = 0;
-          front_displaycalibrationbar(300, 228, iX2CalibrationVal);
-        } else {
-          // status text
-          if (x2ok)
-            szX2Text = &config_buffer[2048];
-          else
-            szX2Text = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szX2Text, font1_ascii, font1_offsets, 400, 228, 143, 1u, 200, 640, pal_addr);
-        }
-
-        iFrontendConfigState_2 = iFrontendConfigState;
-
-        // Y2 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1920], font1_ascii, font1_offsets, 400, 260, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState_2 == 3) {
-          // Calibration bar
-          if (y2ok && JBYmax - JBYmin >= 100)
-            iY2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-          else
-            iY2CalibrationVal = 0;
-          front_displaycalibrationbar(300, 278, iY2CalibrationVal);
-        } else {
-          // Status text
-          if (y2ok)
-            szY2Text = &config_buffer[2048];
-          else
-            szY2Text = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szY2Text, font1_ascii, font1_offsets, 400, 278, 143, 1u, 200, 640, pal_addr);
-        }
-        goto RENDER_FRAME;
+        iFrontendConfigMenuSelection = 3;
+        // fall through
       case 3:
         // Keyboard control config
         if (iFrontendConfigState == 4) {
@@ -1845,17 +1714,9 @@ void frontend_config_update(void)
                   iFrontendConfigState = 0;
                 }
                 continue;
-              case 3:                           // JOYSTICK CALIBRATION INPUT
-                uiKey = fatgetch();
-                if (uiKey < 0xD) {
-                  if (!uiKey)
-                    fatgetch();                 // Consume extended key
-                } else if (uiKey <= 0xD || uiKey == 0x1B)// Enter or ESC
-                {
-                  remove_uncalibrated();
-                  iFrontendConfigState = 0;             // Return to main menu
-                }
-                continue;
+              case 3:
+                iFrontendConfigState = 4;
+                // fall through
               case 4:                           // CONTROL CONFIG INPUT
                 uiKey_1 = fatgetch();
                 if (uiKey_1 < 0xD) {

@@ -2789,20 +2789,6 @@ void display_paused()
   int i; // eax
   int iControlNext; // eax
   int iControlSelect; // edi
-  char byCalibColor1; // al
-  char byCalibColor2; // al
-  char byCalibColor3; // al
-  int iJoy1XBar; // ebx
-  const char *pszJoy1XStatus; // edx
-  char byJoy1XColor; // al
-  int iJoy1YBar; // ebx
-  const char *pszJoy1YStatus; // edx
-  char byJoy1YColor; // al
-  int iJoy2XBar; // ebx
-  const char *pszJoy2XStatus; // edx
-  char byJoy2XColor; // al
-  int iJoy2YBar; // ebx
-  const char *pszJoy2YStatus; // edx
   char bySoundColor1; // al
   char bySoundColor2; // al
   char bySoundColor3; // al
@@ -2865,7 +2851,6 @@ void display_paused()
   char bySVGAColor; // al
   const char *pszSVGAText; // edx
   char byExitColor; // al
-  tJoyPos joyPos; // [esp+0h] [ebp-28h] BYREF
   const char *pszConfigText1; // [esp+20h] [ebp-8h]
   const char *pszConfigText2; // [esp+24h] [ebp-4h]
   tInputBinding capturedBinding;
@@ -2920,124 +2905,12 @@ void display_paused()
       prt_centrecol(rev_vga[1], &config_buffer[640], 160, 96, byOption6Color);
       break;
     case 1:
-      blankwindow(0, 0, 320, 200);              // Case 1: Joystick calibration window
-      if (calibrate_mode) {
-        ReadJoys(&joyPos);                     // Read joystick positions for calibration
-        //_disable();
-        if (joyPos.iJ1XAxis < JAXmin)        // Update joystick 1 X-axis min/max calibration values
-          JAXmin = joyPos.iJ1XAxis;
-        if (joyPos.iJ1XAxis > JAXmax)
-          JAXmax = joyPos.iJ1XAxis;
-        if (joyPos.iJ1YAxis < JAYmin)        // Update joystick 1 Y-axis min/max calibration values
-          JAYmin = joyPos.iJ1YAxis;
-        if (joyPos.iJ1YAxis > JAYmax)
-          JAYmax = joyPos.iJ1YAxis;
-        if (joyPos.iJ2XAxis < JBXmin)        // Update joystick 2 X-axis min/max calibration values
-          JBXmin = joyPos.iJ2XAxis;
-        if (joyPos.iJ2XAxis > JBXmax)
-          JBXmax = joyPos.iJ2XAxis;
-        if (joyPos.iJ2YAxis < JBYmin)        // Update joystick 2 Y-axis min/max calibration values
-          JBYmin = joyPos.iJ2YAxis;
-        if (joyPos.iJ2YAxis > JBYmax)
-          JBYmax = joyPos.iJ2YAxis;
-        if (JAXmin == JAXmax)                 // Ensure min != max to avoid division by zero
-          JAXmax = JAXmin + 1;
-        if (JAYmin == JAYmax)
-          JAYmax = JAYmin + 1;
-        if (JBXmin == JBXmax)
-          JBXmax = JBXmin + 1;
-        if (JBYmin == JBYmax)
-          JBYmax = JBYmin + 1;
-        //_enable();
-      }
-      prt_centrecol(rev_vga[1], &config_buffer[320], 160, 16, 171);
-      if (calibrate_select != 1 || calibrate_mode)
-        byCalibColor1 = 0x83;
-      else
-        byCalibColor1 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[1664], 160, 36, byCalibColor1);
-      if (calibrate_select || calibrate_mode)
-        byCalibColor2 = 0x83;
-      else
-        byCalibColor2 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 48, byCalibColor2);
-      if (calibrate_mode)
-        byCalibColor3 = 0x8F;
-      else
-        byCalibColor3 = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1728], 176, 68, byCalibColor3);
-      if (calibrate_mode) {
-        if (x1ok && JAXmax - JAXmin >= 100)
-          iJoy1XBar = 140 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-        else
-          iJoy1XBar = 0;
-        displaycalibrationbar(180, 68, iJoy1XBar);
-      } else {
-        if (x1ok)
-          pszJoy1XStatus = &config_buffer[2048];
-        else
-          pszJoy1XStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy1XStatus, 180, 68, 131);
-      }
-      if (calibrate_mode)
-        byJoy1XColor = 0x8F;
-      else
-        byJoy1XColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1792], 176, 80, byJoy1XColor);
-      if (calibrate_mode) {
-        if (y1ok && JAYmax - JAYmin >= 100)
-          iJoy1YBar = 140 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-        else
-          iJoy1YBar = 0;
-        displaycalibrationbar(180, 80, iJoy1YBar);
-      } else {
-        if (y1ok)
-          pszJoy1YStatus = &config_buffer[2048];
-        else
-          pszJoy1YStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy1YStatus, 180, 80, 131);
-      }
-      if (calibrate_mode)
-        byJoy1YColor = 0x8F;
-      else
-        byJoy1YColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1856], 176, 92, byJoy1YColor);
-      if (calibrate_mode) {
-        if (x2ok && JBXmax - JBXmin >= 100)
-          iJoy2XBar = 140 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-        else
-          iJoy2XBar = 0;
-        displaycalibrationbar(180, 92, iJoy2XBar);
-      } else {
-        if (x2ok)
-          pszJoy2XStatus = &config_buffer[2048];
-        else
-          pszJoy2XStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy2XStatus, 180, 92, 131);
-      }
-      if (calibrate_mode)
-        byJoy2XColor = 0x8F;
-      else
-        byJoy2XColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1920], 176, 104, byJoy2XColor);
-      if (calibrate_mode) {
-        if (y2ok && JBYmax - JBYmin >= 100)
-          iJoy2YBar = 140 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-        else
-          iJoy2YBar = 0;
-        displaycalibrationbar(180, 104, iJoy2YBar);
-      } else {
-        if (y2ok)
-          pszJoy2YStatus = &config_buffer[2048];
-        else
-          pszJoy2YStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy2YStatus, 180, 104, 131);
-      }
-      if (calibrate_mode) {
-        prt_centrecol(rev_vga[1], &config_buffer[2112], 160, 124, 143);
-        prt_centrecol(rev_vga[1], &config_buffer[2176], 160, 136, 143);
-      }
-      break;
+      pausewindow = 2;
+      calibrate_mode = 0;
+      control_select = 0;
+      control_edit = -1;
+      define_mode = 0;
+      // fall through
     case 2:
       if (define_mode != -2)
         s_iPauseAxisTuneActive = 0;
@@ -3729,7 +3602,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[832], 172, 132, byBackColor);
       break;
     default:
-      return;                                   // Switch on pause window mode: 0=main menu, 1=joystick calibration, 2=controls, 3=graphics, 4=sound
+      return;                                   // Switch on pause window mode: 0=main menu, 2=controls, 3=graphics, 4=sound
   }
 }
 
