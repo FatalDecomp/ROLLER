@@ -1038,7 +1038,6 @@ void updatejoy()
   int iY2Clamped; // eax
 
   memset(joyvalue, 0, sizeof(joyvalue));
-  InputUpdate();
   if (Joy1used || Joy2used)
     ReadJoys(&rud_Joy_pos);
   if (Joy1used) {
@@ -1790,7 +1789,6 @@ void ReadJoys(tJoyPos *pJoy)
   int iHasJoy1;
   int iHasJoy2;
 
-  InputUpdate();
   iHasJoy1 = InputGetLegacyJoySlot(0, &pJoy->iJ1Button1, &pJoy->iJ1Button2, &pJoy->iJ1XAxis, &pJoy->iJ1YAxis);
   iHasJoy2 = InputGetLegacyJoySlot(1, &pJoy->iJ2Button1, &pJoy->iJ2Button2, &pJoy->iJ2XAxis, &pJoy->iJ2YAxis);
 
@@ -1821,7 +1819,6 @@ void check_joystickpresence()
   JBYmin = 0;
   JBYmax = 10000;
 
-  InputUpdate();
   iHasJoy1 = InputGetLegacyJoySlot(0, &joyPos.iJ1Button1, &joyPos.iJ1Button2, &joyPos.iJ1XAxis, &joyPos.iJ1YAxis);
   iHasJoy2 = InputGetLegacyJoySlot(1, &joyPos.iJ2Button1, &joyPos.iJ2Button2, &joyPos.iJ2XAxis, &joyPos.iJ2YAxis);
   x1ok = iHasJoy1 ? 1 : 0;

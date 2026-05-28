@@ -160,7 +160,6 @@ static void pause_apply_axis_tuning_key(int iAction, int iKey)
     return;
 
   binding = g_inputBindings[iAction];
-  InputUpdate();
   InputGetBindingPreview(&binding, &preview);
 
   switch (s_iPauseAxisTuneField) {
@@ -2959,7 +2958,6 @@ void display_paused()
           control_edit >= 0 &&
           control_edit < INPUT_NUM_ACTIONS &&
           g_inputBindings[control_edit].eType == INPUT_BINDING_JOYSTICK_AXIS) {
-        InputUpdate();
         InputGetBindingPreview(&g_inputBindings[control_edit], &bindingPreview);
         iTuneY = 104;
 

@@ -142,7 +142,6 @@ static void frontend_config_apply_axis_tuning_key(int iAction, int iKey)
     return;
 
   binding = g_inputBindings[iAction];
-  InputUpdate();
   InputGetBindingPreview(&binding, &preview);
 
   switch (iFrontendConfigAxisTuneField) {
@@ -926,7 +925,6 @@ void frontend_config_update(void)
             control_edit >= 0 &&
             control_edit < INPUT_NUM_ACTIONS &&
             g_inputBindings[control_edit].eType == INPUT_BINDING_JOYSTICK_AXIS) {
-          InputUpdate();
           InputGetBindingPreview(&g_inputBindings[control_edit], &bindingPreview);
           iTuneY = 218;
 

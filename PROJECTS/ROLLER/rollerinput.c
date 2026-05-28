@@ -624,7 +624,6 @@ static const tInputCaptureDevice *InputFindCaptureDevice(SDL_JoystickID joyId)
 
 void InputCaptureBegin(void)
 {
-  InputUpdate();
   InputFreeCaptureSnapshot();
   s_bWaitingForRelease = false;
 
@@ -675,7 +674,6 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
   if (!s_bCaptureActive)
     InputCaptureBegin();
 
-  InputUpdate();
   if (s_bWaitingForRelease) {
     if (InputCaptureReleaseStillActive())
       return 0;
