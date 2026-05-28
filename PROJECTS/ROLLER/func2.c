@@ -3030,6 +3030,12 @@ void display_paused()
           iYPosition2 += 12;
           pszConfigText1 += 64;
         } while (iControlIndex2 < 12);
+        if (Players_Cars[player2_car] >= 8) {
+          byKeyColor1 = control_edit == 13 ? 0x8F : 0x7B;
+          prt_rightcol(rev_vga[1], "CHEAT:", 198, iYPosition2, byKeyColor1);
+          InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition2, byKeyColor1);
+        }
       } else {
         iYPosition = 104;
         iControlIndex = 0;
@@ -3050,6 +3056,12 @@ void display_paused()
           iYPosition += 12;
           pszConfigText2 += 64;
         } while (iControlIndex < 6);
+        if (Players_Cars[player1_car] >= 8) {
+          byKeyDisplayColor1 = control_edit == 12 ? 0x8F : 0x7B;
+          prt_rightcol(rev_vga[1], "CHEAT:", 198, iYPosition, byKeyDisplayColor1);
+          InputGetActionBindingName(12, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition, byKeyDisplayColor1);
+        }
       }
       if (define_mode) {
         if (!controlrelease) {
@@ -3134,20 +3146,25 @@ void display_paused()
               s_iPauseAxisTuneActive = 0;
               control_edit = iControlNext;
               if (iControlSelect == 1 || iControlSelect == 2) {
-                if (iControlNext == 6) {
-                  define_mode = 0;
-                  control_edit = -1;
-                  while (fatkbhit())
-                    fatgetch();
-                  InputSaveConfig();
+                if (iControlNext < 6)
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                if (Players_Cars[player1_car] >= 8 && control_edit < 12) {
+                  control_edit = 12;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
                 }
-              } else if (iControlNext == 12) {
-                control_edit = -1;
-                define_mode = 0;
-                while (fatkbhit())
-                  fatgetch();
-                InputSaveConfig();
+              } else {
+                if (iControlNext < 12)
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                if (Players_Cars[player2_car] >= 8 && control_edit < 13) {
+                  control_edit = 13;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                }
               }
+              define_mode = 0;
+              control_edit = -1;
+              while (fatkbhit())
+                fatgetch();
+              InputSaveConfig();
             }
           }
         }

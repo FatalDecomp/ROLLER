@@ -1005,13 +1005,13 @@ void frontend_config_update(void)
               byColor_25 = 0xAB;
             else
               byColor_25 = 0x8F;
-            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_25, 2u, pal_addr);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 326, byColor_25, 2u, pal_addr);
             if (control_edit == 12)
               byColor_26 = 0xAB;
             else
               byColor_26 = 0x8F;
             InputGetActionBindingName(12, szBindingName, sizeof(szBindingName));
-            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640, pal_addr);
+            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 326, byColor_26, 0, 200, 640, pal_addr);
           }
         }
         // Display Player 2 control customization screen
@@ -1043,13 +1043,13 @@ void frontend_config_update(void)
               byColor_29 = 0xAB;
             else
               byColor_29 = 0x8F;
-            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_29, 2u, pal_addr);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 326, byColor_29, 2u, pal_addr);
             if (control_edit == 13)
               byColor_30 = 0xAB;
             else
               byColor_30 = 0x8F;
             InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
-            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 308, byColor_30, 0, pal_addr);
+            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 326, byColor_30, 0, pal_addr);
           }
         }
 
