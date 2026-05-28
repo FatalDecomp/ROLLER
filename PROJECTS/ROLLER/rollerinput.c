@@ -58,7 +58,7 @@ static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
   { "P2upgear", 72 },
   { "P2downgear", 76 },
   { "P1cheat", 21 },
-  { "P2cheat", 79 }
+  { "P2cheat", 71 }
 };
 
 static int InputReadButton(tInputBinding *pBinding);
