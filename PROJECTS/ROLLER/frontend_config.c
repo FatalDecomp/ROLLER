@@ -105,11 +105,11 @@ static int frontend_config_update_broadcast_wait(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static int frontend_config_clamp_int(int iValue, int iMin, int iMax)
+static int frontend_config_wrap_int(int iValue, int iMin, int iMax)
 {
-  if (iValue < iMin)
-    return iMin;
   if (iValue > iMax)
+    return iMin;
+  if (iValue < iMin)
     return iMax;
   return iValue;
 }
@@ -153,10 +153,10 @@ static void frontend_config_apply_axis_tuning_key(int iAction, int iKey)
       binding.bInvert = binding.bInvert == 0;
       break;
     case 2:
-      binding.iDeadzone = frontend_config_clamp_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      binding.iDeadzone = frontend_config_wrap_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
       break;
     case 3:
-      binding.iThreshold = frontend_config_clamp_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      binding.iThreshold = frontend_config_wrap_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
       break;
     default:
       break;

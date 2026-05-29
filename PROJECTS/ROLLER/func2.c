@@ -137,11 +137,11 @@ int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
 
 //-------------------------------------------------------------------------------------------------
 
-static int pause_clamp_int(int iValue, int iMin, int iMax)
+static int pause_wrap_int(int iValue, int iMin, int iMax)
 {
-  if (iValue < iMin)
-    return iMin;
   if (iValue > iMax)
+    return iMin;
+  if (iValue < iMin)
     return iMax;
   return iValue;
 }
@@ -171,10 +171,10 @@ static void pause_apply_axis_tuning_key(int iAction, int iKey)
       binding.bInvert = binding.bInvert == 0;
       break;
     case 2:
-      binding.iDeadzone = pause_clamp_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      binding.iDeadzone = pause_wrap_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
       break;
     case 3:
-      binding.iThreshold = pause_clamp_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      binding.iThreshold = pause_wrap_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
       break;
     default:
       break;
