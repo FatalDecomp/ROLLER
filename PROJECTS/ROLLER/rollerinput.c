@@ -10,6 +10,8 @@
 
 #define INPUT_DEFAULT_DEADZONE 8000
 #define INPUT_DEFAULT_THRESHOLD 12000
+#define INPUT_AXIS_CAPTURE_DELTA 12000
+#define INPUT_TRIGGER_CAPTURE_DELTA 6000
 #define INPUT_PEDAL_DEADZONE 4000
 #define INPUT_STEERING_MAGNITUDE_MAX 0x102
 
@@ -28,6 +30,8 @@ typedef struct
   int *piAxes;
   uint8 *pbyButtons;
   uint8 *pbyHats;
+  int iGamepadAxes[SDL_GAMEPAD_AXIS_COUNT];
+  uint8 byGamepadButtons[SDL_GAMEPAD_BUTTON_COUNT];
 } tInputCaptureDevice;
 
 //-------------------------------------------------------------------------------------------------
@@ -63,6 +67,7 @@ static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
 
 static int InputReadButton(tInputBinding *pBinding);
 static int InputReadHat(tInputBinding *pBinding);
+static int InputReadAxisRaw(tInputBinding *pBinding);
 static int InputGetAxisValueInDirection(tInputBinding *pBinding);
 
 //-------------------------------------------------------------------------------------------------
@@ -408,7 +413,6 @@ void InputInit(void)
   }
 
   InputRefreshDevices();
-  InputApplyDefaultGamepadBindings();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -574,6 +578,35 @@ static int InputIsSteeringAction(int iAction)
 
 //-------------------------------------------------------------------------------------------------
 
+static void InputSetCapturedButton(tInputBinding *pBindingOut, const tInputDevice *pDevice, int iAction, int iInputIndex, bool bGamepadInput)
+{
+  InputClearBinding(pBindingOut);
+  pBindingOut->eType = INPUT_BINDING_JOYSTICK_BUTTON;
+  pBindingOut->iInputIndex = iInputIndex;
+  pBindingOut->bGamepadInput = bGamepadInput;
+  pBindingOut->iKeyScancode = userkey[iAction];
+  InputCopyDeviceIdentity(pBindingOut, pDevice);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputSetCapturedAxis(tInputBinding *pBindingOut, const tInputDevice *pDevice, int iAction, int iInputIndex, int iBaseValue, int iDelta, bool bGamepadInput)
+{
+  InputClearBinding(pBindingOut);
+  pBindingOut->eType = INPUT_BINDING_JOYSTICK_AXIS;
+  pBindingOut->iInputIndex = iInputIndex;
+  pBindingOut->iDirection = iDelta < 0 ? -1 : 1;
+  pBindingOut->eAxisMode = InputIsSteeringAction(iAction) ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
+  pBindingOut->iDeadzone = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? INPUT_PEDAL_DEADZONE : INPUT_DEFAULT_DEADZONE;
+  pBindingOut->iThreshold = INPUT_DEFAULT_THRESHOLD;
+  pBindingOut->iRestValue = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? iBaseValue : 0;
+  pBindingOut->bGamepadInput = bGamepadInput;
+  pBindingOut->iKeyScancode = userkey[iAction];
+  InputCopyDeviceIdentity(pBindingOut, pDevice);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void InputCaptureWaitForRelease(const tInputBinding *pBinding)
 {
   s_releaseBinding = *pBinding;
@@ -585,7 +618,7 @@ static void InputCaptureWaitForRelease(const tInputBinding *pBinding)
 static int InputCaptureReleaseStillActive(void)
 {
   tInputBinding binding;
-  int iThreshold;
+  int iReleaseDeadzone;
 
   if (!s_bWaitingForRelease)
     return 0;
@@ -597,15 +630,26 @@ static int InputCaptureReleaseStillActive(void)
     case INPUT_BINDING_JOYSTICK_HAT:
       return InputReadHat(&binding);
     case INPUT_BINDING_JOYSTICK_AXIS:
-      iThreshold = binding.eAxisMode == INPUT_AXIS_PEDAL ? binding.iThreshold : binding.iDeadzone;
-      if (iThreshold <= 0)
-        iThreshold = INPUT_DEFAULT_THRESHOLD;
-      return InputGetAxisValueInDirection(&binding) > iThreshold;
+      iReleaseDeadzone = binding.iDeadzone;
+      if (iReleaseDeadzone <= 0)
+        iReleaseDeadzone = INPUT_DEFAULT_DEADZONE;
+      return abs(InputReadAxisRaw(&binding) - binding.iRestValue) > iReleaseDeadzone;
     default:
       break;
   }
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputGetGamepadAxisCaptureDelta(SDL_GamepadAxis eAxis)
+{
+  if (eAxis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER ||
+      eAxis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)
+    return INPUT_TRIGGER_CAPTURE_DELTA;
+
+  return INPUT_AXIS_CAPTURE_DELTA;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -655,6 +699,16 @@ void InputCaptureBegin(void)
           if (pCaptureDevice->pbyHats)
             memcpy(pCaptureDevice->pbyHats, pDevice->pbyHats, sizeof(uint8) * (size_t)pDevice->iNumHats);
         }
+        if (pDevice->pGamepad) {
+          for (int iAxis = 0; iAxis < SDL_GAMEPAD_AXIS_COUNT; ++iAxis) {
+            if (SDL_GamepadHasAxis(pDevice->pGamepad, (SDL_GamepadAxis)iAxis))
+              pCaptureDevice->iGamepadAxes[iAxis] = SDL_GetGamepadAxis(pDevice->pGamepad, (SDL_GamepadAxis)iAxis);
+          }
+          for (int iButton = 0; iButton < SDL_GAMEPAD_BUTTON_COUNT; ++iButton) {
+            if (SDL_GamepadHasButton(pDevice->pGamepad, (SDL_GamepadButton)iButton))
+              pCaptureDevice->byGamepadButtons[iButton] = SDL_GetGamepadButton(pDevice->pGamepad, (SDL_GamepadButton)iButton) ? 1 : 0;
+          }
+        }
       }
     }
   }
@@ -666,8 +720,6 @@ void InputCaptureBegin(void)
 
 int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
 {
-  const int iAxisCaptureDelta = 12000;
-
   if (!pBindingOut || iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
     return 0;
 
@@ -685,16 +737,47 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
     const tInputDevice *pDevice = &s_pDevices[iDevice];
     const tInputCaptureDevice *pCaptureDevice = InputFindCaptureDevice(pDevice->joyId);
 
+    if (pDevice->pGamepad) {
+      for (int iButton = 0; iButton < SDL_GAMEPAD_BUTTON_COUNT; ++iButton) {
+        int iWasDown;
+
+        if (!SDL_GamepadHasButton(pDevice->pGamepad, (SDL_GamepadButton)iButton))
+          continue;
+
+        iWasDown = pCaptureDevice ? pCaptureDevice->byGamepadButtons[iButton] != 0 : 0;
+        if (SDL_GetGamepadButton(pDevice->pGamepad, (SDL_GamepadButton)iButton) && !iWasDown) {
+          InputSetCapturedButton(pBindingOut, pDevice, iAction, iButton, true);
+          InputCaptureWaitForRelease(pBindingOut);
+          return 1;
+        }
+      }
+
+      for (int iAxis = 0; iAxis < SDL_GAMEPAD_AXIS_COUNT; ++iAxis) {
+        int iBaseValue;
+        int iDelta;
+
+        if (!SDL_GamepadHasAxis(pDevice->pGamepad, (SDL_GamepadAxis)iAxis))
+          continue;
+
+        iBaseValue = pCaptureDevice ? pCaptureDevice->iGamepadAxes[iAxis] : 0;
+        iDelta = SDL_GetGamepadAxis(pDevice->pGamepad, (SDL_GamepadAxis)iAxis) - iBaseValue;
+        if (abs(iDelta) >= InputGetGamepadAxisCaptureDelta((SDL_GamepadAxis)iAxis)) {
+          InputSetCapturedAxis(pBindingOut, pDevice, iAction, iAxis, iBaseValue, iDelta, true);
+          InputCaptureWaitForRelease(pBindingOut);
+          return 1;
+        }
+      }
+
+      // Keep SDL gamepads in standard button/axis space. Raw fallback is for wheels and other joysticks.
+      continue;
+    }
+
     for (int iButton = 0; iButton < pDevice->iNumButtons; ++iButton) {
       int iWasDown = pCaptureDevice && pCaptureDevice->pbyButtons && iButton < pCaptureDevice->iNumButtons
         ? pCaptureDevice->pbyButtons[iButton] != 0
         : 0;
       if (pDevice->pbyButtons[iButton] && !iWasDown) {
-        InputClearBinding(pBindingOut);
-        pBindingOut->eType = INPUT_BINDING_JOYSTICK_BUTTON;
-        pBindingOut->iInputIndex = iButton;
-        pBindingOut->iKeyScancode = userkey[iAction];
-        InputCopyDeviceIdentity(pBindingOut, pDevice);
+        InputSetCapturedButton(pBindingOut, pDevice, iAction, iButton, false);
         InputCaptureWaitForRelease(pBindingOut);
         return 1;
       }
@@ -725,17 +808,8 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
         ? pCaptureDevice->piAxes[iAxis]
         : 0;
       int iDelta = pDevice->piAxes[iAxis] - iBaseValue;
-      if (abs(iDelta) >= iAxisCaptureDelta) {
-        InputClearBinding(pBindingOut);
-        pBindingOut->eType = INPUT_BINDING_JOYSTICK_AXIS;
-        pBindingOut->iInputIndex = iAxis;
-        pBindingOut->iDirection = iDelta < 0 ? -1 : 1;
-        pBindingOut->eAxisMode = InputIsSteeringAction(iAction) ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
-        pBindingOut->iDeadzone = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? INPUT_PEDAL_DEADZONE : INPUT_DEFAULT_DEADZONE;
-        pBindingOut->iThreshold = INPUT_DEFAULT_THRESHOLD;
-        pBindingOut->iRestValue = pBindingOut->eAxisMode == INPUT_AXIS_PEDAL ? iBaseValue : 0;
-        pBindingOut->iKeyScancode = userkey[iAction];
-        InputCopyDeviceIdentity(pBindingOut, pDevice);
+      if (abs(iDelta) >= INPUT_AXIS_CAPTURE_DELTA) {
+        InputSetCapturedAxis(pBindingOut, pDevice, iAction, iAxis, iBaseValue, iDelta, false);
         InputCaptureWaitForRelease(pBindingOut);
         return 1;
       }
@@ -1345,9 +1419,23 @@ void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen
         snprintf(szOut, (size_t)iOutLen, "Keyboard %d", pBinding->iKeyScancode);
       break;
     case INPUT_BINDING_JOYSTICK_BUTTON:
+      if (pBinding->bGamepadInput) {
+        const char *szButtonName = SDL_GetGamepadStringForButton((SDL_GamepadButton)pBinding->iInputIndex);
+        if (szButtonName && szButtonName[0]) {
+          snprintf(szOut, (size_t)iOutLen, "%s", szButtonName);
+          break;
+        }
+      }
       snprintf(szOut, (size_t)iOutLen, "button %d", pBinding->iInputIndex);
       break;
     case INPUT_BINDING_JOYSTICK_AXIS:
+      if (pBinding->bGamepadInput) {
+        const char *szAxisName = SDL_GetGamepadStringForAxis((SDL_GamepadAxis)pBinding->iInputIndex);
+        if (szAxisName && szAxisName[0]) {
+          snprintf(szOut, (size_t)iOutLen, "%s %s", szAxisName, pBinding->iDirection < 0 ? "-" : "+");
+          break;
+        }
+      }
       snprintf(szOut, (size_t)iOutLen, "axis %d %s", pBinding->iInputIndex, pBinding->iDirection < 0 ? "-" : "+");
       break;
     case INPUT_BINDING_JOYSTICK_HAT:
