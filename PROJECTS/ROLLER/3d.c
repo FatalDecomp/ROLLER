@@ -21,6 +21,7 @@
 #include "crashdump.h"
 #include "snapshot.h"
 #include "snapshot_scenes.h"
+#include "rollerinput.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,7 +105,6 @@ float game_scale[2] = { 32768.0f, 32768.0f }; //000A3190
 int define_mode = 0;        //000A3198
 int calibrate_mode = 0;     //000A319C
 int graphic_mode = 0;       //000A31A0
-int calibrate_select = 0;   //000A31A4
 int sound_edit = 0;         //000A31A8
 int showversion = 0;        //000A31AC
 int game_svga = 1;          //000A31B0 ROLLER modification - SVGA mode by default
@@ -3034,9 +3034,6 @@ void play_game_init()
   game_count[1] = -2;
   set_game_scale(0, 32768.0f);
   set_game_scale(1, 32768.0f);
-  Joy1used = 0;
-  Joy2used = 0;
-  check_joystick_usage();                       // Initialize joystick usage tracking
   memset(repsample, 1, sizeof(repsample));
   memcpy(newrepsample, repsample, sizeof(newrepsample));
   autoswitch = -1;
@@ -3444,11 +3441,12 @@ void game_keys()
                     break;
                   case WHIP_SCANCODE_UP:
                     if (game_req) {
-                      if (!pausewindow && req_edit > 0)
+                      if (!pausewindow && req_edit > 0) {
                         --req_edit;
-                      if (pausewindow == 1 && !calibrate_mode && calibrate_select < pausewindow)
-                        calibrate_select += pausewindow;
-                      if (pausewindow == 2 && control_select < 2)
+                        if (req_edit == 3)
+                          --req_edit;
+                      }
+                      if (pausewindow == 2 && control_select < 4)
                         ++control_select;
                       if (pausewindow == 3 && graphic_mode < 16)
                         ++graphic_mode;
@@ -3563,10 +3561,11 @@ void game_keys()
                     break;
                   case WHIP_SCANCODE_DOWN:
                     if (game_req) {
-                      if (!pausewindow && req_edit < 6)
+                      if (!pausewindow && req_edit < 6) {
                         ++req_edit;
-                      if (pausewindow == 1 && calibrate_select > 0 && !calibrate_mode)
-                        calibrate_select -= pausewindow;
+                        if (req_edit == 3)
+                          ++req_edit;
+                      }
                       if (pausewindow == 2 && control_select > 0)
                         --control_select;
                       if (pausewindow == 3 && graphic_mode > 0)
@@ -3767,8 +3766,6 @@ void game_keys()
               break;
             if (uiKeyCode <= 0x1B) {                                   // Escape key - Exit pause menus
               if (game_req && pausewindow) {
-                if (pausewindow == 1 || pausewindow == 2)
-                  remove_uncalibrated();
                 pausewindow = 0;
               } else if (filingmenu) {
                 filingmenu = 0;
@@ -3816,14 +3813,14 @@ void game_keys()
                 pausewindow = 4;
                 goto PROCESS_NEXT_KEY;
               case 3:
-                calibrate_select = 0;
-                calibrate_mode = 0;
-                pausewindow = 1;
+                pausewindow = 2;
+                controlrelease = -1;
+                define_mode = 0;
+                control_select = 0;
+                control_edit = -1;
                 goto PROCESS_NEXT_KEY;
               case 4:
                 pausewindow = 2;
-                Joy1used = 0;
-                Joy2used = 0;
                 controlrelease = -1;
                 define_mode = 0;
                 control_select = 0;
@@ -3840,38 +3837,32 @@ void game_keys()
                 goto PROCESS_NEXT_KEY;
             }
           case 1:
-            if (calibrate_select) {
-              if (calibrate_select == 1) {
-                bToggleState = calibrate_mode != 0;
-                calibrate_mode = calibrate_mode == 0;
-                if (bToggleState)
-                  remove_uncalibrated();
-                else
-                  check_joystickpresence();
-              }
-            } else {
-              pausewindow = 0;
-              remove_uncalibrated();
-              check_joystick_usage();
-              calibrate_mode = 0;
-            }
+            pausewindow = 2;
+            calibrate_mode = 0;
+            control_select = 0;
+            control_edit = -1;
+            define_mode = 0;
             break;
           case 2:
             if (control_select) {
-              if ((unsigned int)control_select <= 1) {
-                define_mode = -1;
+              if ((unsigned int)control_select <= 2) {
+                define_mode = control_select == 1 ? -2 : -1;
                 control_edit = 0;
                 disable_keyboard();
                 controlrelease = -1;
                 memcpy(oldkeys, userkey, 0xCu);
                 memcpy(&oldkeys[12], &userkey[12], 2u);
-              } else if (control_select == 2) {
-                define_mode = -1;
+                InputBackupBindings();
+                InputCaptureBegin();
+              } else if (control_select == 3 || control_select == 4) {
+                define_mode = control_select == 3 ? -2 : -1;
                 control_edit = 6;
                 disable_keyboard();
                 controlrelease = -1;
                 memcpy(oldkeys, userkey, 0xCu);
                 memcpy(&oldkeys[12], &userkey[12], 2u);
+                InputBackupBindings();
+                InputCaptureBegin();
               }
             } else {
             EXIT_PAUSE_MENU:

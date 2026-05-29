@@ -18,6 +18,7 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include "rollerinput.h"
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -41,10 +42,12 @@ static int iFrontendConfigState;
 static int iFrontendConfigVolumeSelection;
 static int iFrontendConfigVideoState;
 static int iFrontendConfigControlSelection;
+static int iFrontendConfigWheelDefineMode;
+static int iFrontendConfigAxisTuneActive;
+static int iFrontendConfigAxisTuneField;
 static int iFrontendConfigSelectedCar;
 static int iFrontendConfigNameLength;
 static char szFrontendConfigNewNameBuf[12];
-static tJoyPos jFrontendConfigJoyPos;
 static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
@@ -102,6 +105,68 @@ static int frontend_config_update_broadcast_wait(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_config_wrap_int(int iValue, int iMin, int iMax)
+{
+  if (iValue > iMax)
+    return iMin;
+  if (iValue < iMin)
+    return iMax;
+  return iValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_is_player1_control_selection(int iSelection)
+{
+  return iSelection >= 1 && iSelection <= 3;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_is_player2_control_selection(int iSelection)
+{
+  return iSelection >= 4 && iSelection <= 6;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_apply_axis_tuning_key(int iAction, int iKey)
+{
+  tInputBinding binding;
+  tInputBindingPreview preview;
+  int iStep = 1000;
+
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
+    return;
+  if (g_inputBindings[iAction].eType != INPUT_BINDING_JOYSTICK_AXIS)
+    return;
+
+  binding = g_inputBindings[iAction];
+  InputGetBindingPreview(&binding, &preview);
+
+  switch (iFrontendConfigAxisTuneField) {
+    case 0:
+      binding.eAxisMode = binding.eAxisMode == INPUT_AXIS_PEDAL ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
+      binding.iRestValue = binding.eAxisMode == INPUT_AXIS_PEDAL ? preview.iRawValue : 0;
+      break;
+    case 1:
+      binding.bInvert = binding.bInvert == 0;
+      break;
+    case 2:
+      binding.iDeadzone = frontend_config_wrap_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    case 3:
+      binding.iThreshold = frontend_config_wrap_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    default:
+      break;
+  }
+
+  InputSetControllerBinding(iAction, &binding);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_black_palette(void)
 {
   palette_brightness = 0;
@@ -134,6 +199,9 @@ void frontend_config_enter(void)
   iFrontendConfigMenuSelection = 7;
   iFrontendConfigEditingName = 0;
   iFrontendConfigControlsInEdit = 0;
+  iFrontendConfigWheelDefineMode = 0;
+  iFrontendConfigAxisTuneActive = 0;
+  iFrontendConfigAxisTuneField = 0;
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
@@ -209,16 +277,6 @@ void frontend_config_update(void)
   int byColor_17; // ebx
   int iFrontendConfigVolumeSelection_1; // ecx
   int byColor_18; // ebx
-  int iFrontendConfigState_1; // edi
-  int iJoyCalibValue1; // ebx
-  char *szJoyStatus1; // edx
-  int iJoyCalibValue2; // ebx
-  char *szJoyStatus2; // edx
-  int iX2CalibrationVal; // ebx
-  char *szX2Text; // edx
-  int iFrontendConfigState_2; // edi
-  int iY2CalibrationVal; // ebx
-  char *szY2Text; // edx
   int iKeyFound; // ebx
   int iKeyIndex; // eax
   int iKeyCounter; // edx
@@ -242,11 +300,8 @@ void frontend_config_update(void)
   int iKeyCheckLoop; // eax
   int iFoundKey; // ecx
   int iKeySearchIndex; // edx
-  int iJoyValue1; // eax
-  int iJoyValue2; // eax
-  int iJoyValue3; // eax
-  int iJoyValue4; // eax
   int iDuplicateCheck; // ebx
+  int iCapturedControllerInput; // ebx
   int i; // eax
   int iEditIndex; // eax
   int iControlState; // ebx
@@ -339,6 +394,7 @@ void frontend_config_update(void)
   //uint32 uiTempCheatMode; // eax
   unsigned int uiKeyCode; // eax
   unsigned int uiExtendedKey; // eax
+  int iMenuDrawSelection; // eax
   int iMenuDir; // edi
   int iMenuDir2; // edi
   int iKeyInput; // eax
@@ -412,6 +468,11 @@ void frontend_config_update(void)
   int iNormalColor; // [esp+7Ch] [ebp+76h]
   int iHighlightColor; // [esp+80h] [ebp+7Ah]
   int iCarLoop; // [esp+84h] [ebp+7Eh]
+  tInputBinding capturedBinding;
+  tInputBindingPreview bindingPreview;
+  char szBindingName[128];
+  int iTuneY;
+  int iTuneColor;
 
   if (select_messages_active()) {
     select_messages();
@@ -443,6 +504,10 @@ void frontend_config_update(void)
     menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
     menu_render_sprite(mr, 4, 1, 76, 257, -1, pal_addr);
 
+    iMenuDrawSelection = iFrontendConfigMenuSelection;
+    if (iMenuDrawSelection > 2 && iMenuDrawSelection < 7)
+      --iMenuDrawSelection;
+
     // draw menu selector
     if (iFrontendConfigMenuSelection >= 7) {
       // no menu item selected (exit)
@@ -450,20 +515,19 @@ void frontend_config_update(void)
     } else {
       // draw menu selector
       menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
-      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iFrontendConfigMenuSelection].x, sel_posns[iFrontendConfigMenuSelection].y, 0x8Fu, 0, pal_addr);
+      menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuDrawSelection].x, sel_posns[iMenuDrawSelection].y, 0x8Fu, 0, pal_addr);
     }
 
     // menu options labels
     menu_render_text(mr, 2, &config_buffer[3968], font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
     menu_render_text(mr, 2, &config_buffer[256], font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[1664], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4032], font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4096], font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
+    menu_render_text(mr, 2, &config_buffer[4160], font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
 
     // network option if enabled
     if (network_on)
-      menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
+      menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
 
     // Config state machine
     switch (iFrontendConfigMenuSelection) {
@@ -770,128 +834,8 @@ void frontend_config_update(void)
         front_volumebar(152, MusicVolume, byColor_18);
         goto RENDER_FRAME;
       case 2:
-        // Joystick calibration
-        if (iFrontendConfigState == 3) {
-          ReadJoys(&jFrontendConfigJoyPos);
-          //_disable();
-
-          // Update calibration ranges for all axes
-          if (jFrontendConfigJoyPos.iJ1XAxis < JAXmin)
-            JAXmin = jFrontendConfigJoyPos.iJ1XAxis;
-          if (jFrontendConfigJoyPos.iJ1XAxis > JAXmax)
-            JAXmax = jFrontendConfigJoyPos.iJ1XAxis;
-
-          if (jFrontendConfigJoyPos.iJ1YAxis < JAYmin)
-            JAYmin = jFrontendConfigJoyPos.iJ1YAxis;
-          if (jFrontendConfigJoyPos.iJ1YAxis > JAYmax)
-            JAYmax = jFrontendConfigJoyPos.iJ1YAxis;
-
-          if (jFrontendConfigJoyPos.iJ2XAxis < JBXmin)
-            JBXmin = jFrontendConfigJoyPos.iJ2XAxis;
-          if (jFrontendConfigJoyPos.iJ2XAxis > JBXmax)
-            JBXmax = jFrontendConfigJoyPos.iJ2XAxis;
-
-          if (jFrontendConfigJoyPos.iJ2YAxis < JBYmin)
-            JBYmin = jFrontendConfigJoyPos.iJ2YAxis;
-          if (jFrontendConfigJoyPos.iJ2YAxis > JBYmax)
-            JBYmax = jFrontendConfigJoyPos.iJ2YAxis;
-
-          if (JAXmin == JAXmax)
-            JAXmax = JAXmin + 1;
-          if (JAYmin == JAYmax)
-            JAYmax = JAYmin + 1;
-
-          if (JBXmin == JBXmax)
-            JBXmax = JBXmin + 1;
-          if (JBYmin == JBYmax)
-            JBYmax = JBYmin + 1;
-          //_enable();
-        }
-
-        // Display calibration instructions when active
-        if (iFrontendConfigState == 3) {
-          // MOVE JOYSTICKS TO FULL EXTENTS
-          menu_render_scaled_text(mr, 15, &config_buffer[2112], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
-          // THEN PRESS ANY KEY
-          menu_render_scaled_text(mr, 15, &config_buffer[2176], font1_ascii, font1_offsets, 400, 78, 143, 1u, 200, 640, pal_addr);
-        }
-
-        iFrontendConfigState_1 = iFrontendConfigState;
-
-        // X1 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1728], font1_ascii, font1_offsets, 400, 110, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState_1 == 3) {
-          // Show calibration bar
-          if (x1ok && JAXmax - JAXmin >= 100)
-            iJoyCalibValue1 = 140 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-          else
-            iJoyCalibValue1 = 0;
-          front_displaycalibrationbar(300, 128, iJoyCalibValue1);
-        } else {
-          // Show status text
-          if (x1ok)
-            szJoyStatus1 = &config_buffer[2048];
-          else
-            szJoyStatus1 = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szJoyStatus1, font1_ascii, font1_offsets, 400, 128, 143, 1u, 200, 640, pal_addr);
-        }
-
-        // Y1 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1792], font1_ascii, font1_offsets, 400, 160, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState == 3) {
-          // Show Calibration bar
-          if (y1ok && JAYmax - JAYmin >= 100)
-            iJoyCalibValue2 = 140 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-          else
-            iJoyCalibValue2 = 0;
-          front_displaycalibrationbar(300, 178, iJoyCalibValue2);
-        } else {
-          // Show status text
-          if (y1ok)
-            szJoyStatus2 = &config_buffer[2048];
-          else
-            szJoyStatus2 = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szJoyStatus2, font1_ascii, font1_offsets, 400, 178, 143, 1u, 200, 640, pal_addr);
-        }
-
-        // X2 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1856], font1_ascii, font1_offsets, 400, 210, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState == 3) {
-          // Calibration bar
-          if (x2ok && JBXmax - JBXmin >= 100)
-            iX2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-          else
-            iX2CalibrationVal = 0;
-          front_displaycalibrationbar(300, 228, iX2CalibrationVal);
-        } else {
-          // status text
-          if (x2ok)
-            szX2Text = &config_buffer[2048];
-          else
-            szX2Text = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szX2Text, font1_ascii, font1_offsets, 400, 228, 143, 1u, 200, 640, pal_addr);
-        }
-
-        iFrontendConfigState_2 = iFrontendConfigState;
-
-        // Y2 axis display
-        menu_render_scaled_text(mr, 15, &config_buffer[1920], font1_ascii, font1_offsets, 400, 260, 143, 1u, 200, 640, pal_addr);
-        if (iFrontendConfigState_2 == 3) {
-          // Calibration bar
-          if (y2ok && JBYmax - JBYmin >= 100)
-            iY2CalibrationVal = 140 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-          else
-            iY2CalibrationVal = 0;
-          front_displaycalibrationbar(300, 278, iY2CalibrationVal);
-        } else {
-          // Status text
-          if (y2ok)
-            szY2Text = &config_buffer[2048];
-          else
-            szY2Text = &config_buffer[1984];
-          menu_render_scaled_text(mr, 15, szY2Text, font1_ascii, font1_offsets, 400, 278, 143, 1u, 200, 640, pal_addr);
-        }
-        goto RENDER_FRAME;
+        iFrontendConfigMenuSelection = 3;
+        // fall through
       case 3:
         // Keyboard control config
         if (iFrontendConfigState == 4) {
@@ -920,19 +864,25 @@ void frontend_config_update(void)
             sprintf(buffer, "%s %s", &config_buffer[4480], &config_buffer[4544]);
           else
             sprintf(buffer, "%s %s", &config_buffer[4480], &config_buffer[4608]);
-          if (iFrontendConfigControlSelection == 4)
+          if (iFrontendConfigControlSelection == 6)
             byColor_19 = 0xAB;
           else
             byColor_19 = 0x8F;
           menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 60, byColor_19, 1u, 200, 640, pal_addr);
 
           // Player 2 customize controls option
-          if (iFrontendConfigControlSelection == 3)
+          if (iFrontendConfigControlSelection == 5)
             byColor_20 = 0xAB;
           else
             byColor_20 = 0x8F;
           // CUSTOMIZE PLAYER 2
           menu_render_scaled_text(mr, 15, &config_buffer[704], font1_ascii, font1_offsets, 420, 78, byColor_20, 1u, 200, 640, pal_addr);
+
+          if (iFrontendConfigControlSelection == 4)
+            byColor_20 = 0xAB;
+          else
+            byColor_20 = 0x8F;
+          menu_render_scaled_text(mr, 15, "PLAYER 2 WHEEL CONTROLS", font1_ascii, font1_offsets, 420, 96, byColor_20, 1u, 200, 640, pal_addr);
         }
 
         // Display player 1 controls
@@ -940,31 +890,93 @@ void frontend_config_update(void)
           sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4544]);
         else
           sprintf(buffer, "%s %s", &config_buffer[4416], &config_buffer[4608]);
-        if (iFrontendConfigControlSelection == 2)
+        iY_1 = player_type == 2 ? 124 : 96;
+        if (iFrontendConfigControlSelection == 3)
           byColor_21 = 0xAB;
         else
           byColor_21 = 0x8F;
-        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 96, byColor_21, 1u, 200, 640, pal_addr);
+        menu_render_scaled_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, iY_1, byColor_21, 1u, 200, 640, pal_addr);
         // Player 1 customize controls option
-        if (iFrontendConfigControlSelection == 1)
+        if (iFrontendConfigControlSelection == 2)
           byColor_22 = 0xAB;
         else
           byColor_22 = 0x8F;
         // CUSTOMIZE PLAYER 1
-        menu_render_scaled_text(mr, 15, &config_buffer[768], font1_ascii, font1_offsets, 420, 114, byColor_22, 1u, 200, 640, pal_addr);
+        menu_render_scaled_text(mr, 15, &config_buffer[768], font1_ascii, font1_offsets, 420, iY_1 + 18, byColor_22, 1u, 200, 640, pal_addr);
+
+        if (iFrontendConfigControlSelection == 1)
+          byColor_22 = 0xAB;
+        else
+          byColor_22 = 0x8F;
+        menu_render_scaled_text(mr, 15, "PLAYER 1 WHEEL CONTROLS", font1_ascii, font1_offsets, 420, iY_1 + 36, byColor_22, 1u, 200, 640, pal_addr);
 
         // Back option
         if (iFrontendConfigControlSelection)
           byColor_23 = 0x8F;
         else
           byColor_23 = 0xAB;
-        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, 132, byColor_23, 1u, 200, 640, pal_addr);
+        menu_render_scaled_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 420, iY_1 + 72, byColor_23, 1u, 200, 640, pal_addr);
 
+        if (iFrontendConfigAxisTuneActive &&
+            control_edit >= 0 &&
+            control_edit < INPUT_NUM_ACTIONS &&
+            g_inputBindings[control_edit].eType == INPUT_BINDING_JOYSTICK_AXIS) {
+          InputGetBindingPreview(&g_inputBindings[control_edit], &bindingPreview);
+          iTuneY = 218;
+
+          if (control_edit < 6)
+            szControlName = &config_buffer[896 + control_edit * 64];
+          else if (control_edit < 12)
+            szControlName = &config_buffer[1280 + (control_edit - 6) * 64];
+          else
+            szControlName = "CHEAT:";
+
+          InputGetActionBindingName(control_edit, szBindingName, sizeof(szBindingName));
+          menu_render_text(mr, 15, szControlName, font1_ascii, font1_offsets, 475, iTuneY, 0x8F, 2u, pal_addr);
+          menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, iTuneY, 0x8F, 0, pal_addr);
+
+          if (iFrontendConfigAxisTuneField == 0)
+            iTuneColor = 0xAB;
+          else
+            iTuneColor = 0x8F;
+          sprintf(buffer, "MODE %s", g_inputBindings[control_edit].eAxisMode == INPUT_AXIS_PEDAL ? "PEDAL" : "CENTERED");
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 22, iTuneColor, 2u, pal_addr);
+
+          if (iFrontendConfigAxisTuneField == 1)
+            iTuneColor = 0xAB;
+          else
+            iTuneColor = 0x8F;
+          sprintf(buffer, "INVERT %s", g_inputBindings[control_edit].bInvert ? "ON" : "OFF");
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 40, iTuneColor, 2u, pal_addr);
+
+          if (iFrontendConfigAxisTuneField == 2)
+            iTuneColor = 0xAB;
+          else
+            iTuneColor = 0x8F;
+          sprintf(buffer, "DEADZONE %d", g_inputBindings[control_edit].iDeadzone);
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 58, iTuneColor, 2u, pal_addr);
+
+          if (iFrontendConfigAxisTuneField == 3)
+            iTuneColor = 0xAB;
+          else
+            iTuneColor = 0x8F;
+          sprintf(buffer, "THRESHOLD %d", g_inputBindings[control_edit].iThreshold);
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 76, iTuneColor, 2u, pal_addr);
+
+          if (iFrontendConfigAxisTuneField == 4)
+            iTuneColor = 0xAB;
+          else
+            iTuneColor = 0x8F;
+          menu_render_text(mr, 15, &config_buffer[832], font1_ascii, font1_offsets, 475, iTuneY + 94, iTuneColor, 2u, pal_addr);
+
+          sprintf(buffer, "RAW %d  VALUE %d  %s", bindingPreview.iRawValue, bindingPreview.iNormalizedValue, bindingPreview.iPressed ? "ON" : "OFF");
+          menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 475, iTuneY + 130, 0x8F, 2u, pal_addr);
+        }
         // Display player 1 control customization screen
-        if (iFrontendConfigControlSelection == 1 || iFrontendConfigControlSelection == 2) {
+        else if (frontend_config_is_player1_control_selection(iFrontendConfigControlSelection)) {
           iControlLoop = 0;
           szControlName = &config_buffer[896];  // start of control name strings
-          iY_1 = 200;
+          iY_1 = 218;
           // Display all 6 basic controls for player 1
           do {
             if (iControlLoop == control_edit)
@@ -976,7 +988,8 @@ void frontend_config_update(void)
               byColor_24 = 0xAB;
             else
               byColor_24 = 0x8F;
-            menu_render_scaled_text(mr, 15, keyname[userkey[iControlLoop]], font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640, pal_addr);
+            InputGetActionBindingName(iControlLoop, szBindingName, sizeof(szBindingName));
+            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, iY_1, byColor_24, 0, 200, 640, pal_addr);
             szControlName += 64;                // next control name
             ++iControlLoop;
             iY_1 += 18;
@@ -986,19 +999,20 @@ void frontend_config_update(void)
               byColor_25 = 0xAB;
             else
               byColor_25 = 0x8F;
-            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_25, 2u, pal_addr);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 326, byColor_25, 2u, pal_addr);
             if (control_edit == 12)
               byColor_26 = 0xAB;
             else
               byColor_26 = 0x8F;
-            menu_render_scaled_text(mr, 15, keyname[userkey[12]], font1_ascii, font1_offsets, 480, 308, byColor_26, 0, 200, 640, pal_addr);
+            InputGetActionBindingName(12, szBindingName, sizeof(szBindingName));
+            menu_render_scaled_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 326, byColor_26, 0, 200, 640, pal_addr);
           }
         }
         // Display Player 2 control customization screen
-        else if (iFrontendConfigControlSelection == 3 || iFrontendConfigControlSelection == 4) {
+        else if (frontend_config_is_player2_control_selection(iFrontendConfigControlSelection)) {
           iControlIndex2 = 6;
           szText = &config_buffer[1280];
-          iY_2 = 200;
+          iY_2 = 218;
           // Display all 6 controls for player 2
           do {
             if (iControlIndex2 == control_edit)
@@ -1010,7 +1024,8 @@ void frontend_config_update(void)
               byColor_28 = 0xAB;
             else
               byColor_28 = 0x8F;
-            menu_render_text(mr, 15, keyname[userkey[iControlIndex2]], font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0, pal_addr);
+            InputGetActionBindingName(iControlIndex2, szBindingName, sizeof(szBindingName));
+            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, iY_2, byColor_28, 0, pal_addr);
             szText += 64;                       // Next control name
             ++iControlIndex2;
             iY_2 += 18;
@@ -1022,12 +1037,13 @@ void frontend_config_update(void)
               byColor_29 = 0xAB;
             else
               byColor_29 = 0x8F;
-            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 308, byColor_29, 2u, pal_addr);
+            menu_render_text(mr, 15, "CHEAT:", font1_ascii, font1_offsets, 475, 326, byColor_29, 2u, pal_addr);
             if (control_edit == 13)
               byColor_30 = 0xAB;
             else
               byColor_30 = 0x8F;
-            menu_render_text(mr, 15, keyname[userkey[13]], font1_ascii, font1_offsets, 480, 308, byColor_30, 0, pal_addr);
+            InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
+            menu_render_text(mr, 15, szBindingName, font1_ascii, font1_offsets, 480, 326, byColor_30, 0, pal_addr);
           }
         }
 
@@ -1040,8 +1056,48 @@ void frontend_config_update(void)
         if (controlrelease)
           goto CHECK_CONTROL_INPUT;             // wait for key release
 
+        if (iFrontendConfigAxisTuneActive) {
+          if (keys[WHIP_SCANCODE_UP]) {
+            --iFrontendConfigAxisTuneField;
+            if (iFrontendConfigAxisTuneField < 0)
+              iFrontendConfigAxisTuneField = 4;
+            controlrelease = -1;
+            goto CHECK_CONTROL_INPUT;
+          }
+          if (keys[WHIP_SCANCODE_DOWN]) {
+            ++iFrontendConfigAxisTuneField;
+            if (iFrontendConfigAxisTuneField > 4)
+              iFrontendConfigAxisTuneField = 0;
+            controlrelease = -1;
+            goto CHECK_CONTROL_INPUT;
+          }
+          if (keys[WHIP_SCANCODE_LEFT]) {
+            frontend_config_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_LEFT);
+            controlrelease = -1;
+            goto CHECK_CONTROL_INPUT;
+          }
+          if (keys[WHIP_SCANCODE_RIGHT]) {
+            frontend_config_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+            controlrelease = -1;
+            goto CHECK_CONTROL_INPUT;
+          }
+          if (keys[WHIP_SCANCODE_RETURN]) {
+            if (iFrontendConfigAxisTuneField == 4) {
+              iEditIndex = control_edit + 1;
+              iControlState = iFrontendConfigControlsInEdit;
+              controlrelease = -1;
+              goto ADVANCE_CONTROL_EDIT;
+            }
+            frontend_config_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+            controlrelease = -1;
+            goto CHECK_CONTROL_INPUT;
+          }
+          goto CHECK_CONTROL_INPUT;
+        }
+
         // Scan for pressed keys
         iFoundKey = -1;
+        iCapturedControllerInput = 0;
         iKeySearchIndex = 0;
         do {
           if (keyname[iKeySearchIndex] && keys[iKeyCheckLoop])
@@ -1050,71 +1106,43 @@ void frontend_config_update(void)
           ++iKeySearchIndex;
         } while (iKeyCheckLoop < 128);
 
-        // If no keyboard key pressed check joystick buttons
-        if (iFoundKey == -1) {
-          ReadJoys(&jFrontendConfigJoyPos);
-          if (jFrontendConfigJoyPos.iJ1Button1)
-            iFoundKey = 128;
-          if (jFrontendConfigJoyPos.iJ1Button2)
-            iFoundKey = 129;
-          if (jFrontendConfigJoyPos.iJ2Button1)
-            iFoundKey = 130;
-          if (jFrontendConfigJoyPos.iJ2Button2)
-            iFoundKey = 131;
-        }
+        if (iFoundKey == -1)
+          iCapturedControllerInput = InputCapturePoll(control_edit, &capturedBinding);
 
-        // If still no input check joystick axis movements
-        if (iFoundKey == -1) {
-          if (y2ok) {
-            iJoyValue1 = 100 * (2 * jFrontendConfigJoyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-            if (iJoyValue1 < -50)
-              iFoundKey = 138;
-            if (iJoyValue1 > 50)
-              iFoundKey = 139;
-          }
-          if (x2ok) {
-            iJoyValue2 = 100 * (2 * jFrontendConfigJoyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-            if (iJoyValue2 < -50)
-              iFoundKey = 136;
-            if (iJoyValue2 > 50)
-              iFoundKey = 137;
-          }
-          if (y1ok) {
-            iJoyValue3 = 100 * (2 * jFrontendConfigJoyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-            if (iJoyValue3 < -50)
-              iFoundKey = 134;
-            if (iJoyValue3 > 50)
-              iFoundKey = 135;
-          }
-          if (x1ok) {
-            iJoyValue4 = 100 * (2 * jFrontendConfigJoyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-            if (iJoyValue4 < -50)
-              iFoundKey = 132;
-            if (iJoyValue4 > 50)
-              iFoundKey = 133;
-          }
-        }
-
-        if (iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
+        if (!iCapturedControllerInput && iFoundKey != -1 && !control_key_matches_required_pair_type(control_edit, iFoundKey))
           iFoundKey = -1;                       // reject incompatible steering pair type
 
-        if (iFoundKey == -1)
+        if (!iCapturedControllerInput && iFoundKey == -1)
           goto CHECK_CONTROL_INPUT;
 
         // Check for duplicate key assignments
-        iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
-        if (iDuplicateCheck)
-          goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
+        if (!iCapturedControllerInput) {
+          iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iFoundKey);
+          if (iDuplicateCheck)
+            goto CHECK_CONTROL_INPUT;             // Reject duplicate assignment
+        }
 
         // Assign the new key
         iEditIndex = control_edit + 1;
         iControlState = iFrontendConfigControlsInEdit;
         controlrelease = -1;
 
-        userkey[control_edit] = iFoundKey;
-        //*((_BYTE *)&keyname[139] + iEditIndex + 3) = iFoundKey;
+        if (iCapturedControllerInput) {
+          InputSetControllerBinding(control_edit, &capturedBinding);
+          if (iFrontendConfigWheelDefineMode &&
+              capturedBinding.eType == INPUT_BINDING_JOYSTICK_AXIS) {
+            iFrontendConfigAxisTuneActive = -1;
+            iFrontendConfigAxisTuneField = 0;
+            goto CHECK_CONTROL_INPUT;
+          }
+        } else {
+          InputSetKeyboardBinding(control_edit, iFoundKey);
+          InputCaptureBegin();
+        }
 
         // Handle completion logic for each player
+      ADVANCE_CONTROL_EDIT:
+        iFrontendConfigAxisTuneActive = 0;
         control_edit = iEditIndex;
         if (iControlState == 1)               // Player 1
         {
@@ -1137,17 +1165,21 @@ void frontend_config_update(void)
 
         // All controls mapped, exit editing mode
         iFrontendConfigControlsInEdit = 0;
+        iFrontendConfigWheelDefineMode = 0;
         control_edit = -1;
         enable_keyboard();
+        InputSaveConfig();
       CHECK_CONTROL_INPUT:
               // Handle ESC key to restore original key mappings
         if (keys[1]) {
           memcpy(userkey, oldkeys, 0xCu);      // restore original player 1 keys
           memcpy(&userkey[12], &oldkeys[12], 2u);// restore original cheat keys
+          InputRestoreBindings();
           enable_keyboard();
           iFrontendConfigControlsInEdit = 0;
+          iFrontendConfigWheelDefineMode = 0;
+          iFrontendConfigAxisTuneActive = 0;
           control_edit = -1;
-          check_joystick_usage();
         }
       RENDER_FRAME:
               // Display any received network messages
@@ -1229,6 +1261,8 @@ void frontend_config_update(void)
                     {
                       if (uiExtendedKey <= 0x48) {
                         iMenuDir2 = --iFrontendConfigMenuSelection;
+                        if (iMenuDir2 == 2)
+                          iFrontendConfigMenuSelection = 1;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir2 == 6)
                           iFrontendConfigMenuSelection = 5;
@@ -1237,6 +1271,8 @@ void frontend_config_update(void)
                       } else if (uiExtendedKey == 80)// Down arrow
                       {
                         iMenuDir = ++iFrontendConfigMenuSelection;
+                        if (iMenuDir == 2)
+                          iFrontendConfigMenuSelection = 3;
                         // Skip network option if disabled
                         if (!network_on && iMenuDir == 6)
                           iFrontendConfigMenuSelection = 7;
@@ -1256,16 +1292,15 @@ void frontend_config_update(void)
                       iFrontendConfigState = 2;
                       iFrontendConfigVolumeSelection = 0;
                       break;
-                    case 2:                     // joystick
-                      iFrontendConfigState = 3;
-                      check_joystickpresence();
-                      break;
+                    case 2:                     // joystick calibration is replaced by controls
+                      iFrontendConfigMenuSelection = 3;
+                      // fall through
                     case 3:                     // controls
                       iFrontendConfigState = 4;
                       iFrontendConfigControlSelection = 0;
                       iFrontendConfigControlsInEdit = 0;
-                      Joy1used = 0;
-                      Joy2used = 0;
+                      iFrontendConfigWheelDefineMode = 0;
+                      iFrontendConfigAxisTuneActive = 0;
                       controlrelease = -1;
                       control_edit = -1;
                       break;
@@ -1670,17 +1705,9 @@ void frontend_config_update(void)
                   iFrontendConfigState = 0;
                 }
                 continue;
-              case 3:                           // JOYSTICK CALIBRATION INPUT
-                uiKey = fatgetch();
-                if (uiKey < 0xD) {
-                  if (!uiKey)
-                    fatgetch();                 // Consume extended key
-                } else if (uiKey <= 0xD || uiKey == 0x1B)// Enter or ESC
-                {
-                  remove_uncalibrated();
-                  iFrontendConfigState = 0;             // Return to main menu
-                }
-                continue;
+              case 3:
+                iFrontendConfigState = 4;
+                // fall through
               case 4:                           // CONTROL CONFIG INPUT
                 uiKey_1 = fatgetch();
                 if (uiKey_1 < 0xD) {
@@ -1693,10 +1720,10 @@ void frontend_config_update(void)
                         if (!iFrontendConfigControlsInEdit) {
                           iNextControlSelection = ++iFrontendConfigControlSelection;
                           if (player_type == 2) {
-                            if (iNextControlSelection > 4)
-                              iFrontendConfigControlSelection = 4;
-                          } else if (iNextControlSelection > 2) {
-                            iFrontendConfigControlSelection = 2;
+                            if (iNextControlSelection > 6)
+                              iFrontendConfigControlSelection = 6;
+                          } else if (iNextControlSelection > 3) {
+                            iFrontendConfigControlSelection = 3;
                           }
                         }
                       } else if (uiKey_6 == 80 && !iFrontendConfigControlsInEdit && --iFrontendConfigControlSelection < 0) {
@@ -1708,16 +1735,34 @@ void frontend_config_update(void)
                 {
                   switch (iFrontendConfigControlSelection) {
                     case 0:                     // Back
+                      iFrontendConfigWheelDefineMode = 0;
+                      iFrontendConfigAxisTuneActive = 0;
                       goto EXIT_CONTROLS_MENU;  // Return to main menu
                     case 1:                     // Customize Player 1
+                      iFrontendConfigWheelDefineMode = -1;
                       control_edit = 0;
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// Backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
                       iFrontendConfigControlsInEdit = 1;
+                      iFrontendConfigAxisTuneActive = 0;
                       controlrelease = -1;
                       break;
-                    case 2:                     // Toggle player 1 control method
+                    case 2:                     // Customize Player 1
+                      iFrontendConfigWheelDefineMode = 0;
+                      control_edit = 0;
+                      disable_keyboard();
+                      memcpy(oldkeys, userkey, 0xCu);// Backup current keys
+                      memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
+                      iFrontendConfigControlsInEdit = 1;
+                      iFrontendConfigAxisTuneActive = 0;
+                      controlrelease = -1;
+                      break;
+                    case 3:                     // Toggle player 1 control method
                       if (manual_control[player1_car] == 2)
                         manual_control[player1_car] = 1;// Switch to keyboard
                       else
@@ -1725,15 +1770,31 @@ void frontend_config_update(void)
                       frontend_config_begin_broadcast_wait(-1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
                       return;
                       break;
-                    case 3:                     // Customize player 2
+                    case 4:                     // Customize player 2
+                      iFrontendConfigWheelDefineMode = -1;
                       iFrontendConfigControlsInEdit = 2;
                       control_edit = 6;         // Start with player 2 controls
                       disable_keyboard();
                       memcpy(oldkeys, userkey, 0xCu);// backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
+                      iFrontendConfigAxisTuneActive = 0;
                       controlrelease = -1;
                       break;
-                    case 4:
+                    case 5:                     // Customize player 2
+                      iFrontendConfigWheelDefineMode = 0;
+                      iFrontendConfigControlsInEdit = 2;
+                      control_edit = 6;         // Start with player 2 controls
+                      disable_keyboard();
+                      memcpy(oldkeys, userkey, 0xCu);// backup current keys
+                      memcpy(&oldkeys[12], &userkey[12], 2u);// backup cheat keys
+                      InputBackupBindings();
+                      InputCaptureBegin();
+                      iFrontendConfigAxisTuneActive = 0;
+                      controlrelease = -1;
+                      break;
+                    case 6:
                       if (manual_control[player2_car] == 2)
                         manual_control[player2_car] = 1;// switch to keyboard
                       else
@@ -1743,6 +1804,8 @@ void frontend_config_update(void)
                       continue;
                   }
                 } else if (uiKey_1 == 27) {
+                  iFrontendConfigWheelDefineMode = 0;
+                  iFrontendConfigAxisTuneActive = 0;
                   iFrontendConfigState = 0;
                 }
                 continue;

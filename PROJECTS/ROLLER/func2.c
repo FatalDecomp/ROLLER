@@ -8,6 +8,7 @@
 #include "drawtrk3.h"
 #include "comms.h"
 #include "roller.h"
+#include "rollerinput.h"
 #include "polytex.h"
 #include "types.h"
 #include "view.h"
@@ -33,6 +34,11 @@
 #include <unistd.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
+//-------------------------------------------------------------------------------------------------
+
+static int s_iPauseAxisTuneActive;
+static int s_iPauseAxisTuneField;
+
 //-------------------------------------------------------------------------------------------------
 
 static float compute_tick_fraction(int iPlayerIdx)
@@ -127,6 +133,54 @@ int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey)
   }
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int pause_wrap_int(int iValue, int iMin, int iMax)
+{
+  if (iValue > iMax)
+    return iMin;
+  if (iValue < iMin)
+    return iMax;
+  return iValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void pause_apply_axis_tuning_key(int iAction, int iKey)
+{
+  tInputBinding binding;
+  tInputBindingPreview preview;
+  int iStep = 1000;
+
+  if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
+    return;
+  if (g_inputBindings[iAction].eType != INPUT_BINDING_JOYSTICK_AXIS)
+    return;
+
+  binding = g_inputBindings[iAction];
+  InputGetBindingPreview(&binding, &preview);
+
+  switch (s_iPauseAxisTuneField) {
+    case 0:
+      binding.eAxisMode = binding.eAxisMode == INPUT_AXIS_PEDAL ? INPUT_AXIS_CENTERED : INPUT_AXIS_PEDAL;
+      binding.iRestValue = binding.eAxisMode == INPUT_AXIS_PEDAL ? preview.iRawValue : 0;
+      break;
+    case 1:
+      binding.bInvert = binding.bInvert == 0;
+      break;
+    case 2:
+      binding.iDeadzone = pause_wrap_int(binding.iDeadzone + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    case 3:
+      binding.iThreshold = pause_wrap_int(binding.iThreshold + (iKey == WHIP_SCANCODE_LEFT ? -iStep : iStep), 0, 32767);
+      break;
+    default:
+      break;
+  }
+
+  InputSetControllerBinding(iAction, &binding);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2726,28 +2780,10 @@ void display_paused()
   int iKeyPressed; // ebx
   int iKeyLoop; // eax
   int iNameLoop; // edx
-  int iJoy2YCalc; // eax
-  int iJoy2XCalc; // eax
-  int iJoy1YCalc; // eax
-  int iJoy1XCalc; // eax
   int iDuplicateCheck; // esi
   int i; // eax
   int iControlNext; // eax
   int iControlSelect; // edi
-  char byCalibColor1; // al
-  char byCalibColor2; // al
-  char byCalibColor3; // al
-  int iJoy1XBar; // ebx
-  const char *pszJoy1XStatus; // edx
-  char byJoy1XColor; // al
-  int iJoy1YBar; // ebx
-  const char *pszJoy1YStatus; // edx
-  char byJoy1YColor; // al
-  int iJoy2XBar; // ebx
-  const char *pszJoy2XStatus; // edx
-  char byJoy2XColor; // al
-  int iJoy2YBar; // ebx
-  const char *pszJoy2YStatus; // edx
   char bySoundColor1; // al
   char bySoundColor2; // al
   char bySoundColor3; // al
@@ -2810,9 +2846,14 @@ void display_paused()
   char bySVGAColor; // al
   const char *pszSVGAText; // edx
   char byExitColor; // al
-  tJoyPos joyPos; // [esp+0h] [ebp-28h] BYREF
   const char *pszConfigText1; // [esp+20h] [ebp-8h]
   const char *pszConfigText2; // [esp+24h] [ebp-4h]
+  tInputBinding capturedBinding;
+  tInputBindingPreview bindingPreview;
+  char szBindingName[128];
+  int iCapturedControllerInput;
+  int iTuneY;
+  int iTuneColor;
 
   switch (pausewindow) {
     case 0:
@@ -2842,147 +2883,32 @@ void display_paused()
       else
         byOption2Color = 0x83;
       prt_centrecol(rev_vga[1], &config_buffer[256], 160, 60, byOption2Color);
-      if (req_edit == 3)
-        byOption3Color = 0x8F;
-      else
-        byOption3Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[320], 160, 72, byOption3Color);
       if (req_edit == 4)
         byOption4Color = 0x8F;
       else
         byOption4Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[384], 160, 84, byOption4Color);
+      prt_centrecol(rev_vga[1], &config_buffer[384], 160, 72, byOption4Color);
       if (req_edit == 5)
         byOption5Color = 0x8F;
       else
         byOption5Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[576], 160, 96, byOption5Color);
+      prt_centrecol(rev_vga[1], &config_buffer[576], 160, 84, byOption5Color);
       if (req_edit == 6)
         byOption6Color = 0x8F;
       else
         byOption6Color = 0x83;
-      prt_centrecol(rev_vga[1], &config_buffer[640], 160, 108, byOption6Color);
+      prt_centrecol(rev_vga[1], &config_buffer[640], 160, 96, byOption6Color);
       break;
     case 1:
-      blankwindow(0, 0, 320, 200);              // Case 1: Joystick calibration window
-      if (calibrate_mode) {
-        ReadJoys(&joyPos);                     // Read joystick positions for calibration
-        //_disable();
-        if (joyPos.iJ1XAxis < JAXmin)        // Update joystick 1 X-axis min/max calibration values
-          JAXmin = joyPos.iJ1XAxis;
-        if (joyPos.iJ1XAxis > JAXmax)
-          JAXmax = joyPos.iJ1XAxis;
-        if (joyPos.iJ1YAxis < JAYmin)        // Update joystick 1 Y-axis min/max calibration values
-          JAYmin = joyPos.iJ1YAxis;
-        if (joyPos.iJ1YAxis > JAYmax)
-          JAYmax = joyPos.iJ1YAxis;
-        if (joyPos.iJ2XAxis < JBXmin)        // Update joystick 2 X-axis min/max calibration values
-          JBXmin = joyPos.iJ2XAxis;
-        if (joyPos.iJ2XAxis > JBXmax)
-          JBXmax = joyPos.iJ2XAxis;
-        if (joyPos.iJ2YAxis < JBYmin)        // Update joystick 2 Y-axis min/max calibration values
-          JBYmin = joyPos.iJ2YAxis;
-        if (joyPos.iJ2YAxis > JBYmax)
-          JBYmax = joyPos.iJ2YAxis;
-        if (JAXmin == JAXmax)                 // Ensure min != max to avoid division by zero
-          JAXmax = JAXmin + 1;
-        if (JAYmin == JAYmax)
-          JAYmax = JAYmin + 1;
-        if (JBXmin == JBXmax)
-          JBXmax = JBXmin + 1;
-        if (JBYmin == JBYmax)
-          JBYmax = JBYmin + 1;
-        //_enable();
-      }
-      prt_centrecol(rev_vga[1], &config_buffer[320], 160, 16, 171);
-      if (calibrate_select != 1 || calibrate_mode)
-        byCalibColor1 = 0x83;
-      else
-        byCalibColor1 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[1664], 160, 36, byCalibColor1);
-      if (calibrate_select || calibrate_mode)
-        byCalibColor2 = 0x83;
-      else
-        byCalibColor2 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 48, byCalibColor2);
-      if (calibrate_mode)
-        byCalibColor3 = 0x8F;
-      else
-        byCalibColor3 = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1728], 176, 68, byCalibColor3);
-      if (calibrate_mode) {
-        if (x1ok && JAXmax - JAXmin >= 100)
-          iJoy1XBar = 140 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);
-        else
-          iJoy1XBar = 0;
-        displaycalibrationbar(180, 68, iJoy1XBar);
-      } else {
-        if (x1ok)
-          pszJoy1XStatus = &config_buffer[2048];
-        else
-          pszJoy1XStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy1XStatus, 180, 68, 131);
-      }
-      if (calibrate_mode)
-        byJoy1XColor = 0x8F;
-      else
-        byJoy1XColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1792], 176, 80, byJoy1XColor);
-      if (calibrate_mode) {
-        if (y1ok && JAYmax - JAYmin >= 100)
-          iJoy1YBar = 140 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-        else
-          iJoy1YBar = 0;
-        displaycalibrationbar(180, 80, iJoy1YBar);
-      } else {
-        if (y1ok)
-          pszJoy1YStatus = &config_buffer[2048];
-        else
-          pszJoy1YStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy1YStatus, 180, 80, 131);
-      }
-      if (calibrate_mode)
-        byJoy1YColor = 0x8F;
-      else
-        byJoy1YColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1856], 176, 92, byJoy1YColor);
-      if (calibrate_mode) {
-        if (x2ok && JBXmax - JBXmin >= 100)
-          iJoy2XBar = 140 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-        else
-          iJoy2XBar = 0;
-        displaycalibrationbar(180, 92, iJoy2XBar);
-      } else {
-        if (x2ok)
-          pszJoy2XStatus = &config_buffer[2048];
-        else
-          pszJoy2XStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy2XStatus, 180, 92, 131);
-      }
-      if (calibrate_mode)
-        byJoy2XColor = 0x8F;
-      else
-        byJoy2XColor = 0x83;
-      prt_rightcol(rev_vga[1], &config_buffer[1920], 176, 104, byJoy2XColor);
-      if (calibrate_mode) {
-        if (y2ok && JBYmax - JBYmin >= 100)
-          iJoy2YBar = 140 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-        else
-          iJoy2YBar = 0;
-        displaycalibrationbar(180, 104, iJoy2YBar);
-      } else {
-        if (y2ok)
-          pszJoy2YStatus = &config_buffer[2048];
-        else
-          pszJoy2YStatus = &config_buffer[1984];
-        prt_stringcol(rev_vga[1], pszJoy2YStatus, 180, 104, 131);
-      }
-      if (calibrate_mode) {
-        prt_centrecol(rev_vga[1], &config_buffer[2112], 160, 124, 143);
-        prt_centrecol(rev_vga[1], &config_buffer[2176], 160, 136, 143);
-      }
-      break;
+      pausewindow = 2;
+      calibrate_mode = 0;
+      control_select = 0;
+      control_edit = -1;
+      define_mode = 0;
+      // fall through
     case 2:
+      if (define_mode != -2)
+        s_iPauseAxisTuneActive = 0;
       if (controlrelease)                     // Case 2: Controls configuration window
       {
         iKeyReleaseCheck = -1;
@@ -2999,24 +2925,88 @@ void display_paused()
       }
       blankwindow(0, 0, 320, 200);
       prt_centrecol(rev_vga[1], &config_buffer[384], 160, 16, 171);
-      if (control_select != 2 || define_mode)
+      if (control_select != 4 || define_mode)
         byControlColor1 = 0x83;
       else
         byControlColor1 = 0x8F;
       prt_centrecol(rev_vga[1], &config_buffer[704], 160, 36, byControlColor1);
+      if (control_select != 3 || define_mode)
+        byControlColor1 = 0x83;
+      else
+        byControlColor1 = 0x8F;
+      prt_centrecol(rev_vga[1], "PLAYER 2 WHEEL CONTROLS", 160, 48, byControlColor1);
+      if (control_select != 2 || define_mode)
+        byControlColor2 = 0x83;
+      else
+        byControlColor2 = 0x8F;
+      prt_centrecol(rev_vga[1], &config_buffer[768], 160, 60, byControlColor2);
       if (control_select != 1 || define_mode)
         byControlColor2 = 0x83;
       else
         byControlColor2 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[768], 160, 48, byControlColor2);
+      prt_centrecol(rev_vga[1], "PLAYER 1 WHEEL CONTROLS", 160, 72, byControlColor2);
       if (control_select || define_mode)
         byControlColor3 = 0x83;
       else
         byControlColor3 = 0x8F;
-      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 60, byControlColor3);
-      if (control_select > 1) {
+      prt_centrecol(rev_vga[1], &config_buffer[832], 160, 84, byControlColor3);
+      if (s_iPauseAxisTuneActive &&
+          control_edit >= 0 &&
+          control_edit < INPUT_NUM_ACTIONS &&
+          g_inputBindings[control_edit].eType == INPUT_BINDING_JOYSTICK_AXIS) {
+        InputGetBindingPreview(&g_inputBindings[control_edit], &bindingPreview);
+        iTuneY = 104;
+
+        if (control_edit < 6)
+          pszConfigText1 = &config_buffer[896 + control_edit * 64];
+        else if (control_edit < 12)
+          pszConfigText1 = &config_buffer[1280 + (control_edit - 6) * 64];
+        else
+          pszConfigText1 = "CHEAT:";
+
+        InputGetActionBindingName(control_edit, szBindingName, sizeof(szBindingName));
+        sprintf(buffer, "%s %s", pszConfigText1, szBindingName);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY, 131);
+
+        if (s_iPauseAxisTuneField == 0)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "MODE %s", g_inputBindings[control_edit].eAxisMode == INPUT_AXIS_PEDAL ? "PEDAL" : "CENTERED");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 16, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 1)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "INVERT %s", g_inputBindings[control_edit].bInvert ? "ON" : "OFF");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 28, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 2)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "DEADZONE %d", g_inputBindings[control_edit].iDeadzone);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 40, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 3)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        sprintf(buffer, "THRESHOLD %d", g_inputBindings[control_edit].iThreshold);
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 52, iTuneColor);
+
+        if (s_iPauseAxisTuneField == 4)
+          iTuneColor = 0x8F;
+        else
+          iTuneColor = 0x83;
+        prt_centrecol(rev_vga[1], &config_buffer[832], 160, iTuneY + 64, iTuneColor);
+
+        sprintf(buffer, "RAW %d  VALUE %d  %s", bindingPreview.iRawValue, bindingPreview.iNormalizedValue, bindingPreview.iPressed ? "ON" : "OFF");
+        prt_centrecol(rev_vga[1], buffer, 160, iTuneY + 88, 131);
+      } else if (control_select > 2) {
         iControlIndex2 = 6;
-        iYPosition2 = 80;
+        iYPosition2 = 104;
         pszConfigText1 = &config_buffer[1280];
         do {
           if (iControlIndex2 == control_edit)
@@ -3028,12 +3018,20 @@ void display_paused()
             byKeyColor2 = 0x8F;
           else
             byKeyColor2 = 0x7B;
-          prt_stringcol(rev_vga[1], keyname[userkey[iControlIndex2++]], 200, iYPosition2, byKeyColor2);
+          InputGetActionBindingName(iControlIndex2, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition2, byKeyColor2);
+          ++iControlIndex2;
           iYPosition2 += 12;
           pszConfigText1 += 64;
         } while (iControlIndex2 < 12);
+        if (Players_Cars[player2_car] >= 8) {
+          byKeyColor1 = control_edit == 13 ? 0x8F : 0x7B;
+          prt_rightcol(rev_vga[1], "CHEAT:", 198, iYPosition2, byKeyColor1);
+          InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition2, byKeyColor1);
+        }
       } else {
-        iYPosition = 80;
+        iYPosition = 104;
         iControlIndex = 0;
         pszConfigText2 = &config_buffer[896];
         do {
@@ -3046,14 +3044,62 @@ void display_paused()
             byKeyDisplayColor2 = 0x8F;
           else
             byKeyDisplayColor2 = 0x7B;
-          prt_stringcol(rev_vga[1], keyname[userkey[iControlIndex++]], 200, iYPosition, byKeyDisplayColor2);
+          InputGetActionBindingName(iControlIndex, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition, byKeyDisplayColor2);
+          ++iControlIndex;
           iYPosition += 12;
           pszConfigText2 += 64;
         } while (iControlIndex < 6);
+        if (Players_Cars[player1_car] >= 8) {
+          byKeyDisplayColor1 = control_edit == 12 ? 0x8F : 0x7B;
+          prt_rightcol(rev_vga[1], "CHEAT:", 198, iYPosition, byKeyDisplayColor1);
+          InputGetActionBindingName(12, szBindingName, sizeof(szBindingName));
+          prt_stringcol(rev_vga[1], szBindingName, 200, iYPosition, byKeyDisplayColor1);
+        }
       }
       if (define_mode) {
         if (!controlrelease) {
+          if (s_iPauseAxisTuneActive) {
+            if (keys[WHIP_SCANCODE_UP]) {
+              --s_iPauseAxisTuneField;
+              if (s_iPauseAxisTuneField < 0)
+                s_iPauseAxisTuneField = 4;
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_DOWN]) {
+              ++s_iPauseAxisTuneField;
+              if (s_iPauseAxisTuneField > 4)
+                s_iPauseAxisTuneField = 0;
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_LEFT]) {
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_LEFT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_RIGHT]) {
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            if (keys[WHIP_SCANCODE_RETURN]) {
+              if (s_iPauseAxisTuneField == 4) {
+                iControlNext = control_edit + 1;
+                iControlSelect = control_select;
+                controlrelease = -1;
+                goto ADVANCE_PAUSE_CONTROL_EDIT;
+              }
+              pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
+              controlrelease = -1;
+              goto CHECK_PAUSE_CONTROL_INPUT;
+            }
+            goto CHECK_PAUSE_CONTROL_INPUT;
+          }
+
           iKeyPressed = -1;                     // Scan for pressed keys when in define mode
+          iCapturedControllerInput = 0;
           iKeyLoop = 0;
           iNameLoop = 0;
           do {
@@ -3062,48 +3108,9 @@ void display_paused()
             ++iKeyLoop;
             ++iNameLoop;
           } while (iKeyLoop < 128);
-          if (iKeyPressed == -1) {
-            ReadJoys(&joyPos);                 // Check joystick buttons if no keyboard input detected
-            if (joyPos.iJ1Button1)            // Joystick button mappings: 128=J1X, 129=J1Y, 130=J2X, 131=J2Y
-              iKeyPressed = 128;
-            if (joyPos.iJ1Button2)
-              iKeyPressed = 129;
-            if (joyPos.iJ2Button1)
-              iKeyPressed = 130;
-            if (joyPos.iJ2Button2)
-              iKeyPressed = 131;
-          }
-          if (iKeyPressed == -1) {
-            if (y2ok) {
-              iJoy2YCalc = 100 * (2 * joyPos.iJ2YAxis - JBYmax - JBYmin) / (JBYmax - JBYmin);
-              if (iJoy2YCalc < -50)
-                iKeyPressed = 138;
-              if (iJoy2YCalc > 50)
-                iKeyPressed = 139;
-            }
-            if (x2ok) {
-              iJoy2XCalc = 100 * (2 * joyPos.iJ2XAxis - JBXmax - JBXmin) / (JBXmax - JBXmin);
-              if (iJoy2XCalc < -50)
-                iKeyPressed = 136;
-              if (iJoy2XCalc > 50)
-                iKeyPressed = 137;
-            }
-            if (y1ok) {
-              iJoy1YCalc = 100 * (2 * joyPos.iJ1YAxis - JAYmax - JAYmin) / (JAYmax - JAYmin);
-              if (iJoy1YCalc < -50)
-                iKeyPressed = 134;
-              if (iJoy1YCalc > 50)
-                iKeyPressed = 135;
-            }
-            if (x1ok) {
-              iJoy1XCalc = 100 * (2 * joyPos.iJ1XAxis - JAXmax - JAXmin) / (JAXmax - JAXmin);// Calculate joystick axis positions: 132-139 are axis directions
-              if (iJoy1XCalc < -50)
-                iKeyPressed = 132;
-              if (iJoy1XCalc > 50)
-                iKeyPressed = 133;
-            }
-          }
-          if (iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
+          if (iKeyPressed == -1)
+            iCapturedControllerInput = InputCapturePoll(control_edit, &capturedBinding);
+          if (!iCapturedControllerInput && iKeyPressed != -1 && !control_key_matches_required_pair_type(control_edit, iKeyPressed)) {
             iKeyPressed = -1;  // Reject mixed keyboard/joystick input types
           }
           //if (iKeyPressed != -1
@@ -3111,39 +3118,60 @@ void display_paused()
           //  && (*((char *)&keyname[139] + control_edit + 3) <= 0x83u && iKeyPressed > 131 || *((char *)&keyname[139] + control_edit + 3) > 0x83u && iKeyPressed <= 131)) {
           //  iKeyPressed = -1;
           //}
-          if (iKeyPressed != -1) {
-            iDuplicateCheck = control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
+          if (iCapturedControllerInput || iKeyPressed != -1) {
+            iDuplicateCheck = iCapturedControllerInput ? 0 : control_key_is_duplicate_in_player_set(control_edit, iKeyPressed);
             if (!iDuplicateCheck) {
               iControlNext = control_edit + 1;
               iControlSelect = control_select;
               controlrelease = -1;
-              userkey[control_edit] = iKeyPressed;
-              //*((char *)&keyname[139] + iControlNext + 3) = iKeyPressed;
-              control_edit = iControlNext;
-              if (iControlSelect == 1) {
-                if (iControlNext == 6) {
-                  define_mode = 0;
-                  control_edit = -1;
-                  while (fatkbhit())
-                    fatgetch();
+              if (iCapturedControllerInput) {
+                InputSetControllerBinding(control_edit, &capturedBinding);
+                if (define_mode == -2 &&
+                    capturedBinding.eType == INPUT_BINDING_JOYSTICK_AXIS) {
+                  s_iPauseAxisTuneActive = -1;
+                  s_iPauseAxisTuneField = 0;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
                 }
-              } else if (iControlNext == 12) {
-                control_edit = -1;
-                define_mode = 0;
-                while (fatkbhit())
-                  fatgetch();
+              } else {
+                InputSetKeyboardBinding(control_edit, iKeyPressed);
+                InputCaptureBegin();
               }
+            ADVANCE_PAUSE_CONTROL_EDIT:
+              s_iPauseAxisTuneActive = 0;
+              control_edit = iControlNext;
+              if (iControlSelect == 1 || iControlSelect == 2) {
+                if (iControlNext < 6)
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                if (Players_Cars[player1_car] >= 8 && control_edit < 12) {
+                  control_edit = 12;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                }
+              } else {
+                if (iControlNext < 12)
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                if (Players_Cars[player2_car] >= 8 && control_edit < 13) {
+                  control_edit = 13;
+                  goto CHECK_PAUSE_CONTROL_INPUT;
+                }
+              }
+              define_mode = 0;
+              control_edit = -1;
+              while (fatkbhit())
+                fatgetch();
+              InputSaveConfig();
             }
           }
         }
+      CHECK_PAUSE_CONTROL_INPUT:
         if (keys[WHIP_SCANCODE_ESCAPE]) {
           define_mode = 0;
+          s_iPauseAxisTuneActive = 0;
           memcpy(userkey, oldkeys, 0xCu);
           memcpy(&userkey[12], &oldkeys[12], 2u);
+          InputRestoreBindings();
           while (fatkbhit())
             fatgetch();
           pausewindow = 0;
-          check_joystick_usage();
         }
       }
       break;
@@ -3584,7 +3612,7 @@ void display_paused()
       prt_rightcol(rev_vga[1], &config_buffer[832], 172, 132, byBackColor);
       break;
     default:
-      return;                                   // Switch on pause window mode: 0=main menu, 1=joystick calibration, 2=controls, 3=graphics, 4=sound
+      return;                                   // Switch on pause window mode: 0=main menu, 2=controls, 3=graphics, 4=sound
   }
 }
 
@@ -3650,26 +3678,6 @@ void save_fatal_config()
   fprintf(fp, "P2upgear=%i\n", userkey[USERKEY_P2UPGEAR]);
   fprintf(fp, "P2downgear=%i\n", userkey[USERKEY_P2DOWNGEAR]);
   fprintf(fp, "P2cheat=%i\n", userkey[USERKEY_P2CHEAT]);
-  fprintf(fp, "Joy1X=%i\n", x1ok != 0);
-  fprintf(fp, "Joy1Y=%i\n", y1ok != 0);
-  fprintf(fp, "Joy2X=%i\n", x2ok != 0);
-  fprintf(fp, "Joy2Y=%i\n", y2ok != 0);
-  if (x1ok) {
-    fprintf(fp, "Joy1Xmin=%i\n", JAXmin);
-    fprintf(fp, "Joy1Xmax=%i\n", JAXmax);
-  }
-  if (y1ok) {
-    fprintf(fp, "Joy1Ymin=%i\n", JAYmin);
-    fprintf(fp, "Joy1Ymax=%i\n", JAYmax);
-  }
-  if (x2ok) {
-    fprintf(fp, "Joy2Xmin=%i\n", JBXmin);
-    fprintf(fp, "Joy2Xmax=%i\n", JBXmax);
-  }
-  if (y2ok) {
-    fprintf(fp, "Joy2Ymin=%i\n", JBYmin);
-    fprintf(fp, "Joy2Ymax=%i\n", JBYmax);
-  }
   name_copy(buffer, player_names[0]);
   fprintf(fp, "Nom=%s\n", buffer);
   fprintf(fp, "Car1=%i\n", Players_Cars[0]);
@@ -3741,6 +3749,7 @@ void save_fatal_config()
       ROLLERremove("FATAL.INI");
     }
   }
+  InputSaveConfig();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3824,25 +3833,9 @@ void load_fatal_config()
   char *pModemPhone; // ebx
   char *szEnd24; // eax
   char cEnd24; // dh
-  int iTemp; // [esp+0h] [ebp-24h] BYREF
   char *pData2; // [esp+4h] [ebp-20h] BYREF
   int iTemp2[7]; // [esp+8h] [ebp-1Ch] BYREF // not an array
 
-  JAXmin = 10000;
-  JAXmax = -10000;
-  JAYmin = 10000;
-  JAYmax = -10000;
-  JBXmin = 10000;
-  JBXmax = -10000;
-  JBYmin = 10000;
-  JBYmax = -10000;
-  x1ok = 0;
-  y1ok = 0;
-  x2ok = 0;
-  y2ok = 0;
-  bitaccept = 0;
-  Joy1used = 0;
-  Joy2used = 0;
   fatal_ini_loaded = 0;
 
   // Open FATAL.INI file
@@ -3923,92 +3916,6 @@ void load_fatal_config()
       getconfigvalueuc(pData2, "P2upgear",    (uint8*)&userkey[USERKEY_P2UPGEAR], 0, 139);
       getconfigvalueuc(pData2, "P2downgear",  (uint8*)&userkey[USERKEY_P2DOWNGEAR], 0, 139);
       getconfigvalueuc(pData2, "P2cheat",     (uint8*)&userkey[USERKEY_P2CHEAT], 0, 139);
-
-      // Read joystick config
-      getconfigvalue(pData2, "Joy1X", &iTemp, 0, 1);
-      x1ok = iTemp != 0;
-      getconfigvalue(pData2, "Joy1Y", &iTemp, 0, 1);
-      if (iTemp)
-        y1ok = 2;
-      else
-        y1ok = 0;
-      getconfigvalue(pData2, "Joy2X", &iTemp, 0, 1);
-      if (iTemp)
-        x2ok = 4;
-      else
-        x2ok = 0;
-      getconfigvalue(pData2, "Joy2Y", &iTemp, 0, 1);
-      if (iTemp)
-        y2ok = 8;
-      else
-        y2ok = 0;
-
-      // validate x1 calibration values
-      if (x1ok) {
-        JAXmin = 10000;
-        JAXmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy1Xmin", iTemp2, 0, 0x7FFFFFFF);
-        JAXmin = iTemp2[0];
-        iTemp2[0] = JAXmax;
-        getconfigvalue(pData2, "Joy1Xmax", iTemp2, 0, 0x7FFFFFFF);
-        JAXmax = iTemp2[0];
-        if (iTemp2[0] < JAXmin)
-          x1ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ1XAxis = (JAXmax - JAXmin) / 2;
-      }
-      if (y1ok) {
-        JAYmin = 10000;
-        JAYmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy1Ymin", iTemp2, 0, 0x7FFFFFFF);
-        JAYmin = iTemp2[0];
-        iTemp2[0] = JAYmax;
-        getconfigvalue(pData2, "Joy1Ymax", iTemp2, 0, 0x7FFFFFFF);
-        JAYmax = iTemp2[0];
-        if (iTemp2[0] < JAYmin)
-          y1ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ1YAxis = (JAYmax - JAYmin) / 2;
-      }
-      if (x2ok) {
-        JBXmin = 10000;
-        JBXmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy2Xmin", iTemp2, 0, 0x7FFFFFFF);
-        JBXmin = iTemp2[0];
-        iTemp2[0] = JBXmax;
-        getconfigvalue(pData2, "Joy2Xmax", iTemp2, 0, 0x7FFFFFFF);
-        JBXmax = iTemp2[0];
-        if (iTemp2[0] < JBXmin)
-          x2ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ2XAxis = (JBXmax - JBXmin) / 2;
-      }
-      if (y2ok) {
-        JBYmin = 10000;
-        JBYmax = -10000;
-        iTemp2[0] = 10000;
-        getconfigvalue(pData2, "Joy2Ymin", iTemp2, 0, 0x7FFFFFFF);
-        JBYmin = iTemp2[0];
-        iTemp2[0] = JBYmax;
-        getconfigvalue(pData2, "Joy2Ymax", iTemp2, 0, 0x7FFFFFFF);
-        JBYmax = iTemp2[0];
-        if (iTemp2[0] < JBYmin)
-          y2ok = 0;
-        // centering added by ROLLER
-        g_rollerJoyPos.iJ2YAxis = (JBYmax - JBYmin) / 2;
-      }
-      if (JAXmin == JAXmax)
-        JAXmax = JAXmin + 1;
-      if (JAYmin == JAYmax)
-        JAYmax = JAYmin + 1;
-      if (JBXmin == JBXmax)
-        JBXmax = JBXmin + 1;
-      if (JBYmin == JBYmax)
-        JBYmax = JBYmin + 1;
-      bitaccept = y2ok | x2ok | y1ok | x1ok;
 
       // process player names
       pBuffer = buffer;
@@ -4439,7 +4346,7 @@ void load_fatal_config()
       fclose(pFile2);
     }
   }
-  remove_uncalibrated();
+  InputLoadConfig();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4599,29 +4506,6 @@ void volumebar(int iX, int iVolume)
       ++iRowIdx;
     } while (iRowIdx < iBarHeight);
   }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0001C980
-void remove_uncalibrated()
-{
-  if (JAXmax - JAXmin < 100)
-    x1ok = 0;
-  if (JAYmax - JAYmin < 100)
-    y1ok = 0;
-  if (JBXmax - JBXmin < 100)
-    x2ok = 0;
-  if (JBYmax - JBYmin < 100)
-    y2ok = 0;
-  bitaccept = y2ok | y1ok | x1ok | x2ok;
-  if (x1ok || y1ok)
-    Joy1used = -1;
-  else
-    Joy1used = x1ok;
-  if (x2ok || y2ok)
-    Joy2used = -1;
-  else
-    Joy2used = x2ok;
 }
 
 //-------------------------------------------------------------------------------------------------

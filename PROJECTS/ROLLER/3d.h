@@ -211,7 +211,6 @@ extern float game_scale[2];
 extern int define_mode;
 extern int calibrate_mode;
 extern int graphic_mode;
-extern int calibrate_select;
 extern int sound_edit;
 extern int showversion;
 extern int game_svga;

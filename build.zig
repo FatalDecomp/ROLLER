@@ -82,6 +82,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
             "PROJECTS/ROLLER/roller.c",
+            "PROJECTS/ROLLER/rollerinput.c",
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/rollersound.c",
@@ -402,6 +403,9 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
         .lto = .none,
     });
     const sdl_lib = sdl.artifact("SDL3");
+    if (target.result.os.tag == .windows) {
+        sdl_lib.root_module.addIncludePath(b.path("external/sdl-dinput-no-force-feedback"));
+    }
 
     const libcdio = b.dependency("libcdio", .{
         .target = target,

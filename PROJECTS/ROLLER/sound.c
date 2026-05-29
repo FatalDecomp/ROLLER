@@ -8,6 +8,7 @@
 #include "loadtrak.h"
 #include "car.h"
 #include "roller.h"
+#include "rollerinput.h"
 #include "rollersound.h"
 #include "control.h"
 #include "network.h"
@@ -95,14 +96,7 @@ tSampleData SampleFixed = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 256, 0, 0, 0, 
 tSampleData SamplePanned = { NULL, 0u, 0, 0, 2, 32767, 0, 0, 0, 0, 768, 0, 0, 0, 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } }; //000A493C
 uint8 rud_gr[2] = { 0, 0 }; //000A4A08
 uint8 rud_strat[2] = { 0, 0 }; //000A4A0A
-int Joy1used = 0;           //000A4A0C
-int Joy2used = 0;           //000A4A0C
 int fraction = 0;           //000A4A14
-int x1ok = 0;               //000A4A30
-int y1ok = 0;               //000A4A34
-int x2ok = 0;               //000A4A38
-int y2ok = 0;               //000A4A3C
-int bitaccept = 0;          //000A4A40
 uint8 *frontendspeechptr = NULL;//000A4A44
 int frontendspeechhandle = -1;  //000A4A48
 uint32 frontendlen = 0;
@@ -114,8 +108,6 @@ int lastvolume[16];         //001603F8
 int lastpitch[16];          //00160438
 int lastpan[16];            //00160478
 int net_time[16];           //001604B8
-int joyvalue[8];            //001604F8
-tJoyPos rud_Joy_pos;        //00160518
 int rud_turn[2];            //00160538
 int rud_swheel[2];          //00160540
 int rud_steer[2];           //00160548
@@ -534,7 +526,6 @@ void tick_clock_step(void)
   } else {
     ticks++;
     if (!paused && !frontend_on) {
-      updatejoy();
       network_master_input_tick();
       network_slave_input_tick();
     }
@@ -1020,88 +1011,6 @@ void Initialise_SOS()
 }
 
 //-------------------------------------------------------------------------------------------------
-//00039A40
-void updatejoy()
-{
-  int iX1Scaled; // eax
-  int iX1Clamped2; // eax
-  int iX1Clamped; // eax
-  int iY1Scaled; // eax
-  int iY1Clamped2; // eax
-  int iY1Clamped; // eax
-  int iX2Scaled; // eax
-  int iX2Clamped2; // eax
-  int iX2Clamped; // eax
-  int iY2Scaled; // eax
-  int iY2Clamped2; // eax
-  int iY2Clamped; // eax
-
-  memset(joyvalue, 0, sizeof(joyvalue));
-  if (Joy1used || Joy2used)
-    ReadJoys(&rud_Joy_pos);
-  if (Joy1used) {
-    keys[WHIP_SCANCODE_J1B1] = rud_Joy_pos.iJ1Button1;
-    keys[WHIP_SCANCODE_J1B2] = rud_Joy_pos.iJ1Button2;
-    iX1Scaled = ((2 * rud_Joy_pos.iJ1XAxis - JAXmax - JAXmin) << 10) / (JAXmax - JAXmin);
-    //apply 100-unit deadzone
-    if (iX1Scaled >= 0) {
-      iX1Clamped = iX1Scaled - 100;
-      if (iX1Clamped < 0)
-        iX1Clamped = 0;
-      joyvalue[1] = iX1Clamped;
-    } else {
-      iX1Clamped2 = iX1Scaled + 100;
-      if (iX1Clamped2 > 0)
-        iX1Clamped2 = 0;
-      joyvalue[0] = -iX1Clamped2;
-    }
-    iY1Scaled = ((2 * rud_Joy_pos.iJ1YAxis - JAYmax - JAYmin) << 10) / (JAYmax - JAYmin);
-    //apply 100-unit deadzone
-    if (iY1Scaled >= 0) {
-      iY1Clamped = iY1Scaled - 100;
-      if (iY1Clamped < 0)
-        iY1Clamped = 0;
-      joyvalue[3] = iY1Clamped;
-    } else {
-      iY1Clamped2 = iY1Scaled + 100;
-      if (iY1Clamped2 > 0)
-        iY1Clamped2 = 0;
-      joyvalue[2] = -iY1Clamped2;
-    }
-  }
-  if (Joy2used) {
-    keys[WHIP_SCANCODE_J2B1] = rud_Joy_pos.iJ2Button1;
-    keys[WHIP_SCANCODE_J2B2] = rud_Joy_pos.iJ2Button2;
-    iX2Scaled = ((2 * rud_Joy_pos.iJ2XAxis - JBXmax - JBXmin) << 10) / (JBXmax - JBXmin);
-    //apply 100-unit deadzone
-    if (iX2Scaled >= 0) {
-      iX2Clamped = iX2Scaled - 100;
-      if (iX2Clamped < 0)
-        iX2Clamped = 0;
-      joyvalue[5] = iX2Clamped;
-    } else {
-      iX2Clamped2 = iX2Scaled + 100;
-      if (iX2Clamped2 > 0)
-        iX2Clamped2 = 0;
-      joyvalue[4] = -iX2Clamped2;
-    }
-    iY2Scaled = ((2 * rud_Joy_pos.iJ2YAxis - JBYmax - JBYmin) << 10) / (JBYmax - JBYmin);
-    //apply 100-unit deadzone
-    if (iY2Scaled >= 0) {
-      iY2Clamped = iY2Scaled - 100;
-      if (iY2Clamped < 0)
-        iY2Clamped = 0;
-      joyvalue[7] = iY2Clamped;
-    } else {
-      iY2Clamped2 = iY2Scaled + 100;
-      if (iY2Clamped2 > 0)
-        iY2Clamped2 = 0;
-      joyvalue[6] = -iY2Clamped2;
-    }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
 //00039C20
 void readuserdata(int iPlayer)
 {
@@ -1109,9 +1018,6 @@ void readuserdata(int iPlayer)
   int iPlayerIdx; // eax
   tCarEngine *pEngine; // ebx
   int iKeyIndex; // esi
-  unsigned int uiAccelKey; // eax
-  unsigned int uiBrakeKey; // eax
-  uint8 byLeftKey; // bl
   int iTurnRate; // ebp
   int iTurnRate_1; // edx
   int iPlayerIdx2; // eax
@@ -1129,12 +1035,11 @@ void readuserdata(int iPlayer)
   int iMinSteering; // eax
   int16 nButtonFlags_1; // bx
   int16 nButtonFlags; // ax
-  unsigned int uiGearUpKey; // edx
   int iGearChange; // eax
-  unsigned int uiGearDownKey; // edx
   int iStrategyFlags; // eax
   int iNode; // edx
   int iMessageIdx; // eax
+  int iAnalogSteering; // eax
   char iAccelState; // [esp+0h] [ebp-1Ch]
 
   // Skip processing during countdown phase
@@ -1162,37 +1067,24 @@ void readuserdata(int iPlayer)
   rud_swheel[iPlayerIdx] = GET_SLOWORD(last_inp[iPlayerIdx]);
 
   // Process acceleration and brake inputs
-  uiAccelKey = userkey[iKeyIndex + 2];
-  if (uiAccelKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiAccelKey] <= 0xC8)// joyvalue[uiAccelKey]
-    if ((unsigned int)joyvalue[uiAccelKey- 132] <= 0xC8)// 
-      goto LABEL_9;
-  } else if (!keys[uiAccelKey]) {
-    goto LABEL_9;
-  }
-  iAccelState = 1;
-LABEL_9:
-  uiBrakeKey = userkey[iKeyIndex + 3];
-  if (uiBrakeKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiBrakeKey] <= 0xC8)// joyvalue[uiBrakeKey]
-    if ((unsigned int)joyvalue[uiBrakeKey- 132] <= 0xC8)// 
-      goto LABEL_14;
-  } else if (!keys[uiBrakeKey]) {
-    goto LABEL_14;
-  }
-  iAccelState -= 2;
-LABEL_14:
+  if (InputGetActionPressed(iKeyIndex + 2))
+    iAccelState = 1;
+  if (InputGetActionPressed(iKeyIndex + 3))
+    iAccelState -= 2;
 
   // process steering input
-  byLeftKey = userkey[iKeyIndex];
-  if (byLeftKey > 0x83u) {
-    // joystick steering processing
-    //iJoyLeft = (unsigned int)(80 * musicbuffer_variable_1[byLeftKey]) >> 8;// joyvalue[byLeftKey]
-    iJoyLeft = (unsigned int)(80 * joyvalue[byLeftKey - 132]) >> 8;// 
+  iAnalogSteering = InputGetSteeringValue(iPlayer);
+  if (iAnalogSteering) {
+    // analog steering processing
+    if (iAnalogSteering > 0) {
+      iJoyLeft = (unsigned int)iAnalogSteering;
+      iJoyRight = 0;
+    } else {
+      iJoyLeft = 0;
+      iJoyRight = (unsigned int)-iAnalogSteering;
+    }
     if (iJoyLeft > 0x102)
       iJoyLeft = 0x102;
-    //iJoyRight = (unsigned int)(80 * musicbuffer_variable_1[userkey[iKeyIndex + 1]]) >> 8;// joyvalue[byRightKey]
-    iJoyRight = (unsigned int)(80 * joyvalue[userkey[iKeyIndex + 1] - 132]) >> 8;// 
     iLeftEffect = (int)(p_joyk1[iPlayer] * ((int)(iJoyLeft * iJoyLeft * iJoyLeft) >> 8) + p_joyk2[iPlayer] * iJoyLeft) >> 16;
     if (iJoyRight > 0x102)
       iJoyRight = 0x102;
@@ -1209,7 +1101,7 @@ LABEL_14:
   }
   // Keyboard steering processing
   // process left steering
-  else if (keys[byLeftKey]) {
+  else if (InputGetActionPressed(iKeyIndex)) {
     iTurnRate = rud_turn[iPlayer];
     if (iTurnRate >= 0)
       // apply turn decay
@@ -1231,7 +1123,7 @@ LABEL_14:
     rud_swheel[iPlayerIdx2] = iMaxSteering;
   }
   // process right steering
-  else if (keys[userkey[iKeyIndex + 1]]) {
+  else if (InputGetActionPressed(iKeyIndex + 1)) {
     if (rud_turn[iPlayer] >= 0)
       rud_turn[iPlayer] += 32 * p_eng[iPlayer]->iTurnDecayRate;
     else
@@ -1271,50 +1163,15 @@ LABEL_14:
   //HIBYTE(nButtonFlags) = 0;
 
   // Process special buttons
-  if (iPlayer) {
-    if (userkey[USERKEY_P2CHEAT] > 0x83u)
-    {
-      if ((unsigned int)joyvalue[userkey[USERKEY_P2CHEAT]- 132] <= 0xC8)
-        goto LABEL_57;
-    } else if (!keys[userkey[USERKEY_P2CHEAT]])
-    {
-      goto LABEL_57;
-    }
-  } else if (userkey[USERKEY_P1CHEAT] > 0x83u)
-  {
-    if ((unsigned int)joyvalue[userkey[USERKEY_P1CHEAT]- 132] <= 0xC8)
-      goto LABEL_57;
-  } else if (!keys[userkey[USERKEY_P1CHEAT]])
-  {
-    goto LABEL_57;
-  }
-  //TODO look a this again
-  //LOBYTE(nButtonFlags) = nButtonFlags_1 | 0x20;   // special action flag
-  //nButtonFlags_1 = nButtonFlags;
-  nButtonFlags_1 |= 0x20;
-LABEL_57:
+  if (InputGetActionPressed(iPlayer ? USERKEY_P2CHEAT : USERKEY_P1CHEAT))
+    nButtonFlags_1 |= 0x20;
+
   // process gear shifting
-  uiGearUpKey = userkey[iKeyIndex + 4];
   iGearChange = 0;
-  if (uiGearUpKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiGearUpKey] <= 0xC8)// joyvalue[uiGearUpKey]
-    if ((unsigned int)joyvalue[uiGearUpKey- 132] <= 0xC8)// 
-      goto LABEL_62;
-  } else if (!keys[uiGearUpKey]) {
-    goto LABEL_62;
-  }
-  iGearChange = 1;
-LABEL_62:
-  uiGearDownKey = userkey[iKeyIndex + 5];
-  if (uiGearDownKey > 0x83) {
-    //if ((unsigned int)musicbuffer_variable_1[uiGearDownKey] <= 0xC8)// joyvalue[uiGearDownKey]
-    if ((unsigned int)joyvalue[uiGearDownKey- 132] <= 0xC8)// 
-      goto LABEL_67;
-  } else if (!keys[uiGearDownKey]) {
-    goto LABEL_67;
-  }
-  iGearChange = -1;
-LABEL_67:
+  if (InputGetActionPressed(iKeyIndex + 4))
+    iGearChange = 1;
+  if (InputGetActionPressed(iKeyIndex + 5))
+    iGearChange = -1;
   if (!iGearChange)
     rud_gr[iPlayer] = 0;
   if (rud_gr[iPlayer])
@@ -1831,52 +1688,6 @@ void loadfile(const char *szFile, void **pBuf, unsigned int *uiSize, int iIsSoun
       }
     }
   }
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003BBD0
-void ReadJoys(tJoyPos *pJoy)
-{
-  // Check joystick 1 (controller 1)
-  pJoy->iJ1Button1 = g_rollerJoyPos.iJ1Button1;
-  pJoy->iJ1Button2 = g_rollerJoyPos.iJ1Button2;
-  pJoy->iJ1XAxis = g_rollerJoyPos.iJ1XAxis;
-  pJoy->iJ1YAxis = g_rollerJoyPos.iJ1YAxis;
-
-  // Check joystick 2 (controller 2)
-  pJoy->iJ2Button1 = g_rollerJoyPos.iJ2Button1;
-  pJoy->iJ2Button2 = g_rollerJoyPos.iJ2Button2;
-  pJoy->iJ2XAxis = g_rollerJoyPos.iJ2XAxis;
-  pJoy->iJ2YAxis = g_rollerJoyPos.iJ2YAxis;
-
-  // Update presence flags based on controller status
-  x1ok = g_pController1 != NULL ? 1 : 0;
-  y1ok = g_pController1 != NULL ? 2 : 0;
-  x2ok = g_pController2 != NULL ? 4 : 0;
-  y2ok = g_pController2 != NULL ? 8 : 0;
-
-  // Update global acceptance mask
-  bitaccept = y2ok | y1ok | x1ok | x2ok;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003BDD0
-void check_joystickpresence()
-{
-  JAXmin = 10000;                               // Initialize joystick axis calibration min/max values
-  JAXmax = -10000;
-  JAYmin = 10000;
-  JAYmax = -10000;
-  JBXmin = 10000;
-  JBXmax = -10000;
-  JBYmin = 10000;
-  JBYmax = -10000;
-
-  x1ok = g_pController1 != NULL ? 1 : 0;
-  y1ok = g_pController1 != NULL ? 2 : 0;
-  x2ok = g_pController2 != NULL ? 4 : 0;
-  y2ok = g_pController2 != NULL ? 8 : 0;
-  bitaccept = y2ok | y1ok | x1ok | x2ok;        // Update bitaccept mask with only the axes that are actually present
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3438,26 +3249,6 @@ void set_palette(int iBrightness)
   //SDL_SetPaletteColors(sdl_palette, sdl_colors, 0, 256);
 
   palette_brightness = iBrightness;
-}
-
-//-------------------------------------------------------------------------------------------------
-//0003EAB0
-void check_joystick_usage()
-{
-  int i; // eax
-  uint8 byKey1; // dl
-  uint8 byKey2; // cl
-
-  Joy1used = 0;
-  Joy2used = 0;
-  for (i = 0; i < 12; ++i) {
-    byKey1 = userkey[i];
-    if (byKey1 == 0x80 || byKey1 == 0x81 || byKey1 >= 0x84u && byKey1 <= 0x87u)
-      Joy1used = -1;
-    byKey2 = userkey[i];
-    if (byKey2 == 0x82 || byKey2 == 0x83 || byKey2 >= 0x88u && byKey2 <= 0x8Bu)
-      Joy2used = -1;
-  }
 }
 
 //-------------------------------------------------------------------------------------------------
