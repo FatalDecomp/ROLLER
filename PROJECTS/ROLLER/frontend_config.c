@@ -202,6 +202,7 @@ void frontend_config_enter(void)
   iFrontendConfigWheelDefineMode = 0;
   iFrontendConfigAxisTuneActive = 0;
   iFrontendConfigAxisTuneField = 0;
+  control_edit = -1;
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;

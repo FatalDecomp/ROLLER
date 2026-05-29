@@ -35,6 +35,7 @@ typedef struct
   int iNumButtons;
   int iNumHats;
   int *piAxes;
+  int *piMenuAxisRest;
   uint8 *pbyButtons;
   uint8 *pbyHats;
   char szName[128];
@@ -79,6 +80,7 @@ void InputInit(void);
 void InputShutdown(void);
 void InputHandleEvent(const SDL_Event *pEvent);
 void InputUpdate(void);
+void InputUpdateMenuControls(void);
 void InputRefreshDevices(void);
 void InputResetBindings(void);
 void InputApplyDefaultGamepadBindings(void);
