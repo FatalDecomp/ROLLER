@@ -69,6 +69,7 @@ void frontend_pause_enter(void);
 void frontend_pause_update(void);
 void frontend_pause_draw(void);
 void frontend_pause_exit(void);
+int frontend_main_menu_quit_confirm_active(void);
 void frontend_menu_enter(void);
 void frontend_menu_update(void);
 void frontend_menu_resume_from_child(void);

@@ -62,6 +62,9 @@ static tInputMenuKeyState s_menuLeftState;
 static tInputMenuKeyState s_menuRightState;
 static tInputMenuKeyState s_menuAcceptState;
 static tInputMenuKeyState s_menuBackState;
+static tInputMenuKeyState s_menuAnyButtonState;
+static tInputMenuKeyState s_menuQuitYesState;
+static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
@@ -85,7 +88,10 @@ static int InputReadButton(tInputBinding *pBinding);
 static int InputReadHat(tInputBinding *pBinding);
 static int InputReadAxisRaw(tInputBinding *pBinding);
 static int InputGetAxisValueInDirection(tInputBinding *pBinding);
+static int InputMenuAnyButtonContext(void);
+static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton eButton);
 static void InputMenuRememberAxisRests(void);
+static void InputMenuRememberButtonStates(void);
 static void InputMenuResetKeyStates(void);
 
 //-------------------------------------------------------------------------------------------------
@@ -191,6 +197,7 @@ static void InputCloseDevice(tInputDevice *pDevice)
   SDL_free(pDevice->piAxes);
   SDL_free(pDevice->piMenuAxisRest);
   SDL_free(pDevice->pbyButtons);
+  SDL_free(pDevice->pbyMenuPrevButtons);
   SDL_free(pDevice->pbyHats);
 
   if (pDevice->pGamepad)
@@ -315,6 +322,11 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
       InputCloseDevice(pDevice);
       return 0;
     }
+    pDevice->pbyMenuPrevButtons = (uint8 *)SDL_calloc((size_t)pDevice->iNumButtons, sizeof(uint8));
+    if (!pDevice->pbyMenuPrevButtons) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
   }
   if (pDevice->iNumHats > 0) {
     pDevice->pbyHats = (uint8 *)SDL_calloc((size_t)pDevice->iNumHats, sizeof(uint8));
@@ -420,6 +432,7 @@ void InputRefreshDevices(void)
   InputResolveAllBindings();
   InputUpdate();
   InputMenuRememberAxisRests();
+  InputMenuRememberButtonStates();
   InputMenuResetKeyStates();
 }
 
@@ -504,6 +517,23 @@ static void InputMenuRememberAxisRests(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void InputMenuRememberButtonStates(void)
+{
+  for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
+    tInputDevice *pDevice = &s_pDevices[iDevice];
+
+    for (int i = 0; i < pDevice->iNumButtons; ++i)
+      pDevice->pbyMenuPrevButtons[i] = pDevice->pbyButtons[i];
+
+    if (pDevice->bGamepad) {
+      for (int i = 0; i < SDL_GAMEPAD_BUTTON_COUNT; ++i)
+        pDevice->byMenuPrevGamepadButtons[i] = (uint8)InputMenuGamepadButtonDown(pDevice, (SDL_GamepadButton)i);
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void InputMenuResetKeyStates(void)
 {
   memset(&s_menuUpState, 0, sizeof(s_menuUpState));
@@ -512,6 +542,9 @@ static void InputMenuResetKeyStates(void)
   memset(&s_menuRightState, 0, sizeof(s_menuRightState));
   memset(&s_menuAcceptState, 0, sizeof(s_menuAcceptState));
   memset(&s_menuBackState, 0, sizeof(s_menuBackState));
+  memset(&s_menuAnyButtonState, 0, sizeof(s_menuAnyButtonState));
+  memset(&s_menuQuitYesState, 0, sizeof(s_menuQuitYesState));
+  memset(&s_menuQuitCancelState, 0, sizeof(s_menuQuitCancelState));
   s_bMenuWaitForRelease = false;
 }
 
@@ -555,6 +588,30 @@ static void InputMenuUpdateKeyState(tInputMenuKeyState *pState, int iDown, uint8
     pState->ullNextRepeatMs = ullNowMs + INPUT_MENU_REPEAT_MS;
     InputMenuTapKey(byScancode);
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputMenuAnyButtonContext(void)
+{
+  if (intro || winner_mode)
+    return 1;
+
+  switch (eFrontendCurrentState) {
+    case eFRONTEND_STATE_WINNER_SCREEN:
+    case eFRONTEND_STATE_RESULT_ROUNDUP:
+    case eFRONTEND_STATE_RACE_RESULT:
+    case eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS:
+    case eFRONTEND_STATE_TEAM_STANDINGS:
+    case eFRONTEND_STATE_LAP_RECORDS:
+    case eFRONTEND_STATE_TIME_TRIAL_RESULTS:
+    case eFRONTEND_STATE_CHAMPIONSHIP_OVER:
+      return 1;
+    default:
+      break;
+  }
+
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -606,13 +663,29 @@ static void InputMenuCollectDeviceState(
     int *piDown,
     int *piAccept,
     int *piBack,
-    int *piPause)
+    int *piPause,
+    int *piAnyButtonPressed,
+    int *piButton1Pressed,
+    int *piButton2Pressed)
 {
   if (pDevice->bGamepad) {
     InputMenuApplyAxis(InputMenuGamepadAxis(pDevice, SDL_GAMEPAD_AXIS_LEFTX), 0, 0, piLeft, piRight, piUp, piDown);
     InputMenuApplyAxis(InputMenuGamepadAxis(pDevice, SDL_GAMEPAD_AXIS_RIGHTX), 0, 0, piLeft, piRight, piUp, piDown);
     InputMenuApplyAxis(InputMenuGamepadAxis(pDevice, SDL_GAMEPAD_AXIS_LEFTY), 0, 1, piLeft, piRight, piUp, piDown);
     InputMenuApplyAxis(InputMenuGamepadAxis(pDevice, SDL_GAMEPAD_AXIS_RIGHTY), 0, 1, piLeft, piRight, piUp, piDown);
+
+    for (int iButton = 0; iButton < SDL_GAMEPAD_BUTTON_COUNT; ++iButton) {
+      int iDown = InputMenuGamepadButtonDown(pDevice, (SDL_GamepadButton)iButton);
+      int iPressed = iDown && !pDevice->byMenuPrevGamepadButtons[iButton];
+      pDevice->byMenuPrevGamepadButtons[iButton] = (uint8)iDown;
+      if (iPressed) {
+        *piAnyButtonPressed = 1;
+        if (iButton == SDL_GAMEPAD_BUTTON_SOUTH)
+          *piButton1Pressed = 1;
+        if (iButton == SDL_GAMEPAD_BUTTON_EAST)
+          *piButton2Pressed = 1;
+      }
+    }
 
     if (InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_DPAD_LEFT))
       *piLeft = 1;
@@ -638,6 +711,18 @@ static void InputMenuCollectDeviceState(
       *piAccept = 1;
     if (pDevice->iNumButtons > 1 && pDevice->pbyButtons[1])
       *piBack = 1;
+    for (int i = 0; i < pDevice->iNumButtons; ++i) {
+      int iDown = pDevice->pbyButtons[i] != 0;
+      int iPressed = iDown && !pDevice->pbyMenuPrevButtons[i];
+      pDevice->pbyMenuPrevButtons[i] = (uint8)iDown;
+      if (iPressed) {
+        *piAnyButtonPressed = 1;
+        if (i == 0)
+          *piButton1Pressed = 1;
+        if (i == 1)
+          *piButton2Pressed = 1;
+      }
+    }
   }
 
   for (int i = 0; i < pDevice->iNumHats; ++i) {
@@ -666,14 +751,33 @@ void InputUpdateMenuControls(void)
   int iAccept = 0;
   int iBack = 0;
   int iPause = 0;
+  int iAnyButtonPressed = 0;
+  int iButton1Pressed = 0;
+  int iButton2Pressed = 0;
+  int iAnyButtonContext;
+  int iQuitConfirm;
   int iAnyMenuInput;
   uint64 ullNowMs;
 
   if (!s_bInitialized)
     return;
 
+  iAnyButtonContext = InputMenuAnyButtonContext();
+  iQuitConfirm = trying_to_exit || frontend_main_menu_quit_confirm_active();
+
   for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice)
-    InputMenuCollectDeviceState(&s_pDevices[iDevice], &iLeft, &iRight, &iUp, &iDown, &iAccept, &iBack, &iPause);
+    InputMenuCollectDeviceState(
+        &s_pDevices[iDevice],
+        &iLeft,
+        &iRight,
+        &iUp,
+        &iDown,
+        &iAccept,
+        &iBack,
+        &iPause,
+        &iAnyButtonPressed,
+        &iButton1Pressed,
+        &iButton2Pressed);
 
   iAnyMenuInput = iLeft || iRight || iUp || iDown || iAccept || iBack || iPause;
 
@@ -687,17 +791,28 @@ void InputUpdateMenuControls(void)
       s_bMenuWaitForRelease = false;
   }
 
-  if (!iMenuActive || iCaptureActive) {
+  if (!iMenuActive || iCaptureActive || iAnyButtonContext || iQuitConfirm) {
     iLeft = 0;
     iRight = 0;
     iUp = 0;
     iDown = 0;
     iAccept = 0;
-    iBack = 0;
+    if (!iQuitConfirm)
+      iBack = 0;
   }
 
-  if (iCaptureActive)
+  if (iCaptureActive || iAnyButtonContext)
     iPause = 0;
+  if (iCaptureActive)
+    iButton1Pressed = 0;
+  if (iCaptureActive)
+    iButton2Pressed = 0;
+  if (iCaptureActive || iQuitConfirm)
+    iAnyButtonPressed = 0;
+  if (iQuitConfirm) {
+    iBack = 0;
+    iPause = 0;
+  }
 
   ullNowMs = SDL_GetTicks();
   InputMenuUpdateKeyState(&s_menuLeftState, iLeft, WHIP_SCANCODE_LEFT, 1, ullNowMs);
@@ -706,6 +821,9 @@ void InputUpdateMenuControls(void)
   InputMenuUpdateKeyState(&s_menuDownState, iDown, WHIP_SCANCODE_DOWN, 1, ullNowMs);
   InputMenuUpdateKeyState(&s_menuAcceptState, iAccept, WHIP_SCANCODE_RETURN, 0, ullNowMs);
   InputMenuUpdateKeyState(&s_menuBackState, iBack || iPause, WHIP_SCANCODE_ESCAPE, 0, ullNowMs);
+  InputMenuUpdateKeyState(&s_menuAnyButtonState, iAnyButtonContext && iAnyButtonPressed, WHIP_SCANCODE_SPACE, 0, ullNowMs);
+  InputMenuUpdateKeyState(&s_menuQuitYesState, iQuitConfirm && iButton1Pressed, WHIP_SCANCODE_Y, 0, ullNowMs);
+  InputMenuUpdateKeyState(&s_menuQuitCancelState, iQuitConfirm && iButton2Pressed, WHIP_SCANCODE_ESCAPE, 0, ullNowMs);
 }
 
 //-------------------------------------------------------------------------------------------------
