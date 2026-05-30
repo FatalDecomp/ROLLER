@@ -2172,6 +2172,8 @@ void firework_screen()
 
   // Copy finished frame buffer to display screen
   game_copypic(scrbuf, screen, ViewType[0]);
+  init_animate_ads();
+  game_render_end_frame(g_pGameRenderer);
 }
 
 //-------------------------------------------------------------------------------------------------

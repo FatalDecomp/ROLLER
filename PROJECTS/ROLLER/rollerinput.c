@@ -492,7 +492,6 @@ void InputUpdate(void)
   if (!s_bInitialized)
     return;
 
-  SDL_UpdateJoysticks();
   for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
     tInputDevice *pDevice = &s_pDevices[iDevice];
     for (int i = 0; i < pDevice->iNumAxes; ++i)
