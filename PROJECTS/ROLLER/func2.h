@@ -63,6 +63,7 @@ int fatkbhit();
 int fatgetch();
 int control_key_matches_required_pair_type(int iControlIdx, int iKey);
 int control_key_is_duplicate_in_player_set(int iControlIdx, int iKey);
+int pause_axis_tune_active(void);
 void release_key_int();
 void clear_border(int x, int y, int iWidth, int iLines);
 void setdirectory(const char *szAppPath);

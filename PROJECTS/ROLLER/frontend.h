@@ -134,6 +134,7 @@ void frontend_disk_select_exit(void);
 void frontend_config_enter(void);
 void frontend_config_update(void);
 void frontend_config_exit(void);
+int frontend_config_axis_tune_active(void);
 void frontend_players_select_enter(void);
 void frontend_players_select_update(void);
 void frontend_players_select_exit(void);

@@ -743,7 +743,8 @@ static void InputMenuCollectDeviceState(
 void InputUpdateMenuControls(void)
 {
   int iMenuActive = frontend_on || game_req;
-  int iCaptureActive = define_mode || control_edit >= 0;
+  int iAxisTuneActive;
+  int iCaptureActive;
   int iLeft = 0;
   int iRight = 0;
   int iUp = 0;
@@ -761,6 +762,9 @@ void InputUpdateMenuControls(void)
 
   if (!s_bInitialized)
     return;
+
+  iAxisTuneActive = frontend_config_axis_tune_active() || pause_axis_tune_active();
+  iCaptureActive = (define_mode || control_edit >= 0) && !iAxisTuneActive;
 
   iAnyButtonContext = InputMenuAnyButtonContext();
   iQuitConfirm = trying_to_exit || frontend_main_menu_quit_confirm_active();
