@@ -1291,6 +1291,13 @@ static void frontend_main_menu_handle_quit_confirmation(uint8 byKey)
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_main_menu_quit_confirm_active(void)
+{
+  return iFrontendMainMenuQuitConfirmed != 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_handle_input(void)
 {
   while (fatkbhit()) {

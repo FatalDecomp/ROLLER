@@ -130,6 +130,46 @@ static int frontend_config_is_player2_control_selection(int iSelection)
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_config_axis_tune_active(void)
+{
+  return iFrontendConfigControlsInEdit &&
+         iFrontendConfigState == 4 &&
+         iFrontendConfigAxisTuneActive &&
+         control_edit >= 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_read_axis_tune_key(void)
+{
+  int iKey;
+  int iExtendedKey;
+
+  while (fatkbhit()) {
+    iKey = fatgetch();
+    if (!iKey) {
+      iExtendedKey = fatgetch();
+      switch (iExtendedKey) {
+        case WHIP_SCANCODE_UP:
+        case WHIP_SCANCODE_DOWN:
+        case WHIP_SCANCODE_LEFT:
+        case WHIP_SCANCODE_RIGHT:
+          return iExtendedKey;
+        default:
+          break;
+      }
+    } else if (iKey == 0xD) {
+      return WHIP_SCANCODE_RETURN;
+    } else if (iKey == 0x1B) {
+      return WHIP_SCANCODE_ESCAPE;
+    }
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_apply_axis_tuning_key(int iAction, int iKey)
 {
   tInputBinding binding;
@@ -202,6 +242,7 @@ void frontend_config_enter(void)
   iFrontendConfigWheelDefineMode = 0;
   iFrontendConfigAxisTuneActive = 0;
   iFrontendConfigAxisTuneField = 0;
+  control_edit = -1;
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
@@ -305,6 +346,7 @@ void frontend_config_update(void)
   int i; // eax
   int iEditIndex; // eax
   int iControlState; // ebx
+  int iAxisTuneKey; // eax
   char byColor_31; // al
   char byColor_32; // al
   char *szText_1; // edx
@@ -1057,31 +1099,32 @@ void frontend_config_update(void)
           goto CHECK_CONTROL_INPUT;             // wait for key release
 
         if (iFrontendConfigAxisTuneActive) {
-          if (keys[WHIP_SCANCODE_UP]) {
+          iAxisTuneKey = frontend_config_read_axis_tune_key();
+          if (iAxisTuneKey == WHIP_SCANCODE_UP) {
             --iFrontendConfigAxisTuneField;
             if (iFrontendConfigAxisTuneField < 0)
               iFrontendConfigAxisTuneField = 4;
             controlrelease = -1;
             goto CHECK_CONTROL_INPUT;
           }
-          if (keys[WHIP_SCANCODE_DOWN]) {
+          if (iAxisTuneKey == WHIP_SCANCODE_DOWN) {
             ++iFrontendConfigAxisTuneField;
             if (iFrontendConfigAxisTuneField > 4)
               iFrontendConfigAxisTuneField = 0;
             controlrelease = -1;
             goto CHECK_CONTROL_INPUT;
           }
-          if (keys[WHIP_SCANCODE_LEFT]) {
+          if (iAxisTuneKey == WHIP_SCANCODE_LEFT) {
             frontend_config_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_LEFT);
             controlrelease = -1;
             goto CHECK_CONTROL_INPUT;
           }
-          if (keys[WHIP_SCANCODE_RIGHT]) {
+          if (iAxisTuneKey == WHIP_SCANCODE_RIGHT) {
             frontend_config_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
             controlrelease = -1;
             goto CHECK_CONTROL_INPUT;
           }
-          if (keys[WHIP_SCANCODE_RETURN]) {
+          if (iAxisTuneKey == WHIP_SCANCODE_RETURN) {
             if (iFrontendConfigAxisTuneField == 4) {
               iEditIndex = control_edit + 1;
               iControlState = iFrontendConfigControlsInEdit;
@@ -1092,6 +1135,8 @@ void frontend_config_update(void)
             controlrelease = -1;
             goto CHECK_CONTROL_INPUT;
           }
+          if (iAxisTuneKey == WHIP_SCANCODE_ESCAPE)
+            goto CANCEL_CONTROL_EDIT;
           goto CHECK_CONTROL_INPUT;
         }
 
@@ -1171,16 +1216,17 @@ void frontend_config_update(void)
         InputSaveConfig();
       CHECK_CONTROL_INPUT:
               // Handle ESC key to restore original key mappings
-        if (keys[1]) {
-          memcpy(userkey, oldkeys, 0xCu);      // restore original player 1 keys
-          memcpy(&userkey[12], &oldkeys[12], 2u);// restore original cheat keys
-          InputRestoreBindings();
-          enable_keyboard();
-          iFrontendConfigControlsInEdit = 0;
-          iFrontendConfigWheelDefineMode = 0;
-          iFrontendConfigAxisTuneActive = 0;
-          control_edit = -1;
-        }
+        if (!keys[1])
+          goto RENDER_FRAME;
+      CANCEL_CONTROL_EDIT:
+        memcpy(userkey, oldkeys, 0xCu);      // restore original player 1 keys
+        memcpy(&userkey[12], &oldkeys[12], 2u);// restore original cheat keys
+        InputRestoreBindings();
+        enable_keyboard();
+        iFrontendConfigControlsInEdit = 0;
+        iFrontendConfigWheelDefineMode = 0;
+        iFrontendConfigAxisTuneActive = 0;
+        control_edit = -1;
       RENDER_FRAME:
               // Display any received network messages
         show_received_mesage();

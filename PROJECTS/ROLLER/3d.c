@@ -243,7 +243,7 @@ int req_size;               //0013FABC
 int intro;                  //0013FAC0
 int shifting;               //0013FAC4
 int fadedin;                //0013FAC8
-int control_edit;           //0013FACC
+int control_edit = -1;      //0013FACC
 int req_edit;               //0013FAD0
 int controlrelease;         //0013FAD4
 float subscale;             //0013FAD8

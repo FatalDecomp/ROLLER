@@ -35,7 +35,10 @@ typedef struct
   int iNumButtons;
   int iNumHats;
   int *piAxes;
+  int *piMenuAxisRest;
   uint8 *pbyButtons;
+  uint8 *pbyMenuPrevButtons;
+  uint8 byMenuPrevGamepadButtons[SDL_GAMEPAD_BUTTON_COUNT];
   uint8 *pbyHats;
   char szName[128];
   char szPath[ROLLER_MAX_PATH];
@@ -79,6 +82,7 @@ void InputInit(void);
 void InputShutdown(void);
 void InputHandleEvent(const SDL_Event *pEvent);
 void InputUpdate(void);
+void InputUpdateMenuControls(void);
 void InputRefreshDevices(void);
 void InputResetBindings(void);
 void InputApplyDefaultGamepadBindings(void);

@@ -878,6 +878,7 @@ void UpdateSDL()
 
   }
   InputUpdate();
+  InputUpdateMenuControls();
   //UpdateSDLWindow();
 #if _DEBUG
   UpdateDebugLoop(); // Add by ROLLER

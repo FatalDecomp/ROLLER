@@ -148,6 +148,43 @@ static int pause_wrap_int(int iValue, int iMin, int iMax)
 
 //-------------------------------------------------------------------------------------------------
 
+int pause_axis_tune_active(void)
+{
+  return define_mode && s_iPauseAxisTuneActive && control_edit >= 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int pause_read_axis_tune_key(void)
+{
+  int iKey;
+  int iExtendedKey;
+
+  while (fatkbhit()) {
+    iKey = fatgetch();
+    if (!iKey) {
+      iExtendedKey = fatgetch();
+      switch (iExtendedKey) {
+        case WHIP_SCANCODE_UP:
+        case WHIP_SCANCODE_DOWN:
+        case WHIP_SCANCODE_LEFT:
+        case WHIP_SCANCODE_RIGHT:
+          return iExtendedKey;
+        default:
+          break;
+      }
+    } else if (iKey == 0xD) {
+      return WHIP_SCANCODE_RETURN;
+    } else if (iKey == 0x1B) {
+      return WHIP_SCANCODE_ESCAPE;
+    }
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void pause_apply_axis_tuning_key(int iAction, int iKey)
 {
   tInputBinding binding;
@@ -2784,6 +2821,7 @@ void display_paused()
   int i; // eax
   int iControlNext; // eax
   int iControlSelect; // edi
+  int iAxisTuneKey; // eax
   char bySoundColor1; // al
   char bySoundColor2; // al
   char bySoundColor3; // al
@@ -3060,31 +3098,32 @@ void display_paused()
       if (define_mode) {
         if (!controlrelease) {
           if (s_iPauseAxisTuneActive) {
-            if (keys[WHIP_SCANCODE_UP]) {
+            iAxisTuneKey = pause_read_axis_tune_key();
+            if (iAxisTuneKey == WHIP_SCANCODE_UP) {
               --s_iPauseAxisTuneField;
               if (s_iPauseAxisTuneField < 0)
                 s_iPauseAxisTuneField = 4;
               controlrelease = -1;
               goto CHECK_PAUSE_CONTROL_INPUT;
             }
-            if (keys[WHIP_SCANCODE_DOWN]) {
+            if (iAxisTuneKey == WHIP_SCANCODE_DOWN) {
               ++s_iPauseAxisTuneField;
               if (s_iPauseAxisTuneField > 4)
                 s_iPauseAxisTuneField = 0;
               controlrelease = -1;
               goto CHECK_PAUSE_CONTROL_INPUT;
             }
-            if (keys[WHIP_SCANCODE_LEFT]) {
+            if (iAxisTuneKey == WHIP_SCANCODE_LEFT) {
               pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_LEFT);
               controlrelease = -1;
               goto CHECK_PAUSE_CONTROL_INPUT;
             }
-            if (keys[WHIP_SCANCODE_RIGHT]) {
+            if (iAxisTuneKey == WHIP_SCANCODE_RIGHT) {
               pause_apply_axis_tuning_key(control_edit, WHIP_SCANCODE_RIGHT);
               controlrelease = -1;
               goto CHECK_PAUSE_CONTROL_INPUT;
             }
-            if (keys[WHIP_SCANCODE_RETURN]) {
+            if (iAxisTuneKey == WHIP_SCANCODE_RETURN) {
               if (s_iPauseAxisTuneField == 4) {
                 iControlNext = control_edit + 1;
                 iControlSelect = control_select;
@@ -3095,6 +3134,8 @@ void display_paused()
               controlrelease = -1;
               goto CHECK_PAUSE_CONTROL_INPUT;
             }
+            if (iAxisTuneKey == WHIP_SCANCODE_ESCAPE)
+              goto CANCEL_PAUSE_CONTROL_EDIT;
             goto CHECK_PAUSE_CONTROL_INPUT;
           }
 
@@ -3163,16 +3204,17 @@ void display_paused()
           }
         }
       CHECK_PAUSE_CONTROL_INPUT:
-        if (keys[WHIP_SCANCODE_ESCAPE]) {
-          define_mode = 0;
-          s_iPauseAxisTuneActive = 0;
-          memcpy(userkey, oldkeys, 0xCu);
-          memcpy(&userkey[12], &oldkeys[12], 2u);
-          InputRestoreBindings();
-          while (fatkbhit())
-            fatgetch();
-          pausewindow = 0;
-        }
+        if (!keys[WHIP_SCANCODE_ESCAPE])
+          break;
+      CANCEL_PAUSE_CONTROL_EDIT:
+        define_mode = 0;
+        s_iPauseAxisTuneActive = 0;
+        memcpy(userkey, oldkeys, 0xCu);
+        memcpy(&userkey[12], &oldkeys[12], 2u);
+        InputRestoreBindings();
+        while (fatkbhit())
+          fatgetch();
+        pausewindow = 0;
       }
       break;
     case 3:
