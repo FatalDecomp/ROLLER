@@ -4933,6 +4933,8 @@ void autocar2(tCar *pCar)
         ++iCarArrayIdx;
       } while (iCarIdx < numcars);
     }
+    if (iHumanCarIdx == -1)
+      goto LABEL_18;
     iPositionDifference = (char)pCar->byLapNumber * TRAK_LEN + pCar->nCurrChunk - (TRAK_LEN * (char)Car[iHumanCarIdx].byLapNumber + Car[iHumanCarIdx].nCurrChunk);// Calculate position difference between AI car and leading human player
     if (iPositionDifference < 80) {
       if (iPositionDifference <= 20) {                                         // Special logic for car design 13 (boss car) - reduce speed when near human player
