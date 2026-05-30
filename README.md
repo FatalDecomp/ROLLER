@@ -34,7 +34,7 @@ FATAL.EXE_split_dos4g_payload.exe
 * `SHA256: A4AD4131DBBFF9884DA4687D8B579B81117E6D23525950D942DF2DF585E2A11E`
 
 ## External Dependencies Used:
-* SDL3.4.4: https://github.com/libsdl-org/SDL
+* SDL3.2.14: https://github.com/libsdl-org/SDL
 * SDL_Image3.2.4: https://github.com/libsdl-org/SDL_image
 * WildMIDI 0.4.6: https://github.com/Mindwerks/wildmidi
 * libcdio-2.3.0: https://github.com/libcdio/libcdio
