@@ -9,8 +9,8 @@
             .hash = "SDL_image-3.2.4--aJoHb8WAACjnDQ_-PhUi-MNh_mYFODwxANtvY3F-yLe",
         },
         .sdl = .{
-            .url = "git+https://github.com/castholm/SDL#b1913e7c31ad72ecfd3ab04aeac387027754cfaf",
-            .hash = "sdl-0.3.0+3.2.22-7uIn9Pg3fwGG2IyIOPxxOSVe-75nUng9clt7tXGFLzMr",
+            .url = "git+https://github.com/castholm/SDL?ref=v0.4.2+3.4.4#76ee7f13177b5dfad124e7066dec29c90f7db275",
+            .hash = "sdl-0.4.2+3.4.4-SDL--nF2pQHiRAibwjhZ6jBJu0Omc3x4EoxPn6gxfnAi",
         },
         .wildmidi = .{
             .url = "git+https://github.com/deevus/wildmidi#4cdc96129d59ee7fc81cf160dc13e0625be77fba",
