@@ -47,6 +47,15 @@ int num_pols;       //001446A8
 int small_poly;     //001446AC
 
 //-------------------------------------------------------------------------------------------------
+static int remap_surface_to_flat(int surfaceFlags)
+{
+    const int textureOnlyFlags = SURFACE_FLAG_APPLY_TEXTURE
+                               | SURFACE_FLAG_TRANSPARENT
+                               | SURFACE_FLAG_PARTIAL_TRANS;
+    return (surfaceFlags & (SURFACE_MASK_FLAGS & ~textureOnlyFlags))
+         | remap_tex[(uint8)surfaceFlags];
+}
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 // Cross-first: NEXT[ptA], NEXT[ptB], CUR[ptB], CUR[ptA]
@@ -2227,14 +2236,14 @@ LABEL_393:
       pCurrentGroundScreen = NULL;
       pNextGroundScreen = NULL;
       if (pRenderCommand->nRenderPriority != 11 && pRenderCommand->nRenderPriority != 14 
-        && iSectionNum >= 0 && iSectionNum < MAX_TRACK_CHUNKS //index checks added by ROLLER
-        && iNextSectionIndex >= 0 && iNextSectionIndex < MAX_TRACK_CHUNKS) {
-
+        && iSectionNum >= 0 && iSectionNum < MAX_TRACK_CHUNKS) { //index checks added by ROLLER
         iNextSectionIndex = NextSect[iSectionNum];
-        pScreenCoord_1 = &TrackScreenXYZ[iSectionNum];
-        pCurrentGroundScreen = &GroundScreenXYZ[iSectionNum];
-        pScreenCoord = &TrackScreenXYZ[iNextSectionIndex];
-        pNextGroundScreen = &GroundScreenXYZ[iNextSectionIndex];
+        if (iNextSectionIndex >= 0 && iNextSectionIndex < MAX_TRACK_CHUNKS) {
+          pScreenCoord_1 = &TrackScreenXYZ[iSectionNum];
+          pCurrentGroundScreen = &GroundScreenXYZ[iSectionNum];
+          pScreenCoord = &TrackScreenXYZ[iNextSectionIndex];
+          pNextGroundScreen = &GroundScreenXYZ[iNextSectionIndex];
+        }
       }
       switch (pRenderCommand->nRenderPriority) {
         case RENDER_QUEUE_3D_LEFT_WALL_LEGACY_PRIORITY:
@@ -2246,7 +2255,7 @@ LABEL_393:
             sf |= SURFACE_FLAG_FLIP_BACKFACE;
             if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
               if (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+                sf = remap_surface_to_flat(sf);
               else
                 sf = SURFACE_FLAG_SKIP_RENDER;
             } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
@@ -2272,7 +2281,7 @@ LABEL_393:
             sf |= SURFACE_FLAG_FLIP_BACKFACE;
             if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0) {
               if (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+                sf = remap_surface_to_flat(sf);
               else
                 sf = SURFACE_FLAG_SKIP_RENDER;
             } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
@@ -2311,7 +2320,7 @@ LABEL_393:
               pNextGroundScreen->screenPtAy[3].projected.fZ))
               goto LABEL_1271;
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_ground_cross_first(v, iNextSectionIndex, iSectionNum, 3, 2);
@@ -2344,7 +2353,7 @@ LABEL_393:
               && (sf & SURFACE_FLAG_CONCAVE) == 0)
               goto LABEL_1068;
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
@@ -2379,7 +2388,7 @@ LABEL_393:
             if (sf == 65854)
               sf += 1;
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 1, 2);
@@ -2412,7 +2421,7 @@ LABEL_393:
               && (sf & SURFACE_FLAG_CONCAVE) == 0)
               goto LABEL_1174;
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 4, 5);
@@ -2445,7 +2454,7 @@ LABEL_393:
               && (sf & SURFACE_FLAG_CONCAVE) == 0)
               goto LABEL_1271;
             if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 3, 4);
@@ -2461,7 +2470,7 @@ LABEL_393:
           {
             int sf = TrakColour[iSectionNum][TRAK_COLOUR_CENTER];
             if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 3, 2);
@@ -2481,7 +2490,7 @@ LABEL_393:
             if (sf < 0)
               sf = -sf;
             if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 2, 0);
@@ -2499,7 +2508,7 @@ LABEL_393:
             if (sf < 0)
               sf = -sf;
             if ((textures_off & TEX_OFF_ROAD_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 4, 3);
@@ -2518,7 +2527,7 @@ LABEL_393:
             if (sf < 0) {
               int renderSf = -sf;
               if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+                renderSf = remap_surface_to_flat(renderSf);
               {
                 GameRenderVertex v[4];
                 tGroundPt *g = &GroundPt[iNextSectionIndex];
@@ -2542,7 +2551,7 @@ LABEL_393:
               if (idx < -1) {
                 int renderSf = -idx;
                 if ((textures_off & TEX_OFF_GROUND_TEXTURES) != 0 && (renderSf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-                  renderSf = remap_tex[(uint8)renderSf] + (renderSf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+                  renderSf = remap_surface_to_flat(renderSf);
                 {
                   GameRenderVertex v[4];
                   tGroundPt *g = &GroundPt[iSectionNum];
@@ -2562,7 +2571,7 @@ LABEL_393:
             }
             /* Two-section roof quad (TrakPt source, always rendered) */
             if ((textures_off & TEX_OFF_WALL_TEXTURES) != 0 && (sf & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-              sf = remap_tex[(uint8)sf] + (sf & (SURFACE_MASK_FLAGS ^ SURFACE_FLAG_APPLY_TEXTURE));
+              sf = remap_surface_to_flat(sf);
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 5);

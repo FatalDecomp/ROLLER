@@ -33,6 +33,16 @@ int NumBuildings;                       //0019993C
 int NumVisibleBuildings;                //00199940
 
 //-------------------------------------------------------------------------------------------------
+static int remap_building_surface_to_flat(int surfaceFlags)
+{
+  const int textureOnlyFlags = SURFACE_FLAG_APPLY_TEXTURE
+                             | SURFACE_FLAG_TRANSPARENT
+                             | SURFACE_FLAG_PARTIAL_TRANS;
+  return (surfaceFlags & (SURFACE_MASK_FLAGS & ~textureOnlyFlags))
+       | bld_remap[(uint8)surfaceFlags];
+}
+
+//-------------------------------------------------------------------------------------------------
 //000691B0
 void InitBuildings()
 {
@@ -700,7 +710,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           if ((uiTex & 0x200) != 0)
             uiTex = advert_list[iBuildingIdx];
           if ((textures_off & TEX_OFF_BUILDING_TEXTURES) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            uiTex = (uiTex & 0xFFFFFE00) + bld_remap[(uint8)uiTex];
+            uiTex = remap_building_surface_to_flat(uiTex);
 
           // Vertex order: forward for front-facing, reversed for the
           // back-facing SURFACE_FLAG_FLIP_BACKFACE case so texture mapping stays correct.

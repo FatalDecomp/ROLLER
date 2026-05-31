@@ -9,6 +9,10 @@
 #include <float.h>
 #include <stdbool.h>
 //-------------------------------------------------------------------------------------------------
+
+#define SHADE_PALETTE_STRIDE 256
+#define SHADE_PALETTE_LEVELS 5
+
 //000706B0
 void twpoly(tPoint *vertices, int16 nColor)
 {
@@ -516,6 +520,9 @@ void poly(tPoint *vertices, int iNumVerts, int16 nColor)
 //00071D70
 void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
 {
+  if (iPaletteIndex < 0 || iPaletteIndex >= SHADE_PALETTE_LEVELS)
+    return;
+
   // Find polygon bounds and top vertex
   int iMinX = vertices[0].x;
   int iMaxX = vertices[0].x;
@@ -562,7 +569,7 @@ void shadow_poly(tPoint *vertices, int iNumVerts, int iPaletteIndex)
   }
 
   // Get shade palette for this palette index
-  uint8 *pShadePalette = &shade_palette[256 * iPaletteIndex];
+  uint8 *pShadePalette = &shade_palette[SHADE_PALETTE_STRIDE * iPaletteIndex];
 
   // Edge walking variables (floating-point)
   float fLeftEdgeX = 0.0f;          // Left edge X position
