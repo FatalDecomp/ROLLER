@@ -712,12 +712,7 @@ static void InputMenuCollectDeviceState(
         InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_BACK))
       *piPause = 1;
   } else {
-    for (int i = 0; i < pDevice->iNumAxes; ++i) {
-      if (bExcludeAxis && i == iExcludeAxisIndex)
-        continue;
-      InputMenuApplyAxis(pDevice->piAxes[i], pDevice->piMenuAxisRest[i], i & 1, piLeft, piRight, piUp, piDown);
-    }
-
+    // Raw axes on wheels and joysticks often include pedals or throttles, so only hats steer menus here.
     if (pDevice->iNumButtons > 0 && pDevice->pbyButtons[0])
       *piAccept = 1;
     if (pDevice->iNumButtons > 1 && pDevice->pbyButtons[1])
