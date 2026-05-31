@@ -388,7 +388,6 @@ int WinnerScreenUpdate(void)
     iWinnerScreenRetVal = 0;
     fade_palette_begin(0);
     eWinnerScreenPhase = eFUNC3_SCREEN_PHASE_FADE_OUT;
-    front_fade = 0;
     return 0;
   }
 
