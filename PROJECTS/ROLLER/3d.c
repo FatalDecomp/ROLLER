@@ -3448,7 +3448,7 @@ void game_keys()
                         if (req_edit == 3)
                           --req_edit;
                       }
-                      if (pausewindow == 2 && control_select < (player_type == 2 ? 4 : 2))
+                      if (pausewindow == 2 && control_select < 4)
                         ++control_select;
                       if (pausewindow == 3 && graphic_mode < 16)
                         ++graphic_mode;
