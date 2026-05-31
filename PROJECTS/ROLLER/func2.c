@@ -3062,7 +3062,7 @@ void display_paused()
           iYPosition2 += 12;
           pszConfigText1 += 64;
         } while (iControlIndex2 < 12);
-        if (Players_Cars[player2_car] >= 8) {
+        if (player2_car >= 0 && Players_Cars[player2_car] >= 8) {
           byKeyColor1 = control_edit == 13 ? 0x8F : 0x7B;
           prt_rightcol(rev_vga[1], "CHEAT:", 198, iYPosition2, byKeyColor1);
           InputGetActionBindingName(13, szBindingName, sizeof(szBindingName));
@@ -3190,7 +3190,7 @@ void display_paused()
               } else {
                 if (iControlNext < 12)
                   goto CHECK_PAUSE_CONTROL_INPUT;
-                if (Players_Cars[player2_car] >= 8 && control_edit < 13) {
+                if (player2_car >= 0 && Players_Cars[player2_car] >= 8 && control_edit < 13) {
                   control_edit = 13;
                   goto CHECK_PAUSE_CONTROL_INPUT;
                 }
