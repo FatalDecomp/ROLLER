@@ -77,6 +77,7 @@ static int s_iGPUPresentSkipFrames = 0;
 bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = true;
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
+bool g_bFixCarMenuBug = true;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 

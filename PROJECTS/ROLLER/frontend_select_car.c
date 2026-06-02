@@ -43,6 +43,8 @@ static int iFrontendCarCurrentSelectorPos;
 static int iFrontendCarSpeechPending;
 static int iFrontendCarPlayer1Car;
 static int iFrontendCarSelectedCar;
+static int iFrontendCarLegacyBugPending;
+static int iFrontendCarLegacyBugActive;
 static char *szFrontendCarCurrentCompanyName;
 
 //-------------------------------------------------------------------------------------------------
@@ -97,6 +99,45 @@ static void frontend_car_select_request_exit(void)
     menu_render_begin_fade(mr, 0, 32);
     iFrontendCarExitFading = 1;
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_car_select_apply_navigation(unsigned int uiNavigationDirection)
+{
+  if (uiNavigationDirection > 1) {
+    if (--iFrontendCarCurrentSelectorPos < 0)
+      iFrontendCarCurrentSelectorPos = 0;
+  } else if (uiNavigationDirection == 1) {
+    if (++iFrontendCarCurrentSelectorPos > 8)
+      iFrontendCarCurrentSelectorPos = 8;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_car_select_begin_car_out(int iCarIdx)
+{
+  iFrontendCarDelayBeforeRotation = 0;
+  iFrontendCarZoomSpeed = 2000;
+  iFrontendCarSelectedCar = iCarIdx;
+
+  if (g_bFixCarMenuBug && iFrontendCarZoomDistance < 4000)
+    iFrontendCarZoomDistance = 4000;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_car_select_begin_legacy_bug_car_out(void)
+{
+  if (g_bFixCarMenuBug || !iFrontendCarLegacyBugPending)
+    return 0;
+
+  iFrontendCarLegacyBugPending = 0;
+  iFrontendCarLegacyBugActive = -1;
+  frontend_car_select_begin_car_out(iFrontendCarPlayer1Car);
+  iFrontendCarZoomDistance = 2000;
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -178,7 +219,9 @@ void frontend_car_select_enter(void)
   iFrontendCarDelayBeforeRotation = 36;
   iFrontendCarActivePlayer = 0;
   iFrontendCarSpeechPending = 0;
-  iFrontendCarSelectedCar = 0;
+  iFrontendCarSelectedCar = g_bFixCarMenuBug ? iFrontendCarPlayer1Car : 0;
+  iFrontendCarLegacyBugPending = g_bFixCarMenuBug ? 0 : -1;
+  iFrontendCarLegacyBugActive = 0;
   frames = 0;
 
   szFrontendCarCurrentCompanyName = NULL;
@@ -380,76 +423,82 @@ void frontend_car_select_update(void)
 
   // ZOOM ANIMATION
   if (!iFrontendCarDelayBeforeRotation) {
-    iNewZoomDistance = iStatAnimationFrame * iFrontendCarZoomSpeed + iFrontendCarZoomDistance;
-    iFrontendCarZoomDistance = iNewZoomDistance;
-    if (iNewZoomDistance <= 40000) {
-      if (iNewZoomDistance < 4000) {
-        iFrontendCarZoomDistance = 4000;
-        iFrontendCarDelayBeforeRotation = 72;
-      }
+    if (iFrontendCarLegacyBugActive) {
+      iFrontendCarLegacyBugActive = 0;
+      iFrontendCarZoomDistance = 4000;
+      iFrontendCarDelayBeforeRotation = 72;
     } else {
-      if (iFrontendCarSelectedCar < 0 || iFrontendCarSelectedCar >= 14)
-        iFrontendCarSelectedCar = 0;
-      iCarAllocationStatus = allocated_cars[iFrontendCarSelectedCar];
-      iFrontendCarZoomDistance = 40000;
-      iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
-      if (iCarAllocationStatus < 2) {
-        if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
-          MenuRenderer *mr = GetMenuRenderer();
-          iCarDesignIndex = iFrontendCarPlayer1Car;
-          ppTextureArray = cartex_vga;
-          menu_render_free_car_mesh(mr);
-          car_texs_loaded[CarDesigns[iCarDesignIndex].carType] = -1;
-          do {
-            ppCurrentTexture = (void **)ppTextureArray++;
-            fre(ppCurrentTexture);
-          } while (ppTextureArray != &cartex_vga[16]);
-          remove_mapsels();
-          remove_frontendspeech();
-          iFrontendCarSpeechPending = 0;
-        }
-        if (game_type == 1 && Race > 0) {
-          iFrontendCarPlayer1Car = iFrontendCarSelectedCar;
-        } else {
-          iPlayerCarIndex = iFrontendCarActivePlayer ? player2_car : player1_car;
-          iFrontendCarPlayer1Car = iFrontendCarSelectedCar;
-          Players_Cars[iPlayerCarIndex] = iFrontendCarSelectedCar;
-        }
-        if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
-          eNewCarType = CarDesigns[iFrontendCarPlayer1Car].carType;
-          iTextureLoadedStatus = car_texs_loaded[eNewCarType];
-          if (iTextureLoadedStatus == -1) {
-            LoadCarTexture(eNewCarType, 1u);
-            car_texmap[iFrontendCarPlayer1Car] = 1;
-            car_texs_loaded[eNewCarType] = 1;
-            iLoadTextureFlag = 2;
-          } else {
-            car_texmap[iFrontendCarPlayer1Car] = iTextureLoadedStatus;
-            iLoadTextureFlag = 1;
-          }
-          LoadCarTextures = iLoadTextureFlag;
-          if (!network_on)
-            check_cars();
+      iNewZoomDistance = iStatAnimationFrame * iFrontendCarZoomSpeed + iFrontendCarZoomDistance;
+      iFrontendCarZoomDistance = iNewZoomDistance;
+      if (iNewZoomDistance <= 40000) {
+        if (iNewZoomDistance < 4000) {
+          iFrontendCarZoomDistance = 4000;
+          iFrontendCarDelayBeforeRotation = 72;
         }
       } else {
-        iFrontendCarPlayer1Car = iFrontendCarActivePlayer
-                                   ? Players_Cars[player2_car]
-                                   : Players_Cars[player1_car];
-        iFrontendCarSelectedCar = iFrontendCarPlayer1Car;
-      }
-      if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
-        sfxsample(SOUND_SAMPLE_CARIN, 0x8000);
-        iFrontendCarSpeechPending = 0;
-        if (iFrontendCarPlayer1Car < CAR_DESIGN_SUICYCO) {
-          loadfrontendsample(descript[iFrontendCarPlayer1Car]);
-          if (SamplePtr[SOUND_SAMPLE_CARIN])
-            iFrontendCarSpeechPending = -1;
-          else
-            frontendsample(0x8000);
+        if (iFrontendCarSelectedCar < 0 || iFrontendCarSelectedCar >= 14)
+          iFrontendCarSelectedCar = 0;
+        iCarAllocationStatus = allocated_cars[iFrontendCarSelectedCar];
+        iFrontendCarZoomDistance = 40000;
+        iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
+        if (iCarAllocationStatus < 2) {
+          if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+            MenuRenderer *mr = GetMenuRenderer();
+            iCarDesignIndex = iFrontendCarPlayer1Car;
+            ppTextureArray = cartex_vga;
+            menu_render_free_car_mesh(mr);
+            car_texs_loaded[CarDesigns[iCarDesignIndex].carType] = -1;
+            do {
+              ppCurrentTexture = (void **)ppTextureArray++;
+              fre(ppCurrentTexture);
+            } while (ppTextureArray != &cartex_vga[16]);
+            remove_mapsels();
+            remove_frontendspeech();
+            iFrontendCarSpeechPending = 0;
+          }
+          if (game_type == 1 && Race > 0) {
+            iFrontendCarPlayer1Car = iFrontendCarSelectedCar;
+          } else {
+            iPlayerCarIndex = iFrontendCarActivePlayer ? player2_car : player1_car;
+            iFrontendCarPlayer1Car = iFrontendCarSelectedCar;
+            Players_Cars[iPlayerCarIndex] = iFrontendCarSelectedCar;
+          }
+          if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+            eNewCarType = CarDesigns[iFrontendCarPlayer1Car].carType;
+            iTextureLoadedStatus = car_texs_loaded[eNewCarType];
+            if (iTextureLoadedStatus == -1) {
+              LoadCarTexture(eNewCarType, 1u);
+              car_texmap[iFrontendCarPlayer1Car] = 1;
+              car_texs_loaded[eNewCarType] = 1;
+              iLoadTextureFlag = 2;
+            } else {
+              car_texmap[iFrontendCarPlayer1Car] = iTextureLoadedStatus;
+              iLoadTextureFlag = 1;
+            }
+            LoadCarTextures = iLoadTextureFlag;
+            if (!network_on)
+              check_cars();
+          }
+        } else {
+          iFrontendCarPlayer1Car = iFrontendCarActivePlayer
+                                     ? Players_Cars[player2_car]
+                                     : Players_Cars[player1_car];
+          iFrontendCarSelectedCar = iFrontendCarPlayer1Car;
         }
+        if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
+          sfxsample(SOUND_SAMPLE_CARIN, 0x8000);
+          iFrontendCarSpeechPending = 0;
+          if (iFrontendCarPlayer1Car < CAR_DESIGN_SUICYCO) {
+            loadfrontendsample(descript[iFrontendCarPlayer1Car]);
+            if (SamplePtr[SOUND_SAMPLE_CARIN])
+              iFrontendCarSpeechPending = -1;
+            else
+              frontendsample(0x8000);
+          }
+        }
+        frontend_car_select_begin_broadcast_wait(-1);
+        frames = 0;
       }
-      frontend_car_select_begin_broadcast_wait(-1);
-      frames = 0;
     }
   }
 
@@ -458,9 +507,7 @@ void frontend_car_select_update(void)
 
   // Network car request from another player
   if (car_request < 0) {
-    iFrontendCarDelayBeforeRotation = 0;
-    iFrontendCarZoomSpeed = 2000;
-    iFrontendCarSelectedCar = -car_request - 1;
+    frontend_car_select_begin_car_out(-car_request - 1);
     sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
     iFrontendCarSpeechPending = 0;
     car_request = 0;
@@ -471,9 +518,7 @@ void frontend_car_select_update(void)
   // Cheat: force all players to same car
   if (switch_same > 0) {
     if (switch_same - 666 != Players_Cars[player1_car]) {
-      iFrontendCarSelectedCar = switch_same - 666;
-      iFrontendCarZoomSpeed = 2000;
-      iFrontendCarDelayBeforeRotation = 0;
+      frontend_car_select_begin_car_out(switch_same - 666);
       sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
       iFrontendCarSpeechPending = 0;
       for (iPlayerLoopCounter = 0; iPlayerLoopCounter < players; iPlayerLoopCounter++)
@@ -482,18 +527,14 @@ void frontend_car_select_update(void)
     }
   } else if (switch_same < 0) {
     switch_same = 0;
-    iFrontendCarDelayBeforeRotation = 0;
-    iFrontendCarZoomSpeed = 2000;
-    iFrontendCarSelectedCar = -1;
+    frontend_car_select_begin_car_out(-1);
     sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
     iFrontendCarSpeechPending = 0;
     cheat_mode &= ~CHEAT_MODE_CLONES;
   }
 
   if (switch_sets) {
-    iFrontendCarSelectedCar = iFrontendCarPlayer1Car;
-    iFrontendCarDelayBeforeRotation = 0;
-    iFrontendCarZoomSpeed = 2000;
+    frontend_car_select_begin_car_out(iFrontendCarPlayer1Car);
     sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
     iFrontendCarSpeechPending = 0;
     switch_sets = 0;
@@ -531,6 +572,11 @@ void frontend_car_select_update(void)
         }
       } else if (byInputKey <= 0xDu) {
         // Enter key
+        if (g_bFixCarMenuBug && uiNavigationDirection) {
+          frontend_car_select_apply_navigation(uiNavigationDirection);
+          uiNavigationDirection = 0;
+        }
+
         if (iFrontendCarCurrentSelectorPos != 8 && iFrontendCarCurrentSelectorPos != iFrontendCarPlayer1Car
             || iFrontendCarCurrentSelectorPos == 8) {
           remove_frontendspeech();
@@ -550,13 +596,17 @@ void frontend_car_select_update(void)
                    && (allocated_cars[iFrontendCarCurrentSelectorPos] < 2
                        || (game_type == 1 && Race > 0))) {
           if (network_on) {
-            car_request = iNextCarIndex;
+            car_request = g_bFixCarMenuBug ? iFrontendCarCurrentSelectorPos + 1 : iNextCarIndex;
             frontend_car_select_begin_broadcast_wait(-9999);
             return;
           } else {
-            iFrontendCarDelayBeforeRotation = 0;
-            iFrontendCarZoomSpeed = 2000;
-            iFrontendCarSelectedCar = iFrontendCarCurrentSelectorPos;
+            if (frontend_car_select_begin_legacy_bug_car_out()) {
+              sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
+              iFrontendCarSpeechPending = 0;
+              break;
+            } else {
+              frontend_car_select_begin_car_out(iFrontendCarCurrentSelectorPos);
+            }
             sfxsample(SOUND_SAMPLE_CAROUT, 0x8000);
             iFrontendCarSpeechPending = 0;
           }
@@ -573,15 +623,11 @@ void frontend_car_select_update(void)
       if (player_type == 2) {
         if (iFrontendCarActivePlayer) {
           iFrontendCarActivePlayer = 0;
-          iFrontendCarDelayBeforeRotation = 0;
-          iFrontendCarZoomSpeed = 2000;
-          iFrontendCarSelectedCar = Players_Cars[player1_car];
+          frontend_car_select_begin_car_out(Players_Cars[player1_car]);
           iFrontendCarSpeechPending = 0;
         } else {
           iFrontendCarActivePlayer = 1;
-          iFrontendCarDelayBeforeRotation = 0;
-          iFrontendCarZoomSpeed = 2000;
-          iFrontendCarSelectedCar = Players_Cars[player2_car];
+          frontend_car_select_begin_car_out(Players_Cars[player2_car]);
           iFrontendCarSpeechPending = 0;
         }
       }
@@ -604,13 +650,7 @@ void frontend_car_select_update(void)
   }
 
   // Apply navigation
-  if (uiNavigationDirection > 1) {
-    if (--iFrontendCarCurrentSelectorPos < 0)
-      iFrontendCarCurrentSelectorPos = 0;
-  } else if (uiNavigationDirection == 1) {
-    if (++iFrontendCarCurrentSelectorPos > 8)
-      iFrontendCarCurrentSelectorPos = 8;
-  }
+  frontend_car_select_apply_navigation(uiNavigationDirection);
 
   // Rotate 3D car preview
   nRotationAngle = Car[0].nYaw + 32 * iStatAnimationFrame;
