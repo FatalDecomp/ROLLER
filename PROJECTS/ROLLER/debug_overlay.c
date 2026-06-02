@@ -541,6 +541,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bFixCarMenuBug = (int)g_bFixCarMenuBug;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Fix car menu bug", &bFixCarMenuBug)) {
+      g_bFixCarMenuBug = (bool)bFixCarMenuBug;
+      InputSaveConfig();
+    }
+
     nk_layout_row_dynamic(pCtx, 8, 1);
     nk_spacing(pCtx, 1);
     nk_layout_row_dynamic(pCtx, 20, 1);
