@@ -88,6 +88,11 @@ MenuRenderMode menu_render_get_mode(MenuRenderer *renderer) {
     return renderer->mode;
 }
 
+MenuRenderMode menu_render_get_pending_mode(MenuRenderer *renderer) {
+    if (!renderer) return MENU_RENDER_SOFTWARE;
+    return renderer->pendingMode;
+}
+
 int menu_render_load_blocks(MenuRenderer *renderer, int slot,
                             tBlockHeader *blocks, const tColor *palette) {
     if (!renderer) return 1;

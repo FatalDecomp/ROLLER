@@ -1,6 +1,7 @@
 #include "rollerinput.h"
 #include "3d.h"
 #include "func2.h"
+#include "menu_render.h"
 #include "roller.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -1555,6 +1556,134 @@ static int InputParseBool(const char *szValue)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputParseBoolSetting(const char *szValue, bool *pbOut)
+{
+  int iValue;
+
+  if (!szValue || !pbOut)
+    return 0;
+
+  if (sscanf(szValue, "%i", &iValue) == 1) {
+    *pbOut = iValue != 0;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "true") ||
+      InputStringEqualsNoCase(szValue, "yes") ||
+      InputStringEqualsNoCase(szValue, "on")) {
+    *pbOut = true;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "false") ||
+      InputStringEqualsNoCase(szValue, "no") ||
+      InputStringEqualsNoCase(szValue, "off")) {
+    *pbOut = false;
+    return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputApplyMusicSource(int iUseCD)
+{
+  if (iUseCD) {
+    MusicCD = -1;
+    MusicCard = 0;
+  } else {
+    MusicCD = 0;
+    MusicCard = -1;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputParseMusicSourceSetting(const char *szValue)
+{
+  bool bUseCD;
+
+  if (InputStringEqualsNoCase(szValue, "cd") ||
+      InputStringEqualsNoCase(szValue, "audio_cd") ||
+      InputStringEqualsNoCase(szValue, "audio-cd")) {
+    InputApplyMusicSource(1);
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "midi")) {
+    InputApplyMusicSource(0);
+    return 1;
+  }
+
+  if (InputParseBoolSetting(szValue, &bUseCD)) {
+    InputApplyMusicSource(bUseCD ? 1 : 0);
+    return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputParseRendererSetting(const char *szValue)
+{
+  bool bHardware;
+  MenuRenderer *pRenderer;
+
+  if (InputStringEqualsNoCase(szValue, "gpu") ||
+      InputStringEqualsNoCase(szValue, "hardware")) {
+    bHardware = true;
+  } else if (InputStringEqualsNoCase(szValue, "software")) {
+    bHardware = false;
+  } else if (!InputParseBoolSetting(szValue, &bHardware)) {
+    return 0;
+  }
+
+  pRenderer = GetMenuRenderer();
+  if (pRenderer)
+    menu_render_set_mode(pRenderer, bHardware ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputParseDebugSetting(const char *szName, const char *szValue)
+{
+  bool bValue;
+
+  if (InputStringEqualsNoCase(szName, "MusicSource") ||
+      InputStringEqualsNoCase(szName, "DebugMusicSource")) {
+    return InputParseMusicSourceSetting(szValue);
+  }
+
+  if (InputStringEqualsNoCase(szName, "InfiniteDrawDistance") ||
+      InputStringEqualsNoCase(szName, "ForceMaxDraw")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bForceMaxDraw = bValue;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "AIAutomaticGears") ||
+      InputStringEqualsNoCase(szName, "AINoCheatStart")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bAINoCheatStart = bValue;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "HardwareRendering") ||
+      InputStringEqualsNoCase(szName, "MenuRenderer")) {
+    return InputParseRendererSetting(szValue);
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void InputParseBindingField(tInputBinding *pBinding, const char *szKey, const char *szValue)
 {
   if (InputStringEqualsNoCase(szKey, "guid")) {
@@ -1701,7 +1830,11 @@ int InputLoadConfig(void)
       continue;
 
     *szEquals = '\0';
-    iAction = InputFindActionByName(InputTrim(szText));
+    szText = InputTrim(szText);
+    if (InputParseDebugSetting(szText, InputTrim(szEquals + 1)))
+      continue;
+
+    iAction = InputFindActionByName(szText);
     if (iAction < 0)
       continue;
 
@@ -1742,6 +1875,12 @@ void InputSaveConfig(void)
     return;
 
   fprintf(fp, "InputVersion=2\n");
+  fprintf(fp, "[Settings]\n");
+  fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : "MIDI");
+  fprintf(fp, "InfiniteDrawDistance=%d\n", g_bForceMaxDraw ? 1 : 0);
+  fprintf(fp, "AIAutomaticGears=%d\n", g_bAINoCheatStart ? 1 : 0);
+  fprintf(fp, "HardwareRendering=%d\n",
+          menu_render_get_pending_mode(GetMenuRenderer()) == MENU_RENDER_GPU ? 1 : 0);
   fprintf(fp, "[Input]\n");
 
   for (int i = 0; i < INPUT_NUM_ACTIONS; ++i) {

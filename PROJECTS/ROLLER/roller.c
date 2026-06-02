@@ -833,9 +833,10 @@ void UpdateSDL()
       if (e.key.key == SDLK_F10) {
         if (frontend_on) {
           MenuRenderer *mr = GetMenuRenderer();
-          MenuRenderMode mode = menu_render_get_mode(mr);
+          MenuRenderMode mode = menu_render_get_pending_mode(mr);
           menu_render_set_mode(mr, mode == MENU_RENDER_GPU
             ? MENU_RENDER_SOFTWARE : MENU_RENDER_GPU);
+          InputSaveConfig();
           SDL_Log("Menu render mode: %s",
             mode == MENU_RENDER_GPU ? "software" : "GPU");
         }

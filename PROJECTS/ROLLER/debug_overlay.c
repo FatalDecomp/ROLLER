@@ -1,6 +1,7 @@
 #include "debug_overlay.h"
 #include "debug_overlay_shaders.h"
 #include "roller.h"
+#include "rollerinput.h"
 #include "menu_render.h"
 #include "sound.h"
 #include <stdlib.h>
@@ -523,17 +524,22 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (iNewMusicSel == 1) { MusicCD = -1; MusicCard = 0; }
       else                   { MusicCD = 0;  MusicCard = -1; }
       startmusic(g_iCurrentSong);
+      InputSaveConfig();
     }
 
     int bForceMaxDraw = (int)g_bForceMaxDraw;
     nk_layout_row_dynamic(pCtx, 20, 1);
-    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw))
+    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw)) {
       g_bForceMaxDraw = (bool)bForceMaxDraw;
+      InputSaveConfig();
+    }
 
     int bAINoCheatStart = (int)g_bAINoCheatStart;
     nk_layout_row_dynamic(pCtx, 20, 1);
-    if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart))
+    if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart)) {
       g_bAINoCheatStart = (bool)bAINoCheatStart;
+      InputSaveConfig();
+    }
 
     nk_layout_row_dynamic(pCtx, 8, 1);
     nk_spacing(pCtx, 1);
@@ -542,10 +548,12 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
 
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
-      int bGPU = (menu_render_get_mode(pRenderer) == MENU_RENDER_GPU);
+      int bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
       nk_layout_row_dynamic(pCtx, 20, 1);
-      if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU))
+      if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU)) {
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+        InputSaveConfig();
+      }
     }
   }
   nk_end(pCtx);

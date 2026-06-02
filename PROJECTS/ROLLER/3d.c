@@ -2776,6 +2776,7 @@ int main(int argc, const char **argv, const char **envp)
   tick_on = 0;
   ROLLERremove("../REPLAYS/REPLAY.TMP");
   readsoundconfig();
+  InputLoadConfig();
   loadcheatnames();
   cdxinit();
   GetFirstCDDrive();

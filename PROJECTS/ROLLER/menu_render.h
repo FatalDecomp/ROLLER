@@ -25,6 +25,7 @@ void menu_render_destroy(MenuRenderer *renderer);
 // Mode switching
 void menu_render_set_mode(MenuRenderer *renderer, MenuRenderMode mode);
 MenuRenderMode menu_render_get_mode(MenuRenderer *renderer);
+MenuRenderMode menu_render_get_pending_mode(MenuRenderer *renderer);
 
 // Asset conversion
 int menu_render_load_blocks(MenuRenderer *renderer, int slot,
