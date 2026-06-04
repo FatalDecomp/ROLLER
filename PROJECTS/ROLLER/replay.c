@@ -2961,7 +2961,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     if (iLoopCounter + topfile < filefiles) {
       iDisplayX = 100 * (iLoopCounter % 3) + iRightEdge;
       iDisplayY = iBottomEdge + 10 * (iLoopCounter / 3);
-      szDisplayName = &filename[iLoopCounter][9 * topfile];
+      szDisplayName = filename[iLoopCounter + topfile];
       if (iLoopCounter == iDisplayFile - topfile)
         prt_string(rev_vga[1], szDisplayName, iDisplayX, iDisplayY);
       else
