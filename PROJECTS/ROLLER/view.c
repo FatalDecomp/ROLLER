@@ -7,9 +7,18 @@
 #include "control.h"
 #include "tower.h"
 #include "loadtrak.h"
+#include <SDL3/SDL.h>
 #include <math.h>
 #include <float.h>
 //-------------------------------------------------------------------------------------------------
+
+#define NOCLIP_MOVE_SPEED       9000.0f
+#define NOCLIP_MAX_DT           0.1f
+#define NOCLIP_MOUSE_SENSITIVITY 8.0f
+#define NOCLIP_PITCH_LIMIT      (0x1000 - 64)
+
+extern bool g_bNoclip;
+SDL_Window *ROLLERGetWindow(void);
 
 tViewData viewdata[2] =       //000A74A8
 {
@@ -32,6 +41,178 @@ int NearTow;                  //001A1A68
 float chase_x;                //001A1A6C
 float chase_y;                //001A1A70
 float chase_z;                //001A1A74
+
+//-------------------------------------------------------------------------------------------------
+
+static bool s_bNoclipInitialized = false;
+static bool s_bNoclipInputEnabled = true;
+static float s_fNoclipX = 0.0f;
+static float s_fNoclipY = 0.0f;
+static float s_fNoclipZ = 0.0f;
+static int s_iNoclipYaw = 0;
+static int s_iNoclipPitch = 0;
+static int s_iNoclipViewDist = 200;
+static uint64 s_ullNoclipLastUpdateNs = 0;
+
+static int noclip_angle14(int iAngle)
+{
+  return iAngle & 0x3FFF;
+}
+
+static int noclip_signed_angle(int iAngle)
+{
+  iAngle &= 0x3FFF;
+  if (iAngle >= 0x2000)
+    iAngle -= 0x4000;
+  return iAngle;
+}
+
+static int noclip_clamp_pitch(int iPitch)
+{
+  if (iPitch > NOCLIP_PITCH_LIMIT)
+    return NOCLIP_PITCH_LIMIT;
+  if (iPitch < -NOCLIP_PITCH_LIMIT)
+    return -NOCLIP_PITCH_LIMIT;
+  return iPitch;
+}
+
+static int noclip_key_down(const bool *pKeys, SDL_Scancode scancode)
+{
+  return pKeys && pKeys[scancode] ? 1 : 0;
+}
+
+static void noclip_sync_mouse_mode(void)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  if (!pWindow)
+    return;
+
+  bool bWantRelative = g_bNoclip && s_bNoclipInitialized && s_bNoclipInputEnabled;
+  if (SDL_GetWindowRelativeMouseMode(pWindow) != bWantRelative) {
+    if (!SDL_SetWindowRelativeMouseMode(pWindow, bWantRelative))
+      SDL_Log("noclip: failed to set relative mouse mode: %s", SDL_GetError());
+
+    float fIgnoredX, fIgnoredY;
+    SDL_GetRelativeMouseState(&fIgnoredX, &fIgnoredY);
+  }
+}
+
+void noclip_camera_reset(void)
+{
+  s_bNoclipInitialized = false;
+  s_ullNoclipLastUpdateNs = 0;
+  noclip_sync_mouse_mode();
+}
+
+void noclip_camera_set_input_enabled(bool bEnabled)
+{
+  s_bNoclipInputEnabled = bEnabled;
+  s_ullNoclipLastUpdateNs = 0;
+  noclip_sync_mouse_mode();
+}
+
+void noclip_camera_update(void)
+{
+  if (!g_bNoclip) {
+    if (s_bNoclipInitialized)
+      noclip_camera_reset();
+    return;
+  }
+
+  if (!s_bNoclipInitialized)
+    return;
+
+  noclip_sync_mouse_mode();
+
+  SDL_Window *pWindow = ROLLERGetWindow();
+  if (!pWindow || !s_bNoclipInputEnabled || !SDL_GetWindowRelativeMouseMode(pWindow)) {
+    s_ullNoclipLastUpdateNs = 0;
+    return;
+  }
+
+  float fMouseX, fMouseY;
+  SDL_GetRelativeMouseState(&fMouseX, &fMouseY);
+  s_iNoclipYaw = noclip_angle14(s_iNoclipYaw - (int)(fMouseX * NOCLIP_MOUSE_SENSITIVITY));
+  s_iNoclipPitch = noclip_clamp_pitch(s_iNoclipPitch - (int)(fMouseY * NOCLIP_MOUSE_SENSITIVITY));
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  if (!s_ullNoclipLastUpdateNs) {
+    s_ullNoclipLastUpdateNs = ullNowNs;
+    return;
+  }
+
+  float fDt = (float)((double)(ullNowNs - s_ullNoclipLastUpdateNs) / 1000000000.0);
+  s_ullNoclipLastUpdateNs = ullNowNs;
+  if (fDt <= 0.0f)
+    return;
+  if (fDt > NOCLIP_MAX_DT)
+    fDt = NOCLIP_MAX_DT;
+
+  const bool *pKeys = SDL_GetKeyboardState(NULL);
+  int iForward = noclip_key_down(pKeys, SDL_SCANCODE_W) - noclip_key_down(pKeys, SDL_SCANCODE_S);
+  int iRight = noclip_key_down(pKeys, SDL_SCANCODE_D) - noclip_key_down(pKeys, SDL_SCANCODE_A);
+  int iUp = (noclip_key_down(pKeys, SDL_SCANCODE_E) || noclip_key_down(pKeys, SDL_SCANCODE_R))
+          - (noclip_key_down(pKeys, SDL_SCANCODE_Q) || noclip_key_down(pKeys, SDL_SCANCODE_F));
+
+  if (!iForward && !iRight && !iUp)
+    return;
+
+  float fYawRad = ANGLE_TO_RADIANS(s_iNoclipYaw);
+  float fPitchRad = ANGLE_TO_RADIANS(s_iNoclipPitch);
+  float fCosYaw = cosf(fYawRad);
+  float fSinYaw = sinf(fYawRad);
+  float fCosPitch = cosf(fPitchRad);
+  float fSinPitch = sinf(fPitchRad);
+
+  float fMoveX = (float)iForward * fCosYaw * fCosPitch + (float)iRight * fSinYaw;
+  float fMoveY = (float)iForward * fSinYaw * fCosPitch - (float)iRight * fCosYaw;
+  float fMoveZ = (float)iForward * fSinPitch + (float)iUp;
+  float fMoveLen = (float)sqrt(fMoveX * fMoveX + fMoveY * fMoveY + fMoveZ * fMoveZ);
+  if (fMoveLen <= FLT_EPSILON)
+    return;
+
+  float fStep = NOCLIP_MOVE_SPEED * fDt / fMoveLen;
+  s_fNoclipX += fMoveX * fStep;
+  s_fNoclipY += fMoveY * fStep;
+  s_fNoclipZ += fMoveZ * fStep;
+}
+
+void noclip_camera_apply(void)
+{
+  if (!g_bNoclip) {
+    if (s_bNoclipInitialized)
+      noclip_camera_reset();
+    return;
+  }
+
+  if (!s_bNoclipInitialized) {
+    s_fNoclipX = viewx;
+    s_fNoclipY = viewy;
+    s_fNoclipZ = viewz;
+    s_iNoclipYaw = noclip_angle14(worlddirn);
+    s_iNoclipPitch = noclip_clamp_pitch(noclip_signed_angle(worldelev));
+    s_iNoclipViewDist = VIEWDIST;
+    s_ullNoclipLastUpdateNs = 0;
+    s_bNoclipInitialized = true;
+    noclip_sync_mouse_mode();
+  }
+
+  VIEWDIST = s_iNoclipViewDist;
+  vdirection = s_iNoclipYaw;
+  velevation = noclip_angle14(s_iNoclipPitch);
+  vtilt = 0;
+  worldx = s_fNoclipX;
+  worldy = s_fNoclipY;
+  worldz = s_fNoclipZ;
+  calculatetransform(-1, vdirection, velevation, 0,
+                     s_fNoclipX, s_fNoclipY, s_fNoclipZ,
+                     0.0f, 0.0f, 0.0f);
+  worlddirn = vdirection;
+  worldelev = velevation;
+  worldtilt = vtilt;
+  lastcamdirection = vdirection;
+  lastcamelevation = velevation;
+}
 
 //-------------------------------------------------------------------------------------------------
 //000729C0

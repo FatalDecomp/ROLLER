@@ -2,6 +2,7 @@
 #define _ROLLER_VIEW_H
 //-------------------------------------------------------------------------------------------------
 #include "types.h"
+#include <stdbool.h>
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -47,6 +48,10 @@ extern float chase_z;
 void calculateview(int iViewMode, int iCarIdx, int iChaseCamIdx);
 void initcarview(int iCarIdx, int iPlayer);
 void newchaseview(int iCarIdx, int iChaseCamIdx);
+void noclip_camera_reset(void);
+void noclip_camera_set_input_enabled(bool bEnabled);
+void noclip_camera_update(void);
+void noclip_camera_apply(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif

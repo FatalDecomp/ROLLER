@@ -14,6 +14,7 @@ extern bool g_bPaletteSet;
 extern bool g_bForceMaxDraw;
 extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
+extern bool g_bNoclip;
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;

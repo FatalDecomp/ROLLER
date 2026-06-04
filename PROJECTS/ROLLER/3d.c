@@ -2489,6 +2489,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
+  noclip_camera_apply();
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
   GameRenderCamera cam = {
@@ -2516,9 +2517,11 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   // Gameplay frame phase: atmosphere. Sky/horizon stays outside the depth-sorted 3D queue.
   game_render_draw_sky(g_pGameRenderer, &cam, &proj); // Draw sky/horizon background
 
+  unsigned int uiVisibilityViewMode = g_bNoclip ? 3u : uiViewMode;
+
   // Gameplay frame phase: visibility/entity production.
-  CalcVisibleTrack(iCarIdx, uiViewMode);        // Calculate which track segments are visible from current viewpoint
-  DrawCars(iCarIdx, uiViewMode);                // Prepare visible cars (excluding current player if in chase cam)
+  CalcVisibleTrack(iCarIdx, uiVisibilityViewMode); // Calculate which track segments are visible from current viewpoint
+  DrawCars(iCarIdx, uiVisibilityViewMode);         // Prepare visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
 
   // Gameplay frame phase: 3D queue production and sorted dispatch.
@@ -3228,6 +3231,10 @@ void play_game_uninit()
   int iView; // eax
   //int iMaxOffset; // ebx
   //unsigned int iOffset; // eax
+
+  g_bNoclip = false;
+  noclip_camera_set_input_enabled(false);
+  noclip_camera_reset();
 
   if (g_pGameRenderer) {
     game_render_destroy(g_pGameRenderer);

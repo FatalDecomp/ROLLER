@@ -4,6 +4,7 @@
 #include "rollerinput.h"
 #include "menu_render.h"
 #include "sound.h"
+#include "view.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -426,6 +427,7 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   } else {
     SDL_StopTextInput(pOverlay->pWindow);
   }
+  noclip_camera_set_input_enabled(!bVisible);
 }
 
 void debug_overlay_toggle(DebugOverlay *pOverlay) {
@@ -546,6 +548,14 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     if (nk_checkbox_label(pCtx, "Fix car menu bug", &bFixCarMenuBug)) {
       g_bFixCarMenuBug = (bool)bFixCarMenuBug;
       InputSaveConfig();
+    }
+
+    int bNoclip = (int)g_bNoclip;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Noclip", &bNoclip)) {
+      g_bNoclip = (bool)bNoclip;
+      noclip_camera_reset();
+      noclip_camera_set_input_enabled(!pOverlay->bVisible);
     }
 
 #if defined(_WIN32)

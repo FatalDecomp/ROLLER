@@ -10,6 +10,7 @@
 #include "debug_overlay.h"
 #include "snapshot.h"
 #include "rollercd.h"
+#include "view.h"
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -78,6 +79,7 @@ bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = true;
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 bool g_bFixCarMenuBug = true;
+bool g_bNoclip = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -885,6 +887,7 @@ void UpdateSDL()
 
   }
   InputUpdate();
+  noclip_camera_update();
   InputUpdateMenuControls();
   //UpdateSDLWindow();
 #if _DEBUG
