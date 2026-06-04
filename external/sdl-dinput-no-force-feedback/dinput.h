@@ -22,18 +22,3 @@
 #undef IDirectInputDevice8_SendForceFeedbackCommand
 #endif
 #define IDirectInputDevice8_SendForceFeedbackCommand(p, a) DI_OK
-
-#ifdef IDirectInputDevice8_Unacquire
-#undef IDirectInputDevice8_Unacquire
-#endif
-#define IDirectInputDevice8_Unacquire(p) DI_OK
-
-#ifdef IDirectInputDevice8_Release
-#undef IDirectInputDevice8_Release
-#endif
-#define IDirectInputDevice8_Release(p) 0
-
-#ifdef IDirectInput8_Release
-#undef IDirectInput8_Release
-#endif
-#define IDirectInput8_Release(p) 0
