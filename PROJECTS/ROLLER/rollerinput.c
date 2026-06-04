@@ -1395,7 +1395,7 @@ static int InputGetGamepadAxisCaptureDelta(SDL_GamepadAxis eAxis)
 
 //-------------------------------------------------------------------------------------------------
 
-static const tInputCaptureDevice *InputFindCaptureDevice(SDL_JoystickID joyId)
+static tInputCaptureDevice *InputFindCaptureDevice(SDL_JoystickID joyId)
 {
   for (int i = 0; i < s_iNumCaptureDevices; ++i) {
     if (s_pCaptureDevices[i].joyId == joyId)
@@ -1476,17 +1476,25 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
 
   for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
     const tInputDevice *pDevice = &s_pDevices[iDevice];
-    const tInputCaptureDevice *pCaptureDevice = InputFindCaptureDevice(pDevice->joyId);
+    tInputCaptureDevice *pCaptureDevice = InputFindCaptureDevice(pDevice->joyId);
 
     if (pDevice->pGamepad) {
       for (int iButton = 0; iButton < SDL_GAMEPAD_BUTTON_COUNT; ++iButton) {
         int iWasDown;
+        int iDown;
 
         if (!SDL_GamepadHasButton(pDevice->pGamepad, (SDL_GamepadButton)iButton))
           continue;
 
         iWasDown = pCaptureDevice ? pCaptureDevice->byGamepadButtons[iButton] != 0 : 0;
-        if (SDL_GetGamepadButton(pDevice->pGamepad, (SDL_GamepadButton)iButton) && !iWasDown) {
+        iDown = SDL_GetGamepadButton(pDevice->pGamepad, (SDL_GamepadButton)iButton) ? 1 : 0;
+        if (iWasDown) {
+          if (!iDown)
+            pCaptureDevice->byGamepadButtons[iButton] = 0;
+          continue;
+        }
+
+        if (iDown) {
           InputSetCapturedButton(pBindingOut, pDevice, iAction, iButton, true);
           InputCaptureWaitForRelease(pBindingOut);
           return 1;
@@ -1517,7 +1525,13 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
       int iWasDown = pCaptureDevice && pCaptureDevice->pbyButtons && iButton < pCaptureDevice->iNumButtons
         ? pCaptureDevice->pbyButtons[iButton] != 0
         : 0;
-      if (pDevice->pbyButtons[iButton] && !iWasDown) {
+      if (iWasDown) {
+        if (!pDevice->pbyButtons[iButton])
+          pCaptureDevice->pbyButtons[iButton] = 0;
+        continue;
+      }
+
+      if (pDevice->pbyButtons[iButton]) {
         InputSetCapturedButton(pBindingOut, pDevice, iAction, iButton, false);
         InputCaptureWaitForRelease(pBindingOut);
         return 1;
@@ -1529,6 +1543,11 @@ int InputCapturePoll(int iAction, tInputBinding *pBindingOut)
         ? pCaptureDevice->pbyHats[iHat]
         : SDL_HAT_CENTERED;
       int iHatValue = pDevice->pbyHats[iHat];
+      if (iWasHat != SDL_HAT_CENTERED) {
+        if (iHatValue == SDL_HAT_CENTERED)
+          pCaptureDevice->pbyHats[iHat] = SDL_HAT_CENTERED;
+        continue;
+      }
       if (iHatValue && iHatValue != iWasHat) {
         int iHatDirection = iHatValue & ~iWasHat;
         if (!iHatDirection)
