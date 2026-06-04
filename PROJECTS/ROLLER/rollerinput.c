@@ -79,7 +79,7 @@ static bool s_bMenuWaitForRelease = false;
 static uint32 s_uWinMMDeviceMask = 0;
 static uint64 s_ullNextWinMMRefreshMs = 0;
 static bool s_bRefreshingDevices = false;
-static eInputWindowsBackend s_eWindowsBackend = INPUT_WINDOWS_BACKEND_WINMM;
+static eInputWindowsBackend s_eWindowsBackend = INPUT_WINDOWS_BACKEND_SDL_DINPUT;
 #endif
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {

@@ -17,8 +17,8 @@
             .hash = "N-V-__8AAOCfOACzTvSmyvFC0oi84aOv7al_Yf4JCINrDGb-",
         },
         .sdl = .{
-            .url = "git+https://github.com/castholm/SDL#b1913e7c31ad72ecfd3ab04aeac387027754cfaf",
-            .hash = "sdl-0.3.0+3.2.22-7uIn9Pg3fwGG2IyIOPxxOSVe-75nUng9clt7tXGFLzMr",
+            .url = "git+https://github.com/Zizin13/SDL#c8789580c0f4f0b1bdc268ab5c52082864f3e2a8",
+            .hash = "sdl-0.3.0+3.2.22-7uIn9Is4fwGyNwHnYNTLnZP1WBhWxa5V2WS34x9X_jm8",
         },
     },
     .paths = .{
