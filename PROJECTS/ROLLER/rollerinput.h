@@ -22,6 +22,14 @@ typedef enum
   INPUT_AXIS_PEDAL
 } eInputAxisMode;
 
+#if defined(_WIN32)
+typedef enum
+{
+  INPUT_WINDOWS_BACKEND_WINMM,
+  INPUT_WINDOWS_BACKEND_SDL_DINPUT
+} eInputWindowsBackend;
+#endif
+
 typedef struct
 {
   SDL_Joystick *pJoystick;
@@ -95,6 +103,10 @@ void InputResetBindings(void);
 void InputApplyDefaultGamepadBindings(void);
 int InputLoadConfig(void);
 void InputSaveConfig(void);
+#if defined(_WIN32)
+eInputWindowsBackend InputGetWindowsBackend(void);
+void InputSetWindowsBackend(eInputWindowsBackend eBackend);
+#endif
 int InputGetActionPressed(int iAction);
 int InputGetSteeringValue(int iPlayer);
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen);

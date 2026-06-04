@@ -548,6 +548,20 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+#if defined(_WIN32)
+    {
+      static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
+      int iInputBackend = InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? 1 : 0;
+      nk_layout_row_dynamic(pCtx, 20, 2);
+      nk_label(pCtx, "Windows input", NK_TEXT_LEFT);
+      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, 2, iInputBackend, 20, nk_vec2(160, 60));
+      if (iNewInputBackend != iInputBackend) {
+        InputSetWindowsBackend(iNewInputBackend == 1 ? INPUT_WINDOWS_BACKEND_SDL_DINPUT : INPUT_WINDOWS_BACKEND_WINMM);
+        InputSaveConfig();
+      }
+    }
+#endif
+
     nk_layout_row_dynamic(pCtx, 8, 1);
     nk_spacing(pCtx, 1);
     nk_layout_row_dynamic(pCtx, 20, 1);

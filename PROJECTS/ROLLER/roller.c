@@ -399,7 +399,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 #if defined(_WIN32)
-  SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT, "0", SDL_HINT_OVERRIDE);
+  SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT,
+                          InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "1" : "0",
+                          SDL_HINT_OVERRIDE);
 #endif
 
   Uint32 uiSdlInitFlags = SDL_INIT_VIDEO;

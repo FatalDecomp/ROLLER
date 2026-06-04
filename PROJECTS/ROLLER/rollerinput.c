@@ -79,6 +79,7 @@ static bool s_bMenuWaitForRelease = false;
 static uint32 s_uWinMMDeviceMask = 0;
 static uint64 s_ullNextWinMMRefreshMs = 0;
 static bool s_bRefreshingDevices = false;
+static eInputWindowsBackend s_eWindowsBackend = INPUT_WINDOWS_BACKEND_WINMM;
 #endif
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
@@ -118,6 +119,32 @@ static int InputClampInt(int iValue, int iMin, int iMax)
     return iMax;
   return iValue;
 }
+
+//-------------------------------------------------------------------------------------------------
+
+#if defined(_WIN32)
+static int InputUsingSDLDirectInput(void)
+{
+  return s_eWindowsBackend == INPUT_WINDOWS_BACKEND_SDL_DINPUT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputApplyWindowsBackendHint(void)
+{
+  SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT, InputUsingSDLDirectInput() ? "1" : "0", SDL_HINT_OVERRIDE);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static Uint32 InputGetSDLInitFlags(void)
+{
+  if (InputUsingSDLDirectInput())
+    return SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
+
+  return SDL_INIT_GAMEPAD;
+}
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -312,7 +339,7 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
   tInputDevice *pDevice;
 
 #if defined(_WIN32)
-  if (!bGamepad)
+  if (!bGamepad && !InputUsingSDLDirectInput())
     return 0;
 #endif
 
@@ -744,13 +771,18 @@ void InputRefreshDevices(void)
   InputCloseAllDevices();
 
 #if defined(_WIN32)
-  {
+  if (InputUsingSDLDirectInput()) {
+    SDL_JoystickID *pJoystickIds = SDL_GetJoysticks(&iCount);
+    for (int i = 0; pJoystickIds && i < iCount; ++i)
+      InputOpenDevice(pJoystickIds[i], i);
+    SDL_free(pJoystickIds);
+  } else {
     SDL_JoystickID *pGamepadIds = SDL_GetGamepads(&iCount);
     for (int i = 0; pGamepadIds && i < iCount; ++i)
       InputOpenDevice(pGamepadIds[i], i);
     SDL_free(pGamepadIds);
+    InputOpenWinMMDevices();
   }
-  InputOpenWinMMDevices();
 #else
   {
     SDL_JoystickID *pJoystickIds = SDL_GetJoysticks(&iCount);
@@ -772,6 +804,49 @@ void InputRefreshDevices(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(_WIN32)
+eInputWindowsBackend InputGetWindowsBackend(void)
+{
+  return s_eWindowsBackend;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputSetWindowsBackend(eInputWindowsBackend eBackend)
+{
+  if (eBackend != INPUT_WINDOWS_BACKEND_SDL_DINPUT)
+    eBackend = INPUT_WINDOWS_BACKEND_WINMM;
+
+  if (s_eWindowsBackend == eBackend) {
+    InputApplyWindowsBackendHint();
+    return;
+  }
+
+  s_eWindowsBackend = eBackend;
+  InputApplyWindowsBackendHint();
+
+  if (!s_bInitialized)
+    return;
+
+  InputFreeCaptureSnapshot();
+  s_bCaptureActive = false;
+  s_bWaitingForRelease = false;
+  InputCloseAllDevices();
+  SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
+
+  if (!SDL_InitSubSystem(InputGetSDLInitFlags())) {
+    SDL_Log("InputSetWindowsBackend: SDL_InitSubSystem failed: %s", SDL_GetError());
+    return;
+  }
+
+  InputRefreshDevices();
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 void InputInit(void)
 {
   Uint32 uiInitFlags;
@@ -783,8 +858,8 @@ void InputInit(void)
   InputResetBindings();
 
 #if defined(_WIN32)
-  SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT, "0", SDL_HINT_OVERRIDE);
-  uiInitFlags = SDL_INIT_GAMEPAD;
+  InputApplyWindowsBackendHint();
+  uiInitFlags = InputGetSDLInitFlags();
 #else
   uiInitFlags = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
 #endif
@@ -808,8 +883,10 @@ void InputShutdown(void)
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
   InputCloseAllDevices();
+#if defined(_WIN32)
+  SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
+#else
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
-#if !defined(_WIN32)
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 #endif
   s_bInitialized = false;
@@ -838,7 +915,7 @@ void InputUpdate(void)
     return;
 
 #if defined(_WIN32)
-  if (InputMaybeRefreshWinMMDevices())
+  if (!InputUsingSDLDirectInput() && InputMaybeRefreshWinMMDevices())
     return;
 #endif
 
@@ -2023,6 +2100,43 @@ static int InputParseRendererSetting(const char *szValue)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(_WIN32)
+static int InputParseWindowsBackendSetting(const char *szValue)
+{
+  bool bUseSDLDirectInput;
+
+  if (InputStringEqualsNoCase(szValue, "winmm") ||
+      InputStringEqualsNoCase(szValue, "windows_multimedia") ||
+      InputStringEqualsNoCase(szValue, "windows-multimedia")) {
+    InputSetWindowsBackend(INPUT_WINDOWS_BACKEND_WINMM);
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "sdl") ||
+      InputStringEqualsNoCase(szValue, "sdl_dinput") ||
+      InputStringEqualsNoCase(szValue, "sdl-dinput") ||
+      InputStringEqualsNoCase(szValue, "sdldirectinput") ||
+      InputStringEqualsNoCase(szValue, "sdl_directinput") ||
+      InputStringEqualsNoCase(szValue, "sdl-directinput") ||
+      InputStringEqualsNoCase(szValue, "directinput") ||
+      InputStringEqualsNoCase(szValue, "dinput")) {
+    InputSetWindowsBackend(INPUT_WINDOWS_BACKEND_SDL_DINPUT);
+    return 1;
+  }
+
+  if (InputParseBoolSetting(szValue, &bUseSDLDirectInput)) {
+    InputSetWindowsBackend(bUseSDLDirectInput ? INPUT_WINDOWS_BACKEND_SDL_DINPUT : INPUT_WINDOWS_BACKEND_WINMM);
+    return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputParseDebugSetting(const char *szName, const char *szValue)
 {
   bool bValue;
@@ -2060,6 +2174,15 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
       InputStringEqualsNoCase(szName, "MenuRenderer")) {
     return InputParseRendererSetting(szValue);
   }
+
+#if defined(_WIN32)
+  if (InputStringEqualsNoCase(szName, "WindowsInputBackend") ||
+      InputStringEqualsNoCase(szName, "ControllerInputBackend") ||
+      InputStringEqualsNoCase(szName, "WheelInputBackend") ||
+      InputStringEqualsNoCase(szName, "UseSDLDirectInput")) {
+    return InputParseWindowsBackendSetting(szValue);
+  }
+#endif
 
   return 0;
 }
@@ -2264,6 +2387,10 @@ void InputSaveConfig(void)
   fprintf(fp, "FixCarMenuBug=%d\n", g_bFixCarMenuBug ? 1 : 0);
   fprintf(fp, "HardwareRendering=%d\n",
           menu_render_get_pending_mode(GetMenuRenderer()) == MENU_RENDER_GPU ? 1 : 0);
+#if defined(_WIN32)
+  fprintf(fp, "WindowsInputBackend=%s\n",
+          InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");
+#endif
   fprintf(fp, "[Input]\n");
 
   for (int i = 0; i < INPUT_NUM_ACTIONS; ++i) {
