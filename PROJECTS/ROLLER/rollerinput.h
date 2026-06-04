@@ -44,6 +44,13 @@ typedef struct
   char szPath[ROLLER_MAX_PATH];
   int iOrdinal;
   bool bGamepad;
+#if defined(_WIN32)
+  bool bWinMM;
+  uint32 uWinMMId;
+  uint8 byWinMMAxisMap[6];
+  uint32 dwWinMMAxisMin[6];
+  uint32 dwWinMMAxisMax[6];
+#endif
 } tInputDevice;
 
 typedef struct

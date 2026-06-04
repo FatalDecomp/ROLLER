@@ -113,6 +113,7 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("user32");
             exe.linkSystemLibrary("ws2_32");
             exe.linkSystemLibrary("iphlpapi");
+            exe.linkSystemLibrary("winmm");
         },
         else => {
             exe_mod.addCMacro("__int16", "int16");
@@ -403,9 +404,6 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
         .lto = .none,
     });
     const sdl_lib = sdl.artifact("SDL3");
-    if (target.result.os.tag == .windows) {
-        sdl_lib.root_module.addIncludePath(b.path("external/sdl-dinput-no-force-feedback"));
-    }
 
     const libcdio = b.dependency("libcdio", .{
         .target = target,

@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <mmsystem.h>
+#endif
 //-------------------------------------------------------------------------------------------------
 
 #define INPUT_DEFAULT_DEADZONE 8000
@@ -18,6 +22,10 @@
 #define INPUT_MENU_AXIS_DEADZONE 12000
 #define INPUT_MENU_REPEAT_INITIAL_MS 280
 #define INPUT_MENU_REPEAT_MS 90
+#if defined(_WIN32)
+#define INPUT_WINMM_AXIS_COUNT 6
+#define INPUT_WINMM_REFRESH_MS 1000
+#endif
 
 typedef struct
 {
@@ -67,6 +75,11 @@ static tInputMenuKeyState s_menuAnyButtonState;
 static tInputMenuKeyState s_menuQuitYesState;
 static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
+#if defined(_WIN32)
+static uint32 s_uWinMMDeviceMask = 0;
+static uint64 s_ullNextWinMMRefreshMs = 0;
+static bool s_bRefreshingDevices = false;
+#endif
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
   { "P1left", 44 },
@@ -252,17 +265,62 @@ static int InputGrowDeviceList(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputAllocateDeviceState(tInputDevice *pDevice)
+{
+  if (pDevice->iNumAxes > 0) {
+    pDevice->piAxes = (int *)SDL_calloc((size_t)pDevice->iNumAxes, sizeof(int));
+    if (!pDevice->piAxes) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
+    pDevice->piMenuAxisRest = (int *)SDL_calloc((size_t)pDevice->iNumAxes, sizeof(int));
+    if (!pDevice->piMenuAxisRest) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
+  }
+  if (pDevice->iNumButtons > 0) {
+    pDevice->pbyButtons = (uint8 *)SDL_calloc((size_t)pDevice->iNumButtons, sizeof(uint8));
+    if (!pDevice->pbyButtons) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
+    pDevice->pbyMenuPrevButtons = (uint8 *)SDL_calloc((size_t)pDevice->iNumButtons, sizeof(uint8));
+    if (!pDevice->pbyMenuPrevButtons) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
+  }
+  if (pDevice->iNumHats > 0) {
+    pDevice->pbyHats = (uint8 *)SDL_calloc((size_t)pDevice->iNumHats, sizeof(uint8));
+    if (!pDevice->pbyHats) {
+      InputCloseDevice(pDevice);
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
 {
+  bool bGamepad = SDL_IsGamepad(joyId);
   const char *szName;
   const char *szPath;
   tInputDevice *pDevice;
+
+#if defined(_WIN32)
+  if (!bGamepad)
+    return 0;
+#endif
 
   if (!InputGrowDeviceList())
     return 0;
 
   pDevice = &s_pDevices[s_iNumDevices];
-  pDevice->bGamepad = SDL_IsGamepad(joyId);
+  pDevice->bGamepad = bGamepad;
 
   if (pDevice->bGamepad) {
     pDevice->pGamepad = SDL_OpenGamepad(joyId);
@@ -305,37 +363,8 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
   if (pDevice->iNumHats < 0)
     pDevice->iNumHats = 0;
 
-  if (pDevice->iNumAxes > 0) {
-    pDevice->piAxes = (int *)SDL_calloc((size_t)pDevice->iNumAxes, sizeof(int));
-    if (!pDevice->piAxes) {
-      InputCloseDevice(pDevice);
-      return 0;
-    }
-    pDevice->piMenuAxisRest = (int *)SDL_calloc((size_t)pDevice->iNumAxes, sizeof(int));
-    if (!pDevice->piMenuAxisRest) {
-      InputCloseDevice(pDevice);
-      return 0;
-    }
-  }
-  if (pDevice->iNumButtons > 0) {
-    pDevice->pbyButtons = (uint8 *)SDL_calloc((size_t)pDevice->iNumButtons, sizeof(uint8));
-    if (!pDevice->pbyButtons) {
-      InputCloseDevice(pDevice);
-      return 0;
-    }
-    pDevice->pbyMenuPrevButtons = (uint8 *)SDL_calloc((size_t)pDevice->iNumButtons, sizeof(uint8));
-    if (!pDevice->pbyMenuPrevButtons) {
-      InputCloseDevice(pDevice);
-      return 0;
-    }
-  }
-  if (pDevice->iNumHats > 0) {
-    pDevice->pbyHats = (uint8 *)SDL_calloc((size_t)pDevice->iNumHats, sizeof(uint8));
-    if (!pDevice->pbyHats) {
-      InputCloseDevice(pDevice);
-      return 0;
-    }
-  }
+  if (!InputAllocateDeviceState(pDevice))
+    return 0;
 
   szName = SDL_GetJoystickName(pDevice->pJoystick);
   if (!szName)
@@ -352,13 +381,300 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(_WIN32)
+enum
+{
+  INPUT_WINMM_AXIS_X,
+  INPUT_WINMM_AXIS_Y,
+  INPUT_WINMM_AXIS_Z,
+  INPUT_WINMM_AXIS_R,
+  INPUT_WINMM_AXIS_U,
+  INPUT_WINMM_AXIS_V
+};
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputReadWinMMInfo(UINT uJoyId, JOYINFOEX *pInfo)
+{
+  memset(pInfo, 0, sizeof(*pInfo));
+  pInfo->dwSize = sizeof(*pInfo);
+  pInfo->dwFlags = JOY_RETURNALL | JOY_RETURNPOVCTS;
+  return joyGetPosEx(uJoyId, pInfo) == MMSYSERR_NOERROR;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static SDL_GUID InputMakeWinMMGuid(const JOYCAPSA *pCaps, UINT uJoyId)
+{
+  SDL_GUID guid;
+  uint32 uHash = 2166136261u;
+  const unsigned char *pName = (const unsigned char *)pCaps->szPname;
+
+  memset(&guid, 0, sizeof(guid));
+  while (*pName) {
+    uHash ^= (uint32)*pName++;
+    uHash *= 16777619u;
+  }
+
+  guid.data[0] = 'W';
+  guid.data[1] = 'M';
+  guid.data[2] = 'M';
+  guid.data[3] = 0;
+  guid.data[4] = (uint8)(pCaps->wMid & 0xFF);
+  guid.data[5] = (uint8)((pCaps->wMid >> 8) & 0xFF);
+  guid.data[6] = (uint8)(pCaps->wPid & 0xFF);
+  guid.data[7] = (uint8)((pCaps->wPid >> 8) & 0xFF);
+  guid.data[8] = (uint8)(uJoyId & 0xFF);
+  guid.data[9] = (uint8)((uJoyId >> 8) & 0xFF);
+  guid.data[10] = (uint8)(uHash & 0xFF);
+  guid.data[11] = (uint8)((uHash >> 8) & 0xFF);
+  guid.data[12] = (uint8)((uHash >> 16) & 0xFF);
+  guid.data[13] = (uint8)((uHash >> 24) & 0xFF);
+  guid.data[14] = (uint8)(pCaps->wNumAxes & 0xFF);
+  guid.data[15] = (uint8)(pCaps->wNumButtons & 0xFF);
+  return guid;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputAddWinMMAxis(tInputDevice *pDevice, uint8 byAxisMap, uint32 dwMin, uint32 dwMax)
+{
+  int iAxis = pDevice->iNumAxes;
+
+  if (iAxis >= INPUT_WINMM_AXIS_COUNT || dwMax <= dwMin)
+    return;
+
+  pDevice->byWinMMAxisMap[iAxis] = byAxisMap;
+  pDevice->dwWinMMAxisMin[iAxis] = dwMin;
+  pDevice->dwWinMMAxisMax[iAxis] = dwMax;
+  ++pDevice->iNumAxes;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static DWORD InputGetWinMMAxisValue(const JOYINFOEX *pInfo, uint8 byAxisMap)
+{
+  switch (byAxisMap) {
+    case INPUT_WINMM_AXIS_X: return pInfo->dwXpos;
+    case INPUT_WINMM_AXIS_Y: return pInfo->dwYpos;
+    case INPUT_WINMM_AXIS_Z: return pInfo->dwZpos;
+    case INPUT_WINMM_AXIS_R: return pInfo->dwRpos;
+    case INPUT_WINMM_AXIS_U: return pInfo->dwUpos;
+    case INPUT_WINMM_AXIS_V: return pInfo->dwVpos;
+    default: break;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputNormalizeWinMMAxis(DWORD dwValue, uint32 dwMin, uint32 dwMax)
+{
+  uint64 ullRange;
+  int iValue;
+
+  if (dwMax <= dwMin)
+    return 0;
+
+  if (dwValue < dwMin)
+    dwValue = dwMin;
+  if (dwValue > dwMax)
+    dwValue = dwMax;
+
+  ullRange = (uint64)(dwMax - dwMin);
+  iValue = (int)((((uint64)(dwValue - dwMin) * 65535u) + (ullRange / 2u)) / ullRange) - 32768;
+  return InputClampInt(iValue, SDL_JOYSTICK_AXIS_MIN, SDL_JOYSTICK_AXIS_MAX);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static uint8 InputWinMMPOVToSDLHat(DWORD dwPOV)
+{
+  DWORD dwSector;
+
+  if (dwPOV == JOY_POVCENTERED || dwPOV >= 36000)
+    return SDL_HAT_CENTERED;
+
+  dwSector = ((dwPOV + 2250) % 36000) / 4500;
+  switch (dwSector) {
+    case 0: return SDL_HAT_UP;
+    case 1: return SDL_HAT_RIGHTUP;
+    case 2: return SDL_HAT_RIGHT;
+    case 3: return SDL_HAT_RIGHTDOWN;
+    case 4: return SDL_HAT_DOWN;
+    case 5: return SDL_HAT_LEFTDOWN;
+    case 6: return SDL_HAT_LEFT;
+    case 7: return SDL_HAT_LEFTUP;
+    default: break;
+  }
+
+  return SDL_HAT_CENTERED;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputUpdateWinMMDevice(tInputDevice *pDevice)
+{
+  JOYINFOEX info;
+
+  if (!InputReadWinMMInfo((UINT)pDevice->uWinMMId, &info)) {
+    for (int i = 0; i < pDevice->iNumAxes; ++i)
+      pDevice->piAxes[i] = 0;
+    for (int i = 0; i < pDevice->iNumButtons; ++i)
+      pDevice->pbyButtons[i] = 0;
+    for (int i = 0; i < pDevice->iNumHats; ++i)
+      pDevice->pbyHats[i] = SDL_HAT_CENTERED;
+    return;
+  }
+
+  for (int i = 0; i < pDevice->iNumAxes; ++i) {
+    pDevice->piAxes[i] = InputNormalizeWinMMAxis(
+      InputGetWinMMAxisValue(&info, pDevice->byWinMMAxisMap[i]),
+      pDevice->dwWinMMAxisMin[i],
+      pDevice->dwWinMMAxisMax[i]);
+  }
+  for (int i = 0; i < pDevice->iNumButtons; ++i)
+    pDevice->pbyButtons[i] = (info.dwButtons & (1u << i)) ? 1 : 0;
+  if (pDevice->iNumHats > 0)
+    pDevice->pbyHats[0] = InputWinMMPOVToSDLHat(info.dwPOV);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static uint32 InputGetWinMMConnectedMask(void)
+{
+  UINT uNumDevs = joyGetNumDevs();
+  uint32 uMask = 0;
+
+  if (uNumDevs > 32)
+    uNumDevs = 32;
+
+  for (UINT uJoyId = 0; uJoyId < uNumDevs; ++uJoyId) {
+    JOYCAPSA caps;
+    JOYINFOEX info;
+
+    if (joyGetDevCapsA(uJoyId, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+      continue;
+    if (!InputReadWinMMInfo(uJoyId, &info))
+      continue;
+    uMask |= (uint32)(1u << uJoyId);
+  }
+
+  return uMask;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputOpenWinMMDevice(UINT uJoyId)
+{
+  JOYCAPSA caps;
+  JOYINFOEX info;
+  tInputDevice *pDevice;
+
+  if (joyGetDevCapsA(uJoyId, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+    return 0;
+  if (!InputReadWinMMInfo(uJoyId, &info))
+    return 0;
+  if (!InputGrowDeviceList())
+    return 0;
+
+  pDevice = &s_pDevices[s_iNumDevices];
+  pDevice->bWinMM = true;
+  pDevice->uWinMMId = (uint32)uJoyId;
+  pDevice->joyId = (SDL_JoystickID)(0x80000000u | (uJoyId + 1u));
+  pDevice->guid = InputMakeWinMMGuid(&caps, uJoyId);
+  pDevice->unVendor = (uint16)caps.wMid;
+  pDevice->unProduct = (uint16)caps.wPid;
+  pDevice->unVersion = 0;
+  pDevice->iOrdinal = (int)uJoyId;
+  pDevice->iNumButtons = caps.wNumButtons > 32 ? 32 : caps.wNumButtons;
+  pDevice->iNumHats = (caps.wCaps & JOYCAPS_HASPOV) ? 1 : 0;
+
+  if (caps.wNumAxes > 0)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_X, caps.wXmin, caps.wXmax);
+  if (caps.wNumAxes > 1)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_Y, caps.wYmin, caps.wYmax);
+  if ((caps.wCaps & JOYCAPS_HASZ) && pDevice->iNumAxes < caps.wNumAxes)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_Z, caps.wZmin, caps.wZmax);
+  if ((caps.wCaps & JOYCAPS_HASR) && pDevice->iNumAxes < caps.wNumAxes)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_R, caps.wRmin, caps.wRmax);
+  if ((caps.wCaps & JOYCAPS_HASU) && pDevice->iNumAxes < caps.wNumAxes)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_U, caps.wUmin, caps.wUmax);
+  if ((caps.wCaps & JOYCAPS_HASV) && pDevice->iNumAxes < caps.wNumAxes)
+    InputAddWinMMAxis(pDevice, INPUT_WINMM_AXIS_V, caps.wVmin, caps.wVmax);
+
+  if (!InputAllocateDeviceState(pDevice))
+    return 0;
+
+  InputCopyString(pDevice->szName, sizeof(pDevice->szName), caps.szPname);
+  snprintf(pDevice->szPath, sizeof(pDevice->szPath), "winmm:%u:%s", (unsigned)uJoyId, caps.szPname);
+  InputUpdateWinMMDevice(pDevice);
+
+  ++s_iNumDevices;
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputOpenWinMMDevices(void)
+{
+  UINT uNumDevs = joyGetNumDevs();
+
+  if (uNumDevs > 32)
+    uNumDevs = 32;
+
+  s_uWinMMDeviceMask = InputGetWinMMConnectedMask();
+  s_ullNextWinMMRefreshMs = SDL_GetTicks() + INPUT_WINMM_REFRESH_MS;
+  for (UINT uJoyId = 0; uJoyId < uNumDevs; ++uJoyId) {
+    if (s_uWinMMDeviceMask & (uint32)(1u << uJoyId))
+      InputOpenWinMMDevice(uJoyId);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputMaybeRefreshWinMMDevices(void)
+{
+  uint64 ullNowMs;
+  uint32 uMask;
+
+  if (s_bRefreshingDevices)
+    return 0;
+
+  ullNowMs = SDL_GetTicks();
+  if (ullNowMs < s_ullNextWinMMRefreshMs)
+    return 0;
+
+  s_ullNextWinMMRefreshMs = ullNowMs + INPUT_WINMM_REFRESH_MS;
+  uMask = InputGetWinMMConnectedMask();
+  if (uMask == s_uWinMMDeviceMask)
+    return 0;
+
+  InputRefreshDevices();
+  return 1;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputBindingMatchesDevice(const tInputBinding *pBinding, const tInputDevice *pDevice)
 {
   if (pBinding->joyId && pBinding->joyId == pDevice->joyId)
     return 1;
 
-  if (!InputGuidIsZero(pBinding->guid) && !InputGuidEquals(pBinding->guid, pDevice->guid))
+  if (!InputGuidIsZero(pBinding->guid) && !InputGuidEquals(pBinding->guid, pDevice->guid)) {
+#if defined(_WIN32)
+    if (pDevice->bWinMM &&
+        pBinding->szName[0] &&
+        pDevice->szName[0] &&
+        strcmp(pBinding->szName, pDevice->szName) == 0 &&
+        (pBinding->iOrdinal < 0 || pBinding->iOrdinal == pDevice->iOrdinal)) {
+      return 1;
+    }
+#endif
     return 0;
+  }
 
   if (pBinding->szPath[0] && pDevice->szPath[0] && strcmp(pBinding->szPath, pDevice->szPath) == 0)
     return 1;
@@ -414,40 +730,66 @@ static void InputResolveAllBindings(void)
 
 void InputRefreshDevices(void)
 {
-  SDL_JoystickID *pJoystickIds;
   int iCount = 0;
 
   if (!s_bInitialized)
     return;
 
+#if defined(_WIN32)
+  s_bRefreshingDevices = true;
+#endif
   InputFreeCaptureSnapshot();
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
   InputCloseAllDevices();
 
-  pJoystickIds = SDL_GetJoysticks(&iCount);
-  for (int i = 0; pJoystickIds && i < iCount; ++i)
-    InputOpenDevice(pJoystickIds[i], i);
-  SDL_free(pJoystickIds);
+#if defined(_WIN32)
+  {
+    SDL_JoystickID *pGamepadIds = SDL_GetGamepads(&iCount);
+    for (int i = 0; pGamepadIds && i < iCount; ++i)
+      InputOpenDevice(pGamepadIds[i], i);
+    SDL_free(pGamepadIds);
+  }
+  InputOpenWinMMDevices();
+#else
+  {
+    SDL_JoystickID *pJoystickIds = SDL_GetJoysticks(&iCount);
+    for (int i = 0; pJoystickIds && i < iCount; ++i)
+      InputOpenDevice(pJoystickIds[i], i);
+    SDL_free(pJoystickIds);
+  }
+#endif
 
   InputResolveAllBindings();
   InputUpdate();
   InputMenuRememberAxisRests();
   InputMenuRememberButtonStates();
   InputMenuResetKeyStates();
+#if defined(_WIN32)
+  s_bRefreshingDevices = false;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void InputInit(void)
 {
+  Uint32 uiInitFlags;
+
   if (s_bInitialized)
     return;
 
   s_bInitialized = true;
   InputResetBindings();
 
-  if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
+#if defined(_WIN32)
+  SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT, "0", SDL_HINT_OVERRIDE);
+  uiInitFlags = SDL_INIT_GAMEPAD;
+#else
+  uiInitFlags = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
+#endif
+
+  if (!SDL_InitSubSystem(uiInitFlags)) {
     SDL_Log("InputInit: SDL_InitSubSystem failed: %s", SDL_GetError());
     return;
   }
@@ -467,7 +809,9 @@ void InputShutdown(void)
   s_bWaitingForRelease = false;
   InputCloseAllDevices();
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+#if !defined(_WIN32)
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+#endif
   s_bInitialized = false;
 }
 
@@ -493,8 +837,19 @@ void InputUpdate(void)
   if (!s_bInitialized)
     return;
 
+#if defined(_WIN32)
+  if (InputMaybeRefreshWinMMDevices())
+    return;
+#endif
+
   for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
     tInputDevice *pDevice = &s_pDevices[iDevice];
+#if defined(_WIN32)
+    if (pDevice->bWinMM) {
+      InputUpdateWinMMDevice(pDevice);
+      continue;
+    }
+#endif
     for (int i = 0; i < pDevice->iNumAxes; ++i)
       pDevice->piAxes[i] = SDL_GetJoystickAxis(pDevice->pJoystick, i);
     for (int i = 0; i < pDevice->iNumButtons; ++i)
