@@ -3,6 +3,7 @@
 #include "3d.h"
 #include "function.h"
 #include "control.h"
+#include "roller.h"
 #include "sound.h"
 #include <math.h>
 //-------------------------------------------------------------------------------------------------
@@ -38,7 +39,7 @@ void testcollisions()
                 iChunkDistance += TRAK_LEN;     // Handle negative distance by adding track length (circular track)
               if (iChunkDistance > TRAK_LEN / 2)// Use shortest path around circular track (normalize distance > half track length)
                 iChunkDistance -= TRAK_LEN;
-              if ((int)abs(iChunkDistance) < 4)// Check if cars are close enough for collision (within 4 track chunks)
+              if (g_bNoCollisionLimit || (int)abs(iChunkDistance) < 4)// Check if cars are close enough for collision
               {
                 pTrailingCar = &Car[iCurrentCarIdx];
                 if (iChunkDistance < 0)       // Determine which car is leading/trailing for collision calculation

@@ -2249,6 +2249,9 @@ void show_3dmap(float fZ, int iElevation, int iYaw)
   int iNextSegmentIdx_1; // [esp+C8h] [ebp-1Ch]
   int iSurfaceColor; // [esp+C8h] [ebp-1Ch]
 
+  if (TRAK_LEN <= 0)
+    return;
+
   // Initialize base screen coordinates
   fBaseX = (float)xbase;
   fBaseY = (float)ybase;
@@ -2323,6 +2326,8 @@ void show_3dmap(float fZ, int iElevation, int iYaw)
   fBoundingMaxY = (float)dBoundingBoxExpansionY + fY;
   dZRange = fBoundingMaxZ - fMinZ;
   fZRangeForColor = (float)dZRange;
+  if (!isfinite(fZRangeForColor) || fZRangeForColor < 1.0f)
+    fZRangeForColor = 1.0f;
   fBoundingMinZ = fMinZ - (float)(dZRange * 0.4);
 
   // Calculate track center point from accumulated coordinates
@@ -2637,6 +2642,8 @@ void show_3dmap(float fZ, int iElevation, int iYaw)
         RoadPoly.uiNumVerts = 4;
         // Calculate color based on height (elevation mapping)
         dHeightColorCalc = (fBoundingMaxZ - TrakPt[iCurrentSegmentIdx].pointAy[2].fZ) * 15.0 / fZRangeForColor + (double)(iColorGradient / iTrackSegmentCount);
+        if (!isfinite(dHeightColorCalc))
+          dHeightColorCalc = 0.0;
         //_CHP();
         pNextTrackScreenXYZ_1 = &TrackScreenXYZ[iNextSegmentIdx_1];
         iSurfaceColor = 143 - (int)dHeightColorCalc;

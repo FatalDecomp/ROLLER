@@ -536,6 +536,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bNoCollisionLimit = (int)g_bNoCollisionLimit;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "No collision limit", &bNoCollisionLimit)) {
+      g_bNoCollisionLimit = (bool)bNoCollisionLimit;
+      InputSaveConfig();
+    }
+
     int bAINoCheatStart = (int)g_bAINoCheatStart;
     nk_layout_row_dynamic(pCtx, 20, 1);
     if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart)) {

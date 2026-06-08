@@ -2154,6 +2154,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "NoCollisionLimit")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bNoCollisionLimit = bValue;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "AIAutomaticGears") ||
       InputStringEqualsNoCase(szName, "AINoCheatStart")) {
     if (!InputParseBoolSetting(szValue, &bValue))
@@ -2383,6 +2390,7 @@ void InputSaveConfig(void)
   fprintf(fp, "[Settings]\n");
   fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : "MIDI");
   fprintf(fp, "InfiniteDrawDistance=%d\n", g_bForceMaxDraw ? 1 : 0);
+  fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
   fprintf(fp, "AIAutomaticGears=%d\n", g_bAINoCheatStart ? 1 : 0);
   fprintf(fp, "FixCarMenuBug=%d\n", g_bFixCarMenuBug ? 1 : 0);
   fprintf(fp, "HardwareRendering=%d\n",
