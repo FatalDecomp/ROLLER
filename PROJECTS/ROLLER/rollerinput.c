@@ -104,6 +104,9 @@ static int InputReadHat(tInputBinding *pBinding);
 static int InputReadAxisRaw(tInputBinding *pBinding);
 static int InputGetAxisValueInDirection(tInputBinding *pBinding);
 static int InputMenuAnyButtonContext(void);
+static int InputMenuGamepadButtonIsAccept(SDL_GamepadButton eButton);
+static int InputMenuGamepadButtonIsBack(SDL_GamepadButton eButton);
+static int InputMenuGamepadButtonIsCupSwitch(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton eButton);
 static void InputMenuRememberAxisRests(void);
 static void InputMenuRememberButtonStates(void);
@@ -1048,6 +1051,27 @@ static int InputMenuAnyButtonContext(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputMenuGamepadButtonIsAccept(SDL_GamepadButton eButton)
+{
+  return eButton == SDL_GAMEPAD_BUTTON_SOUTH;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputMenuGamepadButtonIsBack(SDL_GamepadButton eButton)
+{
+  return eButton == SDL_GAMEPAD_BUTTON_EAST;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputMenuGamepadButtonIsCupSwitch(SDL_GamepadButton eButton)
+{
+  return eButton == SDL_GAMEPAD_BUTTON_WEST || eButton == SDL_GAMEPAD_BUTTON_NORTH;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton eButton)
 {
   if (!pDevice->pGamepad || !SDL_GamepadHasButton(pDevice->pGamepad, eButton))
@@ -1100,6 +1124,7 @@ static void InputMenuCollectDeviceState(
     int *piBack,
     int *piPause,
     int *piAnyButtonPressed,
+    int *piCupSwitchPressed,
     int *piButton1Pressed,
     int *piButton2Pressed)
 {
@@ -1119,12 +1144,22 @@ static void InputMenuCollectDeviceState(
       int iDown = InputMenuGamepadButtonDown(pDevice, (SDL_GamepadButton)iButton);
       int iPressed = iDown && !pDevice->byMenuPrevGamepadButtons[iButton];
       pDevice->byMenuPrevGamepadButtons[iButton] = (uint8)iDown;
+
+      if (iDown) {
+        if (InputMenuGamepadButtonIsAccept((SDL_GamepadButton)iButton))
+          *piAccept = 1;
+        if (InputMenuGamepadButtonIsBack((SDL_GamepadButton)iButton))
+          *piBack = 1;
+      }
+
       if (iPressed) {
         *piAnyButtonPressed = 1;
-        if (iButton == SDL_GAMEPAD_BUTTON_SOUTH)
+        if (InputMenuGamepadButtonIsAccept((SDL_GamepadButton)iButton))
           *piButton1Pressed = 1;
-        if (iButton == SDL_GAMEPAD_BUTTON_EAST)
+        if (InputMenuGamepadButtonIsBack((SDL_GamepadButton)iButton))
           *piButton2Pressed = 1;
+        if (InputMenuGamepadButtonIsCupSwitch((SDL_GamepadButton)iButton))
+          *piCupSwitchPressed = 1;
       }
     }
 
@@ -1137,10 +1172,6 @@ static void InputMenuCollectDeviceState(
     if (InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_DPAD_DOWN))
       *piDown = 1;
 
-    if (InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_SOUTH))
-      *piAccept = 1;
-    if (InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_EAST))
-      *piBack = 1;
     if (InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_START) ||
         InputMenuGamepadButtonDown(pDevice, SDL_GAMEPAD_BUTTON_BACK))
       *piPause = 1;
@@ -1194,6 +1225,7 @@ void InputUpdateMenuControls(void)
   int iBack = 0;
   int iPause = 0;
   int iAnyButtonPressed = 0;
+  int iCupSwitchPressed = 0;
   int iButton1Pressed = 0;
   int iButton2Pressed = 0;
   int iAnyButtonContext;
@@ -1233,10 +1265,11 @@ void InputUpdateMenuControls(void)
         &iBack,
         &iPause,
         &iAnyButtonPressed,
+        &iCupSwitchPressed,
         &iButton1Pressed,
         &iButton2Pressed);
 
-  iAnyMenuInput = iLeft || iRight || iUp || iDown || iAccept || iBack || iPause;
+  iAnyMenuInput = iLeft || iRight || iUp || iDown || iAccept || iBack || iPause || iCupSwitchPressed;
 
   if (iCaptureActive)
     s_bMenuWaitForRelease = true;
@@ -1254,6 +1287,7 @@ void InputUpdateMenuControls(void)
     iUp = 0;
     iDown = 0;
     iAccept = 0;
+    iCupSwitchPressed = 0;
     if (!iQuitConfirm)
       iBack = 0;
   }
@@ -1266,6 +1300,8 @@ void InputUpdateMenuControls(void)
     iButton2Pressed = 0;
   if (iCaptureActive || iQuitConfirm)
     iAnyButtonPressed = 0;
+  if (iCaptureActive || iAnyButtonContext || iQuitConfirm)
+    iCupSwitchPressed = 0;
   if (iQuitConfirm) {
     iBack = 0;
     iPause = 0;
@@ -1278,7 +1314,7 @@ void InputUpdateMenuControls(void)
   InputMenuUpdateKeyState(&s_menuDownState, iDown, WHIP_SCANCODE_DOWN, 1, ullNowMs);
   InputMenuUpdateKeyState(&s_menuAcceptState, iAccept, WHIP_SCANCODE_RETURN, 0, ullNowMs);
   InputMenuUpdateKeyState(&s_menuBackState, iBack || iPause, WHIP_SCANCODE_ESCAPE, 0, ullNowMs);
-  InputMenuUpdateKeyState(&s_menuAnyButtonState, iAnyButtonContext && iAnyButtonPressed, WHIP_SCANCODE_SPACE, 0, ullNowMs);
+  InputMenuUpdateKeyState(&s_menuAnyButtonState, (iAnyButtonContext && iAnyButtonPressed) || iCupSwitchPressed, WHIP_SCANCODE_SPACE, 0, ullNowMs);
   InputMenuUpdateKeyState(&s_menuQuitYesState, iQuitConfirm && iButton1Pressed, WHIP_SCANCODE_Y, 0, ullNowMs);
   InputMenuUpdateKeyState(&s_menuQuitCancelState, iQuitConfirm && iButton2Pressed, WHIP_SCANCODE_ESCAPE, 0, ullNowMs);
 }
