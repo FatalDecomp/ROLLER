@@ -13,6 +13,8 @@
 //-------------------------------------------------------------------------------------------------
 
 #define NOCLIP_MOVE_SPEED       9000.0f
+#define NOCLIP_FAST_MULTIPLIER  2.0f
+#define NOCLIP_SLOW_MULTIPLIER  0.5f
 #define NOCLIP_MAX_DT           0.1f
 #define NOCLIP_MOUSE_SENSITIVITY 8.0f
 #define NOCLIP_PITCH_LIMIT      (0x1000 - 64)
@@ -52,6 +54,9 @@ static float s_fNoclipZ = 0.0f;
 static int s_iNoclipYaw = 0;
 static int s_iNoclipPitch = 0;
 static int s_iNoclipViewDist = 200;
+static float s_fNoclipSpeedMultiplier = 1.0f;
+static bool s_bNoclipFastWasDown = false;
+static bool s_bNoclipSlowWasDown = false;
 static uint64 s_ullNoclipLastUpdateNs = 0;
 
 static int noclip_angle14(int iAngle)
@@ -100,6 +105,9 @@ static void noclip_sync_mouse_mode(void)
 void noclip_camera_reset(void)
 {
   s_bNoclipInitialized = false;
+  s_fNoclipSpeedMultiplier = 1.0f;
+  s_bNoclipFastWasDown = false;
+  s_bNoclipSlowWasDown = false;
   s_ullNoclipLastUpdateNs = 0;
   noclip_sync_mouse_mode();
 }
@@ -135,6 +143,16 @@ void noclip_camera_update(void)
   s_iNoclipYaw = noclip_angle14(s_iNoclipYaw - (int)(fMouseX * NOCLIP_MOUSE_SENSITIVITY));
   s_iNoclipPitch = noclip_clamp_pitch(s_iNoclipPitch - (int)(fMouseY * NOCLIP_MOUSE_SENSITIVITY));
 
+  const bool *pKeys = SDL_GetKeyboardState(NULL);
+  bool bFastDown = noclip_key_down(pKeys, SDL_SCANCODE_Z) != 0;
+  bool bSlowDown = noclip_key_down(pKeys, SDL_SCANCODE_X) != 0;
+  if (bFastDown && !s_bNoclipFastWasDown)
+    s_fNoclipSpeedMultiplier *= NOCLIP_FAST_MULTIPLIER;
+  if (bSlowDown && !s_bNoclipSlowWasDown)
+    s_fNoclipSpeedMultiplier *= NOCLIP_SLOW_MULTIPLIER;
+  s_bNoclipFastWasDown = bFastDown;
+  s_bNoclipSlowWasDown = bSlowDown;
+
   uint64 ullNowNs = SDL_GetTicksNS();
   if (!s_ullNoclipLastUpdateNs) {
     s_ullNoclipLastUpdateNs = ullNowNs;
@@ -148,7 +166,6 @@ void noclip_camera_update(void)
   if (fDt > NOCLIP_MAX_DT)
     fDt = NOCLIP_MAX_DT;
 
-  const bool *pKeys = SDL_GetKeyboardState(NULL);
   int iForward = noclip_key_down(pKeys, SDL_SCANCODE_W) - noclip_key_down(pKeys, SDL_SCANCODE_S);
   int iRight = noclip_key_down(pKeys, SDL_SCANCODE_D) - noclip_key_down(pKeys, SDL_SCANCODE_A);
   int iUp = (noclip_key_down(pKeys, SDL_SCANCODE_E) || noclip_key_down(pKeys, SDL_SCANCODE_R))
@@ -171,7 +188,7 @@ void noclip_camera_update(void)
   if (fMoveLen <= FLT_EPSILON)
     return;
 
-  float fStep = NOCLIP_MOVE_SPEED * fDt / fMoveLen;
+  float fStep = NOCLIP_MOVE_SPEED * s_fNoclipSpeedMultiplier * fDt / fMoveLen;
   s_fNoclipX += fMoveX * fStep;
   s_fNoclipY += fMoveY * fStep;
   s_fNoclipZ += fMoveZ * fStep;
