@@ -543,6 +543,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bAirborneCollisions = (int)g_bAirborneCollisions;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Airborne collisions", &bAirborneCollisions)) {
+      g_bAirborneCollisions = (bool)bAirborneCollisions;
+      InputSaveConfig();
+    }
+
     int bAINoCheatStart = (int)g_bAINoCheatStart;
     nk_layout_row_dynamic(pCtx, 20, 1);
     if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart)) {

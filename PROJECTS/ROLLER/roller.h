@@ -13,6 +13,7 @@ extern SDL_Mutex *g_pDigiMutex;
 extern bool g_bPaletteSet;
 extern bool g_bForceMaxDraw;
 extern bool g_bNoCollisionLimit;
+extern bool g_bAirborneCollisions;
 extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
 extern bool g_bNoclip;

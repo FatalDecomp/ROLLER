@@ -5,12 +5,239 @@
 #include "control.h"
 #include "roller.h"
 #include "sound.h"
+#include "transfrm.h"
 #include <math.h>
 //-------------------------------------------------------------------------------------------------
 
 float damage_levels[4] = { 1.0, 2.0, 4.0, 8.0 }; //000A639C
 float coldist[33][33];  //00188840
 int damage_level;       //00189944
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionNormalizeChunk(int iChunk)
+{
+  if (TRAK_LEN <= 0)
+    return -1;
+
+  while (iChunk < 0)
+    iChunk += TRAK_LEN;
+  while (iChunk >= TRAK_LEN)
+    iChunk -= TRAK_LEN;
+
+  return iChunk;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionCarIsAirborne(const tCar *pCar)
+{
+  return pCar->iControlType == 0 && pCar->nCurrChunk == -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionCarChunk(const tCar *pCar)
+{
+  if (pCar->nCurrChunk >= 0 && pCar->nCurrChunk < TRAK_LEN)
+    return pCar->nCurrChunk;
+
+  if (CollisionCarIsAirborne(pCar)) {
+    if (pCar->iLastValidChunk != -1)
+      return CollisionNormalizeChunk(pCar->iLastValidChunk);
+    if (pCar->nReferenceChunk != -1)
+      return CollisionNormalizeChunk(pCar->nReferenceChunk);
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionCarCanCollide(const tCar *pCar)
+{
+  if ((pCar->byStatusFlags & 2) != 0)
+    return 0;
+
+  if (pCar->iControlType == 3)
+    return CollisionCarChunk(pCar) >= 0;
+
+  if (g_bAirborneCollisions && CollisionCarIsAirborne(pCar) && (char)pCar->byLives > 0)
+    return CollisionCarChunk(pCar) >= 0;
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionLocalToWorld(int iChunk, const tVec3 *pLocal, float *pfWorldX, float *pfWorldY, float *pfWorldZ)
+{
+  tData *pData = &localdata[iChunk];
+
+  *pfWorldX = (float)(pData->pointAy[0].fY * pLocal->fY + pData->pointAy[0].fX * pLocal->fX + pData->pointAy[0].fZ * pLocal->fZ - pData->pointAy[3].fX);
+  *pfWorldY = (float)(pData->pointAy[1].fY * pLocal->fY + pData->pointAy[1].fX * pLocal->fX + pData->pointAy[1].fZ * pLocal->fZ - pData->pointAy[3].fY);
+  *pfWorldZ = (float)(pData->pointAy[2].fY * pLocal->fY + pData->pointAy[2].fX * pLocal->fX + pData->pointAy[2].fZ * pLocal->fZ - pData->pointAy[3].fZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionLocalVectorToWorld(int iChunk, float fLocalX, float fLocalY, float fLocalZ, float *pfWorldX, float *pfWorldY, float *pfWorldZ)
+{
+  tData *pData = &localdata[iChunk];
+
+  *pfWorldX = (float)(pData->pointAy[0].fY * fLocalY + pData->pointAy[0].fX * fLocalX + pData->pointAy[0].fZ * fLocalZ);
+  *pfWorldY = (float)(pData->pointAy[1].fY * fLocalY + pData->pointAy[1].fX * fLocalX + pData->pointAy[1].fZ * fLocalZ);
+  *pfWorldZ = (float)(pData->pointAy[2].fY * fLocalY + pData->pointAy[2].fX * fLocalX + pData->pointAy[2].fZ * fLocalZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionWorldToLocal(int iChunk, float fWorldX, float fWorldY, float fWorldZ, float *pfLocalX, float *pfLocalY, float *pfLocalZ)
+{
+  tData *pData = &localdata[iChunk];
+  double dWorldX = fWorldX + pData->pointAy[3].fX;
+  double dWorldY = fWorldY + pData->pointAy[3].fY;
+  double dWorldZ = fWorldZ + pData->pointAy[3].fZ;
+
+  *pfLocalX = (float)(pData->pointAy[1].fX * dWorldY + pData->pointAy[0].fX * dWorldX + pData->pointAy[2].fX * dWorldZ);
+  *pfLocalY = (float)(pData->pointAy[0].fY * dWorldX + pData->pointAy[1].fY * dWorldY + pData->pointAy[2].fY * dWorldZ);
+  *pfLocalZ = (float)(pData->pointAy[0].fZ * dWorldX + pData->pointAy[1].fZ * dWorldY + pData->pointAy[2].fZ * dWorldZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionWorldVectorToLocal(int iChunk, float fWorldX, float fWorldY, float fWorldZ, float *pfLocalX, float *pfLocalY, float *pfLocalZ)
+{
+  tData *pData = &localdata[iChunk];
+
+  *pfLocalX = (float)(pData->pointAy[1].fX * fWorldY + pData->pointAy[0].fX * fWorldX + pData->pointAy[2].fX * fWorldZ);
+  *pfLocalY = (float)(pData->pointAy[0].fY * fWorldX + pData->pointAy[1].fY * fWorldY + pData->pointAy[2].fY * fWorldZ);
+  *pfLocalZ = (float)(pData->pointAy[0].fZ * fWorldX + pData->pointAy[1].fZ * fWorldY + pData->pointAy[2].fZ * fWorldZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionCarPositionInChunk(const tCar *pCar, const tVec3 *pPos, int iCarChunk, int iTargetChunk, float *pfLocalX, float *pfLocalY, float *pfLocalZ)
+{
+  float fWorldX;
+  float fWorldY;
+  float fWorldZ;
+
+  if (!CollisionCarIsAirborne(pCar) && iCarChunk == iTargetChunk) {
+    *pfLocalX = pPos->fX;
+    *pfLocalY = pPos->fY;
+    *pfLocalZ = pPos->fZ;
+    return;
+  }
+
+  if (CollisionCarIsAirborne(pCar)) {
+    fWorldX = pPos->fX;
+    fWorldY = pPos->fY;
+    fWorldZ = pPos->fZ;
+  } else {
+    CollisionLocalToWorld(iCarChunk, pPos, &fWorldX, &fWorldY, &fWorldZ);
+  }
+
+  CollisionWorldToLocal(iTargetChunk, fWorldX, fWorldY, fWorldZ, pfLocalX, pfLocalY, pfLocalZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionCarYawInChunk(const tCar *pCar, int iCarChunk, int iTargetChunk)
+{
+  int iWorldYaw;
+  int iWorldPitch;
+  int iWorldRoll;
+  int iLocalYaw;
+  int iLocalPitch;
+  int iLocalRoll;
+
+  if (!CollisionCarIsAirborne(pCar) && iCarChunk == iTargetChunk)
+    return pCar->nYaw & 0x3FFF;
+
+  if (CollisionCarIsAirborne(pCar)) {
+    getlocalangles(pCar->nYaw, pCar->nPitch, pCar->nRoll, iTargetChunk, &iLocalYaw, &iLocalPitch, &iLocalRoll);
+    return iLocalYaw & 0x3FFF;
+  }
+
+  getworldangles(pCar->nYaw, pCar->nPitch, pCar->nRoll, iCarChunk, &iWorldYaw, &iWorldPitch, &iWorldRoll);
+  getlocalangles(iWorldYaw, iWorldPitch, iWorldRoll, iTargetChunk, &iLocalYaw, &iLocalPitch, &iLocalRoll);
+  return iLocalYaw & 0x3FFF;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionCarVelocityInChunk(const tCar *pCar, int iCarChunk, int iTargetChunk, float *pfLocalX, float *pfLocalY)
+{
+  float fWorldX;
+  float fWorldY;
+  float fWorldZ;
+  float fLocalZ;
+
+  if (!CollisionCarIsAirborne(pCar) && iCarChunk == iTargetChunk) {
+    *pfLocalX = pCar->fFinalSpeed * tcos[pCar->nYaw & 0x3FFF];
+    *pfLocalY = pCar->fFinalSpeed * tsin[pCar->nYaw & 0x3FFF];
+    return;
+  }
+
+  if (CollisionCarIsAirborne(pCar)) {
+    fWorldX = pCar->direction.fX;
+    fWorldY = pCar->direction.fY;
+    fWorldZ = pCar->direction.fZ;
+  } else {
+    CollisionLocalVectorToWorld(iCarChunk,
+                                pCar->fFinalSpeed * tcos[pCar->nYaw & 0x3FFF],
+                                pCar->fFinalSpeed * tsin[pCar->nYaw & 0x3FFF],
+                                0.0f,
+                                &fWorldX, &fWorldY, &fWorldZ);
+  }
+
+  CollisionWorldVectorToLocal(iTargetChunk, fWorldX, fWorldY, fWorldZ, pfLocalX, pfLocalY, &fLocalZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionStoreCarPositionFromChunk(tCar *pCar, int iTargetChunk, float fLocalX, float fLocalY, float fLocalZ)
+{
+  tVec3 pos;
+
+  if (CollisionCarIsAirborne(pCar)) {
+    pos.fX = fLocalX;
+    pos.fY = fLocalY;
+    pos.fZ = fLocalZ;
+    CollisionLocalToWorld(iTargetChunk, &pos, &pCar->pos.fX, &pCar->pos.fY, &pCar->pos.fZ);
+    return;
+  }
+
+  pCar->pos.fX = fLocalX;
+  pCar->pos.fY = fLocalY;
+  pCar->pos.fZ = fLocalZ;
+  pCar->nCurrChunk = iTargetChunk;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionApplyVelocityFromChunk(tCar *pCar, int iTargetChunk, float fLocalX, float fLocalY)
+{
+  float fWorldX;
+  float fWorldY;
+  float fWorldZ;
+  float fSpeed;
+
+  if (CollisionCarIsAirborne(pCar)) {
+    CollisionLocalVectorToWorld(iTargetChunk, fLocalX, fLocalY, 0.0f, &fWorldX, &fWorldY, &fWorldZ);
+    pCar->direction.fX = fWorldX;
+    pCar->direction.fY = fWorldY;
+    pCar->fHorizontalSpeed = (float)sqrt(fWorldX * fWorldX + fWorldY * fWorldY);
+    pCar->nActualYaw = getangle(fWorldX, fWorldY);
+    SetEngine(pCar, pCar->fHorizontalSpeed);
+    return;
+  }
+
+  fSpeed = (float)sqrt(fLocalX * fLocalX + fLocalY * fLocalY);
+  pCar->nActualYaw = getangle(fLocalX, fLocalY);
+  SetEngine(pCar, fSpeed);
+}
 
 //-------------------------------------------------------------------------------------------------
 //0005F8F0
@@ -21,20 +248,24 @@ void testcollisions()
   int iChunkDistance; // ebx
   tCar *pTrailingCar; // edx
   tCar *pLeadingCar; // eax
+  int iFirstCarChunk; // eax
+  int iSecondCarChunk; // edx
   int iFirstCarIdx; // [esp+0h] [ebp-20h]
   int iCurrentCarIdx; // [esp+4h] [ebp-1Ch]
 
   iFirstCarIdx = 0;                             // Initialize first car index for outer loop
   if (numcars > 0) {
     iCurrentCarIdx = 0;
-    do {                                           // Check if car is AI controlled (type 3) and not destroyed (status bit 2 clear)
-      if (Car[iCurrentCarIdx].iControlType == 3 && (Car[iCurrentCarIdx].byStatusFlags & 2) == 0) {
+    do {                                           // Check if car can participate in car-to-car collision
+      if (CollisionCarCanCollide(&Car[iCurrentCarIdx])) {
+        iFirstCarChunk = CollisionCarChunk(&Car[iCurrentCarIdx]);
         iSecondCarIdx = iFirstCarIdx + 1;       // Start inner loop from next car to avoid duplicate collision checks
         if (iFirstCarIdx + 1 < numcars) {
           pSecondCar = &Car[iSecondCarIdx];
-          do {                                     // Check if second car is also AI controlled and not destroyed
-            if (Car[iSecondCarIdx].iControlType == 3 && (Car[iSecondCarIdx].byStatusFlags & 2) == 0) {
-              iChunkDistance = Car[iSecondCarIdx].nCurrChunk - Car[iCurrentCarIdx].nCurrChunk;// Calculate distance between cars in track chunks (handles circular track wraparound)
+          do {                                     // Check if second car can also participate
+            if (CollisionCarCanCollide(&Car[iSecondCarIdx])) {
+              iSecondCarChunk = CollisionCarChunk(&Car[iSecondCarIdx]);
+              iChunkDistance = iSecondCarChunk - iFirstCarChunk;// Calculate distance between cars in track chunks (handles circular track wraparound)
               if (iChunkDistance < 0)
                 iChunkDistance += TRAK_LEN;     // Handle negative distance by adding track length (circular track)
               if (iChunkDistance > TRAK_LEN / 2)// Use shortest path around circular track (normalize distance > half track length)
@@ -176,37 +407,64 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
   int iCar2RotAngle; // [esp+B0h] [ebp-1Ch]
   float fSpeedDifference; // [esp+B4h] [ebp-18h]
   float fDamageModifier; // [esp+B4h] [ebp-18h]
+  int iAirborneCollision;
+  int iCar1CollisionChunk;
+  int iCar2CollisionChunk;
+  float fCar1LocalZ;
+  float fCar2LocalZ;
+  float fUnusedLocalZ;
+  float fCar1LocalVelX;
+  float fCar1LocalVelY;
+  float fCar2LocalVelX;
+  float fCar2LocalVelY;
 
-  fX = pCar1->pos.fX;                           // Get current positions of both cars for collision calculation
-  fY = pCar1->pos.fY;
-  pData2 = &localdata[pCar2->nCurrChunk];       // Transform car2 position from world space to track local coordinates
-  dRelativeX1 = pData2->pointAy[0].fY * pCar2->pos.fY + pData2->pointAy[0].fX * pCar2->pos.fX + pData2->pointAy[0].fZ * pCar2->pos.fZ - pData2->pointAy[3].fX;
-  dRelativeY1 = pData2->pointAy[1].fY * pCar2->pos.fY + pData2->pointAy[1].fX * pCar2->pos.fX + pData2->pointAy[1].fZ * pCar2->pos.fZ - pData2->pointAy[3].fY;
-  dRelativeZ1 = pData2->pointAy[2].fY * pCar2->pos.fY + pData2->pointAy[2].fX * pCar2->pos.fX + pData2->pointAy[2].fZ * pCar2->pos.fZ - pData2->pointAy[3].fZ;
-  pData1 = &localdata[pCar1->nCurrChunk];       // Transform relative position back to car1's local coordinate system
-  dRelativeZ1Copy = dRelativeZ1;
-  dTransformedY1 = dRelativeY1 + pData1->pointAy[3].fY;
-  dTransformedX1 = dRelativeX1 + pData1->pointAy[3].fX;
-  dProjectedX1 = pData1->pointAy[1].fX * dTransformedY1 + pData1->pointAy[0].fX * dTransformedX1;
-  dTransformedX1Copy = dTransformedX1;
-  dTransformedZ1 = (float)dRelativeZ1Copy + pData1->pointAy[3].fZ;
-  fTransformedPosX1 = (float)dProjectedX1 + pData1->pointAy[2].fX * (float)dTransformedZ1;
-  fTransformedPosY1 = (float)(dTransformedZ1 * pData1->pointAy[2].fY + dTransformedX1Copy * pData1->pointAy[0].fY + dTransformedY1 * pData1->pointAy[1].fY);
-  fPosX1Copy = fTransformedPosX1;
-  fPosY1Copy = fTransformedPosY1;
-  nCar2Yaw = pCar2->nYaw;
-  nCar1Yaw = pCar1->nYaw;
-  nCurrChunk = pCar1->nCurrChunk;
-  for (iChunkStep = 0; iChunkStep < iDistanceSteps; ++iChunkStep)// Predict car2's future position and angle based on distance steps ahead
-  {
-    iChunkOffset = nCurrChunk++ << 7;
-    nCar2Yaw += *(int *)((char *)&localdata[0].iYaw + iChunkOffset);
-    if (nCurrChunk == TRAK_LEN)
-      nCurrChunk ^= TRAK_LEN;
+  iAirborneCollision = CollisionCarIsAirborne(pCar1) || CollisionCarIsAirborne(pCar2);
+  iCar1CollisionChunk = CollisionCarChunk(pCar1);
+  iCar2CollisionChunk = CollisionCarChunk(pCar2);
+  if (iCar1CollisionChunk < 0 || iCar2CollisionChunk < 0)
+    return;
+
+  if (iAirborneCollision) {
+    CollisionCarPositionInChunk(pCar1, &pCar1->pos, iCar1CollisionChunk, iCar1CollisionChunk, &fX, &fY, &fCar1LocalZ);
+    CollisionCarPositionInChunk(pCar2, &pCar2->pos, iCar2CollisionChunk, iCar1CollisionChunk, &fTransformedPosX1, &fTransformedPosY1, &fCar2LocalZ);
+    fPosX1Copy = fTransformedPosX1;
+    fPosY1Copy = fTransformedPosY1;
+    nCar1Yaw = (int16)CollisionCarYawInChunk(pCar1, iCar1CollisionChunk, iCar1CollisionChunk);
+    nCar2PredictedYaw = (int16)CollisionCarYawInChunk(pCar2, iCar2CollisionChunk, iCar1CollisionChunk);
+  } else {
+    fX = pCar1->pos.fX;                           // Get current positions of both cars for collision calculation
+    fY = pCar1->pos.fY;
+    fCar1LocalZ = pCar1->pos.fZ;
+    pData2 = &localdata[pCar2->nCurrChunk];       // Transform car2 position from world space to track local coordinates
+    dRelativeX1 = pData2->pointAy[0].fY * pCar2->pos.fY + pData2->pointAy[0].fX * pCar2->pos.fX + pData2->pointAy[0].fZ * pCar2->pos.fZ - pData2->pointAy[3].fX;
+    dRelativeY1 = pData2->pointAy[1].fY * pCar2->pos.fY + pData2->pointAy[1].fX * pCar2->pos.fX + pData2->pointAy[1].fZ * pCar2->pos.fZ - pData2->pointAy[3].fY;
+    dRelativeZ1 = pData2->pointAy[2].fY * pCar2->pos.fY + pData2->pointAy[2].fX * pCar2->pos.fX + pData2->pointAy[2].fZ * pCar2->pos.fZ - pData2->pointAy[3].fZ;
+    pData1 = &localdata[pCar1->nCurrChunk];       // Transform relative position back to car1's local coordinate system
+    dRelativeZ1Copy = dRelativeZ1;
+    dTransformedY1 = dRelativeY1 + pData1->pointAy[3].fY;
+    dTransformedX1 = dRelativeX1 + pData1->pointAy[3].fX;
+    dProjectedX1 = pData1->pointAy[1].fX * dTransformedY1 + pData1->pointAy[0].fX * dTransformedX1;
+    dTransformedX1Copy = dTransformedX1;
+    dTransformedZ1 = (float)dRelativeZ1Copy + pData1->pointAy[3].fZ;
+    fTransformedPosX1 = (float)dProjectedX1 + pData1->pointAy[2].fX * (float)dTransformedZ1;
+    fTransformedPosY1 = (float)(dTransformedZ1 * pData1->pointAy[2].fY + dTransformedX1Copy * pData1->pointAy[0].fY + dTransformedY1 * pData1->pointAy[1].fY);
+    fCar2LocalZ = pCar2->pos.fZ;
+    fPosX1Copy = fTransformedPosX1;
+    fPosY1Copy = fTransformedPosY1;
+    nCar2Yaw = pCar2->nYaw;
+    nCar1Yaw = pCar1->nYaw;
+    nCurrChunk = pCar1->nCurrChunk;
+    for (iChunkStep = 0; iChunkStep < iDistanceSteps; ++iChunkStep)// Predict car2's future position and angle based on distance steps ahead
+    {
+      iChunkOffset = nCurrChunk++ << 7;
+      nCar2Yaw += *(int *)((char *)&localdata[0].iYaw + iChunkOffset);
+      if (nCurrChunk == TRAK_LEN)
+        nCurrChunk ^= TRAK_LEN;
+    }
+    nCar2PredictedYaw = nCar2Yaw & 0x3FFF;
   }
   fDeltaY1 = fTransformedPosY1 - fY;
   fDeltaX1 = fTransformedPosX1 - fX;
-  nCar2PredictedYaw = nCar2Yaw & 0x3FFF;
   iCollisionDetected = 0;
   nAngleToCollision = getangle(fDeltaX1, fDeltaY1);// Calculate angle from car1 to collision point for lookup table indexing
   iCar1AngleDiff = (nCar1Yaw - nAngleToCollision) & 0x3FFF;// Normalize angle differences to proper ranges for collision lookup table
@@ -227,21 +485,26 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
     iCollisionDetected = -1;
   if (iCollisionDetected)                     // COLLISION DETECTED: Begin collision resolution calculations
   {
-    fCar1PosX2 = pCar1->posLastFrame.fX;
-    fCar1PosY2 = pCar1->posLastFrame.fY;
-    pData2_2 = &localdata[pCar2->nReferenceChunk];
-    dRelativeX2 = pData2_2->pointAy[0].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[0].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[0].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fX;
-    dRelativeY2 = pData2_2->pointAy[1].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[1].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[1].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fY;
-    dRelativeZ2 = pData2_2->pointAy[2].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[2].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[2].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fZ;
-    pData1_1 = &localdata[pCar1->nReferenceChunk];
-    dRelativeZ2Copy = dRelativeZ2;
-    dTransformedY2 = dRelativeY2 + pData1_1->pointAy[3].fY;
-    dTransformedX2 = dRelativeX2 + pData1_1->pointAy[3].fX;
-    dProjectedX2 = pData1_1->pointAy[1].fX * dTransformedY2 + pData1_1->pointAy[0].fX * dTransformedX2;
-    dTransformedX2Copy = dTransformedX2;
-    dTransformedZ2 = dRelativeZ2Copy + pData1_1->pointAy[3].fZ;
-    fTransformedPosX2 = (float)(dProjectedX2 + pData1_1->pointAy[2].fX * dTransformedZ2);
-    fTransformedPosY2 = (float)(dTransformedZ2 * pData1_1->pointAy[2].fY + dTransformedX2Copy * pData1_1->pointAy[0].fY + dTransformedY2 * pData1_1->pointAy[1].fY);
+    if (iAirborneCollision) {
+      CollisionCarPositionInChunk(pCar1, &pCar1->posLastFrame, iCar1CollisionChunk, iCar1CollisionChunk, &fCar1PosX2, &fCar1PosY2, &fUnusedLocalZ);
+      CollisionCarPositionInChunk(pCar2, &pCar2->posLastFrame, iCar2CollisionChunk, iCar1CollisionChunk, &fTransformedPosX2, &fTransformedPosY2, &fUnusedLocalZ);
+    } else {
+      fCar1PosX2 = pCar1->posLastFrame.fX;
+      fCar1PosY2 = pCar1->posLastFrame.fY;
+      pData2_2 = &localdata[pCar2->nReferenceChunk];
+      dRelativeX2 = pData2_2->pointAy[0].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[0].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[0].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fX;
+      dRelativeY2 = pData2_2->pointAy[1].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[1].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[1].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fY;
+      dRelativeZ2 = pData2_2->pointAy[2].fX * pCar2->posLastFrame.fX + pData2_2->pointAy[2].fY * pCar2->posLastFrame.fY + pData2_2->pointAy[2].fZ * pCar2->posLastFrame.fZ - pData2_2->pointAy[3].fZ;
+      pData1_1 = &localdata[pCar1->nReferenceChunk];
+      dRelativeZ2Copy = dRelativeZ2;
+      dTransformedY2 = dRelativeY2 + pData1_1->pointAy[3].fY;
+      dTransformedX2 = dRelativeX2 + pData1_1->pointAy[3].fX;
+      dProjectedX2 = pData1_1->pointAy[1].fX * dTransformedY2 + pData1_1->pointAy[0].fX * dTransformedX2;
+      dTransformedX2Copy = dTransformedX2;
+      dTransformedZ2 = dRelativeZ2Copy + pData1_1->pointAy[3].fZ;
+      fTransformedPosX2 = (float)(dProjectedX2 + pData1_1->pointAy[2].fX * dTransformedZ2);
+      fTransformedPosY2 = (float)(dTransformedZ2 * pData1_1->pointAy[2].fY + dTransformedX2Copy * pData1_1->pointAy[0].fY + dTransformedY2 * pData1_1->pointAy[1].fY);
+    }
     fDeltaY2 = fPosY1Copy - fY;
     fDeltaX2 = fPosX1Copy - fX;
     iCollisionAngle = getangle(fDeltaX2, fDeltaY2);
@@ -265,25 +528,49 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
     dSeparationDistance = coldist[(((uint32)iCar1Normalized2 << 6) + 270336) >> 14][(((uint32)iCar2Angle2Diff << 6) + 270336) >> 14] + 60.0;
     dMidpointX = (fX + fPosX1Copy) * 0.5;
     dMidpointY = (fY + fPosY1Copy) * 0.5;
-    pCar1->pos.fX = (float)(dMidpointX - dSeparationDistance * tcos[iCollisionDirection] * 0.5);// Separate cars to prevent overlap: move each car away from collision point
-    pCar1->pos.fY = (float)(dMidpointY - dSeparationDistance * tsin[iCollisionDirection] * 0.5);
-    pCar2->pos.fX = (float)(dMidpointX + dSeparationDistance * tcos[iCollisionDirection] * 0.5);
-    pCar2->pos.fY = (float)(dMidpointY + dSeparationDistance * tsin[iCollisionDirection] * 0.5);
-    nCurrentChunk = pCar1->nCurrChunk;
-    pCar2->nCurrChunk = nCurrentChunk;
-    pTrackData = &localdata[nCurrentChunk];
-    if (fabs(pCar1->pos.fX) > pTrackData->fTrackHalfLength)
-      scansection(pCar1);
-    if (fabs(pCar2->pos.fX) > pTrackData->fTrackHalfLength)
-      scansection(pCar2);
-    fFinalSpeed = pCar1->fFinalSpeed;
-    iCar1VelAngle = (nCar1Yaw - (int16)iVelocityAngle) & 0x3FFF;
-    fCar1VelX = fFinalSpeed * tcos[iCar1VelAngle];// Calculate velocity components for both cars relative to collision angle
-    fCar1VelY = fFinalSpeed * tsin[iCar1VelAngle];
-    fCar2Speed = pCar2->fFinalSpeed;
-    iCar2VelAngle = (nCar2PredictedYaw - (int16)iVelocityAngle) & 0x3FFF;
-    fCar2VelX = fCar2Speed * tcos[iCar2VelAngle];
-    fCar2VelY = fCar2Speed * tsin[iCar2VelAngle];
+    if (iAirborneCollision) {
+      CollisionStoreCarPositionFromChunk(pCar1, iCar1CollisionChunk,
+        (float)(dMidpointX - dSeparationDistance * tcos[iCollisionDirection] * 0.5),
+        (float)(dMidpointY - dSeparationDistance * tsin[iCollisionDirection] * 0.5),
+        fCar1LocalZ);
+      CollisionStoreCarPositionFromChunk(pCar2, iCar1CollisionChunk,
+        (float)(dMidpointX + dSeparationDistance * tcos[iCollisionDirection] * 0.5),
+        (float)(dMidpointY + dSeparationDistance * tsin[iCollisionDirection] * 0.5),
+        fCar2LocalZ);
+      if (!CollisionCarIsAirborne(pCar1) && fabs(pCar1->pos.fX) > localdata[pCar1->nCurrChunk].fTrackHalfLength)
+        scansection(pCar1);
+      if (!CollisionCarIsAirborne(pCar2) && fabs(pCar2->pos.fX) > localdata[pCar2->nCurrChunk].fTrackHalfLength)
+        scansection(pCar2);
+    } else {
+      pCar1->pos.fX = (float)(dMidpointX - dSeparationDistance * tcos[iCollisionDirection] * 0.5);// Separate cars to prevent overlap: move each car away from collision point
+      pCar1->pos.fY = (float)(dMidpointY - dSeparationDistance * tsin[iCollisionDirection] * 0.5);
+      pCar2->pos.fX = (float)(dMidpointX + dSeparationDistance * tcos[iCollisionDirection] * 0.5);
+      pCar2->pos.fY = (float)(dMidpointY + dSeparationDistance * tsin[iCollisionDirection] * 0.5);
+      nCurrentChunk = pCar1->nCurrChunk;
+      pCar2->nCurrChunk = nCurrentChunk;
+      pTrackData = &localdata[nCurrentChunk];
+      if (fabs(pCar1->pos.fX) > pTrackData->fTrackHalfLength)
+        scansection(pCar1);
+      if (fabs(pCar2->pos.fX) > pTrackData->fTrackHalfLength)
+        scansection(pCar2);
+    }
+    if (iAirborneCollision) {
+      CollisionCarVelocityInChunk(pCar1, iCar1CollisionChunk, iCar1CollisionChunk, &fCar1LocalVelX, &fCar1LocalVelY);
+      CollisionCarVelocityInChunk(pCar2, iCar2CollisionChunk, iCar1CollisionChunk, &fCar2LocalVelX, &fCar2LocalVelY);
+      fCar1VelX = fCar1LocalVelX * tcos[iVelocityAngle] + fCar1LocalVelY * tsin[iVelocityAngle];
+      fCar1VelY = fCar1LocalVelY * tcos[iVelocityAngle] - fCar1LocalVelX * tsin[iVelocityAngle];
+      fCar2VelX = fCar2LocalVelX * tcos[iVelocityAngle] + fCar2LocalVelY * tsin[iVelocityAngle];
+      fCar2VelY = fCar2LocalVelY * tcos[iVelocityAngle] - fCar2LocalVelX * tsin[iVelocityAngle];
+    } else {
+      fFinalSpeed = pCar1->fFinalSpeed;
+      iCar1VelAngle = (nCar1Yaw - (int16)iVelocityAngle) & 0x3FFF;
+      fCar1VelX = fFinalSpeed * tcos[iCar1VelAngle];// Calculate velocity components for both cars relative to collision angle
+      fCar1VelY = fFinalSpeed * tsin[iCar1VelAngle];
+      fCar2Speed = pCar2->fFinalSpeed;
+      iCar2VelAngle = (nCar2PredictedYaw - (int16)iVelocityAngle) & 0x3FFF;
+      fCar2VelX = fCar2Speed * tcos[iCar2VelAngle];
+      fCar2VelY = fCar2Speed * tsin[iCar2VelAngle];
+    }
     if (fCar2VelX < (double)fCar1VelX) {
       fCar1Mass = CarEngines.engines[pCar1->byCarDesignIdx].fMass;
       fCar2Mass = CarEngines.engines[pCar2->byCarDesignIdx].fMass;
@@ -325,12 +612,17 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
       else
         iSoundEffectId = 7;
       sfxpend(iSoundEffectId, iDriverIdx, (int)(fSpeedDifference * 32768.0 * 0.025));// Play collision sound effect based on impact severity
-      pCar1->nActualYaw = getangle(fCar1NewVelX, fCar1NewVelY);
-      pCar2->nActualYaw = getangle(fCar2NewVelX, fCar2NewVelY);
-      fCar1FinalSpeed = (float)sqrt(fCar1NewVelX * fCar1NewVelX + fCar1NewVelY * fCar1NewVelY);
-      SetEngine(pCar1, fCar1FinalSpeed);
-      fCar2FinalSpeed = (float)sqrt(fCar2NewVelX * fCar2NewVelX + fCar2NewVelY * fCar2NewVelY);
-      SetEngine(pCar2, fCar2FinalSpeed);
+      if (iAirborneCollision) {
+        CollisionApplyVelocityFromChunk(pCar1, iCar1CollisionChunk, fCar1NewVelX, fCar1NewVelY);
+        CollisionApplyVelocityFromChunk(pCar2, iCar1CollisionChunk, fCar2NewVelX, fCar2NewVelY);
+      } else {
+        pCar1->nActualYaw = getangle(fCar1NewVelX, fCar1NewVelY);
+        pCar2->nActualYaw = getangle(fCar2NewVelX, fCar2NewVelY);
+        fCar1FinalSpeed = (float)sqrt(fCar1NewVelX * fCar1NewVelX + fCar1NewVelY * fCar1NewVelY);
+        SetEngine(pCar1, fCar1FinalSpeed);
+        fCar2FinalSpeed = (float)sqrt(fCar2NewVelX * fCar2NewVelX + fCar2NewVelY * fCar2NewVelY);
+        SetEngine(pCar2, fCar2FinalSpeed);
+      }
       iSelectedStrategy = pCar1->iSelectedStrategy;
       if (iSelectedStrategy) {
         if (iSelectedStrategy != 2)
