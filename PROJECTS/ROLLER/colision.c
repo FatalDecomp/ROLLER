@@ -167,6 +167,84 @@ static int CollisionCarYawInChunk(const tCar *pCar, int iCarChunk, int iTargetCh
 
 //-------------------------------------------------------------------------------------------------
 
+static void CollisionCarAnglesInChunk(const tCar *pCar, int iCarChunk, int iTargetChunk, int *piYaw, int *piPitch, int *piRoll)
+{
+  int iWorldYaw;
+  int iWorldPitch;
+  int iWorldRoll;
+
+  if (!CollisionCarIsAirborne(pCar) && iCarChunk == iTargetChunk) {
+    *piYaw = pCar->nYaw & 0x3FFF;
+    *piPitch = pCar->nPitch & 0x3FFF;
+    *piRoll = pCar->nRoll & 0x3FFF;
+    return;
+  }
+
+  if (CollisionCarIsAirborne(pCar)) {
+    getlocalangles(pCar->nYaw, pCar->nPitch, pCar->nRoll, iTargetChunk, piYaw, piPitch, piRoll);
+  } else {
+    getworldangles(pCar->nYaw, pCar->nPitch, pCar->nRoll, iCarChunk, &iWorldYaw, &iWorldPitch, &iWorldRoll);
+    getlocalangles(iWorldYaw, iWorldPitch, iWorldRoll, iTargetChunk, piYaw, piPitch, piRoll);
+  }
+
+  *piYaw &= 0x3FFF;
+  *piPitch &= 0x3FFF;
+  *piRoll &= 0x3FFF;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CollisionCarVerticalBoundsInChunk(const tCar *pCar, int iCarChunk, int iTargetChunk, float fLocalZ, float *pfMinZ, float *pfMaxZ)
+{
+  tVec3 *pHitboxPoint;
+  float fRotMat02;
+  float fRotMat21;
+  float fRotMat22;
+  float fWorldZ;
+  int iYaw;
+  int iPitch;
+  int iRoll;
+  int iPointIdx;
+
+  CollisionCarAnglesInChunk(pCar, iCarChunk, iTargetChunk, &iYaw, &iPitch, &iRoll);
+
+  fRotMat02 = tsin[iPitch];
+  fRotMat21 = -tsin[iRoll] * tcos[iPitch];
+  fRotMat22 = tcos[iPitch] * tcos[iRoll];
+
+  pHitboxPoint = CarBox.hitboxAy[pCar->byCarDesignIdx];
+  fWorldZ = pHitboxPoint[0].fX * fRotMat02 + pHitboxPoint[0].fY * fRotMat21 + pHitboxPoint[0].fZ * fRotMat22 + fLocalZ;
+  *pfMinZ = fWorldZ;
+  *pfMaxZ = fWorldZ;
+
+  for (iPointIdx = 1; iPointIdx < 8; ++iPointIdx) {
+    fWorldZ = pHitboxPoint[iPointIdx].fX * fRotMat02 + pHitboxPoint[iPointIdx].fY * fRotMat21 + pHitboxPoint[iPointIdx].fZ * fRotMat22 + fLocalZ;
+    if (fWorldZ < *pfMinZ)
+      *pfMinZ = fWorldZ;
+    if (fWorldZ > *pfMaxZ)
+      *pfMaxZ = fWorldZ;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CollisionCarVerticalBoundsOverlap(const tCar *pCar1, int iCar1Chunk, float fCar1LocalZ,
+                                             const tCar *pCar2, int iCar2Chunk, float fCar2LocalZ,
+                                             int iTargetChunk)
+{
+  float fCar1MinZ;
+  float fCar1MaxZ;
+  float fCar2MinZ;
+  float fCar2MaxZ;
+
+  CollisionCarVerticalBoundsInChunk(pCar1, iCar1Chunk, iTargetChunk, fCar1LocalZ, &fCar1MinZ, &fCar1MaxZ);
+  CollisionCarVerticalBoundsInChunk(pCar2, iCar2Chunk, iTargetChunk, fCar2LocalZ, &fCar2MinZ, &fCar2MaxZ);
+
+  return fCar1MaxZ >= fCar2MinZ && fCar2MaxZ >= fCar1MinZ;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void CollisionCarVelocityInChunk(const tCar *pCar, int iCarChunk, int iTargetChunk, float *pfLocalX, float *pfLocalY)
 {
   float fWorldX;
@@ -431,6 +509,10 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
     fPosY1Copy = fTransformedPosY1;
     nCar1Yaw = (int16)CollisionCarYawInChunk(pCar1, iCar1CollisionChunk, iCar1CollisionChunk);
     nCar2PredictedYaw = (int16)CollisionCarYawInChunk(pCar2, iCar2CollisionChunk, iCar1CollisionChunk);
+    if (!CollisionCarVerticalBoundsOverlap(pCar1, iCar1CollisionChunk, fCar1LocalZ,
+                                           pCar2, iCar2CollisionChunk, fCar2LocalZ,
+                                           iCar1CollisionChunk))
+      return;
   } else {
     fX = pCar1->pos.fX;                           // Get current positions of both cars for collision calculation
     fY = pCar1->pos.fY;
