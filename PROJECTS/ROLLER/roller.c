@@ -101,6 +101,32 @@ void SnapshotEnsureMenuRenderer(void)
 static DebugOverlay *s_pDebugOverlay = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
 
+static void UpdateMouseCursorVisibility(void)
+{
+  if (!s_pWindow)
+    return;
+
+  SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
+  bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
+  bool bCursorScreen =
+    eFrontendCurrentState == eFRONTEND_STATE_MAIN_MENU ||
+    eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+    debug_overlay_visible(s_pDebugOverlay);
+  bool bHideCursor = bFullscreen && !bCursorScreen;
+  bool bCursorVisible = SDL_CursorVisible();
+
+  if (bCursorVisible == !bHideCursor)
+    return;
+
+  if (bHideCursor) {
+    if (!SDL_HideCursor())
+      SDL_Log("SDL_HideCursor failed: %s", SDL_GetError());
+  } else {
+    if (!SDL_ShowCursor())
+      SDL_Log("SDL_ShowCursor failed: %s", SDL_GetError());
+  }
+}
+
 static void DeferGPUPresentation(int iFrames)
 {
   if (s_iGPUPresentSkipFrames < iFrames)
@@ -370,6 +396,7 @@ void ROLLERRefreshStartupOverlay()
       debug_overlay_toggle(s_pDebugOverlay);
   }
 
+  UpdateMouseCursorVisibility();
   PresentDebugOverlayOnly();
 }
 
@@ -396,6 +423,7 @@ void ToggleFullscreen()
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
   DeferGPUPresentation(3);
+  UpdateMouseCursorVisibility();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -892,6 +920,7 @@ void UpdateSDL()
   InputUpdate();
   noclip_camera_update();
   InputUpdateMenuControls();
+  UpdateMouseCursorVisibility();
   //UpdateSDLWindow();
 #if _DEBUG
   UpdateDebugLoop(); // Add by ROLLER

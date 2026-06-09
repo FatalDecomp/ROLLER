@@ -430,6 +430,10 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   noclip_camera_set_input_enabled(!bVisible);
 }
 
+bool debug_overlay_visible(DebugOverlay *pOverlay) {
+  return pOverlay && pOverlay->bVisible;
+}
+
 void debug_overlay_toggle(DebugOverlay *pOverlay) {
   if (!pOverlay) return;
   debug_overlay_set_visible(pOverlay, !pOverlay->bVisible);
