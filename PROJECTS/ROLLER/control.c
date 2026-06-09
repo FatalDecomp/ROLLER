@@ -5411,19 +5411,34 @@ int getangle(float fX, float fY)
 
 //-------------------------------------------------------------------------------------------------
 
-static int use_improved_jump_landing_wall_side(int iChunk, int iWallSurface, float fLocalCoordY, float fWallBoundary)
+static int should_skip_improved_jump_landing_inner_wall(int iChunk, int iWallSurface, float fLocalCoordY, float fWallBoundary)
 {
+  const tData *pData;
+  int iLaneSurface;
+
   if (!g_bImprovedJumpLanding)
-    return 0;
-  if ((TrakColour[iChunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) != 0)
     return 0;
   if (TrakColour[iChunk][iWallSurface] >= 0)
     return 0;
-  if (iWallSurface == TRAK_COLOUR_LEFT_WALL)
-    return fLocalCoordY > fWallBoundary;
-  if (iWallSurface == TRAK_COLOUR_RIGHT_WALL)
-    return fLocalCoordY < fWallBoundary;
-  return 0;
+  if ((TrakColour[iChunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) != 0)
+    return 0;
+
+  if (iWallSurface == TRAK_COLOUR_LEFT_WALL) {
+    if (fLocalCoordY <= fWallBoundary)
+      return 0;
+    iLaneSurface = TRAK_COLOUR_LEFT_LANE;
+  } else if (iWallSurface == TRAK_COLOUR_RIGHT_WALL) {
+    if (fLocalCoordY >= fWallBoundary)
+      return 0;
+    iLaneSurface = TRAK_COLOUR_RIGHT_LANE;
+  } else {
+    return 0;
+  }
+
+  pData = &localdata[iChunk];
+  return (TrakColour[iChunk][iLaneSurface] & SURFACE_FLAG_SKIP_RENDER) == 0
+      || pData->fTrackHalfLength * 2.0f <= CarBaseX
+      || pData->fTrackHalfWidth * 2.0f <= CarBaseX;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5703,14 +5718,13 @@ void landontrack(tCar *pCar)
       if (bRoofCheck && fRoofHeight > 0.0) {
         dWallPosition = TrakColour[iChunk][4] < 0 ? -pCurrentData->fTrackHalfWidth : -pCurrentData->fTrackHalfWidth - pTrackInfo->fRShoulderWidth;
         fWallBoundary = (float)dWallPosition;
-        if (fLocalCoordY - CarBaseY <= fWallBoundary) {
-          int iWallSideDirection = use_improved_jump_landing_wall_side(iChunk, TRAK_COLOUR_RIGHT_WALL, fLocalCoordY, fWallBoundary) ? -1 : 1;
-          if (fDirectionYLocal * iWallSideDirection < 0.0) {
-            double dWallSpeed = -fDirectionYLocal * iWallSideDirection;
+        if (!should_skip_improved_jump_landing_inner_wall(iChunk, TRAK_COLOUR_RIGHT_WALL, fLocalCoordY, fWallBoundary)
+          && fLocalCoordY - CarBaseY <= fWallBoundary) {
+          if (fDirectionYLocal < 0.0) {
             if (death_race)
-              dDamageLeft = dWallSpeed * 0.006 * 4.0;// Apply wall collision damage (4x in death race mode)
+              dDamageLeft = -fDirectionYLocal * 0.006 * 4.0;// Apply wall collision damage (4x in death race mode)
             else
-              dDamageLeft = dWallSpeed * 0.006;
+              dDamageLeft = -fDirectionYLocal * 0.006;
             fTempDamage2 = (float)dDamageLeft;
             dodamage(pCar, fTempDamage2);
             iRollBackup = -pCar->iRollMomentum;
@@ -5718,11 +5732,10 @@ void landontrack(tCar *pCar)
             //HIBYTE(fDirectionYLocal) ^= 0x80u;
             pCar->iRollMomentum = iRollBackup;
           }
-          if (fDirectionYLocal * iWallSideDirection < 40.0)
-            fDirectionYLocal = 40.0f * iWallSideDirection;
-          dVolumeCalc = fDirectionYLocal * iWallSideDirection;
-          if (dVolumeCalc > 40.0 && !pCar->bySfxCooldown) {
-            dVolumeCalc = dVolumeCalc * 32768.0 * 0.025;
+          if (fDirectionYLocal < 40.0)
+            fDirectionYLocal = 40.0;
+          if (fDirectionYLocal > 40.0 && !pCar->bySfxCooldown) {
+            dVolumeCalc = fDirectionYLocal * 32768.0 * 0.025;
             //_CHP();
             //LODWORD(fTempCalc) = (int)dVolumeCalc;
             sfxpend(SOUND_SAMPLE_WALL1, pCar->iDriverIdx, (int)dVolumeCalc);// SOUND_SAMPLE_WALL1
@@ -5734,7 +5747,7 @@ void landontrack(tCar *pCar)
           pCar->direction.fX = (float)(pCurrentData->pointAy[0].fY * fDirectionYLocal + pCurrentData->pointAy[0].fX * fDirectionXLocal + pCurrentData->pointAy[0].fZ * fDirectionZLocal);
           pCar->direction.fY = (float)(pCurrentData->pointAy[1].fX * dVelocityX + pCurrentData->pointAy[1].fY * dVelocityY + pCurrentData->pointAy[1].fZ * dVelocityZ);
           pCar->direction.fZ = (float)(dVelocityY * pCurrentData->pointAy[2].fY + dVelocityX * pCurrentData->pointAy[2].fX + dVelocityZ * pCurrentData->pointAy[2].fZ);
-          fLocalCoordY = fWallBoundary + CarBaseY * iWallSideDirection;
+          fLocalCoordY = fWallBoundary + CarBaseY;
           dLocalPosX = fLocalCoordX;
           dLocalPosZ = fLocalCoordZ;
           pCar->pos.fX = pCurrentData->pointAy[0].fY * fLocalCoordY
@@ -5786,14 +5799,13 @@ void landontrack(tCar *pCar)
       fInterpolatedBoundary = ((fLocalCoordX + pCurrentData->fTrackHalfLength) * fTrackHalfWidthNext - (fLocalCoordX - pCurrentData->fTrackHalfLength) * fTrackHalfWidth)
         / (pCurrentData->fTrackHalfLength
          * 2.0f);
-      if (fLocalCoordY + CarBaseY >= fInterpolatedBoundary) {
-        int iWallSideDirection = use_improved_jump_landing_wall_side(iChunk, TRAK_COLOUR_LEFT_WALL, fLocalCoordY, fInterpolatedBoundary) ? 1 : -1;
-        if (fDirectionYLocal * iWallSideDirection < 0.0) {
-          double dWallSpeed = -fDirectionYLocal * iWallSideDirection;
+      if (!should_skip_improved_jump_landing_inner_wall(iChunk, TRAK_COLOUR_LEFT_WALL, fLocalCoordY, fInterpolatedBoundary)
+        && fLocalCoordY + CarBaseY >= fInterpolatedBoundary) {
+        if (fDirectionYLocal > 0.0) {
           if (death_race)
-            dWallNormalY = dWallSpeed * 0.005 * 4.0;
+            dWallNormalY = fDirectionYLocal * 0.005 * 4.0;
           else
-            dWallNormalY = dWallSpeed * 0.005;
+            dWallNormalY = fDirectionYLocal * 0.005;
           fTempDamage = (float)dWallNormalY;
           dodamage(pCar, fTempDamage);
           iRollMomentumBackup = -pCar->iRollMomentum;
@@ -5801,9 +5813,9 @@ void landontrack(tCar *pCar)
           //HIBYTE(fDirectionYLocal) ^= 0x80u;
           pCar->iRollMomentum = iRollMomentumBackup;
         }
-        if (fDirectionYLocal * iWallSideDirection < 40.0)
-          fDirectionYLocal = 40.0f * iWallSideDirection;
-        dDamageAmount = fDirectionYLocal * iWallSideDirection;
+        if (fDirectionYLocal > -40.0)
+          fDirectionYLocal = -40.0;
+        dDamageAmount = -fDirectionYLocal;
         fWallDamageCalc = (float)dDamageAmount;
         if (dDamageAmount > 40.0 && !pCar->bySfxCooldown) {
           dSoundVolume = fWallDamageCalc * 32768.0 * 0.025;
@@ -5818,7 +5830,7 @@ void landontrack(tCar *pCar)
         pCar->direction.fX = (float)(pCurrentData->pointAy[0].fY * fDirectionYLocal + pCurrentData->pointAy[0].fX * fDirectionXLocal + pCurrentData->pointAy[0].fZ * fDirectionZLocal);
         pCar->direction.fY = (float)(pCurrentData->pointAy[1].fX * dLocalX + pCurrentData->pointAy[1].fY * dLocalY + pCurrentData->pointAy[1].fZ * dLocalZ);
         pCar->direction.fZ = (float)(dLocalY * pCurrentData->pointAy[2].fY + dLocalX * pCurrentData->pointAy[2].fX + dLocalZ * pCurrentData->pointAy[2].fZ);
-        fLocalCoordY = fInterpolatedBoundary + CarBaseY * iWallSideDirection;
+        fLocalCoordY = fInterpolatedBoundary - CarBaseY;
         dTempX = fLocalCoordX;
         dTempZ = fLocalCoordZ;
         pCar->pos.fX = pCurrentData->pointAy[0].fY * fLocalCoordY
