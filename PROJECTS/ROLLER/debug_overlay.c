@@ -68,6 +68,9 @@ struct DebugOverlay {
   // Chained SDL log function
   SDL_LogOutputFunction  pPrevLogFn;
   void                  *pPrevLogUserdata;
+#ifdef ROLLER_AUDIO_DEBUG
+  FILE                  *pLogFile;
+#endif
 
   bool                   bInputBegun;
 
@@ -98,6 +101,15 @@ static void LogCallback(void *pUserdata, int iCategory, SDL_LogPriority priority
     pOverlay->pPrevLogFn(pOverlay->pPrevLogUserdata, iCategory, priority, pMessage);
 
   SDL_LockMutex(pOverlay->pLogMutex);
+
+#ifdef ROLLER_AUDIO_DEBUG
+  if (pOverlay->pLogFile) {
+    fprintf(pOverlay->pLogFile, "%llu %s%s\n",
+            (unsigned long long)SDL_GetTicks(),
+            PriorityPrefix(priority), pMessage);
+    fflush(pOverlay->pLogFile);
+  }
+#endif
 
   int iIdx;
   if (pOverlay->iLogCount < MAX_LOG_MESSAGES) {
@@ -346,8 +358,14 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pOverlay->pTransfer = SDL_CreateGPUTransferBuffer(pDevice, &tbi);
 
   pOverlay->pLogMutex = SDL_CreateMutex();
+#ifdef ROLLER_AUDIO_DEBUG
+  pOverlay->pLogFile = fopen("roller-audio-debug.log", "w");
+#endif
   SDL_GetLogOutputFunction(&pOverlay->pPrevLogFn, &pOverlay->pPrevLogUserdata);
   SDL_SetLogOutputFunction(LogCallback, pOverlay);
+#ifdef ROLLER_AUDIO_DEBUG
+  SDL_Log("[AUD] file logging enabled: roller-audio-debug.log");
+#endif
 
   // Build alpha-blend pipeline for compositing overlay over swapchain
   SDL_GPUShader *pVert = LoadOverlayShader(pDevice, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -399,6 +417,12 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
 void debug_overlay_destroy(DebugOverlay *pOverlay) {
   if (!pOverlay) return;
   SDL_SetLogOutputFunction(pOverlay->pPrevLogFn, pOverlay->pPrevLogUserdata);
+#ifdef ROLLER_AUDIO_DEBUG
+  if (pOverlay->pLogFile) {
+    fclose(pOverlay->pLogFile);
+    pOverlay->pLogFile = NULL;
+  }
+#endif
   SDL_DestroyMutex(pOverlay->pLogMutex);
   nk_free(&pOverlay->nk);
   nk_font_atlas_clear(&pOverlay->atlas);

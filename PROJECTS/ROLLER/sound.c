@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <math.h>
+#include <stdarg.h>
 #ifdef IS_WINDOWS
 #include <io.h>
 #define open _open
@@ -36,6 +37,44 @@
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 //-------------------------------------------------------------------------------------------------
+
+#ifdef ROLLER_AUDIO_DEBUG
+static void AudioDebugLog(const char *szFormat, ...)
+{
+  char szMessage[512];
+  va_list args;
+  va_start(args, szFormat);
+  vsnprintf(szMessage, sizeof(szMessage), szFormat, args);
+  va_end(args);
+  szMessage[sizeof(szMessage) - 1] = '\0';
+  SDL_Log("[AUD] %s", szMessage);
+}
+
+static const char *AudioDebugSampleName(int iSample)
+{
+  switch (iSample) {
+    case SOUND_SAMPLE_BUTTON: return "button";
+    case SOUND_SAMPLE_CARIN:  return "car-in";
+    case SOUND_SAMPLE_CAROUT: return "car-out";
+    case SOUND_SAMPLE_TRACK:  return "track";
+    case SOUND_SAMPLE_START:  return "start";
+    case SOUND_SAMPLE_FATAL:  return "fatal";
+    case SOUND_SAMPLE_ENGINE: return "engine";
+    case SOUND_SAMPLE_ENGINE2:return "engine2";
+    case SOUND_SAMPLE_SKID1:  return "skid1";
+    default: return "?";
+  }
+}
+
+static int AudioDebugShouldLogLimited(int *piCounter)
+{
+  ++(*piCounter);
+  return *piCounter <= 64 || (*piCounter % 256) == 0;
+}
+#else
+#define AudioDebugLog(...) ((void)0)
+#define AudioDebugSampleName(sample) "?"
+#endif
 
 typedef struct {
   int iActive;
@@ -1353,6 +1392,8 @@ void loadsamples()
   int iWins; // eax
   int iKills; // edx
 
+  AudioDebugLog("loadsamples: winner_mode=%d champ_mode=%d numsamples=%d soundon=%d SoundCard=%d",
+                winner_mode, champ_mode, numsamples, soundon, SoundCard);
   iWinnerSample = winner_mode;
   if (winner_mode) {
     if (champ_mode) {
@@ -1421,12 +1462,15 @@ LABEL_30:
   writesample = 0;
   readsample = 0;
   lastsample = -10000;
+  AudioDebugLog("loadsamples done: samplespending=%d writesample=%d readsample=%d",
+                samplespending, writesample, readsample);
 }
 
 //-------------------------------------------------------------------------------------------------
 //0003B3A0
 void loadfatalsample()
 {
+  AudioDebugLog("loadfatalsample: soundon=%d SoundCard=%d", soundon, SoundCard);
   if (!SamplePtr[SOUND_SAMPLE_FATAL]) // 88 - Fatal sample
     loadasample(SOUND_SAMPLE_FATAL);
   if (!SamplePtr[SOUND_SAMPLE_BUTTON]) // 83 - Button sample
@@ -1461,6 +1505,7 @@ void freefatalsample()
 //0003B480
 void releasesamples()
 {
+  AudioDebugLog("releasesamples: SoundCard=%d soundon=%d", SoundCard, soundon);
   if (SoundCard) {
     for (int i = 0; i < 120; ++i) {
       fre((void**)&SamplePtr[i]);
@@ -1526,6 +1571,8 @@ void readsoundconfig(void)
     //added by ROLLER to ensure sound is always available
     if (!SoundCard)
       SoundCard = -1;
+    AudioDebugLog("readsoundconfig: config missing SoundCard=%d soundon=%d MusicCard=%d MusicCD=%d musicon=%d language=%d",
+                  SoundCard, soundon, MusicCard, MusicCD, musicon, language);
     return;
   }
 
@@ -1623,6 +1670,9 @@ void readsoundconfig(void)
 
   if (SoundCard == 0)
     soundon = 0;
+  AudioDebugLog("readsoundconfig: SoundCard=%d soundon=%d MusicCard=%d MusicCD=%d musicon=%d SFXVolume=%d SpeechVolume=%d MusicVolume=%d language=%d",
+                SoundCard, soundon, MusicCard, MusicCD, musicon,
+                SFXVolume, SpeechVolume, MusicVolume, language);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1704,6 +1754,8 @@ void initsounds()
   //iNumCars = numcars;
   //iLoopItr = 2;
 
+  AudioDebugLog("initsounds: numcars=%d numsamples=%d soundon=%d SoundCard=%d",
+                numcars, numsamples, soundon, SoundCard);
   for (int i = 0; i < 32; ++i) {
     HandleSample[i] = -1;
     HandleCar[i] = -1;
@@ -1762,6 +1814,8 @@ void stopallsamples()
 {
   //_disable();
 
+  AudioDebugLog("stopallsamples: numcars=%d numsamples=%d lastsample=%d",
+                numcars, numsamples, lastsample);
   // Clear/initialize engine sound volume data for all cars
   for (int iCarIndex = 0; iCarIndex < numcars; ++iCarIndex) {
     for (int iEngineDataIdx = 0; iEngineDataIdx < 32; ++iEngineDataIdx) {
@@ -1804,6 +1858,10 @@ void pannedsample(int iSampleIdx, int iHandle, int iPan)
   unsigned int iOldSampleIdx; // ecx
 
   iLocalHandle = iHandle;
+  AudioDebugLog("pannedsample request: sample=%d/%s vol=%d pan=%d ptr=%p len=%u soundon=%d paused=%d old=%d",
+                iSampleIdx, AudioDebugSampleName(iSampleIdx), iHandle, iPan,
+                SamplePtr[iSampleIdx], SampleLen[iSampleIdx], soundon, paused,
+                SampleHandleCar[iSampleIdx].handles[0]);
   if (soundon && SamplePtr[iSampleIdx]) {
     //iSampleOffset = iSampleIdx << 6;
     iExistingHandle = SampleHandleCar[iSampleIdx].handles[0];
@@ -1832,6 +1890,8 @@ void pannedsample(int iSampleIdx, int iHandle, int iPan)
     iNewHandle = DIGISampleStart(&SamplePanned);
     //LOWORD(iNewHandle) = sosDIGIStartSample(*(int *)&DIGIHandle, iHandle, &SamplePanned);
     SampleHandleCar[iSampleIdx].handles[0] = iNewHandle;
+    AudioDebugLog("pannedsample start: sample=%d/%s handle=%d",
+                  iSampleIdx, AudioDebugSampleName(iSampleIdx), (int)iNewHandle);
     //_enable();
     if (iNewHandle != -1)                     // Update handle tracking tables if sample started successfully
     {                                           // Validate handle is within expected range (< 32)
@@ -1848,6 +1908,9 @@ void pannedsample(int iSampleIdx, int iHandle, int iPan)
       HandleSample[iNewHandle] = iSampleIdx;    // Update handle-to-sample and handle-to-car mapping tables
       HandleCar[iNewHandle] = 0;
     }
+  } else {
+    AudioDebugLog("pannedsample suppressed: sample=%d/%s soundon=%d ptr=%p",
+                  iSampleIdx, AudioDebugSampleName(iSampleIdx), soundon, SamplePtr[iSampleIdx]);
   }
 }
 
@@ -2139,6 +2202,11 @@ void dospeechsample(int iSampleIdx, int iVolume)
   int iUseVolume;
   int iHandle, iSampleHandle;
 
+  AudioDebugLog("dospeechsample request: sample=%d/%s vol=%d ptr=%p len=%u soundon=%d paused=%d speechvol=%d old=%d",
+                iSampleIdx, AudioDebugSampleName(iSampleIdx), iVolume,
+                SamplePtr[iSampleIdx], SampleLen[iSampleIdx], soundon, paused,
+                SpeechVolume, SampleHandleCar[iSampleIdx].handles[0]);
+
   // Check sample pointer is valid
   if (SamplePtr[iSampleIdx] == 0) {
     SDL_Log("dospeechsample: Sample pointer is NULL for sample index %d", iSampleIdx);
@@ -2153,8 +2221,11 @@ void dospeechsample(int iSampleIdx, int iVolume)
   iUseVolume = (SpeechVolume * iVolume) / 127;
 
   // Abort if sound is off or paused
-  if (!soundon || paused)
+  if (!soundon || paused) {
+    AudioDebugLog("dospeechsample suppressed: sample=%d/%s soundon=%d paused=%d",
+                  iSampleIdx, AudioDebugSampleName(iSampleIdx), soundon, paused);
     return;
+  }
 
   iSampleHandle = SampleHandleCar[iSampleIdx].handles[0];
 
@@ -2178,6 +2249,8 @@ void dospeechsample(int iSampleIdx, int iVolume)
   // Start sample
   iHandle = DIGISampleStart(&SampleFixed);
   SampleHandleCar[iSampleIdx].handles[0] = iHandle;
+  AudioDebugLog("dospeechsample start: sample=%d/%s scaled_vol=%d handle=%d",
+                iSampleIdx, AudioDebugSampleName(iSampleIdx), iUseVolume, iHandle);
 
   if (iHandle == -1)
     return;
@@ -2196,6 +2269,9 @@ void dospeechsample(int iSampleIdx, int iVolume)
 //0003CC00
 void loadfrontendsample(char *fileName)
 {
+  AudioDebugLog("loadfrontendsample request: name=%s SoundCard=%d old_ptr=%p old_len=%u old_handle=%d old_gen=%d",
+                fileName ? fileName : "(null)", SoundCard, frontendspeechptr,
+                frontendlen, frontendspeechhandle, frontendspeechgeneration);
   if (!SoundCard)
     return;
 
@@ -2222,6 +2298,8 @@ void loadfrontendsample(char *fileName)
   SDL_Log("Loading track sample: %s\n", szFilenameBuf);
   // load file into memory
   loadfile(szFilenameBuf, (void**)&frontendspeechptr, &frontendlen, 1);
+  AudioDebugLog("loadfrontendsample loaded: name=%s ptr=%p len=%u soundon=%d",
+                szFilenameBuf, frontendspeechptr, frontendlen, soundon);
 
   if (cheatsample && frontendspeechptr) {
     uint8 *pData = frontendspeechptr;
@@ -2267,10 +2345,16 @@ int frontendsample(int iVol)
 {
   int iPrevSample;
 
+  AudioDebugLog("frontendsample request: vol=%d SoundCard=%d soundon=%d paused=%d ptr=%p len=%u old_handle=%d old_gen=%d speechvol=%d",
+                iVol, SoundCard, soundon, paused, frontendspeechptr, frontendlen,
+                frontendspeechhandle, frontendspeechgeneration, SpeechVolume);
+
   if (iVol > 0x7FFF)
     iVol = 0x7FFF;
 
   if (!SoundCard || !soundon || paused || !frontendspeechptr || !frontendlen) {
+    AudioDebugLog("frontendsample suppressed: SoundCard=%d soundon=%d paused=%d ptr=%p len=%u",
+                  SoundCard, soundon, paused, frontendspeechptr, frontendlen);
     clear_frontendspeech_handle();
     return -1;
   }
@@ -2287,6 +2371,8 @@ int frontendsample(int iVol)
 
   frontendspeechhandle = DIGISampleStart(&SampleFixed);
   frontendspeechgeneration = DIGISampleGeneration(frontendspeechhandle);
+  AudioDebugLog("frontendsample start: handle=%d generation=%d scaled_vol=%d len=%u",
+                frontendspeechhandle, frontendspeechgeneration, iScaledVol, frontendlen);
   if (frontendspeechhandle != -1) {
     iPrevSample = HandleSample[frontendspeechhandle];
     if (iPrevSample != -1) {
@@ -2304,6 +2390,9 @@ int frontendsample(int iVol)
 //0003CE20
 void remove_frontendspeech()
 {
+  AudioDebugLog("remove_frontendspeech: ptr=%p len=%u handle=%d gen=%d",
+                frontendspeechptr, frontendlen, frontendspeechhandle,
+                frontendspeechgeneration);
   // Clear any existing frontend speech sample
   stop_frontendspeech_handle();
 
@@ -2326,6 +2415,8 @@ int sfxplaying(int iSampleIdx)
     return 0;
   if (!DIGISampleDone(iCurrHandle))
     return -1;
+  AudioDebugLog("sfxplaying cleared done handle: sample=%d/%s handle=%d",
+                iSampleIdx, AudioDebugSampleName(iSampleIdx), iCurrHandle);
   iReturn0 = 0;
   SampleHandleCar[iSampleIdx].handles[0] = -1;
   HandleSample[iCurrHandle] = -1;
@@ -2346,8 +2437,14 @@ int cheatsampleok(int iCarIdx)
 //0003CEF0
 void sfxsample(int iSample, int iVol)
 {
+  AudioDebugLog("sfxsample request: sample=%d/%s vol=%d scaled=%d ptr=%p len=%u soundon=%d paused=%d SFXVolume=%d old=%d",
+                iSample, AudioDebugSampleName(iSample), iVol,
+                (SFXVolume * (iVol > 0x7FFF ? 0x7FFF : iVol)) / 127,
+                SamplePtr[iSample], SampleLen[iSample], soundon, paused,
+                SFXVolume, SampleHandleCar[iSample].handles[0]);
   if (SamplePtr[iSample] == 0) {
     SDL_Log("sfxsample: Sample pointer is NULL for sample index %d", iSample);
+    AudioDebugLog("sfxsample suppressed: NULL sample=%d/%s", iSample, AudioDebugSampleName(iSample));
     return;
   }
 
@@ -2359,8 +2456,11 @@ void sfxsample(int iSample, int iVol)
   int iScaledVol = (SFXVolume * iVol) / 127;
 
   // Check if sound is disabled or paused
-  if (!soundon || paused)
+  if (!soundon || paused) {
+    AudioDebugLog("sfxsample suppressed: sample=%d/%s soundon=%d paused=%d",
+                  iSample, AudioDebugSampleName(iSample), soundon, paused);
     return;
+  }
 
   // Stop any currently playing sample for this index
   int iOldHandle = SampleHandleCar[iSample].handles[0];
@@ -2387,6 +2487,8 @@ void sfxsample(int iSample, int iVol)
   int iNewHandle = DIGISampleStart(&SampleFixed);
   // Store new handle
   SampleHandleCar[iSample].handles[0] = iNewHandle;
+  AudioDebugLog("sfxsample start: sample=%d/%s handle=%d scaled_vol=%d",
+                iSample, AudioDebugSampleName(iSample), iNewHandle, iScaledVol);
   // sti(); Enable interrupts
 
   // Clear previous sample association if handle was reused
@@ -2434,6 +2536,10 @@ void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
 
         // Store new handle
         SampleHandleCar[iSampleIndex].handles[iCarIndex] = iHandle;// SampleHandleCar[iSampleIndex].handles[iCarIndex]?
+        AudioDebugLog("sample2 start: car=%d sample=%d/%s vol=%d pitch=%d pan=%d offset=%d ptr=%p len=%u handle=%d",
+                      iCarIndex, iSampleIndex, AudioDebugSampleName(iSampleIndex),
+                      iVolume, iPitch, iPan, iByteOffset, pSample,
+                      SampleLen[iSampleIndex], iHandle);
         if (iHandle != -1) {
           // Clear any previous assignment of this handle
           iOldHandle = HandleSample[iHandle];
@@ -2445,7 +2551,13 @@ void sample2(int iCarIndex, int iSampleIndex, int iVolume, int iPitch, int iPan,
           HandleCar[iHandle] = iCarIndex;
         }
       }
+    } else {
+      AudioDebugLog("sample2 suppressed: car=%d sample=%d/%s paused=%d",
+                    iCarIndex, iSampleIndex, AudioDebugSampleName(iSampleIndex), paused);
     }
+  } else {
+    AudioDebugLog("sample2 suppressed: car=%d sample=%d/%s soundon=%d",
+                  iCarIndex, iSampleIndex, AudioDebugSampleName(iSampleIndex), soundon);
   }
 }
 
@@ -2793,9 +2905,23 @@ void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan)
       iSampleHandle = SampleHandleCar[iSample].handles[iCarIdx];
       if (iSampleHandle == -1) {
         // Start new sample playback
-        if (iVolume)
+        if (iVolume) {
+          AudioDebugLog("loopsample start-needed: car=%d sample=%d/%s vol=%d pitch=%d pan=%d",
+                        iCarIdx, iSample, AudioDebugSampleName(iSample),
+                        iVolume, iPitch, iPan);
           sample2(iCarIdx, iSample, iVolume, iPitch, iPan, SampleHandleCar[iSample].handles[iCarIdx]);
+        }
       } else if (iVolume) {
+#ifdef ROLLER_AUDIO_DEBUG
+        if (DIGISampleDone(iSampleHandle)) {
+          static int s_iLoopStaleLogs;
+          if (AudioDebugShouldLogLimited(&s_iLoopStaleLogs)) {
+            AudioDebugLog("loopsample stale-handle: car=%d sample=%d/%s handle=%u vol=%d pitch=%d pan=%d count=%d",
+                          iCarIdx, iSample, AudioDebugSampleName(iSample),
+                          iSampleHandle, iVolume, iPitch, iPan, s_iLoopStaleLogs);
+          }
+        }
+#endif
         // Clamp pitch value between 0x800 and 0x80000
         if (iPitch < 0x800)
           iPitch = 0x800;
@@ -2826,17 +2952,32 @@ void loopsample(int iCarIdx, int iSample, int iVolume, int iPitch, int iPan)
           lastpan[iCarIdx2] = iPanFixed;
         }
       } else {
+        AudioDebugLog("loopsample stop: car=%d sample=%d/%s handle=%u",
+                      iCarIdx, iSample, AudioDebugSampleName(iSample), iSampleHandle);
         DIGIStopSample(iSampleHandle);
         HandleSample[SampleHandleCar[iSample].handles[iCarIdx]] = -1;
         SampleHandleCar[iSample].handles[iCarIdx] = -1;
       }
     } else {
       // Stop playing sample
+      AudioDebugLog("loopsample forced-stop: car=%d sample=%d/%s handle=%d",
+                    iCarIdx, iSample, AudioDebugSampleName(iSample),
+                    SampleHandleCar[iSample].handles[iCarIdx]);
       DIGIStopSample(SampleHandleCar[iSample].handles[iCarIdx]);
       HandleSample[SampleHandleCar[iSample].handles[iCarIdx]] = -1;
       SampleHandleCar[iSample].handles[iCarIdx] = -1;
     }
   }
+#ifdef ROLLER_AUDIO_DEBUG
+  else if (iVolume) {
+    static int s_iLoopSuppressedLogs;
+    if (AudioDebugShouldLogLimited(&s_iLoopSuppressedLogs)) {
+      AudioDebugLog("loopsample suppressed: car=%d sample=%d/%s vol=%d soundon=%d ptr=%p count=%d",
+                    iCarIdx, iSample, AudioDebugSampleName(iSample), iVolume,
+                    soundon, SamplePtr[iSample], s_iLoopSuppressedLogs);
+    }
+  }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3353,6 +3494,8 @@ void loadasample(int iIndex)
   SDL_Log("loadasample: %s\n", szFilenameBuf);
   // load file into memory
   loadfile(szFilenameBuf, (void**)&SamplePtr[iIndex], &SampleLen[iIndex], 1);
+  AudioDebugLog("loadasample: idx=%d name=%s ptr=%p len=%u soundon=%d",
+                iIndex, szFilenameBuf, SamplePtr[iIndex], SampleLen[iIndex], soundon);
 
   // check if cheat sample flag is set and process if needed
   if (cheatsample && SamplePtr[iIndex]) {

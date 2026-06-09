@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0...4.0)
 project(roller C)
 
 set(CMAKE_COMPILE_WARNING_AS_ERROR "OFF" CACHE BOOL "Treat warnings as errors")
+option(ROLLER_AUDIO_DEBUG "Enable verbose digital audio diagnostics" OFF)
 
 if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
     add_compile_options(-Wall)
@@ -92,6 +93,9 @@ add_executable(roller
     PROJECTS/ROLLER/view.c
 )
 target_include_directories(roller PRIVATE external/Nuklear-4.13.2)
+if(ROLLER_AUDIO_DEBUG)
+    target_compile_definitions(roller PRIVATE ROLLER_AUDIO_DEBUG=1)
+endif()
 target_link_libraries(roller PRIVATE SDL3::SDL3)
 target_link_libraries(roller PRIVATE SDL3_image::SDL3_image)
 target_link_libraries(roller PRIVATE WildMidi::libwildmidi)

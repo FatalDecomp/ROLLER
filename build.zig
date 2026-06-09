@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const crash_debug = b.option(bool, "crash-debug", "Enable crash dump friendly C build flags") orelse false;
+    const audio_debug = b.option(bool, "audio-debug", "Enable verbose digital audio diagnostics") orelse false;
     const c_flags: []const []const u8 = if (crash_debug)
         &.{ "-fwrapv", "-fno-omit-frame-pointer" }
     else
@@ -32,6 +33,9 @@ pub fn build(b: *std.Build) void {
     // So that release builds are more "stable"
     exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
     exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    if (audio_debug) {
+        exe_mod.addCMacro("ROLLER_AUDIO_DEBUG", "1");
+    }
     exe_mod.addCSourceFiles(.{
         .flags = c_flags,
         .files = &.{

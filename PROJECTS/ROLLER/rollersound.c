@@ -2,8 +2,24 @@
 #include "roller.h"
 #include "snapshot.h"
 #include <limits.h>
+#include <stdarg.h>
 #include <wildmidi_lib.h>
 //-------------------------------------------------------------------------------------------------
+
+#ifdef ROLLER_AUDIO_DEBUG
+static void AudioDebugLog(const char *szFormat, ...)
+{
+  char szMessage[512];
+  va_list args;
+  va_start(args, szFormat);
+  vsnprintf(szMessage, sizeof(szMessage), szFormat, args);
+  va_end(args);
+  szMessage[sizeof(szMessage) - 1] = '\0';
+  SDL_Log("[AUD] %s", szMessage);
+}
+#else
+#define AudioDebugLog(...) ((void)0)
+#endif
 
 #pragma region MIDI
 
@@ -220,6 +236,55 @@ float digi_volume[NUM_DIGI_STREAMS];
 float digi_pan[NUM_DIGI_STREAMS]; // -1.0 (full left) to 1.0 (full right), 0.0 = center
 int digi_generation[NUM_DIGI_STREAMS];
 tSampleData digi_sample_data[NUM_DIGI_STREAMS];
+extern int DIGIMasterVolume;
+
+#ifdef ROLLER_AUDIO_DEBUG
+static int s_iDigiMissingStreamLogs;
+
+static int DIGIDebugActiveCountUnlocked(void)
+{
+  int iActive = 0;
+  for (int i = 0; i < NUM_DIGI_STREAMS; ++i) {
+    if (digi_stream[i])
+      ++iActive;
+  }
+  return iActive;
+}
+
+static void DIGIDebugDumpSlotsUnlocked(const char *szReason)
+{
+  AudioDebugLog("DIGI slots: %s active=%d master=%d",
+                szReason, DIGIDebugActiveCountUnlocked(), DIGIMasterVolume);
+  for (int i = 0; i < NUM_DIGI_STREAMS; ++i) {
+    if (digi_stream[i]) {
+      int iQueued = SDL_GetAudioStreamAvailable(digi_stream[i]);
+      AudioDebugLog("  slot=%d stream=%p gen=%d sample=%d len=%d queued=%d vol=%.3f pan=%.3f loop=%d",
+                    i,
+                    (void *)digi_stream[i],
+                    digi_generation[i],
+                    digi_sample_data[i].iSampleIndex,
+                    digi_sample_data[i].iLength,
+                    iQueued,
+                    digi_volume[i],
+                    digi_pan[i],
+                    digi_sample_data[i].pSample != NULL);
+    }
+  }
+}
+
+static void DIGIDebugLogMissingStream(const char *szOp, int iHandle)
+{
+  ++s_iDigiMissingStreamLogs;
+  if (s_iDigiMissingStreamLogs <= 64 || (s_iDigiMissingStreamLogs % 256) == 0) {
+    AudioDebugLog("%s ignored: handle=%d has no live stream missing_logs=%d",
+                  szOp, iHandle, s_iDigiMissingStreamLogs);
+  }
+}
+#else
+#define DIGIDebugActiveCountUnlocked() 0
+#define DIGIDebugDumpSlotsUnlocked(reason) ((void)0)
+#define DIGIDebugLogMissingStream(op, handle) ((void)0)
+#endif
 
 static void DIGILock(void)
 {
@@ -284,16 +349,30 @@ static void DIGIDestroyStreamSlot(int index)
 
 static bool DIGIQueueSampleData(SDL_AudioStream *stream, const tSampleData *data, float pan)
 {
-  if (!stream || !data || !data->pSample || data->iLength <= 0 || data->iLength > INT_MAX / 2)
+  if (!stream || !data || !data->pSample || data->iLength <= 0 || data->iLength > INT_MAX / 2) {
+    AudioDebugLog("DIGIQueueSampleData rejected: stream=%p data=%p sample=%p len=%d pan=%.3f",
+                  (void *)stream,
+                  (const void *)data,
+                  data ? data->pSample : NULL,
+                  data ? data->iLength : 0,
+                  pan);
     return false;
+  }
 
   int stereo_len = data->iLength * 2;
   Uint8 *stereo_buf = (Uint8 *)SDL_malloc(stereo_len);
-  if (!stereo_buf)
+  if (!stereo_buf) {
+    AudioDebugLog("DIGIQueueSampleData failed: malloc len=%d sample=%d",
+                  stereo_len, data->iSampleIndex);
     return false;
+  }
 
   mono_to_stereo_pan_u8((const Uint8 *)data->pSample, data->iLength, stereo_buf, pan);
   bool bQueued = SDL_PutAudioStreamData(stream, stereo_buf, stereo_len);
+  if (!bQueued) {
+    AudioDebugLog("DIGIQueueSampleData failed: SDL_PutAudioStreamData sample=%d len=%d stream=%p error=%s",
+                  data->iSampleIndex, stereo_len, (void *)stream, SDL_GetError());
+  }
   SDL_free(stereo_buf);
   return bQueued;
 }
@@ -332,11 +411,15 @@ void DIGI_AudioStreamCallback(void *userdata, SDL_AudioStream *stream, int addit
 int DIGISampleStart(tSampleData *data)
 {
   if (g_bSnapshotMode) return -1;
-  if (!data || !data->pSample || data->iLength <= 0)
+  if (!data || !data->pSample || data->iLength <= 0) {
+    AudioDebugLog("DIGISampleStart rejected: data=%p sample=%p len=%d",
+                  (void *)data, data ? data->pSample : NULL, data ? data->iLength : 0);
     return -1;
+  }
 
   DIGILock();
 
+  int iActiveBefore = DIGIDebugActiveCountUnlocked();
   int index = -1;
   for (int i = 0; i < NUM_DIGI_STREAMS; ++i) {
     if (!digi_stream[i] || DIGISampleDoneUnlocked(i)) {
@@ -345,7 +428,10 @@ int DIGISampleStart(tSampleData *data)
     }
   }
   if (index < 0) {
-    //SDL_Log("DIGISampleStart: No available audio stream slots for digital sample.");
+    AudioDebugLog("DIGISampleStart failed: no slots sample=%d len=%d vol=%d pitch=%d flags=%d pan=%d active=%d",
+                  data->iSampleIndex, data->iLength, data->iVolume,
+                  data->iPitch, data->iFlags, data->iPan, iActiveBefore);
+    DIGIDebugDumpSlotsUnlocked("no available slot");
     DIGIUnlock();
     return index; // No available stream slots
   }
@@ -355,6 +441,8 @@ int DIGISampleStart(tSampleData *data)
   int iPan = data->iPan;
 
   if (digi_stream[index]) {
+    AudioDebugLog("DIGISampleStart reusing done slot=%d sample=%d queued=%d",
+                  index, data->iSampleIndex, SDL_GetAudioStreamAvailable(digi_stream[index]));
     DIGIReleaseStreamSlot(index);
   }
   ++digi_generation[index];
@@ -371,10 +459,14 @@ int DIGISampleStart(tSampleData *data)
     spec.freq = 11025; // Sample rate
     spec.format = SDL_AUDIO_U8; // 8-bit unsigned audio
     digi_stream[index] = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    AudioDebugLog("DIGISampleStart open stream: slot=%d stream=%p sample=%d active_before=%d",
+                  index, (void *)digi_stream[index], data->iSampleIndex, iActiveBefore);
   }
 
   if (!digi_stream[index]) {
-    //SDL_Log("DIGISampleStart: Couldn't create audio stream: %s", SDL_GetError());
+    AudioDebugLog("DIGISampleStart failed: open stream sample=%d len=%d error=%s",
+                  data->iSampleIndex, data->iLength, SDL_GetError());
+    DIGIDebugDumpSlotsUnlocked("open stream failed");
     DIGIUnlock();
     return -1;
   }
@@ -398,9 +490,25 @@ int DIGISampleStart(tSampleData *data)
   SDL_SetAudioStreamGain(digi_stream[index], volume * master_volume);
 
   // Convert mono to stereo with pan applied and push to stream
-  DIGIQueueSampleData(digi_stream[index], data, fInitialPan);
+  bool bQueued = DIGIQueueSampleData(digi_stream[index], data, fInitialPan);
   SDL_UnlockAudioStream(digi_stream[index]);
   SDL_ResumeAudioStreamDevice(digi_stream[index]);
+
+  AudioDebugLog("DIGISampleStart ok: slot=%d gen=%d sample=%d len=%d vol=%d master=%d gain=%.3f pitch=%d flags=%d loop=%d pan=%d fpan=%.3f queued=%d active=%d",
+                index,
+                digi_generation[index],
+                data->iSampleIndex,
+                data->iLength,
+                data->iVolume,
+                DIGIMasterVolume,
+                volume * master_volume,
+                data->iPitch,
+                data->iFlags,
+                bLoop ? 1 : 0,
+                data->iPan,
+                fInitialPan,
+                bQueued ? SDL_GetAudioStreamAvailable(digi_stream[index]) : -1,
+                DIGIDebugActiveCountUnlocked());
 
   DIGIUnlock();
   return index;
@@ -436,6 +544,7 @@ int DIGIMasterVolume = 0x7FFF; // Default master volume (0-0x7FFF)
 /// <param name="volume">Volume level (0-0x7FFF).</param>
 void DIGISetMasterVolume(int volume)
 {
+  int iOldVolume = DIGIMasterVolume;
   if (volume > 0x7FFF) volume = 0x7FFF;
   if (volume < 0) volume = 0;
   DIGIMasterVolume = volume;
@@ -449,6 +558,10 @@ void DIGISetMasterVolume(int volume)
       SDL_SetAudioStreamGain(digi_stream[i], digi_volume[i] * normalized_volume);
       SDL_UnlockAudioStream(digi_stream[i]);
     }
+  }
+  if (iOldVolume != volume) {
+    AudioDebugLog("DIGISetMasterVolume: old=%d new=%d active=%d",
+                  iOldVolume, volume, DIGIDebugActiveCountUnlocked());
   }
   DIGIUnlock();
 }
@@ -470,8 +583,15 @@ void DIGIStopSample(int index)
   }
   DIGILock();
   if (digi_stream[index]) {
+    AudioDebugLog("DIGIStopSample: handle=%d gen=%d sample=%d queued=%d",
+                  index,
+                  digi_generation[index],
+                  digi_sample_data[index].iSampleIndex,
+                  SDL_GetAudioStreamAvailable(digi_stream[index]));
     DIGIReleaseStreamSlot(index);
     ++digi_generation[index];
+  } else {
+    DIGIDebugLogMissingStream("DIGIStopSample", index);
   }
   DIGIUnlock();
 }
@@ -479,12 +599,16 @@ void DIGIStopSample(int index)
 void DIGIClearAllStream()
 {
   DIGILock();
+  AudioDebugLog("DIGIClearAllStream: active_before=%d master=%d",
+                DIGIDebugActiveCountUnlocked(), DIGIMasterVolume);
+  DIGIDebugDumpSlotsUnlocked("before clear all");
   for (int i = 0; i < NUM_DIGI_STREAMS; i++) {
     if (digi_stream[i]) {
       DIGIDestroyStreamSlot(i);
       ++digi_generation[i];
     }
   }
+  AudioDebugLog("DIGIClearAllStream: active_after=%d", DIGIDebugActiveCountUnlocked());
   DIGIUnlock();
 }
 
@@ -495,6 +619,7 @@ void DIGISetSampleVolume(int iHandle, int iVolume)
 
   DIGILock();
   if (!digi_stream[iHandle]) {
+    DIGIDebugLogMissingStream("DIGISetSampleVolume", iHandle);
     DIGIUnlock();
     return; //DIGI stream not found
   }
@@ -519,6 +644,7 @@ void DIGISetPitch(int iHandle, int iPitch)
 
   DIGILock();
   if (!digi_stream[iHandle]) {
+    DIGIDebugLogMissingStream("DIGISetPitch", iHandle);
     DIGIUnlock();
     return; //DIGI stream not found
   }
@@ -536,6 +662,7 @@ void DIGISetPanLocation(int iHandle, int iPan)
     return;
   DIGILock();
   if (!digi_stream[iHandle]) {
+    DIGIDebugLogMissingStream("DIGISetPanLocation", iHandle);
     DIGIUnlock();
     return;
   }
