@@ -564,6 +564,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bImprovedJumpLanding = (int)g_bImprovedJumpLanding;
+    nk_layout_row_dynamic(pCtx, 20, 1);
+    if (nk_checkbox_label(pCtx, "Improved jump landing", &bImprovedJumpLanding)) {
+      g_bImprovedJumpLanding = (bool)bImprovedJumpLanding;
+      InputSaveConfig();
+    }
+
     int bNoclip = (int)g_bNoclip;
     nk_layout_row_dynamic(pCtx, 20, 1);
     if (nk_checkbox_label(pCtx, "Noclip", &bNoclip)) {

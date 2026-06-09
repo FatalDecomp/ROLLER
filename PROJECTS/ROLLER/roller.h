@@ -16,6 +16,7 @@ extern bool g_bNoCollisionLimit;
 extern bool g_bAirborneCollisions;
 extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
+extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
 extern bool g_bRepeat;
 extern int g_iNumTracks;
