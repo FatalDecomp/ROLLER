@@ -201,6 +201,7 @@ fn configureRenderQueue3DTests(
     const sdl = b.dependency("sdl", .{
         .target = target,
         .optimize = optimize,
+        .sanitize_c = .off,
         .lto = .none,
     });
     test_mod.addIncludePath(sdl.builder.path("include"));
@@ -401,6 +402,7 @@ fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optim
     const sdl = b.dependency("sdl", .{
         .target = target,
         .optimize = optimize,
+        .sanitize_c = .off,
         .lto = .none,
     });
     const sdl_lib = sdl.artifact("SDL3");
