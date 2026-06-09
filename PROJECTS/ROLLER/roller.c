@@ -81,6 +81,7 @@ bool g_bNoCollisionLimit = true;
 bool g_bAirborneCollisions = false;
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
 bool g_bFixCarMenuBug = true;
+bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;

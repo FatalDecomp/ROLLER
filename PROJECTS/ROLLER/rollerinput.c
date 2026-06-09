@@ -2220,6 +2220,14 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "ImprovedJumpLanding") ||
+      InputStringEqualsNoCase(szName, "FixJumpLanding")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bImprovedJumpLanding = bValue;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "HardwareRendering") ||
       InputStringEqualsNoCase(szName, "MenuRenderer")) {
     return InputParseRendererSetting(szValue);
@@ -2437,6 +2445,7 @@ void InputSaveConfig(void)
   fprintf(fp, "AirborneCollisions=%d\n", g_bAirborneCollisions ? 1 : 0);
   fprintf(fp, "AIAutomaticGears=%d\n", g_bAINoCheatStart ? 1 : 0);
   fprintf(fp, "FixCarMenuBug=%d\n", g_bFixCarMenuBug ? 1 : 0);
+  fprintf(fp, "ImprovedJumpLanding=%d\n", g_bImprovedJumpLanding ? 1 : 0);
   fprintf(fp, "HardwareRendering=%d\n",
           menu_render_get_pending_mode(GetMenuRenderer()) == MENU_RENDER_GPU ? 1 : 0);
 #if defined(_WIN32)

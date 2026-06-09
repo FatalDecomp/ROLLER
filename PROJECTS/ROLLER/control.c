@@ -5410,6 +5410,38 @@ int getangle(float fX, float fY)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static int should_skip_improved_jump_landing_inner_wall(int iChunk, int iWallSurface, float fLocalCoordY, float fWallBoundary)
+{
+  const tData *pData;
+  int iLaneSurface;
+
+  if (!g_bImprovedJumpLanding)
+    return 0;
+  if (TrakColour[iChunk][iWallSurface] >= 0)
+    return 0;
+  if ((TrakColour[iChunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) != 0)
+    return 0;
+
+  if (iWallSurface == TRAK_COLOUR_LEFT_WALL) {
+    if (fLocalCoordY <= fWallBoundary)
+      return 0;
+    iLaneSurface = TRAK_COLOUR_LEFT_LANE;
+  } else if (iWallSurface == TRAK_COLOUR_RIGHT_WALL) {
+    if (fLocalCoordY >= fWallBoundary)
+      return 0;
+    iLaneSurface = TRAK_COLOUR_RIGHT_LANE;
+  } else {
+    return 0;
+  }
+
+  pData = &localdata[iChunk];
+  return (TrakColour[iChunk][iLaneSurface] & SURFACE_FLAG_SKIP_RENDER) == 0
+      || pData->fTrackHalfLength * 2.0f <= CarBaseX
+      || pData->fTrackHalfWidth * 2.0f <= CarBaseX;
+}
+
+//-------------------------------------------------------------------------------------------------
 //00033000
 void landontrack(tCar *pCar)
 {
@@ -5686,7 +5718,8 @@ void landontrack(tCar *pCar)
       if (bRoofCheck && fRoofHeight > 0.0) {
         dWallPosition = TrakColour[iChunk][4] < 0 ? -pCurrentData->fTrackHalfWidth : -pCurrentData->fTrackHalfWidth - pTrackInfo->fRShoulderWidth;
         fWallBoundary = (float)dWallPosition;
-        if (fLocalCoordY - CarBaseY <= fWallBoundary) {
+        if (!should_skip_improved_jump_landing_inner_wall(iChunk, TRAK_COLOUR_RIGHT_WALL, fLocalCoordY, fWallBoundary)
+          && fLocalCoordY - CarBaseY <= fWallBoundary) {
           if (fDirectionYLocal < 0.0) {
             if (death_race)
               dDamageLeft = -fDirectionYLocal * 0.006 * 4.0;// Apply wall collision damage (4x in death race mode)
@@ -5766,7 +5799,8 @@ void landontrack(tCar *pCar)
       fInterpolatedBoundary = ((fLocalCoordX + pCurrentData->fTrackHalfLength) * fTrackHalfWidthNext - (fLocalCoordX - pCurrentData->fTrackHalfLength) * fTrackHalfWidth)
         / (pCurrentData->fTrackHalfLength
          * 2.0f);
-      if (fLocalCoordY + CarBaseY >= fInterpolatedBoundary) {
+      if (!should_skip_improved_jump_landing_inner_wall(iChunk, TRAK_COLOUR_LEFT_WALL, fLocalCoordY, fInterpolatedBoundary)
+        && fLocalCoordY + CarBaseY >= fInterpolatedBoundary) {
         if (fDirectionYLocal > 0.0) {
           if (death_race)
             dWallNormalY = fDirectionYLocal * 0.005 * 4.0;
