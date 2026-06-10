@@ -145,7 +145,7 @@ static Uint32 InputGetSDLInitFlags(void)
   if (InputUsingSDLDirectInput())
     return SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
 
-  return SDL_INIT_GAMEPAD;
+  return 0;
 }
 #endif
 
@@ -780,10 +780,6 @@ void InputRefreshDevices(void)
       InputOpenDevice(pJoystickIds[i], i);
     SDL_free(pJoystickIds);
   } else {
-    SDL_JoystickID *pGamepadIds = SDL_GetGamepads(&iCount);
-    for (int i = 0; pGamepadIds && i < iCount; ++i)
-      InputOpenDevice(pGamepadIds[i], i);
-    SDL_free(pGamepadIds);
     InputOpenWinMMDevices();
   }
 #else
@@ -817,6 +813,8 @@ eInputWindowsBackend InputGetWindowsBackend(void)
 
 void InputSetWindowsBackend(eInputWindowsBackend eBackend)
 {
+  Uint32 uiInitFlags;
+
   if (eBackend != INPUT_WINDOWS_BACKEND_SDL_DINPUT)
     eBackend = INPUT_WINDOWS_BACKEND_WINMM;
 
@@ -837,7 +835,8 @@ void InputSetWindowsBackend(eInputWindowsBackend eBackend)
   InputCloseAllDevices();
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
 
-  if (!SDL_InitSubSystem(InputGetSDLInitFlags())) {
+  uiInitFlags = InputGetSDLInitFlags();
+  if (uiInitFlags && !SDL_InitSubSystem(uiInitFlags)) {
     SDL_Log("InputSetWindowsBackend: SDL_InitSubSystem failed: %s", SDL_GetError());
     return;
   }
@@ -867,7 +866,7 @@ void InputInit(void)
   uiInitFlags = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
 #endif
 
-  if (!SDL_InitSubSystem(uiInitFlags)) {
+  if (uiInitFlags && !SDL_InitSubSystem(uiInitFlags)) {
     SDL_Log("InputInit: SDL_InitSubSystem failed: %s", SDL_GetError());
     return;
   }
@@ -1191,6 +1190,8 @@ static void InputMenuCollectDeviceState(
           *piButton1Pressed = 1;
         if (i == 1)
           *piButton2Pressed = 1;
+        if (i == 2 || i == 3)
+          *piCupSwitchPressed = 1;
       }
     }
   }
@@ -2495,6 +2496,57 @@ void InputSaveConfig(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static const char *InputGetGamepadButtonLabelName(SDL_GamepadButtonLabel eLabel)
+{
+  switch (eLabel) {
+    case SDL_GAMEPAD_BUTTON_LABEL_A:
+      return "A";
+    case SDL_GAMEPAD_BUTTON_LABEL_B:
+      return "B";
+    case SDL_GAMEPAD_BUTTON_LABEL_X:
+      return "X";
+    case SDL_GAMEPAD_BUTTON_LABEL_Y:
+      return "Y";
+    case SDL_GAMEPAD_BUTTON_LABEL_CROSS:
+      return "Cross";
+    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE:
+      return "Circle";
+    case SDL_GAMEPAD_BUTTON_LABEL_SQUARE:
+      return "Square";
+    case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE:
+      return "Triangle";
+    default:
+      break;
+  }
+
+  return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *InputGetGamepadButtonDisplayName(const tInputBinding *pBinding)
+{
+  tInputBinding binding;
+  tInputDevice *pDevice;
+  const char *szLabelName;
+
+  if (!pBinding || !pBinding->bGamepadInput)
+    return NULL;
+
+  binding = *pBinding;
+  pDevice = InputGetBindingDevice(&binding);
+  if (pDevice && pDevice->pGamepad) {
+    szLabelName = InputGetGamepadButtonLabelName(
+      SDL_GetGamepadButtonLabel(pDevice->pGamepad, (SDL_GamepadButton)pBinding->iInputIndex));
+    if (szLabelName)
+      return szLabelName;
+  }
+
+  return SDL_GetGamepadStringForButton((SDL_GamepadButton)pBinding->iInputIndex);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen)
 {
   if (!szOut || iOutLen <= 0)
@@ -2515,7 +2567,7 @@ void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen
       break;
     case INPUT_BINDING_JOYSTICK_BUTTON:
       if (pBinding->bGamepadInput) {
-        const char *szButtonName = SDL_GetGamepadStringForButton((SDL_GamepadButton)pBinding->iInputIndex);
+        const char *szButtonName = InputGetGamepadButtonDisplayName(pBinding);
         if (szButtonName && szButtonName[0]) {
           snprintf(szOut, (size_t)iOutLen, "%s", szButtonName);
           break;
