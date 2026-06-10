@@ -20,6 +20,7 @@
 #include "snapshot.h"
 #include "rollerinput.h"
 #include <fcntl.h>
+#include <stdio.h>
 #include <string.h>
 #ifdef IS_WINDOWS
 #include <io.h>
@@ -51,6 +52,7 @@ static char szFrontendConfigNewNameBuf[12];
 static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
+static char szFrontendConfigLastControllerName[128];
 
 //-------------------------------------------------------------------------------------------------
 
@@ -112,6 +114,22 @@ static int frontend_config_wrap_int(int iValue, int iMin, int iMax)
   if (iValue < iMin)
     return iMax;
   return iValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_clear_last_controller_name(void)
+{
+  szFrontendConfigLastControllerName[0] = '\0';
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_set_last_controller_name(const tInputBinding *pBinding)
+{
+  const char *szName = pBinding && pBinding->szName[0] ? pBinding->szName : "Controller";
+
+  snprintf(szFrontendConfigLastControllerName, sizeof(szFrontendConfigLastControllerName), "%s", szName);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -246,6 +264,7 @@ void frontend_config_enter(void)
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
+  frontend_config_clear_last_controller_name();
   {
     extern tColor palette[];
     memcpy(pal_addr, palette, 256 * sizeof(tColor));
@@ -1089,6 +1108,10 @@ void frontend_config_update(void)
           }
         }
 
+        if (iFrontendConfigControlsInEdit && szFrontendConfigLastControllerName[0]) {
+          menu_render_scaled_text(mr, 15, szFrontendConfigLastControllerName, font1_ascii, font1_offsets, 630, 12, 0xAB, 2u, 300, 630, pal_addr);
+        }
+
         // Handle active key mapping process
         if (!iFrontendConfigControlsInEdit || iFrontendConfigState != 4)
           goto RENDER_FRAME;
@@ -1173,6 +1196,7 @@ void frontend_config_update(void)
         controlrelease = -1;
 
         if (iCapturedControllerInput) {
+          frontend_config_set_last_controller_name(&capturedBinding);
           InputSetControllerBinding(control_edit, &capturedBinding);
           if (iFrontendConfigWheelDefineMode &&
               capturedBinding.eType == INPUT_BINDING_JOYSTICK_AXIS) {
@@ -1181,6 +1205,7 @@ void frontend_config_update(void)
             goto CHECK_CONTROL_INPUT;
           }
         } else {
+          frontend_config_clear_last_controller_name();
           InputSetKeyboardBinding(control_edit, iFoundKey);
           InputCaptureBegin();
         }
@@ -1211,6 +1236,7 @@ void frontend_config_update(void)
         // All controls mapped, exit editing mode
         iFrontendConfigControlsInEdit = 0;
         iFrontendConfigWheelDefineMode = 0;
+        frontend_config_clear_last_controller_name();
         control_edit = -1;
         enable_keyboard();
         InputSaveConfig();
@@ -1226,6 +1252,7 @@ void frontend_config_update(void)
         iFrontendConfigControlsInEdit = 0;
         iFrontendConfigWheelDefineMode = 0;
         iFrontendConfigAxisTuneActive = 0;
+        frontend_config_clear_last_controller_name();
         control_edit = -1;
       RENDER_FRAME:
               // Display any received network messages
@@ -1791,6 +1818,7 @@ void frontend_config_update(void)
                       memcpy(oldkeys, userkey, 0xCu);// Backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
                       InputBackupBindings();
+                      frontend_config_clear_last_controller_name();
                       InputCaptureBegin();
                       iFrontendConfigControlsInEdit = 1;
                       iFrontendConfigAxisTuneActive = 0;
@@ -1803,6 +1831,7 @@ void frontend_config_update(void)
                       memcpy(oldkeys, userkey, 0xCu);// Backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// Backup cheat keys
                       InputBackupBindings();
+                      frontend_config_clear_last_controller_name();
                       InputCaptureBegin();
                       iFrontendConfigControlsInEdit = 1;
                       iFrontendConfigAxisTuneActive = 0;
@@ -1824,6 +1853,7 @@ void frontend_config_update(void)
                       memcpy(oldkeys, userkey, 0xCu);// backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// backup cheat keys
                       InputBackupBindings();
+                      frontend_config_clear_last_controller_name();
                       InputCaptureBegin();
                       iFrontendConfigAxisTuneActive = 0;
                       controlrelease = -1;
@@ -1836,6 +1866,7 @@ void frontend_config_update(void)
                       memcpy(oldkeys, userkey, 0xCu);// backup current keys
                       memcpy(&oldkeys[12], &userkey[12], 2u);// backup cheat keys
                       InputBackupBindings();
+                      frontend_config_clear_last_controller_name();
                       InputCaptureBegin();
                       iFrontendConfigAxisTuneActive = 0;
                       controlrelease = -1;
