@@ -164,6 +164,54 @@ static int InputStringEqualsNoCase(const char *szA, const char *szB)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputStringContainsNoCase(const char *szText, const char *szNeedle)
+{
+  if (!szText || !szNeedle || !szNeedle[0])
+    return 0;
+
+  for (; *szText; ++szText) {
+    const char *szTextIt = szText;
+    const char *szNeedleIt = szNeedle;
+
+    while (*szTextIt && *szNeedleIt &&
+           tolower((unsigned char)*szTextIt) == tolower((unsigned char)*szNeedleIt)) {
+      ++szTextIt;
+      ++szNeedleIt;
+    }
+    if (!*szNeedleIt)
+      return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputGamepadTypeIsPlayStation(SDL_GamepadType eType)
+{
+  return eType == SDL_GAMEPAD_TYPE_PS3 ||
+    eType == SDL_GAMEPAD_TYPE_PS4 ||
+    eType == SDL_GAMEPAD_TYPE_PS5;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static SDL_GamepadType InputGetGamepadTypeForDevice(const tInputDevice *pDevice)
+{
+  SDL_GamepadType eType;
+
+  if (!pDevice || !pDevice->pGamepad)
+    return SDL_GAMEPAD_TYPE_UNKNOWN;
+
+  eType = SDL_GetRealGamepadType(pDevice->pGamepad);
+  if (eType == SDL_GAMEPAD_TYPE_UNKNOWN)
+    eType = SDL_GetGamepadType(pDevice->pGamepad);
+
+  return eType;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static char *InputTrim(char *szText)
 {
   char *szEnd;
@@ -596,6 +644,60 @@ static uint32 InputGetWinMMConnectedMask(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputNameLooksLikePlayStationController(const char *szName)
+{
+  if (!szName || !szName[0])
+    return 0;
+
+  if (InputStringContainsNoCase(szName, "xbox") ||
+      InputStringContainsNoCase(szName, "nintendo") ||
+      InputStringContainsNoCase(szName, "switch"))
+    return 0;
+
+  return InputStringContainsNoCase(szName, "playstation") ||
+    InputStringContainsNoCase(szName, "dualshock") ||
+    InputStringContainsNoCase(szName, "dual shock") ||
+    InputStringContainsNoCase(szName, "dualsense") ||
+    InputStringContainsNoCase(szName, "dual sense") ||
+    InputStringContainsNoCase(szName, "sony") ||
+    InputStringContainsNoCase(szName, "ps3") ||
+    InputStringContainsNoCase(szName, "ps4") ||
+    InputStringContainsNoCase(szName, "ps5") ||
+    InputStringEqualsNoCase(szName, "Wireless Controller");
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputWinMMDeviceDuplicatesSDLGamepad(const JOYCAPSA *pCaps)
+{
+  if (!pCaps)
+    return 0;
+
+  for (int i = 0; i < s_iNumDevices; ++i) {
+    const tInputDevice *pDevice = &s_pDevices[i];
+
+    if (!pDevice->bGamepad || !pDevice->pGamepad)
+      continue;
+
+    if (pDevice->unVendor && pDevice->unProduct &&
+        pDevice->unVendor == (uint16)pCaps->wMid &&
+        pDevice->unProduct == (uint16)pCaps->wPid)
+      return 1;
+
+    if (pDevice->szName[0] && pCaps->szPname[0] &&
+        InputStringEqualsNoCase(pDevice->szName, pCaps->szPname))
+      return 1;
+
+    if (InputGamepadTypeIsPlayStation(InputGetGamepadTypeForDevice(pDevice)) &&
+        InputNameLooksLikePlayStationController(pCaps->szPname))
+      return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputOpenWinMMDevice(UINT uJoyId)
 {
   JOYCAPSA caps;
@@ -605,6 +707,8 @@ static int InputOpenWinMMDevice(UINT uJoyId)
   if (joyGetDevCapsA(uJoyId, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
     return 0;
   if (!InputReadWinMMInfo(uJoyId, &info))
+    return 0;
+  if (InputWinMMDeviceDuplicatesSDLGamepad(&caps))
     return 0;
   if (!InputGrowDeviceList())
     return 0;
@@ -2495,6 +2599,57 @@ void InputSaveConfig(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static const char *InputGetGamepadButtonLabelName(SDL_GamepadButtonLabel eLabel)
+{
+  switch (eLabel) {
+    case SDL_GAMEPAD_BUTTON_LABEL_A:
+      return "A";
+    case SDL_GAMEPAD_BUTTON_LABEL_B:
+      return "B";
+    case SDL_GAMEPAD_BUTTON_LABEL_X:
+      return "X";
+    case SDL_GAMEPAD_BUTTON_LABEL_Y:
+      return "Y";
+    case SDL_GAMEPAD_BUTTON_LABEL_CROSS:
+      return "Cross";
+    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE:
+      return "Circle";
+    case SDL_GAMEPAD_BUTTON_LABEL_SQUARE:
+      return "Square";
+    case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE:
+      return "Triangle";
+    default:
+      break;
+  }
+
+  return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *InputGetGamepadButtonDisplayName(const tInputBinding *pBinding)
+{
+  tInputBinding binding;
+  tInputDevice *pDevice;
+  const char *szLabelName;
+
+  if (!pBinding || !pBinding->bGamepadInput)
+    return NULL;
+
+  binding = *pBinding;
+  pDevice = InputGetBindingDevice(&binding);
+  if (pDevice && pDevice->pGamepad) {
+    szLabelName = InputGetGamepadButtonLabelName(
+      SDL_GetGamepadButtonLabel(pDevice->pGamepad, (SDL_GamepadButton)pBinding->iInputIndex));
+    if (szLabelName)
+      return szLabelName;
+  }
+
+  return SDL_GetGamepadStringForButton((SDL_GamepadButton)pBinding->iInputIndex);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen)
 {
   if (!szOut || iOutLen <= 0)
@@ -2515,7 +2670,7 @@ void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen
       break;
     case INPUT_BINDING_JOYSTICK_BUTTON:
       if (pBinding->bGamepadInput) {
-        const char *szButtonName = SDL_GetGamepadStringForButton((SDL_GamepadButton)pBinding->iInputIndex);
+        const char *szButtonName = InputGetGamepadButtonDisplayName(pBinding);
         if (szButtonName && szButtonName[0]) {
           snprintf(szOut, (size_t)iOutLen, "%s", szButtonName);
           break;
