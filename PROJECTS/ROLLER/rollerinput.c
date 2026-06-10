@@ -145,7 +145,7 @@ static Uint32 InputGetSDLInitFlags(void)
   if (InputUsingSDLDirectInput())
     return SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
 
-  return SDL_INIT_GAMEPAD;
+  return 0;
 }
 #endif
 
@@ -160,54 +160,6 @@ static int InputStringEqualsNoCase(const char *szA, const char *szB)
     ++szB;
   }
   return *szA == *szB;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static int InputStringContainsNoCase(const char *szText, const char *szNeedle)
-{
-  if (!szText || !szNeedle || !szNeedle[0])
-    return 0;
-
-  for (; *szText; ++szText) {
-    const char *szTextIt = szText;
-    const char *szNeedleIt = szNeedle;
-
-    while (*szTextIt && *szNeedleIt &&
-           tolower((unsigned char)*szTextIt) == tolower((unsigned char)*szNeedleIt)) {
-      ++szTextIt;
-      ++szNeedleIt;
-    }
-    if (!*szNeedleIt)
-      return 1;
-  }
-
-  return 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static int InputGamepadTypeIsPlayStation(SDL_GamepadType eType)
-{
-  return eType == SDL_GAMEPAD_TYPE_PS3 ||
-    eType == SDL_GAMEPAD_TYPE_PS4 ||
-    eType == SDL_GAMEPAD_TYPE_PS5;
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static SDL_GamepadType InputGetGamepadTypeForDevice(const tInputDevice *pDevice)
-{
-  SDL_GamepadType eType;
-
-  if (!pDevice || !pDevice->pGamepad)
-    return SDL_GAMEPAD_TYPE_UNKNOWN;
-
-  eType = SDL_GetRealGamepadType(pDevice->pGamepad);
-  if (eType == SDL_GAMEPAD_TYPE_UNKNOWN)
-    eType = SDL_GetGamepadType(pDevice->pGamepad);
-
-  return eType;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -644,60 +596,6 @@ static uint32 InputGetWinMMConnectedMask(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static int InputNameLooksLikePlayStationController(const char *szName)
-{
-  if (!szName || !szName[0])
-    return 0;
-
-  if (InputStringContainsNoCase(szName, "xbox") ||
-      InputStringContainsNoCase(szName, "nintendo") ||
-      InputStringContainsNoCase(szName, "switch"))
-    return 0;
-
-  return InputStringContainsNoCase(szName, "playstation") ||
-    InputStringContainsNoCase(szName, "dualshock") ||
-    InputStringContainsNoCase(szName, "dual shock") ||
-    InputStringContainsNoCase(szName, "dualsense") ||
-    InputStringContainsNoCase(szName, "dual sense") ||
-    InputStringContainsNoCase(szName, "sony") ||
-    InputStringContainsNoCase(szName, "ps3") ||
-    InputStringContainsNoCase(szName, "ps4") ||
-    InputStringContainsNoCase(szName, "ps5") ||
-    InputStringEqualsNoCase(szName, "Wireless Controller");
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static int InputWinMMDeviceDuplicatesSDLGamepad(const JOYCAPSA *pCaps)
-{
-  if (!pCaps)
-    return 0;
-
-  for (int i = 0; i < s_iNumDevices; ++i) {
-    const tInputDevice *pDevice = &s_pDevices[i];
-
-    if (!pDevice->bGamepad || !pDevice->pGamepad)
-      continue;
-
-    if (pDevice->unVendor && pDevice->unProduct &&
-        pDevice->unVendor == (uint16)pCaps->wMid &&
-        pDevice->unProduct == (uint16)pCaps->wPid)
-      return 1;
-
-    if (pDevice->szName[0] && pCaps->szPname[0] &&
-        InputStringEqualsNoCase(pDevice->szName, pCaps->szPname))
-      return 1;
-
-    if (InputGamepadTypeIsPlayStation(InputGetGamepadTypeForDevice(pDevice)) &&
-        InputNameLooksLikePlayStationController(pCaps->szPname))
-      return 1;
-  }
-
-  return 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 static int InputOpenWinMMDevice(UINT uJoyId)
 {
   JOYCAPSA caps;
@@ -707,8 +605,6 @@ static int InputOpenWinMMDevice(UINT uJoyId)
   if (joyGetDevCapsA(uJoyId, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
     return 0;
   if (!InputReadWinMMInfo(uJoyId, &info))
-    return 0;
-  if (InputWinMMDeviceDuplicatesSDLGamepad(&caps))
     return 0;
   if (!InputGrowDeviceList())
     return 0;
@@ -884,10 +780,6 @@ void InputRefreshDevices(void)
       InputOpenDevice(pJoystickIds[i], i);
     SDL_free(pJoystickIds);
   } else {
-    SDL_JoystickID *pGamepadIds = SDL_GetGamepads(&iCount);
-    for (int i = 0; pGamepadIds && i < iCount; ++i)
-      InputOpenDevice(pGamepadIds[i], i);
-    SDL_free(pGamepadIds);
     InputOpenWinMMDevices();
   }
 #else
@@ -921,6 +813,8 @@ eInputWindowsBackend InputGetWindowsBackend(void)
 
 void InputSetWindowsBackend(eInputWindowsBackend eBackend)
 {
+  Uint32 uiInitFlags;
+
   if (eBackend != INPUT_WINDOWS_BACKEND_SDL_DINPUT)
     eBackend = INPUT_WINDOWS_BACKEND_WINMM;
 
@@ -941,7 +835,8 @@ void InputSetWindowsBackend(eInputWindowsBackend eBackend)
   InputCloseAllDevices();
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
 
-  if (!SDL_InitSubSystem(InputGetSDLInitFlags())) {
+  uiInitFlags = InputGetSDLInitFlags();
+  if (uiInitFlags && !SDL_InitSubSystem(uiInitFlags)) {
     SDL_Log("InputSetWindowsBackend: SDL_InitSubSystem failed: %s", SDL_GetError());
     return;
   }
@@ -971,7 +866,7 @@ void InputInit(void)
   uiInitFlags = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
 #endif
 
-  if (!SDL_InitSubSystem(uiInitFlags)) {
+  if (uiInitFlags && !SDL_InitSubSystem(uiInitFlags)) {
     SDL_Log("InputInit: SDL_InitSubSystem failed: %s", SDL_GetError());
     return;
   }
