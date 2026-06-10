@@ -413,6 +413,7 @@ void SOSTimerCallbackS7();
 void fade_palette_begin(int iPaletteBrightness);
 int fade_palette_update();
 int fade_palette_active();
+void fade_audio_restore();
 void fade_palette_finish();
 void fade_music_finish(int iTargetBrightness);
 void set_palette(int iBrightness);

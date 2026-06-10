@@ -648,6 +648,16 @@ static int fade_palette_timer_ready(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void fade_audio_restore()
+{
+  if (soundon) {
+    //sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
+    DIGISetMasterVolume(0x7FFF); // Set max volume for sound effects
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void fade_palette_begin(int iTargetBrightness)
 {
   if (sPaletteFadeState.iActive)
@@ -665,10 +675,8 @@ void fade_palette_begin(int iTargetBrightness)
   if (iTargetBrightness == 0)
     disable_keyboard();
 
-  if (iTargetBrightness == 32 && soundon) {
-    //sosDIGISetMasterVolume(DIGIHandle, 0x7FFF);
-    DIGISetMasterVolume(0x7FFF); // Set max volume for sound effects
-  }
+  if (iTargetBrightness == 32)
+    fade_audio_restore();
 
   int iCurrentBrightness = palette_brightness;
 

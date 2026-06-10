@@ -27,6 +27,14 @@ static int menu_render_wants_gpu_assets(MenuRenderer *renderer) {
             renderer->pendingMode == MENU_RENDER_GPU);
 }
 
+static MenuRenderMode menu_render_effective_mode(MenuRenderer *renderer) {
+    if (!renderer)
+        return MENU_RENDER_SOFTWARE;
+    if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
+        return MENU_RENDER_SOFTWARE;
+    return renderer->pendingMode;
+}
+
 static int menu_render_upload_gpu_slot(MenuRenderer *renderer, int slot) {
     if (!renderer || !renderer->gpu || slot < 0 || slot >= MENU_RENDER_MAX_SLOTS)
         return 0;
@@ -168,15 +176,18 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
 void menu_render_begin_fade(MenuRenderer *renderer, int direction,
                             int durationFrames) {
     if (!renderer) return;
-    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
+    if (menu_render_effective_mode(renderer) == MENU_RENDER_GPU) {
+        if (direction)
+            fade_audio_restore();
         menu_render_gpu_begin_fade(renderer->gpu, direction, durationFrames);
-    else
+    } else {
         menu_render_sw_begin_fade(renderer->sw, direction, durationFrames);
+    }
 }
 
 int menu_render_fade_active(MenuRenderer *renderer) {
     if (!renderer) return 0;
-    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
+    if (menu_render_effective_mode(renderer) == MENU_RENDER_GPU)
         return menu_render_gpu_fade_active(renderer->gpu);
     else
         return menu_render_sw_fade_active(renderer->sw);
