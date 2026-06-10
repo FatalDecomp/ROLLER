@@ -168,10 +168,13 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
 void menu_render_begin_fade(MenuRenderer *renderer, int direction,
                             int durationFrames) {
     if (!renderer) return;
-    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
+    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu) {
+        if (direction)
+            fade_audio_restore();
         menu_render_gpu_begin_fade(renderer->gpu, direction, durationFrames);
-    else
+    } else {
         menu_render_sw_begin_fade(renderer->sw, direction, durationFrames);
+    }
 }
 
 int menu_render_fade_active(MenuRenderer *renderer) {
