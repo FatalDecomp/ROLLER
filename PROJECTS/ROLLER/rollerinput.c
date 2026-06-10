@@ -1190,6 +1190,8 @@ static void InputMenuCollectDeviceState(
           *piButton1Pressed = 1;
         if (i == 1)
           *piButton2Pressed = 1;
+        if (i == 2 || i == 3)
+          *piCupSwitchPressed = 1;
       }
     }
   }
