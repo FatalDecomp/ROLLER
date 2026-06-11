@@ -1113,45 +1113,45 @@ void TimeTrialsEnter(int iDriverIdx)
   front_text(front_vga[2], &language_buffer[2752], font2_ascii, font2_offsets, 218, iRecordHeaderY, 0x8Fu, 0);
 
   // Check if track record exists and display record holder info
-  iRecordCar = RecordCars[TrackLoad];
+  iRecordCar = TrackRecordCar(TrackLoad);
   if (iRecordCar < 0) {
-    // Handle case where no track record exists
-    sprintf(buffer, "%s", RecordNames[TrackLoad]);
+  // Handle case where no track record exists
+    sprintf(buffer, "%s", TrackRecordName(TrackLoad));
     front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
     front_text(front_vga[2], "00:00:00", font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
   } else {
     // Display track record holder: name, company, car, and time
-    sprintf(buffer, "%s", RecordNames[TrackLoad]);
-    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 85, iRecordTextY, 0x8Fu, 0);
-    sprintf(buffer, "%s", CompanyNames[iRecordCar & 0xF]);
-    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 218, iRecordTextY, 0x8Fu, 0);
-    if ((iRecordCar & 0xFu) >= 8)
-      front_text(front_vga[2], "CHEAT", font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
-    else
-      display_block(scrbuf, front_vga[0], smallcars[(iRecordCar & 0x10) != 0][iRecordCar & 0xF], 165, iRecordTextY - 3, 0);
-    dRecordTime = RecordLaps[TrackLoad] * 100.0;
-    //_CHP();
-    iRecordCentiseconds = (int)dRecordTime;
-    if ((int)dRecordTime > 100000)
-      iRecordCentiseconds = 0;
-    buffer[1] = iRecordCentiseconds % 10 + 48;
-    iRecordTimeWork = iRecordCentiseconds / 10;
-    buffer[0] = iRecordTimeWork % 10 + 48;
-    buffer[2] = 0;
-    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 492, iRecordTextY, 0x8Fu, 0);
-    front_text(front_vga[2], ":", font2_ascii, font2_offsets, 467, iRecordTextY, 0x8Fu, 0);
-    iRecordTimeWork /= 10;
-    buffer[1] = iRecordTimeWork % 10 + 48;
-    iRecordTimeWork /= 10;
-    buffer[0] = iRecordTimeWork % 6 + 48;
-    buffer[2] = 0;
-    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 471, iRecordTextY, 0x8Fu, 0);
-    front_text(front_vga[2], ":", font2_ascii, font2_offsets, 488, iRecordTextY, 0x8Fu, 0);
-    iRecordTimeWork /= 6;
-    buffer[1] = iRecordTimeWork % 10 + 48;
-    buffer[2] = 0;
-    buffer[0] = iRecordTimeWork / 10 % 10 + 48;
-    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
+      sprintf(buffer, "%s", TrackRecordName(TrackLoad));
+      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 85, iRecordTextY, 0x8Fu, 0);
+      sprintf(buffer, "%s", CompanyNames[iRecordCar & 0xF]);
+      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 218, iRecordTextY, 0x8Fu, 0);
+      if ((iRecordCar & 0xFu) >= 8)
+        front_text(front_vga[2], "CHEAT", font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
+      else
+        display_block(scrbuf, front_vga[0], smallcars[(iRecordCar & 0x10) != 0][iRecordCar & 0xF], 165, iRecordTextY - 3, 0);
+      dRecordTime = TrackRecordLap(TrackLoad) * 100.0;
+      //_CHP();
+      iRecordCentiseconds = (int)dRecordTime;
+      if ((int)dRecordTime > 100000)
+        iRecordCentiseconds = 0;
+      buffer[1] = iRecordCentiseconds % 10 + 48;
+      iRecordTimeWork = iRecordCentiseconds / 10;
+      buffer[0] = iRecordTimeWork % 10 + 48;
+      buffer[2] = 0;
+      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 492, iRecordTextY, 0x8Fu, 0);
+      front_text(front_vga[2], ":", font2_ascii, font2_offsets, 467, iRecordTextY, 0x8Fu, 0);
+      iRecordTimeWork /= 10;
+      buffer[1] = iRecordTimeWork % 10 + 48;
+      iRecordTimeWork /= 10;
+      buffer[0] = iRecordTimeWork % 6 + 48;
+      buffer[2] = 0;
+      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 471, iRecordTextY, 0x8Fu, 0);
+      front_text(front_vga[2], ":", font2_ascii, font2_offsets, 488, iRecordTextY, 0x8Fu, 0);
+      iRecordTimeWork /= 6;
+      buffer[1] = iRecordTimeWork % 10 + 48;
+      buffer[2] = 0;
+      buffer[0] = iRecordTimeWork / 10 % 10 + 48;
+      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
   }
   front_text(front_vga[2], &language_buffer[2880], font2_ascii, font2_offsets, 218, iRecordTextY + 44, 0x8Fu, 0);// Display session fastest lap section header
   iFastestDriver = FastestLap;
@@ -3574,7 +3574,7 @@ void save_champ(int iSlot)
 
   pbySaveBuffer = (char *)getbuffer(0x800u);    // Allocate 2KB buffer for save data
   pbyBufferStart = pbySaveBuffer;
-  *pbySaveBuffer = TrackLoad;
+  *pbySaveBuffer = TrackLoad == TRACK_LOAD_COMMUNITY ? 1 : TrackLoad;
   pBufPlus1 = pbySaveBuffer + 1;
   byCompetitorsFlags = competitors;
   if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0)
@@ -3874,6 +3874,8 @@ int load_champ_begin(int iSlot)
       }
       tick_on = 0;
       TrackLoad = *pFileBuf;                    // BASIC GAME SETTINGS: Load track, competitors, texture/cheat flags
+      if (TrackLoad < 1 || TrackLoad >= TRACK_LOAD_COMMUNITY)
+        TrackLoad = 1;
       byGameSettings = pFileBuf[1];
       competitors = byGameSettings & 0x1F;      // Parse game settings byte: bits 0-4=competitors, bit 5=textures, bit 6=cheat, bit 7=network cheat
       if ((byGameSettings & 0x20) != 0)

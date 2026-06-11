@@ -24,6 +24,8 @@
 #define PACKET_ID_MESSAGE       0x686C6373
 #define PACKET_ID_MULTIPLE      0x686C6374
 
+#define NETWORK_COMMUNITY_TRACK_FILENAME (ROLLER_MAX_PATH - 16)
+
 //-------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -58,6 +60,8 @@ typedef struct {
   int32 iNetworkChampOn;
   int32 iNetworkSlot;
   char default_names[16][9];
+  char szCommunityTrack[NETWORK_COMMUNITY_TRACK_FILENAME];
+  uint32 uiCommunityTrackCRC;
 } tTransmitInitPacket;
 
 //-------------------------------------------------------------------------------------------------
@@ -85,6 +89,8 @@ typedef struct
   int iLevel;
   int iCompetitors;
   int iDamageLevel;
+  char szCommunityTrack[NETWORK_COMMUNITY_TRACK_FILENAME];
+  uint32 uiCommunityTrackCRC;
 } tPlayerInfoPacket;
 
 //-------------------------------------------------------------------------------------------------

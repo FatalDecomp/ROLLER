@@ -42,6 +42,7 @@ void SnapshotEnsureMenuRenderer(void);
 int InitSDL(char *data_root, const char *midi_root);
 void InitFATDATA(const char *szDataRoot);
 void InitREPLAYS(const char *szDataRoot);
+void InitTRACKS(const char *szDataRoot);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();

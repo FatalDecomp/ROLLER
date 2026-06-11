@@ -445,8 +445,11 @@ void finish_race()
           if (iLapTimeIndex)
             dRunningLapTime = Car[carorder[iLapTimeCarIndex - 1]].fRunningLapTime;
             //dRunningLapTime = Car[nearcall[3][iLapTimeCarIndex + 3]].fRunningLapTime;
+          else if (game_track == TRACK_LOAD_COMMUNITY &&
+                   TrackRecordCar(game_track) < 0)
+            dRunningLapTime = 60.0;
           else
-            dRunningLapTime = RecordLaps[game_track];
+            dRunningLapTime = TrackRecordLap(game_track);
           Car[iLapTimeCarId].fRunningLapTime = (float)dRunningLapTime + fRandomLapVariation;
           iRaceTimeCarId = iLapTimeCarId;
           Car[iRaceTimeCarId].fTotalRaceTime = Car[iRaceTimeCarId].fRunningLapTime + Car[iRaceTimeCarId].fTotalRaceTime;
@@ -458,7 +461,11 @@ void finish_race()
       }
     }
     fTotalRaceTime = Car[carorder[0]].fTotalRaceTime;// Calculate final race positions based on total race times
-    fReferenceLapTime = RecordLaps[game_track];
+    if (game_track == TRACK_LOAD_COMMUNITY &&
+        TrackRecordCar(game_track) < 0)
+      fReferenceLapTime = 60.0f;
+    else
+      fReferenceLapTime = TrackRecordLap(game_track);
     if (fReferenceLapTime < 10.0)
       fReferenceLapTime = 10.0;
     if (iAiCarCount > 0) {
@@ -903,7 +910,7 @@ void dodamage(tCar *pCar, float fDamage)
         }
         iGameTrack = game_track;
         pCar->nChangeMateCooldown = 1080;
-        ++RecordKills[iGameTrack];
+        TrackRecordIncrementKills(iGameTrack);
         iCurrentDriverIdx = pCar->iDriverIdx;
         if (iCurrentDriverIdx == ViewType[0]) {
           if (iCurrentDriverIdx == player1_car)

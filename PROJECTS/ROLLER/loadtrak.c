@@ -15,6 +15,17 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <ctype.h>
+#ifdef IS_WINDOWS
+#include <io.h>
+#else
+#define _GNU_SOURCE
+#include <dirent.h>
+#include <fnmatch.h>
+#ifndef FNM_CASEFOLD
+#define FNM_CASEFOLD 0
+#endif
+#endif
 //-------------------------------------------------------------------------------------------------
 
 tSurface surface[14] =      //000A5FA8
@@ -80,6 +91,299 @@ uint8 *start_f;             //00176ABC
 int TrackFlags;             //00176AC0
 int meof;                   //00176AC4
 tSubdivide Subdivide[MAX_TRACK_CHUNKS];  //00176AC8
+char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][MAX_COMMUNITY_TRACK_FILENAME];
+int g_iCommunityTrackCount = 0;
+int g_iCommunityTrackSel = -1;
+int g_iCommunityTrackTop = 0;
+int g_iCommunityTrackMissing = 0;
+uint32 g_uiCommunityTrackCRC = 0;
+static char g_szCommunityTrackDir[16] = "../TRACKS";
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_compare(const void *pFirst, const void *pSecond)
+{
+  return strcmp((const char *)pFirst, (const char *)pSecond);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_stricmp(const char *szFirst, const char *szSecond)
+{
+  while (*szFirst && *szSecond) {
+    int iFirst = toupper((unsigned char)*szFirst);
+    int iSecond = toupper((unsigned char)*szSecond);
+
+    if (iFirst != iSecond)
+      return iFirst - iSecond;
+
+    ++szFirst;
+    ++szSecond;
+  }
+
+  return toupper((unsigned char)*szFirst) - toupper((unsigned char)*szSecond);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_find(const char *szName)
+{
+  for (int iTrackIdx = 0; iTrackIdx < g_iCommunityTrackCount; ++iTrackIdx) {
+    if (community_track_stricmp(g_aszCommunityTracks[iTrackIdx], szName) == 0)
+      return iTrackIdx;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void community_track_clamp_top(void)
+{
+  int iMaxTop = g_iCommunityTrackCount - 8;
+
+  if (iMaxTop < 0)
+    iMaxTop = 0;
+  if (g_iCommunityTrackTop > iMaxTop)
+    g_iCommunityTrackTop = iMaxTop;
+  if (g_iCommunityTrackTop < 0)
+    g_iCommunityTrackTop = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_store_filename(char *szDst, const char *szFileName)
+{
+  size_t uiFileNameLen = strlen(szFileName);
+
+  if (uiFileNameLen == 0 ||
+      uiFileNameLen >= MAX_COMMUNITY_TRACK_FILENAME)
+    return 0;
+
+  memcpy(szDst, szFileName, uiFileNameLen + 1);
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_is_trk_file(const char *szFileName)
+{
+  const char *szDot = strrchr(szFileName, '.');
+
+  if (!szDot)
+    return 0;
+  return community_track_stricmp(szDot, ".TRK") == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int community_track_scan_directory(const char *szDirectory,
+                                          int *piFileCount)
+{
+  int iFoundDirectory = 0;
+
+#ifdef IS_WINDOWS
+  struct _finddata_t fileinfo;
+  char szPattern[32];
+  intptr_t handle;
+
+  snprintf(szPattern, sizeof(szPattern), "%s/*", szDirectory);
+  handle = _findfirst(szPattern, &fileinfo);
+  if (handle != -1) {
+    iFoundDirectory = -1;
+    do {
+      if (*piFileCount >= MAX_COMMUNITY_TRACKS)
+        break;
+
+      if ((fileinfo.attrib & _A_SUBDIR) == 0 &&
+          community_track_is_trk_file(fileinfo.name)) {
+        if (community_track_store_filename(
+                g_aszCommunityTracks[*piFileCount], fileinfo.name))
+          ++*piFileCount;
+      }
+    } while (_findnext(handle, &fileinfo) == 0);
+
+    _findclose(handle);
+  }
+#else
+  DIR *pDir = opendir(szDirectory);
+
+  if (pDir) {
+    struct dirent *pEntry;
+
+    iFoundDirectory = -1;
+    while ((pEntry = readdir(pDir)) != NULL &&
+           *piFileCount < MAX_COMMUNITY_TRACKS) {
+      if (community_track_is_trk_file(pEntry->d_name)) {
+        if (community_track_store_filename(
+                g_aszCommunityTracks[*piFileCount], pEntry->d_name))
+          ++*piFileCount;
+      }
+    }
+
+    closedir(pDir);
+  }
+#endif
+
+  return iFoundDirectory;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void scan_community_tracks(void)
+{
+  char szPreviousSelection[MAX_COMMUNITY_TRACK_FILENAME] = "";
+  int iFileCount = 0;
+
+  if (g_iCommunityTrackSel >= 0 &&
+      g_iCommunityTrackSel < g_iCommunityTrackCount) {
+    strcpy(szPreviousSelection, g_aszCommunityTracks[g_iCommunityTrackSel]);
+  }
+
+  if (community_track_scan_directory("../TRACKS", &iFileCount))
+    strcpy(g_szCommunityTrackDir, "../TRACKS");
+  else if (community_track_scan_directory("./TRACKS", &iFileCount))
+    strcpy(g_szCommunityTrackDir, "./TRACKS");
+
+  g_iCommunityTrackCount = iFileCount;
+  if (iFileCount > 0)
+    qsort(g_aszCommunityTracks, iFileCount, MAX_COMMUNITY_TRACK_FILENAME,
+          community_track_compare);
+
+  if (iFileCount <= 0) {
+    g_iCommunityTrackSel = -1;
+    g_iCommunityTrackTop = 0;
+    g_uiCommunityTrackCRC = 0;
+    return;
+  }
+
+  if (szPreviousSelection[0])
+    g_iCommunityTrackSel = community_track_find(szPreviousSelection);
+  if (g_iCommunityTrackSel < 0)
+    g_iCommunityTrackSel = 0;
+
+  community_track_clamp_top();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int community_track_select_by_name(const char *szName, uint32 uiExpectedCRC,
+                                   int iRequireCRC)
+{
+  const char *szPath;
+  uint32 uiActualCRC;
+  int iTrackIdx;
+
+  if (!szName || !szName[0])
+    return 0;
+
+  scan_community_tracks();
+  iTrackIdx = community_track_find(szName);
+  if (iTrackIdx < 0)
+    return 0;
+
+  g_iCommunityTrackSel = iTrackIdx;
+  szPath = community_track_path();
+  uiActualCRC = community_track_crc(szPath);
+  if (iRequireCRC && uiActualCRC != uiExpectedCRC) {
+    g_iCommunityTrackSel = -1;
+    g_uiCommunityTrackCRC = 0;
+    return 0;
+  }
+
+  g_uiCommunityTrackCRC = uiActualCRC;
+  TrackLoad = TRACK_LOAD_COMMUNITY;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+const char *community_track_path(void)
+{
+  static char szPath[ROLLER_MAX_PATH];
+
+  if (g_iCommunityTrackSel < 0 ||
+      g_iCommunityTrackSel >= g_iCommunityTrackCount)
+    return NULL;
+
+  snprintf(szPath, sizeof(szPath), "%s/%s", g_szCommunityTrackDir,
+           g_aszCommunityTracks[g_iCommunityTrackSel]);
+  return szPath;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+const char *community_records_path(void)
+{
+  static char szPath[ROLLER_MAX_PATH];
+
+  snprintf(szPath, sizeof(szPath), "%s/RECORDS.REC", g_szCommunityTrackDir);
+  return szPath;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int community_track_available(void)
+{
+  const char *szPath;
+  FILE *pFile;
+
+  if (TrackLoad != TRACK_LOAD_COMMUNITY)
+    return -1;
+
+  szPath = community_track_path();
+  if (!szPath)
+    return 0;
+
+  pFile = ROLLERfopen(szPath, "rb");
+  if (!pFile)
+    return 0;
+
+  fclose(pFile);
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+uint32 community_track_crc(const char *szPath)
+{
+  static uint32 uiCrcTable[256];
+  static int iCrcTableReady = 0;
+  uint32 uiCrc = 0xFFFFFFFFu;
+  FILE *pFile;
+  uint8 byBuffer[4096];
+  int iBytesRead;
+
+  if (!iCrcTableReady) {
+    for (int iTableIdx = 0; iTableIdx < 256; ++iTableIdx) {
+      uint32 uiEntry = (uint32)iTableIdx;
+
+      for (int iBitIdx = 0; iBitIdx < 8; ++iBitIdx) {
+        if (uiEntry & 1u)
+          uiEntry = (uiEntry >> 1) ^ 0xEDB88320u;
+        else
+          uiEntry >>= 1;
+      }
+      uiCrcTable[iTableIdx] = uiEntry;
+    }
+    iCrcTableReady = -1;
+  }
+
+  if (!szPath)
+    return 0;
+
+  pFile = ROLLERfopen(szPath, "rb");
+  if (!pFile)
+    return 0;
+
+  while ((iBytesRead = (int)fread(byBuffer, 1, sizeof(byBuffer), pFile)) > 0) {
+    for (int iByteIdx = 0; iByteIdx < iBytesRead; ++iByteIdx)
+      uiCrc = (uiCrc >> 8) ^ uiCrcTable[(uiCrc ^ byBuffer[iByteIdx]) & 0xFFu];
+  }
+
+  fclose(pFile);
+  return uiCrc ^ 0xFFFFFFFFu;
+}
 
 //-------------------------------------------------------------------------------------------------
 //0004AF80
@@ -230,6 +534,7 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   unsigned int uiGroundColourOffset; // [esp+26Ch] [ebp-20h]
   int *pTowerBasePtr; // [esp+270h] [ebp-1Ch]
   unsigned int uiGroundPtOffset; // [esp+274h] [ebp-18h]
+  const char *szTrackFile; // [ROLLER]
 
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
   bMinimalMode = iPreviewMode;
@@ -250,20 +555,36 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
     } while (iCarIdx < numcars);
   }
   pFile_2 = 0;
-  if ((unsigned int)iTrackIdx_1 <= 0x18) {
-    pFile = ROLLERfopen(names[iTrackIdx_1], "r");     // Open and validate track file
+  szTrackFile = NULL;
+  if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
+    szTrackFile = community_track_path();
+    if (!szTrackFile) {
+      g_iCommunityTrackSel = -1;
+      g_uiCommunityTrackCRC = 0;
+      return;
+    }
+  } else if ((unsigned int)iTrackIdx_1 <= 0x18) {
+    szTrackFile = names[iTrackIdx_1];
+  }
+  if (szTrackFile) {
+    pFile = ROLLERfopen(szTrackFile, "r");     // Open and validate track file
     if (!pFile) {
+      if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
+        g_iCommunityTrackSel = -1;
+        g_uiCommunityTrackCRC = 0;
+        return;
+      }
       ErrorBoxExit("Track %d not found\n", iTrackIdx_1);
       //__asm { int     10h; -VIDEO - SET VIDEO MODE }
       //printf("Track %d not found\n", iTrackIdx_1);
       //doexit();
     }
     fclose(pFile);
-    iCompactedFileLength = getcompactedfilelength(names[iTrackIdx_1]);
+    iCompactedFileLength = getcompactedfilelength(szTrackFile);
     if ((int16)iCompactedFileLength == 8224)// Check if file is compacted (magic number 8224)
     {
-      iFileLength = ROLLERfilelength(names[iTrackIdx_1]);
-      //iFileHandle_1 = ROLLERopen(names[iTrackIdx_1], 0);
+      iFileLength = ROLLERfilelength(szTrackFile);
+      //iFileHandle_1 = ROLLERopen(szTrackFile, 0);
       //iFileLength = filelength(iFileHandle_1);
       //close(iFileHandle_1);
       if (bMinimalMode)
@@ -272,7 +593,7 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
         pTrackBuffer_1 = (uint8 *)getbuffer(iFileLength + 1);
       pData = pTrackBuffer_1;
       pCurrDataPtr = pTrackBuffer_1;
-      pFile_2 = ROLLERfopen(names[iTrackIdx_1], "rb");
+      pFile_2 = ROLLERfopen(szTrackFile, "rb");
       fread(pData, iFileLength, 1u, pFile_2);
       iCompactedFlag = 0;
       pData[iFileLength] = 26;
@@ -283,8 +604,8 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
         pTrackBuffer = (uint8 *)getbuffer(iCompactedFileLength + 1);
       pData = pTrackBuffer;
       pCurrDataPtr = pTrackBuffer;
-      loadcompactedfile(names[iTrackIdx_1], pTrackBuffer);
-      pFile_1 = ROLLERfopen(names[iTrackIdx_1], "r");
+      loadcompactedfile(szTrackFile, pTrackBuffer);
+      pFile_1 = ROLLERfopen(szTrackFile, "r");
       pData[iCompactedFileLength] = 26;
       pFile_2 = pFile_1;
       iCompactedFlag = -1;
@@ -911,7 +1232,9 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   }
   if (iTrackIdx_1 >= 0) {
     readline2(&pCurrDataPtr, "i", &actualtrack);// Read actual track ID and validate against requested
-    if (iCompactedFlag && replaytype != 2 && iTrackIdx_1 != actualtrack && !bMinimalMode) {
+    if (iCompactedFlag && replaytype != 2 &&
+        iTrackIdx_1 != TRACK_LOAD_COMMUNITY &&
+        iTrackIdx_1 != actualtrack && !bMinimalMode) {
       ErrorBoxExit("Cheat!!!! Track %d is really track %d!!!\n", iTrackIdx_1, actualtrack);
       //__asm { int     10h; -VIDEO - SET VIDEO MODE }
       //printf("Cheat!!!! Track %d is really track %d!!!\n", iTrackIdx_1, actualtrack);
@@ -924,17 +1247,17 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
     }
     if (meof) {
       iDifficulty = 0;                          // Use default values if EOF reached
-      iTrackLapOffset = 6 * actualtrack;
+      iTemp3 = actualtrack;
+      if (iTemp3 < 0 || iTemp3 > 24)
+        iTemp3 = 1;
       do {
-        iLapValue = track_laps[0][iTrackLapOffset++];
+        iLapValue = track_laps[iTemp3][iDifficulty];
         cur_laps[iDifficulty] = iLapValue;
         ++iDifficulty;
-        //iLapValue = track_laps[0][iTrackLapOffset++];
-        //*(_DWORD *)&samplemin[2 * iDifficulty + 498] = iLapValue;// offset into cur_laps
       } while (iDifficulty < 6);
-      cur_mapsize = mapsize[actualtrack];
-      dTrackZ = TrackZs[actualtrack];
-      cur_mapsect = mapsect[actualtrack];
+      cur_mapsize = mapsize[iTemp3];
+      dTrackZ = TrackZs[iTemp3];
+      cur_mapsect = mapsect[iTemp3];
       cur_TrackZ = (float)dTrackZ;
     }
     fclose(pFile_2);

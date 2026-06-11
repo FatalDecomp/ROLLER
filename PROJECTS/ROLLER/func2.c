@@ -13,6 +13,7 @@
 #include "types.h"
 #include "view.h"
 #include "function.h"
+#include "loadtrak.h"
 #include "date.h"
 #include "moving.h"
 #include "graphics.h"
@@ -38,6 +39,18 @@
 
 static int s_iPauseAxisTuneActive;
 static int s_iPauseAxisTuneField;
+
+#define COMMUNITY_RECORDS_MAGIC 0x31435243u
+#define COMMUNITY_RECORDS_ENTRY_SIZE 25
+#define COMMUNITY_RECORDS_MAX_FILE (4 + COMMUNITY_RECORDS_ENTRY_SIZE * 4096)
+#define COMMUNITY_RECORD_DEFAULT_LAP 5999.99f
+
+static float s_fCommunityRecordLap = COMMUNITY_RECORD_DEFAULT_LAP;
+static int s_iCommunityRecordCar = -1;
+static int s_iCommunityRecordKills = 0;
+static char s_szCommunityRecordName[9] = "-----";
+static uint32 s_uiCommunityRecordCRC = 0;
+static int s_iCommunityRecordDirty = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -3738,7 +3751,8 @@ void save_fatal_config()
   fprintf(fp, "Record=%i\n", replay_record);
   fprintf(fp, "Game=%i\n", game_type);
   fprintf(fp, "Racers=%i\n", competitors);
-  fprintf(fp, "Track=%i\n", TrackLoad);
+  fprintf(fp, "Track=%i\n",
+          TrackLoad == TRACK_LOAD_COMMUNITY ? 1 : TrackLoad);
   fprintf(fp, "Players=%i\n", player_type);
   fprintf(fp, "Ariel1=%s\n", default_names[0]);
   fprintf(fp, "Ariel2=%s\n", default_names[1]);
@@ -3999,6 +4013,8 @@ void load_fatal_config()
       iTemp2[0] = TrackLoad;
       getconfigvalue(pData2, "Track", iTemp2, -1, 24);
       TrackLoad = iTemp2[0];
+      if (TrackLoad == TRACK_LOAD_COMMUNITY)
+        TrackLoad = 1;
       getconfigvalue(pData2, "Players", &player_type, 0, 4);
 
       // process second player name
@@ -4550,6 +4566,343 @@ void volumebar(int iX, int iVolume)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static void CommunityRecordCopyName(char *szDest, const char *szName)
+{
+  if (!szName || !szName[0])
+    szName = "-----";
+
+  strncpy(szDest, szName, 8);
+  szDest[8] = '\0';
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void CommunityRecordReset(void)
+{
+  s_fCommunityRecordLap = COMMUNITY_RECORD_DEFAULT_LAP;
+  s_iCommunityRecordCar = -1;
+  s_iCommunityRecordKills = 0;
+  CommunityRecordCopyName(s_szCommunityRecordName, "-----");
+  s_uiCommunityRecordCRC = 0;
+  s_iCommunityRecordDirty = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CommunityRecordSetDefaults(uint32 uiCRC)
+{
+  CommunityRecordReset();
+  s_uiCommunityRecordCRC = uiCRC;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CommunityRecordHasData(void)
+{
+  return s_iCommunityRecordCar >= 0 ||
+         s_iCommunityRecordKills != 0 ||
+         s_fCommunityRecordLap < COMMUNITY_RECORD_DEFAULT_LAP;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int CommunityRecordReadFile(uint8 **ppBuffer, int *piFileLength)
+{
+  const char *szPath = community_records_path();
+  uint8 *pBuffer;
+  int iFileHandle;
+  int iFileLength;
+  int iBytesRead;
+
+  *ppBuffer = NULL;
+  *piFileLength = 0;
+
+  iFileLength = ROLLERfilelength(szPath);
+  if (iFileLength < 4 ||
+      iFileLength > COMMUNITY_RECORDS_MAX_FILE ||
+      ((iFileLength - 4) % COMMUNITY_RECORDS_ENTRY_SIZE) != 0)
+    return 0;
+
+  iFileHandle = ROLLERopen(szPath, O_BINARY);
+  if (iFileHandle == -1)
+    return 0;
+
+  pBuffer = (uint8 *)getbuffer((uint32)iFileLength);
+  iBytesRead = read(iFileHandle, pBuffer, iFileLength);
+  close(iFileHandle);
+
+  if (iBytesRead != iFileLength ||
+      (uint32)ReadUnalignedInt(pBuffer) != COMMUNITY_RECORDS_MAGIC) {
+    fre((void **)&pBuffer);
+    return 0;
+  }
+
+  *ppBuffer = pBuffer;
+  *piFileLength = iFileLength;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CommunityRecordLoadEntry(const uint8 *pEntry)
+{
+  int iLapCentiseconds = ReadUnalignedInt(pEntry + 4);
+
+  s_fCommunityRecordLap = (float)iLapCentiseconds * 0.01f;
+  s_iCommunityRecordCar = ReadUnalignedInt(pEntry + 8);
+  s_iCommunityRecordKills = ReadUnalignedInt(pEntry + 12);
+  memcpy(s_szCommunityRecordName, pEntry + 16, 9);
+  s_szCommunityRecordName[8] = '\0';
+
+  if (s_fCommunityRecordLap < 0.4f) {
+    s_fCommunityRecordLap = COMMUNITY_RECORD_DEFAULT_LAP;
+    s_iCommunityRecordCar = -1;
+    s_iCommunityRecordKills = 0;
+    CommunityRecordCopyName(s_szCommunityRecordName, "-----");
+  }
+
+  if (s_iCommunityRecordKills < 0)
+    s_iCommunityRecordKills = 0;
+
+  if (!s_szCommunityRecordName[0])
+    CommunityRecordCopyName(s_szCommunityRecordName, "-----");
+
+  s_iCommunityRecordDirty = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void CommunityRecordLoadForCurrentTrack(void)
+{
+  uint8 *pBuffer;
+  uint8 *pEntry;
+  uint32 uiCRC = g_uiCommunityTrackCRC;
+  int iFileLength;
+  int iEntryCount;
+
+  if (!uiCRC) {
+    if (s_iCommunityRecordDirty)
+      CommunityRecordSaveCurrent();
+    CommunityRecordReset();
+    return;
+  }
+
+  if (s_uiCommunityRecordCRC == uiCRC)
+    return;
+
+  if (s_iCommunityRecordDirty)
+    CommunityRecordSaveCurrent();
+
+  CommunityRecordSetDefaults(uiCRC);
+
+  if (!CommunityRecordReadFile(&pBuffer, &iFileLength))
+    return;
+
+  iEntryCount = (iFileLength - 4) / COMMUNITY_RECORDS_ENTRY_SIZE;
+  pEntry = pBuffer + 4;
+  for (int iEntryIdx = 0; iEntryIdx < iEntryCount; ++iEntryIdx) {
+    if ((uint32)ReadUnalignedInt(pEntry) == uiCRC) {
+      CommunityRecordLoadEntry(pEntry);
+      break;
+    }
+    pEntry += COMMUNITY_RECORDS_ENTRY_SIZE;
+  }
+
+  fre((void **)&pBuffer);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void CommunityRecordWriteEntry(uint8 *pEntry)
+{
+  uint8 *pWritePtr = pEntry;
+  int iLapCentiseconds = (int)((double)s_fCommunityRecordLap * 100.0);
+
+  pWritePtr = copy_int(pWritePtr, s_uiCommunityRecordCRC);
+  pWritePtr = copy_int(pWritePtr, (uint32)iLapCentiseconds);
+  pWritePtr = copy_int(pWritePtr, (uint32)s_iCommunityRecordCar);
+  pWritePtr = copy_int(pWritePtr, (uint32)s_iCommunityRecordKills);
+  memcpy(pWritePtr, s_szCommunityRecordName, 9);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void CommunityRecordSaveCurrent(void)
+{
+  const char *szPath = community_records_path();
+  uint8 *pExisting = NULL;
+  uint8 *pBuffer;
+  uint8 *pEntry;
+  int iExistingLength = 0;
+  int iNewLength;
+  int iEntryOffset = -1;
+  FILE *pFile;
+
+  if (!s_uiCommunityRecordCRC || !CommunityRecordHasData()) {
+    s_iCommunityRecordDirty = 0;
+    return;
+  }
+
+  if (CommunityRecordReadFile(&pExisting, &iExistingLength)) {
+    int iEntryCount = (iExistingLength - 4) / COMMUNITY_RECORDS_ENTRY_SIZE;
+
+    pEntry = pExisting + 4;
+    for (int iEntryIdx = 0; iEntryIdx < iEntryCount; ++iEntryIdx) {
+      if ((uint32)ReadUnalignedInt(pEntry) == s_uiCommunityRecordCRC) {
+        iEntryOffset = (int)(pEntry - pExisting);
+        break;
+      }
+      pEntry += COMMUNITY_RECORDS_ENTRY_SIZE;
+    }
+  }
+
+  if (iEntryOffset < 0)
+    iNewLength = (iExistingLength ? iExistingLength : 4) +
+                 COMMUNITY_RECORDS_ENTRY_SIZE;
+  else
+    iNewLength = iExistingLength;
+
+  pBuffer = (uint8 *)getbuffer((uint32)iNewLength);
+  if (pExisting) {
+    memcpy(pBuffer, pExisting, iExistingLength);
+    fre((void **)&pExisting);
+  } else {
+    copy_int(pBuffer, COMMUNITY_RECORDS_MAGIC);
+  }
+
+  if (iEntryOffset < 0)
+    iEntryOffset = iNewLength - COMMUNITY_RECORDS_ENTRY_SIZE;
+
+  CommunityRecordWriteEntry(pBuffer + iEntryOffset);
+
+  pFile = ROLLERfopen(szPath, "wb");
+  if (pFile) {
+    if ((int)fwrite(pBuffer, 1, iNewLength, pFile) == iNewLength)
+      s_iCommunityRecordDirty = 0;
+    fclose(pFile);
+  }
+
+  fre((void **)&pBuffer);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int TrackRecordIsStockTrack(int iTrackIdx)
+{
+  return iTrackIdx >= 0 && iTrackIdx < 25;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+float TrackRecordLap(int iTrackIdx)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    CommunityRecordLoadForCurrentTrack();
+    return s_fCommunityRecordLap;
+  }
+
+  if (TrackRecordIsStockTrack(iTrackIdx))
+    return RecordLaps[iTrackIdx];
+
+  return 128.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int TrackRecordCar(int iTrackIdx)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    CommunityRecordLoadForCurrentTrack();
+    return s_iCommunityRecordCar;
+  }
+
+  if (TrackRecordIsStockTrack(iTrackIdx))
+    return RecordCars[iTrackIdx];
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int TrackRecordKills(int iTrackIdx)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    CommunityRecordLoadForCurrentTrack();
+    return s_iCommunityRecordKills;
+  }
+
+  if (TrackRecordIsStockTrack(iTrackIdx))
+    return RecordKills[iTrackIdx];
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+const char *TrackRecordName(int iTrackIdx)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    CommunityRecordLoadForCurrentTrack();
+    return s_szCommunityRecordName;
+  }
+
+  if (TrackRecordIsStockTrack(iTrackIdx))
+    return RecordNames[iTrackIdx];
+
+  return "-----";
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void TrackRecordSet(int iTrackIdx, float fLap, int iCar, const char *szName)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    if (!g_uiCommunityTrackCRC)
+      return;
+
+    if (s_uiCommunityRecordCRC != g_uiCommunityTrackCRC)
+      CommunityRecordLoadForCurrentTrack();
+
+    s_uiCommunityRecordCRC = g_uiCommunityTrackCRC;
+    s_fCommunityRecordLap = fLap;
+    s_iCommunityRecordCar = iCar;
+    CommunityRecordCopyName(s_szCommunityRecordName, szName);
+    s_iCommunityRecordDirty = -1;
+    CommunityRecordSaveCurrent();
+    return;
+  }
+
+  if (!TrackRecordIsStockTrack(iTrackIdx))
+    return;
+
+  RecordCars[iTrackIdx] = iCar;
+  RecordLaps[iTrackIdx] = fLap;
+  CommunityRecordCopyName(RecordNames[iTrackIdx], szName);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void TrackRecordIncrementKills(int iTrackIdx)
+{
+  if (iTrackIdx == TRACK_LOAD_COMMUNITY) {
+    if (!g_uiCommunityTrackCRC)
+      return;
+
+    if (s_uiCommunityRecordCRC != g_uiCommunityTrackCRC)
+      CommunityRecordLoadForCurrentTrack();
+
+    s_uiCommunityRecordCRC = g_uiCommunityTrackCRC;
+    ++s_iCommunityRecordKills;
+    s_iCommunityRecordDirty = -1;
+    return;
+  }
+
+  if (TrackRecordIsStockTrack(iTrackIdx))
+    ++RecordKills[iTrackIdx];
+}
+
+//-------------------------------------------------------------------------------------------------
 //0001CA60
 void LoadRecords()
 {
@@ -4576,6 +4929,8 @@ void LoadRecords()
   uint8 *pBuf; // [esp+0h] [ebp-24h] BYREF
   int iMaxRecords; // [esp+4h] [ebp-20h]
   //int iRecordNamePos3; // [esp+8h] [ebp-1Ch]
+
+  CommunityRecordReset();
 
   iFileLength = ROLLERfilelength("dgkfc.rec");
 
@@ -4740,6 +5095,7 @@ void SaveRecords()
   }
 
   fre((void**)&pBuffer); // Free the allocated buffer
+  CommunityRecordSaveCurrent();
 }
 
 //-------------------------------------------------------------------------------------------------

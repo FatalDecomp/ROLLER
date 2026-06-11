@@ -18,6 +18,7 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include <ctype.h>
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -43,9 +44,161 @@ static float fFrontendTrackZoom = 0.0f;
 static float fFrontendTrackAnimatedZoom = 0.0f;
 static float fFrontendTrackTargetZoom = 0.0f;
 
+#define FRONTEND_TRACK_ARROW_SLOT 12
+#define FRONTEND_TRACK_COMMUNITY_FONT_SLOT 10
+#define FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS 8
+#define FRONTEND_TRACK_COMMUNITY_LIST_LEFT 58
+#define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 168
+#define FRONTEND_TRACK_SELECTED_NAME_RIGHT 470
+#define MENU_COLOR_RED 0xE7u
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *s_aszFrontendTrackNames[8] = {
+    "AUTO ARIEL",
+    "DESILVA",
+    "PULSE",
+    "GLOBAL",
+    "MILLION PLUS",
+    "MISSION",
+    "ZIZIN",
+    "REISE WAGON"
+};
+
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_display_name(char *szDisplayName,
+                                               size_t uiDisplayNameSize,
+                                               const char *szFileName,
+                                               int iCompact)
+{
+  size_t uiNameLen;
+
+  if (!uiDisplayNameSize)
+    return;
+
+  strncpy(szDisplayName, szFileName, uiDisplayNameSize - 1);
+  szDisplayName[uiDisplayNameSize - 1] = '\0';
+
+  uiNameLen = strlen(szDisplayName);
+  if (uiNameLen > 4 &&
+      szDisplayName[uiNameLen - 4] == '.' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 3]) == 'T' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 2]) == 'R' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 1]) == 'K') {
+    szDisplayName[uiNameLen - 4] = '\0';
+    uiNameLen -= 4;
+  }
+
+  if (iCompact && uiNameLen > 13 && uiDisplayNameSize > 14) {
+    szDisplayName[11] = '.';
+    szDisplayName[12] = '.';
+    szDisplayName[13] = '.';
+    szDisplayName[14] = '\0';
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_track_select_is_community(void)
+{
+  return TrackLoad == TRACK_LOAD_COMMUNITY;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_show_community_selection(void)
+{
+  int iMaxTop = g_iCommunityTrackCount - FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS;
+
+  if (iMaxTop < 0)
+    iMaxTop = 0;
+
+  if (g_iCommunityTrackSel < 0) {
+    g_iCommunityTrackTop = 0;
+    iFrontendTrackSelectedTrack = 8;
+    g_uiCommunityTrackCRC = 0;
+    return;
+  }
+
+  if (g_iCommunityTrackSel < g_iCommunityTrackTop)
+    g_iCommunityTrackTop = g_iCommunityTrackSel;
+  if (g_iCommunityTrackSel >=
+      g_iCommunityTrackTop + FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS)
+    g_iCommunityTrackTop = g_iCommunityTrackSel -
+                           FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS + 1;
+
+  if (g_iCommunityTrackTop > iMaxTop)
+    g_iCommunityTrackTop = iMaxTop;
+  if (g_iCommunityTrackTop < 0)
+    g_iCommunityTrackTop = 0;
+
+  iFrontendTrackSelectedTrack = g_iCommunityTrackSel - g_iCommunityTrackTop;
+  if (iFrontendTrackSelectedTrack < 0)
+    iFrontendTrackSelectedTrack = 0;
+  if (iFrontendTrackSelectedTrack >= FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS)
+    iFrontendTrackSelectedTrack = FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS - 1;
+
+  g_uiCommunityTrackCRC = community_track_crc(community_track_path());
+  CommunityRecordLoadForCurrentTrack();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_clamp_community_cursor(void)
+{
+  int iLastVisibleRow;
+
+  if (g_iCommunityTrackCount <= 0) {
+    g_iCommunityTrackTop = 0;
+    iFrontendTrackSelectedTrack = 8;
+    return;
+  }
+
+  if (iFrontendTrackSelectedTrack >= 8)
+    return;
+
+  if (iFrontendTrackSelectedTrack < 0)
+    iFrontendTrackSelectedTrack = 0;
+
+  iLastVisibleRow = g_iCommunityTrackCount - g_iCommunityTrackTop - 1;
+  if (iLastVisibleRow >= FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS)
+    iLastVisibleRow = FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS - 1;
+  if (iFrontendTrackSelectedTrack > iLastVisibleRow)
+    iFrontendTrackSelectedTrack = iLastVisibleRow;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_begin_track_animation(void)
+{
+  if (iFrontendTrackAnimationTimer)
+    iFrontendTrackAnimationTimer = 0;
+  else if (fFrontendTrackTargetZoom < 0.0f)
+    fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_select_community_row(int iRow)
+{
+  const char *szPath;
+  int iTrackIdx = g_iCommunityTrackTop + iRow;
+
+  if (iTrackIdx < 0 || iTrackIdx >= g_iCommunityTrackCount)
+    return;
+
+  g_iCommunityTrackSel = iTrackIdx;
+  szPath = community_track_path();
+  g_uiCommunityTrackCRC = community_track_crc(szPath);
+  CommunityRecordLoadForCurrentTrack();
+  iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+  frontend_track_select_begin_track_animation();
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -108,10 +261,13 @@ static void frontend_track_select_apply_type_switch(void)
   if (switch_types == 1 && competitors == 1)
     competitors = 16;
   switch_types = 0;
-  if (game_type == 1)
+  if (game_type == 1) {
+    if (TrackLoad == TRACK_LOAD_COMMUNITY)
+      TrackLoad = 1;
     Race = ((uint8)TrackLoad - 1) & 7;
-  else
+  } else {
     network_champ_on = 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -165,35 +321,53 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                      pal_addr);
   }
 
-  menu_render_text(mr, 2, "AUTO ARIEL", font2_ascii, font2_offsets,
-                   sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "DESILVA", font2_ascii, font2_offsets,
-                   sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "PULSE", font2_ascii, font2_offsets,
-                   sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "GLOBAL", font2_ascii, font2_offsets,
-                   sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets,
-                   sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "MISSION", font2_ascii, font2_offsets,
-                   sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "ZIZIN", font2_ascii, font2_offsets,
-                   sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u,
-                   pal_addr);
-  menu_render_text(mr, 2, "REISE WAGON", font2_ascii, font2_offsets,
-                   sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u,
-                   pal_addr);
+  if (frontend_track_select_is_community()) {
+    int iArrowX = sel_posns[0].x + 155;
+    int iUpArrowBlock = g_iCommunityTrackTop > 0 ? 79 : 78;
+    int iDownArrowBlock =
+        g_iCommunityTrackTop + FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS <
+                g_iCommunityTrackCount ? 81 : 80;
 
-  iBlockIdx = (TrackLoad - 1) / 8;
+    for (int iRow = 0; iRow < FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS; ++iRow) {
+      int iTrackIdx = g_iCommunityTrackTop + iRow;
+
+      if (iTrackIdx < g_iCommunityTrackCount) {
+        char szDisplayName[MAX_COMMUNITY_TRACK_FILENAME];
+
+        frontend_track_select_display_name(
+            szDisplayName, sizeof(szDisplayName),
+            g_aszCommunityTracks[iTrackIdx], -1);
+        menu_render_scaled_text(mr, 2, szDisplayName,
+                                font2_ascii, font2_offsets,
+                                FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
+                                sel_posns[iRow].y + 7, 0x8Fu, 2u,
+                                FRONTEND_TRACK_COMMUNITY_LIST_LEFT,
+                                FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
+                                pal_addr);
+      }
+    }
+    menu_render_sprite(mr, FRONTEND_TRACK_ARROW_SLOT, iUpArrowBlock,
+                       iArrowX, sel_posns[0].y, 255, pal_addr);
+    menu_render_sprite(mr, FRONTEND_TRACK_ARROW_SLOT, iDownArrowBlock,
+                       iArrowX, sel_posns[7].y, 255, pal_addr);
+  } else {
+    for (int iRow = 0; iRow < 8; ++iRow) {
+      menu_render_text(mr, 2, s_aszFrontendTrackNames[iRow],
+                       font2_ascii, font2_offsets,
+                       sel_posns[iRow].x + 132, sel_posns[iRow].y + 7,
+                       0x8Fu, 2u, pal_addr);
+    }
+  }
+
+  iBlockIdx = frontend_track_select_is_community() ? 0 : (TrackLoad - 1) / 8;
   *piBlockIdx = iBlockIdx;
 
-  if (TrackLoad >= 0) {
+  if (frontend_track_select_is_community() && !community_track_available()) {
+    menu_render_text(mr, 15, "NO TRACK SELECTED", font1_ascii, font1_offsets,
+                     PREVIEW_X + PREVIEW_W / 2,
+                     TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
+                     pal_addr);
+  } else if (TrackLoad >= 0) {
     menu_render_load_track_mesh(mr, palette);
     if (iFrontendTrackAnimationTimer)
       menu_render_draw_track_preview(mr, fFrontendTrackZoom, 1280,
@@ -219,24 +393,47 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                      0x8Fu, 1u, pal_addr);
     menu_render_text(mr, 15, &language_buffer[4608], font1_ascii,
                      font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
-    if (RecordCars[TrackLoad] < 0) {
-      sprintf(buffer, "%s", RecordNames[TrackLoad]);
+    if (TrackRecordCar(TrackLoad) < 0) {
+      sprintf(buffer, "%s", TrackRecordName(TrackLoad));
     } else {
-      int iTotalCentiseconds = (int)(RecordLaps[TrackLoad] * 100.0);
+      int iRecordCar = TrackRecordCar(TrackLoad);
+      int iTotalCentiseconds = (int)(TrackRecordLap(TrackLoad) * 100.0);
       int iRecordMinutes = iTotalCentiseconds / 6000;
       int iRecordSeconds = (iTotalCentiseconds / 100) % 60;
       int iRecordCentiseconds = iTotalCentiseconds % 100;
 
       sprintf(buffer, "%s - %s - %02i:%02i:%02i",
-              RecordNames[TrackLoad], CompanyNames[RecordCars[TrackLoad] & 0xF],
+              TrackRecordName(TrackLoad),
+              CompanyNames[iRecordCar & 0xF],
               iRecordMinutes, iRecordSeconds, iRecordCentiseconds);
     }
     menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52,
                      0x8Fu, 1u, pal_addr);
   }
 
-  menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
-  if (TrackLoad <= 0) {
+  if (frontend_track_select_is_community()) {
+    menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
+                            "COMMUNITY", font3_ascii, font3_offsets, 540,
+                            326, 0x8Fu, 1u, 450, 635, pal_addr);
+    menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
+                            "TRACKS", font3_ascii, font3_offsets, 540, 360,
+                            0x8Fu, 1u, 450, 635, pal_addr);
+  } else {
+    menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
+  }
+  if (frontend_track_select_is_community()) {
+    if (g_iCommunityTrackSel >= 0 &&
+        g_iCommunityTrackSel < g_iCommunityTrackCount) {
+      char szDisplayName[MAX_COMMUNITY_TRACK_FILENAME];
+
+      frontend_track_select_display_name(
+          szDisplayName, sizeof(szDisplayName),
+          g_aszCommunityTracks[g_iCommunityTrackSel], 0);
+      menu_render_scaled_text(mr, 15, szDisplayName, font1_ascii,
+                              font1_offsets, 190, 356, 0x8Fu, 0, 190,
+                              FRONTEND_TRACK_SELECTED_NAME_RIGHT, pal_addr);
+    }
+  } else if (TrackLoad <= 0) {
     if (TrackLoad)
       menu_render_text(mr, 2, "EDITOR", font2_ascii, font2_offsets, 190, 350,
                        0x8Fu, 0, pal_addr);
@@ -278,8 +475,10 @@ static void frontend_track_select_update_animation(int iFrameCount,
       iFrontendTrackSpeechPending = 0;
       if (TrackLoad >= 0)
         loadtrack(TrackLoad, -1);
-      loadtracksample(TrackLoad);
-      iFrontendTrackSpeechPending = -1;
+      if (TrackLoad != TRACK_LOAD_COMMUNITY) {
+        loadtracksample(TrackLoad);
+        iFrontendTrackSpeechPending = -1;
+      }
       fFrontendTrackZoom = cur_TrackZ;
       iFrontendTrackSoundFlag = -1;
       fFrontendTrackTargetZoom = (cur_TrackZ + -10000000.0f) * 0.05f;
@@ -291,7 +490,8 @@ static void frontend_track_select_update_animation(int iFrameCount,
   }
 
   if (iStartedFadeIn) {
-    loadtracksample(TrackLoad);
+    if (TrackLoad != TRACK_LOAD_COMMUNITY)
+      loadtracksample(TrackLoad);
     iFrontendTrackSpeechPending = 0;
     frontendsample(0x8000);
     frames = 0;
@@ -315,7 +515,10 @@ static void frontend_track_select_handle_input(int iBlockIdx)
   int iCupOffset = 8 * iBlockIdx;
   int iTrackInCup = iFrontendTrackSelectedTrack + 1;
   unsigned int uiKeyDirection = 0;
-  int iCalculatedTrack = 8 * iBlockIdx + iFrontendTrackSelectedTrack + 1;
+  int iCommunityMode = frontend_track_select_is_community();
+  int iCalculatedTrack =
+      iCommunityMode ? TRACK_LOAD_COMMUNITY :
+                       8 * iBlockIdx + iFrontendTrackSelectedTrack + 1;
 
   while (fatkbhit()) {
     uint8 byKey = fatgetch();
@@ -332,29 +535,45 @@ static void frontend_track_select_handle_input(int iBlockIdx)
         }
       }
     } else if (byKey <= 0xDu) {
-      if ((iFrontendTrackSelectedTrack != 8 &&
-           iFrontendTrackCurrentTrack != iCalculatedTrack) ||
-          iFrontendTrackSelectedTrack == 8) {
-        remove_frontendspeech();
-        iFrontendTrackSpeechPending = 0;
-        sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-      }
-      if (iFrontendTrackCurrentTrack == iCalculatedTrack && SoundCard &&
-          frontendspeechhandle != -1 && DIGISampleDone(frontendspeechhandle)) {
-        frontendspeechhandle = -1;
-        frontendsample(0x8000);
-      }
-      if (iFrontendTrackSelectedTrack == 8) {
-        frontend_track_select_request_exit();
-      } else if (game_type != 1 &&
-                 iFrontendTrackCurrentTrack != iCupOffset + iTrackInCup) {
-        sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
-        iFrontendTrackSpeechPending = 0;
-        iFrontendTrackCurrentTrack = iCupOffset + iTrackInCup;
-        if (iFrontendTrackAnimationTimer)
-          iFrontendTrackAnimationTimer = 0;
-        else if (fFrontendTrackTargetZoom < 0.0f)
-          fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+      if (iCommunityMode) {
+        if (iFrontendTrackSelectedTrack == 8) {
+          remove_frontendspeech();
+          iFrontendTrackSpeechPending = 0;
+          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+          frontend_track_select_request_exit();
+        } else if (game_type != 1) {
+          int iTrackIdx = g_iCommunityTrackTop + iFrontendTrackSelectedTrack;
+
+          if (iTrackIdx >= 0 && iTrackIdx < g_iCommunityTrackCount) {
+            remove_frontendspeech();
+            iFrontendTrackSpeechPending = 0;
+            sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+            frontend_track_select_select_community_row(
+                iFrontendTrackSelectedTrack);
+          }
+        }
+      } else {
+        if ((iFrontendTrackSelectedTrack != 8 &&
+             iFrontendTrackCurrentTrack != iCalculatedTrack) ||
+            iFrontendTrackSelectedTrack == 8) {
+          remove_frontendspeech();
+          iFrontendTrackSpeechPending = 0;
+          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+        }
+        if (iFrontendTrackCurrentTrack == iCalculatedTrack && SoundCard &&
+            frontendspeechhandle != -1 && DIGISampleDone(frontendspeechhandle)) {
+          frontendspeechhandle = -1;
+          frontendsample(0x8000);
+        }
+        if (iFrontendTrackSelectedTrack == 8) {
+          frontend_track_select_request_exit();
+        } else if (game_type != 1 &&
+                   iFrontendTrackCurrentTrack != iCupOffset + iTrackInCup) {
+          sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+          iFrontendTrackSpeechPending = 0;
+          iFrontendTrackCurrentTrack = iCupOffset + iTrackInCup;
+          frontend_track_select_begin_track_animation();
+        }
       }
     } else if (byKey >= 0x1Bu) {
       if (byKey <= 0x1Bu) {
@@ -363,21 +582,30 @@ static void frontend_track_select_handle_input(int iBlockIdx)
         sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
         frontend_track_select_request_exit();
       } else if (byKey == 32 && game_type != 1 && TrackLoad > 0) {
-        iFrontendTrackCurrentTrack += 8;
         sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
         iFrontendTrackSpeechPending = 0;
-        if (iFrontendTrackCurrentTrack > 8 &&
-            iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
+        if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
+            TrackLoad == TRACK_LOAD_COMMUNITY) {
+          iFrontendTrackCurrentTrack = 1;
+          iFrontendTrackSelectedTrack = 0;
+        } else {
           iFrontendTrackCurrentTrack += 8;
-        if (iFrontendTrackCurrentTrack > 16 &&
-            iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
-          iFrontendTrackCurrentTrack += 8;
-        if (iFrontendTrackCurrentTrack > 24)
-          iFrontendTrackCurrentTrack -= 24;
-        if (iFrontendTrackAnimationTimer)
-          iFrontendTrackAnimationTimer = 0;
-        else if (fFrontendTrackTargetZoom < 0.0f)
-          fFrontendTrackTargetZoom = -fFrontendTrackTargetZoom;
+          if (iFrontendTrackCurrentTrack > 8 &&
+              iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
+            iFrontendTrackCurrentTrack += 8;
+          if (iFrontendTrackCurrentTrack > 16 &&
+              iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
+            iFrontendTrackCurrentTrack += 8;
+          if (iFrontendTrackCurrentTrack > 24) {
+            iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+            scan_community_tracks();
+            frontend_track_select_show_community_selection();
+          } else {
+            iFrontendTrackSelectedTrack =
+                ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+          }
+        }
+        frontend_track_select_begin_track_animation();
       }
     }
 
@@ -386,7 +614,40 @@ static void frontend_track_select_handle_input(int iBlockIdx)
   }
 
   if (uiKeyDirection) {
-    if (uiKeyDirection > 1) {
+    if (iCommunityMode) {
+      if (uiKeyDirection > 1) {
+        if (iFrontendTrackSelectedTrack == 8) {
+          if (g_iCommunityTrackCount > 0) {
+            iFrontendTrackSelectedTrack = g_iCommunityTrackCount -
+                                          g_iCommunityTrackTop - 1;
+            if (iFrontendTrackSelectedTrack >=
+                FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS)
+              iFrontendTrackSelectedTrack =
+                  FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS - 1;
+          }
+        } else if (iFrontendTrackSelectedTrack > 0) {
+          --iFrontendTrackSelectedTrack;
+        } else if (g_iCommunityTrackTop > 0) {
+          --g_iCommunityTrackTop;
+        }
+      } else {
+        if (g_iCommunityTrackCount <= 0) {
+          iFrontendTrackSelectedTrack = 8;
+        } else if (iFrontendTrackSelectedTrack < 7 &&
+                   g_iCommunityTrackTop + iFrontendTrackSelectedTrack + 1 <
+                       g_iCommunityTrackCount) {
+          ++iFrontendTrackSelectedTrack;
+        } else if (iFrontendTrackSelectedTrack == 7 &&
+                   g_iCommunityTrackTop +
+                           FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS <
+                       g_iCommunityTrackCount) {
+          ++g_iCommunityTrackTop;
+        } else {
+          iFrontendTrackSelectedTrack = 8;
+        }
+      }
+      frontend_track_select_clamp_community_cursor();
+    } else if (uiKeyDirection > 1) {
       if (game_type != 1 && --iFrontendTrackSelectedTrack < 0)
         iFrontendTrackSelectedTrack = 0;
     } else if (game_type != 1 && ++iFrontendTrackSelectedTrack > 8) {
@@ -406,7 +667,12 @@ void frontend_track_select_enter(void)
   iFrontendTrackExitFlag = 0;
   iFrontendTrackExitFading = 0;
   iFrontendTrackSpeechPending = 0;
-  if (TrackLoad > 0) {
+  if (game_type == 1 && TrackLoad == TRACK_LOAD_COMMUNITY)
+    TrackLoad = 1;
+  if (TrackLoad == TRACK_LOAD_COMMUNITY) {
+    scan_community_tracks();
+    frontend_track_select_show_community_selection();
+  } else if (TrackLoad > 0) {
     iFrontendTrackSelectedTrack = ((uint8)TrackLoad - 1) & 7;
     if (game_type == 1)
       iFrontendTrackSelectedTrack = 8;
@@ -421,6 +687,10 @@ void frontend_track_select_enter(void)
   front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
   iFrontendTrackYaw = 0;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
+  front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT] =
+      (tBlockHeader *)load_picture("font3.bm");
+  front_vga[FRONTEND_TRACK_ARROW_SLOT] =
+      (tBlockHeader *)load_picture("replaysc.bm");
   memcpy(pal_addr, palette, 256 * sizeof(tColor));
   palette_brightness = 32;
   {
@@ -429,6 +699,11 @@ void frontend_track_select_enter(void)
       menu_render_load_blocks(mr, 3, front_vga[3], palette);
       menu_render_load_blocks(mr, 13, front_vga[13], palette);
       menu_render_load_blocks(mr, 14, front_vga[14], palette);
+      menu_render_load_blocks(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
+                              front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT],
+                              palette);
+      menu_render_load_blocks(mr, FRONTEND_TRACK_ARROW_SLOT,
+                              front_vga[FRONTEND_TRACK_ARROW_SLOT], palette);
     }
   }
   frames = 0;
@@ -495,6 +770,8 @@ void frontend_track_select_exit(void)
   fre((void **)&front_vga[3]);
   fre((void **)&front_vga[13]);
   fre((void **)&front_vga[14]);
+  fre((void **)&front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT]);
+  fre((void **)&front_vga[FRONTEND_TRACK_ARROW_SLOT]);
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
   remove_frontendspeech();
 

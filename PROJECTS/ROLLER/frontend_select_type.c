@@ -164,11 +164,13 @@ static void frontend_type_select_request_exit(void)
     } else if (game_type == 2) {
       NoOfLaps = 5;
       competitors = 1;
-      if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad)
+      if (TrackLoad != TRACK_LOAD_COMMUNITY &&
+          (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad))
         TrackLoad =
             8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
     }
-  } else if (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad) {
+  } else if (TrackLoad != TRACK_LOAD_COMMUNITY &&
+             (iTrackLowerLimit > TrackLoad || iTrackUpperLimit < TrackLoad)) {
     TrackLoad = 8 * iFrontendTypeBlockIdx + (((uint8)TrackLoad - 1) & 7) + 1;
   }
   frontend_type_select_begin_broadcast_wait(-1, eTYPE_BROADCAST_WAIT_EXIT);
@@ -185,10 +187,13 @@ static void frontend_type_select_apply_type_switch(void)
   if (switch_types == 1 && competitors == 1)
     competitors = 16;
   switch_types = 0;
-  if (game_type == 1)
+  if (game_type == 1) {
+    if (TrackLoad == TRACK_LOAD_COMMUNITY)
+      TrackLoad = 1;
     Race = ((uint8)TrackLoad - 1) & 7;
-  else
+  } else {
     network_champ_on = 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -765,7 +770,10 @@ void frontend_type_select_enter(void)
     iFrontendTypeCheatModesAvailable = -1;
   else
     iFrontendTypeCheatModesAvailable = 0;
-  iFrontendTypeBlockIdx = (TrackLoad - 1) / 8;
+  if (TrackLoad == TRACK_LOAD_COMMUNITY)
+    iFrontendTypeBlockIdx = 0;
+  else
+    iFrontendTypeBlockIdx = (TrackLoad - 1) / 8;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
   iFrontendTypeMenuSelection = 0;
   frontend_type_select_black_palette();
