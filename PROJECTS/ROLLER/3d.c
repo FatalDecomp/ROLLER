@@ -1476,6 +1476,8 @@ void race_enter(void)
   int iNetTimeItr_1; // ecx
 
   game_track = iFrontendRaceTrack;              // Initialize game state and track
+  if (game_track == TRACK_LOAD_COMMUNITY)
+    CommunityRecordLoadForCurrentTrack();
   lagdone = 0;
   I_Want_Out = 0;
   iFrontendNetworkErrorHandled = 0;
@@ -4427,8 +4429,7 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
             case 3:
               if (result_order[0] == FastestLap)// Fastest lap announcement
               {                                 // Check if it's a new lap record
-                if (game_track != TRACK_LOAD_COMMUNITY &&
-                    BestTime == RecordLaps[game_track])
+                if (BestTime == TrackRecordLap(game_track))
                   iSoundSampleForWinner = SOUND_SAMPLE_NEWLAP;  // SOUND_SAMPLE_NEWLAP
                 else
                   iSoundSampleForWinner = SOUND_SAMPLE_NEWFAST;  // SOUND_SAMPLE_NEWFAST

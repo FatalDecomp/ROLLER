@@ -313,6 +313,16 @@ const char *community_track_path(void)
 
 //-------------------------------------------------------------------------------------------------
 
+const char *community_records_path(void)
+{
+  static char szPath[ROLLER_MAX_PATH];
+
+  snprintf(szPath, sizeof(szPath), "%s/RECORDS.REC", g_szCommunityTrackDir);
+  return szPath;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int community_track_available(void)
 {
   const char *szPath;

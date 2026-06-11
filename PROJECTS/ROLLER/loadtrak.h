@@ -90,6 +90,7 @@ void scan_community_tracks(void);
 int community_track_select_by_name(const char *szName, uint32 uiExpectedCRC,
                                    int iRequireCRC);
 const char *community_track_path(void);
+const char *community_records_path(void);
 int community_track_available(void);
 uint32 community_track_crc(const char *szPath);
 void loadtrack(int iTrackIdx, int iPreviewMode);

@@ -3148,10 +3148,6 @@ void check_crossed_line(tCar *pCar)
   uint8 byRacePosition; // dl
   int iDriverIdx4; // ebx
   int iCarDesignIdx; // edx
-  char *szDriverName; // esi
-  char *szRecordName; // edi
-  char cChar1; // al
-  char cChar2; // al
   int iFastestLapFlag; // esi
   int iCarCounter; // edx
   int iCarOrderIdx; // eax
@@ -3278,9 +3274,10 @@ void check_crossed_line(tCar *pCar)
             }
             if (pCar->fRunningLapTime < (double)pCar->fBestLapTime && pCar->byLap > 1)// Check if this lap is a new personal best
             {
+              float fTrackRecordLap = TrackRecordLap(game_track);
+
               pCar->fBestLapTime = pCar->fRunningLapTime;
-              if (game_track != TRACK_LOAD_COMMUNITY &&
-                  pCar->fBestLapTime >= (double)RecordLaps[game_track])// Check if lap time beats track record
+              if (pCar->fBestLapTime >= (double)fTrackRecordLap)// Check if lap time beats track record
               {
                 iFastestLapFlag = -1;
                 if (racers > 0)               // Check if this is fastest lap among all drivers
@@ -3307,10 +3304,10 @@ void check_crossed_line(tCar *pCar)
                   make_time(buffer, pCar->fBestLapTime);
                   subzoom(buffer);
                 }
-              } else if (game_track != TRACK_LOAD_COMMUNITY) {
+              } else {
                 iDriverIdx4 = pCar->iDriverIdx;
                 if (player1_car == iDriverIdx4 || player2_car == iDriverIdx4) {
-                  if (pCar->fBestLapTime >= RecordLaps[game_track] + -0.5)
+                  if (pCar->fBestLapTime >= fTrackRecordLap + -0.5)
                     iSoundSample1 = 37;
                   else
                     iSoundSample1 = 38;
@@ -3324,20 +3321,8 @@ void check_crossed_line(tCar *pCar)
                   iCarDesignIdx = pCar->byCarDesignIdx + 16;
                 else
                   iCarDesignIdx = pCar->byCarDesignIdx;
-                RecordCars[game_track] = iCarDesignIdx;
-                RecordLaps[game_track] = pCar->fBestLapTime;
-                szDriverName = driver_names[pCar->iDriverIdx];
-                szRecordName = RecordNames[game_track];
-                do {
-                  cChar1 = *szDriverName;
-                  *szRecordName = *szDriverName;
-                  if (!cChar1)
-                    break;
-                  cChar2 = szDriverName[1];
-                  szDriverName += 2;
-                  szRecordName[1] = cChar2;
-                  szRecordName += 2;
-                } while (cChar2);
+                TrackRecordSet(game_track, pCar->fBestLapTime, iCarDesignIdx,
+                               driver_names[pCar->iDriverIdx]);
               }
             }
             if (iSoundSample1 != -1)

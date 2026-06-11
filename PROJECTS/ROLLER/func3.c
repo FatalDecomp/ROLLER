@@ -1113,21 +1113,15 @@ void TimeTrialsEnter(int iDriverIdx)
   front_text(front_vga[2], &language_buffer[2752], font2_ascii, font2_offsets, 218, iRecordHeaderY, 0x8Fu, 0);
 
   // Check if track record exists and display record holder info
-  if (TrackLoad == TRACK_LOAD_COMMUNITY) {
-    front_text(front_vga[2], "NO RECORD", font2_ascii, font2_offsets, 165,
-               iRecordTextY, 0x8Fu, 0);
-    front_text(front_vga[2], "00:00:00", font2_ascii, font2_offsets, 450,
-               iRecordTextY, 0x8Fu, 0);
+  iRecordCar = TrackRecordCar(TrackLoad);
+  if (iRecordCar < 0) {
+  // Handle case where no track record exists
+    sprintf(buffer, "%s", TrackRecordName(TrackLoad));
+    front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
+    front_text(front_vga[2], "00:00:00", font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
   } else {
-    iRecordCar = RecordCars[TrackLoad];
-    if (iRecordCar < 0) {
-    // Handle case where no track record exists
-      sprintf(buffer, "%s", RecordNames[TrackLoad]);
-      front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
-      front_text(front_vga[2], "00:00:00", font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
-    } else {
     // Display track record holder: name, company, car, and time
-      sprintf(buffer, "%s", RecordNames[TrackLoad]);
+      sprintf(buffer, "%s", TrackRecordName(TrackLoad));
       front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 85, iRecordTextY, 0x8Fu, 0);
       sprintf(buffer, "%s", CompanyNames[iRecordCar & 0xF]);
       front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 218, iRecordTextY, 0x8Fu, 0);
@@ -1135,7 +1129,7 @@ void TimeTrialsEnter(int iDriverIdx)
         front_text(front_vga[2], "CHEAT", font2_ascii, font2_offsets, 165, iRecordTextY, 0x8Fu, 0);
       else
         display_block(scrbuf, front_vga[0], smallcars[(iRecordCar & 0x10) != 0][iRecordCar & 0xF], 165, iRecordTextY - 3, 0);
-      dRecordTime = RecordLaps[TrackLoad] * 100.0;
+      dRecordTime = TrackRecordLap(TrackLoad) * 100.0;
       //_CHP();
       iRecordCentiseconds = (int)dRecordTime;
       if ((int)dRecordTime > 100000)
@@ -1158,7 +1152,6 @@ void TimeTrialsEnter(int iDriverIdx)
       buffer[2] = 0;
       buffer[0] = iRecordTimeWork / 10 % 10 + 48;
       front_text(front_vga[2], buffer, font2_ascii, font2_offsets, 450, iRecordTextY, 0x8Fu, 0);
-    }
   }
   front_text(front_vga[2], &language_buffer[2880], font2_ascii, font2_offsets, 218, iRecordTextY + 44, 0x8Fu, 0);// Display session fastest lap section header
   iFastestDriver = FastestLap;

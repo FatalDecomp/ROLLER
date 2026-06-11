@@ -144,6 +144,7 @@ static void frontend_track_select_show_community_selection(void)
     iFrontendTrackSelectedTrack = FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS - 1;
 
   g_uiCommunityTrackCRC = community_track_crc(community_track_path());
+  CommunityRecordLoadForCurrentTrack();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -194,6 +195,7 @@ static void frontend_track_select_select_community_row(int iRow)
   g_iCommunityTrackSel = iTrackIdx;
   szPath = community_track_path();
   g_uiCommunityTrackCRC = community_track_crc(szPath);
+  CommunityRecordLoadForCurrentTrack();
   iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
   frontend_track_select_begin_track_animation();
 }
@@ -389,25 +391,24 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
     sprintf(buffer, "%s: %i", &language_buffer[4544], NoOfLaps);
     menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 16,
                      0x8Fu, 1u, pal_addr);
-    if (!frontend_track_select_is_community()) {
-      menu_render_text(mr, 15, &language_buffer[4608], font1_ascii,
-                       font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
-      if (RecordCars[TrackLoad] < 0) {
-        sprintf(buffer, "%s", RecordNames[TrackLoad]);
-      } else {
-        int iTotalCentiseconds = (int)(RecordLaps[TrackLoad] * 100.0);
-        int iRecordMinutes = iTotalCentiseconds / 6000;
-        int iRecordSeconds = (iTotalCentiseconds / 100) % 60;
-        int iRecordCentiseconds = iTotalCentiseconds % 100;
+    menu_render_text(mr, 15, &language_buffer[4608], font1_ascii,
+                     font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
+    if (TrackRecordCar(TrackLoad) < 0) {
+      sprintf(buffer, "%s", TrackRecordName(TrackLoad));
+    } else {
+      int iRecordCar = TrackRecordCar(TrackLoad);
+      int iTotalCentiseconds = (int)(TrackRecordLap(TrackLoad) * 100.0);
+      int iRecordMinutes = iTotalCentiseconds / 6000;
+      int iRecordSeconds = (iTotalCentiseconds / 100) % 60;
+      int iRecordCentiseconds = iTotalCentiseconds % 100;
 
-        sprintf(buffer, "%s - %s - %02i:%02i:%02i",
-                RecordNames[TrackLoad],
-                CompanyNames[RecordCars[TrackLoad] & 0xF],
-                iRecordMinutes, iRecordSeconds, iRecordCentiseconds);
-      }
-      menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52,
-                       0x8Fu, 1u, pal_addr);
+      sprintf(buffer, "%s - %s - %02i:%02i:%02i",
+              TrackRecordName(TrackLoad),
+              CompanyNames[iRecordCar & 0xF],
+              iRecordMinutes, iRecordSeconds, iRecordCentiseconds);
     }
+    menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52,
+                     0x8Fu, 1u, pal_addr);
   }
 
   if (frontend_track_select_is_community()) {

@@ -2575,8 +2575,10 @@ int InputLoadConfig(void)
 
   fclose(fp);
   if (InputStringEqualsNoCase(szCommunityTrackType, "Community")) {
-    community_track_select_by_name(szCommunityTrackName, uiCommunityTrackCRC,
-                                   uiCommunityTrackCRC != 0);
+    if (community_track_select_by_name(szCommunityTrackName,
+                                       uiCommunityTrackCRC,
+                                       uiCommunityTrackCRC != 0))
+      CommunityRecordLoadForCurrentTrack();
   }
   InputResolveAllBindings();
   return 1;

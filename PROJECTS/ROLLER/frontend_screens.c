@@ -875,16 +875,17 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
                        0x8Fu, 1u, pal_addr);
       menu_render_text(mr, 15, &language_buffer[4608], font1_ascii,
                        font1_offsets, 420, 34, 0x8Fu, 1u, pal_addr);
-      if (RecordCars[TrackLoad] < 0) {
-        sprintf(buffer, "%s", RecordNames[TrackLoad]);
+      if (TrackRecordCar(TrackLoad) < 0) {
+        sprintf(buffer, "%s", TrackRecordName(TrackLoad));
       } else {
-        int iLapTime = (int)(RecordLaps[TrackLoad] * 100.0);
+        int iRecordCar = TrackRecordCar(TrackLoad);
+        int iLapTime = (int)(TrackRecordLap(TrackLoad) * 100.0);
         int iMinutes = iLapTime / 6000;
         int iSeconds = (iLapTime / 100) % 60;
         int iHundredths = iLapTime % 100;
         sprintf(buffer, "%s - %s - %02i:%02i:%02i",
-                RecordNames[TrackLoad],
-                CompanyNames[RecordCars[TrackLoad] & 0xF], iMinutes,
+                TrackRecordName(TrackLoad),
+                CompanyNames[iRecordCar & 0xF], iMinutes,
                 iSeconds, iHundredths);
       }
       menu_render_text(mr, 15, buffer, font1_ascii, font1_offsets, 420, 52,
