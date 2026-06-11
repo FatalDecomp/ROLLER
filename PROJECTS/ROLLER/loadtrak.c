@@ -1205,13 +1205,10 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
       iTemp3 = actualtrack;
       if (iTemp3 < 0 || iTemp3 > 24)
         iTemp3 = 1;
-      iTrackLapOffset = 6 * iTemp3;
       do {
-        iLapValue = track_laps[0][iTrackLapOffset++];
+        iLapValue = track_laps[iTemp3][iDifficulty];
         cur_laps[iDifficulty] = iLapValue;
         ++iDifficulty;
-        //iLapValue = track_laps[0][iTrackLapOffset++];
-        //*(_DWORD *)&samplemin[2 * iDifficulty + 498] = iLapValue;// offset into cur_laps
       } while (iDifficulty < 6);
       cur_mapsize = mapsize[iTemp3];
       dTrackZ = TrackZs[iTemp3];
