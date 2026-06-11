@@ -75,8 +75,9 @@ extern tSubdivide Subdivide[MAX_TRACK_CHUNKS];
 
 #define TRACK_LOAD_COMMUNITY 25
 #define MAX_COMMUNITY_TRACKS 500
+#define MAX_COMMUNITY_TRACK_FILENAME (ROLLER_MAX_PATH - 16)
 
-extern char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][9];
+extern char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][MAX_COMMUNITY_TRACK_FILENAME];
 extern int g_iCommunityTrackCount;
 extern int g_iCommunityTrackSel;
 extern int g_iCommunityTrackTop;

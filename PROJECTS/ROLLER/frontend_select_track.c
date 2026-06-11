@@ -47,6 +47,9 @@ static float fFrontendTrackTargetZoom = 0.0f;
 #define FRONTEND_TRACK_COMMUNITY_FONT_SLOT 10
 #define FRONTEND_TRACK_WARNING_FONT_SLOT 11
 #define FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS 8
+#define FRONTEND_TRACK_COMMUNITY_LIST_LEFT 58
+#define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 178
+#define FRONTEND_TRACK_SELECTED_NAME_RIGHT 470
 #define MENU_COLOR_RED 0xE7u
 
 //-------------------------------------------------------------------------------------------------
@@ -318,10 +321,13 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
       int iTrackIdx = g_iCommunityTrackTop + iRow;
 
       if (iTrackIdx < g_iCommunityTrackCount) {
-        menu_render_text(mr, 2, g_aszCommunityTracks[iTrackIdx],
-                         font2_ascii, font2_offsets,
-                         sel_posns[iRow].x + 132, sel_posns[iRow].y + 7,
-                         0x8Fu, 2u, pal_addr);
+        menu_render_scaled_text(mr, 2, g_aszCommunityTracks[iTrackIdx],
+                                font2_ascii, font2_offsets,
+                                FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
+                                sel_posns[iRow].y + 7, 0x8Fu, 2u,
+                                FRONTEND_TRACK_COMMUNITY_LIST_LEFT,
+                                FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
+                                pal_addr);
       }
     }
     menu_render_sprite(mr, FRONTEND_TRACK_ARROW_SLOT, iUpArrowBlock,
@@ -404,9 +410,10 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   if (frontend_track_select_is_community()) {
     if (g_iCommunityTrackSel >= 0 &&
         g_iCommunityTrackSel < g_iCommunityTrackCount) {
-      menu_render_text(mr, 2, g_aszCommunityTracks[g_iCommunityTrackSel],
-                       font2_ascii, font2_offsets, 190, 356, 0x8Fu, 0,
-                       pal_addr);
+      menu_render_scaled_text(mr, 2, g_aszCommunityTracks[g_iCommunityTrackSel],
+                              font2_ascii, font2_offsets, 190, 356, 0x8Fu, 0,
+                              190, FRONTEND_TRACK_SELECTED_NAME_RIGHT,
+                              pal_addr);
     }
   } else if (TrackLoad <= 0) {
     if (TrackLoad)

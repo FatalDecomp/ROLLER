@@ -91,7 +91,7 @@ uint8 *start_f;             //00176ABC
 int TrackFlags;             //00176AC0
 int meof;                   //00176AC4
 tSubdivide Subdivide[MAX_TRACK_CHUNKS];  //00176AC8
-char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][9];
+char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][MAX_COMMUNITY_TRACK_FILENAME];
 int g_iCommunityTrackCount = 0;
 int g_iCommunityTrackSel = -1;
 int g_iCommunityTrackTop = 0;
@@ -152,13 +152,16 @@ static void community_track_clamp_top(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void community_track_store_basename(char *szDst, const char *szFileName)
+static int community_track_store_filename(char *szDst, const char *szFileName)
 {
-  int iCharIndex = 0;
+  size_t uiFileNameLen = strlen(szFileName);
 
-  while (*szFileName && *szFileName != '.' && iCharIndex < 8)
-    szDst[iCharIndex++] = *szFileName++;
-  szDst[iCharIndex] = '\0';
+  if (uiFileNameLen == 0 ||
+      uiFileNameLen >= MAX_COMMUNITY_TRACK_FILENAME)
+    return 0;
+
+  memcpy(szDst, szFileName, uiFileNameLen + 1);
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -194,9 +197,9 @@ static int community_track_scan_directory(const char *szDirectory,
 
       if ((fileinfo.attrib & _A_SUBDIR) == 0 &&
           community_track_is_trk_file(fileinfo.name)) {
-        community_track_store_basename(g_aszCommunityTracks[*piFileCount],
-                                       fileinfo.name);
-        ++*piFileCount;
+        if (community_track_store_filename(
+                g_aszCommunityTracks[*piFileCount], fileinfo.name))
+          ++*piFileCount;
       }
     } while (_findnext(handle, &fileinfo) == 0);
 
@@ -212,9 +215,9 @@ static int community_track_scan_directory(const char *szDirectory,
     while ((pEntry = readdir(pDir)) != NULL &&
            *piFileCount < MAX_COMMUNITY_TRACKS) {
       if (community_track_is_trk_file(pEntry->d_name)) {
-        community_track_store_basename(g_aszCommunityTracks[*piFileCount],
-                                       pEntry->d_name);
-        ++*piFileCount;
+        if (community_track_store_filename(
+                g_aszCommunityTracks[*piFileCount], pEntry->d_name))
+          ++*piFileCount;
       }
     }
 
@@ -229,7 +232,7 @@ static int community_track_scan_directory(const char *szDirectory,
 
 void scan_community_tracks(void)
 {
-  char szPreviousSelection[9] = "";
+  char szPreviousSelection[MAX_COMMUNITY_TRACK_FILENAME] = "";
   int iFileCount = 0;
 
   if (g_iCommunityTrackSel >= 0 &&
@@ -244,7 +247,8 @@ void scan_community_tracks(void)
 
   g_iCommunityTrackCount = iFileCount;
   if (iFileCount > 0)
-    qsort(g_aszCommunityTracks, iFileCount, 9, community_track_compare);
+    qsort(g_aszCommunityTracks, iFileCount, MAX_COMMUNITY_TRACK_FILENAME,
+          community_track_compare);
 
   if (iFileCount <= 0) {
     g_iCommunityTrackSel = -1;
@@ -265,13 +269,13 @@ void scan_community_tracks(void)
 
 const char *community_track_path(void)
 {
-  static char szPath[24];
+  static char szPath[ROLLER_MAX_PATH];
 
   if (g_iCommunityTrackSel < 0 ||
       g_iCommunityTrackSel >= g_iCommunityTrackCount)
     return NULL;
 
-  snprintf(szPath, sizeof(szPath), "%s/%s.TRK", g_szCommunityTrackDir,
+  snprintf(szPath, sizeof(szPath), "%s/%s", g_szCommunityTrackDir,
            g_aszCommunityTracks[g_iCommunityTrackSel]);
   return szPath;
 }
