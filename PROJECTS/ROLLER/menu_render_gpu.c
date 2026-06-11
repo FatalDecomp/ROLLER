@@ -672,7 +672,7 @@ void menu_render_gpu_begin_frame(MenuRendererGPU *r)
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
     if (!r->cmdBuf) return;
 
-    if (!SDL_WaitAndAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
+    if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
             &r->swapchainTexture, &r->swapchainWidth, &r->swapchainHeight)
         || !r->swapchainTexture) {
         SDL_CancelGPUCommandBuffer(r->cmdBuf);

@@ -45,6 +45,9 @@ void InitREPLAYS(const char *szDataRoot);
 void ShutdownSDL();
 void UpdateSDL();
 void UpdateSDLWindow();
+bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Window *pWindow,
+                                         SDL_GPUTexture **ppSwapchainTex,
+                                         Uint32 *puiSwapchainW, Uint32 *puiSwapchainH);
 bool ROLLERGpuPresentationSuspended(void);
 void ROLLERRefreshStartupOverlay();
 

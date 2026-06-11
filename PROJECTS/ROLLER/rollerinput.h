@@ -105,6 +105,7 @@ int InputLoadConfig(void);
 void InputSaveConfig(void);
 #if defined(_WIN32)
 eInputWindowsBackend InputGetWindowsBackend(void);
+void InputLoadStartupConfig(void);
 void InputSetWindowsBackend(eInputWindowsBackend eBackend);
 #endif
 int InputGetActionPressed(int iAction);

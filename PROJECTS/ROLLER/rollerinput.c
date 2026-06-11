@@ -25,6 +25,9 @@
 #if defined(_WIN32)
 #define INPUT_WINMM_AXIS_COUNT 6
 #define INPUT_WINMM_REFRESH_MS 1000
+#define INPUT_HOTPLUG_REFRESH_DELAY_MS 250
+#else
+#define INPUT_HOTPLUG_REFRESH_DELAY_MS 0
 #endif
 
 typedef struct
@@ -75,6 +78,8 @@ static tInputMenuKeyState s_menuAnyButtonState;
 static tInputMenuKeyState s_menuQuitYesState;
 static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
+static bool s_bDeviceRefreshPending = false;
+static uint64 s_ullDeviceRefreshMs = 0;
 #if defined(_WIN32)
 static uint32 s_uWinMMDeviceMask = 0;
 static uint64 s_ullNextWinMMRefreshMs = 0;
@@ -758,6 +763,61 @@ static void InputResolveAllBindings(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void InputCancelPendingDeviceRefresh(void)
+{
+  s_bDeviceRefreshPending = false;
+  s_ullDeviceRefreshMs = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputRequestDeviceRefresh(void)
+{
+  s_bDeviceRefreshPending = true;
+  s_ullDeviceRefreshMs = SDL_GetTicks() + INPUT_HOTPLUG_REFRESH_DELAY_MS;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+#if defined(_WIN32)
+static int InputSDLDeviceListMatchesOpenDevices(SDL_JoystickID *pJoystickIds, int iCount)
+{
+  if (iCount > 0 && !pJoystickIds)
+    return 0;
+  if (s_iNumDevices != iCount)
+    return 0;
+
+  for (int i = 0; i < iCount; ++i) {
+    int iFound = 0;
+    for (int iDevice = 0; iDevice < s_iNumDevices; ++iDevice) {
+      if (!s_pDevices[iDevice].bWinMM && s_pDevices[iDevice].joyId == pJoystickIds[i]) {
+        iFound = 1;
+        break;
+      }
+    }
+    if (!iFound)
+      return 0;
+  }
+
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputSDLDirectInputDeviceListChanged(void)
+{
+  int iCount = 0;
+  SDL_JoystickID *pJoystickIds = SDL_GetJoysticks(&iCount);
+  int iChanged = !InputSDLDeviceListMatchesOpenDevices(pJoystickIds, iCount);
+  SDL_free(pJoystickIds);
+  return iChanged;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 void InputRefreshDevices(void)
 {
   int iCount = 0;
@@ -765,6 +825,7 @@ void InputRefreshDevices(void)
   if (!s_bInitialized)
     return;
 
+  InputCancelPendingDeviceRefresh();
 #if defined(_WIN32)
   s_bRefreshingDevices = true;
 #endif
@@ -803,6 +864,30 @@ void InputRefreshDevices(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputMaybeApplyPendingDeviceRefresh(void)
+{
+  uint64 ullNowMs;
+
+  if (!s_bDeviceRefreshPending)
+    return 0;
+
+  ullNowMs = SDL_GetTicks();
+  if (ullNowMs < s_ullDeviceRefreshMs)
+    return 0;
+
+  InputCancelPendingDeviceRefresh();
+
+#if defined(_WIN32)
+  if (InputUsingSDLDirectInput() && !InputSDLDirectInputDeviceListChanged())
+    return 0;
+#endif
+
+  InputRefreshDevices();
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 #if defined(_WIN32)
 eInputWindowsBackend InputGetWindowsBackend(void)
 {
@@ -832,6 +917,7 @@ void InputSetWindowsBackend(eInputWindowsBackend eBackend)
   InputFreeCaptureSnapshot();
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
+  InputCancelPendingDeviceRefresh();
   InputCloseAllDevices();
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
 
@@ -884,6 +970,7 @@ void InputShutdown(void)
   InputFreeCaptureSnapshot();
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
+  InputCancelPendingDeviceRefresh();
   InputCloseAllDevices();
 #if defined(_WIN32)
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
@@ -905,7 +992,7 @@ void InputHandleEvent(const SDL_Event *pEvent)
       pEvent->type == SDL_EVENT_JOYSTICK_REMOVED ||
       pEvent->type == SDL_EVENT_GAMEPAD_ADDED ||
       pEvent->type == SDL_EVENT_GAMEPAD_REMOVED) {
-    InputRefreshDevices();
+    InputRequestDeviceRefresh();
   }
 }
 
@@ -914,6 +1001,9 @@ void InputHandleEvent(const SDL_Event *pEvent)
 void InputUpdate(void)
 {
   if (!s_bInitialized)
+    return;
+
+  if (InputMaybeApplyPendingDeviceRefresh())
     return;
 
 #if defined(_WIN32)
@@ -2138,6 +2228,16 @@ static int InputParseRendererSetting(const char *szValue)
 //-------------------------------------------------------------------------------------------------
 
 #if defined(_WIN32)
+static int InputIsWindowsBackendSettingName(const char *szName)
+{
+  return InputStringEqualsNoCase(szName, "WindowsInputBackend") ||
+         InputStringEqualsNoCase(szName, "ControllerInputBackend") ||
+         InputStringEqualsNoCase(szName, "WheelInputBackend") ||
+         InputStringEqualsNoCase(szName, "UseSDLDirectInput");
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputParseWindowsBackendSetting(const char *szValue)
 {
   bool bUseSDLDirectInput;
@@ -2167,6 +2267,36 @@ static int InputParseWindowsBackendSetting(const char *szValue)
   }
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputLoadStartupConfig(void)
+{
+  FILE *fp = ROLLERfopen("ROLLER.INI", "r");
+  char szLine[1024];
+
+  if (!fp)
+    return;
+
+  while (fgets(szLine, sizeof(szLine), fp)) {
+    char *szText = InputTrim(szLine);
+    char *szEquals;
+
+    if (!szText[0] || szText[0] == '#' || szText[0] == ';' || szText[0] == '[')
+      continue;
+
+    szEquals = strchr(szText, '=');
+    if (!szEquals)
+      continue;
+
+    *szEquals = '\0';
+    szText = InputTrim(szText);
+    if (InputIsWindowsBackendSettingName(szText))
+      InputParseWindowsBackendSetting(InputTrim(szEquals + 1));
+  }
+
+  fclose(fp);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2235,10 +2365,7 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
   }
 
 #if defined(_WIN32)
-  if (InputStringEqualsNoCase(szName, "WindowsInputBackend") ||
-      InputStringEqualsNoCase(szName, "ControllerInputBackend") ||
-      InputStringEqualsNoCase(szName, "WheelInputBackend") ||
-      InputStringEqualsNoCase(szName, "UseSDLDirectInput")) {
+  if (InputIsWindowsBackendSettingName(szName)) {
     return InputParseWindowsBackendSetting(szValue);
   }
 #endif

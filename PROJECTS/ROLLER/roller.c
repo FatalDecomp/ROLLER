@@ -269,6 +269,21 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
 
 //-------------------------------------------------------------------------------------------------
 
+bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Window *pWindow,
+                                         SDL_GPUTexture **ppSwapchainTex,
+                                         Uint32 *puiSwapchainW, Uint32 *puiSwapchainH)
+{
+  if (ppSwapchainTex)
+    *ppSwapchainTex = NULL;
+  if (!pCmdBuf || !pWindow)
+    return false;
+
+  return SDL_AcquireGPUSwapchainTexture(pCmdBuf, pWindow, ppSwapchainTex,
+                                        puiSwapchainW, puiSwapchainH);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void UpdateSDLWindow()
 {
   if (g_bSnapshotMode) {
@@ -305,7 +320,7 @@ void UpdateSDLWindow()
   // Acquire swapchain and blit
   SDL_GPUTexture *swapchainTex;
   Uint32 swW, swH;
-  if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
+  if (!ROLLERTryAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
           &swapchainTex, &swW, &swH) || !swapchainTex) {
     SDL_CancelGPUCommandBuffer(cmdBuf);
     return;
@@ -359,7 +374,7 @@ static void PresentDebugOverlayOnly(void)
 
   SDL_GPUTexture *pSwapchainTex;
   Uint32 uiSwapchainW, uiSwapchainH;
-  if (!SDL_WaitAndAcquireGPUSwapchainTexture(pCmdBuf, s_pWindow,
+  if (!ROLLERTryAcquireGPUSwapchainTexture(pCmdBuf, s_pWindow,
           &pSwapchainTex, &uiSwapchainW, &uiSwapchainH) || !pSwapchainTex) {
     SDL_CancelGPUCommandBuffer(pCmdBuf);
     return;
@@ -467,6 +482,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     // succeed without a display server.
     return 0;
   }
+
+#if defined(_WIN32)
+  InputLoadStartupConfig();
+#endif
 
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
   if (!s_pWindow) {
