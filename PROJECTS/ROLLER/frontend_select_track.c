@@ -18,6 +18,7 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include <ctype.h>
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -48,7 +49,7 @@ static float fFrontendTrackTargetZoom = 0.0f;
 #define FRONTEND_TRACK_WARNING_FONT_SLOT 11
 #define FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS 8
 #define FRONTEND_TRACK_COMMUNITY_LIST_LEFT 58
-#define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 178
+#define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 168
 #define FRONTEND_TRACK_SELECTED_NAME_RIGHT 470
 #define MENU_COLOR_RED 0xE7u
 
@@ -68,6 +69,39 @@ static const char *s_aszFrontendTrackNames[8] = {
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_track_select_run_snapshot(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_display_name(char *szDisplayName,
+                                               size_t uiDisplayNameSize,
+                                               const char *szFileName,
+                                               int iCompact)
+{
+  size_t uiNameLen;
+
+  if (!uiDisplayNameSize)
+    return;
+
+  strncpy(szDisplayName, szFileName, uiDisplayNameSize - 1);
+  szDisplayName[uiDisplayNameSize - 1] = '\0';
+
+  uiNameLen = strlen(szDisplayName);
+  if (uiNameLen > 4 &&
+      szDisplayName[uiNameLen - 4] == '.' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 3]) == 'T' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 2]) == 'R' &&
+      toupper((unsigned char)szDisplayName[uiNameLen - 1]) == 'K') {
+    szDisplayName[uiNameLen - 4] = '\0';
+    uiNameLen -= 4;
+  }
+
+  if (iCompact && uiNameLen > 13 && uiDisplayNameSize > 14) {
+    szDisplayName[11] = '.';
+    szDisplayName[12] = '.';
+    szDisplayName[13] = '.';
+    szDisplayName[14] = '\0';
+  }
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -321,7 +355,12 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
       int iTrackIdx = g_iCommunityTrackTop + iRow;
 
       if (iTrackIdx < g_iCommunityTrackCount) {
-        menu_render_scaled_text(mr, 2, g_aszCommunityTracks[iTrackIdx],
+        char szDisplayName[MAX_COMMUNITY_TRACK_FILENAME];
+
+        frontend_track_select_display_name(
+            szDisplayName, sizeof(szDisplayName),
+            g_aszCommunityTracks[iTrackIdx], -1);
+        menu_render_scaled_text(mr, 2, szDisplayName,
                                 font2_ascii, font2_offsets,
                                 FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
                                 sel_posns[iRow].y + 7, 0x8Fu, 2u,
@@ -410,10 +449,14 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   if (frontend_track_select_is_community()) {
     if (g_iCommunityTrackSel >= 0 &&
         g_iCommunityTrackSel < g_iCommunityTrackCount) {
-      menu_render_scaled_text(mr, 2, g_aszCommunityTracks[g_iCommunityTrackSel],
-                              font2_ascii, font2_offsets, 190, 356, 0x8Fu, 0,
-                              190, FRONTEND_TRACK_SELECTED_NAME_RIGHT,
-                              pal_addr);
+      char szDisplayName[MAX_COMMUNITY_TRACK_FILENAME];
+
+      frontend_track_select_display_name(
+          szDisplayName, sizeof(szDisplayName),
+          g_aszCommunityTracks[g_iCommunityTrackSel], 0);
+      menu_render_scaled_text(mr, 15, szDisplayName, font1_ascii,
+                              font1_offsets, 190, 356, 0x8Fu, 0, 190,
+                              FRONTEND_TRACK_SELECTED_NAME_RIGHT, pal_addr);
     }
   } else if (TrackLoad <= 0) {
     if (TrackLoad)
