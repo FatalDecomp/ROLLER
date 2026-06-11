@@ -1,6 +1,7 @@
 #include "rollerinput.h"
 #include "3d.h"
 #include "func2.h"
+#include "loadtrak.h"
 #include "menu_render.h"
 #include "roller.h"
 #include <ctype.h>
@@ -2122,6 +2123,23 @@ static int InputParseInt(const char *szValue, int iDefault)
 
 //-------------------------------------------------------------------------------------------------
 
+static uint32 InputParseUint32(const char *szValue, uint32 uiDefault)
+{
+  char *szEnd;
+  unsigned long ulValue;
+
+  if (!szValue || !*szValue)
+    return uiDefault;
+
+  ulValue = strtoul(szValue, &szEnd, 0);
+  if (szEnd == szValue)
+    return uiDefault;
+
+  return (uint32)ulValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputParseBool(const char *szValue)
 {
   if (!szValue)
@@ -2495,6 +2513,9 @@ int InputLoadConfig(void)
 {
   FILE *fp;
   char szLine[1024];
+  char szCommunityTrackType[32] = "";
+  char szCommunityTrackName[MAX_COMMUNITY_TRACK_FILENAME] = "";
+  uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
 
@@ -2511,6 +2532,7 @@ int InputLoadConfig(void)
   while (fgets(szLine, sizeof(szLine), fp)) {
     char *szText = InputTrim(szLine);
     char *szEquals;
+    char *szValue;
     int iAction;
 
     if (!szText[0] || szText[0] == '#' || szText[0] == ';' || szText[0] == '[')
@@ -2522,17 +2544,40 @@ int InputLoadConfig(void)
 
     *szEquals = '\0';
     szText = InputTrim(szText);
-    if (InputParseDebugSetting(szText, InputTrim(szEquals + 1)))
+    szValue = InputTrim(szEquals + 1);
+
+    if (InputStringEqualsNoCase(szText, "SelectedTrackType")) {
+      InputCopyString(szCommunityTrackType, sizeof(szCommunityTrackType),
+                      szValue);
+      continue;
+    }
+
+    if (InputStringEqualsNoCase(szText, "SelectedTrack")) {
+      InputCopyString(szCommunityTrackName, sizeof(szCommunityTrackName),
+                      szValue);
+      continue;
+    }
+
+    if (InputStringEqualsNoCase(szText, "SelectedTrackCRC")) {
+      uiCommunityTrackCRC = InputParseUint32(szValue, 0);
+      continue;
+    }
+
+    if (InputParseDebugSetting(szText, szValue))
       continue;
 
     iAction = InputFindActionByName(szText);
     if (iAction < 0)
       continue;
 
-    InputParseBindingValue(iAction, InputTrim(szEquals + 1));
+    InputParseBindingValue(iAction, szValue);
   }
 
   fclose(fp);
+  if (InputStringEqualsNoCase(szCommunityTrackType, "Community")) {
+    community_track_select_by_name(szCommunityTrackName, uiCommunityTrackCRC,
+                                   uiCommunityTrackCRC != 0);
+  }
   InputResolveAllBindings();
   return 1;
 }
@@ -2580,6 +2625,26 @@ void InputSaveConfig(void)
   fprintf(fp, "WindowsInputBackend=%s\n",
           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");
 #endif
+  fprintf(fp, "[CommunityTracks]\n");
+  if (TrackLoad == TRACK_LOAD_COMMUNITY &&
+      g_iCommunityTrackSel >= 0 &&
+      g_iCommunityTrackSel < g_iCommunityTrackCount &&
+      community_track_available()) {
+    uint32 uiCRC = g_uiCommunityTrackCRC;
+    const char *szPath = community_track_path();
+
+    if (!uiCRC)
+      uiCRC = community_track_crc(szPath);
+
+    fprintf(fp, "SelectedTrackType=Community\n");
+    fprintf(fp, "SelectedTrack=%s\n",
+            g_aszCommunityTracks[g_iCommunityTrackSel]);
+    fprintf(fp, "SelectedTrackCRC=%u\n", (unsigned int)uiCRC);
+  } else {
+    fprintf(fp, "SelectedTrackType=Stock\n");
+    fprintf(fp, "SelectedTrack=\n");
+    fprintf(fp, "SelectedTrackCRC=0\n");
+  }
   fprintf(fp, "[Input]\n");
 
   for (int i = 0; i < INPUT_NUM_ACTIONS; ++i) {

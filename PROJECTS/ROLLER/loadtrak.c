@@ -267,6 +267,37 @@ void scan_community_tracks(void)
 
 //-------------------------------------------------------------------------------------------------
 
+int community_track_select_by_name(const char *szName, uint32 uiExpectedCRC,
+                                   int iRequireCRC)
+{
+  const char *szPath;
+  uint32 uiActualCRC;
+  int iTrackIdx;
+
+  if (!szName || !szName[0])
+    return 0;
+
+  scan_community_tracks();
+  iTrackIdx = community_track_find(szName);
+  if (iTrackIdx < 0)
+    return 0;
+
+  g_iCommunityTrackSel = iTrackIdx;
+  szPath = community_track_path();
+  uiActualCRC = community_track_crc(szPath);
+  if (iRequireCRC && uiActualCRC != uiExpectedCRC) {
+    g_iCommunityTrackSel = -1;
+    g_uiCommunityTrackCRC = 0;
+    return 0;
+  }
+
+  g_uiCommunityTrackCRC = uiActualCRC;
+  TrackLoad = TRACK_LOAD_COMMUNITY;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 const char *community_track_path(void)
 {
   static char szPath[ROLLER_MAX_PATH];
