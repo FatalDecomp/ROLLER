@@ -133,6 +133,9 @@ static int lobby_update_broadcast_wait(void)
       frames = 0;
       break;
     case eLOBBY_BROADCAST_START_RACE:
+      if ((TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
+          !community_track_available())
+        break;
       iLobbyActive = 0;
       time_to_start = -1;
       break;
@@ -280,10 +283,12 @@ static void lobby_emit_draw(MenuRenderer *mr)
     if (time_to_start)
       iLobbyActive = 0;
   }
-  if (!community_track_available()) {
+  if (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) {
+    menu_render_text(mr, 15, "TRACK NOT AVAILABLE", font1_ascii,
+                     font1_offsets, 200, 32, MENU_COLOR_RED, 1u, pal_addr);
+  } else if (!community_track_available()) {
     menu_render_text(mr, 15, "NO TRACK SELECTED", font1_ascii,
-                     font1_offsets, 200, 32, MENU_COLOR_RED, 1u,
-                     pal_addr);
+                     font1_offsets, 200, 32, MENU_COLOR_RED, 1u, pal_addr);
   }
 
   iPlayerDisplayLoop = 0;
@@ -391,7 +396,8 @@ static void lobby_handle_input(void)
         fatgetch();
     } else if (uiKeyPressed <= 0xD) {
       if (players_waiting == network_on && !time_to_start) {
-        if (!community_track_available()) {
+        if ((TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
+            !community_track_available()) {
           sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
           return;
         }

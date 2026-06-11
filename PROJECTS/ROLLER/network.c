@@ -105,6 +105,93 @@ static int NetworkRecordIdxIsValid(int iRecordIdx, const char *szContext)
   return 0;
 }
 
+static int NetworkTrackStartAvailable(void)
+{
+  if (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing)
+    return 0;
+
+  return community_track_available();
+}
+
+static void NetworkFillCommunityTrackSync(char *szCommunityTrack,
+                                          int iCommunityTrackSize,
+                                          uint32 *puiCommunityTrackCRC)
+{
+  const char *szPath;
+  uint32 uiTrackCRC;
+
+  if (!szCommunityTrack || iCommunityTrackSize <= 0 || !puiCommunityTrackCRC)
+    return;
+
+  szCommunityTrack[0] = '\0';
+  *puiCommunityTrackCRC = 0;
+  if (TrackLoad != TRACK_LOAD_COMMUNITY ||
+      g_iCommunityTrackSel < 0 ||
+      g_iCommunityTrackSel >= g_iCommunityTrackCount)
+    return;
+
+  strncpy(szCommunityTrack, g_aszCommunityTracks[g_iCommunityTrackSel],
+          (size_t)iCommunityTrackSize - 1);
+  szCommunityTrack[iCommunityTrackSize - 1] = '\0';
+  szPath = community_track_path();
+  uiTrackCRC = community_track_crc(szPath);
+  g_uiCommunityTrackCRC = uiTrackCRC;
+  *puiCommunityTrackCRC = uiTrackCRC;
+}
+
+static void NetworkAdoptTrackLoad(int iTrackLoad,
+                                  const char *szCommunityTrack,
+                                  uint32 uiCommunityTrackCRC,
+                                  const char *szContext)
+{
+  char szTrackName[NETWORK_COMMUNITY_TRACK_FILENAME];
+
+  if (iTrackLoad == TRACK_LOAD_COMMUNITY) {
+    szTrackName[0] = '\0';
+    if (szCommunityTrack) {
+      strncpy(szTrackName, szCommunityTrack, sizeof(szTrackName) - 1);
+      szTrackName[sizeof(szTrackName) - 1] = '\0';
+    }
+
+    if (community_track_select_by_name(szTrackName, uiCommunityTrackCRC, -1)) {
+      g_iCommunityTrackMissing = 0;
+      return;
+    }
+
+    TrackLoad = TRACK_LOAD_COMMUNITY;
+    g_iCommunityTrackSel = -1;
+    g_iCommunityTrackTop = 0;
+    g_uiCommunityTrackCRC = uiCommunityTrackCRC;
+    g_iCommunityTrackMissing = -1;
+    SDL_Log("[NET] community track unavailable in %s: %s crc=%08X",
+            szContext ? szContext : "track-sync",
+            szTrackName,
+            (unsigned int)uiCommunityTrackCRC);
+    return;
+  }
+
+  TrackLoad = iTrackLoad;
+  g_iCommunityTrackMissing = 0;
+}
+
+static void NetworkAdoptTransmitTrackLoad(const tTransmitInitPacket *pPacket,
+                                          const char *szContext)
+{
+  NetworkAdoptTrackLoad(pPacket->iTrackLoad,
+                        pPacket->szCommunityTrack,
+                        pPacket->uiCommunityTrackCRC,
+                        szContext);
+}
+
+static void NetworkAdoptPlayerInfoTrackLoad(const tPlayerInfoPacket *pPacket,
+                                            const char *szContext)
+{
+  NetworkAdoptTrackLoad(pPacket->iTrackLoad,
+                        pPacket->szCommunityTrack,
+                        pPacket->uiCommunityTrackCRC,
+                        szContext);
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static int IsInvalidPacketAddress(const int32 pAddress[4])
@@ -938,7 +1025,7 @@ int receive_multiple()
                                    in_header.byConsoleNode);
           check_cars();
           name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
-          TrackLoad = playerInfoPacket.iTrackLoad;
+          NetworkAdoptPlayerInfoTrackLoad(&playerInfoPacket, "player-info");
           game_type = playerInfoPacket.iGameType;
           competitors = playerInfoPacket.iCompetitors;
           level = playerInfoPacket.iLevel;
@@ -1100,7 +1187,8 @@ void receive_all_singles()
                                      in_header.byConsoleNode);
             check_cars();
             name_copy(player_names[in_header.byConsoleNode], playerInfoPacket.szPlayerName);
-            TrackLoad = playerInfoPacket.iTrackLoad;
+            NetworkAdoptPlayerInfoTrackLoad(&playerInfoPacket,
+                                            "single-player-info");
             game_type = playerInfoPacket.iGameType;
             competitors = playerInfoPacket.iCompetitors;
             level = playerInfoPacket.iLevel;
@@ -1267,6 +1355,9 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
   pHeader->byConsoleNode = (uint8)iPlayerSlot;
   pHeader->uiId = PACKET_ID_TRANSMIT_INIT;
   pInitPacket->iTrackLoad = TrackLoad;
+  NetworkFillCommunityTrackSync(pInitPacket->szCommunityTrack,
+                                sizeof(pInitPacket->szCommunityTrack),
+                                &pInitPacket->uiCommunityTrackCRC);
   name_copy(pInitPacket->szPlayerName, player_names[iConsoleNode]);
   pInitPacket->address[0] = address[0];
   pInitPacket->address[1] = address[1];
@@ -1310,7 +1401,7 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
     iLevelFlags |= 0x10000;
   pInitPacket->iLevelFlags = iLevelFlags;
   pInitPacket->iDamageLevel = damage_level;
-  pInitPacket->iStartPressed = StartPressed;
+  pInitPacket->iStartPressed = NetworkTrackStartAvailable() ? StartPressed : 0;
   if (time_to_start == 45)
     time_to_start = 0;
   pInitPacket->iTimeToStart = time_to_start;
@@ -1573,11 +1664,14 @@ void CheckNewNodes()
               //} while (szTxInitPacketNamesItr2 != (char *)&messagePacket);// messagePacket is immediately after transmitInitPacket
 
               my_age = transmitInitPacket.iMyAge;
-              TrackLoad = transmitInitPacket.iTrackLoad;
+              NetworkAdoptTransmitTrackLoad(&transmitInitPacket,
+                                            "transmit-init-new");
               game_type = transmitInitPacket.iGameType;
               if (transmitInitPacket.iGameType == 1) {
-                if (TrackLoad == TRACK_LOAD_COMMUNITY)
+                if (TrackLoad == TRACK_LOAD_COMMUNITY) {
                   TrackLoad = 1;
+                  g_iCommunityTrackMissing = 0;
+                }
                 Race = ((uint8)TrackLoad - 1) & 7;
               } else {
                 network_champ_on = 0;
@@ -1686,7 +1780,8 @@ void CheckNewNodes()
                                      iNodeIndex);
             iCheckNamesResult2 = CheckNames(player_names[iNodeIndex], iNodeIndex);
             check_cars();
-            TrackLoad = transmitInitPacket.iTrackLoad;
+            NetworkAdoptTransmitTrackLoad(&transmitInitPacket,
+                                          "transmit-init-update");
             if (transmitInitPacket.iGameType < 3) {
               if (transmitInitPacket.iGameType == game_type)
                 game_type = transmitInitPacket.iGameType;
@@ -1906,7 +2001,7 @@ void CheckNewNodes()
                                  "start-player-info",
                                  syncHeader.byConsoleNode);
         name_copy(player_names[byConsoleNode], playerInfoPacket.szPlayerName);
-        TrackLoad = playerInfoPacket.iTrackLoad;
+        NetworkAdoptPlayerInfoTrackLoad(&playerInfoPacket, "start-player-info");
         game_type = playerInfoPacket.iGameType;
         competitors = playerInfoPacket.iCompetitors;
         level = playerInfoPacket.iLevel;
@@ -2061,6 +2156,9 @@ void SendPlayerInfo()
                              "player-info-local",
                              iPlayerSlot);
     playerInfo.iTrackLoad = TrackLoad;
+    NetworkFillCommunityTrackSync(playerInfo.szCommunityTrack,
+                                  sizeof(playerInfo.szCommunityTrack),
+                                  &playerInfo.uiCommunityTrackCRC);
     playerInfo.iGameType = game_type;
     playerInfo.iCompetitors = competitors;
     playerInfo.iLevel = level;
@@ -2217,6 +2315,11 @@ void BroadcastNews()
     }
   } else if (broadcast_mode < 0xFFFFFD66) {
     if (broadcast_mode <= 0xFFFFFD64) {
+      if (!NetworkTrackStartAvailable()) {
+        StartPressed = 0;
+        broadcast_mode = 0;
+        return;
+      }
       StartPressed = -1;
       iInitSuccess6 = -1;
       if (network_on)

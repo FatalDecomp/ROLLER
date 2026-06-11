@@ -7,7 +7,7 @@
 //-------------------------------------------------------------------------------------------------
 #define ROLLER_MAX_NODES 16
 #define ROLLER_DEFAULT_PORT 7777
-#define ROLLER_MAX_PACKET_SIZE 1024
+#define ROLLER_MAX_PACKET_SIZE 2048
 #define ROLLER_MAX_IFACES 8
 #define SEND_QUEUE_DEPTH 64
 
