@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <math.h>
+#include <stdlib.h>
 #ifdef IS_WINDOWS
 #include <io.h>
 #define open _open
@@ -3542,6 +3543,8 @@ void reinitmusic()
       iSong = optionssong;
     } else if (replaytype == 2) {
       iSong = titlesong;
+    } else if (TrackLoad == TRACK_LOAD_COMMUNITY && nummusictracks > 0) {
+      iSong = rand() % nummusictracks + 1;
     } else {
       iSong = TrackLoad;
     }

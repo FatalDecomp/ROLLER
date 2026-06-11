@@ -88,10 +88,13 @@ static void frontend_disk_select_apply_type_switch(void)
   if (switch_types == 1 && competitors == 1)
     competitors = 16;
   switch_types = 0;
-  if (game_type == 1)
+  if (game_type == 1) {
+    if (TrackLoad == TRACK_LOAD_COMMUNITY)
+      TrackLoad = 1;
     Race = ((uint8)TrackLoad - 1) & 7;
-  else
+  } else {
     network_champ_on = 0;
+  }
 }
 
 //-------------------------------------------------------------------------------------------------

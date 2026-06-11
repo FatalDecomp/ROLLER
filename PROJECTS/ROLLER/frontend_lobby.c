@@ -56,6 +56,8 @@ static int iLobbyRacePrepared;
 static int iLobbyExitFading;
 static eFrontendState eLobbyExitTarget;
 
+#define MENU_COLOR_RED 0xE7u
+
 static void lobby_draw_frame(void);
 static void lobby_begin_exit(eFrontendState eTarget);
 
@@ -227,8 +229,10 @@ static int lobby_update_post_sync(void)
       }
       if (frames - iLobbyLastRecordResend >= 36) {
         iLobbyLastRecordResend = frames;
-        SDL_Log("[NET-START] slave waiting for seed; resending record to master=%d", master);
-        send_record_to_master(TrackLoad);
+        if (TrackLoad != TRACK_LOAD_COMMUNITY) {
+          SDL_Log("[NET-START] slave waiting for seed; resending record to master=%d", master);
+          send_record_to_master(TrackLoad);
+        }
       }
       CheckNewNodes();
       ROLLERCommsPumpSendQueue();
@@ -275,6 +279,10 @@ static void lobby_emit_draw(MenuRenderer *mr)
                        200, 22, 0x8Fu, 1u, pal_addr);
     if (time_to_start)
       iLobbyActive = 0;
+  }
+  if (!community_track_available()) {
+    menu_render_text(mr, 1, "NO TRACK SELECTED", font2_ascii, font2_offsets,
+                     200, 32, MENU_COLOR_RED, 1u, pal_addr);
   }
 
   iPlayerDisplayLoop = 0;
@@ -382,6 +390,10 @@ static void lobby_handle_input(void)
         fatgetch();
     } else if (uiKeyPressed <= 0xD) {
       if (players_waiting == network_on && !time_to_start) {
+        if (!community_track_available()) {
+          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+          return;
+        }
         lobby_begin_broadcast_wait(eLOBBY_BROADCAST_START_RACE, -671, 3);
         return;
       }
@@ -413,10 +425,13 @@ void frontend_lobby_update(void)
     if (switch_types == 1 && competitors == 1)
       competitors = 16;
     switch_types = 0;
-    if (game_type == 1)
+    if (game_type == 1) {
+      if (TrackLoad == TRACK_LOAD_COMMUNITY)
+        TrackLoad = 1;
       Race = ((uint8)TrackLoad - 1) & 7;
-    else
+    } else {
       network_champ_on = 0;
+    }
   }
 
   // Handle same-car mode changes from master

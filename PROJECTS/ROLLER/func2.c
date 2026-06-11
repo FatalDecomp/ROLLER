@@ -13,6 +13,7 @@
 #include "types.h"
 #include "view.h"
 #include "function.h"
+#include "loadtrak.h"
 #include "date.h"
 #include "moving.h"
 #include "graphics.h"
@@ -3738,7 +3739,8 @@ void save_fatal_config()
   fprintf(fp, "Record=%i\n", replay_record);
   fprintf(fp, "Game=%i\n", game_type);
   fprintf(fp, "Racers=%i\n", competitors);
-  fprintf(fp, "Track=%i\n", TrackLoad);
+  fprintf(fp, "Track=%i\n",
+          TrackLoad == TRACK_LOAD_COMMUNITY ? 1 : TrackLoad);
   fprintf(fp, "Players=%i\n", player_type);
   fprintf(fp, "Ariel1=%s\n", default_names[0]);
   fprintf(fp, "Ariel2=%s\n", default_names[1]);
@@ -3999,6 +4001,8 @@ void load_fatal_config()
       iTemp2[0] = TrackLoad;
       getconfigvalue(pData2, "Track", iTemp2, -1, 24);
       TrackLoad = iTemp2[0];
+      if (TrackLoad == TRACK_LOAD_COMMUNITY)
+        TrackLoad = 1;
       getconfigvalue(pData2, "Players", &player_type, 0, 4);
 
       // process second player name

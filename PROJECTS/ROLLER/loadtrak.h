@@ -73,6 +73,22 @@ extern tSubdivide Subdivide[MAX_TRACK_CHUNKS];
 
 //-------------------------------------------------------------------------------------------------
 
+#define TRACK_LOAD_COMMUNITY 25
+#define MAX_COMMUNITY_TRACKS 500
+
+extern char g_aszCommunityTracks[MAX_COMMUNITY_TRACKS][9];
+extern int g_iCommunityTrackCount;
+extern int g_iCommunityTrackSel;
+extern int g_iCommunityTrackTop;
+extern int g_iCommunityTrackMissing;
+extern uint32 g_uiCommunityTrackCRC;
+
+//-------------------------------------------------------------------------------------------------
+
+void scan_community_tracks(void);
+const char *community_track_path(void);
+int community_track_available(void);
+uint32 community_track_crc(const char *szPath);
 void loadtrack(int iTrackIdx, int iPreviewMode);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);

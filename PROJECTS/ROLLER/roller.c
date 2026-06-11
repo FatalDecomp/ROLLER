@@ -664,6 +664,17 @@ void InitREPLAYS(const char *szDataRoot)
 
 //-------------------------------------------------------------------------------------------------
 
+void InitTRACKS(const char *szDataRoot)
+{
+  #ifdef IS_WINDOWS
+  mkdir("./TRACKS");
+  #else
+  mkdir("./TRACKS", 0755);
+  #endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void ShutdownSDL()
 {
   if (!g_bSnapshotMode) {

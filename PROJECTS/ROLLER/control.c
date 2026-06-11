@@ -3279,7 +3279,8 @@ void check_crossed_line(tCar *pCar)
             if (pCar->fRunningLapTime < (double)pCar->fBestLapTime && pCar->byLap > 1)// Check if this lap is a new personal best
             {
               pCar->fBestLapTime = pCar->fRunningLapTime;
-              if (pCar->fBestLapTime >= (double)RecordLaps[game_track])// Check if lap time beats track record
+              if (game_track != TRACK_LOAD_COMMUNITY &&
+                  pCar->fBestLapTime >= (double)RecordLaps[game_track])// Check if lap time beats track record
               {
                 iFastestLapFlag = -1;
                 if (racers > 0)               // Check if this is fastest lap among all drivers
@@ -3306,7 +3307,7 @@ void check_crossed_line(tCar *pCar)
                   make_time(buffer, pCar->fBestLapTime);
                   subzoom(buffer);
                 }
-              } else {
+              } else if (game_track != TRACK_LOAD_COMMUNITY) {
                 iDriverIdx4 = pCar->iDriverIdx;
                 if (player1_car == iDriverIdx4 || player2_car == iDriverIdx4) {
                   if (pCar->fBestLapTime >= RecordLaps[game_track] + -0.5)

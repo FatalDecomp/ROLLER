@@ -9,6 +9,7 @@
 #include "colision.h"
 #include "roller.h"
 #include "rollercomms.h"
+#include "loadtrak.h"
 //-------------------------------------------------------------------------------------------------
 
 int sync_errors = 0;        //000A6100
@@ -1574,10 +1575,13 @@ void CheckNewNodes()
               my_age = transmitInitPacket.iMyAge;
               TrackLoad = transmitInitPacket.iTrackLoad;
               game_type = transmitInitPacket.iGameType;
-              if (transmitInitPacket.iGameType == 1)
+              if (transmitInitPacket.iGameType == 1) {
+                if (TrackLoad == TRACK_LOAD_COMMUNITY)
+                  TrackLoad = 1;
                 Race = ((uint8)TrackLoad - 1) & 7;
-              else
+              } else {
                 network_champ_on = 0;
+              }
               competitors = transmitInitPacket.iCompetitors;
               level = transmitInitPacket.iLevelFlags;
               if ((transmitInitPacket.iLevelFlags & 0x100) != 0)// Process level flags and update cheat mode settings accordingly
@@ -2162,11 +2166,12 @@ void BroadcastNews()
       }
       if (broadcast_mode != 0xFFFFF211)
         goto LABEL_81;
-      if (wConsoleNode != master)
+      if (wConsoleNode != master && TrackLoad != TRACK_LOAD_COMMUNITY)
         send_record_to_master(TrackLoad);
     } else {
       if (broadcast_mode <= 0xFFFFF562) {
-        send_record_to_slaves(TrackLoad);
+        if (TrackLoad != TRACK_LOAD_COMMUNITY)
+          send_record_to_slaves(TrackLoad);
         send_seed(random_seed);
         broadcast_mode = 0;
         return;
@@ -2273,7 +2278,7 @@ void BroadcastNews()
         goto LABEL_81;
       FoundNodes();
       SendPlayerInfo();
-      if (wConsoleNode != master)
+      if (wConsoleNode != master && TrackLoad != TRACK_LOAD_COMMUNITY)
         send_record_to_master(TrackLoad);
       broadcast_mode = 0;
     }

@@ -61,6 +61,7 @@ static int iFrontendMainMenuRotation = 0;
 static int iFrontendMainMenuBlockIdx = 0;
 static int iFrontendMainMenuPtexSize = 0;
 static int iFrontendMainMenuStartDelayTarget = 0;
+static int iFrontendMainMenuNoCommunityTrack = 0;
 
 typedef enum {
   eMAIN_MENU_NET_WAIT_NONE = 0,
@@ -87,6 +88,8 @@ static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_O
 static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
 static int iFrontendMainMenuFadeOutMusic = 0;
 static int iFrontendMainMenuFadeOutVisualGameType = -1;
+
+#define MENU_COLOR_RED 0xE7u
 
 //-------------------------------------------------------------------------------------------------
 
@@ -563,6 +566,8 @@ static void frontend_main_menu_load_current_preview_assets(void)
   iFrontendMainMenuBlockIdx = Players_Cars[player1_car];
 
   if (game_type == 1) {
+    if (TrackLoad == TRACK_LOAD_COMMUNITY)
+      TrackLoad = 1;
     loadtrack(TrackLoad, -1);
     front_vga[3] = (tBlockHeader *)load_picture("trkname.bm");
     front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
@@ -939,6 +944,15 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   if (iFrontendMainMenuQuitConfirmed)
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
+  if (iFrontendMainMenuNoCommunityTrack) {
+    if (community_track_available())
+      iFrontendMainMenuNoCommunityTrack = 0;
+    else
+      menu_render_text(mr, 2, "NO TRACK SELECTED", font2_ascii, font2_offsets,
+                       PREVIEW_X + PREVIEW_W / 2,
+                       TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
+                       pal_addr);
+  }
   show_received_mesage();
 }
 
@@ -978,6 +992,8 @@ static void frontend_main_menu_apply_type_switch(void)
   frontend_main_menu_free_selected_car_textures();
   frontend_main_menu_free_preview_title_assets();
   if (game_type == 1) {
+    if (TrackLoad == TRACK_LOAD_COMMUNITY)
+      TrackLoad = 1;
     loadtrack(TrackLoad, -1);
     front_vga[3] = (tBlockHeader *)load_picture("trkname.bm");
     front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
@@ -1260,6 +1276,12 @@ static void frontend_main_menu_handle_enter(void)
       break;
     case 8:
       if (iFrontendMainMenuBlockIdx >= CAR_DESIGN_AUTO) {
+        if (!community_track_available()) {
+          iFrontendMainMenuNoCommunityTrack = -1;
+          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+          break;
+        }
+        iFrontendMainMenuNoCommunityTrack = 0;
         iFrontendMainMenuContinue = -1;
         frontend_main_menu_fade_out(0);
         eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_START_SOUND;
