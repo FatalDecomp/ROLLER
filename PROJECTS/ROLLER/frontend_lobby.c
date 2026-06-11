@@ -201,7 +201,7 @@ static int lobby_update_post_sync(void)
       return -1;
 
     case eLOBBY_POST_SYNC_MASTER_RECORDS:
-      if (received_records >= network_on) {
+      if (TrackLoad == TRACK_LOAD_COMMUNITY || received_records >= network_on) {
         network_broadcast_wait_start(-2718, 1);
         eLobbyPostSyncCurrentPhase = eLOBBY_POST_SYNC_MASTER_SEED;
         return -1;
