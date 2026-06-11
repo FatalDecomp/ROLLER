@@ -411,12 +411,12 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   }
 
   if (frontend_track_select_is_community()) {
-    menu_render_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT, "COMMUNITY",
-                     font4_ascii, font4_offsets, 540, 288, 0x8Fu, 1u,
-                     pal_addr);
-    menu_render_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT, "TRACKS",
-                     font4_ascii, font4_offsets, 540, 324, 0x8Fu, 1u,
-                     pal_addr);
+    menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
+                            "COMMUNITY", font3_ascii, font3_offsets, 540,
+                            326, 0x8Fu, 1u, 450, 635, pal_addr);
+    menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
+                            "TRACKS", font3_ascii, font3_offsets, 540, 360,
+                            0x8Fu, 1u, 450, 635, pal_addr);
   } else {
     menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
   }
@@ -687,7 +687,7 @@ void frontend_track_select_enter(void)
   iFrontendTrackYaw = 0;
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
   front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT] =
-      (tBlockHeader *)load_picture("font4.bm");
+      (tBlockHeader *)load_picture("font3.bm");
   front_vga[FRONTEND_TRACK_ARROW_SLOT] =
       (tBlockHeader *)load_picture("replaysc.bm");
   memcpy(pal_addr, palette, 256 * sizeof(tColor));
