@@ -281,8 +281,9 @@ static void lobby_emit_draw(MenuRenderer *mr)
       iLobbyActive = 0;
   }
   if (!community_track_available()) {
-    menu_render_text(mr, 1, "NO TRACK SELECTED", font2_ascii, font2_offsets,
-                     200, 32, MENU_COLOR_RED, 1u, pal_addr);
+    menu_render_text(mr, 15, "NO TRACK SELECTED", font1_ascii,
+                     font1_offsets, 200, 32, MENU_COLOR_RED, 1u,
+                     pal_addr);
   }
 
   iPlayerDisplayLoop = 0;

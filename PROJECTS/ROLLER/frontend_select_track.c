@@ -46,7 +46,6 @@ static float fFrontendTrackTargetZoom = 0.0f;
 
 #define FRONTEND_TRACK_ARROW_SLOT 12
 #define FRONTEND_TRACK_COMMUNITY_FONT_SLOT 10
-#define FRONTEND_TRACK_WARNING_FONT_SLOT 11
 #define FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS 8
 #define FRONTEND_TRACK_COMMUNITY_LIST_LEFT 58
 #define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 168
@@ -100,30 +99,6 @@ static void frontend_track_select_display_name(char *szDisplayName,
     szDisplayName[12] = '.';
     szDisplayName[13] = '.';
     szDisplayName[14] = '\0';
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-
-static void frontend_track_select_make_solid_font(tBlockHeader *pFont)
-{
-  if (!pFont)
-    return;
-
-  for (int iBlockIdx = 0; iBlockIdx < 256; ++iBlockIdx) {
-    tBlockHeader *pBlock = &pFont[iBlockIdx];
-
-    if (pBlock->iWidth <= 0 || pBlock->iHeight <= 0 ||
-        pBlock->iDataOffset <= 0)
-      break;
-
-    uint8 *pbyPixels = (uint8 *)pFont + pBlock->iDataOffset;
-    int iPixelCount = pBlock->iWidth * pBlock->iHeight;
-
-    for (int iPixelIdx = 0; iPixelIdx < iPixelCount; ++iPixelIdx) {
-      if (pbyPixels[iPixelIdx])
-        pbyPixels[iPixelIdx] = 0x8F;
-    }
   }
 }
 
@@ -386,8 +361,7 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   *piBlockIdx = iBlockIdx;
 
   if (frontend_track_select_is_community() && !community_track_available()) {
-    menu_render_text(mr, FRONTEND_TRACK_WARNING_FONT_SLOT,
-                     "NO TRACK SELECTED", font2_ascii, font2_offsets,
+    menu_render_text(mr, 15, "NO TRACK SELECTED", font1_ascii, font1_offsets,
                      PREVIEW_X + PREVIEW_W / 2,
                      TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
                      pal_addr);
@@ -714,10 +688,6 @@ void frontend_track_select_enter(void)
   front_vga[14] = (tBlockHeader *)load_picture("cupicons.bm");
   front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT] =
       (tBlockHeader *)load_picture("font4.bm");
-  front_vga[FRONTEND_TRACK_WARNING_FONT_SLOT] =
-      (tBlockHeader *)load_picture("font2.bm");
-  frontend_track_select_make_solid_font(
-      front_vga[FRONTEND_TRACK_WARNING_FONT_SLOT]);
   front_vga[FRONTEND_TRACK_ARROW_SLOT] =
       (tBlockHeader *)load_picture("replaysc.bm");
   memcpy(pal_addr, palette, 256 * sizeof(tColor));
@@ -730,9 +700,6 @@ void frontend_track_select_enter(void)
       menu_render_load_blocks(mr, 14, front_vga[14], palette);
       menu_render_load_blocks(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
                               front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT],
-                              palette);
-      menu_render_load_blocks(mr, FRONTEND_TRACK_WARNING_FONT_SLOT,
-                              front_vga[FRONTEND_TRACK_WARNING_FONT_SLOT],
                               palette);
       menu_render_load_blocks(mr, FRONTEND_TRACK_ARROW_SLOT,
                               front_vga[FRONTEND_TRACK_ARROW_SLOT], palette);
@@ -803,7 +770,6 @@ void frontend_track_select_exit(void)
   fre((void **)&front_vga[13]);
   fre((void **)&front_vga[14]);
   fre((void **)&front_vga[FRONTEND_TRACK_COMMUNITY_FONT_SLOT]);
-  fre((void **)&front_vga[FRONTEND_TRACK_WARNING_FONT_SLOT]);
   fre((void **)&front_vga[FRONTEND_TRACK_ARROW_SLOT]);
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
   remove_frontendspeech();

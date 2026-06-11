@@ -948,8 +948,8 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
     if (community_track_available())
       iFrontendMainMenuNoCommunityTrack = 0;
     else
-      menu_render_text(mr, 2, "NO TRACK SELECTED", font2_ascii, font2_offsets,
-                       PREVIEW_X + PREVIEW_W / 2,
+      menu_render_text(mr, 15, "NO TRACK SELECTED", font1_ascii,
+                       font1_offsets, PREVIEW_X + PREVIEW_W / 2,
                        TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
                        pal_addr);
   }
