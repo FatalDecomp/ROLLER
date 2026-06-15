@@ -40,12 +40,16 @@ static int iFrontendTypeBlockIdx = 0;
 static int iFrontendTypeBroadcastWaitAction = 0;
 static int iFrontendTypeCloseNetworkPending = 0;
 static int iFrontendTypeCloseNetworkStartFrame = 0;
+static int iFrontendTypeOriginalGameType = 0;
+static int iFrontendTypeOriginalCompetitors = 0;
 
 enum {
   eTYPE_BROADCAST_WAIT_NONE = 0,
   eTYPE_BROADCAST_WAIT_EXIT,
   eTYPE_BROADCAST_WAIT_CLOSE_NETWORK
 };
+
+#define MENU_COLOR_RED 0xE7u
 
 //-------------------------------------------------------------------------------------------------
 
@@ -139,6 +143,29 @@ static int frontend_type_select_update_broadcast_wait(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_type_select_championship_unavailable(void)
+{
+  return stock_track_demo_only() &&
+         iFrontendTypeMenuSelection == 1 &&
+         game_type == 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_restore_invalid_championship(void)
+{
+  if (!frontend_type_select_championship_unavailable())
+    return;
+
+  game_type = iFrontendTypeOriginalGameType == 1 ? 0 :
+                                                  iFrontendTypeOriginalGameType;
+  competitors = iFrontendTypeOriginalCompetitors;
+  if (game_type == 2)
+    competitors = 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_request_exit(void)
 {
   if (iFrontendTypeSkipColor) {
@@ -147,6 +174,8 @@ static void frontend_type_select_request_exit(void)
   }
 
   network_champ_on = 0;
+  if (stock_track_demo_only() && game_type == 1)
+    game_type = 0;
   int iTrackUpperLimit = 8 * iFrontendTypeBlockIdx + 8;
   int iTrackLowerLimit = 8 * iFrontendTypeBlockIdx + 1;
   if (game_type) {
@@ -391,6 +420,11 @@ static void frontend_type_select_draw(void)
         byFinalTextColor = byGameModeColor3;
         iTextYPosition = 171;
         pszTextBuffer = &language_buffer[3712];
+        if (frontend_type_select_championship_unavailable()) {
+          menu_render_scaled_text(mr, 15, "NOT AVAILABLE IN THIS VERSION",
+                                  font1_ascii, font1_offsets, 400, 225,
+                                  MENU_COLOR_RED, 1u, 200, 640, pal_addr);
+        }
       } else if (iFrontendTypeMenuSelection == 6) {
         menu_render_scaled_text(mr, 15, &language_buffer[3456], font1_ascii,
                                 font1_offsets, 400, 320, 231, 1u, 200, 640,
@@ -551,6 +585,9 @@ static void frontend_type_select_handle_enter(void)
   sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
 
   if (iFrontendTypeMenuSelection) {
+    if (frontend_type_select_championship_unavailable())
+      return;
+
     if (game_type == 1) {
       Race = 0;
       TrackLoad = 8 * iFrontendTypeBlockIdx + 1;
@@ -562,6 +599,8 @@ static void frontend_type_select_handle_enter(void)
 
   switch (iFrontendTypeCurrentOption) {
     case 0:
+      iFrontendTypeOriginalGameType = game_type;
+      iFrontendTypeOriginalCompetitors = competitors;
       iFrontendTypeMenuSelection = iFrontendTypeSkipColor ? 6 : 1;
       break;
     case 1:
@@ -733,10 +772,12 @@ static void frontend_type_select_handle_input(void)
           frontend_type_select_handle_extended_key(byExtendedKey);
       }
     } else if (byInputKey <= 0x1Bu) {
-      if (iFrontendTypeMenuSelection)
+      if (iFrontendTypeMenuSelection) {
+        frontend_type_select_restore_invalid_championship();
         iFrontendTypeMenuSelection = 0;
-      else
+      } else {
         frontend_type_select_request_exit();
+      }
     } else if (byInputKey < 0x59u) {
       if (byInputKey == 32)
         frontend_type_select_handle_space();
@@ -761,6 +802,13 @@ void frontend_type_select_enter(void)
   iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
   iFrontendTypeCloseNetworkPending = 0;
   iFrontendTypeCloseNetworkStartFrame = 0;
+  if (stock_track_demo_only() && game_type == 1) {
+    game_type = 0;
+    Race = 0;
+    network_champ_on = 0;
+    if (competitors == 1)
+      competitors = 16;
+  }
   if (game_type == 1 && Race > 0)
     iFrontendTypeSkipColor = -1;
   else

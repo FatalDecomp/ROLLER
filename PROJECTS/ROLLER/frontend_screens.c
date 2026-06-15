@@ -577,6 +577,8 @@ static void frontend_main_menu_load_current_preview_assets(void)
   if (game_type == 1) {
     if (TrackLoad == TRACK_LOAD_COMMUNITY)
       TrackLoad = 1;
+    if (stock_track_demo_only())
+      TrackLoad = TRACK_LOAD_DEMO;
     loadtrack(TrackLoad, -1);
     front_vga[3] = (tBlockHeader *)load_picture("trkname.bm");
     front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");
@@ -1014,6 +1016,8 @@ static void frontend_main_menu_apply_type_switch(void)
   if (game_type == 1) {
     if (TrackLoad == TRACK_LOAD_COMMUNITY)
       TrackLoad = 1;
+    if (stock_track_demo_only())
+      TrackLoad = TRACK_LOAD_DEMO;
     loadtrack(TrackLoad, -1);
     front_vga[3] = (tBlockHeader *)load_picture("trkname.bm");
     front_vga[13] = (tBlockHeader *)load_picture("bonustrk.bm");

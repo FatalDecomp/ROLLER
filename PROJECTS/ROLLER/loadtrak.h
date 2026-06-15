@@ -74,6 +74,7 @@ extern tSubdivide Subdivide[MAX_TRACK_CHUNKS];
 //-------------------------------------------------------------------------------------------------
 
 #define TRACK_LOAD_COMMUNITY 25
+#define TRACK_LOAD_DEMO 5
 #define MAX_COMMUNITY_TRACKS 500
 #define MAX_COMMUNITY_TRACK_FILENAME (ROLLER_MAX_PATH - 16)
 
@@ -93,6 +94,8 @@ const char *community_track_path(void);
 const char *community_records_path(void);
 int community_track_available(void);
 uint32 community_track_crc(const char *szPath);
+int stock_track_available(int iTrackIdx);
+int stock_track_demo_only(void);
 void loadtrack(int iTrackIdx, int iPreviewMode);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);

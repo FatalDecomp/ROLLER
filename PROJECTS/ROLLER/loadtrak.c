@@ -98,6 +98,9 @@ int g_iCommunityTrackTop = 0;
 int g_iCommunityTrackMissing = 0;
 uint32 g_uiCommunityTrackCRC = 0;
 static char g_szCommunityTrackDir[16] = "../TRACKS";
+static int g_iStockTrackAvailabilityScanned = 0;
+static uint32 g_uiStockTrackAvailabilityMask = 0;
+static int g_iStockTrackAvailableCount = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -134,6 +137,44 @@ static int community_track_find(const char *szName)
   }
 
   return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void stock_track_scan_availability(void)
+{
+  if (g_iStockTrackAvailabilityScanned)
+    return;
+
+  g_uiStockTrackAvailabilityMask = 0;
+  g_iStockTrackAvailableCount = 0;
+  for (int iTrackIdx = 0; iTrackIdx < 25; ++iTrackIdx) {
+    if (ROLLERfexists(names[iTrackIdx])) {
+      g_uiStockTrackAvailabilityMask |= 1u << iTrackIdx;
+      ++g_iStockTrackAvailableCount;
+    }
+  }
+  g_iStockTrackAvailabilityScanned = -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int stock_track_available(int iTrackIdx)
+{
+  if (iTrackIdx < 0 || iTrackIdx >= 25)
+    return 0;
+
+  stock_track_scan_availability();
+  return (g_uiStockTrackAvailabilityMask & (1u << iTrackIdx)) != 0 ? -1 : 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int stock_track_demo_only(void)
+{
+  stock_track_scan_availability();
+  return g_iStockTrackAvailableCount == 1 &&
+         stock_track_available(TRACK_LOAD_DEMO);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -329,7 +370,7 @@ int community_track_available(void)
   FILE *pFile;
 
   if (TrackLoad != TRACK_LOAD_COMMUNITY)
-    return -1;
+    return stock_track_available(TrackLoad);
 
   szPath = community_track_path();
   if (!szPath)

@@ -4050,6 +4050,16 @@ void load_fatal_config()
       //TODO find out how other exes handle this
       if (TrackLoad < 1)
         TrackLoad = 1;
+      if (stock_track_demo_only()) {
+        TrackLoad = TRACK_LOAD_DEMO;
+        if (game_type == 1) {
+          game_type = 0;
+          Race = 0;
+          network_champ_on = 0;
+          if (competitors == 1)
+            competitors = 16;
+        }
+      }
 
       // process AI driver names
       pBuffer3 = buffer;

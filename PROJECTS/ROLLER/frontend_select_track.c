@@ -111,6 +111,16 @@ static int frontend_track_select_is_community(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_track_select_stock_selection_disabled(void)
+{
+  return stock_track_demo_only() &&
+         !frontend_track_select_is_community() &&
+         TrackLoad > 0 &&
+         (TrackLoad - 1) / 8 == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_show_community_selection(void)
 {
   int iMaxTop = g_iCommunityTrackCount - FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS;
@@ -264,6 +274,8 @@ static void frontend_track_select_apply_type_switch(void)
   if (game_type == 1) {
     if (TrackLoad == TRACK_LOAD_COMMUNITY)
       TrackLoad = 1;
+    if (stock_track_demo_only())
+      TrackLoad = TRACK_LOAD_DEMO;
     Race = ((uint8)TrackLoad - 1) & 7;
   } else {
     network_champ_on = 0;
@@ -292,9 +304,13 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
 {
   int iLapsForLevel;
   int iBlockIdx;
+  int iStockSelectionDisabled;
   MenuRenderer *mr = GetMenuRenderer();
 
   *piStartedFadeIn = 0;
+  iStockSelectionDisabled = frontend_track_select_stock_selection_disabled();
+  if (iStockSelectionDisabled)
+    iFrontendTrackSelectedTrack = 8;
 
   menu_render_begin_frame(mr);
   if (!front_fade) {
@@ -411,6 +427,11 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                      0x8Fu, 1u, pal_addr);
   }
 
+  if (iStockSelectionDisabled) {
+    menu_render_text(mr, 15, "DEMO TRACK IS MILLION PLUS", font1_ascii,
+                     font1_offsets, 420, 268, MENU_COLOR_RED, 1u, pal_addr);
+  }
+
   if (frontend_track_select_is_community()) {
     menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
                             "COMMUNITY", font3_ascii, font3_offsets, 540,
@@ -516,9 +537,13 @@ static void frontend_track_select_handle_input(int iBlockIdx)
   int iTrackInCup = iFrontendTrackSelectedTrack + 1;
   unsigned int uiKeyDirection = 0;
   int iCommunityMode = frontend_track_select_is_community();
+  int iStockSelectionDisabled = frontend_track_select_stock_selection_disabled();
   int iCalculatedTrack =
       iCommunityMode ? TRACK_LOAD_COMMUNITY :
                        8 * iBlockIdx + iFrontendTrackSelectedTrack + 1;
+
+  if (iStockSelectionDisabled)
+    iFrontendTrackSelectedTrack = 8;
 
   while (fatkbhit()) {
     uint8 byKey = fatgetch();
@@ -584,7 +609,11 @@ static void frontend_track_select_handle_input(int iBlockIdx)
       } else if (byKey == 32 && game_type != 1 && TrackLoad > 0) {
         sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
         iFrontendTrackSpeechPending = 0;
-        if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
+        if (iStockSelectionDisabled) {
+          iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+          scan_community_tracks();
+          frontend_track_select_show_community_selection();
+        } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
             TrackLoad == TRACK_LOAD_COMMUNITY) {
           iFrontendTrackCurrentTrack = 1;
           iFrontendTrackSelectedTrack = 0;
@@ -614,7 +643,9 @@ static void frontend_track_select_handle_input(int iBlockIdx)
   }
 
   if (uiKeyDirection) {
-    if (iCommunityMode) {
+    if (iStockSelectionDisabled) {
+      iFrontendTrackSelectedTrack = 8;
+    } else if (iCommunityMode) {
       if (uiKeyDirection > 1) {
         if (iFrontendTrackSelectedTrack == 8) {
           if (g_iCommunityTrackCount > 0) {
@@ -669,6 +700,8 @@ void frontend_track_select_enter(void)
   iFrontendTrackSpeechPending = 0;
   if (game_type == 1 && TrackLoad == TRACK_LOAD_COMMUNITY)
     TrackLoad = 1;
+  if (stock_track_demo_only() && TrackLoad != TRACK_LOAD_COMMUNITY)
+    TrackLoad = TRACK_LOAD_DEMO;
   if (TrackLoad == TRACK_LOAD_COMMUNITY) {
     scan_community_tracks();
     frontend_track_select_show_community_selection();
