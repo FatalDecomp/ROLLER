@@ -57,6 +57,47 @@ static void frontend_type_select_run_snapshot(void);
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_type_select_mouse_item_valid(int iItem)
+{
+  if (iItem == 5)
+    return -1;
+  if (iItem < 0 || iItem > 4)
+    return 0;
+  if (iFrontendTypeSkipColor)
+    return iItem == 0;
+  if (iItem == 4 && !iFrontendTypeCheatModesAvailable)
+    return 0;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  if (iFrontendTypeMenuSelection) {
+    (void)frontend_mouse_take_hovered_id();
+    (void)frontend_mouse_consume_click();
+    return;
+  }
+
+  iHovered = frontend_mouse_take_hovered_id();
+  if (frontend_type_select_mouse_item_valid(iHovered))
+    iFrontendTypeCurrentOption = iHovered;
+
+  iClicked = frontend_mouse_consume_click();
+  if (frontend_type_select_mouse_item_valid(iClicked)) {
+    iFrontendTypeCurrentOption = iClicked;
+    frontend_mouse_press_accept();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void snapshot_render_menu_select_type(void)
 {
   snapshot_setup_frontend_menu_state(0);
@@ -276,6 +317,7 @@ static void frontend_type_select_draw(void)
   int iNetworkPlayerCount;
   MenuRenderer *mr = GetMenuRenderer();
 
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -304,6 +346,10 @@ static void frontend_type_select_draw(void)
     menu_render_text(mr, 2, &language_buffer[3136], font2_ascii,
                      font2_offsets, sel_posns[0].x + 132,
                      sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+    frontend_mouse_register_text(0, front_vga[2], &language_buffer[3136],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
   } else {
     menu_render_text(mr, 2, &language_buffer[384], font2_ascii,
                      font2_offsets, sel_posns[0].x + 132,
@@ -321,7 +367,33 @@ static void frontend_type_select_draw(void)
       menu_render_text(mr, 2, &language_buffer[4288], font2_ascii,
                        font2_offsets, sel_posns[4].x + 132,
                        sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+
+    frontend_mouse_register_text(0, front_vga[2], &language_buffer[384],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
+    frontend_mouse_register_text(1, front_vga[2], &language_buffer[3200],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[1].x + 132,
+                                 sel_posns[1].y + 7, 2);
+    frontend_mouse_register_text(2, front_vga[2], &language_buffer[3264],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[2].x + 132,
+                                 sel_posns[2].y + 7, 2);
+    frontend_mouse_register_text(3, front_vga[2], &language_buffer[3328],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[3].x + 132,
+                                 sel_posns[3].y + 7, 2);
+    if (iFrontendTypeCheatModesAvailable)
+      frontend_mouse_register_text(4, front_vga[2], &language_buffer[4288],
+                                   font2_ascii, font2_offsets,
+                                   sel_posns[4].x + 132,
+                                   sel_posns[4].y + 7, 2);
   }
+
+  if (front_vga[6])
+    frontend_mouse_register_rect(5, 62, 336, front_vga[6][4].iWidth,
+                                 front_vga[6][4].iHeight);
 
   menu_render_sprite(mr, 14, iFrontendTypeBlockIdx, 500, 300, 0, pal_addr);
   if (iFrontendTypeSkipColor) {
@@ -860,6 +932,7 @@ void frontend_type_select_update(void)
     return;
 
   frontend_type_select_apply_same_car_switch();
+  frontend_type_select_handle_mouse();
   frontend_type_select_handle_input();
 }
 

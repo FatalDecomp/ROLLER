@@ -47,6 +47,17 @@ static int iFrontendCarLegacyBugPending;
 static int iFrontendCarLegacyBugActive;
 static char *szFrontendCarCurrentCompanyName;
 
+static const char *s_aszFrontendCarMenuNames[8] = {
+    "AUTO ARIEL",
+    "DESILVA",
+    "PULSE",
+    "GLOBAL",
+    "MILLION PLUS",
+    "MISSION",
+    "ZIZIN",
+    "REISE WAGON"
+};
+
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_car_select_run_snapshot(void);
@@ -111,6 +122,43 @@ static void frontend_car_select_apply_navigation(unsigned int uiNavigationDirect
   } else if (uiNavigationDirection == 1) {
     if (++iFrontendCarCurrentSelectorPos > 8)
       iFrontendCarCurrentSelectorPos = 8;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_car_select_register_mouse_items(void)
+{
+  int i;
+
+  for (i = 0; i < 8; ++i) {
+    frontend_mouse_register_text(i, front_vga[2], s_aszFrontendCarMenuNames[i],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[i].x + 132,
+                                 sel_posns[i].y + 7, 2);
+  }
+
+  if (front_vga[6])
+    frontend_mouse_register_rect(8, 62, 336, front_vga[6][4].iWidth,
+                                 front_vga[6][4].iHeight);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_car_select_handle_mouse(void)
+{
+  int iHovered = frontend_mouse_take_hovered_id();
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  if (iHovered >= 0 && iHovered <= 8)
+    iFrontendCarCurrentSelectorPos = iHovered;
+
+  iClicked = frontend_mouse_consume_click();
+  if (iClicked >= 0 && iClicked <= 8) {
+    iFrontendCarCurrentSelectorPos = iClicked;
+    frontend_mouse_press_accept();
   }
 }
 
@@ -292,6 +340,7 @@ void frontend_car_select_update(void)
   // RENDER FRAME
   {
     MenuRenderer *mr = GetMenuRenderer();
+    frontend_mouse_begin_frame(640, 400);
     menu_render_begin_frame(mr);
     if (!front_fade) {
       front_fade = -1;
@@ -352,6 +401,7 @@ void frontend_car_select_update(void)
     menu_render_text(mr, 2, "MISSION",      font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
     menu_render_text(mr, 2, "ZIZIN",        font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
     menu_render_text(mr, 2, "REISE WAGON",  font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
+    frontend_car_select_register_mouse_items();
     if (iFrontendCarCurrentSelectorPos < 8 && network_on && (cheat_mode & 0x4000) == 0) {
       menu_render_text(mr, 15, &language_buffer[4672], font1_ascii, font1_offsets, 380, 380, 0x8Fu, 2u, pal_addr);
       if (allocated_cars[iFrontendCarCurrentSelectorPos]) {
@@ -555,6 +605,7 @@ void frontend_car_select_update(void)
   }
 
   // KEYBOARD INPUT
+  frontend_car_select_handle_mouse();
   uiNavigationDirection = 0;
   iNextCarIndex = iFrontendCarCurrentSelectorPos + 1;
   while (fatkbhit()) {

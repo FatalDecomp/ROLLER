@@ -108,10 +108,8 @@ static void UpdateMouseCursorVisibility(void)
 
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
-  bool bCursorScreen =
-    eFrontendCurrentState == eFRONTEND_STATE_MAIN_MENU ||
-    eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
-    debug_overlay_visible(s_pDebugOverlay);
+  bool bCursorScreen = frontend_on || game_req ||
+                       debug_overlay_visible(s_pDebugOverlay);
   bool bHideCursor = bFullscreen && !bCursorScreen;
   bool bCursorVisible = SDL_CursorVisible();
 
@@ -890,6 +888,7 @@ void UpdateSDL()
     }
     debug_overlay_handle_event(s_pDebugOverlay, &e);
     InputHandleEvent(&e);
+    frontend_mouse_handle_event(&e);
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
       if (e.key.scancode == SDL_SCANCODE_GRAVE) {

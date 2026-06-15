@@ -212,6 +212,61 @@ static void frontend_track_select_select_community_row(int iRow)
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_track_select_mouse_item_valid(int iItem)
+{
+  if (iItem == 8)
+    return -1;
+  if (iItem < 0 || iItem >= FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS)
+    return 0;
+  if (game_type == 1 || frontend_track_select_stock_selection_disabled())
+    return 0;
+  if (frontend_track_select_is_community())
+    return g_iCommunityTrackTop + iItem < g_iCommunityTrackCount;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_handle_mouse_wheel(void)
+{
+  int iWheelY = frontend_mouse_take_wheel_y();
+  int iMaxTop;
+
+  if (!frontend_track_select_is_community() || iWheelY == 0)
+    return;
+
+  iMaxTop = g_iCommunityTrackCount - FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS;
+  if (iMaxTop < 0)
+    iMaxTop = 0;
+
+  g_iCommunityTrackTop -= iWheelY;
+  if (g_iCommunityTrackTop < 0)
+    g_iCommunityTrackTop = 0;
+  if (g_iCommunityTrackTop > iMaxTop)
+    g_iCommunityTrackTop = iMaxTop;
+
+  frontend_track_select_clamp_community_cursor();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_track_select_handle_mouse(void)
+{
+  int iHovered = frontend_mouse_take_hovered_id();
+  int iClicked;
+
+  if (frontend_track_select_mouse_item_valid(iHovered))
+    iFrontendTrackSelectedTrack = iHovered;
+
+  iClicked = frontend_mouse_consume_click();
+  if (frontend_track_select_mouse_item_valid(iClicked)) {
+    iFrontendTrackSelectedTrack = iClicked;
+    frontend_mouse_press_accept();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void snapshot_render_menu_select_track(void)
 {
   snapshot_setup_frontend_menu_state(0);
@@ -312,6 +367,7 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   if (iStockSelectionDisabled)
     iFrontendTrackSelectedTrack = 8;
 
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -360,6 +416,11 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                                 FRONTEND_TRACK_COMMUNITY_LIST_LEFT,
                                 FRONTEND_TRACK_COMMUNITY_LIST_RIGHT,
                                 pal_addr);
+        frontend_mouse_register_scaled_text(
+            iRow, front_vga[2], szDisplayName, font2_ascii, font2_offsets,
+            FRONTEND_TRACK_COMMUNITY_LIST_RIGHT, sel_posns[iRow].y + 7, 2u,
+            FRONTEND_TRACK_COMMUNITY_LIST_LEFT,
+            FRONTEND_TRACK_COMMUNITY_LIST_RIGHT);
       }
     }
     menu_render_sprite(mr, FRONTEND_TRACK_ARROW_SLOT, iUpArrowBlock,
@@ -372,8 +433,18 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                        font2_ascii, font2_offsets,
                        sel_posns[iRow].x + 132, sel_posns[iRow].y + 7,
                        0x8Fu, 2u, pal_addr);
+      if (game_type != 1 && !iStockSelectionDisabled)
+        frontend_mouse_register_text(iRow, front_vga[2],
+                                     s_aszFrontendTrackNames[iRow],
+                                     font2_ascii, font2_offsets,
+                                     sel_posns[iRow].x + 132,
+                                     sel_posns[iRow].y + 7, 2);
     }
   }
+
+  if (front_vga[6])
+    frontend_mouse_register_rect(8, 62, 336, front_vga[6][4].iWidth,
+                                 front_vga[6][4].iHeight);
 
   iBlockIdx = frontend_track_select_is_community() ? 0 : (TrackLoad - 1) / 8;
   *piBlockIdx = iBlockIdx;
@@ -786,6 +857,8 @@ void frontend_track_select_update(void)
                                          iStartedFadeIn);
   if (frontend_track_select_update_broadcast_wait())
     return;
+  frontend_track_select_handle_mouse_wheel();
+  frontend_track_select_handle_mouse();
   frontend_track_select_handle_input(iBlockIdx);
   iFrontendTrackYaw =
       ((uint16)iFrontendTrackYaw + 32 * (uint16)iFrameCount) & 0x3FFF;

@@ -291,6 +291,44 @@ void snapshot_render_menu_configure(void)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static int frontend_config_mouse_item_valid(int iItem)
+{
+  if (iItem == 7)
+    return -1;
+  if (iItem == 6)
+    return network_on != 0;
+  return iItem == 0 || iItem == 1 || iItem == 3 ||
+         iItem == 4 || iItem == 5;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  if (iFrontendConfigState != 0 || iFrontendConfigControlsInEdit) {
+    (void)frontend_mouse_take_hovered_id();
+    (void)frontend_mouse_consume_click();
+    return;
+  }
+
+  iHovered = frontend_mouse_take_hovered_id();
+  if (frontend_config_mouse_item_valid(iHovered))
+    iFrontendConfigMenuSelection = iHovered;
+
+  iClicked = frontend_mouse_consume_click();
+  if (frontend_config_mouse_item_valid(iClicked)) {
+    iFrontendConfigMenuSelection = iClicked;
+    frontend_mouse_press_accept();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //00042D40
@@ -556,6 +594,7 @@ void frontend_config_update(void)
 
     // Draw background and ui elements (GPU)
     MenuRenderer *mr = GetMenuRenderer();
+    frontend_mouse_begin_frame(640, 400);
     menu_render_begin_frame(mr);
     if (!front_fade) {
       front_fade = -1;
@@ -592,6 +631,35 @@ void frontend_config_update(void)
     // network option if enabled
     if (network_on)
       menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+
+    frontend_mouse_register_text(0, front_vga[2], &config_buffer[3968],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
+    frontend_mouse_register_text(1, front_vga[2], &config_buffer[256],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[1].x + 132,
+                                 sel_posns[1].y + 7, 2);
+    frontend_mouse_register_text(3, front_vga[2], &config_buffer[4032],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[2].x + 132,
+                                 sel_posns[2].y + 7, 2);
+    frontend_mouse_register_text(4, front_vga[2], &config_buffer[4096],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[3].x + 132,
+                                 sel_posns[3].y + 7, 2);
+    frontend_mouse_register_text(5, front_vga[2], &config_buffer[4160],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[4].x + 132,
+                                 sel_posns[4].y + 7, 2);
+    if (network_on)
+      frontend_mouse_register_text(6, front_vga[2], &config_buffer[5568],
+                                   font2_ascii, font2_offsets,
+                                   sel_posns[5].x + 132,
+                                   sel_posns[5].y + 7, 2);
+    if (front_vga[6])
+      frontend_mouse_register_rect(7, 62, 336, front_vga[6][4].iWidth,
+                                   front_vga[6][4].iHeight);
 
     // Config state machine
     switch (iFrontendConfigMenuSelection) {
@@ -1322,6 +1390,8 @@ void frontend_config_update(void)
 
         if (frontend_config_update_broadcast_wait())
           return;
+
+        frontend_config_handle_mouse();
 
         // Process keyboard input when not editing controls
         if (!iFrontendConfigControlsInEdit) {

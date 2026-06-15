@@ -2744,6 +2744,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     iBoxY1 *= 2;
     iLeftEdge *= 2;
   }
+  frontend_mouse_begin_frame(winw, winh);
   params.vertices[0].x = iBoxX1;                // Set up polygon vertices for file selection background rectangle
   params.vertices[0].y = iBoxY0;
   params.vertices[1].y = iBoxY0;
@@ -2950,6 +2951,34 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
         default:
           continue;                             // Handle arrow key navigation (H=Up, K=Left, M=Right, P=Down, S=Delete)
       }
+    }
+  }
+  {
+    int iWheelY = frontend_mouse_take_wheel_y();
+
+    if (iWheelY && filefiles > 0) {
+      int iMaxTop = (((filefiles + 2) / 3) - 6) * 3;
+
+      if (iMaxTop < 0)
+        iMaxTop = 0;
+
+      topfile -= iWheelY * 3;
+      if (topfile < 0)
+        topfile = 0;
+      if (topfile > iMaxTop)
+        topfile = iMaxTop;
+
+      if (filefile < topfile)
+        filefile = topfile;
+      if (filefile >= topfile + 18)
+        filefile = topfile + 17;
+      if (filefile >= filefiles)
+        filefile = filefiles - 1;
+      if (filefile < 0)
+        filefile = 0;
+
+      strncpy(selectfilename, filename[filefile], sizeof(selectfilename) - 1);
+      selectfilename[sizeof(selectfilename) - 1] = '\0';
     }
   }
   iRightEdge = iLeftEdge + 20;
