@@ -197,9 +197,18 @@ void frontend_title_screen_enter(void)
   // added by ROLLER, check to see if title.bm and title.pal exist
   // these files were not shipped in the USA localization
   bool bHasTitle = ROLLERfexists("title.bm") && ROLLERfexists("title.pal");
-
-  setpal(bHasTitle ? "title.pal" : "whipped.pal");
-  front_vga[0] = (tBlockHeader*)load_picture(bHasTitle ? "title.bm" : "whipped.bm");
+  bool bHasWhipped = ROLLERfexists("whipped.bm") && ROLLERfexists("whipped.pal");
+  if (bHasTitle) {
+    setpal("title.pal");
+    front_vga[0] = (tBlockHeader*)load_picture("title.bm");
+  } else if (bHasWhipped) {    
+    setpal("whipped.pal");
+    front_vga[0] = (tBlockHeader*)load_picture("whipped.bm");
+  } else {
+    //must be demo
+    setpal("whiptit.pal");
+    front_vga[0] = (tBlockHeader*)load_picture("whiptit.bm");
+  }
 
   if (front_vga[0] && scrbuf) //check added by ROLLER
     display_picture(scrbuf, front_vga[0]);
