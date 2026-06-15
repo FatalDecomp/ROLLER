@@ -2328,6 +2328,10 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
 
   if (InputStringEqualsNoCase(szName, "MusicSource") ||
       InputStringEqualsNoCase(szName, "DebugMusicSource")) {
+    if (!ROLLERAudioMusicAvailable()) {
+      InputApplyMusicSource(0);
+      return 1;
+    }
     return InputParseMusicSourceSetting(szValue);
   }
 

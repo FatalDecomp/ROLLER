@@ -643,12 +643,26 @@ void InitFATDATA(const char *szDataRoot)
   }
   
   // if the extracted audio tracks are present, enable CD music.
-  FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
-  if (pTrack) {
-    fclose(pTrack);
+  if (ROLLERAudioMusicAvailable()) {
     MusicCard = 0;
     MusicCD = -1;
+  } else {
+    MusicCard = -1;
+    MusicCD = 0;
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int ROLLERAudioMusicAvailable(void)
+{
+  FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
+
+  if (!pTrack)
+    return 0;
+
+  fclose(pTrack);
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------
