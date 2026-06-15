@@ -945,7 +945,12 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   if (iFrontendMainMenuQuitConfirmed)
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
-  if (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) {
+  if (g_iNetworkTrackFileCRCMismatch) {
+    menu_render_text(mr, 15, "TRACK FILE CRC MISMATCH", font1_ascii,
+                     font1_offsets, PREVIEW_X + PREVIEW_W / 2,
+                     TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
+                     pal_addr);
+  } else if (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) {
     menu_render_text(mr, 15, "TRACK NOT AVAILABLE", font1_ascii,
                      font1_offsets, PREVIEW_X + PREVIEW_W / 2,
                      TRACK_PREVIEW_Y + PREVIEW_H / 2, MENU_COLOR_RED, 1u,
@@ -1282,7 +1287,8 @@ static void frontend_main_menu_handle_enter(void)
       break;
     case 8:
       if (iFrontendMainMenuBlockIdx >= CAR_DESIGN_AUTO) {
-        if ((TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
+        if (g_iNetworkTrackFileCRCMismatch ||
+            (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
             !community_track_available()) {
           iFrontendMainMenuNoCommunityTrack = -1;
           sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);

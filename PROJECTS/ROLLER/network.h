@@ -62,6 +62,7 @@ typedef struct {
   char default_names[16][9];
   char szCommunityTrack[NETWORK_COMMUNITY_TRACK_FILENAME];
   uint32 uiCommunityTrackCRC;
+  uint32 uiTrackCRC;
 } tTransmitInitPacket;
 
 //-------------------------------------------------------------------------------------------------
@@ -91,6 +92,7 @@ typedef struct
   int iDamageLevel;
   char szCommunityTrack[NETWORK_COMMUNITY_TRACK_FILENAME];
   uint32 uiCommunityTrackCRC;
+  uint32 uiTrackCRC;
 } tPlayerInfoPacket;
 
 //-------------------------------------------------------------------------------------------------
@@ -193,6 +195,7 @@ extern tDataPacket slave_data;
 extern char p_data[14];
 extern char received_message[14];
 extern int16 wConsoleNode;
+extern int g_iNetworkTrackFileCRCMismatch;
 
 //-------------------------------------------------------------------------------------------------
 

@@ -63,6 +63,7 @@ tDataPacket slave_data;     //0017C9B8
 char p_data[14];            //0017C9BE
 char received_message[14];  //0017C9CC
 int16 wConsoleNode;         //0017C9DA
+int g_iNetworkTrackFileCRCMismatch = 0;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -107,24 +108,44 @@ static int NetworkRecordIdxIsValid(int iRecordIdx, const char *szContext)
 
 static int NetworkTrackStartAvailable(void)
 {
+  if (g_iNetworkTrackFileCRCMismatch)
+    return 0;
+
   if (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing)
     return 0;
 
   return community_track_available();
 }
 
-static void NetworkFillCommunityTrackSync(char *szCommunityTrack,
-                                          int iCommunityTrackSize,
-                                          uint32 *puiCommunityTrackCRC)
+static uint32 NetworkTrackCRC(int iTrackLoad)
 {
-  const char *szPath;
+  if (iTrackLoad == TRACK_LOAD_COMMUNITY)
+    return community_track_crc(community_track_path());
+
+  if (iTrackLoad >= 0 && iTrackLoad < 25)
+    return community_track_crc(names[iTrackLoad]);
+
+  return 0;
+}
+
+static void NetworkFillTrackSync(char *szCommunityTrack,
+                                 int iCommunityTrackSize,
+                                 uint32 *puiCommunityTrackCRC,
+                                 uint32 *puiTrackCRC)
+{
   uint32 uiTrackCRC;
 
-  if (!szCommunityTrack || iCommunityTrackSize <= 0 || !puiCommunityTrackCRC)
+  if (!szCommunityTrack ||
+      iCommunityTrackSize <= 0 ||
+      !puiCommunityTrackCRC ||
+      !puiTrackCRC)
     return;
 
   szCommunityTrack[0] = '\0';
   *puiCommunityTrackCRC = 0;
+  *puiTrackCRC = 0;
+  uiTrackCRC = NetworkTrackCRC(TrackLoad);
+  *puiTrackCRC = uiTrackCRC;
   if (TrackLoad != TRACK_LOAD_COMMUNITY ||
       g_iCommunityTrackSel < 0 ||
       g_iCommunityTrackSel >= g_iCommunityTrackCount)
@@ -133,8 +154,6 @@ static void NetworkFillCommunityTrackSync(char *szCommunityTrack,
   strncpy(szCommunityTrack, g_aszCommunityTracks[g_iCommunityTrackSel],
           (size_t)iCommunityTrackSize - 1);
   szCommunityTrack[iCommunityTrackSize - 1] = '\0';
-  szPath = community_track_path();
-  uiTrackCRC = community_track_crc(szPath);
   g_uiCommunityTrackCRC = uiTrackCRC;
   *puiCommunityTrackCRC = uiTrackCRC;
 }
@@ -142,9 +161,16 @@ static void NetworkFillCommunityTrackSync(char *szCommunityTrack,
 static void NetworkAdoptTrackLoad(int iTrackLoad,
                                   const char *szCommunityTrack,
                                   uint32 uiCommunityTrackCRC,
+                                  uint32 uiTrackCRC,
                                   const char *szContext)
 {
   char szTrackName[NETWORK_COMMUNITY_TRACK_FILENAME];
+  uint32 uiExpectedCRC = uiTrackCRC;
+  uint32 uiActualCRC;
+
+  g_iNetworkTrackFileCRCMismatch = 0;
+  if (iTrackLoad == TRACK_LOAD_COMMUNITY && uiExpectedCRC == 0)
+    uiExpectedCRC = uiCommunityTrackCRC;
 
   if (iTrackLoad == TRACK_LOAD_COMMUNITY) {
     szTrackName[0] = '\0';
@@ -153,25 +179,49 @@ static void NetworkAdoptTrackLoad(int iTrackLoad,
       szTrackName[sizeof(szTrackName) - 1] = '\0';
     }
 
-    if (community_track_select_by_name(szTrackName, uiCommunityTrackCRC, -1)) {
+    if (community_track_select_by_name(szTrackName, uiExpectedCRC, -1)) {
       g_iCommunityTrackMissing = 0;
+      return;
+    }
+
+    if (community_track_select_by_name(szTrackName, uiExpectedCRC, 0)) {
+      g_iCommunityTrackMissing = 0;
+      if (g_uiCommunityTrackCRC != uiExpectedCRC) {
+        g_iNetworkTrackFileCRCMismatch = -1;
+        SDL_Log("[NET] community track CRC mismatch in %s: %s local=%08X remote=%08X",
+                szContext ? szContext : "track-sync",
+                szTrackName,
+                (unsigned int)g_uiCommunityTrackCRC,
+                (unsigned int)uiExpectedCRC);
+      }
       return;
     }
 
     TrackLoad = TRACK_LOAD_COMMUNITY;
     g_iCommunityTrackSel = -1;
     g_iCommunityTrackTop = 0;
-    g_uiCommunityTrackCRC = uiCommunityTrackCRC;
+    g_uiCommunityTrackCRC = uiExpectedCRC;
     g_iCommunityTrackMissing = -1;
     SDL_Log("[NET] community track unavailable in %s: %s crc=%08X",
             szContext ? szContext : "track-sync",
             szTrackName,
-            (unsigned int)uiCommunityTrackCRC);
+            (unsigned int)uiExpectedCRC);
     return;
   }
 
   TrackLoad = iTrackLoad;
   g_iCommunityTrackMissing = 0;
+  if (iTrackLoad >= 0 && iTrackLoad < 25) {
+    uiActualCRC = NetworkTrackCRC(iTrackLoad);
+    if (uiActualCRC != uiExpectedCRC) {
+      g_iNetworkTrackFileCRCMismatch = -1;
+      SDL_Log("[NET] stock track CRC mismatch in %s: track=%d local=%08X remote=%08X",
+              szContext ? szContext : "track-sync",
+              iTrackLoad,
+              (unsigned int)uiActualCRC,
+              (unsigned int)uiExpectedCRC);
+    }
+  }
 }
 
 static void NetworkAdoptTransmitTrackLoad(const tTransmitInitPacket *pPacket,
@@ -180,6 +230,7 @@ static void NetworkAdoptTransmitTrackLoad(const tTransmitInitPacket *pPacket,
   NetworkAdoptTrackLoad(pPacket->iTrackLoad,
                         pPacket->szCommunityTrack,
                         pPacket->uiCommunityTrackCRC,
+                        pPacket->uiTrackCRC,
                         szContext);
 }
 
@@ -189,6 +240,7 @@ static void NetworkAdoptPlayerInfoTrackLoad(const tPlayerInfoPacket *pPacket,
   NetworkAdoptTrackLoad(pPacket->iTrackLoad,
                         pPacket->szCommunityTrack,
                         pPacket->uiCommunityTrackCRC,
+                        pPacket->uiTrackCRC,
                         szContext);
 }
 
@@ -371,6 +423,7 @@ void network_initialise_begin(int iSelectNetSlot)
   wConsoleNode = 0;
   network_on = 0;
   net_loading = 0;
+  g_iNetworkTrackFileCRCMismatch = 0;
   memset(copy_multiple, 0, sizeof(copy_multiple));
 
   for (int i = 0; i < 16; ++i) {
@@ -502,6 +555,7 @@ void close_network()
   player1_car = 0;
   active_nodes = 0;
   wConsoleNode = 0;
+  g_iNetworkTrackFileCRCMismatch = 0;
   received_seed = 0;
   frame_number = 0;
   time_to_start = 0;
@@ -1355,9 +1409,10 @@ static void BuildTransmitInitPacket(tSyncHeader *pHeader, tTransmitInitPacket *p
   pHeader->byConsoleNode = (uint8)iPlayerSlot;
   pHeader->uiId = PACKET_ID_TRANSMIT_INIT;
   pInitPacket->iTrackLoad = TrackLoad;
-  NetworkFillCommunityTrackSync(pInitPacket->szCommunityTrack,
-                                sizeof(pInitPacket->szCommunityTrack),
-                                &pInitPacket->uiCommunityTrackCRC);
+  NetworkFillTrackSync(pInitPacket->szCommunityTrack,
+                       sizeof(pInitPacket->szCommunityTrack),
+                       &pInitPacket->uiCommunityTrackCRC,
+                       &pInitPacket->uiTrackCRC);
   name_copy(pInitPacket->szPlayerName, player_names[iConsoleNode]);
   pInitPacket->address[0] = address[0];
   pInitPacket->address[1] = address[1];
@@ -2156,9 +2211,10 @@ void SendPlayerInfo()
                              "player-info-local",
                              iPlayerSlot);
     playerInfo.iTrackLoad = TrackLoad;
-    NetworkFillCommunityTrackSync(playerInfo.szCommunityTrack,
-                                  sizeof(playerInfo.szCommunityTrack),
-                                  &playerInfo.uiCommunityTrackCRC);
+    NetworkFillTrackSync(playerInfo.szCommunityTrack,
+                         sizeof(playerInfo.szCommunityTrack),
+                         &playerInfo.uiCommunityTrackCRC,
+                         &playerInfo.uiTrackCRC);
     playerInfo.iGameType = game_type;
     playerInfo.iCompetitors = competitors;
     playerInfo.iLevel = level;
@@ -2461,6 +2517,7 @@ void reset_network(int iResetBroadcastMode)
   int i; // edx
 
   iNode = 0;
+  g_iNetworkTrackFileCRCMismatch = 0;
   gamers_playing[0] = 0;
   gamers_playing[1] = 0;
   gamers_playing[2] = 0;
