@@ -86,6 +86,32 @@ static void NormalizePacketAddress(int32 pAddress[4])
 
 //-------------------------------------------------------------------------------------------------
 
+static void NetworkCopyPacketAddress(const int32 pAddress[4],
+                                     tROLLERNetAddr *pNetAddr)
+{
+  if (!pNetAddr)
+    return;
+
+  memset(pNetAddr, 0, sizeof(*pNetAddr));
+  if (pAddress)
+    memcpy(pNetAddr, pAddress, sizeof(*pNetAddr));
+  pNetAddr->unPadding = 0;
+  pNetAddr->ullReserved = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void NetworkFormatPacketAddress(const int32 pAddress[4],
+                                       char *szAddr,
+                                       int iAddrLen)
+{
+  tROLLERNetAddr netAddr;
+  NetworkCopyPacketAddress(pAddress, &netAddr);
+  ROLLERCommsFormatAddr(&netAddr, szAddr, iAddrLen);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int NetworkPlayerCarOrNone(int iCarIdx, const char *szContext, int iNode)
 {
   if (iCarIdx >= -1 && iCarIdx <= CAR_DESIGN_DEATH)
@@ -248,8 +274,9 @@ static void NetworkAdoptPlayerInfoTrackLoad(const tPlayerInfoPacket *pPacket,
 
 static int IsInvalidPacketAddress(const int32 pAddress[4])
 {
-  const tROLLERNetAddr *pNetAddr = (const tROLLERNetAddr *)pAddress;
-  return pNetAddr->uiIPAddress == 0 || pNetAddr->unPort == 0;
+  tROLLERNetAddr netAddr;
+  NetworkCopyPacketAddress(pAddress, &netAddr);
+  return netAddr.uiIPAddress == 0 || netAddr.unPort == 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -267,7 +294,7 @@ static int IsLocalPacketAddress(const int32 pAddress[4])
 static void LogDiscoveryAddress(const char *szMessage, const int32 pAddress[4])
 {
   char szAddr[32];
-  ROLLERCommsFormatAddr((const tROLLERNetAddr *)pAddress, szAddr, sizeof(szAddr));
+  NetworkFormatPacketAddress(pAddress, szAddr, sizeof(szAddr));
   SDL_Log("[NET-DISCOVERY] %s %s", szMessage, szAddr);
 }
 
@@ -377,7 +404,7 @@ static void CacheDiscoverySlotPlayer(const tTransmitInitPacket *pPacket)
     gamers_playing[iSlot]++;
 
     char szAddr[32];
-    ROLLERCommsFormatAddr((const tROLLERNetAddr *)pPacket->address, szAddr, sizeof(szAddr));
+    NetworkFormatPacketAddress(pPacket->address, szAddr, sizeof(szAddr));
     SDL_Log("[NET-DISCOVERY] slot %d found %s at %s",
             iSlot + 1, pPacket->szPlayerName, szAddr);
   }
@@ -1610,8 +1637,9 @@ void CheckNewNodes()
             time_to_start = 0xFFFFFE37;
             if (TransmitInitToAddress(packetTransportAddress)) {
               char szAddr[32];
-              ROLLERCommsFormatAddr((const tROLLERNetAddr *)packetTransportAddress,
-                                    szAddr, sizeof(szAddr));
+              NetworkFormatPacketAddress(packetTransportAddress,
+                                         szAddr,
+                                         sizeof(szAddr));
               SDL_Log("[NET-DISCOVERY] sent slot reply to %s", szAddr);
             }
             time_to_start = iOldTimeToStart;
