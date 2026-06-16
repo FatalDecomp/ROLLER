@@ -1572,6 +1572,7 @@ void race_update(void)
   int iPendingTicks; // eax
   bool bShiftKeyPressed; // eax
   int iSong; // eax
+  int iReplayMouseHeldIcon; // eax
 
   if (iFrontendRaceFadeOutPending) {
     if (g_pGameRenderer && game_render_fade_active(g_pGameRenderer))
@@ -1756,6 +1757,7 @@ void race_update(void)
     else
       scr_size = 64;
   }
+  replay_control_panel_update_mouse_state();
   if (!racing && !winner_done && winner_mode)   // Handle race end with victory sound if no winner celebration yet
   {
     // SOUND_SAMPLE_WON
@@ -1765,7 +1767,10 @@ void race_update(void)
   }
   bShiftKeyPressed = keys[WHIP_SCANCODE_LSHIFT] || keys[WHIP_SCANCODE_RSHIFT];
   shifting = bShiftKeyPressed;
-  if (bShiftKeyPressed && keys[WHIP_SCANCODE_F7] || keys[WHIP_SCANCODE_RETURN] && controlicon == 8)
+  iReplayMouseHeldIcon = replay_control_panel_mouse_held_icon();
+  if ((bShiftKeyPressed && keys[WHIP_SCANCODE_F7]) ||
+      (keys[WHIP_SCANCODE_RETURN] && controlicon == 8) ||
+      iReplayMouseHeldIcon == 8)
   {
     if (shifting && keys[WHIP_SCANCODE_F7])
       controlicon = 9;
@@ -1775,7 +1780,9 @@ void race_update(void)
   } else if (rewinding) {
     slowing = -1;
   }
-  if (shifting && keys[WHIP_SCANCODE_F8] || keys[WHIP_SCANCODE_RETURN] && controlicon == 10)
+  if ((shifting && keys[WHIP_SCANCODE_F8]) ||
+      (keys[WHIP_SCANCODE_RETURN] && controlicon == 10) ||
+      iReplayMouseHeldIcon == 10)
   {
     if (shifting && keys[WHIP_SCANCODE_F8])
       controlicon = 9;

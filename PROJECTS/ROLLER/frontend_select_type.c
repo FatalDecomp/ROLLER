@@ -42,6 +42,7 @@ static int iFrontendTypeCloseNetworkPending = 0;
 static int iFrontendTypeCloseNetworkStartFrame = 0;
 static int iFrontendTypeOriginalGameType = 0;
 static int iFrontendTypeOriginalCompetitors = 0;
+static int iFrontendTypeExitHovered = 0;
 
 enum {
   eTYPE_BROADCAST_WAIT_NONE = 0,
@@ -216,6 +217,8 @@ static void frontend_type_select_handle_mouse(void)
 
   frontend_mouse_take_wheel_y();
   frontend_type_select_register_submenu_mouse_items();
+  iHovered = frontend_mouse_peek_hovered_id();
+  iFrontendTypeExitHovered = iFrontendTypeMenuSelection && iHovered == 5;
 
   iClicked = frontend_mouse_peek_clicked_id();
   if (iClicked == FRONTEND_TYPE_MOUSE_CUP &&
@@ -225,7 +228,6 @@ static void frontend_type_select_handle_mouse(void)
   }
 
   if (iFrontendTypeMenuSelection) {
-    iHovered = frontend_mouse_peek_hovered_id();
     iSubItem = frontend_type_select_submenu_item_from_mouse_id(iHovered);
     if (iSubItem >= 0)
       (void)frontend_type_select_set_submenu_item(iSubItem);
@@ -251,6 +253,7 @@ static void frontend_type_select_handle_mouse(void)
     return;
   }
 
+  iFrontendTypeExitHovered = 0;
   iHovered = frontend_mouse_take_hovered_id();
   if (frontend_type_select_mouse_item_valid(iHovered))
     iFrontendTypeCurrentOption = iHovered;
@@ -500,10 +503,13 @@ static void frontend_type_select_draw(void)
                                  front_vga[1][8].iWidth,
                                  front_vga[1][8].iHeight);
 
-  if (iFrontendTypeCurrentOption >= 5) {
+  if (iFrontendTypeCurrentOption >= 5 ||
+      (iFrontendTypeMenuSelection && iFrontendTypeExitHovered)) {
     menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
   } else {
     menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+  }
+  if (iFrontendTypeCurrentOption < 5) {
     menu_render_text(mr, 2, "~", font2_ascii, font2_offsets,
                      sel_posns[iFrontendTypeCurrentOption].x,
                      sel_posns[iFrontendTypeCurrentOption].y, 0x8Fu, 0,
@@ -564,6 +570,9 @@ static void frontend_type_select_draw(void)
                                  front_vga[6][4].iHeight);
 
   menu_render_sprite(mr, 14, iFrontendTypeBlockIdx, 500, 300, 0, pal_addr);
+  if (!iFrontendTypeSkipColor)
+    frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_CUP, 470, 280,
+                                 160, 100);
   if (iFrontendTypeSkipColor) {
     menu_render_scaled_text(mr, 15, &language_buffer[3392], font1_ascii,
                             font1_offsets, 400, 75, 143, 1u, 200, 640,
@@ -1042,6 +1051,7 @@ void frontend_type_select_enter(void)
   iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
   iFrontendTypeCloseNetworkPending = 0;
   iFrontendTypeCloseNetworkStartFrame = 0;
+  iFrontendTypeExitHovered = 0;
   if (stock_track_demo_only() && game_type == 1) {
     game_type = 0;
     Race = 0;

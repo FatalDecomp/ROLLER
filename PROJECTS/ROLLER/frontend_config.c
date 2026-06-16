@@ -53,6 +53,7 @@ static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
 static char szFrontendConfigLastControllerName[128];
+static int iFrontendConfigExitHovered;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -266,6 +267,7 @@ void frontend_config_enter(void)
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
+  iFrontendConfigExitHovered = 0;
   frontend_config_clear_last_controller_name();
   {
     extern tColor palette[];
@@ -498,6 +500,8 @@ static void frontend_config_handle_mouse(void)
     frontend_config_register_submenu_mouse_items();
 
     iClicked = frontend_mouse_peek_clicked_id();
+    iHovered = frontend_mouse_peek_hovered_id();
+    iFrontendConfigExitHovered = iHovered == 7;
     if (iClicked == 7 && frontend_mouse_consume_click_anywhere()) {
       frontend_config_return_to_main_page();
       return;
@@ -505,12 +509,11 @@ static void frontend_config_handle_mouse(void)
 
     if (iFrontendConfigEditingName) {
       frontend_mouse_take_wheel_y();
-      (void)frontend_mouse_take_hovered_id();
-      (void)frontend_mouse_consume_click_anywhere();
+      if (frontend_mouse_consume_click_anywhere())
+        frontend_mouse_press_accept();
       return;
     }
 
-    iHovered = frontend_mouse_peek_hovered_id();
     iSubItem = frontend_config_submenu_item_from_mouse_id(iHovered);
     if (iSubItem >= 0)
       (void)frontend_config_set_submenu_item(iSubItem);
@@ -529,6 +532,7 @@ static void frontend_config_handle_mouse(void)
     return;
   }
 
+  iFrontendConfigExitHovered = 0;
   frontend_mouse_take_wheel_y();
   iHovered = frontend_mouse_take_hovered_id();
   if (frontend_config_mouse_item_valid(iHovered))
@@ -823,12 +827,15 @@ void frontend_config_update(void)
       --iMenuDrawSelection;
 
     // draw menu selector
-    if (iFrontendConfigMenuSelection >= 7) {
+    if (iFrontendConfigMenuSelection >= 7 ||
+        (iFrontendConfigState && iFrontendConfigExitHovered)) {
       // no menu item selected (exit)
       menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
       // draw menu selector
       menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+    }
+    if (iFrontendConfigMenuSelection < 7) {
       menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuDrawSelection].x, sel_posns[iMenuDrawSelection].y, 0x8Fu, 0, pal_addr);
     }
 

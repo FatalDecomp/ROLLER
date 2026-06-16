@@ -558,6 +558,8 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                             0x8Fu, 1u, 450, 635, pal_addr);
   } else {
     menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
+    frontend_mouse_register_rect(FRONTEND_TRACK_MOUSE_CUP, 470, 280,
+                                 160, 100);
   }
   if (frontend_track_select_is_community()) {
     if (g_iCommunityTrackSel >= 0 &&

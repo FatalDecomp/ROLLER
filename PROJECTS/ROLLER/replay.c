@@ -33,6 +33,7 @@ int disciconpressed = 0;  //000A63AC
 int rotpoint = 0;         //000A63B0
 int replaypanel = -1;     //000A63B4
 int controlicon = 9;      //000A63B8
+static int s_iReplayMouseHeldIcon = -1;
 int replayspeeds[9] = { 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 }; //000A63BC
 char *replayname[9] = {   //000A63E0
     "1/16",
@@ -2610,20 +2611,37 @@ static void replay_control_panel_activate_icon(int iIcon)
 
 static void replay_control_panel_handle_mouse(void)
 {
-  int iHovered = frontend_mouse_peek_hovered_id();
   int iClicked = frontend_mouse_peek_clicked_id();
 
   frontend_mouse_take_wheel_y();
 
-  if (replay_control_panel_icon_active(iHovered))
-    controlicon = iHovered;
-
-  if (frontend_mouse_left_down() && (iHovered == 8 || iHovered == 10))
-    replay_control_panel_activate_icon(iHovered);
-
   if (frontend_mouse_consume_click_anywhere() &&
       replay_control_panel_icon_active(iClicked))
     replay_control_panel_activate_icon(iClicked);
+}
+
+void replay_control_panel_update_mouse_state(void)
+{
+  int iHovered;
+  int iWidth = winw > 0 ? winw : XMAX;
+  int iHeight = winh > 0 ? winh : YMAX;
+
+  s_iReplayMouseHeldIcon = -1;
+  if (filingmenu || replaytype != 2 || !replaypanel)
+    return;
+
+  frontend_mouse_begin_frame(iWidth, iHeight);
+  replay_control_panel_register_mouse_items();
+  iHovered = frontend_mouse_peek_hovered_id();
+  if (replay_control_panel_icon_active(iHovered))
+    controlicon = iHovered;
+  if (frontend_mouse_left_down() && (iHovered == 8 || iHovered == 10))
+    s_iReplayMouseHeldIcon = iHovered;
+}
+
+int replay_control_panel_mouse_held_icon(void)
+{
+  return s_iReplayMouseHeldIcon;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3691,8 +3709,7 @@ void displaycontrolpanel()
     replayicon(scrbuf, rev_vga[15], 0, 0, 150, 320, -1);
   }
   if (!filingmenu) {
-    frontend_mouse_begin_frame(winw, winh);
-    replay_control_panel_register_mouse_items();
+    replay_control_panel_update_mouse_state();
     replay_control_panel_handle_mouse();
   }
   if (!replayedit)                            // Draw control panel overlay if not in replay edit mode

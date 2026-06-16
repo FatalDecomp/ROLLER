@@ -7,6 +7,7 @@
 #include "func2.h"
 #include "graphics.h"
 #include "menu_render.h"
+#include "moving.h"
 #include "debug_overlay.h"
 #include "snapshot.h"
 #include "rollercd.h"
@@ -108,7 +109,7 @@ static void UpdateMouseCursorVisibility(void)
 
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
-  bool bCursorScreen = frontend_on || game_req ||
+  bool bCursorScreen = frontend_on || game_req || replaytype == 2 ||
                        debug_overlay_visible(s_pDebugOverlay);
   bool bHideCursor = bFullscreen && !bCursorScreen;
   bool bCursorVisible = SDL_CursorVisible();
