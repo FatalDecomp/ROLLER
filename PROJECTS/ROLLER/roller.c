@@ -657,6 +657,9 @@ int ROLLERAudioMusicAvailable(void)
   FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
 
   if (!pTrack)
+    pTrack = ROLLERfopen("../audio/track02.wav", "rb");
+
+  if (!pTrack)
     return 0;
 
   fclose(pTrack);
