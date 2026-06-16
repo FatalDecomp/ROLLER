@@ -53,6 +53,7 @@ static int iFrontendConfigGraphicsState;
 static int iFrontendConfigNetworkState;
 static int iFrontendConfigBroadcastWaitAction;
 static char szFrontendConfigLastControllerName[128];
+static int iFrontendConfigExitHovered;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -61,6 +62,8 @@ enum {
   FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME,
   FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS
 };
+
+#define FRONTEND_CONFIG_MOUSE_SUB_BASE 200
 
 //-------------------------------------------------------------------------------------------------
 
@@ -264,6 +267,7 @@ void frontend_config_enter(void)
   front_fade = 0;
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
+  iFrontendConfigExitHovered = 0;
   frontend_config_clear_last_controller_name();
   {
     extern tColor palette[];
@@ -288,6 +292,251 @@ void snapshot_render_menu_configure(void)
   snapshot_setup_frontend_menu_state(0);
   frontend_config_enter();
   frontend_config_update();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_mouse_item_valid(int iItem)
+{
+  if (iItem == 7)
+    return -1;
+  if (iItem == 6)
+    return network_on != 0;
+  return iItem == 0 || iItem == 1 || iItem == 3 ||
+         iItem == 4 || iItem == 5;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_register_submenu_row(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_CONFIG_MOUSE_SUB_BASE + iItem,
+                               200, iY - 5, 440, 18);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_register_submenu_mouse_items(void)
+{
+  int iItem;
+
+  switch (iFrontendConfigState) {
+    case 1:
+      for (iItem = 0; iItem <= 18; ++iItem) {
+        if (iItem == 2 && player_type != 2)
+          continue;
+        frontend_config_register_submenu_row(iItem, 374 - 18 * iItem);
+      }
+      break;
+    case 2:
+      frontend_config_register_submenu_row(1, 80);
+      frontend_config_register_submenu_row(2, 104);
+      frontend_config_register_submenu_row(3, 128);
+      frontend_config_register_submenu_row(4, 152);
+      frontend_config_register_submenu_row(5, 176);
+      frontend_config_register_submenu_row(6, 200);
+      frontend_config_register_submenu_row(7, 224);
+      frontend_config_register_submenu_row(0, 248);
+      break;
+    case 4:
+      if (player_type == 2) {
+        frontend_config_register_submenu_row(6, 60);
+        frontend_config_register_submenu_row(5, 78);
+        frontend_config_register_submenu_row(4, 96);
+        frontend_config_register_submenu_row(3, 124);
+        frontend_config_register_submenu_row(2, 142);
+        frontend_config_register_submenu_row(1, 160);
+        frontend_config_register_submenu_row(0, 196);
+      } else {
+        frontend_config_register_submenu_row(3, 96);
+        frontend_config_register_submenu_row(2, 114);
+        frontend_config_register_submenu_row(1, 132);
+        frontend_config_register_submenu_row(0, 168);
+      }
+      break;
+    case 5:
+      for (iItem = 0; iItem <= 16; ++iItem)
+        frontend_config_register_submenu_row(iItem, 380 - 20 * iItem);
+      break;
+    case 6:
+      for (iItem = 0; iItem <= (player_type == 2 ? 6 : 5); ++iItem)
+        frontend_config_register_submenu_row(iItem, 186 - 18 * iItem);
+      break;
+    case 7:
+      for (iItem = 0; iItem <= 5; ++iItem)
+        frontend_config_register_submenu_row(iItem, 140 - 18 * iItem);
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_submenu_item_from_mouse_id(int iMouseId)
+{
+  if (iMouseId < FRONTEND_CONFIG_MOUSE_SUB_BASE)
+    return -1;
+  return iMouseId - FRONTEND_CONFIG_MOUSE_SUB_BASE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_set_submenu_item(int iItem)
+{
+  switch (iFrontendConfigState) {
+    case 1:
+      if (iItem < 0 || iItem > 18)
+        return 0;
+      if (iItem == 2 && player_type != 2)
+        return 0;
+      iFrontendConfigSelectedCar = iItem;
+      return -1;
+    case 2:
+      if (iItem < 0 || iItem > 7)
+        return 0;
+      iFrontendConfigVolumeSelection = iItem;
+      return -1;
+    case 4:
+      if (iItem < 0 || iItem > (player_type == 2 ? 6 : 3))
+        return 0;
+      iFrontendConfigControlSelection = iItem;
+      return -1;
+    case 5:
+      if (iItem < 0 || iItem > 16)
+        return 0;
+      iFrontendConfigVideoState = iItem;
+      return -1;
+    case 6:
+      if (iItem < 0 || iItem > (player_type == 2 ? 6 : 5))
+        return 0;
+      iFrontendConfigGraphicsState = iItem;
+      return -1;
+    case 7:
+      if (iItem < 0 || iItem > 5)
+        return 0;
+      iFrontendConfigNetworkState = iItem;
+      return -1;
+    default:
+      return 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_clamp_volume(int iVolume)
+{
+  if (iVolume < 0)
+    return 0;
+  if (iVolume >= 128)
+    return 127;
+  return iVolume;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_apply_volume_wheel(int iWheelY)
+{
+  int iDelta;
+
+  if (iWheelY == 0 || iFrontendConfigState != 2 ||
+      iFrontendConfigVolumeSelection < 1 ||
+      iFrontendConfigVolumeSelection > 4)
+    return 0;
+
+  iDelta = iWheelY * 4;
+  switch (iFrontendConfigVolumeSelection) {
+    case 1:
+      EngineVolume = frontend_config_clamp_volume(EngineVolume + iDelta);
+      break;
+    case 2:
+      SFXVolume = frontend_config_clamp_volume(SFXVolume + iDelta);
+      break;
+    case 3:
+      SpeechVolume = frontend_config_clamp_volume(SpeechVolume + iDelta);
+      break;
+    case 4:
+      MusicVolume = frontend_config_clamp_volume(MusicVolume + iDelta);
+      if (MusicCard)
+        MIDISetMasterVolume(MusicVolume);
+      if (MusicCD)
+        SetAudioVolume(MusicVolume);
+      break;
+    default:
+      return 0;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+  int iSubItem;
+  int iWheelY;
+
+  if (iFrontendConfigControlsInEdit) {
+    frontend_mouse_take_wheel_y();
+    (void)frontend_mouse_take_hovered_id();
+    (void)frontend_mouse_consume_click_anywhere();
+    return;
+  }
+
+  if (iFrontendConfigState != 0) {
+    frontend_config_register_submenu_mouse_items();
+
+    iClicked = frontend_mouse_peek_clicked_id();
+    iHovered = frontend_mouse_peek_hovered_id();
+    iFrontendConfigExitHovered = iHovered == 7;
+    if (iClicked == 7 && frontend_mouse_consume_click_anywhere()) {
+      frontend_config_request_exit();
+      return;
+    }
+
+    if (iFrontendConfigEditingName) {
+      frontend_mouse_take_wheel_y();
+      if (frontend_mouse_consume_click_anywhere())
+        frontend_mouse_press_accept();
+      return;
+    }
+
+    iHovered = frontend_mouse_take_hovered_id();
+    iSubItem = frontend_config_submenu_item_from_mouse_id(iHovered);
+    if (iSubItem >= 0)
+      (void)frontend_config_set_submenu_item(iSubItem);
+
+    iWheelY = frontend_mouse_take_wheel_y();
+    if (iWheelY) {
+      iSubItem = frontend_config_submenu_item_from_mouse_id(
+          frontend_mouse_peek_hovered_id());
+      if (iSubItem >= 0)
+        (void)frontend_config_set_submenu_item(iSubItem);
+    }
+    if (frontend_config_apply_volume_wheel(iWheelY))
+      return;
+
+    iClicked = frontend_mouse_peek_clicked_id();
+    iSubItem = frontend_config_submenu_item_from_mouse_id(iClicked);
+    if (iSubItem >= 0)
+      (void)frontend_config_set_submenu_item(iSubItem);
+
+    if (frontend_mouse_consume_click_anywhere())
+      frontend_mouse_press_accept();
+    return;
+  }
+
+  iFrontendConfigExitHovered = 0;
+  frontend_mouse_take_wheel_y();
+  iHovered = frontend_mouse_take_hovered_id();
+  if (frontend_config_mouse_item_valid(iHovered))
+    iFrontendConfigMenuSelection = iHovered;
+
+  iClicked = frontend_mouse_consume_click_anywhere();
+  if (iClicked && frontend_config_mouse_item_valid(iFrontendConfigMenuSelection))
+    frontend_mouse_press_accept();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -556,6 +805,7 @@ void frontend_config_update(void)
 
     // Draw background and ui elements (GPU)
     MenuRenderer *mr = GetMenuRenderer();
+    frontend_mouse_begin_frame(640, 400);
     menu_render_begin_frame(mr);
     if (!front_fade) {
       front_fade = -1;
@@ -573,12 +823,15 @@ void frontend_config_update(void)
       --iMenuDrawSelection;
 
     // draw menu selector
-    if (iFrontendConfigMenuSelection >= 7) {
+    if (iFrontendConfigMenuSelection >= 7 ||
+        (iFrontendConfigState && iFrontendConfigExitHovered)) {
       // no menu item selected (exit)
       menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
     } else {
       // draw menu selector
       menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+    }
+    if (iFrontendConfigMenuSelection < 7) {
       menu_render_text(mr, 2, "~", font2_ascii, font2_offsets, sel_posns[iMenuDrawSelection].x, sel_posns[iMenuDrawSelection].y, 0x8Fu, 0, pal_addr);
     }
 
@@ -592,6 +845,35 @@ void frontend_config_update(void)
     // network option if enabled
     if (network_on)
       menu_render_text(mr, 2, &config_buffer[5568], font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
+
+    frontend_mouse_register_text(0, front_vga[2], &config_buffer[3968],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
+    frontend_mouse_register_text(1, front_vga[2], &config_buffer[256],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[1].x + 132,
+                                 sel_posns[1].y + 7, 2);
+    frontend_mouse_register_text(3, front_vga[2], &config_buffer[4032],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[2].x + 132,
+                                 sel_posns[2].y + 7, 2);
+    frontend_mouse_register_text(4, front_vga[2], &config_buffer[4096],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[3].x + 132,
+                                 sel_posns[3].y + 7, 2);
+    frontend_mouse_register_text(5, front_vga[2], &config_buffer[4160],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[4].x + 132,
+                                 sel_posns[4].y + 7, 2);
+    if (network_on)
+      frontend_mouse_register_text(6, front_vga[2], &config_buffer[5568],
+                                   font2_ascii, font2_offsets,
+                                   sel_posns[5].x + 132,
+                                   sel_posns[5].y + 7, 2);
+    if (front_vga[6])
+      frontend_mouse_register_rect(7, 62, 336, front_vga[6][4].iWidth,
+                                   front_vga[6][4].iHeight);
 
     // Config state machine
     switch (iFrontendConfigMenuSelection) {
@@ -1322,6 +1604,8 @@ void frontend_config_update(void)
 
         if (frontend_config_update_broadcast_wait())
           return;
+
+        frontend_config_handle_mouse();
 
         // Process keyboard input when not editing controls
         if (!iFrontendConfigControlsInEdit) {

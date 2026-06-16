@@ -42,6 +42,7 @@ static int iFrontendTypeCloseNetworkPending = 0;
 static int iFrontendTypeCloseNetworkStartFrame = 0;
 static int iFrontendTypeOriginalGameType = 0;
 static int iFrontendTypeOriginalCompetitors = 0;
+static int iFrontendTypeExitHovered = 0;
 
 enum {
   eTYPE_BROADCAST_WAIT_NONE = 0,
@@ -50,10 +51,212 @@ enum {
 };
 
 #define MENU_COLOR_RED 0xE7u
+#define FRONTEND_TYPE_MOUSE_CUP 100
+#define FRONTEND_TYPE_MOUSE_SUB_BASE 200
 
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_run_snapshot(void);
+static void frontend_type_select_handle_space(void);
+static void frontend_type_select_restore_invalid_championship(void);
+static void frontend_type_select_handle_championship_reset(void);
+static void frontend_type_select_request_exit(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_type_select_mouse_item_valid(int iItem)
+{
+  if (iItem == 5)
+    return -1;
+  if (iItem < 0 || iItem > 4)
+    return 0;
+  if (iFrontendTypeSkipColor)
+    return iItem == 0;
+  if (iItem == 4 && !iFrontendTypeCheatModesAvailable)
+    return 0;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_register_submenu_row(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_SUB_BASE + iItem,
+                               200, iY - 4, 440, 18);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_register_submenu_mouse_items(void)
+{
+  if (!iFrontendTypeMenuSelection)
+    return;
+
+  switch (iFrontendTypeMenuSelection) {
+    case 1:
+      if (iFrontendTypeSkipColor)
+        break;
+      frontend_type_select_register_submenu_row(0, 135);
+      frontend_type_select_register_submenu_row(1, 153);
+      frontend_type_select_register_submenu_row(2, 171);
+      break;
+    case 2:
+      if ((cheat_mode & 2) == 0) {
+        frontend_type_select_register_submenu_row(5, 135);
+        frontend_type_select_register_submenu_row(4, 153);
+        frontend_type_select_register_submenu_row(3, 171);
+        frontend_type_select_register_submenu_row(2, 189);
+        frontend_type_select_register_submenu_row(1, 207);
+        frontend_type_select_register_submenu_row(0, 225);
+      }
+      break;
+    case 3:
+      if (game_type < 2) {
+        frontend_type_select_register_submenu_row(2, 135);
+        frontend_type_select_register_submenu_row(8, 153);
+        frontend_type_select_register_submenu_row(16, 171);
+      } else {
+        frontend_type_select_register_submenu_row(1, 135);
+      }
+      break;
+    case 4:
+      if ((cheat_mode & 2) == 0) {
+        frontend_type_select_register_submenu_row(0, 135);
+        frontend_type_select_register_submenu_row(1, 153);
+        frontend_type_select_register_submenu_row(2, 171);
+      }
+      break;
+    case 5:
+      frontend_type_select_register_submenu_row(0, 135);
+      frontend_type_select_register_submenu_row(1, 153);
+      break;
+    case 6:
+      frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_SUB_BASE, 200, 316,
+                                   440, 44);
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_type_select_submenu_item_from_mouse_id(int iMouseId)
+{
+  if (iMouseId < FRONTEND_TYPE_MOUSE_SUB_BASE)
+    return -1;
+  return iMouseId - FRONTEND_TYPE_MOUSE_SUB_BASE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_type_select_set_submenu_item(int iItem)
+{
+  switch (iFrontendTypeMenuSelection) {
+    case 1:
+      if (iFrontendTypeSkipColor || iItem < 0 || iItem > 2)
+        return 0;
+      game_type = iItem;
+      if (game_type < 2) {
+        if (competitors == 1)
+          competitors = 16;
+      } else {
+        competitors = 1;
+      }
+      return -1;
+    case 2:
+      if ((cheat_mode & 2) != 0 || iItem < 0 || iItem > 5)
+        return 0;
+      level = iItem;
+      return -1;
+    case 3:
+      if (game_type < 2) {
+        if (iItem != 2 && iItem != 8 && iItem != 16)
+          return 0;
+        competitors = iItem;
+      } else if (iItem == 1) {
+        competitors = 1;
+      } else {
+        return 0;
+      }
+      return -1;
+    case 4:
+      if ((cheat_mode & 2) != 0 || iItem < 0 || iItem > 2)
+        return 0;
+      damage_level = iItem;
+      return -1;
+    case 5:
+      if (iItem == 0)
+        textures_off &= ~TEX_OFF_ADVANCED_CARS;
+      else if (iItem == 1)
+        textures_off |= TEX_OFF_ADVANCED_CARS;
+      else
+        return 0;
+      return -1;
+    case 6:
+      return iItem == 0;
+    default:
+      return 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+  int iSubItem;
+
+  frontend_mouse_take_wheel_y();
+  frontend_type_select_register_submenu_mouse_items();
+  iHovered = frontend_mouse_peek_hovered_id();
+  iFrontendTypeExitHovered = iFrontendTypeMenuSelection && iHovered == 5;
+
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (iClicked == FRONTEND_TYPE_MOUSE_CUP &&
+      frontend_mouse_consume_click_anywhere()) {
+    frontend_type_select_handle_space();
+    return;
+  }
+
+  if (iFrontendTypeMenuSelection) {
+    iHovered = frontend_mouse_take_hovered_id();
+    iSubItem = frontend_type_select_submenu_item_from_mouse_id(iHovered);
+    if (iSubItem >= 0)
+      (void)frontend_type_select_set_submenu_item(iSubItem);
+
+    if (iClicked == 5 && frontend_mouse_consume_click_anywhere()) {
+      frontend_type_select_restore_invalid_championship();
+      frontend_type_select_request_exit();
+      return;
+    }
+
+    iSubItem = frontend_type_select_submenu_item_from_mouse_id(iClicked);
+    if (iSubItem >= 0 &&
+        frontend_type_select_set_submenu_item(iSubItem) &&
+        frontend_mouse_consume_click_anywhere()) {
+      if (iFrontendTypeMenuSelection == 6)
+        frontend_type_select_handle_championship_reset();
+      else
+        frontend_mouse_press_accept();
+      return;
+    }
+
+    if (frontend_mouse_consume_click_anywhere())
+      frontend_mouse_press_accept();
+    return;
+  }
+
+  iFrontendTypeExitHovered = 0;
+  iHovered = frontend_mouse_take_hovered_id();
+  if (frontend_type_select_mouse_item_valid(iHovered))
+    iFrontendTypeCurrentOption = iHovered;
+
+  if (frontend_mouse_consume_click_anywhere() &&
+      frontend_type_select_mouse_item_valid(iFrontendTypeCurrentOption))
+    frontend_mouse_press_accept();
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -276,6 +479,7 @@ static void frontend_type_select_draw(void)
   int iNetworkPlayerCount;
   MenuRenderer *mr = GetMenuRenderer();
 
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -289,11 +493,18 @@ static void frontend_type_select_draw(void)
   menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
   if (cup_won && !iFrontendTypeSkipColor)
     menu_render_sprite(mr, 1, 8, 200, 56, 0, pal_addr);
+  if (cup_won && !iFrontendTypeSkipColor && front_vga[1])
+    frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_CUP, 200, 56,
+                                 front_vga[1][8].iWidth,
+                                 front_vga[1][8].iHeight);
 
-  if (iFrontendTypeCurrentOption >= 5) {
+  if (iFrontendTypeCurrentOption >= 5 ||
+      (iFrontendTypeMenuSelection && iFrontendTypeExitHovered)) {
     menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
   } else {
     menu_render_sprite(mr, 6, 2, 62, 336, -1, pal_addr);
+  }
+  if (iFrontendTypeCurrentOption < 5) {
     menu_render_text(mr, 2, "~", font2_ascii, font2_offsets,
                      sel_posns[iFrontendTypeCurrentOption].x,
                      sel_posns[iFrontendTypeCurrentOption].y, 0x8Fu, 0,
@@ -304,6 +515,10 @@ static void frontend_type_select_draw(void)
     menu_render_text(mr, 2, &language_buffer[3136], font2_ascii,
                      font2_offsets, sel_posns[0].x + 132,
                      sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
+    frontend_mouse_register_text(0, front_vga[2], &language_buffer[3136],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
   } else {
     menu_render_text(mr, 2, &language_buffer[384], font2_ascii,
                      font2_offsets, sel_posns[0].x + 132,
@@ -321,9 +536,38 @@ static void frontend_type_select_draw(void)
       menu_render_text(mr, 2, &language_buffer[4288], font2_ascii,
                        font2_offsets, sel_posns[4].x + 132,
                        sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
+
+    frontend_mouse_register_text(0, front_vga[2], &language_buffer[384],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
+    frontend_mouse_register_text(1, front_vga[2], &language_buffer[3200],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[1].x + 132,
+                                 sel_posns[1].y + 7, 2);
+    frontend_mouse_register_text(2, front_vga[2], &language_buffer[3264],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[2].x + 132,
+                                 sel_posns[2].y + 7, 2);
+    frontend_mouse_register_text(3, front_vga[2], &language_buffer[3328],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[3].x + 132,
+                                 sel_posns[3].y + 7, 2);
+    if (iFrontendTypeCheatModesAvailable)
+      frontend_mouse_register_text(4, front_vga[2], &language_buffer[4288],
+                                   font2_ascii, font2_offsets,
+                                   sel_posns[4].x + 132,
+                                   sel_posns[4].y + 7, 2);
   }
 
+  if (front_vga[6])
+    frontend_mouse_register_rect(5, 62, 336, front_vga[6][4].iWidth,
+                                 front_vga[6][4].iHeight);
+
   menu_render_sprite(mr, 14, iFrontendTypeBlockIdx, 500, 300, 0, pal_addr);
+  if (!iFrontendTypeSkipColor)
+    frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_CUP, 470, 280,
+                                 160, 100);
   if (iFrontendTypeSkipColor) {
     menu_render_scaled_text(mr, 15, &language_buffer[3392], font1_ascii,
                             font1_offsets, 400, 75, 143, 1u, 200, 640,
@@ -802,6 +1046,7 @@ void frontend_type_select_enter(void)
   iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
   iFrontendTypeCloseNetworkPending = 0;
   iFrontendTypeCloseNetworkStartFrame = 0;
+  iFrontendTypeExitHovered = 0;
   if (stock_track_demo_only() && game_type == 1) {
     game_type = 0;
     Race = 0;
@@ -860,6 +1105,7 @@ void frontend_type_select_update(void)
     return;
 
   frontend_type_select_apply_same_car_switch();
+  frontend_type_select_handle_mouse();
   frontend_type_select_handle_input();
 }
 

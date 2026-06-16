@@ -7,6 +7,7 @@
 #include "func2.h"
 #include "graphics.h"
 #include "menu_render.h"
+#include "moving.h"
 #include "debug_overlay.h"
 #include "snapshot.h"
 #include "rollercd.h"
@@ -108,10 +109,8 @@ static void UpdateMouseCursorVisibility(void)
 
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
-  bool bCursorScreen =
-    eFrontendCurrentState == eFRONTEND_STATE_MAIN_MENU ||
-    eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
-    debug_overlay_visible(s_pDebugOverlay);
+  bool bCursorScreen = frontend_on || game_req || replaytype == 2 ||
+                       debug_overlay_visible(s_pDebugOverlay);
   bool bHideCursor = bFullscreen && !bCursorScreen;
   bool bCursorVisible = SDL_CursorVisible();
 
@@ -659,6 +658,9 @@ int ROLLERAudioMusicAvailable(void)
   FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
 
   if (!pTrack)
+    pTrack = ROLLERfopen("../audio/track02.wav", "rb");
+
+  if (!pTrack)
     return 0;
 
   fclose(pTrack);
@@ -890,6 +892,7 @@ void UpdateSDL()
     }
     debug_overlay_handle_event(s_pDebugOverlay, &e);
     InputHandleEvent(&e);
+    frontend_mouse_handle_event(&e);
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
       if (e.key.scancode == SDL_SCANCODE_GRAVE) {

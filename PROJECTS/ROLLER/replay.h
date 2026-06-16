@@ -163,6 +163,8 @@ void replaypanelletter(char c, int *piX, int *piY, int iScreenWidth);
 void replaypanelstring(const char *szStr, int iX, int iY, int iScreenWidth);
 void displaypaneltime(int iTime, int iX, int iY, int iScreenWidth);
 void discmenu();
+void replay_control_panel_update_mouse_state(void);
+int replay_control_panel_mouse_held_icon(void);
 void initsoundlag(uint32 uiTicks);
 void resetsmoke();
 

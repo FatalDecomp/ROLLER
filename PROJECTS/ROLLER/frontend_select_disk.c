@@ -285,10 +285,49 @@ static void frontend_disk_select_draw_status(MenuRenderer *mr)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_disk_select_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  iHovered = frontend_mouse_take_hovered_id();
+  if (uiFrontendDiskMenuMode) {
+    if (iHovered >= 1 && iHovered <= 4) {
+      iFrontendDiskSelectedSlot = iHovered;
+      iFrontendDiskStatusMessage = 0;
+    }
+  } else if (iHovered >= 0 && iHovered <= 2) {
+    iFrontendDiskMenuCursor = iHovered;
+    iFrontendDiskStatusMessage = 0;
+  }
+
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (uiFrontendDiskMenuMode) {
+    if (frontend_mouse_consume_click_anywhere() &&
+        iClicked >= 1 && iClicked <= 4) {
+      iFrontendDiskSelectedSlot = iClicked;
+      iFrontendDiskStatusMessage = 0;
+      frontend_mouse_press_accept();
+    }
+  } else if (frontend_mouse_consume_click_anywhere()) {
+    if (iClicked >= 0 && iClicked <= 2)
+      iFrontendDiskMenuCursor = iClicked;
+    if (iFrontendDiskMenuCursor >= 0 && iFrontendDiskMenuCursor <= 2) {
+      iFrontendDiskStatusMessage = 0;
+      frontend_mouse_press_accept();
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_disk_select_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
 
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -312,6 +351,27 @@ static void frontend_disk_select_draw(void)
   menu_render_text(mr, 2, &language_buffer[640], font2_ascii, font2_offsets,
                    sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u,
                    pal_addr);
+
+  if (uiFrontendDiskMenuMode) {
+    int iSlotY = 56;
+
+    for (int iSlot = 1; iSlot <= 4; ++iSlot) {
+      frontend_mouse_register_rect(iSlot, 250, iSlotY, 320, 20);
+      iSlotY += 40;
+    }
+  } else {
+    frontend_mouse_register_text(0, front_vga[2], &language_buffer[576],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[0].x + 132,
+                                 sel_posns[0].y + 7, 2);
+    frontend_mouse_register_text(1, front_vga[2], &language_buffer[640],
+                                 font2_ascii, font2_offsets,
+                                 sel_posns[1].x + 132,
+                                 sel_posns[1].y + 7, 2);
+    if (front_vga[6])
+      frontend_mouse_register_rect(2, 62, 336, front_vga[6][4].iWidth,
+                                   front_vga[6][4].iHeight);
+  }
 
   frontend_disk_select_draw_current_game(mr);
   frontend_disk_select_draw_saves(mr);
@@ -442,6 +502,7 @@ void frontend_disk_select_update(void)
     return;
 
   frontend_disk_select_apply_same_car_switch();
+  frontend_disk_select_handle_mouse();
   frontend_disk_select_handle_input();
 }
 

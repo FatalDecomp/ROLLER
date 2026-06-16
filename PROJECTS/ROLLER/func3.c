@@ -115,6 +115,33 @@ static int Func3AnyKeyDown(void)
   return 0;
 }
 
+static void Func3BeginMouseFrame(void)
+{
+  int iVirtualWidth = winw > 0 ? winw : 640;
+  int iVirtualHeight = winh > 0 ? winh : 400;
+
+  frontend_mouse_begin_frame(iVirtualWidth, iVirtualHeight);
+}
+
+static void Func3FlushMouseClick(void)
+{
+  if (g_bSnapshotMode)
+    return;
+
+  Func3BeginMouseFrame();
+  (void)frontend_mouse_consume_click_anywhere();
+}
+
+static void Func3InjectMouseClick(void)
+{
+  if (g_bSnapshotMode)
+    return;
+
+  Func3BeginMouseFrame();
+  if (frontend_mouse_consume_click_anywhere())
+    frontend_mouse_press_accept();
+}
+
 static int Func3ScreenKeyPressed(void)
 {
   if (iFunc3WaitForKeyRelease) {
@@ -128,6 +155,7 @@ static int Func3ScreenKeyPressed(void)
     return 0;
   }
 
+  Func3InjectMouseClick();
   return fatkbhit();
 }
 
@@ -139,6 +167,7 @@ static void Func3BeginInputWait(void)
   } else {
     iFunc3WaitForKeyRelease = 0;
   }
+  Func3FlushMouseClick();
 }
 
 static void Func3IdleScreenWait(void)

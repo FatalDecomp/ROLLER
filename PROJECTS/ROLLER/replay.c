@@ -33,6 +33,7 @@ int disciconpressed = 0;  //000A63AC
 int rotpoint = 0;         //000A63B0
 int replaypanel = -1;     //000A63B4
 int controlicon = 9;      //000A63B8
+static int s_iReplayMouseHeldIcon = -1;
 int replayspeeds[9] = { 16, 32, 64, 128, 256, 512, 1024, 2048, 4096 }; //000A63BC
 char *replayname[9] = {   //000A63E0
     "1/16",
@@ -2455,6 +2456,195 @@ int compare(const void *szStr1, const void *szStr2)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+enum {
+  REPLAY_MOUSE_FILE_BASE = 1000,
+  REPLAY_MOUSE_SCROLL_UP = 2000,
+  REPLAY_MOUSE_SCROLL_DOWN = 2001
+};
+
+static int replay_mouse_scaled_coord(int iValue)
+{
+  return (scr_size * iValue) >> 6;
+}
+
+static int replay_mouse_icon_coord(int iValue)
+{
+  return SVGA_ON ? iValue * 2 : iValue;
+}
+
+static int replay_file_select_max_top(void)
+{
+  int iMaxTop = (((filefiles + 2) / 3) - 6) * 3;
+
+  if (iMaxTop < 0)
+    iMaxTop = 0;
+  return iMaxTop;
+}
+
+static void replay_file_select_copy_current_name(void)
+{
+  if (filefiles <= 0) {
+    selectfilename[0] = '\0';
+    return;
+  }
+
+  strncpy(selectfilename, filename[filefile], sizeof(selectfilename) - 1);
+  selectfilename[sizeof(selectfilename) - 1] = '\0';
+}
+
+static void replay_file_select_clamp_top(void)
+{
+  int iMaxTop = replay_file_select_max_top();
+
+  if (topfile < 0)
+    topfile = 0;
+  if (topfile > iMaxTop)
+    topfile = iMaxTop;
+}
+
+static void replay_file_select_set_file(int iFileIdx)
+{
+  if (filefiles <= 0) {
+    topfile = 0;
+    filefile = 0;
+    selectfilename[0] = '\0';
+    return;
+  }
+
+  if (iFileIdx < 0)
+    iFileIdx = 0;
+  if (iFileIdx >= filefiles)
+    iFileIdx = filefiles - 1;
+
+  filefile = iFileIdx;
+  if (filefile < topfile)
+    topfile = (filefile / 3) * 3;
+  if (filefile >= topfile + 18)
+    topfile = ((filefile / 3) - 5) * 3;
+  replay_file_select_clamp_top();
+  replay_file_select_copy_current_name();
+}
+
+static void replay_file_select_scroll(int iRows)
+{
+  if (filefiles <= 0)
+    return;
+
+  topfile += iRows * 3;
+  replay_file_select_clamp_top();
+
+  if (filefile < topfile)
+    filefile = topfile;
+  if (filefile >= topfile + 18)
+    filefile = topfile + 17;
+  if (filefile >= filefiles)
+    filefile = filefiles - 1;
+  if (filefile < 0)
+    filefile = 0;
+
+  replay_file_select_copy_current_name();
+}
+
+static int replay_control_panel_icon_active(int iIcon)
+{
+  if (iIcon <= 0 || iIcon >= 26)
+    return 0;
+  if (iIcon >= 18 && !replayedit)
+    return 0;
+  if (iIcon == 8 || iIcon == 10 || iIcon == 14 || iIcon == 15)
+    return -1;
+  return ricon[iIcon].pFunc != NULL;
+}
+
+static void replay_control_panel_register_mouse_items(void)
+{
+  int iIcon;
+
+  if (!rev_vga[15])
+    return;
+
+  for (iIcon = 1; iIcon < 26; ++iIcon) {
+    int iScale = SVGA_ON ? 2 : 1;
+
+    if (!replay_control_panel_icon_active(iIcon))
+      continue;
+
+    frontend_mouse_register_rect(
+        iIcon,
+        replay_mouse_icon_coord(ricon[iIcon].nX),
+        replay_mouse_icon_coord(ricon[iIcon].nY + 150),
+        rev_vga[15][iIcon].iWidth * iScale,
+        rev_vga[15][iIcon].iHeight * iScale);
+  }
+}
+
+static void replay_control_panel_activate_icon(int iIcon)
+{
+  if (!replay_control_panel_icon_active(iIcon))
+    return;
+
+  controlicon = iIcon;
+  if (iIcon == 8) {
+    slowing = 0;
+    if (!rewinding)
+      Rrewindstart();
+    return;
+  }
+  if (iIcon == 10) {
+    slowing = 0;
+    if (!forwarding)
+      Rforwardstart();
+    return;
+  }
+  if ((unsigned int)iIcon < 0xE) {
+    ((void (*)(void))ricon[iIcon].pFunc)();
+  } else if ((unsigned int)iIcon <= 0xE) {
+    viewminus(0);
+  } else {
+    if (iIcon == 15)
+      viewplus(0);
+    else
+      ((void (*)(void))ricon[iIcon].pFunc)();
+  }
+}
+
+static void replay_control_panel_handle_mouse(void)
+{
+  int iClicked = frontend_mouse_peek_clicked_id();
+
+  frontend_mouse_take_wheel_y();
+
+  if (frontend_mouse_consume_click_anywhere() &&
+      replay_control_panel_icon_active(iClicked))
+    replay_control_panel_activate_icon(iClicked);
+}
+
+void replay_control_panel_update_mouse_state(void)
+{
+  int iHovered;
+  int iWidth = winw > 0 ? winw : XMAX;
+  int iHeight = winh > 0 ? winh : YMAX;
+
+  s_iReplayMouseHeldIcon = -1;
+  if (filingmenu || replaytype != 2 || !replaypanel)
+    return;
+
+  frontend_mouse_begin_frame(iWidth, iHeight);
+  replay_control_panel_register_mouse_items();
+  iHovered = frontend_mouse_peek_hovered_id();
+  if (replay_control_panel_icon_active(iHovered))
+    controlicon = iHovered;
+  if (frontend_mouse_left_down() && (iHovered == 8 || iHovered == 10))
+    s_iReplayMouseHeldIcon = iHovered;
+}
+
+int replay_control_panel_mouse_held_icon(void)
+{
+  return s_iReplayMouseHeldIcon;
+}
+
+//-------------------------------------------------------------------------------------------------
 //00066F70
 void warning(int iX1, int iY1, int iX2, int iY2, char *szWarning)
 {
@@ -2744,6 +2934,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     iBoxY1 *= 2;
     iLeftEdge *= 2;
   }
+  frontend_mouse_begin_frame(winw, winh);
   params.vertices[0].x = iBoxX1;                // Set up polygon vertices for file selection background rectangle
   params.vertices[0].y = iBoxY0;
   params.vertices[1].y = iBoxY0;
@@ -2952,6 +3143,12 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
       }
     }
   }
+  {
+    int iWheelY = frontend_mouse_take_wheel_y();
+
+    if (iWheelY && filefiles > 0)
+      replay_file_select_scroll(-iWheelY);
+  }
   iRightEdge = iLeftEdge + 20;
   iDisplayFile = filefile;
   iLoopCounter = 0;
@@ -2962,6 +3159,12 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
       iDisplayX = 100 * (iLoopCounter % 3) + iRightEdge;
       iDisplayY = iBottomEdge + 10 * (iLoopCounter / 3);
       szDisplayName = filename[iLoopCounter + topfile];
+      frontend_mouse_register_rect(
+          REPLAY_MOUSE_FILE_BASE + iLoopCounter + topfile,
+          replay_mouse_scaled_coord(iDisplayX),
+          replay_mouse_scaled_coord(iDisplayY),
+          replay_mouse_scaled_coord(92),
+          replay_mouse_scaled_coord(10));
       if (iLoopCounter == iDisplayFile - topfile)
         prt_string(rev_vga[1], szDisplayName, iDisplayX, iDisplayY);
       else
@@ -2992,11 +3195,47 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     replayicon(scrbuf, rev_vga[15], 79, iUpArrowX, iTextY - 3, iScreenWidth, 255);
   else
     replayicon(scrbuf, rev_vga[15], 78, iUpArrowX, iTextY - 3, iScreenWidth, 255);
+  if (rev_vga[15])
+    frontend_mouse_register_rect(REPLAY_MOUSE_SCROLL_UP,
+                                 replay_mouse_icon_coord(iUpArrowX),
+                                 replay_mouse_icon_coord(iTextY - 3),
+                                 rev_vga[15][78].iWidth * (SVGA_ON ? 2 : 1),
+                                 rev_vga[15][78].iHeight * (SVGA_ON ? 2 : 1));
   iDownArrowX = iTextX + 128;
   if (topfile + 18 >= filefiles)
     replayicon(scrbuf, rev_vga[15], 80, iDownArrowX, iTextY + 82, iScreenWidth, 255);
   else
     replayicon(scrbuf, rev_vga[15], 81, iDownArrowX, iTextY + 82, iScreenWidth, 255);
+  if (rev_vga[15])
+    frontend_mouse_register_rect(REPLAY_MOUSE_SCROLL_DOWN,
+                                 replay_mouse_icon_coord(iDownArrowX),
+                                 replay_mouse_icon_coord(iTextY + 82),
+                                 rev_vga[15][80].iWidth * (SVGA_ON ? 2 : 1),
+                                 rev_vga[15][80].iHeight * (SVGA_ON ? 2 : 1));
+  {
+    int iHovered = frontend_mouse_take_hovered_id();
+    int iClicked = frontend_mouse_peek_clicked_id();
+
+    if (iHovered >= REPLAY_MOUSE_FILE_BASE &&
+        iHovered < REPLAY_MOUSE_FILE_BASE + filefiles)
+      replay_file_select_set_file(iHovered - REPLAY_MOUSE_FILE_BASE);
+
+    if (frontend_mouse_consume_click_anywhere()) {
+      if (iClicked >= REPLAY_MOUSE_FILE_BASE &&
+          iClicked < REPLAY_MOUSE_FILE_BASE + filefiles) {
+        int iClickedFile = iClicked - REPLAY_MOUSE_FILE_BASE;
+        int iWasSelected = iClickedFile == filefile;
+
+        replay_file_select_set_file(iClickedFile);
+        if (iWasSelected)
+          frontend_mouse_press_accept();
+      } else if (iClicked == REPLAY_MOUSE_SCROLL_UP) {
+        replay_file_select_scroll(-1);
+      } else if (iClicked == REPLAY_MOUSE_SCROLL_DOWN) {
+        replay_file_select_scroll(1);
+      }
+    }
+  }
   if (!filefiles)                             // Show 'no files found' message if directory is empty
     prt_centrecol(rev_vga[1], &language_buffer[3328], iTextX, iTextY + 44, 143);
 }
@@ -3468,6 +3707,10 @@ void displaycontrolpanel()
   } else {
     iScreenWidth = 320;
     replayicon(scrbuf, rev_vga[15], 0, 0, 150, 320, -1);
+  }
+  if (!filingmenu) {
+    replay_control_panel_update_mouse_state();
+    replay_control_panel_handle_mouse();
   }
   if (!replayedit)                            // Draw control panel overlay if not in replay edit mode
     replayicon(scrbuf, rev_vga[15], 77, 117, 187, iScreenWidth, -1);

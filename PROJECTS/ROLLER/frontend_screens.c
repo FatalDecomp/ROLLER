@@ -52,6 +52,33 @@ enum {
   COPY_SCREENS_PHASE_WAIT,
   COPY_SCREENS_PHASE_FADE_OUT
 };
+
+static void frontend_screens_begin_mouse_frame(void)
+{
+  int iVirtualWidth = winw > 0 ? winw : 640;
+  int iVirtualHeight = winh > 0 ? winh : 400;
+
+  frontend_mouse_begin_frame(iVirtualWidth, iVirtualHeight);
+}
+
+static void frontend_screens_flush_mouse_click(void)
+{
+  if (g_bSnapshotMode)
+    return;
+
+  frontend_screens_begin_mouse_frame();
+  (void)frontend_mouse_consume_click_anywhere();
+}
+
+static int frontend_screens_consume_mouse_click(void)
+{
+  if (g_bSnapshotMode)
+    return 0;
+
+  frontend_screens_begin_mouse_frame();
+  return frontend_mouse_consume_click_anywhere();
+}
+
 static int iFrontendMainMenuInitialized = 0;
 static int iFrontendMainMenuResumeFromChild = 0;
 static int iFrontendMainMenuSelection = 8;
@@ -83,6 +110,10 @@ typedef enum {
   eMAIN_MENU_FADE_OUT_START_SOUND,
   eMAIN_MENU_FADE_OUT_FINISH_START,
 } eMainMenuFadeOutAction;
+
+enum {
+  FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT = 100
+};
 
 static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
 static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
@@ -238,10 +269,14 @@ int frontend_title_screen_update(void)
       return 0;
     if (iFrontendTitleScreenWaitFatal)
       dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+    frontend_screens_flush_mouse_click();
     iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_WAIT;
   }
 
   if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_WAIT) {
+    if (frontend_screens_consume_mouse_click())
+      iFrontendTitleScreenWaitFatal = 0;
+
     if (iFrontendTitleScreenWaitFatal && !frontend_title_fatal_sample_done()) {
       UpdateSDLWindow();
       return 0;
@@ -324,12 +359,16 @@ int CopyScreensUpdate(void)
 #else
       ullCopyScreensEndTicksMs = 0;
 #endif
+      frontend_screens_flush_mouse_click();
       iCopyScreensPhase = COPY_SCREENS_PHASE_WAIT;
       return 0;
 
     case COPY_SCREENS_PHASE_WAIT:
+    {
+      int iMouseClicked = frontend_screens_consume_mouse_click();
+
 #ifndef _DEBUG
-      if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
+      if (!iMouseClicked && SDL_GetTicks() < ullCopyScreensEndTicksMs) {
         UpdateSDLWindow();
         return 0;
       }
@@ -337,6 +376,7 @@ int CopyScreensUpdate(void)
       fade_palette_begin(0);
       iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_OUT;
       return 0;
+    }
 
     case COPY_SCREENS_PHASE_FADE_OUT:
       fade_palette_update();
@@ -800,6 +840,10 @@ static void frontend_main_menu_setup(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_main_menu_register_mouse_items(int iDrawGameType);
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 {
   int iBlockIdx2;
@@ -856,6 +900,8 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   menu_render_text(mr, 2, &config_buffer[640], font2_ascii, font2_offsets,
                    sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u,
                    pal_addr);
+
+  frontend_main_menu_register_mouse_items(iDrawGameType);
 
   if (iDrawGameType == 1) {
     menu_render_sprite(mr, 14, (TrackLoad - 1) / 8, 500, 300, 0, pal_addr);
@@ -953,9 +999,13 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   if (iFrontendMainMenuBlockIdx < CAR_DESIGN_AUTO)
     menu_render_text(mr, 15, &language_buffer[4160], font1_ascii,
                      font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
-  if (iFrontendMainMenuQuitConfirmed)
+  if (iFrontendMainMenuQuitConfirmed) {
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
+    frontend_mouse_register_text(FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT,
+                                 front_vga[15], &language_buffer[3456],
+                                 font1_ascii, font1_offsets, 400, 250, 1);
+  }
   if (g_iNetworkTrackFileCRCMismatch) {
     menu_render_text(mr, 15, "TRACK FILE CRC MISMATCH", font1_ascii,
                      font1_offsets, PREVIEW_X + PREVIEW_W / 2,
@@ -983,6 +1033,7 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
 static void frontend_main_menu_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   frontend_main_menu_emit_draw(mr);
   menu_render_end_frame(mr);
@@ -1249,6 +1300,38 @@ static void frontend_main_menu_begin_child(eFrontendState eState)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_main_menu_register_text_item(int iItem, const char *szText)
+{
+  frontend_mouse_register_text(iItem, front_vga[2], szText, font2_ascii,
+                               font2_offsets, sel_posns[iItem].x + 132,
+                               sel_posns[iItem].y + 7, 2);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_main_menu_register_mouse_items(int iDrawGameType)
+{
+  frontend_main_menu_register_text_item(0, &language_buffer[192]);
+  frontend_main_menu_register_text_item(
+      1, iDrawGameType == 1 ? language_buffer : &language_buffer[256]);
+  frontend_main_menu_register_text_item(2, config_buffer);
+  if (iDrawGameType == 1)
+    frontend_main_menu_register_text_item(
+        3, Race ? &language_buffer[128] : &language_buffer[64]);
+  else
+    frontend_main_menu_register_text_item(3, &language_buffer[320]);
+  frontend_main_menu_register_text_item(4, &language_buffer[384]);
+  frontend_main_menu_register_text_item(5, &language_buffer[448]);
+  frontend_main_menu_register_text_item(6, &language_buffer[512]);
+  frontend_main_menu_register_text_item(7, &config_buffer[640]);
+
+  if (front_vga[6])
+    frontend_mouse_register_rect(8, 52, 334, front_vga[6][3].iWidth,
+                                 front_vga[6][3].iHeight);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_handle_enter(void)
 {
   if ((iFrontendMainMenuSelection >= 0 && iFrontendMainMenuSelection <= 5) ||
@@ -1342,6 +1425,45 @@ static void frontend_main_menu_handle_quit_confirmation(uint8 byKey)
 int frontend_main_menu_quit_confirm_active(void)
 {
   return iFrontendMainMenuQuitConfirmed != 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_main_menu_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  if (iFrontendMainMenuQuitConfirmed) {
+    (void)frontend_mouse_take_hovered_id();
+    iClicked = frontend_mouse_peek_clicked_id();
+    if (frontend_mouse_consume_click_anywhere()) {
+      ticks = 0;
+      if (iClicked == FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT) {
+        iFrontendMainMenuContinue = -1;
+        quit_game = -1;
+        frontend_main_menu_prepare_to_start();
+      } else {
+        iFrontendMainMenuQuitConfirmed = 0;
+      }
+    }
+    return;
+  }
+
+  iHovered = frontend_mouse_take_hovered_id();
+  if (iHovered >= 0 && iHovered <= 8) {
+    ticks = 0;
+    iFrontendMainMenuSelection = iHovered;
+  }
+
+  if (frontend_mouse_consume_click_anywhere() &&
+      iFrontendMainMenuSelection >= 0 &&
+      iFrontendMainMenuSelection <= 8) {
+    ticks = 0;
+    frontend_mouse_press_accept();
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1565,6 +1687,7 @@ void frontend_menu_update(void)
   frontend_main_menu_apply_same_car_switch();
   print_data = 0;
 
+  frontend_main_menu_handle_mouse();
   frontend_main_menu_handle_input();
   if (eFrontendNextState != eFrontendCurrentState)
     return;

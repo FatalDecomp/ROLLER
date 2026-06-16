@@ -63,6 +63,36 @@ static void frontend_players_select_run_snapshot(void);
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_players_select_handle_mouse(void)
+{
+  int iHovered;
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+
+  if (iFrontendPlayersNetworkMode) {
+    (void)frontend_mouse_take_hovered_id();
+    (void)frontend_mouse_consume_click_anywhere();
+    return;
+  }
+
+  iHovered = frontend_mouse_take_hovered_id();
+  if (iHovered >= 0 && iHovered <= 2) {
+    iFrontendPlayersSelectedPlayerType = iHovered;
+    iFrontendPlayersNetworkStatus = 0;
+  }
+
+  iClicked = frontend_mouse_consume_click_anywhere();
+  if (iClicked &&
+      iFrontendPlayersSelectedPlayerType >= 0 &&
+      iFrontendPlayersSelectedPlayerType <= 2) {
+    iFrontendPlayersNetworkStatus = 0;
+    frontend_mouse_press_accept();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void snapshot_render_menu_select_players(void)
 {
   snapshot_setup_frontend_menu_state(0);
@@ -498,6 +528,7 @@ void frontend_players_select_update(void)
 
   {                                           // RENDER FRAME (GPU)
   MenuRenderer *mr = GetMenuRenderer();
+  frontend_mouse_begin_frame(640, 400);
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -572,6 +603,18 @@ void frontend_players_select_update(void)
     else
       byMenuColor3 = 0x8F;
     menu_render_scaled_text(mr, 15, &language_buffer[2176], font1_ascii, font1_offsets, 400, 171, byMenuColor3, 1u, 200, 640, pal_addr);
+    frontend_mouse_register_scaled_text(0, front_vga[15],
+                                        &language_buffer[2112],
+                                        font1_ascii, font1_offsets, 400, 135,
+                                        1u, 200, 640);
+    frontend_mouse_register_scaled_text(2, front_vga[15],
+                                        &language_buffer[2240],
+                                        font1_ascii, font1_offsets, 400, 153,
+                                        1u, 200, 640);
+    frontend_mouse_register_scaled_text(1, front_vga[15],
+                                        &language_buffer[2176],
+                                        font1_ascii, font1_offsets, 400, 171,
+                                        1u, 200, 640);
   }
   show_received_mesage();
   menu_render_end_frame(mr);
@@ -591,6 +634,7 @@ void frontend_players_select_update(void)
   if (frontend_players_select_update_broadcast_wait())
     return;
 
+  frontend_players_select_handle_mouse();
   while (fatkbhit())                          // KEYBOARD INPUT PROCESSING: Handle navigation and selection
   {
     byInputKey = fatgetch();
