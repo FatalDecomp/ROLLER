@@ -303,17 +303,21 @@ static void frontend_disk_select_handle_mouse(void)
     iFrontendDiskStatusMessage = 0;
   }
 
-  iClicked = frontend_mouse_consume_click();
+  iClicked = frontend_mouse_peek_clicked_id();
   if (uiFrontendDiskMenuMode) {
-    if (iClicked >= 1 && iClicked <= 4) {
+    if (frontend_mouse_consume_click_anywhere() &&
+        iClicked >= 1 && iClicked <= 4) {
       iFrontendDiskSelectedSlot = iClicked;
       iFrontendDiskStatusMessage = 0;
       frontend_mouse_press_accept();
     }
-  } else if (iClicked >= 0 && iClicked <= 2) {
-    iFrontendDiskMenuCursor = iClicked;
-    iFrontendDiskStatusMessage = 0;
-    frontend_mouse_press_accept();
+  } else if (frontend_mouse_consume_click_anywhere()) {
+    if (iClicked >= 0 && iClicked <= 2)
+      iFrontendDiskMenuCursor = iClicked;
+    if (iFrontendDiskMenuCursor >= 0 && iFrontendDiskMenuCursor <= 2) {
+      iFrontendDiskStatusMessage = 0;
+      frontend_mouse_press_accept();
+    }
   }
 }
 

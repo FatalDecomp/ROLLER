@@ -313,7 +313,7 @@ static void frontend_config_handle_mouse(void)
 
   if (iFrontendConfigState != 0 || iFrontendConfigControlsInEdit) {
     (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click();
+    (void)frontend_mouse_consume_click_anywhere();
     return;
   }
 
@@ -321,11 +321,9 @@ static void frontend_config_handle_mouse(void)
   if (frontend_config_mouse_item_valid(iHovered))
     iFrontendConfigMenuSelection = iHovered;
 
-  iClicked = frontend_mouse_consume_click();
-  if (frontend_config_mouse_item_valid(iClicked)) {
-    iFrontendConfigMenuSelection = iClicked;
+  iClicked = frontend_mouse_consume_click_anywhere();
+  if (iClicked && frontend_config_mouse_item_valid(iFrontendConfigMenuSelection))
     frontend_mouse_press_accept();
-  }
 }
 
 //-------------------------------------------------------------------------------------------------

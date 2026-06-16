@@ -253,16 +253,13 @@ static void frontend_track_select_handle_mouse_wheel(void)
 static void frontend_track_select_handle_mouse(void)
 {
   int iHovered = frontend_mouse_take_hovered_id();
-  int iClicked;
 
   if (frontend_track_select_mouse_item_valid(iHovered))
     iFrontendTrackSelectedTrack = iHovered;
 
-  iClicked = frontend_mouse_consume_click();
-  if (frontend_track_select_mouse_item_valid(iClicked)) {
-    iFrontendTrackSelectedTrack = iClicked;
+  if (frontend_mouse_consume_click_anywhere() &&
+      frontend_track_select_mouse_item_valid(iFrontendTrackSelectedTrack))
     frontend_mouse_press_accept();
-  }
 }
 
 //-------------------------------------------------------------------------------------------------

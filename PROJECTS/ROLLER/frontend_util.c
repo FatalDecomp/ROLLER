@@ -673,6 +673,13 @@ int frontend_mouse_take_hovered_id(void)
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_mouse_peek_clicked_id(void)
+{
+  return s_iFrontendMouseClickedId;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int frontend_mouse_consume_click(void)
 {
   if (s_uiFrontendMouseClickSeq == s_uiFrontendMouseConsumedClickSeq)
@@ -680,6 +687,17 @@ int frontend_mouse_consume_click(void)
 
   s_uiFrontendMouseConsumedClickSeq = s_uiFrontendMouseClickSeq;
   return s_iFrontendMouseClickedId;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int frontend_mouse_consume_click_anywhere(void)
+{
+  if (s_uiFrontendMouseClickSeq == s_uiFrontendMouseConsumedClickSeq)
+    return 0;
+
+  s_uiFrontendMouseConsumedClickSeq = s_uiFrontendMouseClickSeq;
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------

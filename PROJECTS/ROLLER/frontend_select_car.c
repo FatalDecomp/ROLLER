@@ -148,18 +148,16 @@ static void frontend_car_select_register_mouse_items(void)
 static void frontend_car_select_handle_mouse(void)
 {
   int iHovered = frontend_mouse_take_hovered_id();
-  int iClicked;
 
   frontend_mouse_take_wheel_y();
 
   if (iHovered >= 0 && iHovered <= 8)
     iFrontendCarCurrentSelectorPos = iHovered;
 
-  iClicked = frontend_mouse_consume_click();
-  if (iClicked >= 0 && iClicked <= 8) {
-    iFrontendCarCurrentSelectorPos = iClicked;
+  if (frontend_mouse_consume_click_anywhere() &&
+      iFrontendCarCurrentSelectorPos >= 0 &&
+      iFrontendCarCurrentSelectorPos <= 8)
     frontend_mouse_press_accept();
-  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -393,14 +391,12 @@ void frontend_car_select_update(void)
                        sel_posns[iFrontendCarCurrentSelectorPos].x,
                        sel_posns[iFrontendCarCurrentSelectorPos].y, 0x8Fu, 0, pal_addr);
     }
-    menu_render_text(mr, 2, "AUTO ARIEL",   font2_ascii, font2_offsets, sel_posns[0].x + 132, sel_posns[0].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "DESILVA",      font2_ascii, font2_offsets, sel_posns[1].x + 132, sel_posns[1].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "PULSE",        font2_ascii, font2_offsets, sel_posns[2].x + 132, sel_posns[2].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "GLOBAL",       font2_ascii, font2_offsets, sel_posns[3].x + 132, sel_posns[3].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "MILLION PLUS", font2_ascii, font2_offsets, sel_posns[4].x + 132, sel_posns[4].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "MISSION",      font2_ascii, font2_offsets, sel_posns[5].x + 132, sel_posns[5].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "ZIZIN",        font2_ascii, font2_offsets, sel_posns[6].x + 132, sel_posns[6].y + 7, 0x8Fu, 2u, pal_addr);
-    menu_render_text(mr, 2, "REISE WAGON",  font2_ascii, font2_offsets, sel_posns[7].x + 132, sel_posns[7].y + 7, 0x8Fu, 2u, pal_addr);
+    for (int iCarMenuItem = 0; iCarMenuItem < 8; ++iCarMenuItem) {
+      menu_render_text(mr, 2, s_aszFrontendCarMenuNames[iCarMenuItem],
+                       font2_ascii, font2_offsets,
+                       sel_posns[iCarMenuItem].x + 132,
+                       sel_posns[iCarMenuItem].y + 7, 0x8Fu, 2u, pal_addr);
+    }
     frontend_car_select_register_mouse_items();
     if (iFrontendCarCurrentSelectorPos < 8 && network_on && (cheat_mode & 0x4000) == 0) {
       menu_render_text(mr, 15, &language_buffer[4672], font1_ascii, font1_offsets, 380, 380, 0x8Fu, 2u, pal_addr);

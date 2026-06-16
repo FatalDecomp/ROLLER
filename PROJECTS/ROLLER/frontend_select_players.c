@@ -72,7 +72,7 @@ static void frontend_players_select_handle_mouse(void)
 
   if (iFrontendPlayersNetworkMode) {
     (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click();
+    (void)frontend_mouse_consume_click_anywhere();
     return;
   }
 
@@ -82,9 +82,10 @@ static void frontend_players_select_handle_mouse(void)
     iFrontendPlayersNetworkStatus = 0;
   }
 
-  iClicked = frontend_mouse_consume_click();
-  if (iClicked >= 0 && iClicked <= 2) {
-    iFrontendPlayersSelectedPlayerType = iClicked;
+  iClicked = frontend_mouse_consume_click_anywhere();
+  if (iClicked &&
+      iFrontendPlayersSelectedPlayerType >= 0 &&
+      iFrontendPlayersSelectedPlayerType <= 2) {
     iFrontendPlayersNetworkStatus = 0;
     frontend_mouse_press_accept();
   }

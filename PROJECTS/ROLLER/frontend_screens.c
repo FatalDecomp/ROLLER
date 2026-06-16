@@ -52,6 +52,33 @@ enum {
   COPY_SCREENS_PHASE_WAIT,
   COPY_SCREENS_PHASE_FADE_OUT
 };
+
+static void frontend_screens_begin_mouse_frame(void)
+{
+  int iVirtualWidth = winw > 0 ? winw : 640;
+  int iVirtualHeight = winh > 0 ? winh : 400;
+
+  frontend_mouse_begin_frame(iVirtualWidth, iVirtualHeight);
+}
+
+static void frontend_screens_flush_mouse_click(void)
+{
+  if (g_bSnapshotMode)
+    return;
+
+  frontend_screens_begin_mouse_frame();
+  (void)frontend_mouse_consume_click_anywhere();
+}
+
+static int frontend_screens_consume_mouse_click(void)
+{
+  if (g_bSnapshotMode)
+    return 0;
+
+  frontend_screens_begin_mouse_frame();
+  return frontend_mouse_consume_click_anywhere();
+}
+
 static int iFrontendMainMenuInitialized = 0;
 static int iFrontendMainMenuResumeFromChild = 0;
 static int iFrontendMainMenuSelection = 8;
@@ -83,6 +110,10 @@ typedef enum {
   eMAIN_MENU_FADE_OUT_START_SOUND,
   eMAIN_MENU_FADE_OUT_FINISH_START,
 } eMainMenuFadeOutAction;
+
+enum {
+  FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT = 100
+};
 
 static eMainMenuFadeOutAction eFrontendMainMenuFadeOutAction = eMAIN_MENU_FADE_OUT_NONE;
 static eFrontendState eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
@@ -238,10 +269,14 @@ int frontend_title_screen_update(void)
       return 0;
     if (iFrontendTitleScreenWaitFatal)
       dospeechsample(SOUND_SAMPLE_FATAL, 0x8000);
+    frontend_screens_flush_mouse_click();
     iFrontendTitleScreenPhase = TITLE_SCREEN_PHASE_WAIT;
   }
 
   if (iFrontendTitleScreenPhase == TITLE_SCREEN_PHASE_WAIT) {
+    if (frontend_screens_consume_mouse_click())
+      iFrontendTitleScreenWaitFatal = 0;
+
     if (iFrontendTitleScreenWaitFatal && !frontend_title_fatal_sample_done()) {
       UpdateSDLWindow();
       return 0;
@@ -324,12 +359,16 @@ int CopyScreensUpdate(void)
 #else
       ullCopyScreensEndTicksMs = 0;
 #endif
+      frontend_screens_flush_mouse_click();
       iCopyScreensPhase = COPY_SCREENS_PHASE_WAIT;
       return 0;
 
     case COPY_SCREENS_PHASE_WAIT:
+    {
+      int iMouseClicked = frontend_screens_consume_mouse_click();
+
 #ifndef _DEBUG
-      if (SDL_GetTicks() < ullCopyScreensEndTicksMs) {
+      if (!iMouseClicked && SDL_GetTicks() < ullCopyScreensEndTicksMs) {
         UpdateSDLWindow();
         return 0;
       }
@@ -337,6 +376,7 @@ int CopyScreensUpdate(void)
       fade_palette_begin(0);
       iCopyScreensPhase = COPY_SCREENS_PHASE_FADE_OUT;
       return 0;
+    }
 
     case COPY_SCREENS_PHASE_FADE_OUT:
       fade_palette_update();
@@ -959,9 +999,13 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
   if (iFrontendMainMenuBlockIdx < CAR_DESIGN_AUTO)
     menu_render_text(mr, 15, &language_buffer[4160], font1_ascii,
                      font1_offsets, 400, 200, 0xE7u, 1u, pal_addr);
-  if (iFrontendMainMenuQuitConfirmed)
+  if (iFrontendMainMenuQuitConfirmed) {
     menu_render_text(mr, 15, &language_buffer[3456], font1_ascii,
                      font1_offsets, 400, 250, 0xE7u, 1u, pal_addr);
+    frontend_mouse_register_text(FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT,
+                                 front_vga[15], &language_buffer[3456],
+                                 font1_ascii, font1_offsets, 400, 250, 1);
+  }
   if (g_iNetworkTrackFileCRCMismatch) {
     menu_render_text(mr, 15, "TRACK FILE CRC MISMATCH", font1_ascii,
                      font1_offsets, PREVIEW_X + PREVIEW_W / 2,
@@ -1394,7 +1438,17 @@ static void frontend_main_menu_handle_mouse(void)
 
   if (iFrontendMainMenuQuitConfirmed) {
     (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click();
+    iClicked = frontend_mouse_peek_clicked_id();
+    if (frontend_mouse_consume_click_anywhere()) {
+      ticks = 0;
+      if (iClicked == FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT) {
+        iFrontendMainMenuContinue = -1;
+        quit_game = -1;
+        frontend_main_menu_prepare_to_start();
+      } else {
+        iFrontendMainMenuQuitConfirmed = 0;
+      }
+    }
     return;
   }
 
@@ -1404,10 +1458,10 @@ static void frontend_main_menu_handle_mouse(void)
     iFrontendMainMenuSelection = iHovered;
   }
 
-  iClicked = frontend_mouse_consume_click();
-  if (iClicked >= 0 && iClicked <= 8) {
+  if (frontend_mouse_consume_click_anywhere() &&
+      iFrontendMainMenuSelection >= 0 &&
+      iFrontendMainMenuSelection <= 8) {
     ticks = 0;
-    iFrontendMainMenuSelection = iClicked;
     frontend_mouse_press_accept();
   }
 }

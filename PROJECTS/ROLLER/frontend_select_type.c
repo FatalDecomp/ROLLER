@@ -81,7 +81,7 @@ static void frontend_type_select_handle_mouse(void)
 
   if (iFrontendTypeMenuSelection) {
     (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click();
+    (void)frontend_mouse_consume_click_anywhere();
     return;
   }
 
@@ -89,11 +89,10 @@ static void frontend_type_select_handle_mouse(void)
   if (frontend_type_select_mouse_item_valid(iHovered))
     iFrontendTypeCurrentOption = iHovered;
 
-  iClicked = frontend_mouse_consume_click();
-  if (frontend_type_select_mouse_item_valid(iClicked)) {
-    iFrontendTypeCurrentOption = iClicked;
+  iClicked = frontend_mouse_consume_click_anywhere();
+  if (iClicked &&
+      frontend_type_select_mouse_item_valid(iFrontendTypeCurrentOption))
     frontend_mouse_press_accept();
-  }
 }
 
 //-------------------------------------------------------------------------------------------------
