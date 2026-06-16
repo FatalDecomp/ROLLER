@@ -60,6 +60,7 @@ static void frontend_type_select_run_snapshot(void);
 static void frontend_type_select_handle_space(void);
 static void frontend_type_select_restore_invalid_championship(void);
 static void frontend_type_select_handle_championship_reset(void);
+static void frontend_type_select_request_exit(void);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -201,14 +202,6 @@ static int frontend_type_select_set_submenu_item(int iItem)
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_type_select_return_to_main_page(void)
-{
-  frontend_type_select_restore_invalid_championship();
-  iFrontendTypeMenuSelection = 0;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 static void frontend_type_select_handle_mouse(void)
 {
   int iHovered;
@@ -228,12 +221,14 @@ static void frontend_type_select_handle_mouse(void)
   }
 
   if (iFrontendTypeMenuSelection) {
+    iHovered = frontend_mouse_take_hovered_id();
     iSubItem = frontend_type_select_submenu_item_from_mouse_id(iHovered);
     if (iSubItem >= 0)
       (void)frontend_type_select_set_submenu_item(iSubItem);
 
     if (iClicked == 5 && frontend_mouse_consume_click_anywhere()) {
-      frontend_type_select_return_to_main_page();
+      frontend_type_select_restore_invalid_championship();
+      frontend_type_select_request_exit();
       return;
     }
 

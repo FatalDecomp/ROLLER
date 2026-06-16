@@ -556,6 +556,8 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
     menu_render_scaled_text(mr, FRONTEND_TRACK_COMMUNITY_FONT_SLOT,
                             "TRACKS", font3_ascii, font3_offsets, 540, 360,
                             0x8Fu, 1u, 450, 635, pal_addr);
+    frontend_mouse_register_rect(FRONTEND_TRACK_MOUSE_CUP, 450, 316,
+                                 185, 62);
   } else {
     menu_render_sprite(mr, 14, iBlockIdx, 500, 300, 0, pal_addr);
     frontend_mouse_register_rect(FRONTEND_TRACK_MOUSE_CUP, 470, 280,

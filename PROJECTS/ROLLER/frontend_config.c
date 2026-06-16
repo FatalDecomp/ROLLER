@@ -471,17 +471,6 @@ static int frontend_config_apply_volume_wheel(int iWheelY)
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_config_return_to_main_page(void)
-{
-  iFrontendConfigEditingName = 0;
-  iFrontendConfigState = 0;
-  iFrontendConfigWheelDefineMode = 0;
-  iFrontendConfigAxisTuneActive = 0;
-  control_edit = -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-
 static void frontend_config_handle_mouse(void)
 {
   int iHovered;
@@ -503,7 +492,7 @@ static void frontend_config_handle_mouse(void)
     iHovered = frontend_mouse_peek_hovered_id();
     iFrontendConfigExitHovered = iHovered == 7;
     if (iClicked == 7 && frontend_mouse_consume_click_anywhere()) {
-      frontend_config_return_to_main_page();
+      frontend_config_request_exit();
       return;
     }
 
@@ -514,11 +503,18 @@ static void frontend_config_handle_mouse(void)
       return;
     }
 
+    iHovered = frontend_mouse_take_hovered_id();
     iSubItem = frontend_config_submenu_item_from_mouse_id(iHovered);
     if (iSubItem >= 0)
       (void)frontend_config_set_submenu_item(iSubItem);
 
     iWheelY = frontend_mouse_take_wheel_y();
+    if (iWheelY) {
+      iSubItem = frontend_config_submenu_item_from_mouse_id(
+          frontend_mouse_peek_hovered_id());
+      if (iSubItem >= 0)
+        (void)frontend_config_set_submenu_item(iSubItem);
+    }
     if (frontend_config_apply_volume_wheel(iWheelY))
       return;
 
