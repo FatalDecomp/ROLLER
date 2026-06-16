@@ -50,6 +50,7 @@ static float fFrontendTrackTargetZoom = 0.0f;
 #define FRONTEND_TRACK_COMMUNITY_LIST_LEFT 58
 #define FRONTEND_TRACK_COMMUNITY_LIST_RIGHT 168
 #define FRONTEND_TRACK_SELECTED_NAME_RIGHT 470
+#define FRONTEND_TRACK_MOUSE_CUP 100
 #define MENU_COLOR_RED 0xE7u
 
 //-------------------------------------------------------------------------------------------------
@@ -250,12 +251,56 @@ static void frontend_track_select_handle_mouse_wheel(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_track_select_handle_cup_switch(void)
+{
+  if (game_type == 1 || TrackLoad <= 0)
+    return;
+
+  sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+  iFrontendTrackSpeechPending = 0;
+  if (frontend_track_select_stock_selection_disabled()) {
+    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+    scan_community_tracks();
+    frontend_track_select_show_community_selection();
+  } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
+      TrackLoad == TRACK_LOAD_COMMUNITY) {
+    iFrontendTrackCurrentTrack = 1;
+    iFrontendTrackSelectedTrack = 0;
+  } else {
+    iFrontendTrackCurrentTrack += 8;
+    if (iFrontendTrackCurrentTrack > 8 &&
+        iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
+      iFrontendTrackCurrentTrack += 8;
+    if (iFrontendTrackCurrentTrack > 16 &&
+        iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
+      iFrontendTrackCurrentTrack += 8;
+    if (iFrontendTrackCurrentTrack > 24) {
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      scan_community_tracks();
+      frontend_track_select_show_community_selection();
+    } else {
+      iFrontendTrackSelectedTrack =
+          ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+    }
+  }
+  frontend_track_select_begin_track_animation();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_handle_mouse(void)
 {
   int iHovered = frontend_mouse_take_hovered_id();
+  int iClicked = frontend_mouse_peek_clicked_id();
 
   if (frontend_track_select_mouse_item_valid(iHovered))
     iFrontendTrackSelectedTrack = iHovered;
+
+  if (iClicked == FRONTEND_TRACK_MOUSE_CUP &&
+      frontend_mouse_consume_click_anywhere()) {
+    frontend_track_select_handle_cup_switch();
+    return;
+  }
 
   if (frontend_mouse_consume_click_anywhere() &&
       frontend_track_select_mouse_item_valid(iFrontendTrackSelectedTrack))
@@ -375,6 +420,10 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
   menu_render_sprite(mr, 1, 2, head_x, head_y, 0, pal_addr);
   if (cup_won)
     menu_render_sprite(mr, 1, 8, 480, 388, 0, pal_addr);
+  if (cup_won && front_vga[1])
+    frontend_mouse_register_rect(FRONTEND_TRACK_MOUSE_CUP, 480, 388,
+                                 front_vga[1][8].iWidth,
+                                 front_vga[1][8].iHeight);
   menu_render_sprite(mr, 6, 0, 36, 2, 0, pal_addr);
   menu_render_sprite(mr, 5, player_type, -4, 247, 0, pal_addr);
   menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
@@ -674,35 +723,8 @@ static void frontend_track_select_handle_input(int iBlockIdx)
         iFrontendTrackSpeechPending = 0;
         sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
         frontend_track_select_request_exit();
-      } else if (byKey == 32 && game_type != 1 && TrackLoad > 0) {
-        sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
-        iFrontendTrackSpeechPending = 0;
-        if (iStockSelectionDisabled) {
-          iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
-          scan_community_tracks();
-          frontend_track_select_show_community_selection();
-        } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
-            TrackLoad == TRACK_LOAD_COMMUNITY) {
-          iFrontendTrackCurrentTrack = 1;
-          iFrontendTrackSelectedTrack = 0;
-        } else {
-          iFrontendTrackCurrentTrack += 8;
-          if (iFrontendTrackCurrentTrack > 8 &&
-              iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
-            iFrontendTrackCurrentTrack += 8;
-          if (iFrontendTrackCurrentTrack > 16 &&
-              iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
-            iFrontendTrackCurrentTrack += 8;
-          if (iFrontendTrackCurrentTrack > 24) {
-            iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
-            scan_community_tracks();
-            frontend_track_select_show_community_selection();
-          } else {
-            iFrontendTrackSelectedTrack =
-                ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
-          }
-        }
-        frontend_track_select_begin_track_animation();
+      } else if (byKey == 32) {
+        frontend_track_select_handle_cup_switch();
       }
     }
 

@@ -311,6 +311,7 @@ static int s_iFrontendMouseClickVirtualY = 0;
 static int s_iFrontendMouseClickValid = 0;
 static int s_iFrontendMouseHoveredId = -1;
 static int s_iFrontendMouseClickedId = -1;
+static int s_iFrontendMouseLeftDown = 0;
 static float s_fFrontendMouseWindowX = 0.0f;
 static float s_fFrontendMouseWindowY = 0.0f;
 static float s_fFrontendMouseClickWindowX = 0.0f;
@@ -403,10 +404,18 @@ void frontend_mouse_handle_event(const SDL_Event *pEvent)
       s_fFrontendMouseWindowY = pEvent->button.y;
       s_iFrontendMouseWindowPosValid = -1;
       if (pEvent->button.button == SDL_BUTTON_LEFT) {
+        s_iFrontendMouseLeftDown = -1;
         s_fFrontendMouseClickWindowX = pEvent->button.x;
         s_fFrontendMouseClickWindowY = pEvent->button.y;
         ++s_uiFrontendMouseClickSeq;
       }
+      break;
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+      s_fFrontendMouseWindowX = pEvent->button.x;
+      s_fFrontendMouseWindowY = pEvent->button.y;
+      s_iFrontendMouseWindowPosValid = -1;
+      if (pEvent->button.button == SDL_BUTTON_LEFT)
+        s_iFrontendMouseLeftDown = 0;
       break;
     case SDL_EVENT_MOUSE_WHEEL:
       s_fFrontendMouseWheelY += pEvent->wheel.y;
@@ -673,6 +682,13 @@ int frontend_mouse_take_hovered_id(void)
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_mouse_peek_hovered_id(void)
+{
+  return s_iFrontendMouseHoveredId;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int frontend_mouse_peek_clicked_id(void)
 {
   return s_iFrontendMouseClickedId;
@@ -716,6 +732,13 @@ int frontend_mouse_take_wheel_y(void)
   }
 
   return iWheelY;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int frontend_mouse_left_down(void)
+{
+  return s_iFrontendMouseLeftDown;
 }
 
 //-------------------------------------------------------------------------------------------------

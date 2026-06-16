@@ -50,10 +50,15 @@ enum {
 };
 
 #define MENU_COLOR_RED 0xE7u
+#define FRONTEND_TYPE_MOUSE_CUP 100
+#define FRONTEND_TYPE_MOUSE_SUB_BASE 200
 
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_type_select_run_snapshot(void);
+static void frontend_type_select_handle_space(void);
+static void frontend_type_select_restore_invalid_championship(void);
+static void frontend_type_select_handle_championship_reset(void);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -72,16 +77,177 @@ static int frontend_type_select_mouse_item_valid(int iItem)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_type_select_register_submenu_row(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_SUB_BASE + iItem,
+                               200, iY - 4, 440, 18);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_register_submenu_mouse_items(void)
+{
+  if (!iFrontendTypeMenuSelection)
+    return;
+
+  switch (iFrontendTypeMenuSelection) {
+    case 1:
+      if (iFrontendTypeSkipColor)
+        break;
+      frontend_type_select_register_submenu_row(0, 135);
+      frontend_type_select_register_submenu_row(1, 153);
+      frontend_type_select_register_submenu_row(2, 171);
+      break;
+    case 2:
+      if ((cheat_mode & 2) == 0) {
+        frontend_type_select_register_submenu_row(5, 135);
+        frontend_type_select_register_submenu_row(4, 153);
+        frontend_type_select_register_submenu_row(3, 171);
+        frontend_type_select_register_submenu_row(2, 189);
+        frontend_type_select_register_submenu_row(1, 207);
+        frontend_type_select_register_submenu_row(0, 225);
+      }
+      break;
+    case 3:
+      if (game_type < 2) {
+        frontend_type_select_register_submenu_row(2, 135);
+        frontend_type_select_register_submenu_row(8, 153);
+        frontend_type_select_register_submenu_row(16, 171);
+      } else {
+        frontend_type_select_register_submenu_row(1, 135);
+      }
+      break;
+    case 4:
+      if ((cheat_mode & 2) == 0) {
+        frontend_type_select_register_submenu_row(0, 135);
+        frontend_type_select_register_submenu_row(1, 153);
+        frontend_type_select_register_submenu_row(2, 171);
+      }
+      break;
+    case 5:
+      frontend_type_select_register_submenu_row(0, 135);
+      frontend_type_select_register_submenu_row(1, 153);
+      break;
+    case 6:
+      frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_SUB_BASE, 200, 316,
+                                   440, 44);
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_type_select_submenu_item_from_mouse_id(int iMouseId)
+{
+  if (iMouseId < FRONTEND_TYPE_MOUSE_SUB_BASE)
+    return -1;
+  return iMouseId - FRONTEND_TYPE_MOUSE_SUB_BASE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_type_select_set_submenu_item(int iItem)
+{
+  switch (iFrontendTypeMenuSelection) {
+    case 1:
+      if (iFrontendTypeSkipColor || iItem < 0 || iItem > 2)
+        return 0;
+      game_type = iItem;
+      if (game_type < 2) {
+        if (competitors == 1)
+          competitors = 16;
+      } else {
+        competitors = 1;
+      }
+      return -1;
+    case 2:
+      if ((cheat_mode & 2) != 0 || iItem < 0 || iItem > 5)
+        return 0;
+      level = iItem;
+      return -1;
+    case 3:
+      if (game_type < 2) {
+        if (iItem != 2 && iItem != 8 && iItem != 16)
+          return 0;
+        competitors = iItem;
+      } else if (iItem == 1) {
+        competitors = 1;
+      } else {
+        return 0;
+      }
+      return -1;
+    case 4:
+      if ((cheat_mode & 2) != 0 || iItem < 0 || iItem > 2)
+        return 0;
+      damage_level = iItem;
+      return -1;
+    case 5:
+      if (iItem == 0)
+        textures_off &= ~TEX_OFF_ADVANCED_CARS;
+      else if (iItem == 1)
+        textures_off |= TEX_OFF_ADVANCED_CARS;
+      else
+        return 0;
+      return -1;
+    case 6:
+      return iItem == 0;
+    default:
+      return 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_type_select_return_to_main_page(void)
+{
+  frontend_type_select_restore_invalid_championship();
+  iFrontendTypeMenuSelection = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_type_select_handle_mouse(void)
 {
   int iHovered;
   int iClicked;
+  int iSubItem;
 
   frontend_mouse_take_wheel_y();
+  frontend_type_select_register_submenu_mouse_items();
+
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (iClicked == FRONTEND_TYPE_MOUSE_CUP &&
+      frontend_mouse_consume_click_anywhere()) {
+    frontend_type_select_handle_space();
+    return;
+  }
 
   if (iFrontendTypeMenuSelection) {
-    (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click_anywhere();
+    iHovered = frontend_mouse_peek_hovered_id();
+    iSubItem = frontend_type_select_submenu_item_from_mouse_id(iHovered);
+    if (iSubItem >= 0)
+      (void)frontend_type_select_set_submenu_item(iSubItem);
+
+    if (iClicked == 5 && frontend_mouse_consume_click_anywhere()) {
+      frontend_type_select_return_to_main_page();
+      return;
+    }
+
+    iSubItem = frontend_type_select_submenu_item_from_mouse_id(iClicked);
+    if (iSubItem >= 0 &&
+        frontend_type_select_set_submenu_item(iSubItem) &&
+        frontend_mouse_consume_click_anywhere()) {
+      if (iFrontendTypeMenuSelection == 6)
+        frontend_type_select_handle_championship_reset();
+      else
+        frontend_mouse_press_accept();
+      return;
+    }
+
+    if (frontend_mouse_consume_click_anywhere())
+      frontend_mouse_press_accept();
     return;
   }
 
@@ -89,8 +255,7 @@ static void frontend_type_select_handle_mouse(void)
   if (frontend_type_select_mouse_item_valid(iHovered))
     iFrontendTypeCurrentOption = iHovered;
 
-  iClicked = frontend_mouse_consume_click_anywhere();
-  if (iClicked &&
+  if (frontend_mouse_consume_click_anywhere() &&
       frontend_type_select_mouse_item_valid(iFrontendTypeCurrentOption))
     frontend_mouse_press_accept();
 }
@@ -330,6 +495,10 @@ static void frontend_type_select_draw(void)
   menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
   if (cup_won && !iFrontendTypeSkipColor)
     menu_render_sprite(mr, 1, 8, 200, 56, 0, pal_addr);
+  if (cup_won && !iFrontendTypeSkipColor && front_vga[1])
+    frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_CUP, 200, 56,
+                                 front_vga[1][8].iWidth,
+                                 front_vga[1][8].iHeight);
 
   if (iFrontendTypeCurrentOption >= 5) {
     menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);

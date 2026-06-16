@@ -62,6 +62,8 @@ enum {
   FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS
 };
 
+#define FRONTEND_CONFIG_MOUSE_SUB_BASE 200
+
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_config_begin_broadcast_wait(int iBroadcastMode, int iAction)
@@ -304,19 +306,230 @@ static int frontend_config_mouse_item_valid(int iItem)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_config_register_submenu_row(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_CONFIG_MOUSE_SUB_BASE + iItem,
+                               200, iY - 5, 440, 18);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_register_submenu_mouse_items(void)
+{
+  int iItem;
+
+  switch (iFrontendConfigState) {
+    case 1:
+      for (iItem = 0; iItem <= 18; ++iItem) {
+        if (iItem == 2 && player_type != 2)
+          continue;
+        frontend_config_register_submenu_row(iItem, 374 - 18 * iItem);
+      }
+      break;
+    case 2:
+      frontend_config_register_submenu_row(1, 80);
+      frontend_config_register_submenu_row(2, 104);
+      frontend_config_register_submenu_row(3, 128);
+      frontend_config_register_submenu_row(4, 152);
+      frontend_config_register_submenu_row(5, 176);
+      frontend_config_register_submenu_row(6, 200);
+      frontend_config_register_submenu_row(7, 224);
+      frontend_config_register_submenu_row(0, 248);
+      break;
+    case 4:
+      if (player_type == 2) {
+        frontend_config_register_submenu_row(6, 60);
+        frontend_config_register_submenu_row(5, 78);
+        frontend_config_register_submenu_row(4, 96);
+        frontend_config_register_submenu_row(3, 124);
+        frontend_config_register_submenu_row(2, 142);
+        frontend_config_register_submenu_row(1, 160);
+        frontend_config_register_submenu_row(0, 196);
+      } else {
+        frontend_config_register_submenu_row(3, 96);
+        frontend_config_register_submenu_row(2, 114);
+        frontend_config_register_submenu_row(1, 132);
+        frontend_config_register_submenu_row(0, 168);
+      }
+      break;
+    case 5:
+      for (iItem = 0; iItem <= 16; ++iItem)
+        frontend_config_register_submenu_row(iItem, 380 - 20 * iItem);
+      break;
+    case 6:
+      for (iItem = 0; iItem <= (player_type == 2 ? 6 : 5); ++iItem)
+        frontend_config_register_submenu_row(iItem, 186 - 18 * iItem);
+      break;
+    case 7:
+      for (iItem = 0; iItem <= 5; ++iItem)
+        frontend_config_register_submenu_row(iItem, 140 - 18 * iItem);
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_submenu_item_from_mouse_id(int iMouseId)
+{
+  if (iMouseId < FRONTEND_CONFIG_MOUSE_SUB_BASE)
+    return -1;
+  return iMouseId - FRONTEND_CONFIG_MOUSE_SUB_BASE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_set_submenu_item(int iItem)
+{
+  switch (iFrontendConfigState) {
+    case 1:
+      if (iItem < 0 || iItem > 18)
+        return 0;
+      if (iItem == 2 && player_type != 2)
+        return 0;
+      iFrontendConfigSelectedCar = iItem;
+      return -1;
+    case 2:
+      if (iItem < 0 || iItem > 7)
+        return 0;
+      iFrontendConfigVolumeSelection = iItem;
+      return -1;
+    case 4:
+      if (iItem < 0 || iItem > (player_type == 2 ? 6 : 3))
+        return 0;
+      iFrontendConfigControlSelection = iItem;
+      return -1;
+    case 5:
+      if (iItem < 0 || iItem > 16)
+        return 0;
+      iFrontendConfigVideoState = iItem;
+      return -1;
+    case 6:
+      if (iItem < 0 || iItem > (player_type == 2 ? 6 : 5))
+        return 0;
+      iFrontendConfigGraphicsState = iItem;
+      return -1;
+    case 7:
+      if (iItem < 0 || iItem > 5)
+        return 0;
+      iFrontendConfigNetworkState = iItem;
+      return -1;
+    default:
+      return 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_clamp_volume(int iVolume)
+{
+  if (iVolume < 0)
+    return 0;
+  if (iVolume >= 128)
+    return 127;
+  return iVolume;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_apply_volume_wheel(int iWheelY)
+{
+  int iDelta;
+
+  if (iWheelY == 0 || iFrontendConfigState != 2 ||
+      iFrontendConfigVolumeSelection < 1 ||
+      iFrontendConfigVolumeSelection > 4)
+    return 0;
+
+  iDelta = iWheelY * 4;
+  switch (iFrontendConfigVolumeSelection) {
+    case 1:
+      EngineVolume = frontend_config_clamp_volume(EngineVolume + iDelta);
+      break;
+    case 2:
+      SFXVolume = frontend_config_clamp_volume(SFXVolume + iDelta);
+      break;
+    case 3:
+      SpeechVolume = frontend_config_clamp_volume(SpeechVolume + iDelta);
+      break;
+    case 4:
+      MusicVolume = frontend_config_clamp_volume(MusicVolume + iDelta);
+      if (MusicCard)
+        MIDISetMasterVolume(MusicVolume);
+      if (MusicCD)
+        SetAudioVolume(MusicVolume);
+      break;
+    default:
+      return 0;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_return_to_main_page(void)
+{
+  iFrontendConfigEditingName = 0;
+  iFrontendConfigState = 0;
+  iFrontendConfigWheelDefineMode = 0;
+  iFrontendConfigAxisTuneActive = 0;
+  control_edit = -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_handle_mouse(void)
 {
   int iHovered;
   int iClicked;
+  int iSubItem;
+  int iWheelY;
 
-  frontend_mouse_take_wheel_y();
-
-  if (iFrontendConfigState != 0 || iFrontendConfigControlsInEdit) {
+  if (iFrontendConfigControlsInEdit) {
+    frontend_mouse_take_wheel_y();
     (void)frontend_mouse_take_hovered_id();
     (void)frontend_mouse_consume_click_anywhere();
     return;
   }
 
+  if (iFrontendConfigState != 0) {
+    frontend_config_register_submenu_mouse_items();
+
+    iClicked = frontend_mouse_peek_clicked_id();
+    if (iClicked == 7 && frontend_mouse_consume_click_anywhere()) {
+      frontend_config_return_to_main_page();
+      return;
+    }
+
+    if (iFrontendConfigEditingName) {
+      frontend_mouse_take_wheel_y();
+      (void)frontend_mouse_take_hovered_id();
+      (void)frontend_mouse_consume_click_anywhere();
+      return;
+    }
+
+    iHovered = frontend_mouse_peek_hovered_id();
+    iSubItem = frontend_config_submenu_item_from_mouse_id(iHovered);
+    if (iSubItem >= 0)
+      (void)frontend_config_set_submenu_item(iSubItem);
+
+    iWheelY = frontend_mouse_take_wheel_y();
+    if (frontend_config_apply_volume_wheel(iWheelY))
+      return;
+
+    iClicked = frontend_mouse_peek_clicked_id();
+    iSubItem = frontend_config_submenu_item_from_mouse_id(iClicked);
+    if (iSubItem >= 0)
+      (void)frontend_config_set_submenu_item(iSubItem);
+
+    if (frontend_mouse_consume_click_anywhere())
+      frontend_mouse_press_accept();
+    return;
+  }
+
+  frontend_mouse_take_wheel_y();
   iHovered = frontend_mouse_take_hovered_id();
   if (frontend_config_mouse_item_valid(iHovered))
     iFrontendConfigMenuSelection = iHovered;

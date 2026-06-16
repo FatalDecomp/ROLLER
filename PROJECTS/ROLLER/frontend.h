@@ -278,10 +278,12 @@ void frontend_mouse_register_scaled_text(int iId, tBlockHeader *pFont,
                                          unsigned int uiAlignment,
                                          int iClipLeft, int iClipRight);
 int frontend_mouse_take_hovered_id(void);
+int frontend_mouse_peek_hovered_id(void);
 int frontend_mouse_peek_clicked_id(void);
 int frontend_mouse_consume_click(void);
 int frontend_mouse_consume_click_anywhere(void);
 int frontend_mouse_take_wheel_y(void);
+int frontend_mouse_left_down(void);
 void frontend_mouse_press_accept(void);
 
 //-------------------------------------------------------------------------------------------------

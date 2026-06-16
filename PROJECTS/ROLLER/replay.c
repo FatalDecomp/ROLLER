@@ -2610,13 +2610,16 @@ static void replay_control_panel_activate_icon(int iIcon)
 
 static void replay_control_panel_handle_mouse(void)
 {
-  int iHovered = frontend_mouse_take_hovered_id();
+  int iHovered = frontend_mouse_peek_hovered_id();
   int iClicked = frontend_mouse_peek_clicked_id();
 
   frontend_mouse_take_wheel_y();
 
   if (replay_control_panel_icon_active(iHovered))
     controlicon = iHovered;
+
+  if (frontend_mouse_left_down() && (iHovered == 8 || iHovered == 10))
+    replay_control_panel_activate_icon(iHovered);
 
   if (frontend_mouse_consume_click_anywhere() &&
       replay_control_panel_icon_active(iClicked))

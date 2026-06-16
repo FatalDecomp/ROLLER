@@ -44,6 +44,7 @@
 
 #define ROLLER_PLAYER_NAME_BYTES 9
 #define ROLLER_PLAYER_NAME_MAX_CHARS (ROLLER_PLAYER_NAME_BYTES - 1)
+#define RACE_MOUSE_QUIT_PROMPT 300
 
 //-------------------------------------------------------------------------------------------------
 
@@ -1507,6 +1508,63 @@ void race_enter(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void race_drain_pending_key_input(void)
+{
+  while (fatkbhit()) {
+    int iKey = fatgetch();
+    if (!iKey && fatkbhit())
+      (void)fatgetch();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void race_confirm_network_quit_prompt(void)
+{
+  if (Quit_Count > 0)
+    return;
+
+  I_Want_Out = -1;
+  stopallsamples();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void race_handle_mouse_shortcuts(void)
+{
+  int iWidth;
+  int iHeight;
+  int iClicked;
+
+  if (g_bSnapshotMode)
+    return;
+
+  iWidth = winw > 0 ? winw : XMAX;
+  iHeight = winh > 0 ? winh : YMAX;
+
+  if (intro && replaytype == 2 && !game_req) {
+    frontend_mouse_begin_frame(iWidth, iHeight);
+    if (frontend_mouse_consume_click_anywhere()) {
+      race_drain_pending_key_input();
+      racing = 0;
+    }
+    return;
+  }
+
+  if (!I_Would_Like_To_Quit)
+    return;
+
+  frontend_mouse_begin_frame(iWidth, iHeight);
+  frontend_mouse_register_rect(RACE_MOUSE_QUIT_PROMPT, 0, iHeight / 2 - 18,
+                               iWidth, 44);
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (iClicked == RACE_MOUSE_QUIT_PROMPT &&
+      frontend_mouse_consume_click_anywhere())
+    race_confirm_network_quit_prompt();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void race_update(void)
 {
   int16 nNetTimeItr_2; // bx
@@ -1689,7 +1747,8 @@ void race_update(void)
     transmitpausetoslaves();
     slave_pause = 0;
   }
-  if (!filingmenu)
+  race_handle_mouse_shortcuts();
+  if (!filingmenu && racing)
     game_keys();
   if (replaytype == 2) {
     if (SVGA_ON)
