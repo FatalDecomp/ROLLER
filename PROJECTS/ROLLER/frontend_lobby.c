@@ -434,8 +434,11 @@ static int lobby_handle_mouse(void)
   (void)frontend_mouse_take_hovered_id();
 
   iClicked = frontend_mouse_peek_clicked_id();
-  if (frontend_mouse_consume_click_anywhere() &&
-      iClicked == LOBBY_MOUSE_START)
+  if (!frontend_mouse_consume_click_anywhere())
+    return 0;
+
+  if (iClicked == LOBBY_MOUSE_START ||
+      (players_waiting == network_on && !time_to_start))
     return lobby_request_start_race();
 
   return 0;
