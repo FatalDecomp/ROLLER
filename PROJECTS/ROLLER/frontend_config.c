@@ -471,6 +471,55 @@ static int frontend_config_apply_volume_wheel(int iWheelY)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_config_commit_name_edit(void)
+{
+  int iNameChar;
+  int iDefaultNameIdx;
+
+  szFrontendConfigNewNameBuf[iFrontendConfigNameLength] = 0;
+  iFrontendConfigEditingName = 0;
+
+  if (!iFrontendConfigSelectedCar) {
+    iFrontendConfigState = 0;
+    return;
+  }
+
+  if ((unsigned int)iFrontendConfigSelectedCar <= 1) {
+    for (iNameChar = 0; iNameChar < 9; ++iNameChar)
+      player_names[player1_car][iNameChar] =
+          szFrontendConfigNewNameBuf[iNameChar];
+
+    frontend_config_begin_broadcast_wait(
+        -669, FRONTEND_CONFIG_BROADCAST_WAIT_CHECK_PLAYER1_NAME_AND_CARS);
+    return;
+  }
+
+  if (iFrontendConfigSelectedCar == 2) {
+    for (iNameChar = 0; iNameChar < 9; ++iNameChar)
+      player_names[player2_car][iNameChar] =
+          szFrontendConfigNewNameBuf[iNameChar];
+
+    waste = CheckNames(player_names[player2_car], player2_car);
+    check_cars();
+    return;
+  }
+
+  iDefaultNameIdx = (iFrontendConfigSelectedCar - 3) ^ 1;
+  for (iNameChar = 0; iNameChar < 9; ++iNameChar)
+    default_names[iDefaultNameIdx][iNameChar] =
+        szFrontendConfigNewNameBuf[iNameChar];
+
+  if (!default_names[iDefaultNameIdx][0]) {
+    sprintf(buffer, "comp %i", iFrontendConfigSelectedCar - 2);
+    name_copy(default_names[iDefaultNameIdx], buffer);
+  }
+
+  frontend_config_begin_broadcast_wait(
+      -1, FRONTEND_CONFIG_BROADCAST_WAIT_NONE);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_handle_mouse(void)
 {
   int iHovered;
@@ -499,7 +548,7 @@ static void frontend_config_handle_mouse(void)
     if (iFrontendConfigEditingName) {
       frontend_mouse_take_wheel_y();
       if (frontend_mouse_consume_click_anywhere())
-        frontend_mouse_press_accept();
+        frontend_config_commit_name_edit();
       return;
     }
 
@@ -519,12 +568,12 @@ static void frontend_config_handle_mouse(void)
       return;
 
     iClicked = frontend_mouse_peek_clicked_id();
-    iSubItem = frontend_config_submenu_item_from_mouse_id(iClicked);
-    if (iSubItem >= 0)
-      (void)frontend_config_set_submenu_item(iSubItem);
-
-    if (frontend_mouse_consume_click_anywhere())
+    if (frontend_mouse_consume_click_anywhere()) {
+      iSubItem = frontend_config_submenu_item_from_mouse_id(iClicked);
+      if (iSubItem >= 0)
+        (void)frontend_config_set_submenu_item(iSubItem);
       frontend_mouse_press_accept();
+    }
     return;
   }
 
