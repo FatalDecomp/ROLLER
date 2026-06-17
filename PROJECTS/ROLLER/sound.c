@@ -264,8 +264,35 @@ static void local_input_tick(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int network_select_next_master_after_quit(void)
+{
+  int iNextMaster = master;
+
+  if (iNextMaster < 0)
+    iNextMaster = 0;
+  if (iNextMaster < MAX_PLAYERS)
+    net_players[iNextMaster] = 0;
+
+  while (iNextMaster < MAX_PLAYERS && !net_players[iNextMaster])
+    iNextMaster++;
+
+  if (iNextMaster >= MAX_PLAYERS) {
+    net_quit = -1;
+    network_timeout = frames;
+    return 0;
+  }
+
+  master = iNextMaster;
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void network_master_tick(void)
 {
+  if (net_quit)
+    return;
+
   for (int i = 0; i < network_on; i++) {
     if (paused)
       net_time[i] = frames;
@@ -339,9 +366,8 @@ static void network_master_tick(void)
           write_check = -1;
           memset(player_checks, -1, sizeof(player_checks));
 
-          net_players[master] = 0;
-          while (!net_players[master] && master < MAX_PLAYERS)
-            master++;
+          if (!network_select_next_master_after_quit())
+            return;
 
           for (int i = 0; i < network_on; i++)
             net_time[i] = frames;
@@ -366,6 +392,9 @@ static int network_slave_tick(void)
 {
   int iSlotsReceived;
 
+  if (net_quit)
+    return 0;
+
   if (paused)
     network_timeout = frames;
   if (frames > network_timeout + network_limit && human_finishers < players)
@@ -373,14 +402,21 @@ static int network_slave_tick(void)
 
   iSlotsReceived = receive_multiple();
 
+  if (net_quit)
+    return iSlotsReceived;
+  if (master < 0 || master >= MAX_PLAYERS) {
+    net_quit = -1;
+    network_timeout = frames;
+    return iSlotsReceived;
+  }
+
   if (copy_multiple[(writeptr - 1 + REPLAY_BUFFER_SIZE) % REPLAY_BUFFER_SIZE][player_to_car[master]].uiFullData & 0x8000000) {
     read_check = -1;
     write_check = -1;
     memset(player_checks, -1, sizeof(player_checks));
 
-    net_players[master] = 0;
-    while (!net_players[master] && master < MAX_PLAYERS)
-      master++;
+    if (!network_select_next_master_after_quit())
+      return iSlotsReceived;
 
     active_nodes = network_on;
     start_multiple = network_on - 1;
