@@ -58,6 +58,10 @@ static eFrontendState eLobbyExitTarget;
 
 #define MENU_COLOR_RED 0xE7u
 
+enum {
+  LOBBY_MOUSE_START = 1
+};
+
 static void lobby_draw_frame(void);
 static void lobby_begin_exit(eFrontendState eTarget);
 
@@ -118,12 +122,22 @@ static void lobby_begin_broadcast_wait(eLobbyBroadcastAction eAction,
 
 //-------------------------------------------------------------------------------------------------
 
+static void lobby_drain_mouse(void)
+{
+  frontend_mouse_take_wheel_y();
+  (void)frontend_mouse_take_hovered_id();
+  (void)frontend_mouse_consume_click_anywhere();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int lobby_update_broadcast_wait(void)
 {
   if (eLobbyBroadcastActionCurrent == eLOBBY_BROADCAST_NONE)
     return 0;
 
   lobby_draw_frame();
+  lobby_drain_mouse();
 
   if (!network_broadcast_wait_update())
     return -1;
@@ -278,9 +292,13 @@ static void lobby_emit_draw(MenuRenderer *mr)
   menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 200, 4, 0x8Fu, 1u, pal_addr);
 
   if (players_waiting == network_on) {
+    frontend_mouse_register_text(LOBBY_MOUSE_START, front_vga[1],
+                                 &language_buffer[4800], font2_ascii,
+                                 font2_offsets, 200, 22, 1u);
     if ((frames & 0xFu) < 8)
       menu_render_text(mr, 1, &language_buffer[4800], font2_ascii, font2_offsets,
                        200, 22, 0x8Fu, 1u, pal_addr);
+    frontend_mouse_draw_menu_hover_box(mr, LOBBY_MOUSE_START);
     if (time_to_start)
       iLobbyActive = 0;
   }
@@ -376,6 +394,7 @@ static void lobby_draw_frame(void)
   MenuRenderer *mr = GetMenuRenderer();
 
   menu_render_begin_frame(mr);
+  frontend_mouse_begin_frame(640, 400);
   lobby_emit_draw(mr);
   if (iLobbyActive) {
     if (!front_fade) {
@@ -385,6 +404,41 @@ static void lobby_draw_frame(void)
     }
   }
   menu_render_end_frame(mr);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int lobby_request_start_race(void)
+{
+  if (players_waiting != network_on || time_to_start)
+    return 0;
+
+  if (g_iNetworkTrackFileCRCMismatch ||
+      (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
+      !community_track_available()) {
+    sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+    return -1;
+  }
+
+  lobby_begin_broadcast_wait(eLOBBY_BROADCAST_START_RACE, -671, 3);
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int lobby_handle_mouse(void)
+{
+  int iClicked;
+
+  frontend_mouse_take_wheel_y();
+  (void)frontend_mouse_take_hovered_id();
+
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (frontend_mouse_consume_click_anywhere() &&
+      iClicked == LOBBY_MOUSE_START)
+    return lobby_request_start_race();
+
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -399,16 +453,8 @@ static void lobby_handle_input(void)
       if (!uiKeyPressed)
         fatgetch();
     } else if (uiKeyPressed <= 0xD) {
-      if (players_waiting == network_on && !time_to_start) {
-        if (g_iNetworkTrackFileCRCMismatch ||
-            (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
-            !community_track_available()) {
-          sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
-          return;
-        }
-        lobby_begin_broadcast_wait(eLOBBY_BROADCAST_START_RACE, -671, 3);
+      if (lobby_request_start_race())
         return;
-      }
     } else if (uiKeyPressed == 27 && !time_to_start && !restart_net) {
       StartPressed = 0;
       time_to_start = 0;
@@ -470,6 +516,8 @@ void frontend_lobby_update(void)
 
   check_cars();
   lobby_draw_frame();
+  if (lobby_handle_mouse())
+    return;
   lobby_handle_input();
 
   if (!iLobbyActive) {

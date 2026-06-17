@@ -4624,11 +4624,19 @@ HANDLE_SPECIAL_MODES:
     if (draw_type != 2) {
       display_paused();
       if (trying_to_exit) {
-        if ((frames & 0xFu) < 8) {
+        int iPromptY = (scr_size * 96) >> 6;
+        int iPromptH = (scr_size * 14) >> 6;
+
+        if (iPromptH <= 0)
+          iPromptH = 1;
+        frontend_mouse_register_rect(FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID,
+                                     0, iPromptY,
+                                     winw > 0 ? winw : XMAX,
+                                     iPromptH);
+        if ((frames & 0xFu) < 8)
           prt_centrecol(rev_vga[1], &language_buffer[6592], 160, 100, 171);
-          frontend_mouse_draw_hover_box(FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID,
-                                        0, 0);
-        }
+        frontend_mouse_draw_hover_box(FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID,
+                                      0, 0);
       }
     }
   }
