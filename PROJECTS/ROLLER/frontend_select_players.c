@@ -56,7 +56,8 @@ enum {
 
 enum {
   FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE = 110,
-  FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT
+  FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT,
+  FRONTEND_PLAYERS_NETWORK_MOUSE_EXIT
 };
 
 enum {
@@ -71,6 +72,35 @@ enum {
 static void frontend_players_select_run_snapshot(void);
 static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
                                                          int iAction);
+static void frontend_players_select_request_exit(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_players_network_prompt_hovered(int iId)
+{
+  return iId == FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE ||
+         iId == FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_network_register_prompt_mouse_items(void)
+{
+  frontend_mouse_register_scaled_text(
+      FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT, front_vga[15],
+      &language_buffer[4224], font1_ascii, font1_offsets, 400, 380,
+      1u, 200, 640);
+  frontend_mouse_register_scaled_text(
+      FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE, front_vga[15],
+      &language_buffer[7104], font1_ascii, font1_offsets, 400, 360,
+      1u, 200, 640);
+
+  if (!frontend_players_network_prompt_hovered(frontend_mouse_peek_hovered_id()) &&
+      front_vga[6])
+    frontend_mouse_register_rect(FRONTEND_PLAYERS_NETWORK_MOUSE_EXIT,
+                                 62, 336, front_vga[6][4].iWidth,
+                                 front_vga[6][4].iHeight);
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -91,6 +121,9 @@ static void frontend_players_select_handle_mouse(void)
         if (network_on)
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
+      } else if (!frontend_players_network_prompt_hovered(
+                     frontend_mouse_peek_hovered_id())) {
+        frontend_players_select_request_exit();
       }
     }
     (void)frontend_mouse_take_hovered_id();
@@ -620,6 +653,7 @@ void frontend_players_select_update(void)
   int iY;
   char *szText;
   int iPlayerListCount;
+  int iNetworkPromptHovered = 0;
 
   if (select_messages_active()) {
     select_messages();
@@ -648,6 +682,11 @@ void frontend_players_select_update(void)
   {                                           // RENDER FRAME (GPU)
   MenuRenderer *mr = GetMenuRenderer();
   frontend_mouse_begin_frame(640, 400);
+  if (iFrontendPlayersNetworkMode) {
+    frontend_players_network_register_prompt_mouse_items();
+    iNetworkPromptHovered = frontend_players_network_prompt_hovered(
+        frontend_mouse_peek_hovered_id());
+  }
   menu_render_begin_frame(mr);
   if (!front_fade) {
     front_fade = -1;
@@ -659,7 +698,11 @@ void frontend_players_select_update(void)
   menu_render_sprite(mr, 5, iFrontendPlayersSelectedPlayerType, -4, 247, 0, pal_addr);
   menu_render_sprite(mr, 5, game_type + 5, 135, 247, 0, pal_addr);
   menu_render_sprite(mr, 4, 4, 76, 257, -1, pal_addr);
-  menu_render_sprite(mr, 6, 4, 62, 336, -1, pal_addr);
+  menu_render_sprite(mr, 6,
+                     iFrontendPlayersNetworkMode && iNetworkPromptHovered
+                         ? 2
+                         : 4,
+                     62, 336, -1, pal_addr);
   if (iFrontendPlayersNetworkStatus &&
       iFrontendPlayersSelectedPlayerType == 1)
     menu_render_scaled_text(mr, 15, &language_buffer[4992], font1_ascii, font1_offsets, 400, 300, 231, 1u, 200, 640, pal_addr);
@@ -704,14 +747,6 @@ void frontend_players_select_update(void)
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
     menu_render_scaled_text(mr, 15, &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640, pal_addr);
-    frontend_mouse_register_scaled_text(
-        FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT, front_vga[15],
-        &language_buffer[4224], font1_ascii, font1_offsets, 400, 380,
-        1u, 200, 640);
-    frontend_mouse_register_scaled_text(
-        FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE, front_vga[15],
-        &language_buffer[7104], font1_ascii, font1_offsets, 400, 360,
-        1u, 200, 640);
     frontend_mouse_draw_menu_hover_box(
         mr, FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT);
     frontend_mouse_draw_menu_hover_box(
