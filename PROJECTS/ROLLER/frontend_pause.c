@@ -10,7 +10,8 @@
 //-------------------------------------------------------------------------------------------------
 
 enum {
-  FRONTEND_PAUSE_MOUSE_QUIT_PROMPT = FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID
+  FRONTEND_PAUSE_MOUSE_QUIT_PROMPT = FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID,
+  FRONTEND_PAUSE_MOUSE_VOLUME_BAR_BASE = 200
 };
 
 static int frontend_pause_mouse_scale(int iValue)
@@ -31,6 +32,46 @@ static void frontend_pause_register_row(int iId, int iY, int iHeight)
                                frontend_pause_mouse_scale(iY),
                                winw,
                                frontend_pause_mouse_row_height(iHeight));
+}
+
+static int frontend_pause_virtual_width(void)
+{
+  return winw > 0 ? winw : XMAX;
+}
+
+static int frontend_pause_volume_bar_x(void)
+{
+  return (175 * frontend_pause_virtual_width()) / 320;
+}
+
+static int frontend_pause_volume_bar_fill_width(void)
+{
+  int iWidth = (100 * frontend_pause_virtual_width()) / 320;
+
+  return iWidth > 0 ? iWidth : 1;
+}
+
+static int frontend_pause_volume_bar_hit_width(void)
+{
+  int iWidth = (102 * frontend_pause_virtual_width()) / 320;
+
+  return iWidth > 1 ? iWidth : 2;
+}
+
+static int frontend_pause_volume_bar_height(void)
+{
+  int iHeight = (10 * scr_size) >> 6;
+
+  return iHeight > 0 ? iHeight : 1;
+}
+
+static void frontend_pause_register_volume_bar(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_PAUSE_MOUSE_VOLUME_BAR_BASE + iItem,
+                               frontend_pause_volume_bar_x(),
+                               frontend_pause_mouse_scale(iY),
+                               frontend_pause_volume_bar_hit_width(),
+                               frontend_pause_volume_bar_height());
 }
 
 static int frontend_pause_main_item_valid(int iItem)
@@ -91,6 +132,16 @@ static void frontend_pause_set_current_item(int iItem)
   }
 }
 
+static int frontend_pause_item_from_mouse_id(int iMouseId)
+{
+  int iVolumeItem = iMouseId - FRONTEND_PAUSE_MOUSE_VOLUME_BAR_BASE;
+
+  if (iVolumeItem >= 1 && iVolumeItem <= 4)
+    return iVolumeItem;
+
+  return iMouseId;
+}
+
 static int frontend_pause_clamp_volume(int iVolume)
 {
   if (iVolume < 0)
@@ -98,6 +149,59 @@ static int frontend_pause_clamp_volume(int iVolume)
   if (iVolume >= 128)
     return 127;
   return iVolume;
+}
+
+static int frontend_pause_volume_from_click_x(void)
+{
+  int iClickX = frontend_mouse_peek_click_x();
+  int iFillWidth = frontend_pause_volume_bar_fill_width();
+  int iLocalX = iClickX - (frontend_pause_volume_bar_x() + 1);
+
+  if (iLocalX < 0)
+    iLocalX = 0;
+  if (iLocalX > iFillWidth)
+    iLocalX = iFillWidth;
+
+  return frontend_pause_clamp_volume(
+      (iLocalX * 127 + iFillWidth / 2) / iFillWidth);
+}
+
+static void frontend_pause_set_volume_value(int iItem, int iVolume)
+{
+  iVolume = frontend_pause_clamp_volume(iVolume);
+
+  switch (iItem) {
+    case 1:
+      EngineVolume = iVolume;
+      break;
+    case 2:
+      SFXVolume = iVolume;
+      break;
+    case 3:
+      SpeechVolume = iVolume;
+      break;
+    case 4:
+      MusicVolume = iVolume;
+      if (MusicCard)
+        MIDISetMasterVolume(MusicVolume);
+      if (MusicCD)
+        SetAudioVolume(MusicVolume);
+      break;
+    default:
+      break;
+  }
+}
+
+static int frontend_pause_apply_volume_click(int iMouseId)
+{
+  int iItem = iMouseId - FRONTEND_PAUSE_MOUSE_VOLUME_BAR_BASE;
+
+  if (pausewindow != 4 || iItem < 1 || iItem > 4)
+    return 0;
+
+  sound_edit = iItem;
+  frontend_pause_set_volume_value(iItem, frontend_pause_volume_from_click_x());
+  return -1;
 }
 
 static int frontend_pause_apply_volume_wheel(int iWheelY)
@@ -171,6 +275,10 @@ static void frontend_pause_register_mouse_items(void)
       for (iItem = 1; iItem <= 7; ++iItem)
         frontend_pause_register_row(iItem, 44 + (iItem - 1) * 12, 12);
       frontend_pause_register_row(0, 128, 12);
+      frontend_pause_register_volume_bar(1, 48);
+      frontend_pause_register_volume_bar(2, 60);
+      frontend_pause_register_volume_bar(3, 72);
+      frontend_pause_register_volume_bar(4, 84);
       break;
     default:
       break;
@@ -206,7 +314,7 @@ static void frontend_pause_handle_mouse(void)
     return;
   }
 
-  iHovered = frontend_mouse_peek_hovered_id();
+  iHovered = frontend_pause_item_from_mouse_id(frontend_mouse_peek_hovered_id());
   if (frontend_pause_item_valid(iHovered))
     frontend_pause_set_current_item(iHovered);
 
@@ -214,9 +322,13 @@ static void frontend_pause_handle_mouse(void)
   if (frontend_pause_apply_volume_wheel(iWheelY))
     return;
 
-  if (frontend_mouse_consume_click_anywhere() &&
-      frontend_pause_current_item_valid())
-    frontend_mouse_press_accept();
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (frontend_mouse_consume_click_anywhere()) {
+    if (frontend_pause_apply_volume_click(iClicked))
+      return;
+    if (frontend_pause_current_item_valid())
+      frontend_mouse_press_accept();
+  }
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -64,6 +64,11 @@ enum {
 };
 
 #define FRONTEND_CONFIG_MOUSE_SUB_BASE 200
+#define FRONTEND_CONFIG_MOUSE_VOLUME_BAR_BASE 240
+#define FRONTEND_CONFIG_VOLUME_BAR_X 430
+#define FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH 160
+#define FRONTEND_CONFIG_VOLUME_BAR_HIT_WIDTH 162
+#define FRONTEND_CONFIG_VOLUME_BAR_HEIGHT 17
 
 //-------------------------------------------------------------------------------------------------
 
@@ -316,6 +321,16 @@ static void frontend_config_register_submenu_row(int iItem, int iY)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_config_register_volume_bar(int iItem, int iY)
+{
+  frontend_mouse_register_rect(FRONTEND_CONFIG_MOUSE_VOLUME_BAR_BASE + iItem,
+                               FRONTEND_CONFIG_VOLUME_BAR_X, iY,
+                               FRONTEND_CONFIG_VOLUME_BAR_HIT_WIDTH,
+                               FRONTEND_CONFIG_VOLUME_BAR_HEIGHT);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_config_register_submenu_mouse_items(void)
 {
   int iItem;
@@ -337,6 +352,10 @@ static void frontend_config_register_submenu_mouse_items(void)
       frontend_config_register_submenu_row(6, 200);
       frontend_config_register_submenu_row(7, 224);
       frontend_config_register_submenu_row(0, 248);
+      frontend_config_register_volume_bar(1, 80);
+      frontend_config_register_volume_bar(2, 104);
+      frontend_config_register_volume_bar(3, 128);
+      frontend_config_register_volume_bar(4, 152);
       break;
     case 4:
       if (player_type == 2) {
@@ -377,7 +396,21 @@ static int frontend_config_submenu_item_from_mouse_id(int iMouseId)
 {
   if (iMouseId < FRONTEND_CONFIG_MOUSE_SUB_BASE)
     return -1;
+  if (iMouseId >= FRONTEND_CONFIG_MOUSE_VOLUME_BAR_BASE)
+    return -1;
   return iMouseId - FRONTEND_CONFIG_MOUSE_SUB_BASE;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_volume_bar_item_from_mouse_id(int iMouseId)
+{
+  int iItem = iMouseId - FRONTEND_CONFIG_MOUSE_VOLUME_BAR_BASE;
+
+  if (iItem < 1 || iItem > 4)
+    return -1;
+
+  return iItem;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -431,6 +464,65 @@ static int frontend_config_clamp_volume(int iVolume)
   if (iVolume >= 128)
     return 127;
   return iVolume;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_volume_from_click_x(void)
+{
+  int iClickX = frontend_mouse_peek_click_x();
+  int iLocalX = iClickX - (FRONTEND_CONFIG_VOLUME_BAR_X + 1);
+
+  if (iLocalX < 0)
+    iLocalX = 0;
+  if (iLocalX > FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH)
+    iLocalX = FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH;
+
+  return frontend_config_clamp_volume(
+      (iLocalX * 127 + FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH / 2) /
+      FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_set_volume_value(int iItem, int iVolume)
+{
+  iVolume = frontend_config_clamp_volume(iVolume);
+
+  switch (iItem) {
+    case 1:
+      EngineVolume = iVolume;
+      break;
+    case 2:
+      SFXVolume = iVolume;
+      break;
+    case 3:
+      SpeechVolume = iVolume;
+      break;
+    case 4:
+      MusicVolume = iVolume;
+      if (MusicCard)
+        MIDISetMasterVolume(MusicVolume);
+      if (MusicCD)
+        SetAudioVolume(MusicVolume);
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_apply_volume_click(int iMouseId)
+{
+  int iItem = frontend_config_volume_bar_item_from_mouse_id(iMouseId);
+
+  if (iItem < 0)
+    return 0;
+
+  iFrontendConfigVolumeSelection = iItem;
+  frontend_config_set_volume_value(iItem, frontend_config_volume_from_click_x());
+  return -1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -554,6 +646,8 @@ static void frontend_config_handle_mouse(void)
 
     iHovered = frontend_mouse_take_hovered_id();
     iSubItem = frontend_config_submenu_item_from_mouse_id(iHovered);
+    if (iSubItem < 0)
+      iSubItem = frontend_config_volume_bar_item_from_mouse_id(iHovered);
     if (iSubItem >= 0)
       (void)frontend_config_set_submenu_item(iSubItem);
 
@@ -561,6 +655,9 @@ static void frontend_config_handle_mouse(void)
     if (iWheelY) {
       iSubItem = frontend_config_submenu_item_from_mouse_id(
           frontend_mouse_peek_hovered_id());
+      if (iSubItem < 0)
+        iSubItem = frontend_config_volume_bar_item_from_mouse_id(
+            frontend_mouse_peek_hovered_id());
       if (iSubItem >= 0)
         (void)frontend_config_set_submenu_item(iSubItem);
     }
@@ -569,6 +666,8 @@ static void frontend_config_handle_mouse(void)
 
     iClicked = frontend_mouse_peek_clicked_id();
     if (frontend_mouse_consume_click_anywhere()) {
+      if (frontend_config_apply_volume_click(iClicked))
+        return;
       iSubItem = frontend_config_submenu_item_from_mouse_id(iClicked);
       if (iSubItem >= 0)
         (void)frontend_config_set_submenu_item(iSubItem);

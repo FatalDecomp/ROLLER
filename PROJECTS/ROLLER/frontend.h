@@ -284,6 +284,7 @@ void frontend_mouse_register_scaled_text(int iId, tBlockHeader *pFont,
 int frontend_mouse_take_hovered_id(void);
 int frontend_mouse_peek_hovered_id(void);
 int frontend_mouse_peek_clicked_id(void);
+int frontend_mouse_peek_click_x(void);
 void frontend_mouse_draw_hover_box(int iId, int iVirtualWidth,
                                    int iVirtualHeight);
 void frontend_mouse_draw_menu_hover_box(MenuRenderer *pRenderer, int iId);

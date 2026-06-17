@@ -813,6 +813,13 @@ int frontend_mouse_peek_clicked_id(void)
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_mouse_peek_click_x(void)
+{
+  return s_iFrontendMouseClickVirtualX;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int frontend_mouse_consume_click(void)
 {
   if (s_uiFrontendMouseClickSeq == s_uiFrontendMouseConsumedClickSeq)
