@@ -519,6 +519,7 @@ static void frontend_type_select_draw(void)
                                  font2_ascii, font2_offsets,
                                  sel_posns[0].x + 132,
                                  sel_posns[0].y + 7, 2);
+    frontend_mouse_register_left_menu_row(0, sel_posns[0].y);
   } else {
     menu_render_text(mr, 2, &language_buffer[384], font2_ascii,
                      font2_offsets, sel_posns[0].x + 132,
@@ -541,23 +542,29 @@ static void frontend_type_select_draw(void)
                                  font2_ascii, font2_offsets,
                                  sel_posns[0].x + 132,
                                  sel_posns[0].y + 7, 2);
+    frontend_mouse_register_left_menu_row(0, sel_posns[0].y);
     frontend_mouse_register_text(1, front_vga[2], &language_buffer[3200],
                                  font2_ascii, font2_offsets,
                                  sel_posns[1].x + 132,
                                  sel_posns[1].y + 7, 2);
+    frontend_mouse_register_left_menu_row(1, sel_posns[1].y);
     frontend_mouse_register_text(2, front_vga[2], &language_buffer[3264],
                                  font2_ascii, font2_offsets,
                                  sel_posns[2].x + 132,
                                  sel_posns[2].y + 7, 2);
+    frontend_mouse_register_left_menu_row(2, sel_posns[2].y);
     frontend_mouse_register_text(3, front_vga[2], &language_buffer[3328],
                                  font2_ascii, font2_offsets,
                                  sel_posns[3].x + 132,
                                  sel_posns[3].y + 7, 2);
+    frontend_mouse_register_left_menu_row(3, sel_posns[3].y);
     if (iFrontendTypeCheatModesAvailable)
       frontend_mouse_register_text(4, front_vga[2], &language_buffer[4288],
                                    font2_ascii, font2_offsets,
                                    sel_posns[4].x + 132,
                                    sel_posns[4].y + 7, 2);
+    if (iFrontendTypeCheatModesAvailable)
+      frontend_mouse_register_left_menu_row(4, sel_posns[4].y);
   }
 
   if (front_vga[6])

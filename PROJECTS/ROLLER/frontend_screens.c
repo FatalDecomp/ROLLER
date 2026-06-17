@@ -1305,6 +1305,7 @@ static void frontend_main_menu_register_text_item(int iItem, const char *szText)
   frontend_mouse_register_text(iItem, front_vga[2], szText, font2_ascii,
                                font2_offsets, sel_posns[iItem].x + 132,
                                sel_posns[iItem].y + 7, 2);
+  frontend_mouse_register_left_menu_row(iItem, sel_posns[iItem].y);
 }
 
 //-------------------------------------------------------------------------------------------------

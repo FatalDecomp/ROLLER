@@ -899,27 +899,34 @@ void frontend_config_update(void)
                                  font2_ascii, font2_offsets,
                                  sel_posns[0].x + 132,
                                  sel_posns[0].y + 7, 2);
+    frontend_mouse_register_left_menu_row(0, sel_posns[0].y);
     frontend_mouse_register_text(1, front_vga[2], &config_buffer[256],
                                  font2_ascii, font2_offsets,
                                  sel_posns[1].x + 132,
                                  sel_posns[1].y + 7, 2);
+    frontend_mouse_register_left_menu_row(1, sel_posns[1].y);
     frontend_mouse_register_text(3, front_vga[2], &config_buffer[4032],
                                  font2_ascii, font2_offsets,
                                  sel_posns[2].x + 132,
                                  sel_posns[2].y + 7, 2);
+    frontend_mouse_register_left_menu_row(3, sel_posns[2].y);
     frontend_mouse_register_text(4, front_vga[2], &config_buffer[4096],
                                  font2_ascii, font2_offsets,
                                  sel_posns[3].x + 132,
                                  sel_posns[3].y + 7, 2);
+    frontend_mouse_register_left_menu_row(4, sel_posns[3].y);
     frontend_mouse_register_text(5, front_vga[2], &config_buffer[4160],
                                  font2_ascii, font2_offsets,
                                  sel_posns[4].x + 132,
                                  sel_posns[4].y + 7, 2);
+    frontend_mouse_register_left_menu_row(5, sel_posns[4].y);
     if (network_on)
       frontend_mouse_register_text(6, front_vga[2], &config_buffer[5568],
                                    font2_ascii, font2_offsets,
                                    sel_posns[5].x + 132,
                                    sel_posns[5].y + 7, 2);
+    if (network_on)
+      frontend_mouse_register_left_menu_row(6, sel_posns[5].y);
     if (front_vga[6])
       frontend_mouse_register_rect(7, 62, 336, front_vga[6][4].iWidth,
                                    front_vga[6][4].iHeight);

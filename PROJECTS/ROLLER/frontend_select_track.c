@@ -467,6 +467,7 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
             FRONTEND_TRACK_COMMUNITY_LIST_RIGHT, sel_posns[iRow].y + 7, 2u,
             FRONTEND_TRACK_COMMUNITY_LIST_LEFT,
             FRONTEND_TRACK_COMMUNITY_LIST_RIGHT);
+        frontend_mouse_register_left_menu_row(iRow, sel_posns[iRow].y);
       }
     }
     menu_render_sprite(mr, FRONTEND_TRACK_ARROW_SLOT, iUpArrowBlock,
@@ -485,6 +486,8 @@ static void frontend_track_select_draw(int *piBlockIdx, int *piStartedFadeIn)
                                      font2_ascii, font2_offsets,
                                      sel_posns[iRow].x + 132,
                                      sel_posns[iRow].y + 7, 2);
+      if (game_type != 1 && !iStockSelectionDisabled)
+        frontend_mouse_register_left_menu_row(iRow, sel_posns[iRow].y);
     }
   }
 

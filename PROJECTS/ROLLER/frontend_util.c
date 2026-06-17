@@ -289,6 +289,8 @@ int CheckNames(char *szPlayerName, int iPlayerIdx)
 //-------------------------------------------------------------------------------------------------
 
 #define FRONTEND_MOUSE_MAX_HITBOXES 128
+#define FRONTEND_MOUSE_LEFT_MENU_RIGHT 176
+#define FRONTEND_MOUSE_LEFT_MENU_ROW_HEIGHT 22
 
 typedef struct
 {
@@ -499,6 +501,14 @@ void frontend_mouse_register_rect(int iId, int iX, int iY, int iWidth, int iHeig
       s_iFrontendMouseClickVirtualX < iX + iWidth &&
       s_iFrontendMouseClickVirtualY < iY + iHeight)
     s_iFrontendMouseClickedId = iId;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_mouse_register_left_menu_row(int iId, int iY)
+{
+  frontend_mouse_register_rect(iId, 0, iY, FRONTEND_MOUSE_LEFT_MENU_RIGHT,
+                               FRONTEND_MOUSE_LEFT_MENU_ROW_HEIGHT);
 }
 
 //-------------------------------------------------------------------------------------------------
