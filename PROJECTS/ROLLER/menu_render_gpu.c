@@ -275,6 +275,37 @@ static void RecordDrawWithColorReplace(MenuRendererGPU *r, SDL_GPUTexture *textu
     }
 }
 
+static void RecordDrawSolidColor(MenuRendererGPU *r, SDL_GPUTexture *texture,
+                                 uint8 colorIdx, const tColor *pal)
+{
+    if (r->vertexCount == 0 || r->drawCommandCount >= MAX_DRAW_COMMANDS) return;
+
+    DrawCommand *cmd = &r->drawCommands[r->drawCommandCount++];
+    cmd->texture = texture;
+    cmd->vertexOffset = r->vertexCount - 6;
+    cmd->vertexCount = 6;
+    cmd->layer = r->currentLayer;
+    memset(&cmd->uniforms, 0, sizeof(cmd->uniforms));
+    cmd->uniforms.alphaMul = 1.0f;
+    cmd->uniforms.transparentR = -1.0f;
+    cmd->uniforms.transparentG = -1.0f;
+    cmd->uniforms.transparentB = -1.0f;
+    cmd->uniforms.replaceFromR = 1.0f;
+    cmd->uniforms.replaceFromG = 1.0f;
+    cmd->uniforms.replaceFromB = 1.0f;
+
+    if (pal) {
+        const tColor *tc = &pal[colorIdx];
+        cmd->uniforms.replaceToR = ColorToFloat(tc->byR);
+        cmd->uniforms.replaceToG = ColorToFloat(tc->byG);
+        cmd->uniforms.replaceToB = ColorToFloat(tc->byB);
+    } else {
+        cmd->uniforms.replaceToR = 1.0f;
+        cmd->uniforms.replaceToG = 0.0f;
+        cmd->uniforms.replaceToB = 0.0f;
+    }
+}
+
 static void ReplayDrawsLayer(MenuRendererGPU *r, SDL_GPURenderPass *renderPass,
                               MenuDrawLayer minLayer, MenuDrawLayer maxLayer)
 {
@@ -860,6 +891,50 @@ void menu_render_gpu_sprite(MenuRendererGPU *r, int slot, int blockIdx, int x, i
     if (!mt->texture) return;
     EmitQuad(r, (float)x, (float)y, (float)mt->width, (float)mt->height, 0, 0, 1, 1);
     RecordDraw(r, mt->texture, 1.0f, transparentIdx, pal);
+}
+
+static void menu_render_gpu_solid_quad(MenuRendererGPU *r, int x, int y,
+                                       int width, int height, uint8 colorIdx,
+                                       const tColor *pal)
+{
+    if (!r->whiteTexture || width <= 0 || height <= 0) return;
+    EmitQuad(r, (float)x, (float)y, (float)width, (float)height, 0, 0, 1, 1);
+    RecordDrawSolidColor(r, r->whiteTexture, colorIdx, pal);
+}
+
+void menu_render_gpu_box(MenuRendererGPU *r, int x, int y, int width,
+                         int height, uint8 colorIdx, const tColor *pal)
+{
+    int x2;
+    int y2;
+
+    if (!r || width <= 1 || height <= 1)
+        return;
+
+    x2 = x + width - 1;
+    y2 = y + height - 1;
+    if (x2 < 0 || y2 < 0 || x >= MENU_WIDTH || y >= MENU_HEIGHT)
+        return;
+
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x2 >= MENU_WIDTH)
+        x2 = MENU_WIDTH - 1;
+    if (y2 >= MENU_HEIGHT)
+        y2 = MENU_HEIGHT - 1;
+    if (x2 <= x || y2 <= y)
+        return;
+
+    width = x2 - x + 1;
+    height = y2 - y + 1;
+    menu_render_gpu_solid_quad(r, x, y, width, 1, colorIdx, pal);
+    menu_render_gpu_solid_quad(r, x, y2, width, 1, colorIdx, pal);
+    if (height > 2) {
+        menu_render_gpu_solid_quad(r, x, y + 1, 1, height - 2, colorIdx, pal);
+        menu_render_gpu_solid_quad(r, x2, y + 1, 1, height - 2, colorIdx, pal);
+    }
 }
 
 //---------------------------------------------------------------------------

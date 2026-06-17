@@ -574,7 +574,9 @@ static void frontend_type_select_draw(void)
   menu_render_sprite(mr, 14, iFrontendTypeBlockIdx, 500, 300, 0, pal_addr);
   if (!iFrontendTypeSkipColor)
     frontend_mouse_register_rect(FRONTEND_TYPE_MOUSE_CUP, 470, 280,
-                                 160, 100);
+                                 640 - 470, 400 - 280);
+  frontend_mouse_draw_menu_hover_box(mr, FRONTEND_TYPE_MOUSE_CUP);
+  frontend_type_select_register_submenu_mouse_items();
   if (iFrontendTypeSkipColor) {
     menu_render_scaled_text(mr, 15, &language_buffer[3392], font1_ascii,
                             font1_offsets, 400, 75, 143, 1u, 200, 640,
@@ -824,6 +826,9 @@ static void frontend_type_select_draw(void)
     menu_render_scaled_text(mr, 15, pszTextBuffer, font1_ascii,
                             font1_offsets, 400, iTextYPosition,
                             byFinalTextColor, 1u, 200, 640, pal_addr);
+
+  if (iFrontendTypeSkipColor && iFrontendTypeMenuSelection == 6)
+    frontend_mouse_draw_menu_hover_box(mr, FRONTEND_TYPE_MOUSE_SUB_BASE);
 
   show_received_mesage();
   menu_render_end_frame(mr);

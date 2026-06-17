@@ -11,6 +11,9 @@
 #define PREVIEW_H         330
 #define CAR_PREVIEW_Y      57
 #define TRACK_PREVIEW_Y    5
+#define FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID 100
+
+typedef struct MenuRenderer MenuRenderer;
 
 typedef struct
 {
@@ -281,6 +284,9 @@ void frontend_mouse_register_scaled_text(int iId, tBlockHeader *pFont,
 int frontend_mouse_take_hovered_id(void);
 int frontend_mouse_peek_hovered_id(void);
 int frontend_mouse_peek_clicked_id(void);
+void frontend_mouse_draw_hover_box(int iId, int iVirtualWidth,
+                                   int iVirtualHeight);
+void frontend_mouse_draw_menu_hover_box(MenuRenderer *pRenderer, int iId);
 int frontend_mouse_consume_click(void);
 int frontend_mouse_consume_click_anywhere(void);
 int frontend_mouse_take_wheel_y(void);

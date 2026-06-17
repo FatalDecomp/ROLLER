@@ -35,6 +35,8 @@ void menu_render_gpu_background(MenuRendererGPU *renderer, int slot);
 void menu_render_gpu_sprite(MenuRendererGPU *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
                         const tColor *palette);
+void menu_render_gpu_box(MenuRendererGPU *renderer, int x, int y, int width,
+                         int height, uint8 colorIndex, const tColor *palette);
 
 // Fade system
 void menu_render_gpu_begin_fade(MenuRendererGPU *renderer, int direction, int durationFrames);

@@ -291,6 +291,7 @@ int CheckNames(char *szPlayerName, int iPlayerIdx)
 #define FRONTEND_MOUSE_MAX_HITBOXES 128
 #define FRONTEND_MOUSE_LEFT_MENU_RIGHT 176
 #define FRONTEND_MOUSE_LEFT_MENU_ROW_HEIGHT 22
+#define FRONTEND_MOUSE_HOVER_BOX_COLOR 0xE7u
 
 typedef struct
 {
@@ -302,6 +303,7 @@ typedef struct
 } tFrontendMouseHitbox;
 
 static tFrontendMouseHitbox s_frontendMouseHitboxes[FRONTEND_MOUSE_MAX_HITBOXES];
+static tFrontendMouseHitbox s_frontendMouseHoveredHitbox;
 static int s_iFrontendMouseHitboxCount = 0;
 static int s_iFrontendMouseVirtualWidth = 640;
 static int s_iFrontendMouseVirtualHeight = 400;
@@ -313,6 +315,7 @@ static int s_iFrontendMouseClickVirtualY = 0;
 static int s_iFrontendMouseClickValid = 0;
 static int s_iFrontendMouseHoveredId = -1;
 static int s_iFrontendMouseClickedId = -1;
+static int s_iFrontendMouseHoveredHitboxValid = 0;
 static int s_iFrontendMouseLeftDown = 0;
 static float s_fFrontendMouseWindowX = 0.0f;
 static float s_fFrontendMouseWindowY = 0.0f;
@@ -460,6 +463,7 @@ void frontend_mouse_begin_frame(int iVirtualWidth, int iVirtualHeight)
   s_iFrontendMouseHitboxCount = 0;
   s_iFrontendMouseHoveredId = -1;
   s_iFrontendMouseClickedId = -1;
+  s_iFrontendMouseHoveredHitboxValid = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -492,8 +496,15 @@ void frontend_mouse_register_rect(int iId, int iX, int iY, int iWidth, int iHeig
       s_iFrontendMouseVirtualX >= iX &&
       s_iFrontendMouseVirtualY >= iY &&
       s_iFrontendMouseVirtualX < iX + iWidth &&
-      s_iFrontendMouseVirtualY < iY + iHeight)
+      s_iFrontendMouseVirtualY < iY + iHeight) {
     s_iFrontendMouseHoveredId = iId;
+    s_frontendMouseHoveredHitbox.iId = iId;
+    s_frontendMouseHoveredHitbox.iX = iX;
+    s_frontendMouseHoveredHitbox.iY = iY;
+    s_frontendMouseHoveredHitbox.iWidth = iWidth;
+    s_frontendMouseHoveredHitbox.iHeight = iHeight;
+    s_iFrontendMouseHoveredHitboxValid = -1;
+  }
 
   if (s_iFrontendMouseClickValid &&
       s_iFrontendMouseClickVirtualX >= iX &&
@@ -677,6 +688,102 @@ void frontend_mouse_register_scaled_text(int iId, tBlockHeader *pFont,
     iX -= iScaledWidth;
 
   frontend_mouse_register_rect(iId, iX, iY + iTop, iScaledWidth, iHeight);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_mouse_draw_hover_box(int iId, int iVirtualWidth, int iVirtualHeight)
+{
+  int iSavedWinW;
+  int iSavedWinH;
+  int iDrawWidth;
+  int iDrawHeight;
+  int iX;
+  int iY;
+  int iWidth;
+  int iHeight;
+
+  if (!s_iFrontendMouseHoveredHitboxValid ||
+      s_iFrontendMouseHoveredId != iId)
+    return;
+
+  iDrawWidth = iVirtualWidth > 0 ? iVirtualWidth : s_iFrontendMouseVirtualWidth;
+  iDrawHeight = iVirtualHeight > 0 ? iVirtualHeight : s_iFrontendMouseVirtualHeight;
+  if (iDrawWidth <= 0 || iDrawHeight <= 0)
+    return;
+
+  iX = s_frontendMouseHoveredHitbox.iX;
+  iY = s_frontendMouseHoveredHitbox.iY;
+  iWidth = s_frontendMouseHoveredHitbox.iWidth;
+  iHeight = s_frontendMouseHoveredHitbox.iHeight;
+
+  if (iX < 0) {
+    iWidth += iX;
+    iX = 0;
+  }
+  if (iY < 0) {
+    iHeight += iY;
+    iY = 0;
+  }
+  if (iX + iWidth > iDrawWidth)
+    iWidth = iDrawWidth - iX;
+  if (iY + iHeight > iDrawHeight)
+    iHeight = iDrawHeight - iY;
+  if (iWidth <= 1 || iHeight <= 1)
+    return;
+
+  iSavedWinW = winw;
+  iSavedWinH = winh;
+  winw = iDrawWidth;
+  winh = iDrawHeight;
+  box_screen(iX, iY, iWidth, iHeight, FRONTEND_MOUSE_HOVER_BOX_COLOR);
+  winh = iSavedWinH;
+  winw = iSavedWinW;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_mouse_draw_menu_hover_box(MenuRenderer *pRenderer, int iId)
+{
+  int iDrawWidth;
+  int iDrawHeight;
+  int iX;
+  int iY;
+  int iWidth;
+  int iHeight;
+
+  if (!pRenderer ||
+      !s_iFrontendMouseHoveredHitboxValid ||
+      s_iFrontendMouseHoveredId != iId)
+    return;
+
+  iDrawWidth = s_iFrontendMouseVirtualWidth;
+  iDrawHeight = s_iFrontendMouseVirtualHeight;
+  if (iDrawWidth <= 0 || iDrawHeight <= 0)
+    return;
+
+  iX = s_frontendMouseHoveredHitbox.iX;
+  iY = s_frontendMouseHoveredHitbox.iY;
+  iWidth = s_frontendMouseHoveredHitbox.iWidth;
+  iHeight = s_frontendMouseHoveredHitbox.iHeight;
+
+  if (iX < 0) {
+    iWidth += iX;
+    iX = 0;
+  }
+  if (iY < 0) {
+    iHeight += iY;
+    iY = 0;
+  }
+  if (iX + iWidth > iDrawWidth)
+    iWidth = iDrawWidth - iX;
+  if (iY + iHeight > iDrawHeight)
+    iHeight = iDrawHeight - iY;
+  if (iWidth <= 1 || iHeight <= 1)
+    return;
+
+  menu_render_box(pRenderer, iX, iY, iWidth, iHeight,
+                  FRONTEND_MOUSE_HOVER_BOX_COLOR, pal_addr);
 }
 
 //-------------------------------------------------------------------------------------------------

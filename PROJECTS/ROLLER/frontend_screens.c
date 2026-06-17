@@ -1005,6 +1005,8 @@ static void frontend_main_menu_emit_draw(MenuRenderer *mr)
     frontend_mouse_register_text(FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT,
                                  front_vga[15], &language_buffer[3456],
                                  font1_ascii, font1_offsets, 400, 250, 1);
+    frontend_mouse_draw_menu_hover_box(mr,
+                                       FRONTEND_MAIN_MENU_MOUSE_QUIT_PROMPT);
   }
   if (g_iNetworkTrackFileCRCMismatch) {
     menu_render_text(mr, 15, "TRACK FILE CRC MISMATCH", font1_ascii,

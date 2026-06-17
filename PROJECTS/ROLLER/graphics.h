@@ -33,6 +33,7 @@ void sort_small_texture(uint8 *pDest, uint8 *pSrc, int iNumBlocks);
 void sort_texture(uint8 *pTexData, int iNumTextures);
 void sort_mini_texture(uint8 *pTexData, int iNumTextures);
 void box(int iX, int iY, int iWidth, int iHeight, uint8 byBorderColor);
+void box_screen(int iX, int iY, int iWidth, int iHeight, uint8 byBorderColor);
 
 //-------------------------------------------------------------------------------------------------
 #endif

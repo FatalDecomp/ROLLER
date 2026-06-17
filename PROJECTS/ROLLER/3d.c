@@ -4624,8 +4624,11 @@ HANDLE_SPECIAL_MODES:
     if (draw_type != 2) {
       display_paused();
       if (trying_to_exit) {
-        if ((frames & 0xFu) < 8)
+        if ((frames & 0xFu) < 8) {
           prt_centrecol(rev_vga[1], &language_buffer[6592], 160, 100, 171);
+          frontend_mouse_draw_hover_box(FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID,
+                                        0, 0);
+        }
       }
     }
   }
@@ -4659,6 +4662,7 @@ HANDLE_SPECIAL_MODES:
         pQuitMessage = szF10ToQuitGame;
       mini_prt_centre(rev_vga[0], pQuitMessage, winw / 2, winh / 2);
       mini_prt_centre(rev_vga[0], "ESC TO CANCEL", winw / 2, winh / 2 + 14);
+      frontend_mouse_draw_hover_box(RACE_MOUSE_QUIT_PROMPT, 0, 0);
       scr_size = iSavedScrSize3;
     }
   }
