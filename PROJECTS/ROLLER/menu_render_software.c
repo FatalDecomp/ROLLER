@@ -25,6 +25,8 @@ struct MenuRendererSoftware {
 // explicit at the scene seam instead of smuggling it as a destination pointer.
 #define MENU_SW_CAR_PREVIEW_X 80
 #define MENU_SW_CAR_PREVIEW_Y 54
+#define MENU_SW_WIDTH 640
+#define MENU_SW_HEIGHT 400
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -122,6 +124,23 @@ void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
         return;
     display_block(scrbuf, front_vga[slot], blockIdx, x, y,
                   transparentColorIndex);
+}
+
+void menu_render_sw_box(MenuRendererSoftware *sw, int x, int y, int width,
+                        int height, uint8 colorIndex, const tColor *palette) {
+    int savedWinW;
+    int savedWinH;
+
+    (void)sw;
+    (void)palette;
+
+    savedWinW = winw;
+    savedWinH = winh;
+    winw = MENU_SW_WIDTH;
+    winh = MENU_SW_HEIGHT;
+    box_screen(x, y, width, height, colorIndex);
+    winh = savedWinH;
+    winw = savedWinW;
 }
 
 // ---------------------------------------------------------------------------

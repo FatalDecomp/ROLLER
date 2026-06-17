@@ -6196,9 +6196,191 @@ typedef struct
 
 static tSelectMessagesState s_SelectMessages;
 
+enum {
+  SELECT_MESSAGES_MOUSE_EXIT = 3,
+  SELECT_MESSAGES_MOUSE_PLAYER_BASE = 100,
+  SELECT_MESSAGES_MOUSE_CONFIRM = 200
+};
+
 int select_messages_active(void)
 {
   return s_SelectMessages.iActive;
+}
+
+static void select_messages_update_message_length(void)
+{
+  s_SelectMessages.iMessageLength = 0;
+  while (send_buffer[s_SelectMessages.iMessageLength])
+    ++s_SelectMessages.iMessageLength;
+}
+
+static void select_messages_send_current(void)
+{
+  s_SelectMessages.iSendConfirmation = -1;
+  send_message_to = s_SelectMessages.iSelectedPlayer;
+
+  for (int i = 0; i < 32; ++i)
+    send_mes_buf[i] = send_buffer[i];
+
+  s_SelectMessages.uiCurrentMenu = 0;
+}
+
+static int select_messages_left_item_from_mouse_id(int iId)
+{
+  if (iId < 0 || iId > SELECT_MESSAGES_MOUSE_EXIT)
+    return -1;
+
+  return iId;
+}
+
+static int select_messages_player_from_mouse_id(int iId)
+{
+  int iPlayer = iId - SELECT_MESSAGES_MOUSE_PLAYER_BASE;
+
+  if (iPlayer < 0 || iPlayer >= network_on)
+    return -1;
+
+  return iPlayer;
+}
+
+static void select_messages_register_left_mouse_items(void)
+{
+  frontend_mouse_register_left_menu_row(0, sel_posns[0].y);
+  frontend_mouse_register_left_menu_row(1, sel_posns[2].y);
+  frontend_mouse_register_left_menu_row(2, sel_posns[4].y);
+  frontend_mouse_register_left_menu_row(SELECT_MESSAGES_MOUSE_EXIT,
+                                       sel_posns[11].y);
+}
+
+static void select_messages_register_player_mouse_items(void)
+{
+  frontend_mouse_register_rect(SELECT_MESSAGES_MOUSE_PLAYER_BASE,
+                               200, 94, 440, 18);
+
+  for (int iPlayer = 1; iPlayer < network_on; ++iPlayer) {
+    frontend_mouse_register_rect(
+        SELECT_MESSAGES_MOUSE_PLAYER_BASE + iPlayer,
+        200, 112 + (iPlayer - 1) * 18, 440, 18);
+  }
+}
+
+static void select_messages_register_mouse_items(unsigned int uiMenu)
+{
+  frontend_mouse_begin_frame(640, 400);
+  select_messages_register_left_mouse_items();
+
+  if (uiMenu == 1)
+    select_messages_register_player_mouse_items();
+  else if (uiMenu == 3 && !s_SelectMessages.iSendConfirmation)
+    frontend_mouse_register_scaled_text(
+        SELECT_MESSAGES_MOUSE_CONFIRM, front_vga[15],
+        &language_buffer[7552], font2_ascii, font2_offsets, 400, 150,
+        1u, 200, 640);
+}
+
+static void select_messages_apply_mouse_hover(unsigned int uiMenu)
+{
+  int iHovered = frontend_mouse_take_hovered_id();
+
+  if (!uiMenu) {
+    int iMenuItem = select_messages_left_item_from_mouse_id(iHovered);
+
+    if (iMenuItem >= 0)
+      s_SelectMessages.iMenuSelection = iMenuItem;
+    return;
+  }
+
+  if (uiMenu == 1) {
+    int iPlayer = select_messages_player_from_mouse_id(iHovered);
+
+    if (iPlayer >= 0)
+      s_SelectMessages.iMenuSelection = iPlayer;
+  }
+}
+
+static void select_messages_activate_left_item(int iMenuItem)
+{
+  switch (iMenuItem) {
+    case 0:
+      s_SelectMessages.uiCurrentMenu = 1;
+      s_SelectMessages.iMenuSelection = s_SelectMessages.iSelectedPlayer;
+      break;
+    case 1:
+      s_SelectMessages.uiCurrentMenu = 2;
+      select_messages_update_message_length();
+      break;
+    case 2:
+      select_messages_send_current();
+      break;
+    case SELECT_MESSAGES_MOUSE_EXIT:
+      s_SelectMessages.iExitFlag = -1;
+      break;
+    default:
+      break;
+  }
+}
+
+static void select_messages_activate_current_mouse_target(void)
+{
+  switch (s_SelectMessages.uiCurrentMenu) {
+    case 0:
+      select_messages_activate_left_item(s_SelectMessages.iMenuSelection);
+      break;
+    case 1:
+      if (s_SelectMessages.iMenuSelection >= 0 &&
+          s_SelectMessages.iMenuSelection < network_on) {
+        s_SelectMessages.uiCurrentMenu = 0;
+        s_SelectMessages.iSelectedPlayer = s_SelectMessages.iMenuSelection;
+        s_SelectMessages.iMenuSelection = 0;
+      }
+      break;
+    case 2:
+      s_SelectMessages.uiCurrentMenu = 0;
+      s_SelectMessages.iMenuSelection = 2;
+      break;
+    case 3:
+      if (!s_SelectMessages.iSendConfirmation) {
+        s_SelectMessages.uiCurrentMenu = 0;
+        s_SelectMessages.iMenuSelection = 2;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void select_messages_handle_mouse_click(void)
+{
+  int iClicked = frontend_mouse_peek_clicked_id();
+  int iMenuItem;
+  int iPlayer;
+
+  frontend_mouse_take_wheel_y();
+  if (!frontend_mouse_consume_click_anywhere())
+    return;
+
+  iMenuItem = select_messages_left_item_from_mouse_id(iClicked);
+  if (iMenuItem >= 0) {
+    select_messages_activate_left_item(iMenuItem);
+    return;
+  }
+
+  iPlayer = select_messages_player_from_mouse_id(iClicked);
+  if (iPlayer >= 0 && s_SelectMessages.uiCurrentMenu == 1) {
+    s_SelectMessages.uiCurrentMenu = 0;
+    s_SelectMessages.iSelectedPlayer = iPlayer;
+    s_SelectMessages.iMenuSelection = 0;
+    return;
+  }
+
+  if (iClicked == SELECT_MESSAGES_MOUSE_CONFIRM &&
+      s_SelectMessages.uiCurrentMenu == 3 &&
+      !s_SelectMessages.iSendConfirmation) {
+    select_messages_send_current();
+    return;
+  }
+
+  select_messages_activate_current_mouse_target();
 }
 
 //0005E300
@@ -6248,6 +6430,9 @@ MAIN_UI_LOOP:
   {
     if (iSelectedPlayer < 0 || iSelectedPlayer >= network_on)
       iSelectedPlayer = 0;
+
+    select_messages_register_mouse_items(uiCurrentMenu);
+    select_messages_apply_mouse_hover(uiCurrentMenu);
 
     // Setup screen buffer and copy VGA frame buffer
     pScreenBuffer = scrbuf;
@@ -6369,6 +6554,7 @@ MAIN_UI_LOOP:
       UPDATE_DISPLAY:
         show_received_mesage();                 // UPDATE_DISPLAY: Show received messages and copy screen buffer
         copypic(scrbuf, screen);
+        select_messages_handle_mouse_click();
         while (1) {
           // Main input processing loop
           if (!fatkbhit()) {

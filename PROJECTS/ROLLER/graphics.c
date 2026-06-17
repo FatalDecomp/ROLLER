@@ -1399,3 +1399,53 @@ void box(int iX, int iY, int iWidth, int iHeight, uint8 byBorderColor)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+void box_screen(int iX, int iY, int iWidth, int iHeight, uint8 byBorderColor)
+{
+  int iX2;
+  int iY2;
+  int i;
+  int iStride;
+  uint8 *pTopRow;
+  uint8 *pBottomRow;
+  uint8 *pLeftEdge;
+  uint8 *pRightEdge;
+
+  if (!scrbuf || winw <= 0 || winh <= 0 || iWidth <= 1 || iHeight <= 1)
+    return;
+
+  iX2 = iX + iWidth - 1;
+  iY2 = iY + iHeight - 1;
+  if (iX2 < 0 || iY2 < 0 || iX >= winw || iY >= winh)
+    return;
+
+  if (iX < 0)
+    iX = 0;
+  if (iY < 0)
+    iY = 0;
+  if (iX2 >= winw)
+    iX2 = winw - 1;
+  if (iY2 >= winh)
+    iY2 = winh - 1;
+  if (iX2 <= iX || iY2 <= iY)
+    return;
+
+  iStride = winw;
+  pTopRow = &scrbuf[iX + iStride * iY];
+  pBottomRow = &scrbuf[iX + iStride * iY2];
+  for (i = iX; i <= iX2; ++i) {
+    *pTopRow++ = byBorderColor;
+    *pBottomRow++ = byBorderColor;
+  }
+
+  pLeftEdge = &scrbuf[iX + iStride * iY];
+  pRightEdge = &scrbuf[iX2 + iStride * iY];
+  for (i = iY; i <= iY2; ++i) {
+    *pLeftEdge = byBorderColor;
+    *pRightEdge = byBorderColor;
+    pLeftEdge += iStride;
+    pRightEdge += iStride;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------

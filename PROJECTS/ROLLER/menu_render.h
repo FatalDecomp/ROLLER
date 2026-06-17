@@ -43,6 +43,8 @@ void menu_render_background(MenuRenderer *renderer, int slot);
 void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
                         const tColor *palette);
+void menu_render_box(MenuRenderer *renderer, int x, int y, int width,
+                     int height, uint8 colorIndex, const tColor *palette);
 
 // Fade system
 void menu_render_begin_fade(MenuRenderer *renderer, int direction, int durationFrames);

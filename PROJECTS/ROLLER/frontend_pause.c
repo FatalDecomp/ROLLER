@@ -10,7 +10,7 @@
 //-------------------------------------------------------------------------------------------------
 
 enum {
-  FRONTEND_PAUSE_MOUSE_QUIT_PROMPT = 100
+  FRONTEND_PAUSE_MOUSE_QUIT_PROMPT = FRONTEND_PAUSE_MOUSE_QUIT_PROMPT_ID
 };
 
 static int frontend_pause_mouse_scale(int iValue)

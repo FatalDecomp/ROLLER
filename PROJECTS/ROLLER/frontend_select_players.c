@@ -51,6 +51,15 @@ enum {
 };
 
 enum {
+  FRONTEND_PLAYERS_NET_SLOT_MOUSE_BASE = 100
+};
+
+enum {
+  FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE = 110,
+  FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT
+};
+
+enum {
   ePLAYERS_BROADCAST_WAIT_NONE = 0,
   ePLAYERS_BROADCAST_WAIT_NETWORK_SETUP,
   ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK,
@@ -60,6 +69,8 @@ enum {
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_players_select_run_snapshot(void);
+static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
+                                                         int iAction);
 
 //-------------------------------------------------------------------------------------------------
 
@@ -71,8 +82,18 @@ static void frontend_players_select_handle_mouse(void)
   frontend_mouse_take_wheel_y();
 
   if (iFrontendPlayersNetworkMode) {
+    iClicked = frontend_mouse_peek_clicked_id();
+    if (frontend_mouse_consume_click_anywhere()) {
+      if (iClicked == FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE) {
+        if (network_on)
+          select_messages();
+      } else if (iClicked == FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT) {
+        if (network_on)
+          frontend_players_select_begin_broadcast_wait(
+              -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
+      }
+    }
     (void)frontend_mouse_take_hovered_id();
-    (void)frontend_mouse_consume_click_anywhere();
     return;
   }
 
@@ -243,6 +264,58 @@ static uint8 frontend_players_net_slot_color(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 
+static int frontend_players_net_slot_selectable(int iSlot)
+{
+  return iSlot >= 0 && iSlot < 4 &&
+         (unsigned int)gamers_playing[iSlot] < 16;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_players_net_slot_from_mouse_id(int iId)
+{
+  int iSlot = iId - FRONTEND_PLAYERS_NET_SLOT_MOUSE_BASE;
+
+  if (iSlot < 0 || iSlot >= 4)
+    return -1;
+
+  return iSlot;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_net_slot_register_slot(int iSlot,
+                                                    int iClipLeft,
+                                                    int iClipRight)
+{
+  frontend_mouse_register_rect(FRONTEND_PLAYERS_NET_SLOT_MOUSE_BASE + iSlot,
+                               iClipLeft, 88, iClipRight - iClipLeft + 1,
+                               300);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_net_slot_register_mouse_items(void)
+{
+  frontend_players_net_slot_register_slot(0, 200, 320);
+  frontend_players_net_slot_register_slot(1, 321, 419);
+  frontend_players_net_slot_register_slot(2, 421, 519);
+  frontend_players_net_slot_register_slot(3, 521, 639);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_net_slot_apply_hover(void)
+{
+  int iHovered = frontend_players_net_slot_from_mouse_id(
+      frontend_mouse_take_hovered_id());
+
+  if (frontend_players_net_slot_selectable(iHovered))
+    iFrontendPlayersNetSlotCurrent = iHovered;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_net_slot_draw_slot(MenuRenderer *mr,
                                                 int iSlot,
                                                 int x,
@@ -291,6 +364,12 @@ static void frontend_players_net_slot_draw_slot(MenuRenderer *mr,
 static void frontend_players_net_slot_draw(void)
 {
   MenuRenderer *mr = GetMenuRenderer();
+
+  frontend_mouse_begin_frame(640, 400);
+  if (iFrontendPlayersNetSlotPhase == ePLAYERS_NET_SLOT_SELECT) {
+    frontend_players_net_slot_register_mouse_items();
+    frontend_players_net_slot_apply_hover();
+  }
 
   menu_render_begin_frame(mr);
   if (!front_fade) {
@@ -352,6 +431,45 @@ static int frontend_players_net_slot_move_right(int iSlot)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_players_net_slot_join_current(void)
+{
+  if (!frontend_players_net_slot_selectable(iFrontendPlayersNetSlotCurrent))
+    return;
+
+  frontend_players_select_add_cached_slot_nodes(iFrontendPlayersNetSlotCurrent);
+  network_slot = iFrontendPlayersNetSlotCurrent + 1;
+  network_broadcast_wait_start(-1, 1);
+  iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_JOIN_WAIT;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_net_slot_handle_mouse(void)
+{
+  int iClickedSlot;
+
+  frontend_mouse_take_wheel_y();
+
+  iClickedSlot = frontend_players_net_slot_from_mouse_id(
+      frontend_mouse_peek_clicked_id());
+  if (frontend_mouse_consume_click_anywhere() &&
+      frontend_players_net_slot_selectable(iClickedSlot)) {
+    iFrontendPlayersNetSlotCurrent = iClickedSlot;
+    frontend_players_net_slot_join_current();
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_players_net_slot_drain_mouse(void)
+{
+  frontend_mouse_take_wheel_y();
+  (void)frontend_mouse_take_hovered_id();
+  (void)frontend_mouse_consume_click_anywhere();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_players_net_slot_handle_input(void)
 {
   while (fatkbhit()) {
@@ -369,12 +487,7 @@ static void frontend_players_net_slot_handle_input(void)
         }
       }
     } else if (uiKeyCode <= 0xD) {
-      if ((unsigned int)gamers_playing[iFrontendPlayersNetSlotCurrent] < 16) {
-        frontend_players_select_add_cached_slot_nodes(iFrontendPlayersNetSlotCurrent);
-        network_slot = iFrontendPlayersNetSlotCurrent + 1;
-        network_broadcast_wait_start(-1, 1);
-        iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_JOIN_WAIT;
-      }
+      frontend_players_net_slot_join_current();
     } else if (uiKeyCode == 27) {
       network_broadcast_wait_start(-666, 1);
       iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_LEAVE_WAIT;
@@ -391,6 +504,7 @@ static int frontend_players_net_slot_update(void)
 
   if (iFrontendPlayersNetSlotPhase == ePLAYERS_NET_SLOT_INIT) {
     frontend_players_net_slot_draw();
+    frontend_players_net_slot_drain_mouse();
     if (!network_initialise_update())
       return -1;
     if (network_on) {
@@ -404,6 +518,7 @@ static int frontend_players_net_slot_update(void)
 
   if (iFrontendPlayersNetSlotPhase == ePLAYERS_NET_SLOT_JOIN_WAIT) {
     frontend_players_net_slot_draw();
+    frontend_players_net_slot_drain_mouse();
     if (!network_broadcast_wait_update())
       return -1;
     network_broadcast_wait_start(-667, 1);
@@ -413,6 +528,7 @@ static int frontend_players_net_slot_update(void)
 
   if (iFrontendPlayersNetSlotPhase == ePLAYERS_NET_SLOT_SETUP_WAIT) {
     frontend_players_net_slot_draw();
+    frontend_players_net_slot_drain_mouse();
     if (!network_broadcast_wait_update())
       return -1;
     frontend_players_select_finish_network_setup();
@@ -421,6 +537,7 @@ static int frontend_players_net_slot_update(void)
 
   if (iFrontendPlayersNetSlotPhase == ePLAYERS_NET_SLOT_LEAVE_WAIT) {
     frontend_players_net_slot_draw();
+    frontend_players_net_slot_drain_mouse();
     if (!network_broadcast_wait_update())
       return -1;
     close_network();
@@ -436,8 +553,10 @@ static int frontend_players_net_slot_update(void)
     ROLLERCommsPumpSendQueue();
   }
   frontend_players_net_slot_draw();
-  if (!SnapshotShouldStop())
+  if (!SnapshotShouldStop()) {
+    frontend_players_net_slot_handle_mouse();
     frontend_players_net_slot_handle_input();
+  }
   return -1;
 }
 
@@ -585,6 +704,18 @@ void frontend_players_select_update(void)
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
     menu_render_scaled_text(mr, 15, &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640, pal_addr);
+    frontend_mouse_register_scaled_text(
+        FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT, front_vga[15],
+        &language_buffer[4224], font1_ascii, font1_offsets, 400, 380,
+        1u, 200, 640);
+    frontend_mouse_register_scaled_text(
+        FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE, front_vga[15],
+        &language_buffer[7104], font1_ascii, font1_offsets, 400, 360,
+        1u, 200, 640);
+    frontend_mouse_draw_menu_hover_box(
+        mr, FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT);
+    frontend_mouse_draw_menu_hover_box(
+        mr, FRONTEND_PLAYERS_NETWORK_MOUSE_MESSAGE);
   } else {
     menu_render_scaled_text(mr, 15, &language_buffer[2944], font1_ascii, font1_offsets, 400, 75, 143, 1u, 200, 640, pal_addr); // MENU MODE UI: Show player selection options with highlighting
     menu_render_scaled_text(mr, 15, &language_buffer[3008], font1_ascii, font1_offsets, 400, 93, 143, 1u, 200, 640, pal_addr);

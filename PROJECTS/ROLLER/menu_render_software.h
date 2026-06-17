@@ -24,6 +24,8 @@ void menu_render_sw_background(MenuRendererSoftware *sw, int slot);
 void menu_render_sw_sprite(MenuRendererSoftware *sw, int slot, int blockIdx,
                            int x, int y, int transparentColorIndex,
                            const tColor *palette);
+void menu_render_sw_box(MenuRendererSoftware *sw, int x, int y, int width,
+                        int height, uint8 colorIndex, const tColor *palette);
 
 // Fade system
 void menu_render_sw_begin_fade(MenuRendererSoftware *sw, int direction,

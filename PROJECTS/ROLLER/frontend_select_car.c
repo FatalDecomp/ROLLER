@@ -136,6 +136,7 @@ static void frontend_car_select_register_mouse_items(void)
                                  font2_ascii, font2_offsets,
                                  sel_posns[i].x + 132,
                                  sel_posns[i].y + 7, 2);
+    frontend_mouse_register_left_menu_row(i, sel_posns[i].y);
   }
 
   if (front_vga[6])
