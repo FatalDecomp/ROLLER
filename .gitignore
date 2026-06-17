@@ -374,6 +374,17 @@ fatdata
 zig-out/
 .zig-cache/
 
+# Android build artifacts
+.idea/
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/jniLibs/
+*.apk
+*.ap_
+*.aab
+
 # Shadercross tool (build locally, not portable)
 tools/shadercross/lib/
 tools/shadercross/zig-out/

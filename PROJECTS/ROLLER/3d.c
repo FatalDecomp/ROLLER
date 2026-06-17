@@ -23,6 +23,9 @@
 #include "snapshot_scenes.h"
 #include "rollerinput.h"
 #include <SDL3/SDL.h>
+#if defined(IS_ANDROID)
+#include <SDL3/SDL_main.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -2607,6 +2610,14 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
 //-------------------------------------------------------------------------------------------------
 //00011930
+#if defined(IS_ANDROID)
+int main(int argc, const char **argv, const char **envp);
+int SDL_main(int argc, char *argv[])
+{
+  return main(argc, (const char **)argv, NULL);
+}
+#endif
+
 int main(int argc, const char **argv, const char **envp)
 {
   int consumed = 0;
@@ -2748,6 +2759,18 @@ int main(int argc, const char **argv, const char **envp)
     }
     i += consumed;
   }
+
+#if defined(IS_ANDROID)
+  if (!whiplash_root[0]) {
+    const char *szExt = SDL_GetAndroidExternalStoragePath();
+    if (!szExt) {
+      ErrorBoxExit("External storage is not available. Cannot locate game data.");
+      return 1;
+    }
+    strncpy(whiplash_root, szExt, sizeof(whiplash_root) - 1);
+    whiplash_root[sizeof(whiplash_root) - 1] = '\0';
+  }
+#endif
 
   if (g_bSnapshotMode) {
     if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_REPLAY && g_SnapshotConfig.szReplayName[0] == '\0') {

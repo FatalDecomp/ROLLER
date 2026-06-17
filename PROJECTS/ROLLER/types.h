@@ -3,10 +3,13 @@
 //-------------------------------------------------------------------------------------------------
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 //-------------------------------------------------------------------------------------------------
 
 #if defined (WIN32) || defined (_WIN32)
 #define IS_WINDOWS
+#elif defined(__ANDROID__)
+#define IS_ANDROID
 #elif defined(__linux__) || defined(linux) || defined(__linux)
 #define IS_LINUX
 #elif defined(__APPLE__) || defined(__MACH__)
@@ -121,6 +124,25 @@ typedef uint8_t  uint8;
 typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
+
+typedef enum
+{
+  PHONE_CONTROLS_DISABLED = 0,
+  PHONE_CONTROLS_TILT_TURN,
+  PHONE_CONTROLS_TOUCH_TURN
+} ePhoneControls;
+
+extern ePhoneControls g_ePhoneControls;
+
+typedef struct
+{
+  int  iId;
+  int  iX;
+  int  iY;
+  int  iWidth;
+  int  iHeight;
+  bool bVisible;
+} tTouchButton;
 
 // Windows-specific types when needed
 #if !defined(IS_WINDOWS)

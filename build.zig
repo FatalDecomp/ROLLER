@@ -11,6 +11,12 @@ pub fn build(b: *std.Build) void {
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const bAndroid = target.result.abi.isAndroid();
+    const android_ndk = b.option([]const u8, "android-ndk", "Path to Android NDK") orelse "";
+    const android_api = b.option([]const u8, "android-api", "Android API level for NDK library path") orelse "26";
+    const android_ndk_host = b.option([]const u8, "android-ndk-host", "Android NDK prebuilt host tag") orelse androidNdkHostTag();
+    const sdl_android_include = b.option([]const u8, "sdl-android-include", "Path to SDL Android AAR prefab include directory") orelse "";
+    const sdl_android_lib = b.option([]const u8, "sdl-android-lib", "Path to SDL Android AAR shared library directory") orelse "";
     const crash_debug = b.option(bool, "crash-debug", "Enable crash dump friendly C build flags") orelse false;
     const c_flags: []const []const u8 = if (crash_debug)
         &.{ "-fwrapv", "-fno-omit-frame-pointer" }
@@ -83,7 +89,6 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/replay.c",
             "PROJECTS/ROLLER/roller.c",
             "PROJECTS/ROLLER/rollerinput.c",
-            "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/rollersound.c",
             "PROJECTS/ROLLER/snapshot.c",
@@ -96,12 +101,69 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const exe = b.addExecutable(.{
+    if (!bAndroid) {
+        exe_mod.addCSourceFiles(.{
+            .flags = c_flags,
+            .files = &.{
+                "PROJECTS/ROLLER/rollercd.c",
+            },
+        });
+    }
+
+    const exe = if (bAndroid) b.addLibrary(.{
+        .name = "main",
+        .linkage = .dynamic,
+        .root_module = exe_mod,
+    }) else b.addExecutable(.{
         .name = "roller",
         .root_module = exe_mod,
     });
 
-    switch (target.result.os.tag) {
+    if (bAndroid) {
+        exe.linker_allow_shlib_undefined = true;
+        exe_mod.addCMacro("SDL_MAIN_HANDLED", "1");
+
+        if (android_ndk.len > 0) {
+            const triple = androidNdkLibTriple(target.result) orelse
+                @panic("unsupported Android target architecture");
+            const sysroot = b.pathJoin(&.{
+                android_ndk,
+                "toolchains/llvm/prebuilt",
+                android_ndk_host,
+                "sysroot",
+            });
+            const libc_write_files = b.addWriteFiles();
+            const android_libc_file = libc_write_files.add(
+                "android-libc.txt",
+                b.fmt(
+                    \\include_dir={s}
+                    \\sys_include_dir={s}
+                    \\crt_dir={s}
+                    \\msvc_lib_dir=
+                    \\kernel32_lib_dir=
+                    \\gcc_dir={s}
+                    \\
+                , .{
+                    b.pathJoin(&.{ sysroot, "usr/include", triple }),
+                    b.pathJoin(&.{ sysroot, "usr/include" }),
+                    b.pathJoin(&.{ sysroot, "usr/lib", triple, android_api }),
+                    b.pathJoin(&.{ sysroot, "usr/lib", triple, android_api }),
+                }),
+            );
+            exe.setLibCFile(android_libc_file);
+            exe_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{
+                sysroot,
+                "usr/lib",
+                triple,
+                android_api,
+            }) });
+        }
+
+        exe.linkSystemLibrary("log");
+        exe.linkSystemLibrary("android");
+        exe.linkSystemLibrary("GLESv2");
+        exe.linkSystemLibrary("EGL");
+    } else switch (target.result.os.tag) {
         .windows => {
             exe_mod.addCMacro("WILDMIDI_STATIC", "1");
 
@@ -132,7 +194,7 @@ pub fn build(b: *std.Build) void {
         exe.step.dependOn(&scene_render_seam_check.step);
     }
 
-    configureDependencies(b, exe, target, optimize);
+    configureDependencies(b, exe, target, optimize, bAndroid, sdl_android_include, sdl_android_lib);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -383,55 +445,100 @@ fn configureSnapshotTests(
     test_snapshots.dependOn(&diff_check.step);
 }
 
-fn configureDependencies(b: *Build, exe: *Compile, target: ResolvedTarget, optimize: OptimizeMode) void {
+fn configureDependencies(
+    b: *Build,
+    exe: *Compile,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+    bAndroid: bool,
+    sdl_android_include: []const u8,
+    sdl_android_lib: []const u8,
+) void {
     const exe_mod = exe.root_module;
 
-    // build dependencies
-    const wildmidi = b.dependency("wildmidi", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const wildmidi_lib = wildmidi.artifact("wildmidi");
-
-    const sdl_image = b.dependency("SDL_image", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const sdl_image_lib = sdl_image.artifact("SDL3_image");
-
-    const sdl = b.dependency("sdl", .{
-        .target = target,
-        .optimize = optimize,
-        .sanitize_c = .off,
-        .lto = .none,
-    });
-    const sdl_lib = sdl.artifact("SDL3");
-
-    const libcdio = b.dependency("libcdio", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const libcdio_lib = libcdio.artifact("cdio");
-
-    exe_mod.linkLibrary(sdl_lib);
-    exe_mod.linkLibrary(sdl_image_lib);
-    exe_mod.linkLibrary(wildmidi_lib);
-    exe_mod.linkLibrary(libcdio_lib);
-
-    const sdl_image_source = sdl_image.builder.dependency("SDL_image", .{
-        .lto = .none,
-    });
-
     var cflags = compile_flagz.addCompileFlags(b);
-    cflags.addIncludePath(sdl.builder.path("include"));
-    cflags.addIncludePath(sdl_image_source.builder.path("include"));
-    cflags.addIncludePath(wildmidi.builder.path("include"));
-    cflags.addIncludePath(libcdio.builder.path("include"));
-    cflags.addIncludePath(libcdio.builder.path("zig-config"));
+
+    if (!bAndroid) {
+        const wildmidi = b.dependency("wildmidi", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        exe_mod.addIncludePath(wildmidi.builder.path("include"));
+        exe_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+        cflags.addIncludePath(wildmidi.builder.path("include"));
+    }
+
+    if (bAndroid and sdl_android_include.len > 0) {
+        const sdl_include_path = LazyPath{ .cwd_relative = sdl_android_include };
+        exe_mod.addIncludePath(sdl_include_path);
+        cflags.addIncludePath(sdl_include_path);
+        if (sdl_android_lib.len > 0) {
+            exe_mod.addLibraryPath(.{ .cwd_relative = sdl_android_lib });
+            exe.linkSystemLibrary("SDL3");
+        }
+    } else {
+        const sdl = b.dependency("sdl", .{
+            .target = target,
+            .optimize = optimize,
+            .sanitize_c = .off,
+            .lto = .none,
+        });
+        exe_mod.addIncludePath(sdl.builder.path("include"));
+        cflags.addIncludePath(sdl.builder.path("include"));
+
+        if (!bAndroid)
+            exe_mod.linkLibrary(sdl.artifact("SDL3"));
+    }
+
+    if (!bAndroid) {
+        const sdl_image = b.dependency("SDL_image", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const sdl_image_lib = sdl_image.artifact("SDL3_image");
+
+        const sdl_image_source = sdl_image.builder.dependency("SDL_image", .{
+            .lto = .none,
+        });
+
+        const libcdio = b.dependency("libcdio", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const libcdio_lib = libcdio.artifact("cdio");
+
+        exe_mod.linkLibrary(sdl_image_lib);
+        exe_mod.linkLibrary(libcdio_lib);
+        exe_mod.addIncludePath(sdl_image_source.builder.path("include"));
+        exe_mod.addIncludePath(libcdio.builder.path("include"));
+        exe_mod.addIncludePath(libcdio.builder.path("zig-config"));
+        cflags.addIncludePath(sdl_image_source.builder.path("include"));
+        cflags.addIncludePath(libcdio.builder.path("include"));
+        cflags.addIncludePath(libcdio.builder.path("zig-config"));
+    }
     cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);
+}
+
+fn androidNdkLibTriple(target: std.Target) ?[]const u8 {
+    return switch (target.cpu.arch) {
+        .aarch64 => "aarch64-linux-android",
+        .x86_64 => "x86_64-linux-android",
+        .arm => "arm-linux-androideabi",
+        .x86 => "i686-linux-android",
+        else => null,
+    };
+}
+
+fn androidNdkHostTag() []const u8 {
+    return switch (host_builtin.os.tag) {
+        .windows => "windows-x86_64",
+        .linux => "linux-x86_64",
+        .macos => "darwin-x86_64",
+        else => "linux-x86_64",
+    };
 }
 
 fn pythonExe() []const u8 {

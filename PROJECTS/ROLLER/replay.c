@@ -242,12 +242,12 @@ void setreplaytrack()
       lastintro = iIntroFileNum1;
       sprintf(replayfilename, "INTRO%d.GSS", iIntroFileNum1);
     }
-    pFile = fopen(replayfilename, "rb");        // Open the selected intro GSS file
+    pFile = ROLLERfopen(replayfilename, "rb");  // Open the selected intro GSS file
     if (!pFile && introfiles > 1) {
       iIntroFileNum2 = SelectIntroFile(lastintro);       // Fallback: try different intro file if first failed to open
       lastintro = iIntroFileNum2;
       sprintf(replayfilename, "INTRO%d.GSS", iIntroFileNum2);
-      pFile = fopen(replayfilename, "rb");
+      pFile = ROLLERfopen(replayfilename, "rb");
     }
     if (pFile) {
       fread(buffer, 1u, 1u, pFile);             // Read track number from GSS file

@@ -1,0 +1,135 @@
+plugins { id 'com.android.application' }
+
+def generatedAssetsDir = layout.buildDirectory.dir('generated/assets/roller')
+
+android {
+    namespace 'racing.fatal.roller'
+    compileSdk 36
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'racing.fatal.roller'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+
+    buildFeatures { prefab true }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+            assets.srcDirs = ['src/main/assets', generatedAssetsDir.get().asFile]
+        }
+    }
+
+    buildTypes {
+        debug { debuggable true }
+        release { minifyEnabled false }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation files('libs/SDL3-3.2.22.aar')
+}
+
+tasks.register('syncMidiAssets', Copy) {
+    from rootProject.file('../midi')
+    into new File(generatedAssetsDir.get().asFile, 'midi')
+}
+
+def sdlAar = file('libs/SDL3-3.2.22.aar')
+def sdlPrefabDir = layout.buildDirectory.dir('sdl3-prefab')
+
+tasks.register('extractSdl3Prefab', Copy) {
+    from zipTree(sdlAar)
+    include 'prefab/**'
+    into sdlPrefabDir
+}
+
+def isWindowsHost = System.getProperty('os.name').toLowerCase().contains('windows')
+def zigExecutable = System.getenv('ZIG_EXE') ?: (isWindowsHost ? 'zig.exe' : 'zig')
+def ndkHostTag = {
+    def osName = System.getProperty('os.name').toLowerCase()
+    if (osName.contains('windows')) {
+        return 'windows-x86_64'
+    }
+    if (osName.contains('mac')) {
+        return 'darwin-x86_64'
+    }
+    return 'linux-x86_64'
+}
+def requireNdkDir = {
+    def dir = android.ndkDirectory
+    if (dir == null) {
+        throw new GradleException('Android NDK not found. Install an NDK or set ndk.dir in local.properties.')
+    }
+    return dir
+}
+
+def androidApi = '26'
+def androidAbis = [
+    [abi: 'arm64-v8a', triple: "aarch64-linux-android.${androidApi}", libTriple: 'aarch64-linux-android', taskName: 'zigBuildArm64V8a'],
+    [abi: 'x86_64', triple: "x86_64-linux-android.${androidApi}", libTriple: 'x86_64-linux-android', taskName: 'zigBuildX86_64'],
+]
+
+def previousZigTask = null
+androidAbis.each { cfg ->
+    def previousTask = previousZigTask
+    def provider = tasks.register(cfg.taskName, Exec) {
+        dependsOn tasks.named('extractSdl3Prefab')
+        workingDir rootProject.file('..')
+
+        doFirst {
+            def ndkDir = requireNdkDir()
+            def sdlIncludeDir = sdlPrefabDir.get().dir('prefab/modules/SDL3-Headers/include').asFile
+            def sdlLibDir = sdlPrefabDir.get().dir("prefab/modules/SDL3-shared/libs/android.${cfg.abi}").asFile
+            commandLine zigExecutable, 'build',
+                "-Dtarget=${cfg.triple}",
+                '-Doptimize=ReleaseFast',
+                "-Dandroid-ndk=${ndkDir}",
+                "-Dandroid-api=${androidApi}",
+                "-Dandroid-ndk-host=${ndkHostTag()}",
+                "-Dsdl-android-include=${sdlIncludeDir.absolutePath}",
+                "-Dsdl-android-lib=${sdlLibDir.absolutePath}"
+        }
+
+        doLast {
+            def ndkDir = requireNdkDir()
+            def jniDir = file("src/main/jniLibs/${cfg.abi}")
+            copy {
+                from rootProject.file('../zig-out/lib/libmain.so')
+                into jniDir
+            }
+            copy {
+                from "${ndkDir}/toolchains/llvm/prebuilt/${ndkHostTag()}/sysroot/usr/lib/${cfg.libTriple}/libc++_shared.so"
+                into jniDir
+            }
+            copy {
+                from zipTree(sdlAar)
+                include "prefab/modules/SDL3-shared/libs/android.${cfg.abi}/libSDL3.so"
+                into jniDir
+                eachFile { path = name }
+                includeEmptyDirs = false
+            }
+        }
+    }
+    if (previousTask != null) {
+        provider.configure { mustRunAfter previousTask }
+    }
+    previousZigTask = provider
+}
+
+afterEvaluate {
+    tasks.named('preBuild').configure {
+        dependsOn tasks.named('syncMidiAssets')
+        dependsOn androidAbis.collect { it.taskName }
+    }
+}

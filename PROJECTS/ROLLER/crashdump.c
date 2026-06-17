@@ -32,7 +32,9 @@
 #include <dbghelp.h>
 #else
 #include <dirent.h>
+#if !defined(IS_ANDROID)
 #include <execinfo.h>
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -366,7 +368,7 @@ static void RotateCrashFiles(const char *szDir)
 
 static void ResolveExecutableDir(char *szOut, int iOutSize)
 {
-#ifdef IS_LINUX
+#if defined(IS_LINUX) || defined(IS_ANDROID)
   ssize_t llLen = readlink("/proc/self/exe", szOut, (size_t)iOutSize - 1);
   if (llLen > 0 && llLen < iOutSize) {
     szOut[llLen] = '\0';
@@ -509,13 +511,13 @@ static void GetSignalContextRegisters(void *pContext, uint64 *pullPc, uint64 *pu
   *pullPc = 0;
   *pullSp = 0;
 
-#if defined(IS_LINUX) && defined(__x86_64__)
+#if (defined(IS_LINUX) || defined(IS_ANDROID)) && defined(__x86_64__)
   {
     ucontext_t *pUContext = (ucontext_t *)pContext;
     *pullPc = (uint64)pUContext->uc_mcontext.gregs[REG_RIP];
     *pullSp = (uint64)pUContext->uc_mcontext.gregs[REG_RSP];
   }
-#elif defined(IS_LINUX) && defined(__aarch64__)
+#elif (defined(IS_LINUX) || defined(IS_ANDROID)) && defined(__aarch64__)
   {
     ucontext_t *pUContext = (ucontext_t *)pContext;
     *pullPc = (uint64)pUContext->uc_mcontext.pc;
@@ -563,7 +565,7 @@ static void WriteMappings(int iFd)
 {
   WriteLiteral(iFd, "\nMappings:\n");
 
-#ifdef IS_LINUX
+#if defined(IS_LINUX) || defined(IS_ANDROID)
   {
     int iMapsFd = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
     if (iMapsFd >= 0) {
@@ -587,6 +589,10 @@ static void WriteMappings(int iFd)
 
 static void WriteBacktrace(int iFd)
 {
+#if defined(IS_ANDROID)
+  WriteLiteral(iFd, "\nBacktrace:\n");
+  WriteLiteral(iFd, "Backtrace symbols not available on Android\n");
+#else
   void *pFrames[64];
   int iFrameCount;
 
@@ -596,6 +602,7 @@ static void WriteBacktrace(int iFd)
     backtrace_symbols_fd(pFrames, iFrameCount, iFd);
   else
     WriteLiteral(iFd, "No frames captured\n");
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -665,6 +672,9 @@ static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
 
 static void WarmUpBacktrace(void)
 {
+#if defined(IS_ANDROID)
+  return;
+#else
   int iFd = open("/dev/null", O_WRONLY | O_CLOEXEC);
   void *pFrames[1];
   int iFrameCount = backtrace(pFrames, 1);
@@ -674,6 +684,7 @@ static void WarmUpBacktrace(void)
       backtrace_symbols_fd(pFrames, iFrameCount, iFd);
     close(iFd);
   }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

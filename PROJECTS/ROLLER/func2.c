@@ -3895,7 +3895,7 @@ void load_fatal_config()
   fatal_ini_loaded = 0;
 
   // Open FATAL.INI file
-  pFile = fopen("FATAL.INI", "rb");
+  pFile = ROLLERfopen("FATAL.INI", "rb");
   pFile2 = pFile;
   if (pFile) {
     fatal_ini_loaded = -1;
