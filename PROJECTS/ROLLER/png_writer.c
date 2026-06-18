@@ -1,6 +1,8 @@
 #include "png_writer.h"
 #include <SDL3/SDL.h>
+#if !defined(IS_ANDROID)
 #include <SDL3_image/SDL_image.h>
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -10,6 +12,14 @@ int RollerWriteIndexedPng(const char *szPath,
                           int iWidth,
                           int iHeight)
 {
+#if defined(IS_ANDROID)
+  (void)szPath;
+  (void)pIndexedBuf;
+  (void)pPalette;
+  (void)iWidth;
+  (void)iHeight;
+  return 1;
+#else
   if (!szPath || !pIndexedBuf || !pPalette || iWidth <= 0 || iHeight <= 0)
     return 1;
 
@@ -44,6 +54,7 @@ int RollerWriteIndexedPng(const char *szPath,
   bool bOk = IMG_SavePNG(surface, szPath);
   SDL_DestroySurface(surface);
   return bOk ? 0 : 1;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

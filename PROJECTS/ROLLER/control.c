@@ -2236,6 +2236,11 @@ LABEL_45:
     fAbsoluteSpeed = 0.0;
     fSpeedOverflow = 0.0;
   }
+  if (!race_started && iControlTypeCheck == 3) {
+    fAbsoluteSpeed = 0.0f;
+    fSpeedOverflow = 0.0f;
+    pCar->fBaseSpeed = 0.0f;
+  }
   dAbsoluteSpeed = fAbsoluteSpeed;
   pCar->fFinalSpeed = fAbsoluteSpeed;
   fAbsoluteSpeed = (float)fabs(dAbsoluteSpeed);

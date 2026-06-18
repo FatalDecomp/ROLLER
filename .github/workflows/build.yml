@@ -190,3 +190,49 @@ jobs:
           name: roller-${{ matrix.os }}-${{ matrix.arch }}
           path: roller-${{ matrix.os }}-${{ matrix.arch }}.*
           retention-days: 7
+
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        run: gradle -p android assembleDebug --no-daemon
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: roller-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

@@ -17,14 +17,20 @@
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
+#if !defined(IS_ANDROID)
 #include <SDL3_image/SDL_image.h>
+#endif
+#if !defined(IS_ANDROID)
 #include <wildmidi_lib.h>
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
+#if !defined(IS_ANDROID)
 #include <cdio/cdio.h>
 #include <cdio/iso9660.h>
 #include <cdio/disc.h>
 #include <cdio/cd_types.h>
+#endif
 #ifdef IS_WINDOWS
 #include <io.h>
 #include <direct.h>
@@ -45,11 +51,15 @@
 #include <sys/ioctl.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
-#ifdef IS_LINUX
+#if defined(IS_ANDROID)
+#define CDROM_SUPPORT 0
+#elif defined(IS_LINUX)
 #include <linux/cdrom.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #define CDROM_SUPPORT 1
+#else
+#define CDROM_SUPPORT 0
 #endif
 //-------------------------------------------------------------------------------------------------
 
@@ -465,11 +475,24 @@ int InitSDL(char *whiplash_root, const char *midi_root)
       return 1;
     }
   } else {
+#if defined(IS_ANDROID)
+    const char *szExt = SDL_GetAndroidExternalStoragePath();
+    if (!szExt) {
+      ErrorBoxExit("External storage is not available. Cannot locate game data.");
+      return 1;
+    }
+    strncpy(whiplash_root, szExt, 259);
+    whiplash_root[259] = '\0';
+    chdir(whiplash_root);
+#else
     // Change to the base path of the application
-    strncpy(whiplash_root, SDL_GetBasePath(), 260);
-    if (whiplash_root) {
+    const char *szBasePath = SDL_GetBasePath();
+    if (szBasePath) {
+      strncpy(whiplash_root, szBasePath, 259);
+      whiplash_root[259] = '\0';
       chdir(whiplash_root);
     }
+#endif
   }
 
   g_pTimerMutex = SDL_CreateMutex();
@@ -486,7 +509,11 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   InputLoadStartupConfig();
 #endif
 
-  s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, SDL_WINDOW_RESIZABLE);
+  SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
+#if defined(IS_ANDROID)
+  uiWindowFlags |= SDL_WINDOW_FULLSCREEN;
+#endif
+  s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
     return 1;
@@ -533,8 +560,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+#if !defined(IS_ANDROID)
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
+#endif
 
   // Move the window to the display where the mouse is currently located
   float mouseX, mouseY;
@@ -554,7 +583,11 @@ int InitSDL(char *whiplash_root, const char *midi_root)
       localMidiPath[lenMidiPath+1] = '\0';
     }
   } else {
+#if defined(IS_ANDROID)
+    midi_root = SDL_GetAndroidExternalStoragePath();
+#else
     midi_root = SDL_GetBasePath();
+#endif
     if (midi_root) {
       strcpy(localMidiPath, midi_root);
     } else {
@@ -593,6 +626,25 @@ void InitFATDATA(const char *szDataRoot)
 
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
+#if defined(IS_ANDROID)
+    const char *szExternal = SDL_GetAndroidExternalStoragePath();
+    const char *szShown = szExternal ? szExternal : "<external storage unavailable>";
+    char szMessage[1024];
+
+    snprintf(szMessage, sizeof(szMessage),
+             "ROLLER needs the FATDATA assets from a retail copy of the game.\n\n"
+             "Copy your game data so the folders end up here:\n\n"
+             "%s/FATDATA\n"
+             "%s/TRACKS    (community tracks)\n"
+             "%s/REPLAYS   (saved replays)\n\n"
+             "For CD music, also copy your extracted track WAVs to:\n"
+             "%s/audio\n\n"
+             "Then relaunch ROLLER.",
+             szShown, szShown, szShown, szShown);
+
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                             "FATDATA not found", szMessage, s_pWindow);
+#else
     debug_overlay_set_visible(s_pDebugOverlay, true);
     PresentDebugOverlayOnly();
 
@@ -634,6 +686,7 @@ void InitFATDATA(const char *szDataRoot)
         ROLLERRefreshStartupOverlay();
       }
     }
+#endif
   }
 
   //check if extraction was successful

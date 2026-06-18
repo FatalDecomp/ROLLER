@@ -23,6 +23,9 @@
 #include "snapshot_scenes.h"
 #include "rollerinput.h"
 #include <SDL3/SDL.h>
+#if defined(IS_ANDROID)
+#include <SDL3/SDL_main.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -1625,6 +1628,24 @@ void race_update(void)
     initsoundlag(0);
     lagdone = -1;
   }
+  if (screenready && !fadedin)                 // Start race timing only once the race view is visible
+  {
+    game_render_begin_fade(g_pGameRenderer, 1, 0);
+    fadedin = -1;
+    holdmusic = 0;
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
+      if (!MusicCD && !winner_mode && !loading_replay) {
+        if (replaytype == 2)
+          iSong = titlesong;
+        else if (game_track == TRACK_LOAD_COMMUNITY && nummusictracks > 0)
+          iSong = rand() % nummusictracks + 1;
+        else
+          iSong = game_track;
+        startmusic(iSong);
+      }
+    }
+  }
   updates = 0;
   if (g_bSnapshotMode) {
     // No SDL tick timer in snapshot mode: drive one logical tick per
@@ -1632,20 +1653,23 @@ void race_update(void)
     // unredrawn region cannot leak from the previous frame.
     SnapshotZeroScreen();
     SnapshotAdvanceTick();
-  }
-  // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
-  // backs up iTicksPending, catching up burns main-thread time and starves
-  // the next render, which backs up more ticks, and so on.
-  int iDrained = 0;
-  while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
-    // Claim one pending tick with CAS. The timer thread can enqueue between
-    // this read and update, so a plain read/add pair can race, especially
-    // when replay rewind changes the pending count's sign.
-    int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
-    if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
-      continue;
-    game_tick_step();
-    ++iDrained;
+  } else if (fadedin || replaytype == 2) {
+    // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
+    // backs up iTicksPending, catching up burns main-thread time and starves
+    // the next render, which backs up more ticks, and so on.
+    int iDrained = 0;
+    while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+      // Claim one pending tick with CAS. The timer thread can enqueue between
+      // this read and update, so a plain read/add pair can race, especially
+      // when replay rewind changes the pending count's sign.
+      int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
+      if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
+        continue;
+      game_tick_step();
+      ++iDrained;
+    }
+  } else {
+    SDL_SetAtomicInt(&iTicksPending, 0);
   }
   if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
     game_tick_step();
@@ -1791,25 +1815,6 @@ void race_update(void)
       Rforwardstart();
   } else if (forwarding) {
     slowing = -1;
-  }
-  if (screenready)                              // Handle screen fade-in and music startup
-  {
-    if (!fadedin) {
-      game_render_begin_fade(g_pGameRenderer, 1, 0);
-      fadedin = -1;
-      holdmusic = 0;
-      if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
-        if (!MusicCD && !winner_mode && !loading_replay) {
-          if (replaytype == 2)
-            iSong = titlesong;
-          else if (game_track == TRACK_LOAD_COMMUNITY && nummusictracks > 0)
-            iSong = rand() % nummusictracks + 1;
-          else
-            iSong = game_track;
-          startmusic(iSong);
-        }
-      }
-    }
   }
   //NOCD error disabled for ROLLER
   //if (!intro && replaytype != 2)            // Handle CD-ROM validation for copy protection
@@ -2105,6 +2110,22 @@ void *trybuffer(uint32 uiSize)
   }
 
   return pBuf;
+}
+
+//-------------------------------------------------------------------------------------------------
+//00010890 helper
+uint32 getbuffer_size(void *pData)
+{
+  int iMemBlocksIdx;
+
+  if (!pData)
+    return 0;
+
+  iMemBlocksIdx = find_mem_block(pData);
+  if (iMemBlocksIdx < 0)
+    return 0;
+
+  return mem_blocks[iMemBlocksIdx].uiSize;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2607,6 +2628,14 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
 //-------------------------------------------------------------------------------------------------
 //00011930
+#if defined(IS_ANDROID)
+int main(int argc, const char **argv, const char **envp);
+int SDL_main(int argc, char *argv[])
+{
+  return main(argc, (const char **)argv, NULL);
+}
+#endif
+
 int main(int argc, const char **argv, const char **envp)
 {
   int consumed = 0;
@@ -2749,6 +2778,18 @@ int main(int argc, const char **argv, const char **envp)
     i += consumed;
   }
 
+#if defined(IS_ANDROID)
+  if (!whiplash_root[0]) {
+    const char *szExt = SDL_GetAndroidExternalStoragePath();
+    if (!szExt) {
+      ErrorBoxExit("External storage is not available. Cannot locate game data.");
+      return 1;
+    }
+    strncpy(whiplash_root, szExt, sizeof(whiplash_root) - 1);
+    whiplash_root[sizeof(whiplash_root) - 1] = '\0';
+  }
+#endif
+
   if (g_bSnapshotMode) {
     if (g_SnapshotConfig.eKind == SNAPSHOT_KIND_REPLAY && g_SnapshotConfig.szReplayName[0] == '\0') {
       cli_fprintf(stderr, "ERROR: '--snapshot' requires a replay filename\n");
@@ -2777,7 +2818,7 @@ int main(int argc, const char **argv, const char **envp)
   }
 
   if (iCrashHandlerEnabled)
-    InitCrashHandler();
+    InitCrashHandler(whiplash_root);
 
   if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;
