@@ -2111,6 +2111,22 @@ void *trybuffer(uint32 uiSize)
 }
 
 //-------------------------------------------------------------------------------------------------
+//00010890 helper
+uint32 getbuffer_size(void *pData)
+{
+  int iMemBlocksIdx;
+
+  if (!pData)
+    return 0;
+
+  iMemBlocksIdx = find_mem_block(pData);
+  if (iMemBlocksIdx < 0)
+    return 0;
+
+  return mem_blocks[iMemBlocksIdx].uiSize;
+}
+
+//-------------------------------------------------------------------------------------------------
 //000109F0
 void fre(void **ppData)
 {
@@ -2800,7 +2816,7 @@ int main(int argc, const char **argv, const char **envp)
   }
 
   if (iCrashHandlerEnabled)
-    InitCrashHandler();
+    InitCrashHandler(whiplash_root);
 
   if (InitSDL(whiplash_root, midi_root) != 0) {
     return 1;

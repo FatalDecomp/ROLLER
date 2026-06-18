@@ -399,6 +399,7 @@ void copypic(uint8 *pSrc, uint8 *pDest);
 void init_screen();
 void init();
 void *getbuffer(uint32 uiSize);
+uint32 getbuffer_size(void *pData);
 void *trybuffer(uint32 uiSize);
 void fre(void **ppData);
 void doexit();

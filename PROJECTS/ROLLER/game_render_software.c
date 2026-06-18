@@ -43,6 +43,33 @@ struct GameRendererSoftware {
     TextureHandle texIdxToHandle[32];
 };
 
+static int game_render_sw_block_is_valid(tBlockHeader *blocks, uint32 blockBytes,
+                                         int blockIdx) {
+    if (!blocks || blockBytes < sizeof(tBlockHeader) || blockIdx < 0)
+        return 0;
+
+    uint32 headerOffset = (uint32)blockIdx * (uint32)sizeof(tBlockHeader);
+    if (headerOffset > blockBytes - sizeof(tBlockHeader))
+        return 0;
+
+    tBlockHeader *block = &blocks[blockIdx];
+    if (block->iWidth <= 0 || block->iHeight <= 0 || block->iDataOffset <= 0)
+        return 0;
+    if (block->iWidth > 640 || block->iHeight > 400)
+        return 0;
+
+    uint32 width = (uint32)block->iWidth;
+    uint32 height = (uint32)block->iHeight;
+    if (width > UINT32_MAX / height)
+        return 0;
+    uint32 pixelBytes = width * height;
+    uint32 dataOffset = (uint32)block->iDataOffset;
+    if (dataOffset > blockBytes || pixelBytes > blockBytes - dataOffset)
+        return 0;
+
+    return 1;
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -334,8 +361,18 @@ void game_render_sw_sprite(GameRendererSoftware *sw, int slot, int blockIdx,
 
 void game_render_sw_print_block(GameRendererSoftware *sw, int slot,
                                 int blockIdx, uint8 *pDest) {
-    if (slot >= 0 && slot < GAME_RENDER_MAX_BLOCK_SLOTS && sw->blocks[slot])
-        print_block(pDest, sw->blocks[slot], blockIdx);
+    if (!sw || slot < 0 || slot >= GAME_RENDER_MAX_BLOCK_SLOTS)
+        return;
+
+    tBlockHeader *blocks = sw->blocks[slot];
+    uint32 blockBytes = getbuffer_size(blocks);
+    if (!game_render_sw_block_is_valid(blocks, blockBytes, blockIdx)) {
+        SDL_Log("game_render_sw_print_block: skipped invalid block slot=%d idx=%d ptr=%p bytes=%u",
+                slot, blockIdx, (void *)blocks, blockBytes);
+        return;
+    }
+
+    print_block(pDest, blocks, blockIdx);
 }
 
 // ---------------------------------------------------------------------------
