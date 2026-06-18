@@ -1628,6 +1628,24 @@ void race_update(void)
     initsoundlag(0);
     lagdone = -1;
   }
+  if (screenready && !fadedin)                 // Start race timing only once the race view is visible
+  {
+    game_render_begin_fade(g_pGameRenderer, 1, 0);
+    fadedin = -1;
+    holdmusic = 0;
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
+      if (!MusicCD && !winner_mode && !loading_replay) {
+        if (replaytype == 2)
+          iSong = titlesong;
+        else if (game_track == TRACK_LOAD_COMMUNITY && nummusictracks > 0)
+          iSong = rand() % nummusictracks + 1;
+        else
+          iSong = game_track;
+        startmusic(iSong);
+      }
+    }
+  }
   updates = 0;
   if (g_bSnapshotMode) {
     // No SDL tick timer in snapshot mode: drive one logical tick per
@@ -1635,20 +1653,23 @@ void race_update(void)
     // unredrawn region cannot leak from the previous frame.
     SnapshotZeroScreen();
     SnapshotAdvanceTick();
-  }
-  // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
-  // backs up iTicksPending, catching up burns main-thread time and starves
-  // the next render, which backs up more ticks, and so on.
-  int iDrained = 0;
-  while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
-    // Claim one pending tick with CAS. The timer thread can enqueue between
-    // this read and update, so a plain read/add pair can race, especially
-    // when replay rewind changes the pending count's sign.
-    int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
-    if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
-      continue;
-    game_tick_step();
-    ++iDrained;
+  } else if (fadedin || replaytype == 2) {
+    // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
+    // backs up iTicksPending, catching up burns main-thread time and starves
+    // the next render, which backs up more ticks, and so on.
+    int iDrained = 0;
+    while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+      // Claim one pending tick with CAS. The timer thread can enqueue between
+      // this read and update, so a plain read/add pair can race, especially
+      // when replay rewind changes the pending count's sign.
+      int iNextPendingTicks = iPendingTicks > 0 ? iPendingTicks - 1 : iPendingTicks + 1;
+      if (!SDL_CompareAndSwapAtomicInt(&iTicksPending, iPendingTicks, iNextPendingTicks))
+        continue;
+      game_tick_step();
+      ++iDrained;
+    }
+  } else {
+    SDL_SetAtomicInt(&iTicksPending, 0);
   }
   if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
     game_tick_step();
@@ -1794,25 +1815,6 @@ void race_update(void)
       Rforwardstart();
   } else if (forwarding) {
     slowing = -1;
-  }
-  if (screenready)                              // Handle screen fade-in and music startup
-  {
-    if (!fadedin) {
-      game_render_begin_fade(g_pGameRenderer, 1, 0);
-      fadedin = -1;
-      holdmusic = 0;
-      if (w95) {                                       // Start appropriate music track (title song for replay, game track for race)
-        if (!MusicCD && !winner_mode && !loading_replay) {
-          if (replaytype == 2)
-            iSong = titlesong;
-          else if (game_track == TRACK_LOAD_COMMUNITY && nummusictracks > 0)
-            iSong = rand() % nummusictracks + 1;
-          else
-            iSong = game_track;
-          startmusic(iSong);
-        }
-      }
-    }
   }
   //NOCD error disabled for ROLLER
   //if (!intro && replaytype != 2)            // Handle CD-ROM validation for copy protection
