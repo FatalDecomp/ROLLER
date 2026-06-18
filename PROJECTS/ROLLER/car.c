@@ -2059,7 +2059,7 @@ LABEL_117:
   }
   if (NamesLeft < 5
     && NamesLeft >= -2
-    && (names_on == 1 || names_on == 2 && human_control[pCar->iDriverIdx])
+    && (names_on == 1 || names_on == 2 && human_control[pCar->iDriverIdx] || names_on == 3 && !human_control[pCar->iDriverIdx]) /* SCF */
     && replaytype != 2
     && (pCar->byStatusFlags & 2) == 0
     && !winner_mode)                           // Render driver name above car if enabled and visible
