@@ -236,8 +236,9 @@ static void RotateCrashFiles(const char *szDir)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveExecutableDir(char *szOut, int iOutSize)
+static void ResolveExecutableDir(char *szOut, int iOutSize, const char *szDataRoot)
 {
+  (void)szDataRoot;
   DWORD dwLen = GetModuleFileNameA(NULL, szOut, (DWORD)iOutSize);
   if (dwLen == 0 || dwLen >= (DWORD)iOutSize) {
     snprintf(szOut, iOutSize, ".");
@@ -248,11 +249,12 @@ static void ResolveExecutableDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
+static void ResolveFallbackCrashDir(char *szOut, int iOutSize, const char *szDataRoot)
 {
   const char *pszLocalAppData = getenv("LOCALAPPDATA");
   char szRollerDir[CRASHDUMP_MAX_PATH];
 
+  (void)szDataRoot;
   szOut[0] = '\0';
   if (!pszLocalAppData || !pszLocalAppData[0])
     return;
@@ -366,9 +368,15 @@ static void RotateCrashFiles(const char *szDir)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveExecutableDir(char *szOut, int iOutSize)
+static void ResolveExecutableDir(char *szOut, int iOutSize, const char *szDataRoot)
 {
-#if defined(IS_LINUX) || defined(IS_ANDROID)
+#if defined(IS_ANDROID)
+  if (szDataRoot && szDataRoot[0]) {
+    BuildPath(szOut, iOutSize, szDataRoot, "crashes");
+    CreateDirIfNeeded(szOut);
+    return;
+  }
+#elif defined(IS_LINUX)
   ssize_t llLen = readlink("/proc/self/exe", szOut, (size_t)iOutSize - 1);
   if (llLen > 0 && llLen < iOutSize) {
     szOut[llLen] = '\0';
@@ -389,13 +397,18 @@ static void ResolveExecutableDir(char *szOut, int iOutSize)
 
 //-------------------------------------------------------------------------------------------------
 
-static void ResolveFallbackCrashDir(char *szOut, int iOutSize)
+static void ResolveFallbackCrashDir(char *szOut, int iOutSize, const char *szDataRoot)
 {
   const char *pszHome;
 
   szOut[0] = '\0';
 
-#ifdef IS_MACOS
+#if defined(IS_ANDROID)
+  if (szDataRoot && szDataRoot[0]) {
+    BuildPath(szOut, iOutSize, szDataRoot, "crashes");
+    CreateDirIfNeeded(szOut);
+  }
+#elif defined(IS_MACOS)
   pszHome = getenv("HOME");
   if (pszHome && pszHome[0]) {
     char szLogsDir[CRASHDUMP_MAX_PATH];
@@ -809,13 +822,13 @@ static void BuildStaticCrashInfo(void)
 
 //-------------------------------------------------------------------------------------------------
 
-void InitCrashHandler(void)
+void InitCrashHandler(const char *szDataRoot)
 {
   if (!ShouldEnableCrashHandler())
     return;
 
-  ResolveExecutableDir(s_szCrashDir, sizeof(s_szCrashDir));
-  ResolveFallbackCrashDir(s_szFallbackCrashDir, sizeof(s_szFallbackCrashDir));
+  ResolveExecutableDir(s_szCrashDir, sizeof(s_szCrashDir), szDataRoot);
+  ResolveFallbackCrashDir(s_szFallbackCrashDir, sizeof(s_szFallbackCrashDir), szDataRoot);
 
 #ifdef IS_WINDOWS
   BuildCrashBaseName(".dmp");
