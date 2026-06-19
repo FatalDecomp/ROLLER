@@ -19,6 +19,7 @@
 #include "view.h"
 #include "transfrm.h"
 #include "snapshot.h"
+#include "touch_ui.h"
 #include <memory.h>
 #include <ctype.h>
 #include <SDL3/SDL.h>
@@ -1209,6 +1210,8 @@ void readuserdata(int iPlayer)
 
   // Process special buttons
   if (InputGetActionPressed(iPlayer ? USERKEY_P2CHEAT : USERKEY_P1CHEAT))
+    nButtonFlags_1 |= 0x20;
+  if (iPlayer == 0 && touch_ui_cheat_pressed())
     nButtonFlags_1 |= 0x20;
 
   // process gear shifting

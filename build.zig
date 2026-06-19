@@ -95,6 +95,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/snapshot_scenes.c",
             "PROJECTS/ROLLER/sound.c",
             "PROJECTS/ROLLER/tower.c",
+            "PROJECTS/ROLLER/touch_ui.c",
             "PROJECTS/ROLLER/transfrm.c",
             "PROJECTS/ROLLER/userfns.c",
             "PROJECTS/ROLLER/view.c",
