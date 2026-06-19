@@ -6,6 +6,7 @@
 #include "func2.h"
 #include "graphics.h"
 #include "menu_render.h"
+#include "moving.h"
 #include "roller.h"
 #include "rollerinput.h"
 #include "snapshot.h"
@@ -28,6 +29,29 @@
 static tTouchButton s_touchButtons[3];
 static int s_iTouchButtonCount = 0;
 static int s_iTouchCheatHeld = 0;
+
+//-------------------------------------------------------------------------------------------------
+
+static int touch_ui_active_controls_visible(void)
+{
+#if defined(IS_ANDROID)
+  if (!g_bShowActiveTouchControls ||
+      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+    return 0;
+  if (g_bSnapshotMode)
+    return 0;
+  if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
+    return 0;
+  if (frontend_on || game_req || intro || winner_mode || replaytype == 2)
+    return 0;
+  if (!racing && !race_started)
+    return 0;
+
+  return -1;
+#else
+  return 0;
+#endif
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -232,8 +256,7 @@ static void touch_ui_render_active_menu(MenuRenderer *pRenderer,
   int iRightW;
   int iBrakeFull;
 
-  if (!g_bShowActiveTouchControls ||
-      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+  if (!touch_ui_active_controls_visible())
     return;
 
   if (iVirtualWidth <= 0)
@@ -348,8 +371,7 @@ static void touch_ui_render_active_game(int iVirtualWidth, int iVirtualHeight)
   int iRightW;
   int iBrakeFull;
 
-  if (!g_bShowActiveTouchControls ||
-      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+  if (!touch_ui_active_controls_visible())
     return;
 
   if (iVirtualWidth <= 0)
