@@ -181,9 +181,9 @@ jobs:
           - Windows x86_64
           - macOS ARM64
           - macOS x86_64
-          - Android (debug APK, arm64-v8a + x86_64)
+          - Android (release build, arm64-v8a + x86_64)
 
-          **Note:** This is a pre-release development build and may contain bugs or incomplete features. The Android APK is debug-signed; install with \`adb install -r\` or enable "install unknown apps" for your file manager/browser.
+          **Note:** This is a pre-release development build and may contain bugs or incomplete features. The Android APK is a release build but signed with the auto-generated debug keystore (not a Play Store key); install with \`adb install -r\` or enable "install unknown apps" for your file manager/browser.
 
           ---
           Built automatically by GitHub Actions
