@@ -423,6 +423,53 @@ static int InputPhoneTouchInBrakeRegion(const tInputPhoneTouch *pTouch)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+static SDL_DisplayOrientation InputPhoneGetDisplayOrientation(void)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  SDL_DisplayID displayID = 0;
+  SDL_DisplayOrientation eOrientation = SDL_ORIENTATION_UNKNOWN;
+
+  if (pWindow)
+    displayID = SDL_GetDisplayForWindow(pWindow);
+  if (!displayID)
+    displayID = SDL_GetPrimaryDisplay();
+  if (displayID)
+    eOrientation = SDL_GetCurrentDisplayOrientation(displayID);
+
+  return eOrientation;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static float InputPhoneGetTiltForDisplayOrientation(void)
+{
+  SDL_Window *pWindow;
+  int iWindowWidth = 0;
+  int iWindowHeight = 0;
+
+  switch (InputPhoneGetDisplayOrientation()) {
+    case SDL_ORIENTATION_LANDSCAPE:
+      return -s_afPhoneAccel[1];
+    case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
+      return s_afPhoneAccel[1];
+    case SDL_ORIENTATION_PORTRAIT:
+      return s_afPhoneAccel[0];
+    case SDL_ORIENTATION_PORTRAIT_FLIPPED:
+      return -s_afPhoneAccel[0];
+    default:
+      break;
+  }
+
+  pWindow = ROLLERGetWindow();
+  if (pWindow && SDL_GetWindowSize(pWindow, &iWindowWidth, &iWindowHeight) &&
+      iWindowWidth > iWindowHeight)
+    return -s_afPhoneAccel[1];
+
+  return s_afPhoneAccel[0];
+}
+
+//-------------------------------------------------------------------------------------------------
 #endif
 
 #if defined(_WIN32)
@@ -1303,6 +1350,13 @@ void InputHandleEvent(const SDL_Event *pEvent)
     case SDL_EVENT_FINGER_MOTION:
     case SDL_EVENT_FINGER_CANCELED:
       InputPhoneHandleTouchEvent(pEvent);
+      break;
+    case SDL_EVENT_WINDOW_HIDDEN:
+    case SDL_EVENT_WINDOW_MINIMIZED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+    case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+      InputPhoneResetTouches();
       break;
     default:
       break;
@@ -2465,7 +2519,7 @@ int InputGetPhoneSteeringValue(void)
     if (!s_iPhoneAccelValid)
       return 0;
 
-    fTilt = s_afPhoneAccel[1];
+    fTilt = InputPhoneGetTiltForDisplayOrientation();
     fMagnitude = InputPhoneAbsFloat(fTilt);
     if (fMagnitude <= INPUT_PHONE_TILT_DEADZONE)
       return 0;
@@ -2514,12 +2568,6 @@ void InputGetPhoneControlDebugState(int *piLeft, int *piRight, int *piBrake)
 
 #if defined(IS_ANDROID)
   if (g_ePhoneControls == PHONE_CONTROLS_TILT_TURN) {
-    int iSteering = InputGetPhoneSteeringValue();
-
-    if (iSteering > 0)
-      iLeft = 1;
-    else if (iSteering < 0)
-      iRight = 1;
     iBrake = InputPhoneBrakePressed();
   } else if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN) {
     for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {

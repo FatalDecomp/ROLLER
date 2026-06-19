@@ -256,11 +256,11 @@ static void touch_ui_render_active_menu(MenuRenderer *pRenderer,
                                      iVirtualHeight,
                                      TOUCH_UI_ACTIVE_BRAKE_COLOR);
   }
-  if (iLeft)
+  if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN && iLeft)
     touch_ui_render_menu_box_thick(pRenderer, iLeftX, 0, iLeftW,
                                    iVirtualHeight,
                                    TOUCH_UI_ACTIVE_TURN_COLOR);
-  if (iRight)
+  if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN && iRight)
     touch_ui_render_menu_box_thick(pRenderer, iRightX, 0, iRightW,
                                    iVirtualHeight,
                                    TOUCH_UI_ACTIVE_TURN_COLOR);
@@ -370,10 +370,10 @@ static void touch_ui_render_active_game(int iVirtualWidth, int iVirtualHeight)
       touch_ui_render_game_box_thick(iBrakeX, 0, iBrakeW, iVirtualHeight,
                                      TOUCH_UI_ACTIVE_BRAKE_COLOR);
   }
-  if (iLeft)
+  if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN && iLeft)
     touch_ui_render_game_box_thick(iLeftX, 0, iLeftW, iVirtualHeight,
                                    TOUCH_UI_ACTIVE_TURN_COLOR);
-  if (iRight)
+  if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN && iRight)
     touch_ui_render_game_box_thick(iRightX, 0, iRightW, iVirtualHeight,
                                    TOUCH_UI_ACTIVE_TURN_COLOR);
 #else

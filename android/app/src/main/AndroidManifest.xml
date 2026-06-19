@@ -15,7 +15,7 @@
             android:name="racing.fatal.roller.RollerActivity"
             android:exported="true"
             android:theme="@style/RollerTheme"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="fullSensor"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout"
             android:launchMode="singleInstance">
             <intent-filter>

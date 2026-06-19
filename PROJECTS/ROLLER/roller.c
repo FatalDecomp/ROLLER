@@ -457,7 +457,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 #if defined(IS_ANDROID)
-  SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+  SDL_SetHint(SDL_HINT_ORIENTATIONS,
+              "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
 #endif
 #if defined(_WIN32)
   SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT,
