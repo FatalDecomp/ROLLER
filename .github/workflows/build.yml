@@ -227,12 +227,12 @@ jobs:
         with:
           gradle-version: 8.7
 
-      - name: Build debug APK
-        run: gradle -p android assembleDebug --no-daemon
+      - name: Build release APK
+        run: gradle -p android assembleRelease --no-daemon
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v7
         with:
-          name: roller-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: roller-android-release
+          path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7

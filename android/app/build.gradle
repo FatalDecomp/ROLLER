@@ -27,7 +27,14 @@ android {
 
     buildTypes {
         debug { debuggable true }
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            // No dedicated release keystore yet, so sign with the auto-generated
+            // debug keystore. This isn't a Play Store signing key, but it keeps
+            // the nightly release APK signed and directly installable via adb/
+            // sideloading without needing a secret in CI.
+            signingConfig signingConfigs.debug
+        }
     }
 
     compileOptions {
