@@ -335,21 +335,15 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 {
     if (!r->meshPipeline || r->meshDrawCount == 0) return;
 
-    // Compute viewport mapping from virtual 640x400 to swapchain pixels
-    float wAsp = (float)r->swapchainWidth / (float)r->swapchainHeight;
-    float mAsp = (float)MENU_WIDTH / (float)MENU_HEIGHT;
-    float baseX, baseY, baseW, baseH;
-    if (wAsp > mAsp) {
-        baseH = (float)r->swapchainHeight;
-        baseW = mAsp * baseH;
-        baseX = (r->swapchainWidth - baseW) / 2.0f;
-        baseY = 0;
-    } else {
-        baseW = (float)r->swapchainWidth;
-        baseH = baseW / mAsp;
-        baseX = 0;
-        baseY = (r->swapchainHeight - baseH) / 2.0f;
-    }
+    // Compute viewport mapping from virtual 640x400 to swapchain pixels.
+    SDL_GPUViewport baseVp = {0};
+    ROLLERGetPresentViewport(r->swapchainWidth, r->swapchainHeight,
+                             (float)MENU_WIDTH / (float)MENU_HEIGHT,
+                             &baseVp);
+    float baseX = baseVp.x;
+    float baseY = baseVp.y;
+    float baseW = baseVp.w;
+    float baseH = baseVp.h;
     float scaleX = baseW / (float)MENU_WIDTH;
     float scaleY = baseH / (float)MENU_HEIGHT;
 
@@ -764,20 +758,10 @@ void menu_render_gpu_end_frame(MenuRendererGPU *r)
     SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(r->cmdBuf, &ct, 1,
         r->depthTexture ? &dsi : NULL);
 
-    // Set viewport for aspect-ratio preservation
     SDL_GPUViewport vp = {0};
-    float wAsp = (float)r->swapchainWidth / (float)r->swapchainHeight;
-    float mAsp = (float)MENU_WIDTH / (float)MENU_HEIGHT;
-    if (wAsp > mAsp) {
-        vp.h = (float)r->swapchainHeight;
-        vp.w = mAsp * r->swapchainHeight;
-        vp.x = (r->swapchainWidth - vp.w) / 2.0f;
-    } else {
-        vp.w = (float)r->swapchainWidth;
-        vp.h = r->swapchainWidth / mAsp;
-        vp.y = (r->swapchainHeight - vp.h) / 2.0f;
-    }
-    vp.max_depth = 1.0f;
+    ROLLERGetPresentViewport(r->swapchainWidth, r->swapchainHeight,
+                             (float)MENU_WIDTH / (float)MENU_HEIGHT,
+                             &vp);
     SDL_SetGPUViewport(renderPass, &vp);
 
     // Background 2D draws (behind 3D preview)

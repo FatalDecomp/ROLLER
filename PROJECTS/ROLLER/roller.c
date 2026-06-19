@@ -97,6 +97,14 @@ bool g_bNoclip = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
+#if defined(IS_ANDROID)
+#define ROLLER_RESIZE_DEFER_FRAMES 6
+#else
+#define ROLLER_RESIZE_DEFER_FRAMES 2
+#endif
+
+#define ROLLER_PRESENT_ASPECT ((float)640.0f / (float)400.0f)
+
 SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
 SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 
@@ -163,6 +171,54 @@ bool ROLLERGpuPresentationSuspended(void)
     return true;
 
   return false;
+}
+
+void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
+                              float fContentAspect,
+                              SDL_GPUViewport *pViewport)
+{
+  int iWindowW = 0;
+  int iWindowH = 0;
+  float fTargetW = (float)uiTargetW;
+  float fTargetH = (float)uiTargetH;
+  float fAdjustedAspect = fContentAspect;
+  float fTargetAspect;
+
+  if (!pViewport)
+    return;
+
+  pViewport->x = 0.0f;
+  pViewport->y = 0.0f;
+  pViewport->w = fTargetW;
+  pViewport->h = fTargetH;
+  pViewport->min_depth = 0.0f;
+  pViewport->max_depth = 1.0f;
+
+  if (uiTargetW == 0 || uiTargetH == 0 || fContentAspect <= 0.0f)
+    return;
+
+  if (s_pWindow &&
+      SDL_GetWindowSizeInPixels(s_pWindow, &iWindowW, &iWindowH) &&
+      iWindowW > 0 && iWindowH > 0 &&
+      (iWindowW != (int)uiTargetW || iWindowH != (int)uiTargetH)) {
+    fAdjustedAspect = fContentAspect *
+                      ((float)iWindowH * fTargetW) /
+                      ((float)iWindowW * fTargetH);
+  }
+
+  if (fAdjustedAspect <= 0.0f)
+    fAdjustedAspect = fContentAspect;
+
+  fTargetAspect = fTargetW / fTargetH;
+  if (fTargetAspect > fAdjustedAspect) {
+    pViewport->h = fTargetH;
+    pViewport->w = fAdjustedAspect * fTargetH;
+    pViewport->x = (fTargetW - pViewport->w) * 0.5f;
+  } else {
+    pViewport->w = fTargetW;
+    pViewport->h = fTargetW / fAdjustedAspect;
+    pViewport->y = (fTargetH - pViewport->h) * 0.5f;
+  }
 }
 
 SDL_Mutex *g_pTimerMutex = NULL;
@@ -337,28 +393,29 @@ void UpdateSDLWindow()
 
   // Blit with aspect-ratio preservation
   SDL_GPUBlitInfo blitInfo = {0};
+  SDL_GPUViewport viewport = {0};
   blitInfo.source.texture = s_pGameTexture;
   blitInfo.source.w = winw;
   blitInfo.source.h = winh;
 
-  float fWindowAspect = (float)swW / (float)swH;
-  float fTextureAspect = (float)winw / (float)winh;
-
-  if (fWindowAspect > fTextureAspect) {
-    Uint32 dstW = (Uint32)(fTextureAspect * swH);
-    blitInfo.destination.texture = swapchainTex;
-    blitInfo.destination.x = (swW - dstW) / 2;
-    blitInfo.destination.y = 0;
-    blitInfo.destination.w = dstW;
-    blitInfo.destination.h = swH;
-  } else {
-    Uint32 dstH = (Uint32)(swW / fTextureAspect);
-    blitInfo.destination.texture = swapchainTex;
+  ROLLERGetPresentViewport(swW, swH, ROLLER_PRESENT_ASPECT, &viewport);
+  blitInfo.destination.texture = swapchainTex;
+  blitInfo.destination.x = (Uint32)(viewport.x + 0.5f);
+  blitInfo.destination.y = (Uint32)(viewport.y + 0.5f);
+  blitInfo.destination.w = (Uint32)(viewport.w + 0.5f);
+  blitInfo.destination.h = (Uint32)(viewport.h + 0.5f);
+  if (blitInfo.destination.x >= swW)
     blitInfo.destination.x = 0;
-    blitInfo.destination.y = (swH - dstH) / 2;
-    blitInfo.destination.w = swW;
-    blitInfo.destination.h = dstH;
-  }
+  if (blitInfo.destination.y >= swH)
+    blitInfo.destination.y = 0;
+  if (blitInfo.destination.w < 1)
+    blitInfo.destination.w = 1;
+  if (blitInfo.destination.h < 1)
+    blitInfo.destination.h = 1;
+  if (blitInfo.destination.x + blitInfo.destination.w > swW)
+    blitInfo.destination.w = swW - blitInfo.destination.x;
+  if (blitInfo.destination.y + blitInfo.destination.h > swH)
+    blitInfo.destination.h = swH - blitInfo.destination.y;
   blitInfo.filter = SDL_GPU_FILTER_NEAREST;
   blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
   blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
@@ -429,6 +486,9 @@ void ROLLERRefreshStartupOverlay()
 
 void ToggleFullscreen()
 {
+#if defined(IS_ANDROID)
+  return;
+#endif
   if (!s_pWindow)
     return;
 
@@ -515,9 +575,6 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 #endif
 
   SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
-#if defined(IS_ANDROID)
-  uiWindowFlags |= SDL_WINDOW_FULLSCREEN;
-#endif
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
@@ -988,9 +1045,11 @@ void UpdateSDL()
         case SDL_EVENT_WINDOW_RESTORED:
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED:
+        case SDL_EVENT_WINDOW_OCCLUDED:
         case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
         case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
-          DeferGPUPresentation(2);
+          DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
           break;
         default:
           break;

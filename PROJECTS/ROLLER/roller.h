@@ -51,6 +51,9 @@ bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Wind
                                          SDL_GPUTexture **ppSwapchainTex,
                                          Uint32 *puiSwapchainW, Uint32 *puiSwapchainH);
 bool ROLLERGpuPresentationSuspended(void);
+void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
+                              float fContentAspect,
+                              SDL_GPUViewport *pViewport);
 void ROLLERRefreshStartupOverlay();
 
 bool ROLLERfexists(const char *szFile);
