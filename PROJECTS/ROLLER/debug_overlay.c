@@ -24,8 +24,9 @@
 // ---------------------------------------------------------------------------
 
 #define OVERLAY_W        1280
-#define OVERLAY_H        720
+#define OVERLAY_H        800
 #define OVERLAY_BPP      4    // RGBA
+#define OVERLAY_ASPECT   ((float)OVERLAY_W / (float)OVERLAY_H)
 
 #define MAX_LOG_MESSAGES 512
 #define MAX_LOG_LEN      256
@@ -467,8 +468,11 @@ static bool DebugOverlayInputEventPoint(DebugOverlay *pOverlay,
 {
   int iWinW = 0;
   int iWinH = 0;
+  SDL_GPUViewport viewport = {0};
   float fWindowX = 0.0f;
   float fWindowY = 0.0f;
+  float fOverlayX;
+  float fOverlayY;
 
   if (!pOverlay || !pEvent || !piX || !piY)
     return false;
@@ -476,6 +480,9 @@ static bool DebugOverlayInputEventPoint(DebugOverlay *pOverlay,
   if (!SDL_GetWindowSizeInPixels(pOverlay->pWindow, &iWinW, &iWinH) ||
       iWinW <= 0 || iWinH <= 0)
     return false;
+
+  ROLLERGetPresentViewport((Uint32)iWinW, (Uint32)iWinH, OVERLAY_ASPECT,
+                           &viewport);
 
   switch (pEvent->type) {
     case SDL_EVENT_MOUSE_MOTION:
@@ -498,8 +505,18 @@ static bool DebugOverlayInputEventPoint(DebugOverlay *pOverlay,
       return false;
   }
 
-  *piX = (int)(fWindowX * (float)OVERLAY_W / (float)iWinW);
-  *piY = (int)(fWindowY * (float)OVERLAY_H / (float)iWinH);
+  if (viewport.w <= 0.0f || viewport.h <= 0.0f)
+    return false;
+
+  fOverlayX = (fWindowX - viewport.x) * (float)OVERLAY_W / viewport.w;
+  fOverlayY = (fWindowY - viewport.y) * (float)OVERLAY_H / viewport.h;
+  if (fOverlayX < 0.0f || fOverlayY < 0.0f ||
+      fOverlayX >= (float)OVERLAY_W ||
+      fOverlayY >= (float)OVERLAY_H)
+    return false;
+
+  *piX = (int)fOverlayX;
+  *piY = (int)fOverlayY;
   return true;
 }
 
@@ -858,6 +875,8 @@ void debug_overlay_render(DebugOverlay *pOverlay,
                           SDL_GPUCommandBuffer *pCmdBuf,
                           SDL_GPUTexture *pSwapchainTex,
                           Uint32 uiSwapchainW, Uint32 uiSwapchainH) {
+  SDL_GPUViewport viewport = {0};
+
   if (!pOverlay || !pOverlay->bVisible) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
@@ -883,6 +902,9 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   ct.store_op  = SDL_GPU_STOREOP_STORE;
 
   SDL_GPURenderPass *pRp = SDL_BeginGPURenderPass(pCmdBuf, &ct, 1, NULL);
+  ROLLERGetPresentViewport(uiSwapchainW, uiSwapchainH, OVERLAY_ASPECT,
+                           &viewport);
+  SDL_SetGPUViewport(pRp, &viewport);
   SDL_BindGPUGraphicsPipeline(pRp, pOverlay->pPipeline);
   SDL_GPUTextureSamplerBinding binding = { .texture = pOverlay->pTexture, .sampler = pOverlay->pSampler };
   SDL_BindGPUFragmentSamplers(pRp, 0, &binding, 1);
