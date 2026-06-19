@@ -327,6 +327,23 @@ static uint32 s_uiFrontendMouseConsumedMotionSeq = 0;
 static uint32 s_uiFrontendMouseClickSeq = 0;
 static uint32 s_uiFrontendMouseConsumedClickSeq = 0;
 static float s_fFrontendMouseWheelY = 0.0f;
+static int s_iFrontendTouchActive = 0;
+static int s_iFrontendTouchClickCancelled = 0;
+static SDL_FingerID s_ullFrontendTouchFingerId = 0;
+static float s_fFrontendTouchStartWindowX = 0.0f;
+static float s_fFrontendTouchStartWindowY = 0.0f;
+static float s_fFrontendTouchLastWindowX = 0.0f;
+static float s_fFrontendTouchLastWindowY = 0.0f;
+
+#define FRONTEND_TOUCH_CLICK_MAX_MOVE 12.0f
+#define FRONTEND_TOUCH_WHEEL_PIXELS 24.0f
+
+//-------------------------------------------------------------------------------------------------
+
+static float frontend_mouse_abs_float(float fValue)
+{
+  return fValue < 0.0f ? -fValue : fValue;
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -392,6 +409,180 @@ static void frontend_mouse_map_window_point(float fWindowX, float fWindowY,
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_mouse_window_to_virtual(float fWindowX, float fWindowY,
+                                     int *piVirtualX, int *piVirtualY)
+{
+  int iVirtualX = 0;
+  int iVirtualY = 0;
+  int iValid = 0;
+
+  if (!piVirtualX || !piVirtualY)
+    return 0;
+
+  frontend_mouse_map_window_point(fWindowX, fWindowY, &iVirtualX,
+                                  &iVirtualY, &iValid);
+  *piVirtualX = iVirtualX;
+  *piVirtualY = iVirtualY;
+  return iValid;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_mouse_touch_window_point(float fTouchX, float fTouchY,
+                                             float *pfWindowX,
+                                             float *pfWindowY)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  int iWindowWidth = 0;
+  int iWindowHeight = 0;
+
+  if (!pWindow)
+    return 0;
+
+  if (!SDL_GetWindowSize(pWindow, &iWindowWidth, &iWindowHeight))
+    return 0;
+  if (iWindowWidth <= 0 || iWindowHeight <= 0)
+    return 0;
+
+  *pfWindowX = fTouchX * (float)iWindowWidth;
+  *pfWindowY = fTouchY * (float)iWindowHeight;
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_mouse_touch_delta_virtual(float fFirstWindowX,
+                                               float fFirstWindowY,
+                                               float fSecondWindowX,
+                                               float fSecondWindowY,
+                                               float *pfDeltaX,
+                                               float *pfDeltaY)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  int iFirstX = 0;
+  int iFirstY = 0;
+  int iSecondX = 0;
+  int iSecondY = 0;
+  int iFirstValid = 0;
+  int iSecondValid = 0;
+  int iWindowWidth = 0;
+  int iWindowHeight = 0;
+
+  frontend_mouse_map_window_point(fFirstWindowX, fFirstWindowY, &iFirstX,
+                                  &iFirstY, &iFirstValid);
+  frontend_mouse_map_window_point(fSecondWindowX, fSecondWindowY, &iSecondX,
+                                  &iSecondY, &iSecondValid);
+  if (iFirstValid && iSecondValid) {
+    *pfDeltaX = (float)(iSecondX - iFirstX);
+    *pfDeltaY = (float)(iSecondY - iFirstY);
+    return;
+  }
+
+  if (pWindow && SDL_GetWindowSize(pWindow, &iWindowWidth, &iWindowHeight) &&
+      iWindowWidth > 0 && iWindowHeight > 0) {
+    *pfDeltaX = (fSecondWindowX - fFirstWindowX) *
+                (float)s_iFrontendMouseVirtualWidth / (float)iWindowWidth;
+    *pfDeltaY = (fSecondWindowY - fFirstWindowY) *
+                (float)s_iFrontendMouseVirtualHeight / (float)iWindowHeight;
+    return;
+  }
+
+  *pfDeltaX = fSecondWindowX - fFirstWindowX;
+  *pfDeltaY = fSecondWindowY - fFirstWindowY;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_mouse_set_window_position(float fWindowX, float fWindowY)
+{
+  s_fFrontendMouseWindowX = fWindowX;
+  s_fFrontendMouseWindowY = fWindowY;
+  s_iFrontendMouseWindowPosValid = -1;
+  ++s_uiFrontendMouseMotionSeq;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_mouse_handle_touch_event(const SDL_Event *pEvent)
+{
+  float fWindowX = 0.0f;
+  float fWindowY = 0.0f;
+  float fTotalDeltaX = 0.0f;
+  float fTotalDeltaY = 0.0f;
+  float fFrameDeltaX = 0.0f;
+  float fFrameDeltaY = 0.0f;
+
+  if (!frontend_mouse_touch_window_point(pEvent->tfinger.x, pEvent->tfinger.y,
+                                         &fWindowX, &fWindowY))
+    return;
+
+  switch (pEvent->type) {
+    case SDL_EVENT_FINGER_DOWN:
+      if (s_iFrontendTouchActive)
+        return;
+
+      s_iFrontendTouchActive = -1;
+      s_iFrontendTouchClickCancelled = 0;
+      s_ullFrontendTouchFingerId = pEvent->tfinger.fingerID;
+      s_fFrontendTouchStartWindowX = fWindowX;
+      s_fFrontendTouchStartWindowY = fWindowY;
+      s_fFrontendTouchLastWindowX = fWindowX;
+      s_fFrontendTouchLastWindowY = fWindowY;
+      s_iFrontendMouseLeftDown = -1;
+      frontend_mouse_set_window_position(fWindowX, fWindowY);
+      break;
+    case SDL_EVENT_FINGER_MOTION:
+      if (!s_iFrontendTouchActive ||
+          s_ullFrontendTouchFingerId != pEvent->tfinger.fingerID)
+        return;
+
+      frontend_mouse_touch_delta_virtual(s_fFrontendTouchStartWindowX,
+                                         s_fFrontendTouchStartWindowY,
+                                         fWindowX, fWindowY,
+                                         &fTotalDeltaX, &fTotalDeltaY);
+      frontend_mouse_touch_delta_virtual(s_fFrontendTouchLastWindowX,
+                                         s_fFrontendTouchLastWindowY,
+                                         fWindowX, fWindowY,
+                                         &fFrameDeltaX, &fFrameDeltaY);
+      if (frontend_mouse_abs_float(fTotalDeltaX) >
+              FRONTEND_TOUCH_CLICK_MAX_MOVE ||
+          frontend_mouse_abs_float(fTotalDeltaY) >
+              FRONTEND_TOUCH_CLICK_MAX_MOVE)
+        s_iFrontendTouchClickCancelled = -1;
+
+      if (s_iFrontendTouchClickCancelled &&
+          frontend_mouse_abs_float(fTotalDeltaY) >
+              frontend_mouse_abs_float(fTotalDeltaX))
+        s_fFrontendMouseWheelY += fFrameDeltaY / FRONTEND_TOUCH_WHEEL_PIXELS;
+
+      s_fFrontendTouchLastWindowX = fWindowX;
+      s_fFrontendTouchLastWindowY = fWindowY;
+      frontend_mouse_set_window_position(fWindowX, fWindowY);
+      break;
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_CANCELED:
+      if (!s_iFrontendTouchActive ||
+          s_ullFrontendTouchFingerId != pEvent->tfinger.fingerID)
+        return;
+
+      frontend_mouse_set_window_position(fWindowX, fWindowY);
+      s_iFrontendMouseLeftDown = 0;
+      if (pEvent->type == SDL_EVENT_FINGER_UP &&
+          !s_iFrontendTouchClickCancelled) {
+        s_fFrontendMouseClickWindowX = fWindowX;
+        s_fFrontendMouseClickWindowY = fWindowY;
+        ++s_uiFrontendMouseClickSeq;
+      }
+      s_iFrontendTouchActive = 0;
+      s_ullFrontendTouchFingerId = 0;
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_mouse_handle_event(const SDL_Event *pEvent)
 {
   if (!pEvent)
@@ -399,12 +590,16 @@ void frontend_mouse_handle_event(const SDL_Event *pEvent)
 
   switch (pEvent->type) {
     case SDL_EVENT_MOUSE_MOTION:
+      if (pEvent->motion.which == SDL_TOUCH_MOUSEID)
+        break;
       s_fFrontendMouseWindowX = pEvent->motion.x;
       s_fFrontendMouseWindowY = pEvent->motion.y;
       s_iFrontendMouseWindowPosValid = -1;
       ++s_uiFrontendMouseMotionSeq;
       break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
+      if (pEvent->button.which == SDL_TOUCH_MOUSEID)
+        break;
       s_fFrontendMouseWindowX = pEvent->button.x;
       s_fFrontendMouseWindowY = pEvent->button.y;
       s_iFrontendMouseWindowPosValid = -1;
@@ -416,6 +611,8 @@ void frontend_mouse_handle_event(const SDL_Event *pEvent)
       }
       break;
     case SDL_EVENT_MOUSE_BUTTON_UP:
+      if (pEvent->button.which == SDL_TOUCH_MOUSEID)
+        break;
       s_fFrontendMouseWindowX = pEvent->button.x;
       s_fFrontendMouseWindowY = pEvent->button.y;
       s_iFrontendMouseWindowPosValid = -1;
@@ -423,7 +620,15 @@ void frontend_mouse_handle_event(const SDL_Event *pEvent)
         s_iFrontendMouseLeftDown = 0;
       break;
     case SDL_EVENT_MOUSE_WHEEL:
+      if (pEvent->wheel.which == SDL_TOUCH_MOUSEID)
+        break;
       s_fFrontendMouseWheelY += pEvent->wheel.y;
+      break;
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+      frontend_mouse_handle_touch_event(pEvent);
       break;
     default:
       break;

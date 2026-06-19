@@ -19,6 +19,7 @@
 #include "view.h"
 #include "transfrm.h"
 #include "snapshot.h"
+#include "touch_ui.h"
 #include <memory.h>
 #include <ctype.h>
 #include <SDL3/SDL.h>
@@ -1085,6 +1086,8 @@ void readuserdata(int iPlayer)
   int iNode; // edx
   int iMessageIdx; // eax
   int iAnalogSteering; // eax
+  int iPhoneSteering; // eax
+  int iPhoneBrake; // eax
   char iAccelState; // [esp+0h] [ebp-1Ch]
 
   // Skip processing during countdown phase
@@ -1116,9 +1119,21 @@ void readuserdata(int iPlayer)
     iAccelState = 1;
   if (InputGetActionPressed(iKeyIndex + 3))
     iAccelState -= 2;
+  if (iPlayer == 0) {
+    iPhoneBrake = InputPhoneBrakePressed();
+    if (InputPhoneAutoAccelerate() && !iPhoneBrake && !iAccelState)
+      iAccelState = 1;
+    if (iPhoneBrake)
+      iAccelState -= 2;
+  }
 
   // process steering input
   iAnalogSteering = InputGetSteeringValue(iPlayer);
+  if (iPlayer == 0) {
+    iPhoneSteering = InputGetPhoneSteeringValue();
+    if (abs(iPhoneSteering) > abs(iAnalogSteering))
+      iAnalogSteering = iPhoneSteering;
+  }
   if (iAnalogSteering) {
     // analog steering processing
     if (iAnalogSteering > 0) {
@@ -1209,6 +1224,8 @@ void readuserdata(int iPlayer)
 
   // Process special buttons
   if (InputGetActionPressed(iPlayer ? USERKEY_P2CHEAT : USERKEY_P1CHEAT))
+    nButtonFlags_1 |= 0x20;
+  if (iPlayer == 0 && touch_ui_cheat_pressed())
     nButtonFlags_1 |= 0x20;
 
   // process gear shifting
