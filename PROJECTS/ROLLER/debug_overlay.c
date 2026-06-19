@@ -597,6 +597,22 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     }
 #endif
 
+#if defined(IS_ANDROID)
+    {
+      static const char *apszPhoneControls[] = { "Disabled", "Tilt turn", "Touch turn" };
+      int iSel = (int)g_ePhoneControls;
+      if (iSel < 0 || iSel > 2)
+        iSel = 0;
+      nk_layout_row_dynamic(pCtx, 20, 2);
+      nk_label(pCtx, "Phone controls", NK_TEXT_LEFT);
+      int iNewSel = nk_combo(pCtx, apszPhoneControls, 3, iSel, 20, nk_vec2(160, 80));
+      if (iNewSel != iSel) {
+        g_ePhoneControls = (ePhoneControls)iNewSel;
+        InputSaveConfig();
+      }
+    }
+#endif
+
     nk_layout_row_dynamic(pCtx, 8, 1);
     nk_spacing(pCtx, 1);
     nk_layout_row_dynamic(pCtx, 20, 1);

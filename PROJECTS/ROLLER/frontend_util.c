@@ -409,6 +409,25 @@ static void frontend_mouse_map_window_point(float fWindowX, float fWindowY,
 
 //-------------------------------------------------------------------------------------------------
 
+int frontend_mouse_window_to_virtual(float fWindowX, float fWindowY,
+                                     int *piVirtualX, int *piVirtualY)
+{
+  int iVirtualX = 0;
+  int iVirtualY = 0;
+  int iValid = 0;
+
+  if (!piVirtualX || !piVirtualY)
+    return 0;
+
+  frontend_mouse_map_window_point(fWindowX, fWindowY, &iVirtualX,
+                                  &iVirtualY, &iValid);
+  *piVirtualX = iVirtualX;
+  *piVirtualY = iVirtualY;
+  return iValid;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int frontend_mouse_touch_window_point(float fTouchX, float fTouchY,
                                              float *pfWindowX,
                                              float *pfWindowY)
