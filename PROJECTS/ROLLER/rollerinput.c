@@ -1,5 +1,9 @@
 #include "rollerinput.h"
 #include "3d.h"
+#if defined(IS_ANDROID)
+#include "frontend.h"
+#include "touch_ui.h"
+#endif
 #include "func2.h"
 #include "loadtrak.h"
 #include "menu_render.h"
@@ -23,6 +27,12 @@
 #define INPUT_MENU_AXIS_DEADZONE 12000
 #define INPUT_MENU_REPEAT_INITIAL_MS 280
 #define INPUT_MENU_REPEAT_MS 90
+#if defined(IS_ANDROID)
+#define INPUT_PHONE_MAX_TOUCHES 8
+#define INPUT_PHONE_STEERING_MAX 0x102
+#define INPUT_PHONE_TILT_DEADZONE 0.25f
+#define INPUT_PHONE_TILT_FULL 4.5f
+#endif
 #if defined(_WIN32)
 #define INPUT_WINMM_AXIS_COUNT 6
 #define INPUT_WINMM_REFRESH_MS 1000
@@ -56,9 +66,23 @@ typedef struct
   uint64 ullNextRepeatMs;
 } tInputMenuKeyState;
 
+#if defined(IS_ANDROID)
+typedef struct
+{
+  SDL_FingerID ullFingerId;
+  int iActive;
+  float fNormX;
+  float fNormY;
+  int iVirtualX;
+  int iVirtualY;
+  int iVirtualValid;
+} tInputPhoneTouch;
+#endif
+
 //-------------------------------------------------------------------------------------------------
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
+ePhoneControls g_ePhoneControls = PHONE_CONTROLS_DISABLED;
 
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;
@@ -86,6 +110,13 @@ static uint32 s_uWinMMDeviceMask = 0;
 static uint64 s_ullNextWinMMRefreshMs = 0;
 static bool s_bRefreshingDevices = false;
 static eInputWindowsBackend s_eWindowsBackend = INPUT_WINDOWS_BACKEND_SDL_DINPUT;
+#endif
+#if defined(IS_ANDROID)
+static tInputPhoneTouch s_aPhoneTouches[INPUT_PHONE_MAX_TOUCHES];
+static SDL_Sensor *s_pPhoneAccelSensor = NULL;
+static int s_iPhoneAccelOpenTried = 0;
+static float s_afPhoneAccel[3] = { 0.0f, 0.0f, 0.0f };
+static int s_iPhoneAccelValid = 0;
 #endif
 
 static const tInputActionInfo s_actionInfo[INPUT_NUM_ACTIONS] = {
@@ -117,6 +148,13 @@ static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton e
 static void InputMenuRememberAxisRests(void);
 static void InputMenuRememberButtonStates(void);
 static void InputMenuResetKeyStates(void);
+#if defined(IS_ANDROID)
+static void InputPhoneResetTouches(void);
+static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent);
+static void InputPhoneUpdateSensor(void);
+static void InputPhoneShutdown(void);
+static int InputParsePhoneControlsSetting(const char *szValue);
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -130,6 +168,200 @@ static int InputClampInt(int iValue, int iMin, int iMax)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_ANDROID)
+static float InputPhoneAbsFloat(float fValue)
+{
+  return fValue < 0.0f ? -fValue : fValue;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneResetTouches(void)
+{
+  memset(s_aPhoneTouches, 0, sizeof(s_aPhoneTouches));
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneFindTouch(SDL_FingerID ullFingerId)
+{
+  for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+    if (s_aPhoneTouches[iTouch].iActive &&
+        s_aPhoneTouches[iTouch].ullFingerId == ullFingerId)
+      return iTouch;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneFindFreeTouch(void)
+{
+  for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+    if (!s_aPhoneTouches[iTouch].iActive)
+      return iTouch;
+  }
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneStoreTouchPoint(tInputPhoneTouch *pTouch,
+                                      const SDL_Event *pEvent)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  int iWindowWidth = 0;
+  int iWindowHeight = 0;
+  float fWindowX = 0.0f;
+  float fWindowY = 0.0f;
+
+  if (!pTouch || !pEvent)
+    return;
+
+  pTouch->fNormX = pEvent->tfinger.x;
+  pTouch->fNormY = pEvent->tfinger.y;
+  pTouch->iVirtualX = 0;
+  pTouch->iVirtualY = 0;
+  pTouch->iVirtualValid = 0;
+
+  if (!pWindow)
+    return;
+  if (!SDL_GetWindowSize(pWindow, &iWindowWidth, &iWindowHeight))
+    return;
+  if (iWindowWidth <= 0 || iWindowHeight <= 0)
+    return;
+
+  fWindowX = pTouch->fNormX * (float)iWindowWidth;
+  fWindowY = pTouch->fNormY * (float)iWindowHeight;
+  pTouch->iVirtualValid =
+      frontend_mouse_window_to_virtual(fWindowX, fWindowY,
+                                       &pTouch->iVirtualX,
+                                       &pTouch->iVirtualY);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent)
+{
+  int iTouch;
+
+  if (!pEvent)
+    return;
+
+  switch (pEvent->type) {
+    case SDL_EVENT_FINGER_DOWN:
+      iTouch = InputPhoneFindTouch(pEvent->tfinger.fingerID);
+      if (iTouch < 0)
+        iTouch = InputPhoneFindFreeTouch();
+      if (iTouch < 0)
+        return;
+
+      s_aPhoneTouches[iTouch].ullFingerId = pEvent->tfinger.fingerID;
+      s_aPhoneTouches[iTouch].iActive = -1;
+      InputPhoneStoreTouchPoint(&s_aPhoneTouches[iTouch], pEvent);
+      break;
+    case SDL_EVENT_FINGER_MOTION:
+      iTouch = InputPhoneFindTouch(pEvent->tfinger.fingerID);
+      if (iTouch < 0)
+        return;
+      InputPhoneStoreTouchPoint(&s_aPhoneTouches[iTouch], pEvent);
+      break;
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_CANCELED:
+      iTouch = InputPhoneFindTouch(pEvent->tfinger.fingerID);
+      if (iTouch < 0)
+        return;
+      memset(&s_aPhoneTouches[iTouch], 0, sizeof(s_aPhoneTouches[iTouch]));
+      break;
+    default:
+      break;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneCloseSensor(void)
+{
+  if (s_pPhoneAccelSensor) {
+    SDL_CloseSensor(s_pPhoneAccelSensor);
+    s_pPhoneAccelSensor = NULL;
+  }
+
+  s_iPhoneAccelOpenTried = 0;
+  s_iPhoneAccelValid = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneEnsureSensor(void)
+{
+  SDL_SensorID *pSensors;
+  int iSensorCount = 0;
+
+  if (s_pPhoneAccelSensor || s_iPhoneAccelOpenTried)
+    return;
+
+  s_iPhoneAccelOpenTried = -1;
+  pSensors = SDL_GetSensors(&iSensorCount);
+  for (int iSensor = 0; pSensors && iSensor < iSensorCount; ++iSensor) {
+    if (SDL_GetSensorTypeForID(pSensors[iSensor]) != SDL_SENSOR_ACCEL)
+      continue;
+
+    s_pPhoneAccelSensor = SDL_OpenSensor(pSensors[iSensor]);
+    if (s_pPhoneAccelSensor)
+      break;
+
+    SDL_Log("Phone controls: SDL_OpenSensor failed: %s", SDL_GetError());
+  }
+
+  if (pSensors)
+    SDL_free(pSensors);
+
+  if (!s_pPhoneAccelSensor)
+    SDL_Log("Phone controls: accelerometer sensor unavailable.");
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneUpdateSensor(void)
+{
+  if (g_ePhoneControls != PHONE_CONTROLS_TILT_TURN) {
+    InputPhoneCloseSensor();
+    return;
+  }
+
+  InputPhoneEnsureSensor();
+  if (!s_pPhoneAccelSensor)
+    return;
+
+  s_iPhoneAccelValid =
+      SDL_GetSensorData(s_pPhoneAccelSensor, s_afPhoneAccel, 3) ? -1 : 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneShutdown(void)
+{
+  InputPhoneCloseSensor();
+  InputPhoneResetTouches();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneTouchInVisibleButton(const tInputPhoneTouch *pTouch)
+{
+  if (!pTouch || !pTouch->iVirtualValid)
+    return 0;
+
+  return touch_ui_point_in_visible_button(pTouch->iVirtualX,
+                                          pTouch->iVirtualY);
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
 
 #if defined(_WIN32)
 static int InputUsingSDLDirectInput(void)
@@ -945,12 +1177,18 @@ void InputInit(void)
 
   s_bInitialized = true;
   InputResetBindings();
+#if defined(IS_ANDROID)
+  InputPhoneResetTouches();
+#endif
 
 #if defined(_WIN32)
   InputApplyWindowsBackendHint();
   uiInitFlags = InputGetSDLInitFlags();
 #else
   uiInitFlags = SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD;
+#if defined(IS_ANDROID)
+  uiInitFlags |= SDL_INIT_SENSOR;
+#endif
 #endif
 
   if (uiInitFlags && !SDL_InitSubSystem(uiInitFlags)) {
@@ -973,8 +1211,15 @@ void InputShutdown(void)
   s_bWaitingForRelease = false;
   InputCancelPendingDeviceRefresh();
   InputCloseAllDevices();
+#if defined(IS_ANDROID)
+  InputPhoneShutdown();
+#endif
 #if defined(_WIN32)
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
+#elif defined(IS_ANDROID)
+  SDL_QuitSubSystem(SDL_INIT_SENSOR);
+  SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+  SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 #else
   SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
   SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
@@ -988,6 +1233,19 @@ void InputHandleEvent(const SDL_Event *pEvent)
 {
   if (!pEvent || !s_bInitialized)
     return;
+
+#if defined(IS_ANDROID)
+  switch (pEvent->type) {
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+      InputPhoneHandleTouchEvent(pEvent);
+      break;
+    default:
+      break;
+  }
+#endif
 
   if (pEvent->type == SDL_EVENT_JOYSTICK_ADDED ||
       pEvent->type == SDL_EVENT_JOYSTICK_REMOVED ||
@@ -1003,6 +1261,10 @@ void InputUpdate(void)
 {
   if (!s_bInitialized)
     return;
+
+#if defined(IS_ANDROID)
+  InputPhoneUpdateSensor();
+#endif
 
   if (InputMaybeApplyPendingDeviceRefresh())
     return;
@@ -2094,6 +2356,98 @@ int InputGetSteeringValue(int iPlayer)
 
 //-------------------------------------------------------------------------------------------------
 
+int InputPhoneAutoAccelerate(void)
+{
+#if defined(IS_ANDROID)
+  return g_ePhoneControls == PHONE_CONTROLS_TILT_TURN ||
+         g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN;
+#else
+  return 0;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int InputPhoneBrakePressed(void)
+{
+#if defined(IS_ANDROID)
+  if (g_ePhoneControls == PHONE_CONTROLS_TILT_TURN) {
+    for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+      if (s_aPhoneTouches[iTouch].iActive &&
+          !InputPhoneTouchInVisibleButton(&s_aPhoneTouches[iTouch]))
+        return 1;
+    }
+  } else if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN) {
+    for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+      tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
+
+      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
+        continue;
+      if (pTouch->fNormX >= 0.25f && pTouch->fNormX < 0.75f)
+        return 1;
+    }
+  }
+#endif
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int InputGetPhoneSteeringValue(void)
+{
+#if defined(IS_ANDROID)
+  if (g_ePhoneControls == PHONE_CONTROLS_TILT_TURN) {
+    float fTilt;
+    float fMagnitude;
+    int iMagnitude;
+
+    if (!s_iPhoneAccelValid)
+      return 0;
+
+    fTilt = -s_afPhoneAccel[0];
+    fMagnitude = InputPhoneAbsFloat(fTilt);
+    if (fMagnitude <= INPUT_PHONE_TILT_DEADZONE)
+      return 0;
+
+    fMagnitude = (fMagnitude - INPUT_PHONE_TILT_DEADZONE) /
+                 (INPUT_PHONE_TILT_FULL - INPUT_PHONE_TILT_DEADZONE);
+    if (fMagnitude > 1.0f)
+      fMagnitude = 1.0f;
+
+    iMagnitude = InputClampInt((int)(fMagnitude *
+                                     (float)INPUT_PHONE_STEERING_MAX + 0.5f),
+                               0, INPUT_PHONE_STEERING_MAX);
+    return fTilt > 0.0f ? iMagnitude : -iMagnitude;
+  }
+
+  if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN) {
+    int iLeft = 0;
+    int iRight = 0;
+
+    for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+      tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
+
+      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
+        continue;
+      if (pTouch->fNormX < 0.25f)
+        iLeft = 1;
+      else if (pTouch->fNormX >= 0.75f)
+        iRight = 1;
+    }
+
+    if (iLeft && !iRight)
+      return INPUT_PHONE_STEERING_MAX;
+    if (iRight && !iLeft)
+      return -INPUT_PHONE_STEERING_MAX;
+  }
+#endif
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int InputFindActionByName(const char *szName)
 {
   for (int i = 0; i < INPUT_NUM_ACTIONS; ++i) {
@@ -2245,6 +2599,53 @@ static int InputParseRendererSetting(const char *szValue)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(IS_ANDROID)
+static int InputParsePhoneControlsSetting(const char *szValue)
+{
+  int iValue;
+
+  if (!szValue || !*szValue)
+    return 0;
+
+  iValue = InputParseInt(szValue, -1);
+  if (iValue >= (int)PHONE_CONTROLS_DISABLED &&
+      iValue <= (int)PHONE_CONTROLS_TOUCH_TURN) {
+    g_ePhoneControls = (ePhoneControls)iValue;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "disabled") ||
+      InputStringEqualsNoCase(szValue, "disable") ||
+      InputStringEqualsNoCase(szValue, "off") ||
+      InputStringEqualsNoCase(szValue, "none")) {
+    g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "tilt") ||
+      InputStringEqualsNoCase(szValue, "tilt_turn") ||
+      InputStringEqualsNoCase(szValue, "tilt-turn") ||
+      InputStringEqualsNoCase(szValue, "tilt turn")) {
+    g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "touch") ||
+      InputStringEqualsNoCase(szValue, "touch_turn") ||
+      InputStringEqualsNoCase(szValue, "touch-turn") ||
+      InputStringEqualsNoCase(szValue, "touch turn")) {
+    g_ePhoneControls = PHONE_CONTROLS_TOUCH_TURN;
+    return 1;
+  }
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 #if defined(_WIN32)
 static int InputIsWindowsBackendSettingName(const char *szName)
 {
@@ -2386,6 +2787,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return InputParseRendererSetting(szValue);
   }
 
+#if defined(IS_ANDROID)
+  if (InputStringEqualsNoCase(szName, "PhoneControls") ||
+      InputStringEqualsNoCase(szName, "AndroidPhoneControls")) {
+    return InputParsePhoneControlsSetting(szValue);
+  }
+#endif
+
 #if defined(_WIN32)
   if (InputIsWindowsBackendSettingName(szName)) {
     return InputParseWindowsBackendSetting(szValue);
@@ -2522,6 +2930,9 @@ int InputLoadConfig(void)
   uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
+#if defined(IS_ANDROID)
+  g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+#endif
 
   fp = ROLLERfopen("ROLLER.INI", "r");
   if (!fp) {
@@ -2630,6 +3041,9 @@ void InputSaveConfig(void)
 #if defined(_WIN32)
   fprintf(fp, "WindowsInputBackend=%s\n",
           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");
+#endif
+#if defined(IS_ANDROID)
+  fprintf(fp, "PhoneControls=%d\n", (int)g_ePhoneControls);
 #endif
   fprintf(fp, "[CommunityTracks]\n");
   if (TrackLoad == TRACK_LOAD_COMMUNITY &&
