@@ -2,63 +2,12 @@
 #include "roller.h"
 #include "snapshot.h"
 #include <limits.h>
-#if !defined(IS_ANDROID)
 #include <wildmidi_lib.h>
-#endif
 //-------------------------------------------------------------------------------------------------
 
 #pragma region MIDI
 
 #define MIDI_RATE 44100 // not sure if this is the correct rate
-#if defined(IS_ANDROID)
-int8 MIDIMasterVolume = 127;
-
-bool MIDI_Init(const char *config_file)
-{
-  (void)config_file;
-  SDL_Log("MIDI_Init: WildMidi disabled on Android.");
-  return false;
-}
-
-void MIDI_Shutdown()
-{
-}
-
-void MIDIInitSong(tInitSong *data)
-{
-  (void)data;
-}
-
-void MIDIStartSong()
-{
-}
-
-void MIDIStopSong()
-{
-}
-
-void MIDIInitStream()
-{
-}
-
-void MIDIClearStream()
-{
-}
-
-void MIDISetMasterVolume(int8 volume)
-{
-  if (volume < 0)
-    volume = 0;
-  if (volume > 127)
-    volume = 127;
-  MIDIMasterVolume = volume;
-}
-
-int MIDIGetMasterVolume()
-{
-  return MIDIMasterVolume;
-}
-#else
 SDL_AudioStream *midi_stream;
 float midi_volume;
 midi *midi_music;
@@ -260,7 +209,6 @@ int MIDIGetMasterVolume()
 {
   return MIDIMasterVolume;
 }
-#endif
 
 #pragma endregion
 //-------------------------------------------------------------------------------------------------
