@@ -3090,6 +3090,10 @@ int InputLoadConfig(void)
 
   fp = ROLLERfopen("ROLLER.INI", "r");
   if (!fp) {
+#if defined(IS_ANDROID)
+    if (ROLLERAudioMusicAvailable())
+      InputApplyMusicSource(1);
+#endif
     InputMigrateLegacyKeyboardBindings();
     InputApplyDefaultGamepadBindings();
     return 0;
@@ -3143,6 +3147,10 @@ int InputLoadConfig(void)
   }
 
   fclose(fp);
+#if defined(IS_ANDROID)
+  if (ROLLERAudioMusicAvailable())
+    InputApplyMusicSource(1);
+#endif
   if (InputStringEqualsNoCase(szCommunityTrackType, "Community")) {
     if (community_track_select_by_name(szCommunityTrackName,
                                        uiCommunityTrackCRC,

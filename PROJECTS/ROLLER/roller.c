@@ -581,12 +581,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   char localMidiPath[256];
   if (midi_root) {
-    strcpy(localMidiPath, midi_root);
-    size_t lenMidiPath = strlen(localMidiPath);
-    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' || localMidiPath[lenMidiPath - 1] != '\\')) {
-      localMidiPath[lenMidiPath] = '/';
-      localMidiPath[lenMidiPath+1] = '\0';
-    }
+    SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
   } else {
 #if defined(IS_ANDROID)
     midi_root = SDL_GetAndroidExternalStoragePath();
@@ -594,12 +589,19 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     midi_root = SDL_GetBasePath();
 #endif
     if (midi_root) {
-      strcpy(localMidiPath, midi_root);
+      SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
     } else {
-      strcpy(localMidiPath, "./");
+      SDL_strlcpy(localMidiPath, "./", sizeof(localMidiPath));
     }
   }
-  strcat(localMidiPath, "midi/wildmidi.cfg");
+
+  size_t lenMidiPath = strlen(localMidiPath);
+  if (lenMidiPath > 0 &&
+      localMidiPath[lenMidiPath - 1] != '/' &&
+      localMidiPath[lenMidiPath - 1] != '\\') {
+    SDL_strlcat(localMidiPath, "/", sizeof(localMidiPath));
+  }
+  SDL_strlcat(localMidiPath, "midi/wildmidi.cfg", sizeof(localMidiPath));
   // Initialize MIDI with WildMidi
   if (!MIDI_Init(localMidiPath)) {
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
@@ -711,18 +713,55 @@ void InitFATDATA(const char *szDataRoot)
 
 //-------------------------------------------------------------------------------------------------
 
+static bool ROLLERFindAudioTrackPath(int iTrack, char *szOutPath, size_t uiOutPathSize)
+{
+  char szTrackFile[ROLLER_MAX_PATH];
+  const char *apszTrackPaths[] = {
+    "./audio/track%02d.wav",
+    "../audio/track%02d.wav"
+  };
+
+  for (int iPath = 0; iPath < (int)(sizeof(apszTrackPaths) / sizeof(apszTrackPaths[0])); ++iPath) {
+    if (snprintf(szTrackFile, sizeof(szTrackFile), apszTrackPaths[iPath], iTrack) >=
+        (int)sizeof(szTrackFile))
+      continue;
+
+    FILE *pTrack = ROLLERfopen(szTrackFile, "rb");
+    if (pTrack) {
+      const char *szResolved = ROLLERfindpath(szTrackFile);
+      fclose(pTrack);
+
+      if (szResolved) {
+        if (szOutPath && uiOutPathSize > 0) {
+#ifdef IS_WINDOWS
+          SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+#else
+          if (szResolved[0] == '/' || szResolved[0] == '\\') {
+            SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+          } else {
+            char szCwd[ROLLER_MAX_PATH];
+            if (getcwd(szCwd, sizeof(szCwd))) {
+              snprintf(szOutPath, uiOutPathSize, "%s/%s", szCwd, szResolved);
+            } else {
+              SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+            }
+          }
+#endif
+        }
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERAudioMusicAvailable(void)
 {
-  FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
-
-  if (!pTrack)
-    pTrack = ROLLERfopen("../audio/track02.wav", "rb");
-
-  if (!pTrack)
-    return 0;
-
-  fclose(pTrack);
-  return -1;
+  char szTrackFile[ROLLER_MAX_PATH];
+  return ROLLERFindAudioTrackPath(2, szTrackFile, sizeof(szTrackFile)) ? -1 : 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1678,16 +1717,11 @@ void ROLLERGetAudioInfo()
 
     // If no real CD found, check for ripped tracks
   if (!g_bUsingRealCD) {
-    char szTrackFile[256];
-    FILE *fp;
+    char szTrackFile[ROLLER_MAX_PATH];
 
     // Look for ripped tracks
     for (int iTrack = 2; iTrack <= 99; iTrack++) {
-      sprintf(szTrackFile, "./audio/track%02d.wav", iTrack);
-      fp = ROLLERfopen(szTrackFile, "rb");
-
-      if (fp) {
-        fclose(fp);
+      if (ROLLERFindAudioTrackPath(iTrack, szTrackFile, sizeof(szTrackFile))) {
         g_iNumTracks = iTrack;  // Keep counting up
       } else if (iTrack > 2) {
         break;  // Stop at first missing track after track 2
@@ -1722,13 +1756,18 @@ void ROLLERStopTrack()
       SDL_free(g_pAudioData);
       g_pAudioData = NULL;
     }
+    g_uiAudioLen = 0;
   }
+
+  g_iCurrentTrack = -1;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void ROLLERPlayTrack(int iTrack)
 {
+  int iStarted = 0;
+
 // CD audio tracks start at 2 (track 1 is data)
   if (iTrack < 2 || iTrack > g_iNumTracks) {
     return;
@@ -1745,6 +1784,7 @@ void ROLLERPlayTrack(int iTrack)
       mciPlayParms.dwTo = MCI_MAKE_TMSF(iTrack + 1, 0, 0, 0);
       mciSendCommand(g_wDeviceID, MCI_PLAY, MCI_FROM | MCI_TO,
                     (DWORD_PTR)&mciPlayParms);
+      iStarted = -1;
     }
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
@@ -1754,39 +1794,61 @@ void ROLLERPlayTrack(int iTrack)
       ti.cdti_trk1 = iTrack;
       ti.cdti_ind1 = 0;
       ioctl(g_iCDHandle, CDROMPLAYTRKIND, &ti);
+      iStarted = -1;
     }
 #endif
   } else {
       // Play from file
-    char szTrackFile[256];
+    char szTrackFile[ROLLER_MAX_PATH];
     SDL_AudioSpec spec;
 
-    sprintf(szTrackFile, "../audio/track%02d.wav", iTrack);
-    FILE *fp = ROLLERfopen(szTrackFile, "rb");
-    if (fp) {
-      fclose(fp);
-
+    if (ROLLERFindAudioTrackPath(iTrack, szTrackFile, sizeof(szTrackFile))) {
       SDL_IOStream *io = SDL_IOFromFile(szTrackFile, "rb");
-      if (io) {
-        if (SDL_LoadWAV_IO(io, true, &spec, &g_pAudioData, &g_uiAudioLen)) {
-
-          g_pCurrentStream = SDL_OpenAudioDeviceStream(
-              SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-              &spec, NULL, NULL);
-
-          if (g_pCurrentStream) {
-            SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData, g_uiAudioLen);
-            SDL_ResumeAudioStreamDevice(g_pCurrentStream);
-            float fGain = g_iCDVolume / 255.0f;
-            SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
-          }
-        }
+      if (!io) {
+        SDL_Log("Failed to open CD audio track '%s': %s", szTrackFile, SDL_GetError());
+        return;
       }
+
+      if (SDL_LoadWAV_IO(io, true, &spec, &g_pAudioData, &g_uiAudioLen)) {
+        g_pCurrentStream = SDL_OpenAudioDeviceStream(
+            SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+            &spec, NULL, NULL);
+
+        if (g_pCurrentStream) {
+          float fGain = g_iCDVolume / 255.0f;
+
+          SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
+          if (SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData, g_uiAudioLen)) {
+            SDL_ResumeAudioStreamDevice(g_pCurrentStream);
+            SDL_Log("Started CD audio track '%s' (%u bytes)",
+                    szTrackFile, (unsigned int)g_uiAudioLen);
+            iStarted = -1;
+          } else {
+            SDL_Log("Failed to queue CD audio track '%s': %s", szTrackFile, SDL_GetError());
+            SDL_DestroyAudioStream(g_pCurrentStream);
+            g_pCurrentStream = NULL;
+            SDL_free(g_pAudioData);
+            g_pAudioData = NULL;
+            g_uiAudioLen = 0;
+          }
+        } else {
+          SDL_Log("Failed to open audio device for CD audio track '%s': %s",
+                  szTrackFile, SDL_GetError());
+          SDL_free(g_pAudioData);
+          g_pAudioData = NULL;
+          g_uiAudioLen = 0;
+        }
+      } else {
+        SDL_Log("Failed to load CD audio WAV '%s': %s", szTrackFile, SDL_GetError());
+      }
+    } else {
+      SDL_Log("CD audio track %02d not found in audio folder", iTrack);
     }
     // Add OGG/MP3 support here if using SDL_mixer
   }
 
-  g_iCurrentTrack = iTrack;
+  if (iStarted)
+    g_iCurrentTrack = iTrack;
 }
 
 //-------------------------------------------------------------------------------------------------
