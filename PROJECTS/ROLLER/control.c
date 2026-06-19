@@ -367,7 +367,7 @@ void humancar(int iCarIdx)
         pCar->byThrottlePressed = -1;
         pCar->byEngineStartTimer = 0;
         Accelerate(pCar);
-      } else if ((iControlFlags & 1) != 0) {
+      } else if (iPhoneThrottle || (iControlFlags & 1) != 0) {
         Accelerate(pCar);
       } else {
         FreeWheel(pCar);
