@@ -22,6 +22,7 @@
 #include "snapshot.h"
 #include "snapshot_scenes.h"
 #include "rollerinput.h"
+#include "touch_ui.h"
 #include <SDL3/SDL.h>
 #if defined(IS_ANDROID)
 #include <SDL3/SDL_main.h>
@@ -1544,9 +1545,11 @@ static void race_handle_mouse_shortcuts(void)
 
   iWidth = winw > 0 ? winw : XMAX;
   iHeight = winh > 0 ? winh : YMAX;
+  frontend_mouse_begin_frame(iWidth, iHeight);
+  touch_ui_register_buttons(iWidth, iHeight);
+  touch_ui_handle_buttons();
 
   if (intro && replaytype == 2 && !game_req) {
-    frontend_mouse_begin_frame(iWidth, iHeight);
     if (frontend_mouse_consume_click_anywhere()) {
       race_drain_pending_key_input();
       racing = 0;
@@ -1557,7 +1560,6 @@ static void race_handle_mouse_shortcuts(void)
   if (!I_Would_Like_To_Quit)
     return;
 
-  frontend_mouse_begin_frame(iWidth, iHeight);
   frontend_mouse_register_rect(RACE_MOUSE_QUIT_PROMPT, 0, iHeight / 2 - 18,
                                iWidth, 44);
   iClicked = frontend_mouse_peek_clicked_id();
@@ -4725,6 +4727,7 @@ HANDLE_SPECIAL_MODES:
       start_time = curr_time;
     }
   }
+  touch_ui_render_game(winw > 0 ? winw : XMAX, winh > 0 ? winh : YMAX);
   if (draw_type != 2)                         // Final screen buffer copy to destination
     copypic(pSrc, pDest);
 }

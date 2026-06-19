@@ -3,10 +3,13 @@
 #include "menu_render_software.h"
 #include "3d.h"
 #include "sound.h"
+#include "touch_ui.h"
 
 #include <stdlib.h>
 
 #define MENU_RENDER_MAX_SLOTS 16
+#define MENU_RENDER_WIDTH 640
+#define MENU_RENDER_HEIGHT 400
 
 struct MenuRenderer {
     MenuRenderMode mode;
@@ -141,6 +144,10 @@ void menu_render_begin_frame(MenuRenderer *renderer) {
 
 void menu_render_end_frame(MenuRenderer *renderer) {
     if (!renderer) return;
+    touch_ui_register_buttons(MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
+    touch_ui_handle_buttons();
+    menu_render_set_layer(renderer, MENU_LAYER_FOREGROUND);
+    touch_ui_render_menu(renderer, MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_end_frame(renderer->gpu);
     else
