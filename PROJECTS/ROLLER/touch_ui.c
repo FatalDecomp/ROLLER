@@ -32,12 +32,9 @@ static int s_iTouchCheatHeld = 0;
 
 //-------------------------------------------------------------------------------------------------
 
-static int touch_ui_active_controls_visible(void)
+static int touch_ui_race_buttons_visible(void)
 {
 #if defined(IS_ANDROID)
-  if (!g_bShowActiveTouchControls ||
-      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
-    return 0;
   if (g_bSnapshotMode)
     return 0;
   if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
@@ -48,6 +45,21 @@ static int touch_ui_active_controls_visible(void)
     return 0;
 
   return -1;
+#else
+  return 0;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int touch_ui_active_controls_visible(void)
+{
+#if defined(IS_ANDROID)
+  if (!g_bShowActiveTouchControls ||
+      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+    return 0;
+
+  return touch_ui_race_buttons_visible();
 #else
   return 0;
 #endif
@@ -101,7 +113,7 @@ static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
   int iTop = TOUCH_UI_MARGIN;
   int iRightX = iVirtualWidth - TOUCH_UI_MARGIN - TOUCH_UI_BUTTON_W;
   int iRaceButtonY = TOUCH_UI_MARGIN + TOUCH_UI_BUTTON_H + TOUCH_UI_GAP;
-  int iInRace = racing || race_started;
+  int iInRace = touch_ui_race_buttons_visible();
   int iCheatVisible = iInRace && (cheat_mode & CHEAT_MODE_CHEAT_CAR) != 0;
 
   if (iVirtualWidth <= 0)
