@@ -415,9 +415,10 @@ void ROLLERRefreshStartupOverlay()
       exit(0);
     }
 
-    debug_overlay_handle_event(s_pDebugOverlay, &e);
     if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_GRAVE)
       debug_overlay_toggle(s_pDebugOverlay);
+    else
+      (void)debug_overlay_handle_event(s_pDebugOverlay, &e);
   }
 
   UpdateMouseCursorVisibility();
@@ -455,6 +456,10 @@ void ToggleFullscreen()
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+#if defined(IS_ANDROID)
+  SDL_SetHint(SDL_HINT_ORIENTATIONS,
+              "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
+#endif
 #if defined(_WIN32)
   SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT,
                           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "1" : "0",
@@ -952,15 +957,20 @@ void UpdateSDL()
           break;
       }
     }
-    debug_overlay_handle_event(s_pDebugOverlay, &e);
-    InputHandleEvent(&e);
-    frontend_mouse_handle_event(&e);
-
     if (e.type == SDL_EVENT_KEY_DOWN) {
       if (e.key.scancode == SDL_SCANCODE_GRAVE) {
         debug_overlay_toggle(s_pDebugOverlay);
         continue;
       }
+    }
+
+    if (debug_overlay_handle_event(s_pDebugOverlay, &e))
+      continue;
+
+    InputHandleEvent(&e);
+    frontend_mouse_handle_event(&e);
+
+    if (e.type == SDL_EVENT_KEY_DOWN) {
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER

@@ -1080,7 +1080,6 @@ void readuserdata(int iPlayer)
   int iLeftEffect; // eax
   int iMinSteering; // eax
   int16 nButtonFlags_1; // bx
-  int16 nButtonFlags; // ax
   int iGearChange; // eax
   int iStrategyFlags; // eax
   int iNode; // edx
@@ -1088,7 +1087,6 @@ void readuserdata(int iPlayer)
   int iAnalogSteering; // eax
   int iPhoneSteering; // eax
   int iPhoneBrake; // eax
-  char iAccelState; // [esp+0h] [ebp-1Ch]
 
   // Skip processing during countdown phase
   if (countdown >= 140) {
@@ -1110,21 +1108,25 @@ void readuserdata(int iPlayer)
 
   // calculate maximum steering value
   rud_steer[iPlayerIdx] = pEngine->iSteeringSensitivity << 8;
-  iAccelState = 0;
   // // Update steering state
   rud_swheel[iPlayerIdx] = GET_SLOWORD(last_inp[iPlayerIdx]);
 
   // Process acceleration and brake inputs
+  nButtonFlags_1 = 0;
   if (InputGetActionPressed(iKeyIndex + 2))
-    iAccelState = 1;
+    nButtonFlags_1 |= BUTTON_FLAG_ACCEL;
   if (InputGetActionPressed(iKeyIndex + 3))
-    iAccelState -= 2;
+    nButtonFlags_1 = (nButtonFlags_1 & ~BUTTON_FLAG_ACCEL) |
+                     BUTTON_FLAG_BRAKE;
   if (iPlayer == 0) {
     iPhoneBrake = InputPhoneBrakePressed();
-    if (InputPhoneAutoAccelerate() && !iPhoneBrake && !iAccelState)
-      iAccelState = 1;
-    if (iPhoneBrake)
-      iAccelState -= 2;
+    if (iPhoneBrake) {
+      nButtonFlags_1 = (nButtonFlags_1 & ~BUTTON_FLAG_ACCEL) |
+                       BUTTON_FLAG_BRAKE;
+    } else if (InputPhoneAutoAccelerate() &&
+               !(nButtonFlags_1 & BUTTON_FLAG_BRAKE)) {
+      nButtonFlags_1 |= BUTTON_FLAG_PHONE_THROTTLE;
+    }
   }
 
   // process steering input
@@ -1215,12 +1217,6 @@ void readuserdata(int iPlayer)
 
   // Update steering state
   SET_LOWORD(user_inp, rud_swheel[iPlayer]);
-  nButtonFlags_1 = iAccelState > 0;
-  if (iAccelState < 0)
-    nButtonFlags_1 |= 2;
-  nButtonFlags &= 0x00FF;
-  //  LOBYTE(nButtonFlags_1) = nButtonFlags_1 | 2;
-  //HIBYTE(nButtonFlags) = 0;
 
   // Process special buttons
   if (InputGetActionPressed(iPlayer ? USERKEY_P2CHEAT : USERKEY_P1CHEAT))

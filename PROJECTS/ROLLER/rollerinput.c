@@ -83,6 +83,7 @@ typedef struct
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 ePhoneControls g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+bool g_bShowActiveTouchControls = false;
 
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;
@@ -154,6 +155,9 @@ static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent);
 static void InputPhoneUpdateSensor(void);
 static void InputPhoneShutdown(void);
 static int InputParsePhoneControlsSetting(const char *szValue);
+static int InputPhoneTouchInTurnRegion(const tInputPhoneTouch *pTouch,
+                                       int iRightRegion);
+static int InputPhoneTouchInBrakeRegion(const tInputPhoneTouch *pTouch);
 #endif
 
 //-------------------------------------------------------------------------------------------------
@@ -358,6 +362,111 @@ static int InputPhoneTouchInVisibleButton(const tInputPhoneTouch *pTouch)
 
   return touch_ui_point_in_visible_button(pTouch->iVirtualX,
                                           pTouch->iVirtualY);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneGetVirtualSize(int *piVirtualWidth, int *piVirtualHeight)
+{
+  int iVirtualWidth = 640;
+  int iVirtualHeight = 400;
+
+  frontend_mouse_get_virtual_size(&iVirtualWidth, &iVirtualHeight);
+  if (iVirtualWidth <= 0)
+    iVirtualWidth = 640;
+  if (iVirtualHeight <= 0)
+    iVirtualHeight = 400;
+
+  if (piVirtualWidth)
+    *piVirtualWidth = iVirtualWidth;
+  if (piVirtualHeight)
+    *piVirtualHeight = iVirtualHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneTouchInTurnRegion(const tInputPhoneTouch *pTouch,
+                                       int iRightRegion)
+{
+  int iVirtualWidth;
+  int iVirtualHeight;
+
+  if (!pTouch || !pTouch->iActive || !pTouch->iVirtualValid ||
+      InputPhoneTouchInVisibleButton(pTouch))
+    return 0;
+
+  InputPhoneGetVirtualSize(&iVirtualWidth, &iVirtualHeight);
+  (void)iVirtualHeight;
+
+  if (iRightRegion)
+    return pTouch->iVirtualX >= (iVirtualWidth * 3) / 4;
+
+  return pTouch->iVirtualX < iVirtualWidth / 4;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneTouchInBrakeRegion(const tInputPhoneTouch *pTouch)
+{
+  int iVirtualWidth;
+  int iVirtualHeight;
+
+  if (!pTouch || !pTouch->iActive || !pTouch->iVirtualValid ||
+      InputPhoneTouchInVisibleButton(pTouch))
+    return 0;
+
+  InputPhoneGetVirtualSize(&iVirtualWidth, &iVirtualHeight);
+  (void)iVirtualHeight;
+
+  return pTouch->iVirtualX >= iVirtualWidth / 4 &&
+         pTouch->iVirtualX < (iVirtualWidth * 3) / 4;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static SDL_DisplayOrientation InputPhoneGetDisplayOrientation(void)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+  SDL_DisplayID displayID = 0;
+  SDL_DisplayOrientation eOrientation = SDL_ORIENTATION_UNKNOWN;
+
+  if (pWindow)
+    displayID = SDL_GetDisplayForWindow(pWindow);
+  if (!displayID)
+    displayID = SDL_GetPrimaryDisplay();
+  if (displayID)
+    eOrientation = SDL_GetCurrentDisplayOrientation(displayID);
+
+  return eOrientation;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static float InputPhoneGetTiltForDisplayOrientation(void)
+{
+  SDL_Window *pWindow;
+  int iWindowWidth = 0;
+  int iWindowHeight = 0;
+
+  switch (InputPhoneGetDisplayOrientation()) {
+    case SDL_ORIENTATION_LANDSCAPE:
+      return -s_afPhoneAccel[1];
+    case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
+      return s_afPhoneAccel[1];
+    case SDL_ORIENTATION_PORTRAIT:
+      return s_afPhoneAccel[0];
+    case SDL_ORIENTATION_PORTRAIT_FLIPPED:
+      return -s_afPhoneAccel[0];
+    default:
+      break;
+  }
+
+  pWindow = ROLLERGetWindow();
+  if (pWindow && SDL_GetWindowSize(pWindow, &iWindowWidth, &iWindowHeight) &&
+      iWindowWidth > iWindowHeight)
+    return -s_afPhoneAccel[1];
+
+  return s_afPhoneAccel[0];
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1241,6 +1350,13 @@ void InputHandleEvent(const SDL_Event *pEvent)
     case SDL_EVENT_FINGER_MOTION:
     case SDL_EVENT_FINGER_CANCELED:
       InputPhoneHandleTouchEvent(pEvent);
+      break;
+    case SDL_EVENT_WINDOW_HIDDEN:
+    case SDL_EVENT_WINDOW_MINIMIZED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+    case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+      InputPhoneResetTouches();
       break;
     default:
       break;
@@ -2381,9 +2497,7 @@ int InputPhoneBrakePressed(void)
     for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
       tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
 
-      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
-        continue;
-      if (pTouch->fNormX >= 0.25f && pTouch->fNormX < 0.75f)
+      if (InputPhoneTouchInBrakeRegion(pTouch))
         return 1;
     }
   }
@@ -2405,7 +2519,7 @@ int InputGetPhoneSteeringValue(void)
     if (!s_iPhoneAccelValid)
       return 0;
 
-    fTilt = -s_afPhoneAccel[0];
+    fTilt = InputPhoneGetTiltForDisplayOrientation();
     fMagnitude = InputPhoneAbsFloat(fTilt);
     if (fMagnitude <= INPUT_PHONE_TILT_DEADZONE)
       return 0;
@@ -2428,11 +2542,9 @@ int InputGetPhoneSteeringValue(void)
     for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
       tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
 
-      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
-        continue;
-      if (pTouch->fNormX < 0.25f)
+      if (InputPhoneTouchInTurnRegion(pTouch, 0))
         iLeft = 1;
-      else if (pTouch->fNormX >= 0.75f)
+      else if (InputPhoneTouchInTurnRegion(pTouch, 1))
         iRight = 1;
     }
 
@@ -2444,6 +2556,39 @@ int InputGetPhoneSteeringValue(void)
 #endif
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputGetPhoneControlDebugState(int *piLeft, int *piRight, int *piBrake)
+{
+  int iLeft = 0;
+  int iRight = 0;
+  int iBrake = 0;
+
+#if defined(IS_ANDROID)
+  if (g_ePhoneControls == PHONE_CONTROLS_TILT_TURN) {
+    iBrake = InputPhoneBrakePressed();
+  } else if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN) {
+    for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+      tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
+
+      if (InputPhoneTouchInTurnRegion(pTouch, 0))
+        iLeft = 1;
+      else if (InputPhoneTouchInTurnRegion(pTouch, 1))
+        iRight = 1;
+      if (InputPhoneTouchInBrakeRegion(pTouch))
+        iBrake = 1;
+    }
+  }
+#endif
+
+  if (piLeft)
+    *piLeft = iLeft;
+  if (piRight)
+    *piRight = iRight;
+  if (piBrake)
+    *piBrake = iBrake;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2792,6 +2937,14 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
       InputStringEqualsNoCase(szName, "AndroidPhoneControls")) {
     return InputParsePhoneControlsSetting(szValue);
   }
+
+  if (InputStringEqualsNoCase(szName, "ShowActiveTouchControls") ||
+      InputStringEqualsNoCase(szName, "PhoneControlsShowActive")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bShowActiveTouchControls = bValue;
+    return 1;
+  }
 #endif
 
 #if defined(_WIN32)
@@ -2932,6 +3085,7 @@ int InputLoadConfig(void)
   InputResetBindings();
 #if defined(IS_ANDROID)
   g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+  g_bShowActiveTouchControls = false;
 #endif
 
   fp = ROLLERfopen("ROLLER.INI", "r");
@@ -3044,6 +3198,8 @@ void InputSaveConfig(void)
 #endif
 #if defined(IS_ANDROID)
   fprintf(fp, "PhoneControls=%d\n", (int)g_ePhoneControls);
+  fprintf(fp, "ShowActiveTouchControls=%d\n",
+          g_bShowActiveTouchControls ? 1 : 0);
 #endif
   fprintf(fp, "[CommunityTracks]\n");
   if (TrackLoad == TRACK_LOAD_COMMUNITY &&

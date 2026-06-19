@@ -143,6 +143,7 @@
 #define BUTTON_FLAG_F4          0x0200
 #define BUTTON_FLAG_SLAVE_QUIT  0x0400
 #define BUTTON_FLAG_MASTER_QUIT 0x0800
+#define BUTTON_FLAG_PHONE_THROTTLE 0x2000
 
 //-------------------------------------------------------------------------------------------------
 

@@ -18,10 +18,15 @@ pub fn build(b: *std.Build) void {
     const sdl_android_include = b.option([]const u8, "sdl-android-include", "Path to SDL Android AAR prefab include directory") orelse "";
     const sdl_android_lib = b.option([]const u8, "sdl-android-lib", "Path to SDL Android AAR shared library directory") orelse "";
     const crash_debug = b.option(bool, "crash-debug", "Enable crash dump friendly C build flags") orelse false;
+    // ARM/AArch64 targets default `char` to unsigned, unlike the x86/Windows
+    // toolchain this codebase was originally written against. Lots of game
+    // state (gear, etc.) is stored in a byte and read back via `(char)` casts
+    // expecting sign extension (-1 = neutral, -2 = reverse). Force signed char
+    // everywhere so those casts behave the same on every target.
     const c_flags: []const []const u8 = if (crash_debug)
-        &.{ "-fwrapv", "-fno-omit-frame-pointer" }
+        &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char" }
     else
-        &.{"-fwrapv"};
+        &.{ "-fwrapv", "-fsigned-char" };
     const python_checks = b.option(
         bool,
         "python-checks",
