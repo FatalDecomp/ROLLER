@@ -718,7 +718,16 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         if (game_frame == 145 && (Car[iCar].byGearAyMax & 0x80u) != 0) {
           Car[iCar].byGearAyMax = 0;
           race_started = -1;
-          Car[iCar].fPower = 0.0;
+          if (human_control[iCar]) {
+            Car[iCar].fPower = 0.0f;
+          } else {
+            Car[iCar].byThrottlePressed = -1;
+            Car[iCar].byEngineStartTimer = 0;
+            Car[iCar].byAIThrottleControl = 1;
+            Car[iCar].fPower = (float)calc_pow(Car[iCar].byCarDesignIdx,
+                                               0,
+                                               Car[iCar].fRPMRatio);
+          }
         }
         if (human_control[iCar]) {                                       // Network sync request: reset car to neutral state
           if ((copy_multiple[readptr][iCar].uiFullData & 0x10000000) != 0) {
