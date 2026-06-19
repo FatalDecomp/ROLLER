@@ -722,24 +722,33 @@ int ROLLERAudioMusicAvailable(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void ROLLERCreateUserDataDir(const char *szDir)
+{
+#ifdef IS_WINDOWS
+  mkdir(szDir);
+#else
+#if defined(IS_ANDROID)
+  mkdir(szDir, 0777);
+  chmod(".", 0777);
+  chmod(szDir, 0777);
+#else
+  mkdir(szDir, 0755);
+#endif
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InitREPLAYS(const char *szDataRoot)
 {
-  #ifdef IS_WINDOWS
-  mkdir("./REPLAYS");
-  #else
-  mkdir("./REPLAYS", 0755);
-  #endif
+  ROLLERCreateUserDataDir("./REPLAYS");
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void InitTRACKS(const char *szDataRoot)
 {
-  #ifdef IS_WINDOWS
-  mkdir("./TRACKS");
-  #else
-  mkdir("./TRACKS", 0755);
-  #endif
+  ROLLERCreateUserDataDir("./TRACKS");
 }
 
 //-------------------------------------------------------------------------------------------------
