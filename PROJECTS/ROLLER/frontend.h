@@ -270,6 +270,7 @@ void loadcheatnames();
 int CheckNames(char *szPlayerName, int iPlayerIdx);
 void frontend_mouse_handle_event(const SDL_Event *pEvent);
 void frontend_mouse_begin_frame(int iVirtualWidth, int iVirtualHeight);
+void frontend_mouse_get_virtual_size(int *piVirtualWidth, int *piVirtualHeight);
 int frontend_mouse_window_to_virtual(float fWindowX, float fWindowY,
                                      int *piVirtualX, int *piVirtualY);
 void frontend_mouse_register_rect(int iId, int iX, int iY, int iWidth, int iHeight);

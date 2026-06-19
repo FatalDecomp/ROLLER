@@ -673,6 +673,16 @@ void frontend_mouse_begin_frame(int iVirtualWidth, int iVirtualHeight)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_mouse_get_virtual_size(int *piVirtualWidth, int *piVirtualHeight)
+{
+  if (piVirtualWidth)
+    *piVirtualWidth = s_iFrontendMouseVirtualWidth;
+  if (piVirtualHeight)
+    *piVirtualHeight = s_iFrontendMouseVirtualHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_mouse_register_rect(int iId, int iX, int iY, int iWidth, int iHeight)
 {
   tFrontendMouseHitbox *pHitbox;

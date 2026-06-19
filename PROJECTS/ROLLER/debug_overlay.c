@@ -29,14 +29,17 @@
 #define MAX_LOG_MESSAGES 512
 #define MAX_LOG_LEN      256
 
+#define OVERLAY_FONT_SIZE 24.0f
 #define PANEL_MARGIN     10
-#define HINT_H           28
+#define DEBUG_ROW_H      30
+#define DEBUG_SPACING_H  12
+#define HINT_H           42
 #define PANEL_Y          (PANEL_MARGIN + HINT_H + PANEL_MARGIN)
 #define PANEL_H          (OVERLAY_H - PANEL_Y - PANEL_MARGIN)
 #define LEFT_W           410
 #define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
 #define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
-#define LOG_ROW_H        20
+#define LOG_ROW_H        DEBUG_ROW_H
 
 typedef struct {
   char szText[MAX_LOG_LEN];
@@ -70,6 +73,8 @@ struct DebugOverlay {
   void                  *pPrevLogUserdata;
 
   bool                   bInputBegun;
+  bool                   bTouchActive;
+  SDL_FingerID           ullTouchFingerId;
 
 };
 
@@ -303,7 +308,8 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
 
   nk_font_atlas_init_default(&pOverlay->atlas);
   nk_font_atlas_begin(&pOverlay->atlas);
-  struct nk_font *pFont = nk_font_atlas_add_default(&pOverlay->atlas, 16, NULL);
+  struct nk_font *pFont = nk_font_atlas_add_default(&pOverlay->atlas,
+                                                    OVERLAY_FONT_SIZE, NULL);
 
   const void *pBaked = nk_font_atlas_bake(&pOverlay->atlas,
                                            &pOverlay->iAtlasW, &pOverlay->iAtlasH,
@@ -422,11 +428,20 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   if (pOverlay->bVisible == bVisible) return;
 
   pOverlay->bVisible = bVisible;
+  if (!bVisible && pOverlay->bInputBegun) {
+    nk_input_end(&pOverlay->nk);
+    pOverlay->bInputBegun = false;
+  }
+#if defined(IS_ANDROID)
+  SDL_StopTextInput(pOverlay->pWindow);
+#else
   if (bVisible) {
     SDL_StartTextInput(pOverlay->pWindow);
   } else {
     SDL_StopTextInput(pOverlay->pWindow);
   }
+#endif
+  pOverlay->bTouchActive = false;
   noclip_camera_set_input_enabled(!bVisible);
 }
 
@@ -439,8 +454,96 @@ void debug_overlay_toggle(DebugOverlay *pOverlay) {
   debug_overlay_set_visible(pOverlay, !pOverlay->bVisible);
 }
 
-void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
-  if (!pOverlay || !pOverlay->bVisible) return;
+static bool DebugOverlayInputEventPoint(DebugOverlay *pOverlay,
+                                        SDL_Event *pEvent,
+                                        int *piX, int *piY)
+{
+  int iWinW = 0;
+  int iWinH = 0;
+  float fWindowX = 0.0f;
+  float fWindowY = 0.0f;
+
+  if (!pOverlay || !pEvent || !piX || !piY)
+    return false;
+
+  if (!SDL_GetWindowSizeInPixels(pOverlay->pWindow, &iWinW, &iWinH) ||
+      iWinW <= 0 || iWinH <= 0)
+    return false;
+
+  switch (pEvent->type) {
+    case SDL_EVENT_MOUSE_MOTION:
+      fWindowX = pEvent->motion.x;
+      fWindowY = pEvent->motion.y;
+      break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+      fWindowX = pEvent->button.x;
+      fWindowY = pEvent->button.y;
+      break;
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+      fWindowX = pEvent->tfinger.x * (float)iWinW;
+      fWindowY = pEvent->tfinger.y * (float)iWinH;
+      break;
+    default:
+      return false;
+  }
+
+  *piX = (int)(fWindowX * (float)OVERLAY_W / (float)iWinW);
+  *piY = (int)(fWindowY * (float)OVERLAY_H / (float)iWinH);
+  return true;
+}
+
+static bool DebugOverlayConsumesEvent(SDL_Event *pEvent)
+{
+  switch (pEvent->type) {
+    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+    case SDL_EVENT_TEXT_INPUT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
+  int iOverlayX = 0;
+  int iOverlayY = 0;
+  bool bHasPoint;
+
+  if (!pOverlay || !pOverlay->bVisible || !pEvent)
+    return false;
+
+  if (!DebugOverlayConsumesEvent(pEvent))
+    return false;
+
+  bHasPoint = DebugOverlayInputEventPoint(pOverlay, pEvent,
+                                          &iOverlayX, &iOverlayY);
+  if ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+       pEvent->type == SDL_EVENT_FINGER_DOWN) &&
+      bHasPoint && iOverlayY < PANEL_Y) {
+    debug_overlay_set_visible(pOverlay, false);
+    return true;
+  }
+
+  if ((pEvent->type == SDL_EVENT_MOUSE_MOTION &&
+       pEvent->motion.which == SDL_TOUCH_MOUSEID) ||
+      ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+       pEvent->button.which == SDL_TOUCH_MOUSEID) ||
+      (pEvent->type == SDL_EVENT_MOUSE_WHEEL &&
+       pEvent->wheel.which == SDL_TOUCH_MOUSEID))
+    return true;
 
   // Open input bracket on first event of the frame
   if (!pOverlay->bInputBegun) {
@@ -448,26 +551,37 @@ void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
     pOverlay->bInputBegun = true;
   }
 
-  // Scale window coords to logical overlay space
-  int iWinW, iWinH;
-  SDL_GetWindowSizeInPixels(pOverlay->pWindow, &iWinW, &iWinH);
-  float fScaleX = (float)OVERLAY_W / (float)iWinW;
-  float fScaleY = (float)OVERLAY_H / (float)iWinH;
-
   struct nk_context *pCtx = &pOverlay->nk;
-  if (pEvent->type == SDL_EVENT_MOUSE_MOTION) {
-    nk_input_motion(pCtx,
-                    (int)(pEvent->motion.x * fScaleX),
-                    (int)(pEvent->motion.y * fScaleY));
-  } else if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-             pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) {
+  if (pEvent->type == SDL_EVENT_MOUSE_MOTION && bHasPoint) {
+    nk_input_motion(pCtx, iOverlayX, iOverlayY);
+  } else if ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+              pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+             bHasPoint) {
     int iDown = (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN);
     if (pEvent->button.button == SDL_BUTTON_LEFT)
-      nk_input_button(pCtx, NK_BUTTON_LEFT,
-                      (int)(pEvent->button.x * fScaleX),
-                      (int)(pEvent->button.y * fScaleY), iDown);
+      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, iDown);
   } else if (pEvent->type == SDL_EVENT_MOUSE_WHEEL) {
     nk_input_scroll(pCtx, nk_vec2(0.0f, pEvent->wheel.y * 20.0f));
+  } else if (pEvent->type == SDL_EVENT_FINGER_DOWN && bHasPoint) {
+    if (!pOverlay->bTouchActive) {
+      pOverlay->bTouchActive = true;
+      pOverlay->ullTouchFingerId = pEvent->tfinger.fingerID;
+      nk_input_motion(pCtx, iOverlayX, iOverlayY);
+      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_true);
+    }
+  } else if (pEvent->type == SDL_EVENT_FINGER_MOTION && bHasPoint) {
+    if (pOverlay->bTouchActive &&
+        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID)
+      nk_input_motion(pCtx, iOverlayX, iOverlayY);
+  } else if ((pEvent->type == SDL_EVENT_FINGER_UP ||
+              pEvent->type == SDL_EVENT_FINGER_CANCELED) &&
+             bHasPoint) {
+    if (pOverlay->bTouchActive &&
+        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID) {
+      nk_input_motion(pCtx, iOverlayX, iOverlayY);
+      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_false);
+      pOverlay->bTouchActive = false;
+    }
   } else if (pEvent->type == SDL_EVENT_KEY_DOWN || pEvent->type == SDL_EVENT_KEY_UP) {
     nk_bool bDown = (pEvent->type == SDL_EVENT_KEY_DOWN) ? nk_true : nk_false;
     SDL_Keymod mod = SDL_GetModState();
@@ -495,6 +609,8 @@ void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
     for (const char *pCh = pEvent->text.text; *pCh; pCh++)
       nk_input_char(pCtx, *pCh);
   }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +623,7 @@ static void DrawHintPanel(DebugOverlay *pOverlay) {
                nk_rect(PANEL_MARGIN, PANEL_MARGIN,
                        OVERLAY_W - PANEL_MARGIN * 2, HINT_H),
                NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_dynamic(pCtx, 18, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     nk_label(pCtx, "Debug menu: press ` to toggle", NK_TEXT_LEFT);
   }
   nk_end(pCtx);
@@ -522,9 +638,9 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
     static const char *apszMusic[] = { "MIDI", "CD" };
     int iMusicSel = (MusicCD != 0) ? 1 : 0;
-    nk_layout_row_dynamic(pCtx, 20, 2);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
     nk_label(pCtx, "Music", NK_TEXT_LEFT);
-    int iNewMusicSel = nk_combo(pCtx, apszMusic, 2, iMusicSel, 20, nk_vec2(100, 60));
+    int iNewMusicSel = nk_combo(pCtx, apszMusic, 2, iMusicSel, DEBUG_ROW_H, nk_vec2(140, 90));
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
       if (iNewMusicSel == 1) { MusicCD = -1; MusicCard = 0; }
@@ -534,49 +650,49 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     }
 
     int bForceMaxDraw = (int)g_bForceMaxDraw;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw)) {
       g_bForceMaxDraw = (bool)bForceMaxDraw;
       InputSaveConfig();
     }
 
     int bNoCollisionLimit = (int)g_bNoCollisionLimit;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "No collision limit", &bNoCollisionLimit)) {
       g_bNoCollisionLimit = (bool)bNoCollisionLimit;
       InputSaveConfig();
     }
 
     int bAirborneCollisions = (int)g_bAirborneCollisions;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Airborne collisions", &bAirborneCollisions)) {
       g_bAirborneCollisions = (bool)bAirborneCollisions;
       InputSaveConfig();
     }
 
     int bAINoCheatStart = (int)g_bAINoCheatStart;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "AI automatic gears", &bAINoCheatStart)) {
       g_bAINoCheatStart = (bool)bAINoCheatStart;
       InputSaveConfig();
     }
 
     int bFixCarMenuBug = (int)g_bFixCarMenuBug;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Fix car menu bug", &bFixCarMenuBug)) {
       g_bFixCarMenuBug = (bool)bFixCarMenuBug;
       InputSaveConfig();
     }
 
     int bImprovedJumpLanding = (int)g_bImprovedJumpLanding;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Improved jump landing", &bImprovedJumpLanding)) {
       g_bImprovedJumpLanding = (bool)bImprovedJumpLanding;
       InputSaveConfig();
     }
 
     int bNoclip = (int)g_bNoclip;
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Noclip", &bNoclip)) {
       g_bNoclip = (bool)bNoclip;
       noclip_camera_reset();
@@ -587,9 +703,9 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     {
       static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
       int iInputBackend = InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? 1 : 0;
-      nk_layout_row_dynamic(pCtx, 20, 2);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Windows input", NK_TEXT_LEFT);
-      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, 2, iInputBackend, 20, nk_vec2(160, 60));
+      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, 2, iInputBackend, DEBUG_ROW_H, nk_vec2(190, 90));
       if (iNewInputBackend != iInputBackend) {
         InputSetWindowsBackend(iNewInputBackend == 1 ? INPUT_WINDOWS_BACKEND_SDL_DINPUT : INPUT_WINDOWS_BACKEND_WINMM);
         InputSaveConfig();
@@ -603,25 +719,32 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       int iSel = (int)g_ePhoneControls;
       if (iSel < 0 || iSel > 2)
         iSel = 0;
-      nk_layout_row_dynamic(pCtx, 20, 2);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Phone controls", NK_TEXT_LEFT);
-      int iNewSel = nk_combo(pCtx, apszPhoneControls, 3, iSel, 20, nk_vec2(160, 80));
+      int iNewSel = nk_combo(pCtx, apszPhoneControls, 3, iSel, DEBUG_ROW_H, nk_vec2(190, 120));
       if (iNewSel != iSel) {
         g_ePhoneControls = (ePhoneControls)iNewSel;
+        InputSaveConfig();
+      }
+
+      int bShowActiveTouchControls = (int)g_bShowActiveTouchControls;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Show active touch controls", &bShowActiveTouchControls)) {
+        g_bShowActiveTouchControls = (bool)bShowActiveTouchControls;
         InputSaveConfig();
       }
     }
 #endif
 
-    nk_layout_row_dynamic(pCtx, 8, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_SPACING_H, 1);
     nk_spacing(pCtx, 1);
-    nk_layout_row_dynamic(pCtx, 20, 1);
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
       int bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
-      nk_layout_row_dynamic(pCtx, 20, 1);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU)) {
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
         InputSaveConfig();

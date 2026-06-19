@@ -7,6 +7,7 @@
 #include "graphics.h"
 #include "menu_render.h"
 #include "roller.h"
+#include "rollerinput.h"
 #include "snapshot.h"
 
 #define TOUCH_UI_MOUSE_DEBUG (-1001)
@@ -18,8 +19,11 @@
 #define TOUCH_UI_MARGIN   6
 #define TOUCH_UI_GAP      6
 #define TOUCH_UI_COLOR    143
+#define TOUCH_UI_ACTIVE_TURN_COLOR  0xFF
+#define TOUCH_UI_ACTIVE_BRAKE_COLOR 0xE7
 #define TOUCH_UI_TEXT_Y_OFFSET 8
 #define TOUCH_UI_BACKTICK_SIZE 2
+#define TOUCH_UI_ACTIVE_BORDER 3
 
 static tTouchButton s_touchButtons[3];
 static int s_iTouchButtonCount = 0;
@@ -178,6 +182,97 @@ static void touch_ui_render_menu_button(MenuRenderer *pRenderer,
 
 //-------------------------------------------------------------------------------------------------
 
+static void touch_ui_active_regions(int iVirtualWidth, int iVirtualHeight,
+                                    int *piLeftX, int *piLeftW,
+                                    int *piBrakeX, int *piBrakeW,
+                                    int *piRightX, int *piRightW,
+                                    int *piBrakeFull)
+{
+  if (iVirtualWidth <= 0)
+    iVirtualWidth = 640;
+  if (iVirtualHeight <= 0)
+    iVirtualHeight = 400;
+
+  *piLeftX = 0;
+  *piLeftW = iVirtualWidth / 4;
+  *piBrakeX = iVirtualWidth / 4;
+  *piBrakeW = iVirtualWidth / 2;
+  *piRightX = (iVirtualWidth * 3) / 4;
+  *piRightW = iVirtualWidth - *piRightX;
+  *piBrakeFull = g_ePhoneControls == PHONE_CONTROLS_TILT_TURN;
+  (void)iVirtualHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void touch_ui_render_menu_box_thick(MenuRenderer *pRenderer,
+                                           int iX, int iY, int iWidth,
+                                           int iHeight, uint8 byColor)
+{
+  for (int iInset = 0; iInset < TOUCH_UI_ACTIVE_BORDER; ++iInset)
+    menu_render_box(pRenderer, iX + iInset, iY + iInset,
+                    iWidth - iInset * 2, iHeight - iInset * 2,
+                    byColor, pal_addr);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void touch_ui_render_active_menu(MenuRenderer *pRenderer,
+                                        int iVirtualWidth, int iVirtualHeight)
+{
+#if defined(IS_ANDROID)
+  int iLeft = 0;
+  int iRight = 0;
+  int iBrake = 0;
+  int iLeftX;
+  int iLeftW;
+  int iBrakeX;
+  int iBrakeW;
+  int iRightX;
+  int iRightW;
+  int iBrakeFull;
+
+  if (!g_bShowActiveTouchControls ||
+      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+    return;
+
+  if (iVirtualWidth <= 0)
+    iVirtualWidth = 640;
+  if (iVirtualHeight <= 0)
+    iVirtualHeight = 400;
+
+  InputGetPhoneControlDebugState(&iLeft, &iRight, &iBrake);
+  touch_ui_active_regions(iVirtualWidth, iVirtualHeight, &iLeftX, &iLeftW,
+                          &iBrakeX, &iBrakeW, &iRightX, &iRightW,
+                          &iBrakeFull);
+
+  if (iBrake) {
+    if (iBrakeFull)
+      touch_ui_render_menu_box_thick(pRenderer, 0, 0, iVirtualWidth,
+                                     iVirtualHeight,
+                                     TOUCH_UI_ACTIVE_BRAKE_COLOR);
+    else
+      touch_ui_render_menu_box_thick(pRenderer, iBrakeX, 0, iBrakeW,
+                                     iVirtualHeight,
+                                     TOUCH_UI_ACTIVE_BRAKE_COLOR);
+  }
+  if (iLeft)
+    touch_ui_render_menu_box_thick(pRenderer, iLeftX, 0, iLeftW,
+                                   iVirtualHeight,
+                                   TOUCH_UI_ACTIVE_TURN_COLOR);
+  if (iRight)
+    touch_ui_render_menu_box_thick(pRenderer, iRightX, 0, iRightW,
+                                   iVirtualHeight,
+                                   TOUCH_UI_ACTIVE_TURN_COLOR);
+#else
+  (void)pRenderer;
+  (void)iVirtualWidth;
+  (void)iVirtualHeight;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void touch_ui_render_menu(MenuRenderer *pRenderer, int iVirtualWidth,
                           int iVirtualHeight)
 {
@@ -185,6 +280,7 @@ void touch_ui_render_menu(MenuRenderer *pRenderer, int iVirtualWidth,
     return;
 
   touch_ui_build_buttons(iVirtualWidth, iVirtualHeight);
+  touch_ui_render_active_menu(pRenderer, iVirtualWidth, iVirtualHeight);
   for (int iButton = 0; iButton < s_iTouchButtonCount; ++iButton)
     touch_ui_render_menu_button(pRenderer, &s_touchButtons[iButton]);
 }
@@ -227,9 +323,71 @@ static void touch_ui_render_game_button(const tTouchButton *pButton)
 
 //-------------------------------------------------------------------------------------------------
 
+static void touch_ui_render_game_box_thick(int iX, int iY, int iWidth,
+                                           int iHeight, uint8 byColor)
+{
+  for (int iInset = 0; iInset < TOUCH_UI_ACTIVE_BORDER; ++iInset)
+    box_screen(iX + iInset, iY + iInset,
+               iWidth - iInset * 2, iHeight - iInset * 2,
+               byColor);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void touch_ui_render_active_game(int iVirtualWidth, int iVirtualHeight)
+{
+#if defined(IS_ANDROID)
+  int iLeft = 0;
+  int iRight = 0;
+  int iBrake = 0;
+  int iLeftX;
+  int iLeftW;
+  int iBrakeX;
+  int iBrakeW;
+  int iRightX;
+  int iRightW;
+  int iBrakeFull;
+
+  if (!g_bShowActiveTouchControls ||
+      g_ePhoneControls == PHONE_CONTROLS_DISABLED)
+    return;
+
+  if (iVirtualWidth <= 0)
+    iVirtualWidth = 640;
+  if (iVirtualHeight <= 0)
+    iVirtualHeight = 400;
+
+  InputGetPhoneControlDebugState(&iLeft, &iRight, &iBrake);
+  touch_ui_active_regions(iVirtualWidth, iVirtualHeight, &iLeftX, &iLeftW,
+                          &iBrakeX, &iBrakeW, &iRightX, &iRightW,
+                          &iBrakeFull);
+
+  if (iBrake) {
+    if (iBrakeFull)
+      touch_ui_render_game_box_thick(0, 0, iVirtualWidth, iVirtualHeight,
+                                     TOUCH_UI_ACTIVE_BRAKE_COLOR);
+    else
+      touch_ui_render_game_box_thick(iBrakeX, 0, iBrakeW, iVirtualHeight,
+                                     TOUCH_UI_ACTIVE_BRAKE_COLOR);
+  }
+  if (iLeft)
+    touch_ui_render_game_box_thick(iLeftX, 0, iLeftW, iVirtualHeight,
+                                   TOUCH_UI_ACTIVE_TURN_COLOR);
+  if (iRight)
+    touch_ui_render_game_box_thick(iRightX, 0, iRightW, iVirtualHeight,
+                                   TOUCH_UI_ACTIVE_TURN_COLOR);
+#else
+  (void)iVirtualWidth;
+  (void)iVirtualHeight;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void touch_ui_render_game(int iVirtualWidth, int iVirtualHeight)
 {
   touch_ui_build_buttons(iVirtualWidth, iVirtualHeight);
+  touch_ui_render_active_game(iVirtualWidth, iVirtualHeight);
   for (int iButton = 0; iButton < s_iTouchButtonCount; ++iButton)
     touch_ui_render_game_button(&s_touchButtons[iButton]);
 }

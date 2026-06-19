@@ -83,6 +83,7 @@ typedef struct
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 ePhoneControls g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+bool g_bShowActiveTouchControls = false;
 
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;
@@ -154,6 +155,9 @@ static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent);
 static void InputPhoneUpdateSensor(void);
 static void InputPhoneShutdown(void);
 static int InputParsePhoneControlsSetting(const char *szValue);
+static int InputPhoneTouchInTurnRegion(const tInputPhoneTouch *pTouch,
+                                       int iRightRegion);
+static int InputPhoneTouchInBrakeRegion(const tInputPhoneTouch *pTouch);
 #endif
 
 //-------------------------------------------------------------------------------------------------
@@ -358,6 +362,64 @@ static int InputPhoneTouchInVisibleButton(const tInputPhoneTouch *pTouch)
 
   return touch_ui_point_in_visible_button(pTouch->iVirtualX,
                                           pTouch->iVirtualY);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneGetVirtualSize(int *piVirtualWidth, int *piVirtualHeight)
+{
+  int iVirtualWidth = 640;
+  int iVirtualHeight = 400;
+
+  frontend_mouse_get_virtual_size(&iVirtualWidth, &iVirtualHeight);
+  if (iVirtualWidth <= 0)
+    iVirtualWidth = 640;
+  if (iVirtualHeight <= 0)
+    iVirtualHeight = 400;
+
+  if (piVirtualWidth)
+    *piVirtualWidth = iVirtualWidth;
+  if (piVirtualHeight)
+    *piVirtualHeight = iVirtualHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneTouchInTurnRegion(const tInputPhoneTouch *pTouch,
+                                       int iRightRegion)
+{
+  int iVirtualWidth;
+  int iVirtualHeight;
+
+  if (!pTouch || !pTouch->iActive || !pTouch->iVirtualValid ||
+      InputPhoneTouchInVisibleButton(pTouch))
+    return 0;
+
+  InputPhoneGetVirtualSize(&iVirtualWidth, &iVirtualHeight);
+  (void)iVirtualHeight;
+
+  if (iRightRegion)
+    return pTouch->iVirtualX >= (iVirtualWidth * 3) / 4;
+
+  return pTouch->iVirtualX < iVirtualWidth / 4;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int InputPhoneTouchInBrakeRegion(const tInputPhoneTouch *pTouch)
+{
+  int iVirtualWidth;
+  int iVirtualHeight;
+
+  if (!pTouch || !pTouch->iActive || !pTouch->iVirtualValid ||
+      InputPhoneTouchInVisibleButton(pTouch))
+    return 0;
+
+  InputPhoneGetVirtualSize(&iVirtualWidth, &iVirtualHeight);
+  (void)iVirtualHeight;
+
+  return pTouch->iVirtualX >= iVirtualWidth / 4 &&
+         pTouch->iVirtualX < (iVirtualWidth * 3) / 4;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2381,9 +2443,7 @@ int InputPhoneBrakePressed(void)
     for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
       tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
 
-      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
-        continue;
-      if (pTouch->fNormX >= 0.25f && pTouch->fNormX < 0.75f)
+      if (InputPhoneTouchInBrakeRegion(pTouch))
         return 1;
     }
   }
@@ -2405,7 +2465,7 @@ int InputGetPhoneSteeringValue(void)
     if (!s_iPhoneAccelValid)
       return 0;
 
-    fTilt = -s_afPhoneAccel[0];
+    fTilt = s_afPhoneAccel[1];
     fMagnitude = InputPhoneAbsFloat(fTilt);
     if (fMagnitude <= INPUT_PHONE_TILT_DEADZONE)
       return 0;
@@ -2428,11 +2488,9 @@ int InputGetPhoneSteeringValue(void)
     for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
       tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
 
-      if (!pTouch->iActive || InputPhoneTouchInVisibleButton(pTouch))
-        continue;
-      if (pTouch->fNormX < 0.25f)
+      if (InputPhoneTouchInTurnRegion(pTouch, 0))
         iLeft = 1;
-      else if (pTouch->fNormX >= 0.75f)
+      else if (InputPhoneTouchInTurnRegion(pTouch, 1))
         iRight = 1;
     }
 
@@ -2444,6 +2502,45 @@ int InputGetPhoneSteeringValue(void)
 #endif
 
   return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputGetPhoneControlDebugState(int *piLeft, int *piRight, int *piBrake)
+{
+  int iLeft = 0;
+  int iRight = 0;
+  int iBrake = 0;
+
+#if defined(IS_ANDROID)
+  if (g_ePhoneControls == PHONE_CONTROLS_TILT_TURN) {
+    int iSteering = InputGetPhoneSteeringValue();
+
+    if (iSteering > 0)
+      iLeft = 1;
+    else if (iSteering < 0)
+      iRight = 1;
+    iBrake = InputPhoneBrakePressed();
+  } else if (g_ePhoneControls == PHONE_CONTROLS_TOUCH_TURN) {
+    for (int iTouch = 0; iTouch < INPUT_PHONE_MAX_TOUCHES; ++iTouch) {
+      tInputPhoneTouch *pTouch = &s_aPhoneTouches[iTouch];
+
+      if (InputPhoneTouchInTurnRegion(pTouch, 0))
+        iLeft = 1;
+      else if (InputPhoneTouchInTurnRegion(pTouch, 1))
+        iRight = 1;
+      if (InputPhoneTouchInBrakeRegion(pTouch))
+        iBrake = 1;
+    }
+  }
+#endif
+
+  if (piLeft)
+    *piLeft = iLeft;
+  if (piRight)
+    *piRight = iRight;
+  if (piBrake)
+    *piBrake = iBrake;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2792,6 +2889,14 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
       InputStringEqualsNoCase(szName, "AndroidPhoneControls")) {
     return InputParsePhoneControlsSetting(szValue);
   }
+
+  if (InputStringEqualsNoCase(szName, "ShowActiveTouchControls") ||
+      InputStringEqualsNoCase(szName, "PhoneControlsShowActive")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bShowActiveTouchControls = bValue;
+    return 1;
+  }
 #endif
 
 #if defined(_WIN32)
@@ -2932,6 +3037,7 @@ int InputLoadConfig(void)
   InputResetBindings();
 #if defined(IS_ANDROID)
   g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+  g_bShowActiveTouchControls = false;
 #endif
 
   fp = ROLLERfopen("ROLLER.INI", "r");
@@ -3044,6 +3150,8 @@ void InputSaveConfig(void)
 #endif
 #if defined(IS_ANDROID)
   fprintf(fp, "PhoneControls=%d\n", (int)g_ePhoneControls);
+  fprintf(fp, "ShowActiveTouchControls=%d\n",
+          g_bShowActiveTouchControls ? 1 : 0);
 #endif
   fprintf(fp, "[CommunityTracks]\n");
   if (TrackLoad == TRACK_LOAD_COMMUNITY &&

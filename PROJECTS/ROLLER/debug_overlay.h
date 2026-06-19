@@ -10,7 +10,7 @@ void          debug_overlay_destroy(DebugOverlay *pOverlay);
 void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible);
 bool debug_overlay_visible(DebugOverlay *pOverlay);
 void debug_overlay_toggle(DebugOverlay *pOverlay);
-void debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent);
+bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent);
 
 void debug_overlay_render(DebugOverlay *pOverlay,
                           SDL_GPUCommandBuffer *pCmdBuf,

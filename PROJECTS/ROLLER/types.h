@@ -133,6 +133,7 @@ typedef enum
 } ePhoneControls;
 
 extern ePhoneControls g_ePhoneControls;
+extern bool g_bShowActiveTouchControls;
 
 typedef struct
 {
