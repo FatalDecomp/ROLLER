@@ -119,6 +119,7 @@ void humancar(int iCarIdx)
   int iTeleportTargetIndex; // [esp+1Ch] [ebp-24h]
   int iCarIdx_1; // [esp+20h] [ebp-20h]
   int iControlFlags; // [esp+24h] [ebp-1Ch]
+  int iPhoneThrottle; // [esp+24h] [ebp-1Ch]
 
   iTrakLen = TRAK_LEN;                          // Initialize track length and player index
   iCarIdx_1 = iCarIdx;
@@ -128,6 +129,14 @@ void humancar(int iCarIdx)
   unFlags = copy_multiple[readptr][iCarIdx_1].data.unFlags;
   byCarDesignIdx = Car[iCarIdx_1].byCarDesignIdx;
   iControlFlags = unFlags;
+  iPhoneThrottle = 0;
+#if defined(IS_ANDROID)
+  if (iCarIdx_1 == player1_car &&
+      (iControlFlags & BUTTON_FLAG_PHONE_THROTTLE) != 0) {
+    iPhoneThrottle = -1;
+    iControlFlags &= ~BUTTON_FLAG_PHONE_THROTTLE;
+  }
+#endif
   //LOWORD(iControlFlags) = unFlags;
   if (byCarDesignIdx < 8)                     // Enable cheat mode for special car designs (8-12), disable for normal cars
     cheat_control = 0;
@@ -150,8 +159,10 @@ void humancar(int iCarIdx)
     human_finishers = iFinisherCount + 1;
     ++finishers;
   }
-  if (Car[iCarIdx_1].fHealth <= 0.0)          // Disable controls if car health is zero or below
+  if (Car[iCarIdx_1].fHealth <= 0.0) {        // Disable controls if car health is zero or below
     iControlFlags = 0;
+    iPhoneThrottle = 0;
+  }
     //LOWORD(unControlFlags) = 0;
   iCarIndex1 = iCarIdx_1;
   iCarIndex2 = iCarIdx_1;
@@ -352,6 +363,10 @@ void humancar(int iCarIdx)
       if ((iControlFlags & 2) != 0)          // Check control flags: bit 2=brake, bit 1=accelerate, else=freewheel
       {
         Decelerate(pCar);
+      } else if (iPhoneThrottle && race_started) {
+        pCar->byThrottlePressed = -1;
+        pCar->byEngineStartTimer = 0;
+        Accelerate(pCar);
       } else if ((iControlFlags & 1) != 0) {
         Accelerate(pCar);
       } else {

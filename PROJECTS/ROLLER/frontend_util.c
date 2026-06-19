@@ -1057,6 +1057,18 @@ int frontend_mouse_consume_click_anywhere(void)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_mouse_cancel_click(void)
+{
+  s_iFrontendMouseClickedId = -1;
+  s_iFrontendMouseLeftDown = 0;
+  s_iFrontendTouchActive = 0;
+  s_iFrontendTouchClickCancelled = -1;
+  s_ullFrontendTouchFingerId = 0;
+  s_uiFrontendMouseConsumedClickSeq = s_uiFrontendMouseClickSeq;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int frontend_mouse_take_wheel_y(void)
 {
   int iWheelY = 0;

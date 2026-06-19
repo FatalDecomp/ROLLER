@@ -1114,15 +1114,18 @@ void readuserdata(int iPlayer)
   // Process acceleration and brake inputs
   nButtonFlags_1 = 0;
   if (InputGetActionPressed(iKeyIndex + 2))
-    nButtonFlags_1 |= 1;
+    nButtonFlags_1 |= BUTTON_FLAG_ACCEL;
   if (InputGetActionPressed(iKeyIndex + 3))
-    nButtonFlags_1 = (nButtonFlags_1 & ~1) | 2;
+    nButtonFlags_1 = (nButtonFlags_1 & ~BUTTON_FLAG_ACCEL) |
+                     BUTTON_FLAG_BRAKE;
   if (iPlayer == 0) {
     iPhoneBrake = InputPhoneBrakePressed();
     if (iPhoneBrake) {
-      nButtonFlags_1 = (nButtonFlags_1 & ~1) | 2;
-    } else if (InputPhoneAutoAccelerate() && !(nButtonFlags_1 & 2)) {
-      nButtonFlags_1 |= 1;
+      nButtonFlags_1 = (nButtonFlags_1 & ~BUTTON_FLAG_ACCEL) |
+                       BUTTON_FLAG_BRAKE;
+    } else if (InputPhoneAutoAccelerate() &&
+               !(nButtonFlags_1 & BUTTON_FLAG_BRAKE)) {
+      nButtonFlags_1 |= BUTTON_FLAG_PHONE_THROTTLE;
     }
   }
 

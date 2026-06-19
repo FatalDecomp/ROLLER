@@ -1,5 +1,6 @@
 #include "debug_overlay.h"
 #include "debug_overlay_shaders.h"
+#include "frontend.h"
 #include "roller.h"
 #include "rollerinput.h"
 #include "menu_render.h"
@@ -75,6 +76,11 @@ struct DebugOverlay {
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
+  bool                   bDismissConsumeActive;
+  bool                   bDismissTouch;
+  SDL_FingerID           ullDismissFingerId;
+  SDL_MouseID            uiDismissMouseId;
+  Uint8                  byDismissMouseButton;
 
 };
 
@@ -428,6 +434,8 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   if (pOverlay->bVisible == bVisible) return;
 
   pOverlay->bVisible = bVisible;
+  if (bVisible)
+    pOverlay->bDismissConsumeActive = false;
   if (!bVisible && pOverlay->bInputBegun) {
     nk_input_end(&pOverlay->nk);
     pOverlay->bInputBegun = false;
@@ -516,12 +524,70 @@ static bool DebugOverlayConsumesEvent(SDL_Event *pEvent)
   }
 }
 
+static bool DebugOverlayIsTouchMouseEvent(SDL_Event *pEvent)
+{
+  if (pEvent->type == SDL_EVENT_MOUSE_MOTION)
+    return pEvent->motion.which == SDL_TOUCH_MOUSEID;
+  if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+      pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP)
+    return pEvent->button.which == SDL_TOUCH_MOUSEID;
+  if (pEvent->type == SDL_EVENT_MOUSE_WHEEL)
+    return pEvent->wheel.which == SDL_TOUCH_MOUSEID;
+
+  return false;
+}
+
+static bool DebugOverlayConsumeDismissTail(DebugOverlay *pOverlay,
+                                           SDL_Event *pEvent)
+{
+  if (!pOverlay->bDismissConsumeActive)
+    return false;
+
+  if (pOverlay->bDismissTouch) {
+    if (DebugOverlayIsTouchMouseEvent(pEvent))
+      return true;
+
+    if ((pEvent->type == SDL_EVENT_FINGER_MOTION ||
+         pEvent->type == SDL_EVENT_FINGER_UP ||
+         pEvent->type == SDL_EVENT_FINGER_CANCELED) &&
+        pEvent->tfinger.fingerID == pOverlay->ullDismissFingerId) {
+      if (pEvent->type == SDL_EVENT_FINGER_UP ||
+          pEvent->type == SDL_EVENT_FINGER_CANCELED)
+        pOverlay->bDismissConsumeActive = false;
+      return true;
+    }
+
+    return false;
+  }
+
+  if (pEvent->type == SDL_EVENT_MOUSE_MOTION &&
+      pEvent->motion.which == pOverlay->uiDismissMouseId)
+    return true;
+
+  if ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+       pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+      pEvent->button.which == pOverlay->uiDismissMouseId) {
+    if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP &&
+        pEvent->button.button == pOverlay->byDismissMouseButton)
+      pOverlay->bDismissConsumeActive = false;
+    return true;
+  }
+
+  return false;
+}
+
 bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   int iOverlayX = 0;
   int iOverlayY = 0;
   bool bHasPoint;
 
-  if (!pOverlay || !pOverlay->bVisible || !pEvent)
+  if (!pOverlay || !pEvent)
+    return false;
+
+  if (DebugOverlayConsumeDismissTail(pOverlay, pEvent))
+    return true;
+
+  if (!pOverlay->bVisible)
     return false;
 
   if (!DebugOverlayConsumesEvent(pEvent))
@@ -532,17 +598,20 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   if ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
        pEvent->type == SDL_EVENT_FINGER_DOWN) &&
       bHasPoint && iOverlayY < PANEL_Y) {
+    frontend_mouse_cancel_click();
+    pOverlay->bDismissConsumeActive = true;
+    pOverlay->bDismissTouch = pEvent->type == SDL_EVENT_FINGER_DOWN;
+    if (pOverlay->bDismissTouch) {
+      pOverlay->ullDismissFingerId = pEvent->tfinger.fingerID;
+    } else {
+      pOverlay->uiDismissMouseId = pEvent->button.which;
+      pOverlay->byDismissMouseButton = pEvent->button.button;
+    }
     debug_overlay_set_visible(pOverlay, false);
     return true;
   }
 
-  if ((pEvent->type == SDL_EVENT_MOUSE_MOTION &&
-       pEvent->motion.which == SDL_TOUCH_MOUSEID) ||
-      ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-        pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
-       pEvent->button.which == SDL_TOUCH_MOUSEID) ||
-      (pEvent->type == SDL_EVENT_MOUSE_WHEEL &&
-       pEvent->wheel.which == SDL_TOUCH_MOUSEID))
+  if (DebugOverlayIsTouchMouseEvent(pEvent))
     return true;
 
   // Open input bracket on first event of the frame

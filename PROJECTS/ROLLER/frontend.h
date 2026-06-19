@@ -293,6 +293,7 @@ void frontend_mouse_draw_hover_box(int iId, int iVirtualWidth,
 void frontend_mouse_draw_menu_hover_box(MenuRenderer *pRenderer, int iId);
 int frontend_mouse_consume_click(void);
 int frontend_mouse_consume_click_anywhere(void);
+void frontend_mouse_cancel_click(void);
 int frontend_mouse_take_wheel_y(void);
 int frontend_mouse_left_down(void);
 void frontend_mouse_press_accept(void);
