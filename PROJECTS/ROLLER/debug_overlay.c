@@ -76,7 +76,7 @@ struct DebugOverlay {
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
-  bool                   bDismissConsumeActive;
+  bool                   bDismissActive;
   bool                   bDismissTouch;
   SDL_FingerID           ullDismissFingerId;
   SDL_MouseID            uiDismissMouseId;
@@ -434,8 +434,7 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   if (pOverlay->bVisible == bVisible) return;
 
   pOverlay->bVisible = bVisible;
-  if (bVisible)
-    pOverlay->bDismissConsumeActive = false;
+  pOverlay->bDismissActive = false;
   if (!bVisible && pOverlay->bInputBegun) {
     nk_input_end(&pOverlay->nk);
     pOverlay->bInputBegun = false;
@@ -537,10 +536,10 @@ static bool DebugOverlayIsTouchMouseEvent(SDL_Event *pEvent)
   return false;
 }
 
-static bool DebugOverlayConsumeDismissTail(DebugOverlay *pOverlay,
-                                           SDL_Event *pEvent)
+static bool DebugOverlayHandlePendingDismiss(DebugOverlay *pOverlay,
+                                             SDL_Event *pEvent)
 {
-  if (!pOverlay->bDismissConsumeActive)
+  if (!pOverlay->bDismissActive)
     return false;
 
   if (pOverlay->bDismissTouch) {
@@ -552,8 +551,11 @@ static bool DebugOverlayConsumeDismissTail(DebugOverlay *pOverlay,
          pEvent->type == SDL_EVENT_FINGER_CANCELED) &&
         pEvent->tfinger.fingerID == pOverlay->ullDismissFingerId) {
       if (pEvent->type == SDL_EVENT_FINGER_UP ||
-          pEvent->type == SDL_EVENT_FINGER_CANCELED)
-        pOverlay->bDismissConsumeActive = false;
+          pEvent->type == SDL_EVENT_FINGER_CANCELED) {
+        pOverlay->bDismissActive = false;
+        frontend_mouse_cancel_click();
+        debug_overlay_set_visible(pOverlay, false);
+      }
       return true;
     }
 
@@ -568,8 +570,11 @@ static bool DebugOverlayConsumeDismissTail(DebugOverlay *pOverlay,
        pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP) &&
       pEvent->button.which == pOverlay->uiDismissMouseId) {
     if (pEvent->type == SDL_EVENT_MOUSE_BUTTON_UP &&
-        pEvent->button.button == pOverlay->byDismissMouseButton)
-      pOverlay->bDismissConsumeActive = false;
+        pEvent->button.button == pOverlay->byDismissMouseButton) {
+      pOverlay->bDismissActive = false;
+      frontend_mouse_cancel_click();
+      debug_overlay_set_visible(pOverlay, false);
+    }
     return true;
   }
 
@@ -584,22 +589,25 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   if (!pOverlay || !pEvent)
     return false;
 
-  if (DebugOverlayConsumeDismissTail(pOverlay, pEvent))
-    return true;
-
   if (!pOverlay->bVisible)
     return false;
 
   if (!DebugOverlayConsumesEvent(pEvent))
     return false;
 
+  if (DebugOverlayHandlePendingDismiss(pOverlay, pEvent))
+    return true;
+
   bHasPoint = DebugOverlayInputEventPoint(pOverlay, pEvent,
                                           &iOverlayX, &iOverlayY);
+  if (DebugOverlayIsTouchMouseEvent(pEvent))
+    return true;
+
   if ((pEvent->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
        pEvent->type == SDL_EVENT_FINGER_DOWN) &&
       bHasPoint && iOverlayY < PANEL_Y) {
     frontend_mouse_cancel_click();
-    pOverlay->bDismissConsumeActive = true;
+    pOverlay->bDismissActive = true;
     pOverlay->bDismissTouch = pEvent->type == SDL_EVENT_FINGER_DOWN;
     if (pOverlay->bDismissTouch) {
       pOverlay->ullDismissFingerId = pEvent->tfinger.fingerID;
@@ -607,12 +615,8 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
       pOverlay->uiDismissMouseId = pEvent->button.which;
       pOverlay->byDismissMouseButton = pEvent->button.button;
     }
-    debug_overlay_set_visible(pOverlay, false);
     return true;
   }
-
-  if (DebugOverlayIsTouchMouseEvent(pEvent))
-    return true;
 
   // Open input bracket on first event of the frame
   if (!pOverlay->bInputBegun) {
