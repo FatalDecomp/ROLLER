@@ -2947,6 +2947,129 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
   }
 #endif
 
+  if (InputStringEqualsNoCase(szName, "TextureFilter")) {
+    if (InputStringEqualsNoCase(szValue, "Bilinear"))
+      g_iTextureFilter = 1;
+    else if (InputStringEqualsNoCase(szValue, "Anisotropic"))
+      g_iTextureFilter = 2;
+    else
+      g_iTextureFilter = 0;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "AnisotropyLevel")) {
+    if (InputStringEqualsNoCase(szValue, "2x") || InputStringEqualsNoCase(szValue, "2"))
+      g_iAnisotropyLevel = 0;
+    else if (InputStringEqualsNoCase(szValue, "4x") || InputStringEqualsNoCase(szValue, "4"))
+      g_iAnisotropyLevel = 1;
+    else if (InputStringEqualsNoCase(szValue, "8x") || InputStringEqualsNoCase(szValue, "8"))
+      g_iAnisotropyLevel = 2;
+    else
+      g_iAnisotropyLevel = 3;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Trilinear")) {
+    g_bTrilinear = InputStringEqualsNoCase(szValue, "On") ||
+                   InputStringEqualsNoCase(szValue, "1")  ||
+                   InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "LodBias")) {
+    g_fLodBias = (float)atof(szValue);
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "RenderScale")) {
+    g_fRenderScale = (float)atof(szValue);
+    if (g_fRenderScale < 0.25f) g_fRenderScale = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Vsync")) {
+    g_bVsync = !(InputStringEqualsNoCase(szValue, "Off") ||
+                 InputStringEqualsNoCase(szValue, "0")   ||
+                 InputStringEqualsNoCase(szValue, "False"));
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FogDensity")) {
+    g_fFogDensity = (float)atof(szValue);
+    if (g_fFogDensity < 0.0f) g_fFogDensity = 0.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FogColor")) {
+    unsigned int uParsed = 0;
+    if (sscanf(szValue, "%06x", &uParsed) == 1)
+      g_uFogColor = uParsed & 0xFFFFFFu;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Gamma")) {
+    g_fGamma = (float)atof(szValue);
+    if (g_fGamma <= 0.0f) g_fGamma = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FogStart")) {
+    g_fFogStart = (float)atof(szValue);
+    if (g_fFogStart < 0.0f) g_fFogStart = 0.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Saturation")) {
+    g_fSaturation = (float)atof(szValue);
+    if (g_fSaturation < 0.0f) g_fSaturation = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Contrast")) {
+    g_fContrast = (float)atof(szValue);
+    if (g_fContrast < 0.0f) g_fContrast = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "VigStrength")) {
+    g_fVigStrength = (float)atof(szValue);
+    if (g_fVigStrength < 0.0f) g_fVigStrength = 0.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "Brightness")) {
+    g_fBrightness = (float)atof(szValue);
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FovMultiplier")) {
+    g_fFovMultiplier = (float)atof(szValue);
+    if (g_fFovMultiplier <= 0.1f) g_fFovMultiplier = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FpsDisplay")) {
+    if (InputStringEqualsNoCase(szValue, "TopLeft"))     g_iFpsDisplay = 1;
+    else if (InputStringEqualsNoCase(szValue, "TopRight"))    g_iFpsDisplay = 2;
+    else if (InputStringEqualsNoCase(szValue, "BottomLeft"))  g_iFpsDisplay = 3;
+    else if (InputStringEqualsNoCase(szValue, "BottomRight")) g_iFpsDisplay = 4;
+    else                                                       g_iFpsDisplay = 0;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "AntiAliasing") ||
+      InputStringEqualsNoCase(szName, "MSAA")) {
+    if (InputStringEqualsNoCase(szValue, "2x") || InputStringEqualsNoCase(szValue, "2"))
+      g_iAntiAliasing = 1;
+    else if (InputStringEqualsNoCase(szValue, "4x") || InputStringEqualsNoCase(szValue, "4"))
+      g_iAntiAliasing = 2;
+    else if (InputStringEqualsNoCase(szValue, "8x") || InputStringEqualsNoCase(szValue, "8"))
+      g_iAntiAliasing = 3;
+    else
+      g_iAntiAliasing = 0;
+    return 1;
+  }
+
 #if defined(_WIN32)
   if (InputIsWindowsBackendSettingName(szName)) {
     return InputParseWindowsBackendSetting(szValue);
@@ -3200,6 +3323,32 @@ void InputSaveConfig(void)
   fprintf(fp, "ImprovedJumpLanding=%d\n", g_bImprovedJumpLanding ? 1 : 0);
   fprintf(fp, "HardwareRendering=%d\n",
           menu_render_get_pending_mode(GetMenuRenderer()) == MENU_RENDER_GPU ? 1 : 0);
+  fprintf(fp, "TextureFilter=%s\n",
+          g_iTextureFilter == 2 ? "Anisotropic" : g_iTextureFilter == 1 ? "Bilinear" : "Nearest");
+  fprintf(fp, "AnisotropyLevel=%s\n",
+          g_iAnisotropyLevel == 0 ? "2x" : g_iAnisotropyLevel == 1 ? "4x" :
+          g_iAnisotropyLevel == 2 ? "8x" : "16x");
+  fprintf(fp, "Trilinear=%s\n", g_bTrilinear ? "On" : "Off");
+  fprintf(fp, "LodBias=%.2f\n", g_fLodBias);
+  fprintf(fp, "RenderScale=%.2f\n", g_fRenderScale);
+  fprintf(fp, "AntiAliasing=%s\n",
+          g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
+          g_iAntiAliasing == 1 ? "2x" : "Off");
+  fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
+  fprintf(fp, "FogDensity=%.6f\n", g_fFogDensity);
+  fprintf(fp, "FogColor=%06x\n", g_uFogColor);
+  fprintf(fp, "Gamma=%.2f\n", g_fGamma);
+  fprintf(fp, "FogStart=%.1f\n", g_fFogStart);
+  fprintf(fp, "Saturation=%.2f\n", g_fSaturation);
+  fprintf(fp, "Contrast=%.2f\n", g_fContrast);
+  fprintf(fp, "VigStrength=%.2f\n", g_fVigStrength);
+  fprintf(fp, "Brightness=%.2f\n", g_fBrightness);
+  fprintf(fp, "FovMultiplier=%.2f\n", g_fFovMultiplier);
+  {
+    const char *fps_pos[] = { "Off", "TopLeft", "TopRight", "BottomLeft", "BottomRight" };
+    int idx = (g_iFpsDisplay >= 0 && g_iFpsDisplay <= 4) ? g_iFpsDisplay : 0;
+    fprintf(fp, "FpsDisplay=%s\n", fps_pos[idx]);
+  }
 #if defined(_WIN32)
   fprintf(fp, "WindowsInputBackend=%s\n",
           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");

@@ -3,6 +3,7 @@
 #include "moving.h"
 #include "cdx.h"
 #include "func2.h"
+#include "roller.h"
 #include "func3.h"
 #include "3d.h"
 #include "loadtrak.h"
@@ -645,6 +646,12 @@ static void fade_palette_apply_step(int iStep)
     pal_addr[i].byB = (palette[i].byB * iStep) >> 5;
     pal_addr[i].byG = (palette[i].byG * iStep) >> 5;
   }
+}
+
+void palette_sync_pal_addr(void)
+{
+  if (!pal_addr) return;
+  fade_palette_apply_step(palette_brightness);
 }
 
 //-------------------------------------------------------------------------------------------------

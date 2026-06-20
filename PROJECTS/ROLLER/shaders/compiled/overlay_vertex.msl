@@ -12,10 +12,10 @@ struct main0_out
 vertex main0_out main0(uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
-    float _22 = float(gl_VertexIndex & 1u);
-    float _25 = float(gl_VertexIndex >> 1u);
-    out.gl_Position = float4((_22 * 4.0) - 1.0, 1.0 - (_25 * 4.0), 0.0, 1.0);
-    out.out_var_TEXCOORD0 = float2(_22 * 2.0, _25 * 2.0);
+    float _25 = float(gl_VertexIndex & 1u) * 2.0;
+    float _27 = float(gl_VertexIndex >> 1u);
+    out.gl_Position = float4(fma(_25, 2.0, -1.0), fma(_27 * (-2.0), 2.0, 1.0), 0.0, 1.0);
+    out.out_var_TEXCOORD0 = float2(_25, _27 * 2.0);
     return out;
 }
 

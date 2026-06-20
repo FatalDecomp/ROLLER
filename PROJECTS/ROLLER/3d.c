@@ -23,6 +23,7 @@
 #include "snapshot_scenes.h"
 #include "rollerinput.h"
 #include "touch_ui.h"
+#include "menu_render.h"
 #include <SDL3/SDL.h>
 #if defined(IS_ANDROID)
 #include <SDL3/SDL_main.h>
@@ -952,7 +953,6 @@ int main_loop_iteration(void)
     eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
 
   frontend_update();
-
   return eFrontendCurrentState != eFRONTEND_STATE_QUIT;
 }
 
@@ -2340,7 +2340,9 @@ void updatescreen()
         goto LABEL_20;
     }
     iShowRearView = -1;
+    game_render_begin_mirror_pass(g_pGameRenderer);
     draw_road(mirbuf, iViewTypeIndex, 2u, 0, 0);// Draw rear view road to mirror buffer
+    game_render_end_mirror_pass(g_pGameRenderer);
   LABEL_20:
     time_shown = 0;
     shown_panel = 0;
@@ -2399,7 +2401,9 @@ void updatescreen()
     winy = 0;
     winh = (200 * scr_size) >> 7;
     iMirrorWinHeight = (200 * scr_size) >> 7;
+    game_render_begin_mirror_pass(g_pGameRenderer);
     draw_road(mirbuf, ViewType[0], -DriveView[0] - 1, 0, 0);// Draw mirrored view (negative DriveView for reverse perspective)
+    game_render_end_mirror_pass(g_pGameRenderer);
     xbase = 159;
     winw = (320 * iOriginalScrSize + 32) >> 6;
     winh = (200 * iOriginalScrSize + 32) >> 6;
@@ -2592,6 +2596,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
       .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
       .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
       .fovScale = (float)VIEWDIST,
+      .renderChunkIdx = Car[iCarIdx].nCurrChunk,
   };
   game_render_set_camera(g_pGameRenderer, &cam);
 
@@ -3311,23 +3316,60 @@ void play_game_init()
   network_mes_mode = iSavedNetworkMesMode;
 
   g_pGameRenderer = game_render_create(ROLLERGetGPUDevice(), ROLLERGetWindow());
+  {
+      MenuRenderer *pMR = GetMenuRenderer();
+      if (pMR && menu_render_get_pending_mode(pMR) == MENU_RENDER_GPU)
+          game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
+  }
+  game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
+  game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
+  game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
+  game_render_set_lod_bias(g_pGameRenderer, g_fLodBias);
+  game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
+  game_render_set_fog_density(g_pGameRenderer, g_fFogDensity);
+  game_render_set_fog_color(g_pGameRenderer,
+      ((g_uFogColor >> 16) & 0xFF) / 255.0f,
+      ((g_uFogColor >>  8) & 0xFF) / 255.0f,
+      ( g_uFogColor        & 0xFF) / 255.0f);
+  game_render_set_gamma(g_pGameRenderer, g_fGamma);
+  game_render_set_fog_start(g_pGameRenderer, g_fFogStart);
+  game_render_set_saturation(g_pGameRenderer, g_fSaturation);
+  game_render_set_contrast(g_pGameRenderer, g_fContrast);
+  game_render_set_vignette(g_pGameRenderer, g_fVigStrength);
+  game_render_set_brightness(g_pGameRenderer, g_fBrightness);
+  game_render_set_fov_multiplier(g_pGameRenderer, g_fFovMultiplier);
+  game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
+  game_render_set_vsync(g_pGameRenderer, g_bVsync);
 
   // Register already-loaded pixel textures with the renderer.
   // These were loaded before the renderer existed, so the NULL-guarded
   // calls in graphics.c were skipped.
-  if (texture_vga)
-    game_render_load_texture(g_pGameRenderer, texture_vga, 256, 0,
+  if (texture_vga) {
+    int texH = gfx_size ? ((NoOfTextures + 7) / 8) * 32
+                        : ((NoOfTextures + 3) / 4) * 64;
+    game_render_load_texture(g_pGameRenderer, texture_vga, 256, texH,
                               0, gfx_size);
-  if (building_vga)
-    game_render_load_texture(g_pGameRenderer, building_vga, 256, 0,
+  }
+  if (building_vga) {
+    int bldH = gfx_size ? ((BldTextures + 7) / 8) * 32
+                        : ((BldTextures + 3) / 4) * 64;
+    game_render_load_texture(g_pGameRenderer, building_vga, 256, bldH,
                               17, gfx_size);
-  if (cargen_vga)
-    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, 0,
+  }
+  if (cargen_vga) {
+    int cgH = gfx_size ? ((num_textures[18] + 7) / 8) * 32
+                       : ((num_textures[18] + 3) / 4) * 64;
+    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, cgH,
                               18, gfx_size);
+  }
   for (int i = 0; i < 16; i++) {
-    if (cartex_vga[i])
-      game_render_load_texture(g_pGameRenderer, cartex_vga[i], 256, 0,
-                                i + 1, gfx_size ? 1 : 0);
+    if (cartex_vga[i]) {
+      int half = gfx_size ? 1 : 0;
+      int cH = half ? ((num_textures[i] + 7) / 8) * 32
+                    : ((num_textures[i] + 3) / 4) * 64;
+      game_render_load_texture(g_pGameRenderer, cartex_vga[i], 256, cH,
+                                i + 1, half);
+    }
   }
 
   // Register HUD sprite blocks (rev_vga) with the game renderer.

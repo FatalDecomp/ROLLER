@@ -707,8 +707,13 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             goto skip_polygon;
 
           // Handle special textures (advertisements, building remapping)
-          if ((uiTex & 0x200) != 0)
+          bool isSign = (uiTex & 0x200) != 0;
+          if (isSign) {
             uiTex = advert_list[iBuildingIdx];
+            /* Strip PARTIAL_TRANS: the sign pipeline handles depth itself; routing
+             * to the blend pipeline would break depth ordering against the wall. */
+            uiTex &= ~SURFACE_FLAG_PARTIAL_TRANS;
+          }
           if ((textures_off & TEX_OFF_BUILDING_TEXTURES) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             uiTex = remap_building_surface_to_flat(uiTex);
 
@@ -739,16 +744,18 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             verts[vi].u = 0.0f;
             verts[vi].v = 0.0f;
           }
-          // Textured building surfaces sample from the shared building texture
-          // atlas; unflagged surfaces are flat colors encoded directly in uiTex
-          // and should use an invalid texture handle.
-
           TextureHandle th = ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
             : TEXTURE_HANDLE_INVALID;
+          /* Sign polygons use a dedicated sign subdivide type so the GPU renderer
+           * routes them through the sign pipeline (LESS_OR_EQUAL + depth write),
+           * which beats coplanar wall depth while still being occluded by closer
+           * geometry (barriers, hills). */
+          int subdivType = isSign ? GAME_RENDER_SUBDIVIDE_TYPE_SIGN
+                                  : GAME_RENDER_SUBDIVIDE_TYPE_BUILDING;
           game_render_quad_world_subdivide_type(
             g_pGameRenderer, verts, th, (int)uiTex,
-            GAME_RENDER_SUBDIVIDE_TYPE_BUILDING,
+            subdivType,
             (float)BuildingSub[uiBuildingType] * subscale);
         }
         skip_polygon:;

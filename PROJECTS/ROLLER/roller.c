@@ -94,6 +94,24 @@ bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage d
 bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
+int   g_iTextureFilter   = 0;
+int   g_iAnisotropyLevel = 3;     /* default 16x */
+bool  g_bTrilinear       = false;
+float g_fLodBias         = 0.0f;
+float g_fRenderScale     = 1.0f;
+int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */
+bool  g_bVsync           = true;  /* SDL3 default is vsync on */
+int   g_iFpsDisplay      = 0;     /* 0=off, 1..4=corner position */
+float    g_fFogDensity   = 0.0f;
+float    g_fGamma        = 1.0f;
+float    g_fFogStart     = 0.0f;
+uint32_t g_uFogColor     = 0xB3BFCCu;  /* matches fogColor[] default {0.70, 0.75, 0.80} */
+float g_fSaturation      = 1.0f;
+float g_fContrast        = 1.0f;
+float g_fVigStrength     = 0.0f;
+float g_fBrightness      = 0.0f;
+float g_fFovMultiplier   = 1.0f;
+bool  g_bWireframe       = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -363,8 +381,10 @@ void UpdateSDLWindow()
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
 
-  // Convert indexed framebuffer directly into mapped transfer buffer
-  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
+  // Convert indexed framebuffer directly into mapped transfer buffer.
+  // cycle=true: never blocks; SDL3 creates a new slot if the previous one is
+  // still in flight, rather than waiting for GPU completion.
+  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, true);
   ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
   SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
 
@@ -1028,6 +1048,7 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+  game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
   SDL_PumpEvents();
   SDL_Event e;
   while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0) {
@@ -1055,6 +1076,13 @@ void UpdateSDL()
           break;
       }
     }
+    debug_overlay_handle_event(s_pDebugOverlay, &e);
+    if (!debug_overlay_visible(s_pDebugOverlay)) {
+      InputHandleEvent(&e);
+      frontend_mouse_handle_event(&e);
+    }
+
+
     if (e.type == SDL_EVENT_KEY_DOWN) {
       if (e.key.scancode == SDL_SCANCODE_GRAVE) {
         debug_overlay_toggle(s_pDebugOverlay);
@@ -1069,6 +1097,17 @@ void UpdateSDL()
     frontend_mouse_handle_event(&e);
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
+
+      if (e.key.scancode == SDL_SCANCODE_TAB) {
+        MenuRenderer *pTabRenderer = GetMenuRenderer();
+        if (pTabRenderer) {
+          int bGPU = !(menu_render_get_pending_mode(pTabRenderer) == MENU_RENDER_GPU);
+          menu_render_set_mode(pTabRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+          game_render_set_mode(g_pGameRenderer, bGPU ? GAME_RENDER_GPU : GAME_RENDER_SOFTWARE);
+          InputSaveConfig();
+        }
+        continue;
+      }
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER

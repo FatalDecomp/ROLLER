@@ -416,6 +416,7 @@ int fade_palette_update();
 int fade_palette_active();
 void fade_audio_restore();
 void fade_palette_finish();
+void palette_sync_pal_addr(void);
 void fade_music_finish(int iTargetBrightness);
 void set_palette(int iBrightness);
 void convertname(char *szFilename);
