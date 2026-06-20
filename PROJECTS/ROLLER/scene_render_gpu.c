@@ -1010,15 +1010,17 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
-        memcpy(mapped, r->vertices, (size_t)r->vertexCount * sizeof(SceneGPUVertex));
-        SDL_UnmapGPUTransferBuffer(r->device, r->vertexXfer);
+        if (mapped) {
+            memcpy(mapped, r->vertices, (size_t)r->vertexCount * sizeof(SceneGPUVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->vertexXfer);
 
-        SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
-        SDL_GPUTransferBufferLocation srcl = {.transfer_buffer = r->vertexXfer};
-        SDL_GPUBufferRegion dstr = {.buffer = r->vertexBuf,
-                                    .size = (Uint32)((size_t)r->vertexCount * sizeof(SceneGPUVertex))};
-        SDL_UploadToGPUBuffer(cp, &srcl, &dstr, false);
-        SDL_EndGPUCopyPass(cp);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation srcl = {.transfer_buffer = r->vertexXfer};
+            SDL_GPUBufferRegion dstr = {.buffer = r->vertexBuf,
+                                        .size = (Uint32)((size_t)r->vertexCount * sizeof(SceneGPUVertex))};
+            SDL_UploadToGPUBuffer(cp, &srcl, &dstr, false);
+            SDL_EndGPUCopyPass(cp);
+        }
     }
 
     bool drawHUD = false;
@@ -1053,18 +1055,20 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 
         if (r->hudOverlayTex && r->hudXfer) {
             uint8 *mapped = SDL_MapGPUTransferBuffer(r->device, r->hudXfer, true);
-            indexed_to_rgba(r->hudSrcBuf, palette, mapped, hw * hh);
-            SDL_UnmapGPUTransferBuffer(r->device, r->hudXfer);
+            if (mapped) {
+                indexed_to_rgba(r->hudSrcBuf, palette, mapped, hw * hh);
+                SDL_UnmapGPUTransferBuffer(r->device, r->hudXfer);
 
-            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
-            SDL_GPUTextureTransferInfo srcl = {.transfer_buffer = r->hudXfer};
-            SDL_GPUTextureRegion dstr = {
-                .texture = r->hudOverlayTex,
-                .w = (Uint32)hw, .h = (Uint32)hh, .d = 1
-            };
-            SDL_UploadToGPUTexture(cp, &srcl, &dstr, false);
-            SDL_EndGPUCopyPass(cp);
-            drawHUD = true;
+                SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+                SDL_GPUTextureTransferInfo srcl = {.transfer_buffer = r->hudXfer};
+                SDL_GPUTextureRegion dstr = {
+                    .texture = r->hudOverlayTex,
+                    .w = (Uint32)hw, .h = (Uint32)hh, .d = 1
+                };
+                SDL_UploadToGPUTexture(cp, &srcl, &dstr, false);
+                SDL_EndGPUCopyPass(cp);
+                drawHUD = true;
+            }
         }
     }
 
@@ -1164,20 +1168,26 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
      * while still allowing closer geometry (barriers, hills) to overwrite it.
      * The depth bias pushes D_sign slightly toward the camera so that the
      * building pass (COMPARE_LESS_OR_EQUAL) also fails for coplanar walls. */
-    SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
-    DRAW_CMD(SCENE_GPU_DRAW_SIGN)
-
-    SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
-    DRAW_CMD(SCENE_GPU_DRAW_OPAQUE)
-
-    SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);
-    DRAW_CMD(SCENE_GPU_DRAW_WALL)
-
-    SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
-    DRAW_CMD(SCENE_GPU_DRAW_BUILDING)
-
-    SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
-    DRAW_CMD(SCENE_GPU_DRAW_BLEND)
+    if (r->signPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_SIGN)
+    }
+    if (r->opaquePipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_OPAQUE)
+    }
+    if (r->wallPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_WALL)
+    }
+    if (r->buildingPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_BUILDING)
+    }
+    if (r->blendPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_BLEND)
+    }
 #undef DRAW_CMD
 
     if (r->carDrawCount > 0 && r->carPipeline) {
