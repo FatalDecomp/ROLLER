@@ -6,6 +6,7 @@
 #include "func3.h"
 #include "polyf.h"
 #include "scene_render.h"
+#include "crt_filter.h"
 
 typedef enum {
     GAME_RENDER_GPU,
@@ -46,6 +47,7 @@ GameRenderMode game_render_get_mode(GameRenderer *renderer);
 void game_render_set_split_screen(GameRenderer *renderer, bool split);
 bool game_render_is_split_screen(GameRenderer *renderer);
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay);
+void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter);
 
 // Frame lifecycle
 void game_render_begin_frame(GameRenderer *renderer);
@@ -145,40 +147,5 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette);
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames);
 int game_render_fade_active(GameRenderer *renderer);
-
-// Texture filtering (GPU mode only): 0=nearest, 1=bilinear, 2=anisotropic
-void game_render_set_texture_filter(GameRenderer *renderer, int filter);
-// Trilinear filtering (GPU mode only): true = blend linearly between mip levels
-void game_render_set_trilinear(GameRenderer *renderer, bool enabled);
-// Anisotropy level (GPU mode only): 0=2x, 1=4x, 2=8x, 3=16x
-void game_render_set_anisotropy_level(GameRenderer *renderer, int level);
-// LOD bias (GPU mode only): negative=sharper, positive=blurrier
-void game_render_set_lod_bias(GameRenderer *renderer, float bias);
-// Render scale (GPU mode only): 1.0=native, 1.5=2.25x pixels, 2.0=4x pixels (SSAA)
-void game_render_set_render_scale(GameRenderer *renderer, float scale);
-// Fog density (GPU mode only): 0.0=off; exponential-squared coefficient
-void game_render_set_fog_density(GameRenderer *renderer, float density);
-// Fog color (GPU mode only): linear RGB [0..1] each channel
-void game_render_set_fog_color(GameRenderer *renderer, float fr, float fg, float fb);
-// Gamma correction (GPU mode only): 1.0=neutral, <1=brighter, >1=darker
-void game_render_set_gamma(GameRenderer *renderer, float gamma);
-// Anti-aliasing (GPU mode only): 0=off, 1=2x, 2=4x, 3=8x
-void game_render_set_antialiasing(GameRenderer *renderer, int level);
-// V-sync: true=vsync on, false=immediate present
-void game_render_set_vsync(GameRenderer *renderer, bool enabled);
-// Fog start distance (GPU mode only): view-space depth before which fog is suppressed
-void game_render_set_fog_start(GameRenderer *renderer, float start);
-// Saturation (GPU mode only): 0=greyscale, 1=neutral, >1=boosted
-void game_render_set_saturation(GameRenderer *renderer, float saturation);
-// Contrast (GPU mode only): 0=flat grey, 1=neutral, >1=high contrast
-void game_render_set_contrast(GameRenderer *renderer, float contrast);
-// Vignette strength (GPU mode only): 0=off, higher=darker edges
-void game_render_set_vignette(GameRenderer *renderer, float strength);
-// FOV multiplier (GPU mode only): 1.0=native camera, <1=zoom in, >1=zoom out
-void game_render_set_fov_multiplier(GameRenderer *renderer, float mult);
-// Wireframe (GPU mode only): true=line fill, false=solid
-void game_render_set_wireframe(GameRenderer *renderer, bool enabled);
-// Brightness (GPU mode only): additive offset; 0.0=neutral, positive=brighter, negative=darker
-void game_render_set_brightness(GameRenderer *renderer, float brightness);
 
 #endif

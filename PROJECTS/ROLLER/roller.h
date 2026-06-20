@@ -36,6 +36,7 @@ extern float g_fVigStrength;     /* vignette strength; 0.0 = off */
 extern float g_fBrightness;      /* additive brightness; 0.0 = neutral */
 extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern bool  g_bWireframe;       /* wireframe rendering */
+extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
@@ -50,6 +51,7 @@ SDL_Window *ROLLERGetWindow(void);
 // Debug overlay accessor
 struct DebugOverlay;
 struct DebugOverlay *ROLLERGetDebugOverlay(void);
+struct CRTFilter    *ROLLERGetCRTFilter(void);
 
 // Menu renderer accessor
 typedef struct MenuRenderer MenuRenderer;

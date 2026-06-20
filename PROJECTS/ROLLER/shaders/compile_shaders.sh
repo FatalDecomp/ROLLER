@@ -98,6 +98,22 @@ echo "Compiling HUD overlay pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_hud_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_hud_pixel.msl"
 
+# --- CRT shaders ---
+CRT_HEADER="$SCRIPT_DIR/../crt_shaders.h"
+if command -v cygpath >/dev/null 2>&1; then
+    W_CRT="$(cygpath -w "$CRT_HEADER")"
+else
+    W_CRT="$CRT_HEADER"
+fi
+
+echo "Compiling CRT vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/crt_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/crt_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/crt_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/crt_vertex.msl"
+
+echo "Compiling CRT pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/crt_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/crt_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/crt_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/crt_pixel.msl"
+
 # --- Header generation via Python (uses Windows-native paths) ---
 EMBED_FN='
 import os, sys
@@ -173,3 +189,19 @@ with open(r'$W_HUD', 'w') as f:
     f.write(h)
 "
 echo "Generated $HUD_HEADER"
+
+echo "Generating crt_shaders.h..."
+"$PYTHON" -c "
+$EMBED_FN
+out_dir = r'$W_OUT'
+h = '#ifndef CRT_SHADERS_H\n#define CRT_SHADERS_H\n\n'
+for stage in ['vertex', 'pixel']:
+    for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
+        p = os.path.join(out_dir, f'crt_{stage}.{ext}')
+        if os.path.exists(p):
+            h += embed(p, f'crt_{stage}_{fmt}') + '\n'
+h += '#endif\n'
+with open(r'$W_CRT', 'w') as f:
+    f.write(h)
+"
+echo "Generated $CRT_HEADER"

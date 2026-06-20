@@ -1,4 +1,5 @@
 #include "3d.h"
+#include "game_render_hw.h"
 #include "cdx.h"
 #include "control.h"
 #include "drawtrk3.h"
@@ -2203,6 +2204,7 @@ void firework_screen()
   int iScreenX2; // [esp+Ch] [ebp-24h]
   char byColorFade; // [esp+10h] [ebp-20h]
 
+  game_render_begin_frame(g_pGameRenderer);
   iCarIndex = 0;
 
   // Clear screen buffer with background color (112)
@@ -3049,7 +3051,10 @@ void play_game_init()
   SVGA_ON = game_svga;
   if (no_mem) {
     fre((void **)&scrbuf);
-    scrbuf = (uint8 *)getbuffer(64000u);
+    /* GPU HUD overlay compositing writes hudW*hudH bytes into scrbuf every frame;
+     * keep the full allocation in GPU mode even when running low-memory. */
+    scrbuf = (uint8 *)getbuffer(
+        game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU ? 256000u : 64000u);
   }
   if (gfx_size == 1)                          // Set minimum sub-frame size based on graphics quality setting
     min_sub_size = 4;

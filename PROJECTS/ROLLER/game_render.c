@@ -16,6 +16,7 @@ struct GameRenderer {
     bool           pendingModeSet;
     GameRendererSoftware *sw;
     SceneRenderer *scene;
+    SceneRendererGPU *gpu; /* cached from scene at creation; NULL if GPU unavailable */
     SDL_GPUDevice *device;
     SDL_Window *window;
     GameRendererHardware *hw;
@@ -44,6 +45,7 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->window = window;
     r->sw = game_render_sw_create(device, window);
     r->scene = scene_render_create(device, window);
+    r->gpu   = scene_render_get_gpu(r->scene);
     r->mode = GAME_RENDER_SOFTWARE;
     r->hw = game_render_hw_create(device);
     return r;
@@ -98,12 +100,13 @@ void game_render_begin_frame(GameRenderer *renderer) {
          * GPU path is abandoned.  This guards against the edge case where a
          * begin_frame acquired a cmdBuf but end_frame was never reached. */
         if (renderer->pendingMode == GAME_RENDER_SOFTWARE) {
-            scene_render_gpu_cancel_frame_via_scene(renderer->scene);
-            /* GPU mode never calls fade_palette_update, so palette_brightness
-             * stays at 0 (set by setpal).  Treat that as full brightness so
-             * palette_sync_pal_addr fills pal_addr correctly on the first SW
-             * frame instead of producing a black screen. */
-            if (!fade_palette_active() && palette_brightness == 0)
+            scene_render_gpu_cancel_frame(renderer->gpu);
+            /* GPU mode never updates palette_brightness (it renders its own
+             * brightness independently), so it stays 0 from setpal().  Force
+             * it to full brightness now so the first SW frame is visible.
+             * Skip this if a palette fade is already in progress (e.g. the
+             * end-of-race fade-out), so we don't stomp a running animation. */
+            if (!fade_palette_active())
                 palette_brightness = 32;
         }
         renderer->mode           = renderer->pendingMode;
@@ -117,7 +120,7 @@ void game_render_begin_frame(GameRenderer *renderer) {
         int hudH = renderer->hudH > 0 ? renderer->hudH : 400;
         if (scrbuf)
             memset(scrbuf, 0, (size_t)hudW * hudH);
-        scene_render_gpu_begin_frame_via_scene(renderer->scene);
+        scene_render_gpu_begin_frame(renderer->gpu);
     }
 }
 
@@ -125,12 +128,14 @@ void game_render_end_frame(GameRenderer *renderer) {
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_end_frame(renderer->sw);
     } else if (renderer->mode == GAME_RENDER_GPU) {
+        if (fade_palette_active())
+            fade_palette_update();
         game_render_hw_draw_fps_overlay();
-        scene_render_gpu_set_hud_buffer_via_scene(renderer->scene,
-                                                   scrbuf,
-                                                   renderer->hudW > 0 ? renderer->hudW : 640,
-                                                   renderer->hudH > 0 ? renderer->hudH : 400);
-        scene_render_gpu_end_frame_via_scene(renderer->scene);
+        scene_render_gpu_set_hud_buffer(renderer->gpu,
+                                        scrbuf,
+                                        renderer->hudW > 0 ? renderer->hudW : 640,
+                                        renderer->hudH > 0 ? renderer->hudH : 400);
+        scene_render_gpu_end_frame(renderer->gpu);
     }
 }
 
@@ -145,8 +150,7 @@ void game_render_end_mirror_pass(GameRenderer *renderer) {
     renderer->mirrorPass = false;
     if (renderer->mode == GAME_RENDER_GPU) {
         scene_render_set_use_gpu(renderer->scene, true);
-        SceneRendererGPU *gpu = scene_render_get_gpu(renderer->scene);
-        if (gpu) scene_render_gpu_discard_queued(gpu);
+        if (renderer->gpu) scene_render_gpu_discard_queued(renderer->gpu);
     }
 }
 
@@ -304,9 +308,8 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
     else if (renderer->mode == GAME_RENDER_GPU) {
         if (renderer->splitScreen)
             game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
-        SceneRendererGPU *gpu = scene_render_get_gpu(renderer->scene);
-        if (renderer->hw && gpu) {
-            game_render_hw_draw_car(renderer->hw, gpu, carIdx, pose, options);
+        if (renderer->hw && renderer->gpu) {
+            game_render_hw_draw_car(renderer->hw, renderer->gpu, carIdx, pose, options);
             game_render_hw_draw_car_name_tag(carIdx, pose);
         }
     }
@@ -326,7 +329,7 @@ void game_render_draw_sky(GameRenderer *renderer,
          * .pal files store 6-bit VGA DAC values (0-63); divide by 63 to normalise. */
         {
             const tColor *sky = &palette[0x91];
-            scene_render_gpu_set_sky_color_via_scene(renderer->scene,
+            scene_render_gpu_set_sky_color(renderer->gpu,
                 sky->byR / 63.0f,
                 sky->byG / 63.0f,
                 sky->byB / 63.0f);
@@ -366,99 +369,90 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {
 
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames) {
-    if (renderer->mode == GAME_RENDER_SOFTWARE)
+    if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_begin_fade(renderer->sw, direction, durationFrames);
-    else if (direction)
-        fade_audio_restore();
+    } else {
+        if (direction)
+            fade_audio_restore();
+        else
+            fade_palette_begin(0); /* locks keyboard; fade_active stays true until complete */
+    }
 }
 
 int game_render_fade_active(GameRenderer *renderer) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         return game_render_sw_fade_active(renderer->sw);
-    return 0;
+    return fade_palette_active();
 }
 
 void game_render_set_texture_filter(GameRenderer *renderer, int filter) {
-    if (renderer)
-        scene_render_gpu_set_texture_filter_via_scene(renderer->scene, filter);
+    if (renderer) scene_render_gpu_set_texture_filter(renderer->gpu, filter);
 }
 
 void game_render_set_trilinear(GameRenderer *renderer, bool enabled) {
-    if (renderer)
-        scene_render_gpu_set_trilinear_via_scene(renderer->scene, enabled);
+    if (renderer) scene_render_gpu_set_trilinear(renderer->gpu, enabled);
 }
 
 void game_render_set_anisotropy_level(GameRenderer *renderer, int level) {
-    if (renderer)
-        scene_render_gpu_set_anisotropy_level_via_scene(renderer->scene, level);
+    if (renderer) scene_render_gpu_set_anisotropy_level(renderer->gpu, level);
 }
 
 void game_render_set_lod_bias(GameRenderer *renderer, float bias) {
-    if (renderer)
-        scene_render_gpu_set_lod_bias_via_scene(renderer->scene, bias);
+    if (renderer) scene_render_gpu_set_lod_bias(renderer->gpu, bias);
 }
 
 void game_render_set_render_scale(GameRenderer *renderer, float scale) {
-    if (renderer)
-        scene_render_gpu_set_render_scale_via_scene(renderer->scene, scale);
+    if (renderer) scene_render_gpu_set_render_scale(renderer->gpu, scale);
 }
 
 void game_render_set_fog_density(GameRenderer *renderer, float density) {
-    if (renderer)
-        scene_render_gpu_set_fog_density_via_scene(renderer->scene, density);
+    if (renderer) scene_render_gpu_set_fog_density(renderer->gpu, density);
 }
 
 void game_render_set_fog_color(GameRenderer *renderer, float fr, float fg, float fb) {
-    if (renderer)
-        scene_render_gpu_set_fog_color_via_scene(renderer->scene, fr, fg, fb);
+    if (renderer) scene_render_gpu_set_fog_color(renderer->gpu, fr, fg, fb);
 }
 
 void game_render_set_gamma(GameRenderer *renderer, float gamma) {
-    if (renderer)
-        scene_render_gpu_set_gamma_via_scene(renderer->scene, gamma);
+    if (renderer) scene_render_gpu_set_gamma(renderer->gpu, gamma);
 }
 
 void game_render_set_antialiasing(GameRenderer *renderer, int level) {
-    if (renderer)
-        scene_render_gpu_set_msaa_via_scene(renderer->scene, level);
+    if (renderer) scene_render_gpu_set_msaa(renderer->gpu, level);
 }
 
 void game_render_set_fog_start(GameRenderer *renderer, float start) {
-    if (renderer)
-        scene_render_gpu_set_fog_start_via_scene(renderer->scene, start);
+    if (renderer) scene_render_gpu_set_fog_start(renderer->gpu, start);
 }
 
 void game_render_set_saturation(GameRenderer *renderer, float saturation) {
-    if (renderer)
-        scene_render_gpu_set_saturation_via_scene(renderer->scene, saturation);
+    if (renderer) scene_render_gpu_set_saturation(renderer->gpu, saturation);
 }
 
 void game_render_set_contrast(GameRenderer *renderer, float contrast) {
-    if (renderer)
-        scene_render_gpu_set_contrast_via_scene(renderer->scene, contrast);
+    if (renderer) scene_render_gpu_set_contrast(renderer->gpu, contrast);
 }
 
 void game_render_set_vignette(GameRenderer *renderer, float strength) {
-    if (renderer)
-        scene_render_gpu_set_vignette_via_scene(renderer->scene, strength);
+    if (renderer) scene_render_gpu_set_vignette(renderer->gpu, strength);
 }
 
 void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
-    if (renderer)
-        scene_render_gpu_set_fov_multiplier_via_scene(renderer->scene, mult);
+    if (renderer) scene_render_gpu_set_fov_multiplier(renderer->gpu, mult);
 }
 
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
-    if (renderer)
-        scene_render_gpu_set_wireframe_via_scene(renderer->scene, enabled);
+    if (renderer) scene_render_gpu_set_wireframe(renderer->gpu, enabled);
 }
 
 void game_render_set_brightness(GameRenderer *renderer, float brightness) {
-    if (renderer)
-        scene_render_gpu_set_brightness_via_scene(renderer->scene, brightness);
+    if (renderer) scene_render_gpu_set_brightness(renderer->gpu, brightness);
 }
 
 void game_render_set_vsync(GameRenderer *renderer, bool enabled) {
-    if (renderer)
-        scene_render_gpu_set_vsync_via_scene(renderer->scene, enabled);
+    if (renderer) scene_render_gpu_set_vsync(renderer->gpu, enabled);
+}
+
+void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter) {
+    if (renderer) scene_render_gpu_set_crt_filter(renderer->gpu, filter);
 }

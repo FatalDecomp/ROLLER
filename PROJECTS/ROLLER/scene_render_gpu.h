@@ -6,6 +6,12 @@
 #include "sound.h"    /* tColor, pal_addr */
 
 typedef struct SceneRendererGPU SceneRendererGPU;
+struct SceneRenderer;
+struct CRTFilter;
+
+/* Extract the GPU sub-renderer from an opaque SceneRenderer.
+ * Returns NULL if the GPU renderer was not created (e.g. no GPU device). */
+SceneRendererGPU *scene_render_get_gpu(struct SceneRenderer *renderer);
 
 SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window);
 void              scene_render_gpu_destroy(SceneRendererGPU *r);
@@ -97,6 +103,7 @@ void scene_render_gpu_set_hud_buffer(SceneRendererGPU *r,
 void scene_render_gpu_set_split_screen(SceneRendererGPU *r, bool split);
 
 void scene_render_gpu_set_debug_overlay(SceneRendererGPU *r, DebugOverlay *overlay);
+void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filter);
 
 void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16]);
 int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);

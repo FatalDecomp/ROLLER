@@ -1,4 +1,5 @@
 #include "scene_render_gpu.h"
+#include "crt_filter.h"
 #include "debug_overlay.h"
 #include "polytex.h"              /* startsx, startsy */
 #include "sound.h"                /* pal_addr */
@@ -6,6 +7,7 @@
 #include "menu_shaders.h"         /* menu_mesh_* — reused for car pipeline */
 #include "game_hud_shaders.h"     /* HUD overlay vertex/pixel */
 #include "3d.h"                   /* wide_on */
+#include "roller.h"               /* ROLLERTryAcquireGPUSwapchainTexture */
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,6 +202,9 @@ struct SceneRendererGPU {
 
     /* Optional debug overlay rendered after the final blit, before submit. */
     DebugOverlay *debugOverlay;
+
+    /* Optional CRT post-process filter applied instead of the plain blit. */
+    CRTFilter *crtFilter;
 };
 
 /* ==========================================================================
@@ -928,6 +933,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
         for (int t = 0; t < r->texSlots[i].numTiles; t++) {
             if (r->texSlots[i].tileTextures[t])
                 SDL_ReleaseGPUTexture(r->device, r->texSlots[i].tileTextures[t]);
+            if (r->texSlots[i].pairTextures[t])
+                SDL_ReleaseGPUTexture(r->device, r->texSlots[i].pairTextures[t]);
         }
     }
     for (int i = 0; i < 256; i++) {
@@ -962,18 +969,26 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
 void scene_render_gpu_begin_frame(SceneRendererGPU *r)
 {
     if (!r) return;
+    r->cmdBuf      = NULL;
+    r->swapchainTex = NULL;
     if (r->pendingVsyncSet) {
-        SDL_SetGPUSwapchainParameters(r->device, r->window,
-            SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-            r->pendingVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
+        if (!SDL_SetGPUSwapchainParameters(r->device, r->window,
+                SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+                r->pendingVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE))
+            SDL_Log("scene_render_gpu: SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
         r->pendingVsyncSet = false;
     }
     r->vertexCount  = 0;
     r->drawCmdCount = 0;
     r->carDrawCount = 0;
     r->hudSrcBuf    = NULL;
-    r->cmdBuf       = SDL_AcquireGPUCommandBuffer(r->device);
-    SDL_AcquireGPUSwapchainTexture(r->cmdBuf, r->window, &r->swapchainTex, NULL, NULL);
+    r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
+    if (!r->cmdBuf) return;
+    if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
+            &r->swapchainTex, NULL, NULL) || !r->swapchainTex) {
+        SDL_CancelGPUCommandBuffer(r->cmdBuf);
+        r->cmdBuf = NULL;
+    }
 }
 
 void scene_render_gpu_end_frame(SceneRendererGPU *r)
@@ -1228,7 +1243,7 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     }
 
     /* ====================================================================
-     * Blit offscreen → swapchain with letterbox/pillarbox to fill window
+     * Blit/CRT offscreen → swapchain with letterbox/pillarbox
      * ==================================================================== */
     if (r->offscreenTex) {
         int winW, winH;
@@ -1244,17 +1259,25 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         int dstX = (winW - dstW) / 2;
         int dstY = (winH - dstH) / 2;
 
-        SDL_GPUBlitInfo blitInfo = {
-            .source      = { .texture = resolveTarget,
-                             .w = (Uint32)renderW, .h = (Uint32)renderH },
-            .destination = { .texture = r->swapchainTex,
-                             .x = (Uint32)dstX, .y = (Uint32)dstY,
-                             .w = (Uint32)dstW, .h = (Uint32)dstH },
-            .load_op     = SDL_GPU_LOADOP_CLEAR,
-            .clear_color = { 0.0f, 0.0f, 0.0f, 1.0f },
-            .filter      = (rs > 1.0f) ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST
-        };
-        SDL_BlitGPUTexture(r->cmdBuf, &blitInfo);
+        if (r->crtFilter && r->swapchainTex) {
+            crt_filter_apply(r->crtFilter, r->cmdBuf,
+                             resolveTarget, (Uint32)renderW, (Uint32)renderH,
+                             r->swapchainTex,
+                             (Uint32)dstX, (Uint32)dstY,
+                             (Uint32)dstW, (Uint32)dstH);
+        } else {
+            SDL_GPUBlitInfo blitInfo = {
+                .source      = { .texture = resolveTarget,
+                                 .w = (Uint32)renderW, .h = (Uint32)renderH },
+                .destination = { .texture = r->swapchainTex,
+                                 .x = (Uint32)dstX, .y = (Uint32)dstY,
+                                 .w = (Uint32)dstW, .h = (Uint32)dstH },
+                .load_op     = SDL_GPU_LOADOP_CLEAR,
+                .clear_color = { 0.0f, 0.0f, 0.0f, 1.0f },
+                .filter      = (rs > 1.0f) ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST
+            };
+            SDL_BlitGPUTexture(r->cmdBuf, &blitInfo);
+        }
     }
 
     if (r->debugOverlay && r->swapchainTex) {
@@ -1291,6 +1314,11 @@ void scene_render_gpu_discard_queued(SceneRendererGPU *r)
 void scene_render_gpu_set_debug_overlay(SceneRendererGPU *r, DebugOverlay *overlay)
 {
     if (r) r->debugOverlay = overlay;
+}
+
+void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, CRTFilter *filter)
+{
+    if (r) r->crtFilter = filter;
 }
 
 void scene_render_gpu_set_viewport(SceneRendererGPU *r, int x, int y, int w, int h)
@@ -1947,7 +1975,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         last->vertexCount += 6;
     } else {
         SceneGPUDrawCmd *cmd = &r->drawCmds[r->drawCmdCount++];
-        *cmd = (SceneGPUDrawCmd){gpuTex, base, 6, kind, isCloud};
+        *cmd = (SceneGPUDrawCmd){
+            .texture      = gpuTex,
+            .vertexStart  = base,
+            .vertexCount  = 6,
+            .kind         = kind,
+            .forceNearest = isCloud,
+        };
         memcpy(cmd->mvp, mvp, sizeof(mvp));
     }
     r->vertexCount += 6;

@@ -2994,6 +2994,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "CRTFilter")) {
+    g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
+                   InputStringEqualsNoCase(szValue, "1")  ||
+                   InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "FogDensity")) {
     g_fFogDensity = (float)atof(szValue);
     if (g_fFogDensity < 0.0f) g_fFogDensity = 0.0f;
@@ -3335,6 +3342,7 @@ void InputSaveConfig(void)
           g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
+  fprintf(fp, "CRTFilter=%s\n", g_bCRTFilter ? "On" : "Off");
   fprintf(fp, "FogDensity=%.6f\n", g_fFogDensity);
   fprintf(fp, "FogColor=%06x\n", g_uFogColor);
   fprintf(fp, "Gamma=%.2f\n", g_fGamma);
