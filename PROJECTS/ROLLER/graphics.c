@@ -456,9 +456,11 @@ void LoadGenericCarTextures()
 
   // Setup tex mapping selector
   setmapsel(cargen_vga, 18, iMapSelMode, iFinalTexCount);
-  if (g_pGameRenderer)
-    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, 0,
+  if (g_pGameRenderer) {
+    int cgTexH = gfx_size ? ((iFinalTexCount + 7) / 8) * 32 : ((iFinalTexCount + 3) / 4) * 64;
+    game_render_load_texture(g_pGameRenderer, cargen_vga, 256, cgTexH,
                               18, gfx_size);
+  }
 
   // Update count
   num_textures[18] = iNumTextures_1;
@@ -652,7 +654,7 @@ void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx)
     setmapsel(cartex_vga[iTexSlotIdx - 1], iTexSlotIdx, -1, iTotalFileLength);
     if (g_pGameRenderer)
       game_render_load_texture(g_pGameRenderer, cartex_vga[iTexSlotIdx - 1],
-                                256, 0, iTexSlotIdx, 1);
+                                256, ((iTotalFileLength + 7) / 8) * 32, iTexSlotIdx, 1);
 
     // Store num textures
     num_textures[iTexSlotIdx - 1] = iTotalFileLength;
@@ -671,7 +673,7 @@ void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx)
     setmapsel(cartex_vga[iTexSlotIdx - 1], iTexSlotIdx, 0, iTotalFileLength);
     if (g_pGameRenderer)
       game_render_load_texture(g_pGameRenderer, cartex_vga[iTexSlotIdx - 1],
-                                256, 0, iTexSlotIdx, 0);
+                                256, ((iTotalFileLength + 3) / 4) * 64, iTexSlotIdx, 0);
 
     // Store num textures
     num_textures[iTexSlotIdx - 1] = iTotalFileLength;
@@ -734,9 +736,11 @@ void LoadBldTextures()
   // Store tex counts and setup mapping selector
   BldTextures = iTexCount;
   setmapsel(building_vga, 17, iMapSelMode, iFinalTexCount);
-  if (g_pGameRenderer)
-    game_render_load_texture(g_pGameRenderer, building_vga, 256, 0,
+  if (g_pGameRenderer) {
+    int bldTexH = gfx_size ? ((iFinalTexCount + 7) / 8) * 32 : ((iFinalTexCount + 3) / 4) * 64;
+    game_render_load_texture(g_pGameRenderer, building_vga, 256, bldTexH,
                               17, gfx_size);
+  }
   num_textures[17] = iTexCount;
 }
 
@@ -909,8 +913,8 @@ void LoadTextures()
     sort_mini_texture(texture_vga, iTotalTextureBlocks);
     setmapsel(texture_vga, 0, -1, iTotalTextureBlocks);
     if (g_pGameRenderer)
-      game_render_load_texture(g_pGameRenderer, texture_vga, 256, 0,
-                                0, 1);
+      game_render_load_texture(g_pGameRenderer, texture_vga, 256,
+                                ((iTotalTextureBlocks + 7) / 8) * 32, 0, 1);
     NoOfTextures = iTotalTextureBlocks;
     close(iFileHandle);
     num_textures[19] = iTotalTextureBlocks;
@@ -922,8 +926,8 @@ void LoadTextures()
     sort_texture(texture_vga, iTotalTextureBlocks);
     setmapsel(texture_vga, 0, 0, iTotalTextureBlocks);
     if (g_pGameRenderer)
-      game_render_load_texture(g_pGameRenderer, texture_vga, 256, 0,
-                                0, 0);
+      game_render_load_texture(g_pGameRenderer, texture_vga, 256,
+                                ((iTotalTextureBlocks + 3) / 4) * 64, 0, 0);
     NoOfTextures = iCompressedFileLength / 4096;
     num_textures[19] = NoOfTextures;
   }

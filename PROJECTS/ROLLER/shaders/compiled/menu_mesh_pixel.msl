@@ -17,13 +17,13 @@ struct main0_in
 fragment main0_out main0(main0_in in [[stage_in]], texture2d<float> meshTexture [[texture(0)]], sampler meshSampler [[sampler(0)]])
 {
     main0_out out = {};
-    float4 _28 = meshTexture.sample(meshSampler, in.in_var_TEXCOORD0);
-    float4 _29 = _28 * in.in_var_TEXCOORD1;
-    if (_29.w < 0.00999999977648258209228515625)
+    float4 _29 = meshTexture.sample(meshSampler, in.in_var_TEXCOORD0);
+    float4 _30 = _29 * in.in_var_TEXCOORD1;
+    if (_30.w < 0.00999999977648258209228515625)
     {
         discard_fragment();
     }
-    out.out_var_SV_Target = _29;
+    out.out_var_SV_Target = _30;
     return out;
 }
 

@@ -1,4 +1,5 @@
 #include "roller.h"
+#include "crt_filter.h"
 #include "rollersound.h"
 #include "rollerinput.h"
 #include "3d.h"
@@ -94,6 +95,25 @@ bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage d
 bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
+int   g_iTextureFilter   = 0;
+int   g_iAnisotropyLevel = 3;     /* default 16x */
+bool  g_bTrilinear       = false;
+float g_fLodBias         = 0.0f;
+float g_fRenderScale     = 1.0f;
+int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */
+bool  g_bVsync           = true;  /* SDL3 default is vsync on */
+int   g_iFpsDisplay      = 0;     /* 0=off, 1..4=corner position */
+float    g_fFogDensity   = 0.0f;
+float    g_fGamma        = 1.0f;
+float    g_fFogStart     = 0.0f;
+uint32_t g_uFogColor     = 0xB3BFCCu;  /* matches fogColor[] default {0.70, 0.75, 0.80} */
+float g_fSaturation      = 1.0f;
+float g_fContrast        = 1.0f;
+float g_fVigStrength     = 0.0f;
+float g_fBrightness      = 0.0f;
+float g_fFovMultiplier   = 1.0f;
+bool  g_bWireframe       = false;
+bool  g_bCRTFilter       = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -118,7 +138,13 @@ void SnapshotEnsureMenuRenderer(void)
 }
 
 static DebugOverlay *s_pDebugOverlay = NULL;
+static CRTFilter    *s_pCRTFilter    = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
+CRTFilter    *ROLLERGetCRTFilter(void)    { return s_pCRTFilter; }
+
+/* Deferred SHIFT key press — held until we know whether TAB follows (SHIFT+TAB
+ * toggles split screen) or SHIFT is released alone (fires normally). */
+static SDL_Event s_pendingShiftDown;
 
 static void UpdateMouseCursorVisibility(void)
 {
@@ -363,8 +389,10 @@ void UpdateSDLWindow()
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
 
-  // Convert indexed framebuffer directly into mapped transfer buffer
-  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
+  // Convert indexed framebuffer directly into mapped transfer buffer.
+  // cycle=true: never blocks; SDL3 creates a new slot if the previous one is
+  // still in flight, rather than waiting for GPU completion.
+  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, true);
   ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
   SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
 
@@ -420,7 +448,14 @@ void UpdateSDLWindow()
   blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
   blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
 
-  SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  if (g_bCRTFilter && s_pCRTFilter) {
+    crt_filter_apply(s_pCRTFilter, cmdBuf, s_pGameTexture, winw, winh,
+                     swapchainTex,
+                     blitInfo.destination.x, blitInfo.destination.y,
+                     blitInfo.destination.w, blitInfo.destination.h);
+  } else {
+    SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  }
   debug_overlay_render(s_pDebugOverlay, cmdBuf, swapchainTex, swW, swH);
   SDL_SubmitGPUCommandBuffer(cmdBuf);
 }
@@ -594,6 +629,14 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+  /* Apply vsync immediately after claiming — the present mode is a window-level
+   * setting that covers all GPU rendering (menu, overlay, scene).  The game
+   * renderer's deferred mechanism handles runtime changes but isn't called until
+   * a race begins, leaving menu frames uncapped otherwise. */
+  SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+      SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+      g_bVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
+
   s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
   s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
 
@@ -611,6 +654,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU texture: %s", SDL_GetError());
     return 1;
   }
+
+  s_pCRTFilter = crt_filter_create(s_pGPUDevice, s_pWindow);
+  if (!s_pCRTFilter)
+    SDL_Log("crt_filter: failed to create (CRT filter will be unavailable)");
 
   // Transfer buffer for CPU->GPU framebuffer upload
   SDL_GPUTransferBufferCreateInfo tbInfo = {0};
@@ -864,6 +911,8 @@ void ShutdownSDL()
 
     debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
+    crt_filter_destroy(s_pCRTFilter);
+    s_pCRTFilter = NULL;
     menu_render_destroy(s_pMenuRenderer);
     SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
     SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
@@ -1028,6 +1077,8 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+  game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
+  game_render_set_crt_filter(g_pGameRenderer, g_bCRTFilter ? s_pCRTFilter : NULL);
   SDL_PumpEvents();
   SDL_Event e;
   while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0) {
@@ -1060,6 +1111,42 @@ void UpdateSDL()
         debug_overlay_toggle(s_pDebugOverlay);
         continue;
       }
+      if (e.key.scancode == SDL_SCANCODE_TAB && (e.key.mod & SDL_KMOD_SHIFT)) {
+        s_pendingShiftDown.type = 0; /* consumed by SHIFT+TAB */
+        if (g_pGameRenderer) {
+          bool newSplit = !game_render_is_split_screen(g_pGameRenderer);
+          if (newSplit && game_render_get_mode(g_pGameRenderer) != GAME_RENDER_GPU) {
+            MenuRenderer *pTabRenderer = GetMenuRenderer();
+            if (pTabRenderer)
+              menu_render_set_mode(pTabRenderer, MENU_RENDER_GPU);
+            game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
+            InputSaveConfig();
+          }
+          game_render_set_split_screen(g_pGameRenderer, newSplit);
+        }
+        continue;
+      }
+      /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
+      if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        s_pendingShiftDown = e;
+        continue;
+      }
+    }
+    if (e.type == SDL_EVENT_KEY_UP) {
+      if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        if (s_pendingShiftDown.type) {
+          /* SHIFT released without TAB — write the deferred DOWN into the DOS
+           * key buffer directly, then let the UP fall through to do the same. */
+          SDL_Scancode sc = s_pendingShiftDown.key.scancode;
+          if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
+            key_handler(sdl_to_set1[sc]);
+          s_pendingShiftDown.type = 0;
+          /* no continue — SHIFT UP falls through to key_handler at 1161+ */
+        } else {
+          /* SHIFT was consumed by SHIFT+TAB — suppress the UP too. */
+          continue;
+        }
+      }
     }
 
     if (debug_overlay_handle_event(s_pDebugOverlay, &e))
@@ -1069,6 +1156,17 @@ void UpdateSDL()
     frontend_mouse_handle_event(&e);
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
+
+      if (e.key.scancode == SDL_SCANCODE_TAB) {
+        MenuRenderer *pTabRenderer = GetMenuRenderer();
+        if (pTabRenderer) {
+          int bGPU = !(menu_render_get_pending_mode(pTabRenderer) == MENU_RENDER_GPU);
+          menu_render_set_mode(pTabRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+          game_render_set_mode(g_pGameRenderer, bGPU ? GAME_RENDER_GPU : GAME_RENDER_SOFTWARE);
+          InputSaveConfig();
+        }
+        continue;
+      }
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER
@@ -1135,6 +1233,42 @@ void UpdateSDL()
   if (ullCurTicksMs > g_ullTimer150Ms) {
     g_ullTimer150Ms = ullCurTicksMs + 150;
     UpdateAudioTracks();
+  }
+
+  /* SDL3 GPU's VSYNC present mode queues frames without blocking the CPU when
+   * enough swapchain images are available, leaving the render loop spinning at
+   * uncapped rates.  Sleep the remaining frame budget so the render rate stays
+   * near the monitor refresh rate when vsync is on. */
+  {
+    static uint64 s_targetFrameNs = 0;
+    static uint64 s_nextFrameNs   = 0;
+    static bool   s_vsyncWas      = false;
+
+    if (g_bVsync != s_vsyncWas) {
+      s_vsyncWas      = g_bVsync;
+      s_targetFrameNs = 0;
+      s_nextFrameNs   = 0;
+    }
+
+    if (g_bVsync && g_pGameRenderer &&
+        game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      if (s_targetFrameNs == 0 && s_pWindow) {
+        SDL_DisplayID disp = SDL_GetDisplayForWindow(s_pWindow);
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
+        float hz = (mode && mode->refresh_rate > 0.0f) ? mode->refresh_rate : 60.0f;
+        s_targetFrameNs = (uint64)(1e9 / (double)hz);
+      }
+
+      uint64 now = SDL_GetTicksNS();
+      if (s_nextFrameNs > 0 && now < s_nextFrameNs)
+        SDL_DelayNS(s_nextFrameNs - now);
+
+      now = SDL_GetTicksNS();
+      if (s_nextFrameNs == 0 || now > s_nextFrameNs + s_targetFrameNs)
+        s_nextFrameNs = now + s_targetFrameNs;
+      else
+        s_nextFrameNs += s_targetFrameNs;
+    }
   }
 }
 

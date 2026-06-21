@@ -1,0 +1,47 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct type_HUDPixelUniforms
+{
+    float vigStrength;
+    packed_float3 _pad;
+};
+
+struct main0_out
+{
+    float4 out_var_SV_Target [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 in_var_TEXCOORD0 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant type_HUDPixelUniforms& HUDPixelUniforms [[buffer(0)]], texture2d<float> hudTexture [[texture(0)]], sampler hudSampler [[sampler(0)]])
+{
+    main0_out out = {};
+    float4 _63;
+    do
+    {
+        float2 _41 = (in.in_var_TEXCOORD0 * 2.0) - float2(1.0);
+        float _46 = fast::clamp(HUDPixelUniforms.vigStrength * dot(_41, _41), 0.0, 1.0);
+        float4 _51 = hudTexture.sample(hudSampler, in.in_var_TEXCOORD0);
+        if (_51.w < 0.5)
+        {
+            if (HUDPixelUniforms.vigStrength <= 0.0)
+            {
+                discard_fragment();
+            }
+            _63 = float4(0.0, 0.0, 0.0, _46);
+            break;
+        }
+        float3 _61 = _51.xyz * (1.0 - _46);
+        _63 = float4(_61.x, _61.y, _61.z, _51.w);
+        break;
+    } while(false);
+    out.out_var_SV_Target = _63;
+    return out;
+}
+

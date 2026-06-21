@@ -6,6 +6,7 @@
 #include "func3.h"
 #include "polyf.h"
 #include "scene_render.h"
+#include "crt_filter.h"
 
 typedef enum {
     GAME_RENDER_GPU,
@@ -34,6 +35,7 @@ typedef struct GameRenderCarOptions {
 #define GAME_RENDER_SUBDIVIDE_TYPE_AUTO SCENE_RENDER_SUBDIVIDE_TYPE_AUTO
 #define GAME_RENDER_SUBDIVIDE_TYPE_CLOUD SCENE_RENDER_SUBDIVIDE_TYPE_CLOUD
 #define GAME_RENDER_SUBDIVIDE_TYPE_BUILDING SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING
+#define GAME_RENDER_SUBDIVIDE_TYPE_SIGN SCENE_RENDER_SUBDIVIDE_TYPE_SIGN
 
 typedef struct GameRenderer GameRenderer;
 
@@ -42,10 +44,19 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window);
 void game_render_destroy(GameRenderer *renderer);
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode);
 GameRenderMode game_render_get_mode(GameRenderer *renderer);
+void game_render_set_split_screen(GameRenderer *renderer, bool split);
+bool game_render_is_split_screen(GameRenderer *renderer);
+void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay);
+void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter);
 
 // Frame lifecycle
 void game_render_begin_frame(GameRenderer *renderer);
 void game_render_end_frame(GameRenderer *renderer);
+
+// Mirror pass: in GPU mode, temporarily routes scene calls through the SW
+// renderer so the mirror buffer gets a proper SW-rendered backward view.
+void game_render_begin_mirror_pass(GameRenderer *renderer);
+void game_render_end_mirror_pass(GameRenderer *renderer);
 
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,
