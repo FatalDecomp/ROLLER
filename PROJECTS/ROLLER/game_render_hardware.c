@@ -211,8 +211,9 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
 
     if (!coords || !pols || numPols == 0) return false;
 
-    GRHWMeshVertex *vertices = calloc((size_t)(numPols * 4 + 8), sizeof(GRHWMeshVertex));
-    uint32         *indices  = calloc((size_t)(numPols * 6 + 12), sizeof(uint32));
+    /* *2 for front + back faces per polygon (pBacks[]) */
+    GRHWMeshVertex *vertices = calloc((size_t)(numPols * 8 + 8), sizeof(GRHWMeshVertex));
+    uint32         *indices  = calloc((size_t)(numPols * 12 + 12), sizeof(uint32));
     if (!vertices || !indices) {
         free(vertices); free(indices);
         if (out->atlas) { SDL_ReleaseGPUTexture(dev, out->atlas); out->atlas = NULL; }
@@ -287,6 +288,72 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
         indices[idxCount++] = (uint32)(baseVert + 0);
         indices[idxCount++] = (uint32)(baseVert + 2);
         indices[idxCount++] = (uint32)(baseVert + 3);
+    }
+
+    /* Back-face polygons: reversed winding + surface type from pBacks[].
+       Combined with CULLMODE_BACK on the car pipeline, each original polygon
+       is only visible from its front; its pBacks twin is only visible from
+       behind — so both sides show the correct texture with no Z-fighting. */
+    if (design->pBacks) {
+        for (int p = 0; p < numPols; p++) {
+            uint32 tex = design->pBacks[p];
+            if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+
+            bool isTexturedBack = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                                  (uint8)tex < (uint8)numTiles;
+
+            float u0b, u1b, v0b, v1b, crb, cgb, cbb, cab;
+
+            if (isTexturedBack) {
+                uint8 tileIdx = (uint8)tex;
+                int col = tileIdx % 4, row = tileIdx / 4;
+                u0b = (col * 64.0f) / 256.0f;
+                u1b = ((col + 1) * 64.0f) / 256.0f;
+                v0b = (row * 64.0f) / fAtlasH;
+                v1b = ((row + 1) * 64.0f) / fAtlasH;
+                if (tex & SURFACE_FLAG_FLIP_HORIZ) { float t = u0b; u0b = u1b; u1b = t; }
+                if (tex & SURFACE_FLAG_FLIP_VERT)  { float t = v0b; v0b = v1b; v1b = t; }
+                crb = cgb = cbb = cab = 1.0f;
+            } else {
+                uint8 colorIdx = (uint8)tex;
+                if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                    remap->uiColorFrom != 0xFFFFFFFF &&
+                    colorIdx == (uint8)remap->uiColorFrom)
+                    colorIdx = (uint8)remap->uiColorTo;
+                const tColor *c = &pal[colorIdx];
+                crb = (c->byR * 255.0f / 63.0f) / 255.0f;
+                cgb = (c->byG * 255.0f / 63.0f) / 255.0f;
+                cbb = (c->byB * 255.0f / 63.0f) / 255.0f;
+                cab = 1.0f;
+                u0b = u1b = whiteU;
+                v0b = v1b = whiteV;
+            }
+
+            int baseVert = vertCount;
+            float uvsBack[4][2] = {
+                { u1b, v0b }, { u0b, v0b }, { u0b, v1b }, { u1b, v1b }
+            };
+            for (int v = 0; v < 4; v++) {
+                uint8 vi = pols[p].verts[3 - v];  /* reversed vertex order */
+                if (vi >= (uint8)numCoords) vi = 0;
+                GRHWMeshVertex *mv = &vertices[vertCount++];
+                mv->position[0] = coords[vi].fX;
+                mv->position[1] = coords[vi].fY;
+                mv->position[2] = coords[vi].fZ;
+                mv->uv[0]       = uvsBack[v][0];
+                mv->uv[1]       = uvsBack[v][1];
+                mv->color[0]    = crb;
+                mv->color[1]    = cgb;
+                mv->color[2]    = cbb;
+                mv->color[3]    = cab;
+            }
+            indices[idxCount++] = (uint32)(baseVert + 0);
+            indices[idxCount++] = (uint32)(baseVert + 1);
+            indices[idxCount++] = (uint32)(baseVert + 2);
+            indices[idxCount++] = (uint32)(baseVert + 0);
+            indices[idxCount++] = (uint32)(baseVert + 2);
+            indices[idxCount++] = (uint32)(baseVert + 3);
+        }
     }
 
     out->bodyIndexCount = idxCount;

@@ -697,8 +697,9 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
                             + (fDz02 * fDx13 - fDx02 * fDz13) * fY0
                             + (fDx02 * fDy13 - fDy02 * fDx13) * fZ0;
           int isBackFace = (fNormalDot >= 0.0);
-          if (isBackFace && (uiTex & SURFACE_FLAG_FLIP_BACKFACE) == 0)
+          if (isBackFace && (uiTex & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
             goto skip_polygon;
+          }
 
           // Sum per-vertex clip flags; skip if entire poly is behind near plane.
           int iProjectedSum = screenClipped[iV0] + screenClipped[iV1]

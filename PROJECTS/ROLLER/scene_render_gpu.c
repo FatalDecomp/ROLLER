@@ -714,12 +714,12 @@ static SDL_GPUGraphicsPipeline *make_car_pipeline(SceneRendererGPU *r,
             .num_vertex_buffers         = 1
         },
         .rasterizer_state = {
-            /* No backface culling: exterior faces win via COMPAREOP_LESS depth
-             * (far/back faces fail once the nearer face has written depth).
-             * This also lets the car's floor panels appear on the road surface
-             * as a shadow, using the negative depth bias to sit above the road. */
+            /* CULLMODE_BACK: each polygon's front face (exterior) is rendered;
+             * pBacks[] twin polygons (reversed winding) cover the back side.
+             * Shadow quad normal points +Z (upward, toward camera) so it is
+             * front-facing and renders correctly with this cull mode. */
             .fill_mode = fillMode,
-            .cull_mode = SDL_GPU_CULLMODE_NONE,
+            .cull_mode = SDL_GPU_CULLMODE_BACK,
             .enable_depth_bias = true,
             .depth_bias_constant_factor = -50.0f,
             .depth_bias_clamp = 0.0f,
@@ -1877,57 +1877,39 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         float vMaxN  = ((float)texSize - 0.0625f) / (float)texSize;
 
         bool flipH = (surfaceFlags & SURFACE_FLAG_FLIP_HORIZ) != 0;
-        bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT)  != 0;
 
         if (usePair) {
-            /* The software renderer's subdivide always maps LOW U to the
-             * LEFT part of the screen regardless of vertex winding.  For pair
-             * textures the direction matters (tile N vs N+1), so we must
-             * replicate that by comparing projected screen X of v0 and v1.
-             * Use a full perspective divide (vX/vZ) because both wall vertices
-             * sit at nearly the same lateral offset — raw vX values are too
-             * close to compare reliably.  The perspective divide amplifies the
-             * near/far depth difference into a clear screen-left vs screen-right
-             * signal.  FLIP_HORIZ is not used on wall surfaces and is ignored. */
-            const float (*M)[3] = r->proj.view; /* M[col][row], view[col][row] */
-            /* Software formula: dx = v - viewXYZ, then vX = dx·M_row0, vZ = dx·M_row2.
-             * This gives vZ = clip_w (always > 0 for visible geometry). */
-            float dx0 = verts[0].x - r->camera.viewX;
-            float dy0 = verts[0].y - r->camera.viewY;
-            float dz0 = verts[0].z - r->camera.viewZ;
-            float dx1 = verts[1].x - r->camera.viewX;
-            float dy1 = verts[1].y - r->camera.viewY;
-            float dz1 = verts[1].z - r->camera.viewZ;
-            float vX0 = dx0*M[0][0] + dy0*M[1][0] + dz0*M[2][0];
-            float vX1 = dx1*M[0][0] + dy1*M[1][0] + dz1*M[2][0];
-            float vZ0 = dx0*M[0][2] + dy0*M[1][2] + dz0*M[2][2];
-            float vZ1 = dx1*M[0][2] + dy1*M[1][2] + dz1*M[2][2];
-            /* pX = vX/vZ is the projected screen X (proportional to clip_x/clip_w).
-             * vZ equals clip_w, so it is positive for all visible vertices.
-             * Only guard against exact zero to avoid division by zero. */
-            bool v0IsLeft;
-            if (fabsf(vZ0) < 1e-6f || fabsf(vZ1) < 1e-6f)
-                v0IsLeft = vX0 < vX1;
-            else
-                v0IsLeft = (vX0 / vZ0) < (vX1 / vZ1);
-            /* v0IsLeft: v0 projects further left → assign U=0 (tile N), v1 gets uMaxN */
-            cu[0] = v0IsLeft ? 0.0f : uMaxN;
-            cu[1] = v0IsLeft ? uMaxN : 0.0f;
-            cu[2] = v0IsLeft ? uMaxN : 0.0f;
-            cu[3] = v0IsLeft ? 0.0f : uMaxN;
-            /* V is always bottom-up; flipV still applies */
-            for (int k = 0; k < 4; k++) {
-                int sk = k;
-                if (flipV) { static const int fvm[4] = {2,3,0,1}; sk = fvm[sk]; }
-                cv[k] = (sk == 2 || sk == 3) ? vMaxN : 0.0f;
+            /* polyt() adapts UV assignment to whichever side is screen-left.
+             * Replicate that by projecting the two vertex pairs to screen X:
+             * pair (v0,v3) vs (v1,v2).  Whichever sum is smaller gets U=0.
+             * This handles straight and curved wall sections correctly from
+             * both sides without relying on cross-product sign conventions. */
+            const float (*M)[3] = r->proj.view;
+            float vX[4], vZ[4];
+            for (int vi = 0; vi < 4; vi++) {
+                float ddx = verts[vi].x - r->camera.viewX;
+                float ddy = verts[vi].y - r->camera.viewY;
+                float ddz = verts[vi].z - r->camera.viewZ;
+                vX[vi] = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
+                vZ[vi] = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
             }
+            float px03 = (fabsf(vZ[0]) > 1e-6f ? vX[0]/vZ[0] : vX[0])
+                       + (fabsf(vZ[3]) > 1e-6f ? vX[3]/vZ[3] : vX[3]);
+            float px12 = (fabsf(vZ[1]) > 1e-6f ? vX[1]/vZ[1] : vX[1])
+                       + (fabsf(vZ[2]) > 1e-6f ? vX[2]/vZ[2] : vX[2]);
+            bool pair03IsLeft = px03 < px12;
+            float u03 = pair03IsLeft ? 0.0f : uMaxN;
+            float u12 = pair03IsLeft ? uMaxN : 0.0f;
+            cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
+            for (int k = 0; k < 4; k++)
+                cv[k] = (k == 2 || k == 3) ? vMaxN : 0.0f;
         } else if (isCloud) {
             /* Cloud quads: the SW renderer's polyt() walks edges based on
              * winding order, which makes u=0 always land on the screen-left
              * side regardless of vertex order.  Replicate that by projecting
              * pairs (v0,v3) and (v1,v2) to screen X and assigning u=0 to
              * whichever pair is screen-left.  FLIP_HORIZ then inverts this.
-             * The V assignment stays fixed by vertex index (same as set_starts). */
+             * V is fixed by vertex index — SW never applies FLIP_VERT here. */
             const float (*M)[3] = r->proj.view;
             float vX[4], vZ[4];
             for (int vi = 0; vi < 4; vi++) {
@@ -1945,19 +1927,48 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             float u03 = pair03IsLeft ? 0.0f : uMaxN;
             float u12 = pair03IsLeft ? uMaxN : 0.0f;
             if (flipH) { float tmp = u03; u03 = u12; u12 = tmp; }
+            /* POLYTEX applies FLIP_VERT for clouds (startsy swap).
+             * Clouds randomly get SURFACE_FLAG_FLIP_VERT set (horizon.c).
+             * Unlike walls, clouds must honour it to match SW behaviour. */
+            bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
             cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
             for (int k = 0; k < 4; k++) {
-                int sk = k;
-                if (flipV) { static const int fvm[4] = {2,3,0,1}; sk = fvm[sk]; }
-                cv[k] = (sk == 2 || sk == 3) ? vMaxN : 0.0f;
+                bool isBottom = (k == 2 || k == 3);
+                cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
         } else {
+            /* polyt() always adapts UV to screen-space winding for every surface,
+             * not only flagged ones.  Replicate that by computing the 2D
+             * cross-product of the projected vertices in view space and toggling
+             * flipH when the winding is reversed (driving in reverse, backface
+             * view, etc.).  View-space Y is Y-up, screen Y is Y-down, so the
+             * sign of GPU cross is the inverse of SW's screen-space cross:
+             * GPU cross < 0 corresponds to SW cross > 0 (backface / reversed). */
+            {
+                const float (*M)[3] = r->proj.view;
+                float sx[4], sy[4];
+                for (int vi = 0; vi < 4; vi++) {
+                    float ddx = verts[vi].x - r->camera.viewX;
+                    float ddy = verts[vi].y - r->camera.viewY;
+                    float ddz = verts[vi].z - r->camera.viewZ;
+                    float vX = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
+                    float vY = ddx*M[0][1] + ddy*M[1][1] + ddz*M[2][1];
+                    float vZ = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
+                    float iz = (fabsf(vZ) > 1e-6f) ? 1.0f / vZ : 1.0f;
+                    sx[vi] = vX * iz;
+                    sy[vi] = vY * iz;
+                }
+                float cross = (sx[0]-sx[1])*(sy[0]-sy[2])
+                            - (sy[0]-sy[1])*(sx[0]-sx[2]);
+                if (cross < 0.0f) flipH = !flipH;
+            }
+            bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
             for (int k = 0; k < 4; k++) {
                 int sk = k;
                 if (flipH) { static const int hm[4] = {1,0,3,2}; sk = hm[sk]; }
-                if (flipV) { static const int fvm[4] = {2,3,0,1}; sk = fvm[sk]; }
                 cu[k] = (sk == 0 || sk == 3) ? uMaxN : 0.0f;
-                cv[k] = (sk == 2 || sk == 3) ? vMaxN : 0.0f;
+                bool isBottom = (k == 2 || k == 3);
+                cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
         }
     }
