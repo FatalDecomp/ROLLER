@@ -143,6 +143,7 @@
 #define BUTTON_FLAG_F4          0x0200
 #define BUTTON_FLAG_SLAVE_QUIT  0x0400
 #define BUTTON_FLAG_MASTER_QUIT 0x0800
+#define BUTTON_FLAG_PHONE_THROTTLE 0x2000
 
 //-------------------------------------------------------------------------------------------------
 
@@ -415,6 +416,7 @@ int fade_palette_update();
 int fade_palette_active();
 void fade_audio_restore();
 void fade_palette_finish();
+void palette_sync_pal_addr(void);
 void fade_music_finish(int iTargetBrightness);
 void set_palette(int iBrightness);
 void convertname(char *szFilename);

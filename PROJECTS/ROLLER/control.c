@@ -119,6 +119,7 @@ void humancar(int iCarIdx)
   int iTeleportTargetIndex; // [esp+1Ch] [ebp-24h]
   int iCarIdx_1; // [esp+20h] [ebp-20h]
   int iControlFlags; // [esp+24h] [ebp-1Ch]
+  int iPhoneThrottle; // [esp+24h] [ebp-1Ch]
 
   iTrakLen = TRAK_LEN;                          // Initialize track length and player index
   iCarIdx_1 = iCarIdx;
@@ -128,6 +129,14 @@ void humancar(int iCarIdx)
   unFlags = copy_multiple[readptr][iCarIdx_1].data.unFlags;
   byCarDesignIdx = Car[iCarIdx_1].byCarDesignIdx;
   iControlFlags = unFlags;
+  iPhoneThrottle = 0;
+#if defined(IS_ANDROID)
+  if (iCarIdx_1 == player1_car &&
+      (iControlFlags & BUTTON_FLAG_PHONE_THROTTLE) != 0) {
+    iPhoneThrottle = -1;
+    iControlFlags &= ~BUTTON_FLAG_PHONE_THROTTLE;
+  }
+#endif
   //LOWORD(iControlFlags) = unFlags;
   if (byCarDesignIdx < 8)                     // Enable cheat mode for special car designs (8-12), disable for normal cars
     cheat_control = 0;
@@ -150,8 +159,10 @@ void humancar(int iCarIdx)
     human_finishers = iFinisherCount + 1;
     ++finishers;
   }
-  if (Car[iCarIdx_1].fHealth <= 0.0)          // Disable controls if car health is zero or below
+  if (Car[iCarIdx_1].fHealth <= 0.0) {        // Disable controls if car health is zero or below
     iControlFlags = 0;
+    iPhoneThrottle = 0;
+  }
     //LOWORD(unControlFlags) = 0;
   iCarIndex1 = iCarIdx_1;
   iCarIndex2 = iCarIdx_1;
@@ -352,7 +363,11 @@ void humancar(int iCarIdx)
       if ((iControlFlags & 2) != 0)          // Check control flags: bit 2=brake, bit 1=accelerate, else=freewheel
       {
         Decelerate(pCar);
-      } else if ((iControlFlags & 1) != 0) {
+      } else if (iPhoneThrottle && race_started) {
+        pCar->byThrottlePressed = -1;
+        pCar->byEngineStartTimer = 0;
+        Accelerate(pCar);
+      } else if (iPhoneThrottle || (iControlFlags & 1) != 0) {
         Accelerate(pCar);
       } else {
         FreeWheel(pCar);
@@ -703,7 +718,16 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         if (game_frame == 145 && (Car[iCar].byGearAyMax & 0x80u) != 0) {
           Car[iCar].byGearAyMax = 0;
           race_started = -1;
-          Car[iCar].fPower = 0.0;
+          if (human_control[iCar]) {
+            Car[iCar].fPower = 0.0f;
+          } else {
+            Car[iCar].byThrottlePressed = -1;
+            Car[iCar].byEngineStartTimer = 0;
+            Car[iCar].byAIThrottleControl = 1;
+            Car[iCar].fPower = (float)calc_pow(Car[iCar].byCarDesignIdx,
+                                               0,
+                                               Car[iCar].fRPMRatio);
+          }
         }
         if (human_control[iCar]) {                                       // Network sync request: reset car to neutral state
           if ((copy_multiple[readptr][iCar].uiFullData & 0x10000000) != 0) {

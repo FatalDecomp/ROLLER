@@ -673,6 +673,16 @@ void frontend_mouse_begin_frame(int iVirtualWidth, int iVirtualHeight)
 
 //-------------------------------------------------------------------------------------------------
 
+void frontend_mouse_get_virtual_size(int *piVirtualWidth, int *piVirtualHeight)
+{
+  if (piVirtualWidth)
+    *piVirtualWidth = s_iFrontendMouseVirtualWidth;
+  if (piVirtualHeight)
+    *piVirtualHeight = s_iFrontendMouseVirtualHeight;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void frontend_mouse_register_rect(int iId, int iX, int iY, int iWidth, int iHeight)
 {
   tFrontendMouseHitbox *pHitbox;
@@ -1043,6 +1053,18 @@ int frontend_mouse_consume_click_anywhere(void)
 
   s_uiFrontendMouseConsumedClickSeq = s_uiFrontendMouseClickSeq;
   return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_mouse_cancel_click(void)
+{
+  s_iFrontendMouseClickedId = -1;
+  s_iFrontendMouseLeftDown = 0;
+  s_iFrontendTouchActive = 0;
+  s_iFrontendTouchClickCancelled = -1;
+  s_ullFrontendTouchFingerId = 0;
+  s_uiFrontendMouseConsumedClickSeq = s_uiFrontendMouseClickSeq;
 }
 
 //-------------------------------------------------------------------------------------------------

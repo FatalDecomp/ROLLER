@@ -22,6 +22,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef IS_ANDROID
+#include <jni.h>
+#include <SDL3/SDL_system.h>
+#endif
 #ifdef IS_WINDOWS
 #include <io.h>
 #define open _open
@@ -69,6 +73,323 @@ enum {
 #define FRONTEND_CONFIG_VOLUME_BAR_FILL_WIDTH 160
 #define FRONTEND_CONFIG_VOLUME_BAR_HIT_WIDTH 162
 #define FRONTEND_CONFIG_VOLUME_BAR_HEIGHT 17
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_commit_name_edit(void);
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_name_char(int iChar)
+{
+  if (iChar >= 'a' && iChar <= 'z')
+    iChar -= 'a' - 'A';
+
+  if ((iChar >= 'A' && iChar <= 'Z') || (iChar >= '0' && iChar <= '9'))
+    return iChar;
+
+  return 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_copy_sanitized_name(char *szDest, int iDestLen,
+                                               const char *szText)
+{
+  int iNameChar;
+  int iOutChar = 0;
+
+  if (!szDest || iDestLen <= 0)
+    return 0;
+
+  memset(szDest, 0, (size_t)iDestLen);
+
+  if (szText) {
+    for (; *szText && iOutChar < iDestLen - 1 && iOutChar < 8; ++szText) {
+      iNameChar = frontend_config_name_char((unsigned char)*szText);
+      if (!iNameChar)
+        continue;
+      szDest[iOutChar++] = (char)iNameChar;
+    }
+  }
+
+  szDest[iOutChar] = 0;
+  return iOutChar;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_set_name_edit_text(const char *szText)
+{
+  iFrontendConfigNameLength = frontend_config_copy_sanitized_name(
+      szFrontendConfigNewNameBuf, sizeof(szFrontendConfigNewNameBuf), szText);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_selected_name_editable(void)
+{
+  if (!iFrontendConfigSelectedCar)
+    return 0;
+
+  if (iFrontendConfigSelectedCar < 3)
+    return 1;
+
+  if ((((uint8)iFrontendConfigSelectedCar - 3) & 1) != 0)
+    return allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 0;
+
+  return allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *frontend_config_selected_name_text(void)
+{
+  if (iFrontendConfigSelectedCar <= 1)
+    return player_names[player1_car];
+
+  if (iFrontendConfigSelectedCar == 2)
+    return player_names[player2_car];
+
+  return default_names[(iFrontendConfigSelectedCar - 3) ^ 1];
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_load_name_edit_text(void)
+{
+  const char *szName = frontend_config_selected_name_text();
+  int iNameChar;
+
+  for (iNameChar = 0; iNameChar < 9; ++iNameChar)
+    szFrontendConfigNewNameBuf[iNameChar] = szName[iNameChar];
+
+  szFrontendConfigNewNameBuf[8] = 0;
+  iFrontendConfigNameLength = 0;
+  while (iFrontendConfigNameLength < 8 &&
+         szFrontendConfigNewNameBuf[iFrontendConfigNameLength])
+    ++iFrontendConfigNameLength;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+#ifdef IS_ANDROID
+static int iFrontendConfigAndroidNameDialogActive;
+static int iFrontendConfigAndroidNameDialogPending;
+static int iFrontendConfigAndroidNameDialogAccepted;
+static char szFrontendConfigAndroidNameDialogValue[9];
+static SDL_Mutex *pFrontendConfigAndroidNameDialogMutex;
+
+static SDL_Mutex *frontend_config_android_name_dialog_mutex(void)
+{
+  if (!pFrontendConfigAndroidNameDialogMutex)
+    pFrontendConfigAndroidNameDialogMutex = SDL_CreateMutex();
+
+  return pFrontendConfigAndroidNameDialogMutex;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_android_name_dialog_lock(void)
+{
+  SDL_Mutex *pMutex = frontend_config_android_name_dialog_mutex();
+  if (pMutex)
+    SDL_LockMutex(pMutex);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_android_name_dialog_unlock(void)
+{
+  SDL_Mutex *pMutex = pFrontendConfigAndroidNameDialogMutex;
+  if (pMutex)
+    SDL_UnlockMutex(pMutex);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_android_name_dialog_active(void)
+{
+  int iActive;
+
+  frontend_config_android_name_dialog_lock();
+  iActive = iFrontendConfigAndroidNameDialogActive;
+  frontend_config_android_name_dialog_unlock();
+
+  return iActive;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_android_clear_name_dialog_state(void)
+{
+  frontend_config_android_name_dialog_lock();
+  iFrontendConfigAndroidNameDialogActive = 0;
+  iFrontendConfigAndroidNameDialogPending = 0;
+  iFrontendConfigAndroidNameDialogAccepted = 0;
+  szFrontendConfigAndroidNameDialogValue[0] = 0;
+  frontend_config_android_name_dialog_unlock();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int frontend_config_android_show_name_dialog(void)
+{
+  JNIEnv *pEnv;
+  jobject activity;
+  jclass activityClass;
+  jmethodID showNameEntryDialog;
+  jstring jName;
+  int iOk = 0;
+
+  pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
+  if (!pEnv)
+    return 0;
+
+  activity = (jobject)SDL_GetAndroidActivity();
+  if (!activity)
+    return 0;
+
+  activityClass = (*pEnv)->GetObjectClass(pEnv, activity);
+  if (!activityClass)
+    goto cleanup_activity;
+
+  showNameEntryDialog = (*pEnv)->GetMethodID(
+      pEnv, activityClass, "showNameEntryDialog", "(Ljava/lang/String;)V");
+  if (!showNameEntryDialog)
+    goto cleanup_class;
+
+  jName = (*pEnv)->NewStringUTF(pEnv, szFrontendConfigNewNameBuf);
+  if (!jName)
+    goto cleanup_class;
+
+  frontend_config_android_name_dialog_lock();
+  iFrontendConfigAndroidNameDialogActive = 1;
+  iFrontendConfigAndroidNameDialogPending = 0;
+  frontend_config_android_name_dialog_unlock();
+
+  (*pEnv)->CallVoidMethod(pEnv, activity, showNameEntryDialog, jName);
+  if ((*pEnv)->ExceptionCheck(pEnv)) {
+    (*pEnv)->ExceptionDescribe(pEnv);
+    (*pEnv)->ExceptionClear(pEnv);
+    frontend_config_android_name_dialog_lock();
+    iFrontendConfigAndroidNameDialogActive = 0;
+    frontend_config_android_name_dialog_unlock();
+  } else {
+    iOk = 1;
+  }
+
+  (*pEnv)->DeleteLocalRef(pEnv, jName);
+
+cleanup_class:
+  (*pEnv)->DeleteLocalRef(pEnv, activityClass);
+cleanup_activity:
+  (*pEnv)->DeleteLocalRef(pEnv, activity);
+  return iOk;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_android_poll_name_dialog(void)
+{
+  int iPending;
+  int iAccepted;
+  char szValue[9];
+
+  frontend_config_android_name_dialog_lock();
+  iPending = iFrontendConfigAndroidNameDialogPending;
+  iAccepted = iFrontendConfigAndroidNameDialogAccepted;
+  memcpy(szValue, szFrontendConfigAndroidNameDialogValue, sizeof(szValue));
+  if (iPending)
+    iFrontendConfigAndroidNameDialogPending = 0;
+  frontend_config_android_name_dialog_unlock();
+
+  if (!iPending)
+    return;
+
+  frontend_config_android_name_dialog_lock();
+  iFrontendConfigAndroidNameDialogActive = 0;
+  frontend_config_android_name_dialog_unlock();
+
+  frontend_mouse_cancel_click();
+
+  if (!iFrontendConfigEditingName)
+    return;
+
+  if (iAccepted) {
+    frontend_config_set_name_edit_text(szValue);
+    frontend_config_commit_name_edit();
+  } else {
+    iFrontendConfigEditingName = 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+JNIEXPORT void JNICALL
+Java_racing_fatal_roller_RollerActivity_nativeNameEntryComplete(
+    JNIEnv *pEnv, jclass cls, jstring jValue, jboolean bAccepted)
+{
+  const char *szValue = NULL;
+  char szSanitized[9];
+
+  (void)cls;
+  memset(szSanitized, 0, sizeof(szSanitized));
+
+  if (jValue)
+    szValue = (*pEnv)->GetStringUTFChars(pEnv, jValue, NULL);
+
+  frontend_config_copy_sanitized_name(szSanitized, sizeof(szSanitized),
+                                      szValue);
+
+  if (jValue && szValue)
+    (*pEnv)->ReleaseStringUTFChars(pEnv, jValue, szValue);
+
+  frontend_config_android_name_dialog_lock();
+  memcpy(szFrontendConfigAndroidNameDialogValue, szSanitized,
+         sizeof(szFrontendConfigAndroidNameDialogValue));
+  iFrontendConfigAndroidNameDialogAccepted = bAccepted ? 1 : 0;
+  iFrontendConfigAndroidNameDialogPending = 1;
+  frontend_config_android_name_dialog_unlock();
+}
+#else
+static int frontend_config_android_name_dialog_active(void)
+{
+  return 0;
+}
+
+static void frontend_config_android_clear_name_dialog_state(void)
+{
+}
+
+static int frontend_config_android_show_name_dialog(void)
+{
+  return 0;
+}
+
+static void frontend_config_android_poll_name_dialog(void)
+{
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
+static void frontend_config_start_name_edit(void)
+{
+  if (!iFrontendConfigSelectedCar) {
+    iFrontendConfigState = 0;
+    return;
+  }
+
+  iFrontendConfigEditingName = frontend_config_selected_name_editable();
+  if (iFrontendConfigEditingName != 1)
+    return;
+
+  frontend_config_load_name_edit_text();
+
+  if (frontend_config_android_show_name_dialog())
+    frontend_mouse_cancel_click();
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -273,6 +594,7 @@ void frontend_config_enter(void)
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
   iFrontendConfigExitHovered = 0;
+  frontend_config_android_clear_name_dialog_state();
   frontend_config_clear_last_controller_name();
   {
     extern tColor palette[];
@@ -619,6 +941,13 @@ static void frontend_config_handle_mouse(void)
   int iSubItem;
   int iWheelY;
 
+  if (frontend_config_android_name_dialog_active()) {
+    frontend_mouse_take_wheel_y();
+    (void)frontend_mouse_take_hovered_id();
+    (void)frontend_mouse_consume_click_anywhere();
+    return;
+  }
+
   if (iFrontendConfigControlsInEdit) {
     frontend_mouse_take_wheel_y();
     (void)frontend_mouse_take_hovered_id();
@@ -931,6 +1260,8 @@ void frontend_config_update(void)
   char szBindingName[128];
   int iTuneY;
   int iTuneColor;
+
+  frontend_config_android_poll_name_dialog();
 
   if (select_messages_active()) {
     select_messages();
@@ -1763,7 +2094,8 @@ void frontend_config_update(void)
         frontend_config_handle_mouse();
 
         // Process keyboard input when not editing controls
-        if (!iFrontendConfigControlsInEdit) {
+        if (!iFrontendConfigControlsInEdit &&
+            !frontend_config_android_name_dialog_active()) {
           while (fatkbhit()) {
             switch (iFrontendConfigState) {
               case 0:                           // MAIN MENU NAVIGATION
@@ -1965,61 +2297,7 @@ void frontend_config_update(void)
                       return;
                     }
                   } else {
-                    // Start editing name
-                    if (!iFrontendConfigSelectedCar)
-                      goto EXIT_NAME_EDITING;
-                    iFrontendConfigEditingName = 1;
-                    if (iFrontendConfigSelectedCar >= 3) {
-                      // Check if AI car slot is editable
-                      if ((((uint8)iFrontendConfigSelectedCar - 3) & 1) != 0)
-                        iFrontendConfigEditingName = allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 0;
-                      else
-                        iFrontendConfigEditingName = allocated_cars[(iFrontendConfigSelectedCar - 3) / 2] <= 1;
-                    }
-
-                    if (iFrontendConfigEditingName == 1) {
-                      iFrontendConfigNameLength = 0;
-                      if ((unsigned int)iFrontendConfigSelectedCar <= 1)// Load player 1 name
-                      {
-                        for (m = 0; m < 9; m++)
-                        {
-                          szFrontendConfigNewNameBuf[m] = player_names[player1_car][m];
-                        }
-                        //for (m = 0; m < 9; *((_BYTE *)&pJoyPos.iJ2YAxis + m + 3) = cheat_names[player1_car + 31][m + 8])
-                        //  ++m;
-                      } else if (iFrontendConfigSelectedCar == 2)// Load player 2 name
-                      {
-                        for (n = 0; n < 9; n++)
-                        {
-                          szFrontendConfigNewNameBuf[n] = player_names[player2_car][n];
-                        }
-                        //for (n = 0; n < 9; *((_BYTE *)&pJoyPos.iJ2YAxis + n + 3) = cheat_names[player2_car + 31][n + 8])
-                        //  ++n;
-                      } else                      // Load AI driver name
-                      {
-                        iAIDriverIdx = iFrontendConfigSelectedCar - 3;
-                        iAIDriverIdx ^= 1;  // Toggle the lowest bit
-                        for (int i = 0; i < 9; i++)
-                        {
-                          szFrontendConfigNewNameBuf[i] = default_names[iAIDriverIdx][i];
-                        }
-                        //iAIDriverIdx = iFrontendConfigSelectedCar - 3;
-                        //LOBYTE(iAIDriverIdx) = (iFrontendConfigSelectedCar - 3) ^ 1;
-                        //v189 = 0;
-                        //iOffset = 9 * iAIDriverIdx;
-                        //do {
-                        //  ++v189;
-                        //  v191 = default_names[0][iOffset++];
-                        //  *((_BYTE *)&pJoyPos.iJ2YAxis + v189 + 3) = v191;
-                        //} while (v189 < 9);
-
-                      }
-
-                      // Calculate current name length
-                      while (szFrontendConfigNewNameBuf[iFrontendConfigNameLength])
-                        ++iFrontendConfigNameLength;
-                    }
-
+                    frontend_config_start_name_edit();
                   }
                 } else {
                   if (iKeyInput != 27)        // ESC key

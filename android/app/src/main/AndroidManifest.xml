@@ -7,6 +7,8 @@
 
     <application
         android:label="ROLLER"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:theme="@style/RollerTheme">
@@ -15,7 +17,7 @@
             android:name="racing.fatal.roller.RollerActivity"
             android:exported="true"
             android:theme="@style/RollerTheme"
-            android:screenOrientation="landscape"
+            android:screenOrientation="fullSensor"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout"
             android:launchMode="singleInstance">
             <intent-filter>

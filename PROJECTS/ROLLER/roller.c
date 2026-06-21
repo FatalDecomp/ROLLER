@@ -1,4 +1,5 @@
 #include "roller.h"
+#include "crt_filter.h"
 #include "rollersound.h"
 #include "rollerinput.h"
 #include "3d.h"
@@ -94,8 +95,35 @@ bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage d
 bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
+int   g_iTextureFilter   = 0;
+int   g_iAnisotropyLevel = 3;     /* default 16x */
+bool  g_bTrilinear       = false;
+float g_fLodBias         = 0.0f;
+float g_fRenderScale     = 1.0f;
+int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */
+bool  g_bVsync           = true;  /* SDL3 default is vsync on */
+int   g_iFpsDisplay      = 0;     /* 0=off, 1..4=corner position */
+float    g_fFogDensity   = 0.0f;
+float    g_fGamma        = 1.0f;
+float    g_fFogStart     = 0.0f;
+uint32_t g_uFogColor     = 0xB3BFCCu;  /* matches fogColor[] default {0.70, 0.75, 0.80} */
+float g_fSaturation      = 1.0f;
+float g_fContrast        = 1.0f;
+float g_fVigStrength     = 0.0f;
+float g_fBrightness      = 0.0f;
+float g_fFovMultiplier   = 1.0f;
+bool  g_bWireframe       = false;
+bool  g_bCRTFilter       = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
+
+#if defined(IS_ANDROID)
+#define ROLLER_RESIZE_DEFER_FRAMES 6
+#else
+#define ROLLER_RESIZE_DEFER_FRAMES 2
+#endif
+
+#define ROLLER_PRESENT_ASPECT ((float)640.0f / (float)400.0f)
 
 SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
 SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
@@ -110,7 +138,13 @@ void SnapshotEnsureMenuRenderer(void)
 }
 
 static DebugOverlay *s_pDebugOverlay = NULL;
+static CRTFilter    *s_pCRTFilter    = NULL;
 DebugOverlay *ROLLERGetDebugOverlay(void) { return s_pDebugOverlay; }
+CRTFilter    *ROLLERGetCRTFilter(void)    { return s_pCRTFilter; }
+
+/* Deferred SHIFT key press — held until we know whether TAB follows (SHIFT+TAB
+ * toggles split screen) or SHIFT is released alone (fires normally). */
+static SDL_Event s_pendingShiftDown;
 
 static void UpdateMouseCursorVisibility(void)
 {
@@ -163,6 +197,54 @@ bool ROLLERGpuPresentationSuspended(void)
     return true;
 
   return false;
+}
+
+void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
+                              float fContentAspect,
+                              SDL_GPUViewport *pViewport)
+{
+  int iWindowW = 0;
+  int iWindowH = 0;
+  float fTargetW = (float)uiTargetW;
+  float fTargetH = (float)uiTargetH;
+  float fAdjustedAspect = fContentAspect;
+  float fTargetAspect;
+
+  if (!pViewport)
+    return;
+
+  pViewport->x = 0.0f;
+  pViewport->y = 0.0f;
+  pViewport->w = fTargetW;
+  pViewport->h = fTargetH;
+  pViewport->min_depth = 0.0f;
+  pViewport->max_depth = 1.0f;
+
+  if (uiTargetW == 0 || uiTargetH == 0 || fContentAspect <= 0.0f)
+    return;
+
+  if (s_pWindow &&
+      SDL_GetWindowSizeInPixels(s_pWindow, &iWindowW, &iWindowH) &&
+      iWindowW > 0 && iWindowH > 0 &&
+      (iWindowW != (int)uiTargetW || iWindowH != (int)uiTargetH)) {
+    fAdjustedAspect = fContentAspect *
+                      ((float)iWindowH * fTargetW) /
+                      ((float)iWindowW * fTargetH);
+  }
+
+  if (fAdjustedAspect <= 0.0f)
+    fAdjustedAspect = fContentAspect;
+
+  fTargetAspect = fTargetW / fTargetH;
+  if (fTargetAspect > fAdjustedAspect) {
+    pViewport->h = fTargetH;
+    pViewport->w = fAdjustedAspect * fTargetH;
+    pViewport->x = (fTargetW - pViewport->w) * 0.5f;
+  } else {
+    pViewport->w = fTargetW;
+    pViewport->h = fTargetW / fAdjustedAspect;
+    pViewport->y = (fTargetH - pViewport->h) * 0.5f;
+  }
 }
 
 SDL_Mutex *g_pTimerMutex = NULL;
@@ -307,8 +389,10 @@ void UpdateSDLWindow()
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
 
-  // Convert indexed framebuffer directly into mapped transfer buffer
-  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, false);
+  // Convert indexed framebuffer directly into mapped transfer buffer.
+  // cycle=true: never blocks; SDL3 creates a new slot if the previous one is
+  // still in flight, rather than waiting for GPU completion.
+  void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, true);
   ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
   SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
 
@@ -337,33 +421,41 @@ void UpdateSDLWindow()
 
   // Blit with aspect-ratio preservation
   SDL_GPUBlitInfo blitInfo = {0};
+  SDL_GPUViewport viewport = {0};
   blitInfo.source.texture = s_pGameTexture;
   blitInfo.source.w = winw;
   blitInfo.source.h = winh;
 
-  float fWindowAspect = (float)swW / (float)swH;
-  float fTextureAspect = (float)winw / (float)winh;
-
-  if (fWindowAspect > fTextureAspect) {
-    Uint32 dstW = (Uint32)(fTextureAspect * swH);
-    blitInfo.destination.texture = swapchainTex;
-    blitInfo.destination.x = (swW - dstW) / 2;
-    blitInfo.destination.y = 0;
-    blitInfo.destination.w = dstW;
-    blitInfo.destination.h = swH;
-  } else {
-    Uint32 dstH = (Uint32)(swW / fTextureAspect);
-    blitInfo.destination.texture = swapchainTex;
+  ROLLERGetPresentViewport(swW, swH, ROLLER_PRESENT_ASPECT, &viewport);
+  blitInfo.destination.texture = swapchainTex;
+  blitInfo.destination.x = (Uint32)(viewport.x + 0.5f);
+  blitInfo.destination.y = (Uint32)(viewport.y + 0.5f);
+  blitInfo.destination.w = (Uint32)(viewport.w + 0.5f);
+  blitInfo.destination.h = (Uint32)(viewport.h + 0.5f);
+  if (blitInfo.destination.x >= swW)
     blitInfo.destination.x = 0;
-    blitInfo.destination.y = (swH - dstH) / 2;
-    blitInfo.destination.w = swW;
-    blitInfo.destination.h = dstH;
-  }
+  if (blitInfo.destination.y >= swH)
+    blitInfo.destination.y = 0;
+  if (blitInfo.destination.w < 1)
+    blitInfo.destination.w = 1;
+  if (blitInfo.destination.h < 1)
+    blitInfo.destination.h = 1;
+  if (blitInfo.destination.x + blitInfo.destination.w > swW)
+    blitInfo.destination.w = swW - blitInfo.destination.x;
+  if (blitInfo.destination.y + blitInfo.destination.h > swH)
+    blitInfo.destination.h = swH - blitInfo.destination.y;
   blitInfo.filter = SDL_GPU_FILTER_NEAREST;
   blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
   blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
 
-  SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  if (g_bCRTFilter && s_pCRTFilter) {
+    crt_filter_apply(s_pCRTFilter, cmdBuf, s_pGameTexture, winw, winh,
+                     swapchainTex,
+                     blitInfo.destination.x, blitInfo.destination.y,
+                     blitInfo.destination.w, blitInfo.destination.h);
+  } else {
+    SDL_BlitGPUTexture(cmdBuf, &blitInfo);
+  }
   debug_overlay_render(s_pDebugOverlay, cmdBuf, swapchainTex, swW, swH);
   SDL_SubmitGPUCommandBuffer(cmdBuf);
 }
@@ -415,9 +507,10 @@ void ROLLERRefreshStartupOverlay()
       exit(0);
     }
 
-    debug_overlay_handle_event(s_pDebugOverlay, &e);
     if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_GRAVE)
       debug_overlay_toggle(s_pDebugOverlay);
+    else
+      (void)debug_overlay_handle_event(s_pDebugOverlay, &e);
   }
 
   UpdateMouseCursorVisibility();
@@ -428,6 +521,9 @@ void ROLLERRefreshStartupOverlay()
 
 void ToggleFullscreen()
 {
+#if defined(IS_ANDROID)
+  return;
+#endif
   if (!s_pWindow)
     return;
 
@@ -455,6 +551,10 @@ void ToggleFullscreen()
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+#if defined(IS_ANDROID)
+  SDL_SetHint(SDL_HINT_ORIENTATIONS,
+              "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
+#endif
 #if defined(_WIN32)
   SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_DIRECTINPUT,
                           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "1" : "0",
@@ -510,9 +610,6 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 #endif
 
   SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
-#if defined(IS_ANDROID)
-  uiWindowFlags |= SDL_WINDOW_FULLSCREEN;
-#endif
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
@@ -532,6 +629,14 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+  /* Apply vsync immediately after claiming — the present mode is a window-level
+   * setting that covers all GPU rendering (menu, overlay, scene).  The game
+   * renderer's deferred mechanism handles runtime changes but isn't called until
+   * a race begins, leaving menu frames uncapped otherwise. */
+  SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+      SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+      g_bVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
+
   s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
   s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
 
@@ -549,6 +654,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU texture: %s", SDL_GetError());
     return 1;
   }
+
+  s_pCRTFilter = crt_filter_create(s_pGPUDevice, s_pWindow);
+  if (!s_pCRTFilter)
+    SDL_Log("crt_filter: failed to create (CRT filter will be unavailable)");
 
   // Transfer buffer for CPU->GPU framebuffer upload
   SDL_GPUTransferBufferCreateInfo tbInfo = {0};
@@ -576,12 +685,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   char localMidiPath[256];
   if (midi_root) {
-    strcpy(localMidiPath, midi_root);
-    size_t lenMidiPath = strlen(localMidiPath);
-    if (lenMidiPath > 0 && (localMidiPath[lenMidiPath - 1] != '/' || localMidiPath[lenMidiPath - 1] != '\\')) {
-      localMidiPath[lenMidiPath] = '/';
-      localMidiPath[lenMidiPath+1] = '\0';
-    }
+    SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
   } else {
 #if defined(IS_ANDROID)
     midi_root = SDL_GetAndroidExternalStoragePath();
@@ -589,12 +693,19 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     midi_root = SDL_GetBasePath();
 #endif
     if (midi_root) {
-      strcpy(localMidiPath, midi_root);
+      SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
     } else {
-      strcpy(localMidiPath, "./");
+      SDL_strlcpy(localMidiPath, "./", sizeof(localMidiPath));
     }
   }
-  strcat(localMidiPath, "midi/wildmidi.cfg");
+
+  size_t lenMidiPath = strlen(localMidiPath);
+  if (lenMidiPath > 0 &&
+      localMidiPath[lenMidiPath - 1] != '/' &&
+      localMidiPath[lenMidiPath - 1] != '\\') {
+    SDL_strlcat(localMidiPath, "/", sizeof(localMidiPath));
+  }
+  SDL_strlcat(localMidiPath, "midi/wildmidi.cfg", sizeof(localMidiPath));
   // Initialize MIDI with WildMidi
   if (!MIDI_Init(localMidiPath)) {
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
@@ -706,18 +817,55 @@ void InitFATDATA(const char *szDataRoot)
 
 //-------------------------------------------------------------------------------------------------
 
+static bool ROLLERFindAudioTrackPath(int iTrack, char *szOutPath, size_t uiOutPathSize)
+{
+  char szTrackFile[ROLLER_MAX_PATH];
+  const char *apszTrackPaths[] = {
+    "./audio/track%02d.wav",
+    "../audio/track%02d.wav"
+  };
+
+  for (int iPath = 0; iPath < (int)(sizeof(apszTrackPaths) / sizeof(apszTrackPaths[0])); ++iPath) {
+    if (snprintf(szTrackFile, sizeof(szTrackFile), apszTrackPaths[iPath], iTrack) >=
+        (int)sizeof(szTrackFile))
+      continue;
+
+    FILE *pTrack = ROLLERfopen(szTrackFile, "rb");
+    if (pTrack) {
+      const char *szResolved = ROLLERfindpath(szTrackFile);
+      fclose(pTrack);
+
+      if (szResolved) {
+        if (szOutPath && uiOutPathSize > 0) {
+#ifdef IS_WINDOWS
+          SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+#else
+          if (szResolved[0] == '/' || szResolved[0] == '\\') {
+            SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+          } else {
+            char szCwd[ROLLER_MAX_PATH];
+            if (getcwd(szCwd, sizeof(szCwd))) {
+              snprintf(szOutPath, uiOutPathSize, "%s/%s", szCwd, szResolved);
+            } else {
+              SDL_strlcpy(szOutPath, szResolved, uiOutPathSize);
+            }
+          }
+#endif
+        }
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERAudioMusicAvailable(void)
 {
-  FILE *pTrack = ROLLERfopen("./audio/track02.wav", "rb");
-
-  if (!pTrack)
-    pTrack = ROLLERfopen("../audio/track02.wav", "rb");
-
-  if (!pTrack)
-    return 0;
-
-  fclose(pTrack);
-  return -1;
+  char szTrackFile[ROLLER_MAX_PATH];
+  return ROLLERFindAudioTrackPath(2, szTrackFile, sizeof(szTrackFile)) ? -1 : 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -763,6 +911,8 @@ void ShutdownSDL()
 
     debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
+    crt_filter_destroy(s_pCRTFilter);
+    s_pCRTFilter = NULL;
     menu_render_destroy(s_pMenuRenderer);
     SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
     SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
@@ -927,6 +1077,8 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+  game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
+  game_render_set_crt_filter(g_pGameRenderer, g_bCRTFilter ? s_pCRTFilter : NULL);
   SDL_PumpEvents();
   SDL_Event e;
   while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0) {
@@ -944,21 +1096,75 @@ void UpdateSDL()
         case SDL_EVENT_WINDOW_RESTORED:
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+        case SDL_EVENT_WINDOW_SAFE_AREA_CHANGED:
+        case SDL_EVENT_WINDOW_OCCLUDED:
         case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
         case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
-          DeferGPUPresentation(2);
+          DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
           break;
         default:
           break;
       }
     }
-    debug_overlay_handle_event(s_pDebugOverlay, &e);
+    if (e.type == SDL_EVENT_KEY_DOWN) {
+      if (e.key.scancode == SDL_SCANCODE_GRAVE) {
+        debug_overlay_toggle(s_pDebugOverlay);
+        continue;
+      }
+      if (e.key.scancode == SDL_SCANCODE_TAB && (e.key.mod & SDL_KMOD_SHIFT)) {
+        s_pendingShiftDown.type = 0; /* consumed by SHIFT+TAB */
+        if (g_pGameRenderer) {
+          bool newSplit = !game_render_is_split_screen(g_pGameRenderer);
+          if (newSplit && game_render_get_mode(g_pGameRenderer) != GAME_RENDER_GPU) {
+            MenuRenderer *pTabRenderer = GetMenuRenderer();
+            if (pTabRenderer)
+              menu_render_set_mode(pTabRenderer, MENU_RENDER_GPU);
+            game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
+            InputSaveConfig();
+          }
+          game_render_set_split_screen(g_pGameRenderer, newSplit);
+        }
+        continue;
+      }
+      /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
+      if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        s_pendingShiftDown = e;
+        continue;
+      }
+    }
+    if (e.type == SDL_EVENT_KEY_UP) {
+      if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        if (s_pendingShiftDown.type) {
+          /* SHIFT released without TAB — write the deferred DOWN into the DOS
+           * key buffer directly, then let the UP fall through to do the same. */
+          SDL_Scancode sc = s_pendingShiftDown.key.scancode;
+          if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
+            key_handler(sdl_to_set1[sc]);
+          s_pendingShiftDown.type = 0;
+          /* no continue — SHIFT UP falls through to key_handler at 1161+ */
+        } else {
+          /* SHIFT was consumed by SHIFT+TAB — suppress the UP too. */
+          continue;
+        }
+      }
+    }
+
+    if (debug_overlay_handle_event(s_pDebugOverlay, &e))
+      continue;
+
     InputHandleEvent(&e);
     frontend_mouse_handle_event(&e);
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
-      if (e.key.scancode == SDL_SCANCODE_GRAVE) {
-        debug_overlay_toggle(s_pDebugOverlay);
+
+      if (e.key.scancode == SDL_SCANCODE_TAB) {
+        MenuRenderer *pTabRenderer = GetMenuRenderer();
+        if (pTabRenderer) {
+          int bGPU = !(menu_render_get_pending_mode(pTabRenderer) == MENU_RENDER_GPU);
+          menu_render_set_mode(pTabRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
+          game_render_set_mode(g_pGameRenderer, bGPU ? GAME_RENDER_GPU : GAME_RENDER_SOFTWARE);
+          InputSaveConfig();
+        }
         continue;
       }
 
@@ -1027,6 +1233,42 @@ void UpdateSDL()
   if (ullCurTicksMs > g_ullTimer150Ms) {
     g_ullTimer150Ms = ullCurTicksMs + 150;
     UpdateAudioTracks();
+  }
+
+  /* SDL3 GPU's VSYNC present mode queues frames without blocking the CPU when
+   * enough swapchain images are available, leaving the render loop spinning at
+   * uncapped rates.  Sleep the remaining frame budget so the render rate stays
+   * near the monitor refresh rate when vsync is on. */
+  {
+    static uint64 s_targetFrameNs = 0;
+    static uint64 s_nextFrameNs   = 0;
+    static bool   s_vsyncWas      = false;
+
+    if (g_bVsync != s_vsyncWas) {
+      s_vsyncWas      = g_bVsync;
+      s_targetFrameNs = 0;
+      s_nextFrameNs   = 0;
+    }
+
+    if (g_bVsync && g_pGameRenderer &&
+        game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      if (s_targetFrameNs == 0 && s_pWindow) {
+        SDL_DisplayID disp = SDL_GetDisplayForWindow(s_pWindow);
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
+        float hz = (mode && mode->refresh_rate > 0.0f) ? mode->refresh_rate : 60.0f;
+        s_targetFrameNs = (uint64)(1e9 / (double)hz);
+      }
+
+      uint64 now = SDL_GetTicksNS();
+      if (s_nextFrameNs > 0 && now < s_nextFrameNs)
+        SDL_DelayNS(s_nextFrameNs - now);
+
+      now = SDL_GetTicksNS();
+      if (s_nextFrameNs == 0 || now > s_nextFrameNs + s_targetFrameNs)
+        s_nextFrameNs = now + s_targetFrameNs;
+      else
+        s_nextFrameNs += s_targetFrameNs;
+    }
   }
 }
 
@@ -1668,16 +1910,11 @@ void ROLLERGetAudioInfo()
 
     // If no real CD found, check for ripped tracks
   if (!g_bUsingRealCD) {
-    char szTrackFile[256];
-    FILE *fp;
+    char szTrackFile[ROLLER_MAX_PATH];
 
     // Look for ripped tracks
     for (int iTrack = 2; iTrack <= 99; iTrack++) {
-      sprintf(szTrackFile, "./audio/track%02d.wav", iTrack);
-      fp = ROLLERfopen(szTrackFile, "rb");
-
-      if (fp) {
-        fclose(fp);
+      if (ROLLERFindAudioTrackPath(iTrack, szTrackFile, sizeof(szTrackFile))) {
         g_iNumTracks = iTrack;  // Keep counting up
       } else if (iTrack > 2) {
         break;  // Stop at first missing track after track 2
@@ -1712,13 +1949,18 @@ void ROLLERStopTrack()
       SDL_free(g_pAudioData);
       g_pAudioData = NULL;
     }
+    g_uiAudioLen = 0;
   }
+
+  g_iCurrentTrack = -1;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void ROLLERPlayTrack(int iTrack)
 {
+  int iStarted = 0;
+
 // CD audio tracks start at 2 (track 1 is data)
   if (iTrack < 2 || iTrack > g_iNumTracks) {
     return;
@@ -1735,6 +1977,7 @@ void ROLLERPlayTrack(int iTrack)
       mciPlayParms.dwTo = MCI_MAKE_TMSF(iTrack + 1, 0, 0, 0);
       mciSendCommand(g_wDeviceID, MCI_PLAY, MCI_FROM | MCI_TO,
                     (DWORD_PTR)&mciPlayParms);
+      iStarted = -1;
     }
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
@@ -1744,39 +1987,61 @@ void ROLLERPlayTrack(int iTrack)
       ti.cdti_trk1 = iTrack;
       ti.cdti_ind1 = 0;
       ioctl(g_iCDHandle, CDROMPLAYTRKIND, &ti);
+      iStarted = -1;
     }
 #endif
   } else {
       // Play from file
-    char szTrackFile[256];
+    char szTrackFile[ROLLER_MAX_PATH];
     SDL_AudioSpec spec;
 
-    sprintf(szTrackFile, "../audio/track%02d.wav", iTrack);
-    FILE *fp = ROLLERfopen(szTrackFile, "rb");
-    if (fp) {
-      fclose(fp);
-
+    if (ROLLERFindAudioTrackPath(iTrack, szTrackFile, sizeof(szTrackFile))) {
       SDL_IOStream *io = SDL_IOFromFile(szTrackFile, "rb");
-      if (io) {
-        if (SDL_LoadWAV_IO(io, true, &spec, &g_pAudioData, &g_uiAudioLen)) {
-
-          g_pCurrentStream = SDL_OpenAudioDeviceStream(
-              SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-              &spec, NULL, NULL);
-
-          if (g_pCurrentStream) {
-            SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData, g_uiAudioLen);
-            SDL_ResumeAudioStreamDevice(g_pCurrentStream);
-            float fGain = g_iCDVolume / 255.0f;
-            SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
-          }
-        }
+      if (!io) {
+        SDL_Log("Failed to open CD audio track '%s': %s", szTrackFile, SDL_GetError());
+        return;
       }
+
+      if (SDL_LoadWAV_IO(io, true, &spec, &g_pAudioData, &g_uiAudioLen)) {
+        g_pCurrentStream = SDL_OpenAudioDeviceStream(
+            SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+            &spec, NULL, NULL);
+
+        if (g_pCurrentStream) {
+          float fGain = g_iCDVolume / 255.0f;
+
+          SDL_SetAudioStreamGain(g_pCurrentStream, fGain);
+          if (SDL_PutAudioStreamData(g_pCurrentStream, g_pAudioData, g_uiAudioLen)) {
+            SDL_ResumeAudioStreamDevice(g_pCurrentStream);
+            SDL_Log("Started CD audio track '%s' (%u bytes)",
+                    szTrackFile, (unsigned int)g_uiAudioLen);
+            iStarted = -1;
+          } else {
+            SDL_Log("Failed to queue CD audio track '%s': %s", szTrackFile, SDL_GetError());
+            SDL_DestroyAudioStream(g_pCurrentStream);
+            g_pCurrentStream = NULL;
+            SDL_free(g_pAudioData);
+            g_pAudioData = NULL;
+            g_uiAudioLen = 0;
+          }
+        } else {
+          SDL_Log("Failed to open audio device for CD audio track '%s': %s",
+                  szTrackFile, SDL_GetError());
+          SDL_free(g_pAudioData);
+          g_pAudioData = NULL;
+          g_uiAudioLen = 0;
+        }
+      } else {
+        SDL_Log("Failed to load CD audio WAV '%s': %s", szTrackFile, SDL_GetError());
+      }
+    } else {
+      SDL_Log("CD audio track %02d not found in audio folder", iTrack);
     }
     // Add OGG/MP3 support here if using SDL_mixer
   }
 
-  g_iCurrentTrack = iTrack;
+  if (iStarted)
+    g_iCurrentTrack = iTrack;
 }
 
 //-------------------------------------------------------------------------------------------------

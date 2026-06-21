@@ -18,6 +18,25 @@ extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
 extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
+extern int   g_iTextureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
+extern int   g_iAnisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */
+extern bool  g_bTrilinear;       /* true = blend linearly between mip levels */
+extern float g_fLodBias;         /* mip LOD bias; 0 = neutral */
+extern float g_fRenderScale;     /* render resolution multiplier; 1.0 = native */
+extern int   g_iAntiAliasing;    /* 0=off, 1=MSAA 2x, 2=MSAA 4x, 3=MSAA 8x */
+extern bool  g_bVsync;           /* true = vsync on */
+extern int   g_iFpsDisplay;      /* 0=off, 1=top-left, 2=top-right, 3=bottom-left, 4=bottom-right */
+extern float    g_fFogDensity;   /* exponential-squared fog coefficient; 0.0 = off */
+extern float    g_fGamma;        /* output gamma; 1.0 = neutral */
+extern float    g_fFogStart;     /* view-space depth before which fog is suppressed */
+extern uint32_t g_uFogColor;     /* fog RGB as 0xRRGGBB; default 0xB3BFCC */
+extern float g_fSaturation;      /* colour saturation; 1.0 = neutral */
+extern float g_fContrast;        /* contrast; 1.0 = neutral */
+extern float g_fVigStrength;     /* vignette strength; 0.0 = off */
+extern float g_fBrightness;      /* additive brightness; 0.0 = neutral */
+extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
+extern bool  g_bWireframe;       /* wireframe rendering */
+extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
@@ -32,6 +51,7 @@ SDL_Window *ROLLERGetWindow(void);
 // Debug overlay accessor
 struct DebugOverlay;
 struct DebugOverlay *ROLLERGetDebugOverlay(void);
+struct CRTFilter    *ROLLERGetCRTFilter(void);
 
 // Menu renderer accessor
 typedef struct MenuRenderer MenuRenderer;
@@ -51,6 +71,9 @@ bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Wind
                                          SDL_GPUTexture **ppSwapchainTex,
                                          Uint32 *puiSwapchainW, Uint32 *puiSwapchainH);
 bool ROLLERGpuPresentationSuspended(void);
+void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
+                              float fContentAspect,
+                              SDL_GPUViewport *pViewport);
 void ROLLERRefreshStartupOverlay();
 
 bool ROLLERfexists(const char *szFile);

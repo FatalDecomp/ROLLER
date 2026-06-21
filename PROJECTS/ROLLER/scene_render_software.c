@@ -1537,6 +1537,8 @@ void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
     int subpolyType;
     if (useCloudProjection) {
         subpolyType = SUBPOLY_STANDARD;
+    } else if (options.subdivideType == SCENE_RENDER_SUBDIVIDE_TYPE_SIGN) {
+        subpolyType = SUBPOLY_BUILDING; /* signs render identically to buildings in SW mode */
     } else if (options.subdivideType != SCENE_RENDER_SUBDIVIDE_TYPE_AUTO) {
         subpolyType = options.subdivideType;
     } else if (slot && slot->tex_idx == TEXTURE_BANK_BUILDING) {

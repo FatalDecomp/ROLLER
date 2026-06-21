@@ -18,10 +18,15 @@ pub fn build(b: *std.Build) void {
     const sdl_android_include = b.option([]const u8, "sdl-android-include", "Path to SDL Android AAR prefab include directory") orelse "";
     const sdl_android_lib = b.option([]const u8, "sdl-android-lib", "Path to SDL Android AAR shared library directory") orelse "";
     const crash_debug = b.option(bool, "crash-debug", "Enable crash dump friendly C build flags") orelse false;
+    // ARM/AArch64 targets default `char` to unsigned, unlike the x86/Windows
+    // toolchain this codebase was originally written against. Lots of game
+    // state (gear, etc.) is stored in a byte and read back via `(char)` casts
+    // expecting sign extension (-1 = neutral, -2 = reverse). Force signed char
+    // everywhere so those casts behave the same on every target.
     const c_flags: []const []const u8 = if (crash_debug)
-        &.{ "-fwrapv", "-fno-omit-frame-pointer" }
+        &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char" }
     else
-        &.{"-fwrapv"};
+        &.{ "-fwrapv", "-fsigned-char" };
     const python_checks = b.option(
         bool,
         "python-checks",
@@ -76,10 +81,13 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/menu_render.c",
             "PROJECTS/ROLLER/menu_render_gpu.c",
             "PROJECTS/ROLLER/menu_render_software.c",
+            "PROJECTS/ROLLER/crt_filter.c",
             "PROJECTS/ROLLER/game_render.c",
             "PROJECTS/ROLLER/game_render_software.c",
+            "PROJECTS/ROLLER/game_render_hardware.c",
             "PROJECTS/ROLLER/scene_render.c",
             "PROJECTS/ROLLER/scene_render_software.c",
+            "PROJECTS/ROLLER/scene_render_gpu.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
@@ -120,6 +128,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    var android_libc_file: ?LazyPath = null;
     if (bAndroid) {
         exe.linker_allow_shlib_undefined = true;
         exe_mod.addCMacro("SDL_MAIN_HANDLED", "1");
@@ -134,7 +143,7 @@ pub fn build(b: *std.Build) void {
                 "sysroot",
             });
             const libc_write_files = b.addWriteFiles();
-            const android_libc_file = libc_write_files.add(
+            const android_libc_path = libc_write_files.add(
                 "android-libc.txt",
                 b.fmt(
                     \\include_dir={s}
@@ -151,7 +160,8 @@ pub fn build(b: *std.Build) void {
                     b.pathJoin(&.{ sysroot, "usr/lib", triple, android_api }),
                 }),
             );
-            exe.setLibCFile(android_libc_file);
+            android_libc_file = android_libc_path;
+            exe.setLibCFile(android_libc_path);
             exe_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{
                 sysroot,
                 "usr/lib",
@@ -195,7 +205,7 @@ pub fn build(b: *std.Build) void {
         exe.step.dependOn(&scene_render_seam_check.step);
     }
 
-    configureDependencies(b, exe, target, optimize, bAndroid, sdl_android_include, sdl_android_lib);
+    configureDependencies(b, exe, target, optimize, bAndroid, android_libc_file, sdl_android_include, sdl_android_lib);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -452,6 +462,7 @@ fn configureDependencies(
     target: ResolvedTarget,
     optimize: OptimizeMode,
     bAndroid: bool,
+    android_libc_file: ?LazyPath,
     sdl_android_include: []const u8,
     sdl_android_lib: []const u8,
 ) void {
@@ -459,15 +470,16 @@ fn configureDependencies(
 
     var cflags = compile_flagz.addCompileFlags(b);
 
-    if (!bAndroid) {
-        const wildmidi = b.dependency("wildmidi", .{
-            .target = target,
-            .optimize = optimize,
-        });
-        exe_mod.addIncludePath(wildmidi.builder.path("include"));
-        exe_mod.linkLibrary(wildmidi.artifact("wildmidi"));
-        cflags.addIncludePath(wildmidi.builder.path("include"));
-    }
+    const wildmidi = b.dependency("wildmidi", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const wildmidi_artifact = wildmidi.artifact("wildmidi");
+    if (android_libc_file) |libc_file|
+        wildmidi_artifact.setLibCFile(libc_file);
+    exe_mod.addIncludePath(wildmidi.builder.path("include"));
+    exe_mod.linkLibrary(wildmidi_artifact);
+    cflags.addIncludePath(wildmidi.builder.path("include"));
 
     if (bAndroid and sdl_android_include.len > 0) {
         const sdl_include_path = LazyPath{ .cwd_relative = sdl_android_include };
