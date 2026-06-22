@@ -113,7 +113,9 @@ float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
 bool  g_bWireframe       = false;
+int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
+bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -530,6 +532,13 @@ void ToggleFullscreen()
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
 
+  /* Save windowed size before entering fullscreen so we can restore it. */
+  static int s_iWndW = 0, s_iWndH = 0;
+  if (!bFullscreen) {
+    SDL_GetWindowSize(s_pWindow, &s_iWndW, &s_iWndH);
+    if (s_iWndW < 320 || s_iWndH < 200) { s_iWndW = 640; s_iWndH = 400; }
+  }
+
   DeferGPUPresentation(3);
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
@@ -538,6 +547,13 @@ void ToggleFullscreen()
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
   } else {
     SDL_SyncWindow(s_pWindow);
+    if (bFullscreen) {
+      /* SDL doesn't always shrink the window on Windows; restore explicitly. */
+      int rW = (s_iWndW >= 320) ? s_iWndW : 640;
+      int rH = (s_iWndH >= 200) ? s_iWndH : 400;
+      SDL_SetWindowSize(s_pWindow, rW, rH);
+      SDL_SyncWindow(s_pWindow);
+    }
   }
 
   if (s_pGPUDevice)
@@ -610,6 +626,11 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 #endif
 
   SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
+#if defined(_WIN32)
+  /* Hide until InputLoadConfig shows it at the correct size; prevents the
+   * white-border flash that occurs when the window is resized on startup. */
+  uiWindowFlags |= SDL_WINDOW_HIDDEN;
+#endif
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
@@ -1091,6 +1112,17 @@ void UpdateSDL()
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
       switch (e.type) {
         case SDL_EVENT_WINDOW_RESIZED:
+          if (g_bKeepWindowSize &&
+              !(SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_FULLSCREEN)) {
+            int iW = 0, iH = 0;
+            if (SDL_GetWindowSize(s_pWindow, &iW, &iH) && iW >= 320 && iH >= 200) {
+              extern int g_iSavedWindowWidth, g_iSavedWindowHeight;
+              g_iSavedWindowWidth  = iW;
+              g_iSavedWindowHeight = iH;
+              InputSaveConfig();
+            }
+          }
+          /* fall through */
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_MINIMIZED:
         case SDL_EVENT_WINDOW_RESTORED:

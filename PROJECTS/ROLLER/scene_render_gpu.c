@@ -107,7 +107,7 @@ struct SceneRendererGPU {
     SDL_GPUGraphicsPipeline *opaquePipeline;
     SDL_GPUGraphicsPipeline *blendPipeline;
     SDL_GPUGraphicsPipeline *buildingPipeline; /* opaque + LESS_OR_EQUAL + depth bias */
-    SDL_GPUGraphicsPipeline *signPipeline;     /* COMPARE_ALWAYS + depth_write; drawn first so walls (COMPARE_LESS) can't overdraw */
+    SDL_GPUGraphicsPipeline *signPipeline;     /* LESS_OR_EQUAL + neg bias + stencil EQUAL(0): only draws where no track surface (opaque/wall) landed */
     SDL_GPUGraphicsPipeline *wallPipeline;     /* sfBl (no alpha-discard) + no blend + COMPARE_LESS; for TEXTURE_PAIR track surfaces whose tiles use palette-0 as a solid colour */
     SDL_GPUGraphicsPipeline *shadowPipeline;   /* blend + LESS_OR_EQUAL + no depth write + large bias; for car shadow quads coplanar with road */
     SDL_GPUSampler          *sampler;
@@ -161,6 +161,13 @@ struct SceneRendererGPU {
     /* ---- Sky clear color ---- */
     float skyR, skyG, skyB;
 
+    /* ---- Horizon split ---- */
+    int   groundColorIdx;  /* palette index for ground clear colour, -1 = disabled */
+    float skyFrac;         /* fraction of viewport height occupied by sky (0..1) */
+    SDL_GPUGraphicsPipeline *skyPipeline;  /* no depth test/write; draws sky quad before 3D */
+    SDL_GPUBuffer           *skyVertBuf;
+    SDL_GPUTransferBuffer   *skyVertXfer;
+
     /* Flat-colour texture cache (one 4×4 solid texture per palette index, lazy) */
     SDL_GPUTexture *flatColorCache[256];
     SDL_GPUTexture *shadowTex;       /* 50%-transparent black for car shadow quads */
@@ -193,6 +200,7 @@ struct SceneRendererGPU {
     float brightness;      /* additive brightness offset; 0.0 = neutral */
     float fovMultiplier;   /* FOV multiplier applied on top of the game camera; 1.0 = native */
     bool  wireframe;       /* render geometry as wireframe */
+    int   cullMode;        /* 0=default/none, 1=none, 2=back, 3=front */
 
     /* Vsync is deferred: SDL_SetGPUSwapchainParameters must be called before
      * SDL_AcquireGPUSwapchainTexture, so changes requested mid-frame are applied
@@ -542,7 +550,11 @@ static SDL_GPUGraphicsPipeline *make_scene_pipeline(SceneRendererGPU *r,
                                     : SDL_GPU_COMPAREOP_LESS
         }
     };
-    pi.rasterizer_state.fill_mode = fillMode;
+    pi.rasterizer_state.fill_mode   = fillMode;
+    pi.rasterizer_state.front_face  = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    pi.rasterizer_state.cull_mode   = (r->cullMode == 2) ? SDL_GPU_CULLMODE_BACK
+                                    : (r->cullMode == 3) ? SDL_GPU_CULLMODE_FRONT
+                                    : SDL_GPU_CULLMODE_NONE;
     if (depthBias) {
         /* Depth bias pulls these quads slightly toward the camera so signs/decals
          * that are coplanar with or fractionally behind the opaque wall surface
@@ -600,7 +612,8 @@ static SDL_GPUGraphicsPipeline *make_shadow_pipeline(SceneRendererGPU *r,
         .depth_stencil_state = { .enable_depth_test  = true,
                                  .enable_depth_write = false,
                                  .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL },
-        .rasterizer_state = { .fill_mode = fillMode,
+        .rasterizer_state = { .fill_mode  = fillMode,
+                              .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
                               .enable_depth_bias          = true,
                               .depth_bias_constant_factor = -50.0f,
                               .depth_bias_slope_factor    = -1.0f }
@@ -644,32 +657,28 @@ static SDL_GPUGraphicsPipeline *make_sign_pipeline(SceneRendererGPU *r,
             .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
         },
         .multisample_state  = { .sample_count = sc },
-        /* enable_depth_test must be TRUE for depth writes to take effect in
-         * Vulkan/D3D12: when depth testing is disabled the spec also disables
-         * depth writes regardless of enable_depth_write.  COMPARE_ALWAYS gives
-         * the same "always passes" semantic while keeping writes enabled.
-         *
-         * The negative bias pushes the sign's written depth toward the camera
-         * so that the building pass (COMPARE_LESS_OR_EQUAL, bias -2r) cannot
-         * overwrite it.  Signs may be geometrically 1-10+ world units behind
-         * their wall (floating-point differences in vertex transforms), so a
-         * large constant_factor is needed.  -4096 ≈ -0.000245 NDC at D32_FLOAT
-         * resolution, covering sign-behind-wall offsets up to ~15 world units
-         * at a view-Z of 2200.  Closer geometry (barriers, hills) is still
-         * correctly occluding because their depth advantage exceeds the bias. */
+        /* Signs drawn last (after opaque, wall, building) so the depth buffer
+         * already contains all solid geometry.  LESS_OR_EQUAL + large negative
+         * bias lets signs that are coplanar with or slightly behind their wall
+         * surface still pass the depth test. */
         .depth_stencil_state = {
             .enable_depth_test  = true,
             .enable_depth_write = true,
-            .compare_op         = SDL_GPU_COMPAREOP_ALWAYS
+            .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL
         },
         .rasterizer_state = {
             .fill_mode                  = fillMode,
+            .front_face                 = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
             .enable_depth_bias          = true,
             .depth_bias_constant_factor = -4096.0f,
             .depth_bias_clamp           = 0.0f,
             .depth_bias_slope_factor    = -1.0f,
         }
     };
+    /* Signs must only be visible from their front face (the side with correct
+     * UV).  The back face, which faces the wrong side of the boundary wall,
+     * renders with H-flipped texture and must be discarded. */
+    pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
@@ -718,8 +727,9 @@ static SDL_GPUGraphicsPipeline *make_car_pipeline(SceneRendererGPU *r,
              * pBacks[] twin polygons (reversed winding) cover the back side.
              * Shadow quad normal points +Z (upward, toward camera) so it is
              * front-facing and renders correctly with this cull mode. */
-            .fill_mode = fillMode,
-            .cull_mode = SDL_GPU_CULLMODE_BACK,
+            .fill_mode  = fillMode,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+            .cull_mode  = SDL_GPU_CULLMODE_BACK,
             .enable_depth_bias = true,
             .depth_bias_constant_factor = -50.0f,
             .depth_bias_clamp = 0.0f,
@@ -738,6 +748,49 @@ static SDL_GPUGraphicsPipeline *make_car_pipeline(SceneRendererGPU *r,
             .compare_op         = SDL_GPU_COMPAREOP_LESS
         }
     };
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
+static SDL_GPUGraphicsPipeline *make_sky_pipeline(SceneRendererGPU *r,
+                                                      SDL_GPUShader *vert,
+                                                      SDL_GPUShader *frag,
+                                                      SDL_GPUSampleCount sc)
+{
+    SDL_GPUVertexAttribute attrs[2] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+         .offset=(Uint32)offsetof(SceneGPUVertex, x)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUVertex, u)},
+    };
+    SDL_GPUVertexBufferDescription binding = {
+        .pitch      = sizeof(SceneGPUVertex),
+        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX
+    };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window)
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = frag,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = {
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 2,
+            .vertex_buffer_descriptions = &binding,
+            .num_vertex_buffers         = 1
+        },
+        .target_info = {
+            .color_target_descriptions = &ct,
+            .num_color_targets         = 1,
+            .has_depth_stencil_target  = true,
+            .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+        },
+        .multisample_state   = { .sample_count = sc },
+        .depth_stencil_state = { .enable_depth_test = false, .enable_depth_write = false }
+    };
+    pi.rasterizer_state.fill_mode  = SDL_GPU_FILLMODE_FILL;
+    pi.rasterizer_state.cull_mode  = SDL_GPU_CULLMODE_NONE;
+    pi.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
@@ -857,10 +910,11 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     r->signPipeline     = make_sign_pipeline (r, sv, sfOp,        SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
     r->wallPipeline     = make_scene_pipeline(r, sv, sfBl, false, true,  SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
     r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,              SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
+    r->skyPipeline   = make_sky_pipeline(r, sv, sfOp, SDL_GPU_SAMPLECOUNT_1);
     SDL_ReleaseGPUShader(device, sv);
     SDL_ReleaseGPUShader(device, sfOp);
     SDL_ReleaseGPUShader(device, sfBl);
-    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->signPipeline || !r->wallPipeline || !r->shadowPipeline) goto fail;
+    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->signPipeline || !r->wallPipeline || !r->shadowPipeline || !r->skyPipeline) goto fail;
 
     /* ---- Car shaders (game_car_* add fog+gamma; menu_mesh_* kept for menu) ---- */
     SDL_GPUShader *cv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -919,6 +973,17 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     r->vertexXfer = SDL_CreateGPUTransferBuffer(device, &tbi);
     if (!r->vertexBuf || !r->vertexXfer) goto fail;
 
+    /* ---- Ground strip vertex buffer (6 verts, constant size) ---- */
+    {
+        Uint32 gvSize = 6 * sizeof(SceneGPUVertex);
+        SDL_GPUBufferCreateInfo gbi = { .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = gvSize };
+        r->skyVertBuf = SDL_CreateGPUBuffer(device, &gbi);
+        SDL_GPUTransferBufferCreateInfo gtbi = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = gvSize };
+        r->skyVertXfer = SDL_CreateGPUTransferBuffer(device, &gtbi);
+        if (!r->skyVertBuf || !r->skyVertXfer) goto fail;
+    }
+    r->groundColorIdx = -1;
+
     return r;
 fail:
     scene_render_gpu_destroy(r);
@@ -949,6 +1014,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->hudOverlayTex) SDL_ReleaseGPUTexture(r->device, r->hudOverlayTex);
     if (r->hudXfer)       SDL_ReleaseGPUTransferBuffer(r->device, r->hudXfer);
     if (r->hudVertBuf)    SDL_ReleaseGPUBuffer(r->device, r->hudVertBuf);
+    if (r->skyVertBuf) SDL_ReleaseGPUBuffer(r->device, r->skyVertBuf);
+    if (r->skyVertXfer) SDL_ReleaseGPUTransferBuffer(r->device, r->skyVertXfer);
     if (r->vertexBuf)     SDL_ReleaseGPUBuffer(r->device, r->vertexBuf);
     if (r->vertexXfer)    SDL_ReleaseGPUTransferBuffer(r->device, r->vertexXfer);
     free(r->vertices);
@@ -960,6 +1027,7 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->wallPipeline)     SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);
     if (r->shadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
     if (r->carPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
+    if (r->skyPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
     if (r->hudPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->hudPipeline);
     if (r->sampler)        SDL_ReleaseGPUSampler(r->device, r->sampler);
     if (r->samplerNearest) SDL_ReleaseGPUSampler(r->device, r->samplerNearest);
@@ -1072,6 +1140,35 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
+    /* ---- Sky quad vertex upload ----
+     * Clear = ground colour; sky quad covers the upper horizonFrac of the screen.
+     * This guarantees the ground fill everywhere 3D geometry doesn't cover. */
+    bool drawSky = (r->groundColorIdx >= 0 && r->skyFrac > 0.001f
+                       && r->skyFrac < 0.999f && r->skyPipeline && r->skyVertBuf);
+    if (drawSky) {
+        float horizonNDC = 1.0f - 2.0f * r->skyFrac;
+        SceneGPUVertex gv[6] = {
+            {-1.f,      +1.f, 0.f, 0.5f, 0.5f},
+            { 1.f,      +1.f, 0.f, 0.5f, 0.5f},
+            { 1.f, horizonNDC, 0.f, 0.5f, 0.5f},
+            {-1.f,      +1.f, 0.f, 0.5f, 0.5f},
+            { 1.f, horizonNDC, 0.f, 0.5f, 0.5f},
+            {-1.f, horizonNDC, 0.f, 0.5f, 0.5f},
+        };
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        if (gvMapped) {
+            memcpy(gvMapped, gv, sizeof(gv));
+            SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation gsrc = {.transfer_buffer = r->skyVertXfer};
+            SDL_GPUBufferRegion gdst = {.buffer = r->skyVertBuf, .size = (Uint32)sizeof(gv)};
+            SDL_UploadToGPUBuffer(cp, &gsrc, &gdst, false);
+            SDL_EndGPUCopyPass(cp);
+        } else {
+            drawSky = false;
+        }
+    }
+
     if (!r->swapchainTex) {
         SDL_SubmitGPUCommandBuffer(r->cmdBuf);
         r->cmdBuf = NULL;
@@ -1085,18 +1182,25 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     /* ====================================================================
      * Pass 1: 3D scene + car meshes → offscreen (with optional MSAA resolve)
      * ==================================================================== */
-    /* Blend sky clear colour toward fog colour — sky is at infinity so fog
-     * factor approaches 1 as density rises.  20000 is a representative
-     * "horizon distance" that makes the sky fully fogged at max slider. */
+    /* Fog-blended sky colour (sky is at infinity, so fog factor → 1 as density rises). */
     float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
     if (skyFog < 0.0f) skyFog = 0.0f;
     if (skyFog > 1.0f) skyFog = 1.0f;
-    SDL_FColor skyClear = {
+    SDL_FColor skyFColor = {
         r->skyR + (r->fogColor[0] - r->skyR) * skyFog,
         r->skyG + (r->fogColor[1] - r->skyG) * skyFog,
         r->skyB + (r->fogColor[2] - r->skyB) * skyFog,
         1.0f
     };
+    /* When horizon split is active, clear with the ground colour so the lower
+     * background is always correct; sky quad will overdraw the top portion. */
+    SDL_FColor skyClear = skyFColor;
+    if (drawSky) {
+        const tColor *gc = &palette[r->groundColorIdx];
+        skyClear.r = gc->byR / 63.0f;
+        skyClear.g = gc->byG / 63.0f;
+        skyClear.b = gc->byB / 63.0f;
+    }
 
     SDL_GPUColorTargetInfo colorInfo;
     if (useMSAA) {
@@ -1129,6 +1233,30 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         .min_depth = 0.0f, .max_depth = 1.0f
     };
     SDL_SetGPUViewport(rp, &vp);
+
+    /* Sky quad: overdraw the upper portion with sky colour so 3D geometry
+     * renders on top of it.  skyPipeline has depth test/write disabled.
+     * Fog overdrive (huge density) collapses the fog lerp to 1 → pure skyFColor. */
+    if (drawSky) {
+        SDL_GPUTexture *gTex = get_flat_color_texture(r, r->groundColorIdx);
+        if (gTex) {
+            SDL_BindGPUGraphicsPipeline(rp, r->skyPipeline);
+            float identMVP[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, identMVP, sizeof(identMVP));
+            struct { float fogDensity, gamma, fogStart, saturation;
+                     float fogColor[4]; float contrast, brightness; float _pad[2]; } skyU = {
+                1e9f, 1.0f, 0.0f, 1.0f,
+                {skyFColor.r, skyFColor.g, skyFColor.b, 1.0f},
+                1.0f, 0.0f, {0, 0}
+            };
+            SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &skyU, sizeof(skyU));
+            SDL_GPUBufferBinding gvbb = {.buffer = r->skyVertBuf};
+            SDL_BindGPUVertexBuffers(rp, 0, &gvbb, 1);
+            SDL_GPUTextureSamplerBinding gtsb = {.texture = gTex, .sampler = r->samplerNearest};
+            SDL_BindGPUFragmentSamplers(rp, 0, &gtsb, 1);
+            SDL_DrawGPUPrimitives(rp, 6, 1, 0, 0);
+        }
+    }
 
     SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
     SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
@@ -1163,15 +1291,12 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0); \
     }
 
-    /* Sign pass first: writes D_sign with COMPARE_ALWAYS so that the opaque
-     * pass (COMPARE_LESS) cannot paint coplanar wall surfaces over the sign,
-     * while still allowing closer geometry (barriers, hills) to overwrite it.
-     * The depth bias pushes D_sign slightly toward the camera so that the
-     * building pass (COMPARE_LESS_OR_EQUAL) also fails for coplanar walls. */
-    if (r->signPipeline) {
-        SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_SIGN)
-    }
+    /* Draw order: OPAQUE → WALL → BUILDING → SIGN
+     * Opaque and wall establish the depth buffer for solid track geometry.
+     * Building polygons follow (LESS_OR_EQUAL + small bias for coplanar decals).
+     * Signs come last so the full depth buffer is owned before they test;
+     * LESS_OR_EQUAL + large negative bias lets signs coplanar with their wall
+     * still pass, while signs behind opaque geometry are correctly rejected. */
     if (r->opaquePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
         DRAW_CMD(SCENE_GPU_DRAW_OPAQUE)
@@ -1183,6 +1308,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     if (r->buildingPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
         DRAW_CMD(SCENE_GPU_DRAW_BUILDING)
+    }
+    if (r->signPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_SIGN)
     }
     if (r->blendPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
@@ -1358,6 +1487,13 @@ void scene_render_gpu_set_sky_color(SceneRendererGPU *r, float red, float green,
     if (r) { r->skyR = red; r->skyG = green; r->skyB = blue; }
 }
 
+void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, float horizonFrac)
+{
+    if (!r) return;
+    r->groundColorIdx = colorIdx;
+    r->skyFrac     = horizonFrac;
+}
+
 static void rebuild_sampler(SceneRendererGPU *r)
 {
     static const float k_aniso[] = {2.0f, 4.0f, 8.0f, 16.0f};
@@ -1490,6 +1626,7 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
     if (r->wallPipeline)     { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);     r->wallPipeline     = NULL; }
     if (r->shadowPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);   r->shadowPipeline   = NULL; }
     if (r->carPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);      r->carPipeline      = NULL; }
+    if (r->skyPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);   r->skyPipeline   = NULL; }
 
     SDL_GPUFillMode fm = enabled ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
     SDL_GPUSampleCount sc = r->msaaSampleCount;
@@ -1510,6 +1647,7 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
         r->signPipeline     = make_sign_pipeline (r, sv, sfOp,        sc,    fm);
         r->wallPipeline     = make_scene_pipeline(r, sv, sfBl, false, true,  sc, fm);
         r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
+        r->skyPipeline   = make_sky_pipeline(r, sv, sfOp, sc);
     }
     if (sv)   SDL_ReleaseGPUShader(r->device, sv);
     if (sfOp) SDL_ReleaseGPUShader(r->device, sfOp);
@@ -1525,6 +1663,47 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
         r->carPipeline = make_car_pipeline(r, cv, cf, sc, fm);
     if (cv) SDL_ReleaseGPUShader(r->device, cv);
     if (cf) SDL_ReleaseGPUShader(r->device, cf);
+}
+
+void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode)
+{
+    if (!r || r->cullMode == mode) return;
+    r->cullMode = mode;
+
+    SDL_WaitForGPUIdle(r->device);
+
+    if (r->opaquePipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);   r->opaquePipeline   = NULL; }
+    if (r->blendPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);    r->blendPipeline    = NULL; }
+    if (r->buildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline); r->buildingPipeline = NULL; }
+    if (r->signPipeline)     { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);     r->signPipeline     = NULL; }
+    if (r->wallPipeline)     { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);     r->wallPipeline     = NULL; }
+    if (r->shadowPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);   r->shadowPipeline   = NULL; }
+    if (r->skyPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);   r->skyPipeline   = NULL; }
+
+    SDL_GPUFillMode fm = r->wireframe ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
+    SDL_GPUSampleCount sc = r->msaaSampleCount;
+
+    SDL_GPUShader *sv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
+        game_scene_vertex_spirv, game_scene_vertex_spirv_size,
+        game_scene_vertex_msl,   game_scene_vertex_msl_size, 0, 1);
+    SDL_GPUShader *sfOp = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_scene_pixel_spirv,  game_scene_pixel_spirv_size,
+        game_scene_pixel_msl,    game_scene_pixel_msl_size,  1, 1);
+    SDL_GPUShader *sfBl = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_scene_pixel_blend_spirv, game_scene_pixel_blend_spirv_size,
+        game_scene_pixel_blend_msl,   game_scene_pixel_blend_msl_size,  1, 1);
+    if (sv && sfOp && sfBl) {
+        r->opaquePipeline   = make_scene_pipeline(r, sv, sfOp, false, false, sc, fm);
+        r->blendPipeline    = make_scene_pipeline(r, sv, sfBl, true,  true,  sc, fm);
+        r->buildingPipeline = make_scene_pipeline(r, sv, sfOp, false, true,  sc, fm);
+        r->signPipeline     = make_sign_pipeline (r, sv, sfOp,        sc,    fm);
+        r->wallPipeline     = make_scene_pipeline(r, sv, sfBl, false, true,  sc, fm);
+        r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
+        r->skyPipeline   = make_sky_pipeline(r, sv, sfOp, sc);
+    }
+    if (sv)   SDL_ReleaseGPUShader(r->device, sv);
+    if (sfOp) SDL_ReleaseGPUShader(r->device, sfOp);
+    if (sfBl) SDL_ReleaseGPUShader(r->device, sfBl);
 }
 
 void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
@@ -1543,6 +1722,7 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (r->wallPipeline)     { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);     r->wallPipeline     = NULL; }
     if (r->shadowPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);   r->shadowPipeline   = NULL; }
     if (r->carPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);      r->carPipeline      = NULL; }
+    if (r->skyPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);   r->skyPipeline   = NULL; }
 
     /* Release MSAA textures — recreated in the next end_frame at the right size. */
     if (r->msaaTex)      { SDL_ReleaseGPUTexture(r->device, r->msaaTex);      r->msaaTex      = NULL; }
@@ -1567,6 +1747,7 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
         r->signPipeline     = make_sign_pipeline (r, sv, sfOp,        sc,    fm);
         r->wallPipeline     = make_scene_pipeline(r, sv, sfBl, false, true,  sc, fm);
         r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
+        r->skyPipeline   = make_sky_pipeline(r, sv, sfOp, sc);
     }
     if (sv)   SDL_ReleaseGPUShader(r->device, sv);
     if (sfOp) SDL_ReleaseGPUShader(r->device, sfOp);
@@ -1760,6 +1941,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                          int surfaceFlags,
                                          SceneRenderLegacyQuadOptions options)
 {
+    { static int once = 0; if (!once) { once = 1; SDL_Log("GPU_QUAD_WORLD_LEGACY called"); } }
     if (!r || !r->cmdBuf) return;
     if (surfaceFlags & SURFACE_FLAG_SKIP_RENDER) return;
     if (r->vertexCount + 6 > SCENE_GPU_MAX_VERTICES) return;
@@ -1785,10 +1967,158 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     /* Wall pair textures only apply to non-building track surfaces. */
     bool isWall = !isBuilding && (surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) && wide_on;
 
+    /* Ctrl+F3: log back-facing track surfaces that still render (cross < 0 but
+     * bypass cull via flags).  Ctrl+F2: log every building/sign polygon.
+     * Console cleared once on each key-down. */
+    {
+        const bool *kbState = SDL_GetKeyboardState(NULL);
+        bool ctrlHeld = kbState[SDL_SCANCODE_LCTRL] || kbState[SDL_SCANCODE_RCTRL];
+
+        static bool s_prevF3 = false;
+        bool f3Now = ctrlHeld && kbState[SDL_SCANCODE_F1];
+        if (f3Now && !s_prevF3) { system("cls"); }
+        s_prevF3 = f3Now;
+
+        if (f3Now) {
+            const float (*M3)[3] = r->proj.view;
+            float sx3[3], sy3[3], vZ3[3];
+            for (int vi = 0; vi < 3; vi++) {
+                float ddx = verts[vi].x - r->camera.viewX;
+                float ddy = verts[vi].y - r->camera.viewY;
+                float ddz = verts[vi].z - r->camera.viewZ;
+                vZ3[vi] = ddx*M3[0][2] + ddy*M3[1][2] + ddz*M3[2][2];
+                float iz = (fabsf(vZ3[vi]) > 1e-6f) ? 1.0f / vZ3[vi] : 1.0f;
+                sx3[vi] = (ddx*M3[0][0] + ddy*M3[1][0] + ddz*M3[2][0]) * iz;
+                sy3[vi] = (ddx*M3[0][1] + ddy*M3[1][1] + ddz*M3[2][1]) * iz;
+            }
+            float cross3 = (sx3[0]-sx3[1])*(sy3[0]-sy3[2])
+                         - (sy3[0]-sy3[1])*(sx3[0]-sx3[2]);
+            bool wouldCull = !isBuilding && !isSign && !isCloud
+                          && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE
+                                              | SURFACE_FLAG_BACK
+                                              | SURFACE_FLAG_TEXTURE_PAIR));
+            if (cross3 < 0.0f && !wouldCull) {
+                SDL_Log("GPU_BACK sf=0x%08X tex=%d cross=%.3f "
+                        "iBld=%d iSign=%d iTrak=%d isWall=%d "
+                        "flipBF=%d flipBK=%d pair=%d "
+                        "v0=(%.0f,%.0f,%.0f) vZ0=%.1f",
+                        (unsigned)surfaceFlags, (int)texture, cross3,
+                        (int)isBuilding, (int)isSign,
+                        (int)(!isBuilding && !isSign && !isCloud),
+                        (int)isWall,
+                        (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) ? 1 : 0,
+                        (surfaceFlags & SURFACE_FLAG_BACK)          ? 1 : 0,
+                        (surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR)  ? 1 : 0,
+                        verts[0].x, verts[0].y, verts[0].z, vZ3[0]);
+            }
+            if (cross3 >= 0.0f && isWall && vZ3[0] > 0.0f && vZ3[0] < 8000.0f) {
+                SDL_Log("GPU_FRONT sf=0x%08X tex=%d cross=%.3f "
+                        "iTrak=%d isWall=%d flipBF=%d flipBK=%d pair=%d "
+                        "v0=(%.0f,%.0f,%.0f) vZ0=%.1f",
+                        (unsigned)surfaceFlags, (int)texture, cross3,
+                        (int)(!isBuilding && !isSign && !isCloud),
+                        (int)isWall,
+                        (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) ? 1 : 0,
+                        (surfaceFlags & SURFACE_FLAG_BACK)          ? 1 : 0,
+                        (surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR)  ? 1 : 0,
+                        verts[0].x, verts[0].y, verts[0].z, vZ3[0]);
+            }
+        }
+
+        /* Ctrl+F2: log every building/sign polygon each frame. */
+        static bool s_prevF2 = false;
+        bool f2Now = ctrlHeld && kbState[SDL_SCANCODE_F2];
+        if (f2Now && !s_prevF2) { system("cls"); }
+        s_prevF2 = f2Now;
+
+        if (isSign && f2Now) {
+            static int s_signIdx = 0;
+            static int s_lastFrame = -1;
+            int curFrame = (int)(SDL_GetTicks() / 16);
+            if (curFrame != s_lastFrame) { s_signIdx = 0; s_lastFrame = curFrame; }
+            const float (*M)[3] = r->proj.view;
+            float sx[3], sy[3], vZv[3];
+            for (int vi = 0; vi < 3; vi++) {
+                float ddx = verts[vi].x - r->camera.viewX;
+                float ddy = verts[vi].y - r->camera.viewY;
+                float ddz = verts[vi].z - r->camera.viewZ;
+                vZv[vi] = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
+                float iz = (fabsf(vZv[vi]) > 1e-6f) ? 1.0f / vZv[vi] : 1.0f;
+                sx[vi] = (ddx*M[0][0]+ddy*M[1][0]+ddz*M[2][0])*iz;
+                sy[vi] = (ddx*M[0][1]+ddy*M[1][1]+ddz*M[2][1])*iz;
+            }
+            float cross = (sx[0]-sx[1])*(sy[0]-sy[2])
+                        - (sy[0]-sy[1])*(sx[0]-sx[2]);
+            SDL_Log("GPU_SIGN #%d sf=0x%08X cross=%.4f (%s) "
+                    "v0=(%.0f,%.0f,%.0f) v1=(%.0f,%.0f,%.0f) v2=(%.0f,%.0f,%.0f) vZ0=%.1f",
+                    s_signIdx++, (unsigned)surfaceFlags,
+                    cross, cross >= 0.0f ? "FRONT" : "BACK",
+                    verts[0].x, verts[0].y, verts[0].z,
+                    verts[1].x, verts[1].y, verts[1].z,
+                    verts[2].x, verts[2].y, verts[2].z,
+                    vZv[0]);
+        }
+    }
+
+    /* Back-face cull for non-two-sided track surfaces.
+     * SW's scan-line renderer implicitly culls back-facing polygons because
+     * reversed vertex winding produces empty scan-line spans.  The GPU renders
+     * all triangles regardless, so we replicate the cull using a screen-space
+     * cross product that matches SW polytex exactly.
+     * SW backface: cross_SW = (v0-v1)×(v0-v2) > 0.  cross_GPU = -cross_SW
+     * (Y-flip between Y-DOWN SW and Y-UP GPU), so GPU backface: cross_GPU < 0.
+     * FLIP_BACKFACE/BACK = explicitly two-sided; bypass.
+     * TEXTURE_PAIR = wall/road surfaces that can appear back-facing on hills
+     * or from the pit lane but must still render; bypass.
+     * Building/sign quads are already culled by building.c. */
+    if (!isBuilding && !isSign && !isCloud
+        && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_BACK
+                             | SURFACE_FLAG_TEXTURE_PAIR)))
+    {
+        const float (*M)[3] = r->proj.view;
+        float sx[3], sy[3];
+        for (int vi = 0; vi < 3; vi++) {
+            float ddx = verts[vi].x - r->camera.viewX;
+            float ddy = verts[vi].y - r->camera.viewY;
+            float ddz = verts[vi].z - r->camera.viewZ;
+            float vZ = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
+            float iz = (fabsf(vZ) > 1e-6f) ? 1.0f / vZ : 1.0f;
+            sx[vi] = (ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0]) * iz;
+            sy[vi] = (ddx*M[0][1] + ddy*M[1][1] + ddz*M[2][1]) * iz;
+        }
+        float cross = (sx[0]-sx[1])*(sy[0]-sy[2])
+                    - (sy[0]-sy[1])*(sx[0]-sx[2]);
+        if (cross < 0.0f) return;
+    }
+
+    /* For single-sided TEXTURE_PAIR walls (no FLIP_BACKFACE/BACK) check the
+     * camera is on the front side of the wall plane before applying the pair
+     * texture.  The screen-space cross product can flip sign at grazing angles
+     * (near-zero cross near the pit lane), so use the world-space face normal
+     * dot product which is purely positional and not affected by perspective.
+     * If the camera is on the back side (dot < 0), suppress the pair texture
+     * so the plain wall colour shows instead of the sign graphic. */
+    bool wallFrontFacing = true;
+    if (isWall && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_BACK))) {
+        float e1x = verts[1].x - verts[0].x;
+        float e1y = verts[1].y - verts[0].y;
+        float e1z = verts[1].z - verts[0].z;
+        float e2x = verts[2].x - verts[0].x;
+        float e2y = verts[2].y - verts[0].y;
+        float e2z = verts[2].z - verts[0].z;
+        float nx = e1y*e2z - e1z*e2y;
+        float ny = e1z*e2x - e1x*e2z;
+        float nz = e1x*e2y - e1y*e2x;
+        float dot = nx*(r->camera.viewX - verts[0].x)
+                  + ny*(r->camera.viewY - verts[0].y)
+                  + nz*(r->camera.viewZ - verts[0].z);
+        if (dot < 0.0f) wallFrontFacing = false;
+    }
+
     if (slot) {
         /* Wall surfaces use the pair texture (tile N + tile N+1 side by side).
          * Fall back to the single tile if no pair was created (last-column tile). */
-        if (isWall && surfIdx >= 0 && surfIdx < slot->numTiles
+        if (isWall && wallFrontFacing && surfIdx >= 0 && surfIdx < slot->numTiles
                    && slot->pairTextures[surfIdx])
             gpuTex = slot->pairTextures[surfIdx];
         else if (surfIdx >= 0 && surfIdx < slot->numTiles)
@@ -1900,9 +2230,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             bool pair03IsLeft = px03 < px12;
             float u03 = pair03IsLeft ? 0.0f : uMaxN;
             float u12 = pair03IsLeft ? uMaxN : 0.0f;
+            if (flipH) { float tmp = u03; u03 = u12; u12 = tmp; }
             cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
-            for (int k = 0; k < 4; k++)
-                cv[k] = (k == 2 || k == 3) ? vMaxN : 0.0f;
+            bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
+            for (int k = 0; k < 4; k++) {
+                bool isBottom = (k == 2 || k == 3);
+                cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
+            }
         } else if (isCloud) {
             /* Cloud quads: the SW renderer's polyt() walks edges based on
              * winding order, which makes u=0 always land on the screen-left
@@ -1937,31 +2271,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
         } else {
-            /* polyt() always adapts UV to screen-space winding for every surface,
-             * not only flagged ones.  Replicate that by computing the 2D
-             * cross-product of the projected vertices in view space and toggling
-             * flipH when the winding is reversed (driving in reverse, backface
-             * view, etc.).  View-space Y is Y-up, screen Y is Y-down, so the
-             * sign of GPU cross is the inverse of SW's screen-space cross:
-             * GPU cross < 0 corresponds to SW cross > 0 (backface / reversed). */
-            {
-                const float (*M)[3] = r->proj.view;
-                float sx[4], sy[4];
-                for (int vi = 0; vi < 4; vi++) {
-                    float ddx = verts[vi].x - r->camera.viewX;
-                    float ddy = verts[vi].y - r->camera.viewY;
-                    float ddz = verts[vi].z - r->camera.viewZ;
-                    float vX = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
-                    float vY = ddx*M[0][1] + ddy*M[1][1] + ddz*M[2][1];
-                    float vZ = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
-                    float iz = (fabsf(vZ) > 1e-6f) ? 1.0f / vZ : 1.0f;
-                    sx[vi] = vX * iz;
-                    sy[vi] = vY * iz;
-                }
-                float cross = (sx[0]-sx[1])*(sy[0]-sy[2])
-                            - (sy[0]-sy[1])*(sx[0]-sx[2]);
-                if (cross < 0.0f) flipH = !flipH;
-            }
+            /* SW polytex's vertex-swap + flipH-toggle for FLIP_BACKFACE/BACK cancel
+             * out: the effective UV-to-world-vertex mapping is identical from both
+             * sides.  The swap is only a rasteriser convenience so the scan-line
+             * renderer gets consistent winding.  In GPU we assign UV by world-space
+             * vertex index, so no cross-product or toggle is needed — just apply
+             * FLIP_HORIZ/FLIP_VERT from the flags directly for every surface. */
             bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
             for (int k = 0; k < 4; k++) {
                 int sk = k;

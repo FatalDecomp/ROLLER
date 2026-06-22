@@ -1055,6 +1055,17 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
 
+      {
+        static const char *apszCull[] = { "default", "none", "back", "front" };
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, "Culling", NK_TEXT_LEFT);
+        int iNewCull = nk_combo(pCtx, apszCull, 4, g_iCullMode, 20, nk_vec2(130, 100));
+        if (iNewCull != g_iCullMode) {
+          g_iCullMode = iNewCull;
+          game_render_set_cull_mode(g_pGameRenderer, g_iCullMode);
+        }
+      }
+
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bWireframe = (int)g_bWireframe;
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
@@ -1077,6 +1088,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Hide log", &bHideLog))
         pOverlay->bHideLog = bHideLog != 0;
 
+      int bKeepWindowSize = g_bKeepWindowSize ? 1 : 0;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Keep Window Size", &bKeepWindowSize)) {
+        g_bKeepWindowSize = (bool)bKeepWindowSize;
+        InputSaveConfig();
+      }
+
       int bReset = 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Reset graphics", &bReset) && bReset) {
@@ -1088,7 +1106,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fFovMultiplier  = 1.0f;  g_fVigStrength    = 0.0f;
         g_fBrightness     = 0.0f;  g_fContrast       = 1.0f;
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
-        g_iFpsDisplay     = 0;     g_bWireframe      = false;
+        g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
@@ -1110,6 +1128,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_saturation(g_pGameRenderer,      g_fSaturation);
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
+        game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);
         InputSaveConfig();
       }

@@ -2579,7 +2579,9 @@ LABEL_393:
                 ? game_render_get_texture_handle(g_pGameRenderer, 0)
                 : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              /* FLIP_BACKFACE: roof underside is back-facing at shallow angles (same elevation as camera). */
+              game_render_quad_world(g_pGameRenderer, v, h,
+                                    sf | SURFACE_FLAG_FLIP_BACKFACE, subT);
             }
           }
           goto LABEL_1271;
