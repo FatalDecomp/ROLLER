@@ -39,9 +39,13 @@ import java.nio.charset.StandardCharsets;
 public class RollerActivity extends SDLActivity {
     private static final String TAG = "RollerActivity";
     private static final int MIDI_ASSET_VERSION = 1;
+    private static final int NAME_ENTRY_TARGET_CONFIG = 1;
+    private static final int NAME_ENTRY_TARGET_REPLAY = 2;
     private Dialog nameEntryDialog;
+    private int nameEntryDialogTarget;
 
     private static native void nativeNameEntryComplete(String value, boolean accepted);
+    private static native void nativeReplayNameEntryComplete(String value, boolean accepted);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,10 +105,17 @@ public class RollerActivity extends SDLActivity {
     }
 
     public void showNameEntryDialog(String currentName) {
-        runOnUiThread(() -> showNameEntryDialogOnUiThread(currentName));
+        runOnUiThread(() -> showNameEntryDialogOnUiThread(
+                "ENTER NAME", currentName, NAME_ENTRY_TARGET_CONFIG));
     }
 
-    private void showNameEntryDialogOnUiThread(String currentName) {
+    public void showReplayNameEntryDialog(String currentName) {
+        runOnUiThread(() -> showNameEntryDialogOnUiThread(
+                "SAVE REPLAY", currentName, NAME_ENTRY_TARGET_REPLAY));
+    }
+
+    private void showNameEntryDialogOnUiThread(String titleText, String currentName,
+            int target) {
         if (nameEntryDialog != null) {
             nameEntryDialog.dismiss();
             nameEntryDialog = null;
@@ -112,6 +123,7 @@ public class RollerActivity extends SDLActivity {
 
         Dialog dialog = new Dialog(this);
         nameEntryDialog = dialog;
+        nameEntryDialogTarget = target;
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setCanceledOnTouchOutside(false);
 
@@ -122,7 +134,7 @@ public class RollerActivity extends SDLActivity {
         root.setBackgroundColor(Color.rgb(8, 8, 8));
 
         TextView title = new TextView(this);
-        title.setText("ENTER NAME");
+        title.setText(titleText);
         title.setTextColor(Color.WHITE);
         title.setTextSize(20.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -218,9 +230,16 @@ public class RollerActivity extends SDLActivity {
         }
 
         nameEntryDialog = null;
+        int target = nameEntryDialogTarget;
+        nameEntryDialogTarget = 0;
         dialog.dismiss();
         enterFullscreen();
-        nativeNameEntryComplete(accepted ? sanitizeName(value) : "", accepted);
+        String sanitizedValue = accepted ? sanitizeName(value) : "";
+        if (target == NAME_ENTRY_TARGET_REPLAY) {
+            nativeReplayNameEntryComplete(sanitizedValue, accepted);
+        } else {
+            nativeNameEntryComplete(sanitizedValue, accepted);
+        }
     }
 
     private int dp(int value) {
