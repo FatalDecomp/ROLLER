@@ -2460,7 +2460,8 @@ int compare(const void *szStr1, const void *szStr2)
 enum {
   REPLAY_MOUSE_FILE_BASE = 1000,
   REPLAY_MOUSE_SCROLL_UP = 2000,
-  REPLAY_MOUSE_SCROLL_DOWN = 2001
+  REPLAY_MOUSE_SCROLL_DOWN = 2001,
+  REPLAY_MOUSE_LSD_BASE = 2100
 };
 
 static int replay_mouse_scaled_coord(int iValue)
@@ -2684,6 +2685,8 @@ void warning(int iX1, int iY1, int iX2, int iY2, char *szWarning)
 //00067020
 void lsd(int iX1, int iY1, int iX2, int iY2)
 {
+  int iOriginalX1; // esi
+  int iOriginalX2; // ebx
   int iOriginalY1; // esi
   uint8 byKey; // al
   uint8 byExtendedKey; // al
@@ -2693,9 +2696,13 @@ void lsd(int iX1, int iY1, int iX2, int iY2)
   char byChar1; // al
   char byChar2; // al
   char byTextColor; // [esp-4h] [ebp-40h]
+  int iHovered; // eax
+  int iClicked; // ecx
   tPolyParams poly; // [esp+0h] [ebp-3Ch] BYREF
   int iTextY; // [esp+2Ch] [ebp-10h]
 
+  iOriginalX1 = iX1;
+  iOriginalX2 = iX2;
   iOriginalY1 = iY1;                            // Save original Y1 coordinate before SVGA scaling
   if (SVGA_ON)                                // Scale coordinates by 2x for SVGA mode
   {
@@ -2715,6 +2722,7 @@ void lsd(int iX1, int iY1, int iX2, int iY2)
   poly.iSurfaceType = 0x200003;                 // = SURFACE_FLAG_TRANSPARENT | 0x3;
   poly.uiNumVerts = 4;
   game_render_quad_screen(g_pGameRenderer, &poly, TEXTURE_HANDLE_INVALID, NULL);
+  frontend_mouse_begin_frame(winw > 0 ? winw : XMAX, winh > 0 ? winh : YMAX);
   prt_centrecol(rev_vga[1], &language_buffer[3072], 160, iOriginalY1 + 10, 231);// Display menu title text centered
   while (fatkbhit())                          // Main input loop - process keyboard input
   {
@@ -2778,10 +2786,28 @@ void lsd(int iX1, int iY1, int iX2, int iY2)
       byTextColor = 0x8F;                       // Selected item color (0x8F = white)
     else
       byTextColor = 0x83;                       // Normal item color (0x83 = grey)
+    frontend_mouse_register_rect(REPLAY_MOUSE_LSD_BASE + iMenuOption,
+                                 replay_mouse_scaled_coord(iOriginalX1),
+                                 replay_mouse_scaled_coord(iTextY - 1),
+                                 replay_mouse_scaled_coord(iOriginalX2 - iOriginalX1),
+                                 replay_mouse_scaled_coord(10));
     prt_centrecol(rev_vga[1], buffer, 160, iTextY, byTextColor);// Draw menu option text centered
     ++iMenuOption;                              // Advance to next menu option and Y position
     iTextY += 10;
   } while (iMenuOption < 3);                    // Continue until all 3 menu options are drawn
+  iHovered = frontend_mouse_take_hovered_id();
+  if (iHovered >= REPLAY_MOUSE_LSD_BASE &&
+      iHovered < REPLAY_MOUSE_LSD_BASE + 3)
+    lsdsel = iHovered - REPLAY_MOUSE_LSD_BASE;
+
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (frontend_mouse_consume_click_anywhere()) {
+    if (iClicked >= REPLAY_MOUSE_LSD_BASE &&
+        iClicked < REPLAY_MOUSE_LSD_BASE + 3) {
+      lsdsel = iClicked - REPLAY_MOUSE_LSD_BASE;
+      frontend_mouse_press_accept();
+    }
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
