@@ -52,6 +52,26 @@ static int touch_ui_race_buttons_visible(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static int touch_ui_esc_button_visible(void)
+{
+#if defined(IS_ANDROID)
+  if (g_bSnapshotMode)
+    return 0;
+  if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
+    return 0;
+  if (frontend_on || game_req || intro || winner_mode)
+    return 0;
+  if (replaytype == 2)
+    return racing != 0;
+
+  return touch_ui_race_buttons_visible();
+#else
+  return 0;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int touch_ui_active_controls_visible(void)
 {
 #if defined(IS_ANDROID)
@@ -114,6 +134,7 @@ static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
   int iRightX = iVirtualWidth - TOUCH_UI_MARGIN - TOUCH_UI_BUTTON_W;
   int iRaceButtonY = TOUCH_UI_MARGIN + TOUCH_UI_BUTTON_H + TOUCH_UI_GAP;
   int iInRace = touch_ui_race_buttons_visible();
+  int iEscVisible = touch_ui_esc_button_visible();
   int iCheatVisible = iInRace && (cheat_mode & CHEAT_MODE_CHEAT_CAR) != 0;
 
   if (iVirtualWidth <= 0)
@@ -129,7 +150,7 @@ static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H, true);
   touch_ui_add_button(TOUCH_UI_MOUSE_ESC, TOUCH_UI_MARGIN, iRaceButtonY,
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H,
-                      iInRace ? true : false);
+                      iEscVisible ? true : false);
   touch_ui_add_button(TOUCH_UI_MOUSE_CHEAT, iRightX, iTop,
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H,
                       iCheatVisible ? true : false);
