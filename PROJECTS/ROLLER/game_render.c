@@ -2,6 +2,7 @@
 #include "game_render_software.h"
 #include "game_render_hardware.h"
 #include "scene_render_gpu.h"
+#include "roller.h"
 #include "3d.h"
 #include "func2.h"
 #include "horizon.h"
@@ -113,6 +114,13 @@ void game_render_begin_frame(GameRenderer *renderer) {
         renderer->pendingModeSet = false;
         scene_render_set_use_gpu(renderer->scene, renderer->mode == GAME_RENDER_GPU);
     }
+    if (g_dbgLog > 0) {
+        ROLLER_DBGLOG("begin_frame: mode=%s pendingSet=%d pendingMode=%s scrbuf=%p",
+                renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW",
+                renderer->pendingModeSet,
+                renderer->pendingMode == GAME_RENDER_GPU ? "GPU" : "SW",
+                (void *)scrbuf);
+    }
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_begin_frame(renderer->sw);
     else if (renderer->mode == GAME_RENDER_GPU) {
@@ -125,6 +133,10 @@ void game_render_begin_frame(GameRenderer *renderer) {
 }
 
 void game_render_end_frame(GameRenderer *renderer) {
+    if (g_dbgLog > 0) {
+        ROLLER_DBGLOG("end_frame: taking %s path",
+                renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW");
+    }
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_end_frame(renderer->sw);
     } else if (renderer->mode == GAME_RENDER_GPU) {
@@ -137,6 +149,7 @@ void game_render_end_frame(GameRenderer *renderer) {
                                         renderer->hudH > 0 ? renderer->hudH : 400);
         scene_render_gpu_end_frame(renderer->gpu);
     }
+    if (g_dbgLog > 0) g_dbgLog--;  /* one render frame consumed from the debug budget */
 }
 
 void game_render_begin_mirror_pass(GameRenderer *renderer) {
@@ -205,6 +218,15 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        int tex_idx, int gfx_size) {
     if (!renderer)
         return TEXTURE_HANDLE_INVALID;
+    /* Only upload textures to the GPU renderer if the race will actually use it.
+     * In pure software mode the GPU scene textures are never sampled, and
+     * uploading every track/car tile (hundreds of mipmapped images, one GPU
+     * submit each) on a cold device can flood the driver and trigger
+     * VK_ERROR_DEVICE_LOST.  Target mode = the pending mode if a switch is
+     * queued (set before the first begin_frame), otherwise the current mode. */
+    GameRenderMode target = renderer->pendingModeSet ? renderer->pendingMode
+                                                     : renderer->mode;
+    scene_render_set_gpu_load_enabled(renderer->scene, target == GAME_RENDER_GPU);
     TextureHandle swHandle = game_render_sw_load_texture(renderer->sw, pixelData,
                                                          width, height, tex_idx, gfx_size);
     TextureHandle sceneHandle = scene_render_load_texture(renderer->scene, pixelData,
@@ -369,6 +391,9 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {
 
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames) {
+    ROLLER_DBGLOG("begin_fade: mode=%s dir=%d brightness=%d fade_active=%d",
+            renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW",
+            direction, palette_brightness, fade_palette_active());
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_begin_fade(renderer->sw, direction, durationFrames);
     } else {

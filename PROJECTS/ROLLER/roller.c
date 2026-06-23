@@ -88,6 +88,7 @@ static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 static int s_iGPUPresentSkipFrames = 0;
 bool g_bPaletteSet = false;
+int g_dbgLog = 0;
 bool g_bForceMaxDraw = true;
 bool g_bNoCollisionLimit = true;
 bool g_bAirborneCollisions = false;
@@ -382,18 +383,25 @@ void UpdateSDLWindow()
     return;
   }
 
-  if (!g_bPaletteSet) return;
-  if (ROLLERGpuPresentationSuspended()) return;
+  if (!g_bPaletteSet) { if (g_dbgLog > 0) ROLLER_DBGLOG("UpdateSDL: SKIP !g_bPaletteSet"); return; }
+  if (ROLLERGpuPresentationSuspended()) { if (g_dbgLog > 0) ROLLER_DBGLOG("UpdateSDL: SKIP suspended"); return; }
 
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
-  if (!cmdBuf) return;
+  if (!cmdBuf) { if (g_dbgLog > 0) ROLLER_DBGLOG("UpdateSDL: SKIP no cmdBuf"); return; }
 
   // Convert indexed framebuffer directly into mapped transfer buffer.
   // cycle=true: never blocks; SDL3 creates a new slot if the previous one is
   // still in flight, rather than waiting for GPU completion.
   void *mapped = SDL_MapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer, true);
   ConvertIndexedToRGBA(scrbuf, pal_addr, (uint8 *)mapped, winw, winh);
+  if (g_dbgLog > 0) {
+    int nz = 0; uint8 *m = (uint8 *)mapped;
+    long n = (long)winw * winh * 4; long cap = 640L * 400 * 4; if (n > cap) n = cap;
+    for (long i = 0; i < n; i++) { if (m[i]) { nz++; if (nz > 64) break; } }
+    ROLLER_DBGLOG("UpdateSDL: winw=%d winh=%d scrbuf=%p pal_addr=%p rgba_nonzero>64=%d",
+                  winw, winh, (void *)scrbuf, (void *)pal_addr, nz > 64);
+  }
   SDL_UnmapGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
 
   SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(cmdBuf);
@@ -413,11 +421,16 @@ void UpdateSDLWindow()
   // Acquire swapchain and blit
   SDL_GPUTexture *swapchainTex;
   Uint32 swW, swH;
-  if (!ROLLERTryAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
-          &swapchainTex, &swW, &swH) || !swapchainTex) {
+  bool acqOk = ROLLERTryAcquireGPUSwapchainTexture(cmdBuf, s_pWindow,
+          &swapchainTex, &swW, &swH);
+  if (!acqOk || !swapchainTex) {
+    if (g_dbgLog > 0)
+      ROLLER_DBGLOG("UpdateSDL: SKIP acquire ok=%d tex=%p swW=%u swH=%u err='%s'",
+                    acqOk, (void *)swapchainTex, swW, swH, SDL_GetError());
     SDL_CancelGPUCommandBuffer(cmdBuf);
     return;
   }
+  if (g_dbgLog > 0) ROLLER_DBGLOG("UpdateSDL: PRESENT swW=%u swH=%u crt=%d", swW, swH, (g_bCRTFilter && s_pCRTFilter));
 
   // Blit with aspect-ratio preservation
   SDL_GPUBlitInfo blitInfo = {0};
@@ -710,6 +723,8 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (!MIDI_Init(localMidiPath)) {
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
   }
+
+  ROLLER_DBGLOG("==== BUILD MARKER blackscreen-debug-6 InitSDL done ====");
 
   return 0;
 }
