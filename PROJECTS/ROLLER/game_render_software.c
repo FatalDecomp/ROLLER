@@ -109,19 +109,6 @@ void game_render_sw_begin_frame(GameRendererSoftware *sw) {
 }
 
 void game_render_sw_end_frame(GameRendererSoftware *sw) {
-    if (g_dbgLog > 0) {
-        int nonzero = 0;
-        if (scrbuf) {
-            int n = (sw->screenWidth > 0 ? sw->screenWidth : 320) *
-                    (sw->screenHeight > 0 ? sw->screenHeight : 200);
-            for (int i = 0; i < n; i++) { if (scrbuf[i]) { nonzero++; if (nonzero > 64) break; } }
-        }
-        ROLLER_DBGLOG("sw_end_frame: brightness=%d fade_active=%d fadeInPending=%d "
-                "pal_addr=%p scrbuf=%p scrbuf_nonzero>64=%d palR0=%d",
-                palette_brightness, fade_palette_active(), sw->fadeInPending,
-                (void *)pal_addr, (void *)scrbuf, nonzero > 64,
-                pal_addr ? pal_addr[1].byR : -1);
-    }
     game_render_sw_start_pending_fade_in(sw);
     if (fade_palette_active())
         fade_palette_update();

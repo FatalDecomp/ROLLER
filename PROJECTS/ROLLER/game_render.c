@@ -2,7 +2,6 @@
 #include "game_render_software.h"
 #include "game_render_hardware.h"
 #include "scene_render_gpu.h"
-#include "roller.h"
 #include "3d.h"
 #include "func2.h"
 #include "horizon.h"
@@ -114,13 +113,6 @@ void game_render_begin_frame(GameRenderer *renderer) {
         renderer->pendingModeSet = false;
         scene_render_set_use_gpu(renderer->scene, renderer->mode == GAME_RENDER_GPU);
     }
-    if (g_dbgLog > 0) {
-        ROLLER_DBGLOG("begin_frame: mode=%s pendingSet=%d pendingMode=%s scrbuf=%p",
-                renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW",
-                renderer->pendingModeSet,
-                renderer->pendingMode == GAME_RENDER_GPU ? "GPU" : "SW",
-                (void *)scrbuf);
-    }
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_begin_frame(renderer->sw);
     else if (renderer->mode == GAME_RENDER_GPU) {
@@ -133,10 +125,6 @@ void game_render_begin_frame(GameRenderer *renderer) {
 }
 
 void game_render_end_frame(GameRenderer *renderer) {
-    if (g_dbgLog > 0) {
-        ROLLER_DBGLOG("end_frame: taking %s path",
-                renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW");
-    }
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_end_frame(renderer->sw);
     } else if (renderer->mode == GAME_RENDER_GPU) {
@@ -149,7 +137,6 @@ void game_render_end_frame(GameRenderer *renderer) {
                                         renderer->hudH > 0 ? renderer->hudH : 400);
         scene_render_gpu_end_frame(renderer->gpu);
     }
-    if (g_dbgLog > 0) g_dbgLog--;  /* one render frame consumed from the debug budget */
 }
 
 void game_render_begin_mirror_pass(GameRenderer *renderer) {
@@ -391,9 +378,6 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {
 
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames) {
-    ROLLER_DBGLOG("begin_fade: mode=%s dir=%d brightness=%d fade_active=%d",
-            renderer->mode == GAME_RENDER_GPU ? "GPU" : "SW",
-            direction, palette_brightness, fade_palette_active());
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_begin_fade(renderer->sw, direction, durationFrames);
     } else {

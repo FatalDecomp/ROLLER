@@ -1631,15 +1631,8 @@ void race_update(void)
     initsoundlag(0);
     lagdone = -1;
   }
-  {
-    if (g_dbgLog > 0) {
-      ROLLER_DBGLOG("race_update: screenready=%d fadedin=%d racing=%d replaytype=%d intro=%d",
-              screenready, fadedin, racing, replaytype, intro);
-    }
-  }
   if (screenready && !fadedin)                 // Start race timing only once the race view is visible
   {
-    ROLLER_DBGLOG("race_update: FADE-IN TRIGGER FIRED");
     game_render_begin_fade(g_pGameRenderer, 1, 0);
     fadedin = -1;
     holdmusic = 0;
@@ -2999,8 +2992,6 @@ int main(int argc, const char **argv, const char **envp)
 //00012050
 void play_game_init()
 {
-  g_dbgLog = 90;  /* TEMP: capture ~90 render frames at the start of each race */
-  ROLLER_DBGLOG("play_game_init: ENTER replaytype=%d intro=%d winner_mode=%d", replaytype, intro, winner_mode);
   //uint32 uiTexturesOff; // edx
   //uint32 uiCheatMode; // ebx
   //int iNumCarsBytes; // ebx
@@ -3393,8 +3384,6 @@ void play_game_init()
     if (rev_vga[i])
       game_render_load_blocks(g_pGameRenderer, i, rev_vga[i], pal_addr);
   }
-  ROLLER_DBGLOG("play_game_init: ALL TEXTURES LOADED NoOfTextures=%d BldTextures=%d num18=%d gfx_size=%d err='%s'",
-                NoOfTextures, BldTextures, num_textures[18], gfx_size, SDL_GetError());
 }
 
 //-------------------------------------------------------------------------------------------------

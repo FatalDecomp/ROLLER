@@ -1719,10 +1719,6 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     if (tex_idx >= 0 && tex_idx < 32)
         r->texIdxToHandle[tex_idx] = (SceneTextureHandle)slotIdx;
 
-    if (g_dbgLog > 0)
-        ROLLER_DBGLOG("gpu_load_tex: tex_idx=%d w=%d h=%d tileSize=%d numTiles=%d slot=%d err='%s'",
-                      tex_idx, width, height, tileSize, numTiles, slotIdx, SDL_GetError());
-
     return (SceneTextureHandle)slotIdx;
 }
 

@@ -9,20 +9,6 @@
 #include <SDL3/SDL_gamepad.h>
 //-------------------------------------------------------------------------------------------------
 
-/* TEMP on-device debug logging. The debug overlay installs a custom SDL log
- * output function, and SDL3's default sink doesn't reach Android logcat, so
- * write straight to the NDK logger under tag "ROLLERDBG". Remove when done. */
-#if defined(IS_ANDROID)
-#include <android/log.h>
-#define ROLLER_DBGLOG(fmt, ...) __android_log_print(ANDROID_LOG_ERROR, "ROLLERDBG", fmt, ##__VA_ARGS__)
-#else
-#define ROLLER_DBGLOG(fmt, ...) SDL_Log("ROLLERDBG " fmt, ##__VA_ARGS__)
-#endif
-/* Per-race debug-log budget: reset at the start of each race so the intro
- * replay doesn't exhaust the logging before a real race begins. */
-extern int g_dbgLog;
-//-------------------------------------------------------------------------------------------------
-
 extern SDL_Mutex *g_pDigiMutex;
 extern bool g_bPaletteSet;
 extern bool g_bForceMaxDraw;
