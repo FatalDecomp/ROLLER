@@ -9,6 +9,7 @@
 #include "moving.h"
 #include "roller.h"
 #include "rollerinput.h"
+#include "replay.h"
 #include "snapshot.h"
 
 #define TOUCH_UI_MOUSE_DEBUG (-1001)
@@ -194,7 +195,14 @@ void touch_ui_handle_buttons(void)
   if (iClicked == TOUCH_UI_MOUSE_DEBUG) {
     debug_overlay_toggle(ROLLERGetDebugOverlay());
   } else if (iClicked == TOUCH_UI_MOUSE_ESC) {
-    pause_request = 1;
+    if (replaytype == 2 && filingmenu) {
+      filingmenu = 0;
+      lastfile = 0;
+      disciconpressed = 0;
+      rotpoint = currentreplayframe;
+    } else {
+      pause_request = -1;
+    }
   }
 }
 
