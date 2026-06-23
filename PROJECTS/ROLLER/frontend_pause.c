@@ -293,6 +293,14 @@ static void frontend_pause_confirm_quit(void)
   trying_to_exit = 0;
 }
 
+static void frontend_pause_give_up_race(void)
+{
+  paused = 0;
+  racing = 0;
+  gave_up = -1;
+  scr_size = req_size;
+}
+
 static void frontend_pause_handle_mouse(void)
 {
   int iHovered;
@@ -326,8 +334,13 @@ static void frontend_pause_handle_mouse(void)
   if (frontend_mouse_consume_click_anywhere()) {
     if (frontend_pause_apply_volume_click(iClicked))
       return;
-    if (frontend_pause_current_item_valid())
+    if (frontend_pause_current_item_valid()) {
+      if (pausewindow == 0 && req_edit == 1) {
+        frontend_pause_give_up_race();
+        return;
+      }
       frontend_mouse_press_accept();
+    }
   }
 }
 
