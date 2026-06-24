@@ -2291,16 +2291,8 @@ void loadfrontendsample(char *fileName)
   loadfile(szFilenameBuf, (void**)&frontendspeechptr, &frontendlen, 1);
 
   if (cheatsample && frontendspeechptr) {
-    uint8 *pData = frontendspeechptr;
-    int iLen = frontendlen;
-    uint32 uiSeed = 0x1C73;
-    uint32 uiStep = 0x896;
-    int i;
-
-    for (i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    // Cheat samples are XOR-encrypted with a Fibonacci-style key sequence.
+    decode(frontendspeechptr, frontendlen, 0x1C73, 0x896);
   }
 
   // if using 50Hz timer
@@ -3423,29 +3415,13 @@ void loadasample(int iIndex)
 
   // check if cheat sample flag is set and process if needed
   if (cheatsample && SamplePtr[iIndex]) {
-    uint8 *pData = SamplePtr[iIndex];
-    int iLen = SampleLen[iIndex];
-    uint32 uiSeed = 0x1C73;
-    uint32 uiStep = 0x896;
-    int i;
-
-    for (i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    // Cheat samples are XOR-encrypted with a Fibonacci-style key sequence.
+    decode(SamplePtr[iIndex], SampleLen[iIndex], 0x1C73, 0x896);
   }
 
   // if the index is between 79 and 82 apply a second xor pass
   if (iIndex >= 79 && iIndex <= 82 && SamplePtr[iIndex]) {
-    uint8 *pData = SamplePtr[iIndex];
-    int iLen = SampleLen[iIndex];
-    uint32 uiSeed = 0x4D;
-    uint32 uiStep = 0x57;
-
-    for (int i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    decode(SamplePtr[iIndex], SampleLen[iIndex], 0x4D, 0x57);
   }
 
   // if using 50Hz timer
