@@ -96,6 +96,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
             "PROJECTS/ROLLER/roller.c",
+            "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollerinput.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/rollersound.c",
@@ -109,15 +110,6 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/view.c",
         },
     });
-
-    if (!bAndroid) {
-        exe_mod.addCSourceFiles(.{
-            .flags = c_flags,
-            .files = &.{
-                "PROJECTS/ROLLER/rollercd.c",
-            },
-        });
-    }
 
     const exe = if (bAndroid) b.addLibrary(.{
         .name = "main",
@@ -514,21 +506,24 @@ fn configureDependencies(
             .lto = .none,
         });
 
-        const libcdio = b.dependency("libcdio", .{
-            .target = target,
-            .optimize = optimize,
-        });
-        const libcdio_lib = libcdio.artifact("cdio");
-
         exe_mod.linkLibrary(sdl_image_lib);
-        exe_mod.linkLibrary(libcdio_lib);
         exe_mod.addIncludePath(sdl_image_source.builder.path("include"));
-        exe_mod.addIncludePath(libcdio.builder.path("include"));
-        exe_mod.addIncludePath(libcdio.builder.path("zig-config"));
         cflags.addIncludePath(sdl_image_source.builder.path("include"));
-        cflags.addIncludePath(libcdio.builder.path("include"));
-        cflags.addIncludePath(libcdio.builder.path("zig-config"));
     }
+
+    const libcdio = b.dependency("libcdio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const libcdio_lib = libcdio.artifact("cdio");
+    if (android_libc_file) |libc_file|
+        libcdio_lib.setLibCFile(libc_file);
+    exe_mod.linkLibrary(libcdio_lib);
+    exe_mod.addIncludePath(libcdio.builder.path("include"));
+    exe_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    cflags.addIncludePath(libcdio.builder.path("include"));
+    cflags.addIncludePath(libcdio.builder.path("zig-config"));
+
     cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
