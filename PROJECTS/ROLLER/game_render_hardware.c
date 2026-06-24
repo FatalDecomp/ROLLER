@@ -185,13 +185,14 @@ static SDL_GPUTexture *build_car_atlas(SDL_GPUDevice *dev, int carIdx,
 
 /* Resolve animated polygon texture for a given animation frame.
  * Wheel-animation entries have animIdx 0-3 and advance with anim_frame.
- * Other entries (animIdx >= 4) are driven by a global counter; keep frame 0. */
-static uint32 resolve_car_tex(uint32 rawTex, tAnimation *pAnms, int animFrame)
+ * Body-variant entries (animIdx >= 4) use bodyVariant = carIdx & 1, matching
+ * SW's iAnimationOffset / 4 = carIdx & 1 scheme (car.c:1881). */
+static uint32 resolve_car_tex(uint32 rawTex, tAnimation *pAnms, int animFrame, int bodyVariant)
 {
     if ((rawTex & CAR_FLAG_ANMS_LOOKUP) && pAnms) {
         uint8 animIdx = (uint8)rawTex;
         tAnimation *anim = &pAnms[animIdx];
-        int f = (animIdx < 4) ? animFrame : 0;
+        int f = (animIdx < 4) ? animFrame : bodyVariant;
         if (anim->uiCount > 0 && f >= (int)anim->uiCount) f = 0;
         return anim->framesAy[f];
     }
@@ -244,7 +245,7 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
     for (int p = 0; p < numPols; p++) {
         uint32 tex = pols[p].uiTex;
         if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
-        tex = resolve_car_tex(tex, pAnms, animFrame);
+        tex = resolve_car_tex(tex, pAnms, animFrame, carIdx & 1);
 
         bool isTextured = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                           (uint8)tex < (uint8)numTiles;
@@ -376,15 +377,26 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
 
     if (animFrame == 0) out->bodyIndexCount = idxCount;
 
-    /* Shadow quad: hitbox bottom 4 corners in model space. */
+    /* Shadow quad: same X extents as the hitbox but narrower in Y to match
+     * the SW renderer, which uses carpoint corners narrowed by 50 units on
+     * each side (car.c:1149-1152, design index ≤ 7 only).
+     * Use hitbox values directly — CarBaseX/Y are design-0-only globals and
+     * may be 0 at first-draw time.  Hitbox is always valid (CalcCarSizes). */
     {
         const tVec3 *hb = CarBox.hitboxAy[designIdx];
+        /* hb[0]=(front,right), hb[1]=(rear,right), hb[2]=(rear,left), hb[3]=(front,left) */
+        float fYAdj = (designIdx <= 7) ? 50.0f : 0.0f;
+        float fYLS  = hb[0].fY + fYAdj;   /* right edge, pull inward (+) */
+        float fYHS  = hb[3].fY - fYAdj;   /* left edge, pull inward (−) */
+        float fShadowZ = hb[0].fZ;
+        float sx[4] = { hb[0].fX, hb[1].fX, hb[2].fX, hb[3].fX };
+        float sy[4] = { fYLS,     fYLS,      fYHS,     fYHS     };
         int shadowBase = vertCount;
         for (int k = 0; k < 4; k++) {
             GRHWMeshVertex *mv = &vertices[vertCount++];
-            mv->position[0] = hb[k].fX;
-            mv->position[1] = hb[k].fY;
-            mv->position[2] = hb[k].fZ;
+            mv->position[0] = sx[k];
+            mv->position[1] = sy[k];
+            mv->position[2] = fShadowZ;
             mv->uv[0] = whiteU; mv->uv[1] = whiteV;
             mv->color[0] = 0.0f; mv->color[1] = 0.0f;
             mv->color[2] = 0.0f; mv->color[3] = 0.5f;
@@ -541,24 +553,48 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
     int chunk = Car[carIdx].nCurrChunk;
     bool airborne = (chunk < 0 || chunk >= MAX_TRACK_CHUNKS);
 
-    /* Lift the model so its bottom vertex (fZLow) lands at the physics position
-     * (pos.fZ = road surface on flat road).  The airborne shadow already does this
-     * via Mshadow[14]=groundZ-fZLow; apply the same correction to the body. */
-    {
-        int designIdx = (int)Car[carIdx].byCarDesignIdx;
-        if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
-        float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
-        M[14] -= fZLow - 3.0f;  /* +3 clears coplanarity with road surface */
-    }
+    int designIdx = (int)Car[carIdx].byCarDesignIdx;
+    if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
+    float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
+    M[14] -= fZLow;  /* lift body so bottom vertex lands at physics pos */
+
+    /* Yaw-only cos/sin for the shadow matrix — shared by both airborne and
+     * grounded paths so shadow never reacts to pitch/roll/motion offsets. */
+    static const float kShadowToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
+    float sCY = cosf((float)pose->yaw * kShadowToRad);
+    float sSY = sinf((float)pose->yaw * kShadowToRad);
 
     if (!airborne) {
         float Mc[16], Mcar_chunk[16];
         chunk_model_matrix(Mc, &localdata[chunk]);
         mat4_mul(Mcar_chunk, Mc, M);
         mat4_mul(mvp, vp, Mcar_chunk);
+        /* Body only — shadow drawn separately with yaw-only matrix below. */
         scene_render_gpu_queue_car_draw(scene,
             vertBuf, mesh->indexBuf, mesh->atlas,
-            0, mesh->indexCount, mvp);
+            0, mesh->bodyIndexCount, mvp);
+
+        /* Shadow: world XY from chunk transform, groundZ from current chunk. */
+        float wx = Mcar_chunk[12], wy = Mcar_chunk[13];
+        const tData *gsd = &localdata[chunk];
+        float gp3x = gsd->pointAy[3].fX, gp3y = gsd->pointAy[3].fY;
+        float glx = gsd->pointAy[0].fX*(wx+gp3x) + gsd->pointAy[1].fX*(wy+gp3y);
+        float gly = gsd->pointAy[0].fY*(wx+gp3x) + gsd->pointAy[1].fY*(wy+gp3y);
+        float groundZ = gsd->pointAy[2].fX*glx + gsd->pointAy[2].fY*gly - gsd->pointAy[3].fZ;
+
+        float Mshadow[16];
+        Mshadow[ 0]= sCY;  Mshadow[ 1]= sSY;  Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
+        Mshadow[ 4]=-sSY;  Mshadow[ 5]= sCY;  Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
+        Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
+        Mshadow[12]=wx;    Mshadow[13]=wy;
+        Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
+        Mshadow[15]=1.0f;
+        float shadowMvp[16];
+        mat4_mul(shadowMvp, vp, Mshadow);
+        scene_render_gpu_queue_car_draw(scene,
+            vertBuf, mesh->indexBuf, mesh->atlas,
+            mesh->bodyIndexCount, 6, shadowMvp);
+
     } else {
         /* Body: no chunk transform (Car.pos is world-space when airborne) */
         mat4_mul(mvp, vp, M);
@@ -566,26 +602,9 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: Car.pos is world-space when airborne, so M[12/13] are already
-         * world X/Y. chunk_model_matrix must NOT be applied again (that would
-         * double-apply the chunk's rotation and -center offset).
-         *
-         * Ground Z at the car's world XY position, accounting for slope:
-         *   chunk transform:  world = R*local + t,  t = -pointAy[3],
-         *                     rows of R = pointAy[0..2]
-         *   inverse (R ortho): local = R^T * (world - t)
-         *   dropping the wz term (car is just above ground, wz ≈ -p3z):
-         *     lx ≈ pointAy[0].fX*(wx+p3x) + pointAy[1].fX*(wy+p3y)
-         *     ly ≈ pointAy[0].fY*(wx+p3x) + pointAy[1].fY*(wy+p3y)
-         *   world Z at local (lx,ly,0):
-         *     groundZ = pointAy[2].fX*lx + pointAy[2].fY*ly - p3z
-         * Reduces to -p3z on flat track (pointAy[2] ≈ (0,0,1)). */
+        /* Shadow: project down to last valid chunk's road surface. */
         int shadowChunk = Car[carIdx].iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
-            int designIdx = (int)Car[carIdx].byCarDesignIdx;
-            if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
-            float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
-
             const tData *sd = &localdata[shadowChunk];
             float wx = M[12], wy = M[13];
             float p3x = sd->pointAy[3].fX, p3y = sd->pointAy[3].fY;
@@ -594,13 +613,12 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             float groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - sd->pointAy[3].fZ;
 
             float Mshadow[16];
-            Mshadow[ 0]=M[ 0]; Mshadow[ 1]=M[ 1]; Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-            Mshadow[ 4]=M[ 4]; Mshadow[ 5]=M[ 5]; Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
+            Mshadow[ 0]= sCY;  Mshadow[ 1]= sSY;  Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
+            Mshadow[ 4]=-sSY;  Mshadow[ 5]= sCY;  Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
             Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
-            Mshadow[12]=M[12]; Mshadow[13]=M[13];
+            Mshadow[12]=wx;    Mshadow[13]=wy;
             Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
             Mshadow[15]=1.0f;
-
             float shadowMvp[16];
             mat4_mul(shadowMvp, vp, Mshadow);
             scene_render_gpu_queue_car_draw(scene,

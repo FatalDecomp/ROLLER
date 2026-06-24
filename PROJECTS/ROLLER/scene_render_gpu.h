@@ -48,8 +48,11 @@ void scene_render_gpu_set_sky_color(SceneRendererGPU *r,
                                     float red, float green, float blue);
 
 /* colorIdx: palette index for ground clear colour (-1 = disable horizon split);
-   skyFrac: fraction of viewport height occupied by sky (0..1) */
-void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, float skyFrac);
+   skyFrac:    horizon fraction (0..1); sky fraction at top when !groundOnTop,
+               ground fraction at top when groundOnTop (upside-down camera).
+   groundOnTop: true when camera is inverted (SW upside_down flag). */
+void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, float skyFrac,
+                                  bool groundOnTop);
 
 /* filter: 0=nearest, 1=bilinear, 2=anisotropic */
 void scene_render_gpu_set_texture_filter(SceneRendererGPU *r, int filter);

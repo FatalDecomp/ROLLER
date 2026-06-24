@@ -38,11 +38,15 @@ extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
+extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
 extern bool  g_bKeepWindowSize; /* persist window size to ROLLER.INI */
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
 extern SDL_AtomicInt iTicksPending;
+extern bool g_bShiftFrozen;        /* true while SHIFT is held with freeze enabled — blocks all tick steps */
+extern bool g_bShiftFreezeEnabled; /* debug overlay checkbox: enable hold-SHIFT-to-freeze */
+extern int  g_iFpsBackground;      /* background FPS cap: 0=off, else the target fps (15/30/60) */
 
 //-------------------------------------------------------------------------------------------------
 

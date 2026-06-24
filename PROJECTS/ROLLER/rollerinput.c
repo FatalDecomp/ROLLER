@@ -3002,6 +3002,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "ShiftFreeze")) {
+    g_bShiftFreezeEnabled = InputStringEqualsNoCase(szValue, "On") ||
+                            InputStringEqualsNoCase(szValue, "1")  ||
+                            InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
     g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
                    InputStringEqualsNoCase(szValue, "1")  ||
@@ -3069,6 +3076,12 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     else if (InputStringEqualsNoCase(szValue, "BottomLeft"))  g_iFpsDisplay = 3;
     else if (InputStringEqualsNoCase(szValue, "BottomRight")) g_iFpsDisplay = 4;
     else                                                       g_iFpsDisplay = 0;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "FpsBackground")) {
+    int v = atoi(szValue);
+    g_iFpsBackground = (v == 15 || v == 30 || v == 60) ? v : 0;
     return 1;
   }
 
@@ -3382,11 +3395,13 @@ void InputSaveConfig(void)
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
   fprintf(fp, "CRTFilter=%s\n", g_bCRTFilter ? "On" : "Off");
+  fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");
   fprintf(fp, "KeepWindowSize=%d\n", g_bKeepWindowSize ? 1 : 0);
   if (g_bKeepWindowSize) {
     SDL_Window *pWin = ROLLERGetWindow();
     int iW = 0, iH = 0;
-    if (pWin && SDL_GetWindowSize(pWin, &iW, &iH) && iW >= 320 && iH >= 200) {
+    bool bIsFullscreen = pWin && (SDL_GetWindowFlags(pWin) & SDL_WINDOW_FULLSCREEN);
+    if (!bIsFullscreen && pWin && SDL_GetWindowSize(pWin, &iW, &iH) && iW >= 320 && iH >= 200) {
       fprintf(fp, "WindowWidth=%d\n",  iW);
       fprintf(fp, "WindowHeight=%d\n", iH);
     } else if (g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
@@ -3408,6 +3423,7 @@ void InputSaveConfig(void)
     int idx = (g_iFpsDisplay >= 0 && g_iFpsDisplay <= 4) ? g_iFpsDisplay : 0;
     fprintf(fp, "FpsDisplay=%s\n", fps_pos[idx]);
   }
+  fprintf(fp, "FpsBackground=%d\n", g_iFpsBackground > 0 ? g_iFpsBackground : 0);
 #if defined(_WIN32)
   fprintf(fp, "WindowsInputBackend=%s\n",
           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");

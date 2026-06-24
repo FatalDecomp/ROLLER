@@ -77,6 +77,8 @@ struct DebugOverlay {
   SDL_LogOutputFunction  pPrevLogFn;
   void                  *pPrevLogUserdata;
 
+  uint32_t               uLastCmdHash; // FNV-1a of Nuklear command buffer; 0 = force rasterize
+
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
@@ -88,6 +90,37 @@ struct DebugOverlay {
   bool                   bHideLog;
 
 };
+
+// ---------------------------------------------------------------------------
+// Surface debug label storage
+// ---------------------------------------------------------------------------
+
+static SurfaceDebugLabel s_surfLabels[SURFACE_LABEL_MAX];
+static int               s_surfLabelCount;
+
+/* Grid deduplication: one label per cell, O(1) per push. */
+#define LABEL_CELL_W 240
+#define LABEL_CELL_H  32
+#define LABEL_GRID_COLS (OVERLAY_W  / LABEL_CELL_W)
+#define LABEL_GRID_ROWS (OVERLAY_H  / LABEL_CELL_H)
+static bool s_labelGrid[LABEL_GRID_ROWS][LABEL_GRID_COLS];
+
+void debug_overlay_surface_labels_reset(void) {
+  s_surfLabelCount = 0;
+  memset(s_labelGrid, 0, sizeof(s_labelGrid));
+}
+
+void debug_overlay_surface_label_push(float nx, float ny, const char *text) {
+  if (s_surfLabelCount >= SURFACE_LABEL_MAX) return;
+  int col = (int)(nx * OVERLAY_W) / LABEL_CELL_W;
+  int row = (int)(ny * OVERLAY_H) / LABEL_CELL_H;
+  if (col < 0 || col >= LABEL_GRID_COLS || row < 0 || row >= LABEL_GRID_ROWS) return;
+  if (s_labelGrid[row][col]) return;
+  s_labelGrid[row][col] = true;
+  SurfaceDebugLabel *p = &s_surfLabels[s_surfLabelCount++];
+  p->nx = nx; p->ny = ny;
+  snprintf(p->text, sizeof(p->text), "%s", text);
+}
 
 // ---------------------------------------------------------------------------
 // Log callback
@@ -218,6 +251,33 @@ static void OverlayDrawGlyph(DebugOverlay *pOverlay, const struct nk_font_glyph 
       pDst[2] = (uint8_t)((fg.b * iAlpha + pDst[2] * (255 - iAlpha)) / 255);
       pDst[3] = (uint8_t)(iAlpha + pDst[3] * (255 - iAlpha) / 255);
     }
+  }
+}
+
+static void OverlayDrawString(DebugOverlay *pOverlay, int x, int y,
+                              const char *text, struct nk_color fg) {
+  struct nk_font *pFont = (struct nk_font *)pOverlay->nk.style.font->userdata.ptr;
+  float fCx = (float)x;
+  for (; *text; text++) {
+    const struct nk_font_glyph *pG = nk_font_find_glyph(pFont, (nk_rune)(unsigned char)*text);
+    if (!pG) { fCx += pOverlay->nk.style.font->height * 0.5f; continue; }
+    OverlayDrawGlyph(pOverlay, pG, (int)fCx, y, fg);
+    fCx += pG->xadvance;
+  }
+}
+
+static void DrawSurfaceLabels(DebugOverlay *pOverlay) {
+  struct nk_color bg  = nk_rgba(0, 0, 0, 176);
+  struct nk_color fg  = nk_rgba(255, 255, 100, 255);
+  float fh = pOverlay->nk.style.font->height;
+  for (int i = 0; i < s_surfLabelCount; i++) {
+    const SurfaceDebugLabel *p = &s_surfLabels[i];
+    int ox = (int)(p->nx * OVERLAY_W);
+    int oy = (int)(p->ny * OVERLAY_H) - (int)(fh * 0.5f);
+    int len = (int)strlen(p->text);
+    int tw  = (int)(len * fh * 0.52f);  /* approximate text width */
+    OverlayFillRect(pOverlay->pPixels, ox - 1, oy - 1, tw + 4, (int)fh + 2, bg);
+    OverlayDrawString(pOverlay, ox + 1, oy, p->text, fg);
   }
 }
 
@@ -914,7 +974,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
 
-      if (!g_bTrilinear) nk_widget_disable_begin(pCtx);
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+
+      if (!bGPU || !g_bTrilinear) nk_widget_disable_begin(pCtx);
       { char buf[20]; snprintf(buf, sizeof(buf), "LOD bias %.1f", g_fLodBias);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, buf, NK_TEXT_LEFT);
@@ -925,7 +988,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
           InputSaveConfig();
         }
       }
-      if (!g_bTrilinear) nk_widget_disable_end(pCtx);
+      if (!bGPU || !g_bTrilinear) nk_widget_disable_end(pCtx);
+
+
+      if (!bGPU) nk_widget_disable_begin(pCtx);
 
       { char buf[20]; snprintf(buf, sizeof(buf), "Fog start %.0f", g_fFogStart);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
@@ -949,6 +1015,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
       }
 
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+      if (!bGPU || frontend_on) nk_widget_disable_begin(pCtx);
+
       { static char szBuf[8]; static int iLen = 0; static nk_flags lastEv = 0;
         /* Only sync buffer from global when the field was not active last frame,
          * so we never clobber Nuklear's internal edit state mid-edit. */
@@ -958,11 +1028,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, "Fog color", NK_TEXT_LEFT);
-        if (frontend_on) nk_widget_disable_begin(pCtx);
         nk_flags ev = nk_edit_string(pCtx,
                                      NK_EDIT_FIELD|NK_EDIT_SIG_ENTER|NK_EDIT_AUTO_SELECT,
                                      szBuf, &iLen, 7, nk_filter_hex);
-        if (frontend_on) nk_widget_disable_end(pCtx);
+        if (!bGPU || frontend_on) nk_widget_disable_end(pCtx);
         lastEv = frontend_on ? 0 : ev;
         if (!frontend_on && (ev & (NK_EDIT_DEACTIVATED | NK_EDIT_COMMITED))) {
           szBuf[iLen < 7 ? iLen : 6] = '\0';
@@ -979,6 +1048,8 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
           }
         }
       }
+
+      if (!bGPU) nk_widget_disable_begin(pCtx);
 
       { char buf[14]; snprintf(buf, sizeof(buf), "FOV %.2f", g_fFovMultiplier);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
@@ -1056,6 +1127,22 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       {
+        static const char *apszBgFps[] = { "Off (default)", "15", "30", "60" };
+        static const int aiBgFpsValues[] = { 0, 15, 30, 60 };
+        int iBgFpsIdx = 0;
+        for (int i = 1; i < 4; i++) {
+          if (g_iFpsBackground == aiBgFpsValues[i]) { iBgFpsIdx = i; break; }
+        }
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, "FPS Background", NK_TEXT_LEFT);
+        int iNewBgFpsIdx = nk_combo(pCtx, apszBgFps, 4, iBgFpsIdx, 20, nk_vec2(130, 100));
+        if (iNewBgFpsIdx != iBgFpsIdx) {
+          g_iFpsBackground = aiBgFpsValues[iNewBgFpsIdx];
+          InputSaveConfig();
+        }
+      }
+
+      {
         static const char *apszCull[] = { "default", "none", "back", "front" };
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, "Culling", NK_TEXT_LEFT);
@@ -1074,6 +1161,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bSurfDbg = (int)g_bSurfaceDebugViz;
+      if (nk_checkbox_label(pCtx, "Surface debug labels", &bSurfDbg))
+        g_bSurfaceDebugViz = (bool)bSurfDbg;
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bVsync = (int)g_bVsync;
       if (nk_checkbox_label(pCtx, "V-sync", &bVsync)) {
         g_bVsync = (bool)bVsync;
@@ -1083,10 +1175,12 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
 
       if (!bGPU) nk_widget_disable_end(pCtx);
 
-      int bHideLog = pOverlay->bHideLog ? 1 : 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-      if (nk_checkbox_label(pCtx, "Hide log", &bHideLog))
-        pOverlay->bHideLog = bHideLog != 0;
+      int bShiftFreeze = (int)g_bShiftFreezeEnabled;
+      if (nk_checkbox_label(pCtx, "Hold SHIFT to freeze", &bShiftFreeze)) {
+        g_bShiftFreezeEnabled = (bool)bShiftFreeze;
+        InputSaveConfig();
+      }
 
       int bKeepWindowSize = g_bKeepWindowSize ? 1 : 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1094,6 +1188,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_bKeepWindowSize = (bool)bKeepWindowSize;
         InputSaveConfig();
       }
+
+      int bHideLog = pOverlay->bHideLog ? 1 : 0;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Hide log", &bHideLog))
+        pOverlay->bHideLog = bHideLog != 0;
 
       int bReset = 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1170,7 +1269,11 @@ void debug_overlay_render(DebugOverlay *pOverlay,
                           Uint32 uiSwapchainW, Uint32 uiSwapchainH) {
   SDL_GPUViewport viewport = {0};
 
-  if (!pOverlay || !pOverlay->bVisible) return;
+  const bool *_kb = SDL_GetKeyboardState(NULL);
+  bool bShiftLabel = _kb[SDL_SCANCODE_LSHIFT] || _kb[SDL_SCANCODE_RSHIFT];
+  bool bShowLabels = g_bSurfaceDebugViz || bShiftLabel;
+
+  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels)) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
   // Close input bracket (open it first if no events arrived this frame)
@@ -1179,14 +1282,36 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   nk_input_end(pCtx);
   pOverlay->bInputBegun = false;
 
-  DrawHintPanel(pOverlay);
-  DrawDebugPanel(pOverlay);
-  if (!pOverlay->bHideLog)
-    DrawLogPanel(pOverlay);
+  if (pOverlay->bVisible) {
+    DrawHintPanel(pOverlay);
+    DrawDebugPanel(pOverlay);
+    if (!pOverlay->bHideLog)
+      DrawLogPanel(pOverlay);
+  }
 
-  memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
-  RenderCommands(pOverlay);
-  UploadAndBlit(pOverlay, pCmdBuf);
+  /* Lazy re-rasterize: hash the Nuklear command buffer (FNV-1a).
+   * Skip the expensive software raster + GPU upload when nothing changed;
+   * the GPU texture still holds the previous frame's correct content.
+   * Surface debug labels change every frame, so bypass the cache while active. */
+  if (bShowLabels)
+    pOverlay->uLastCmdHash = 0;  /* force dirty every frame */
+
+  uint32_t uHash = 2166136261u;
+  const uint8_t *pCmdBytes = (const uint8_t *)pCtx->memory.memory.ptr;
+  nk_size uCmdSize = pCtx->memory.allocated;
+  for (nk_size i = 0; i < uCmdSize; i++) {
+    uHash ^= pCmdBytes[i];
+    uHash *= 16777619u;
+  }
+  if (uHash != pOverlay->uLastCmdHash) {
+    pOverlay->uLastCmdHash = uHash;
+    memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
+    RenderCommands(pOverlay);
+    if (bShowLabels) DrawSurfaceLabels(pOverlay);
+    UploadAndBlit(pOverlay, pCmdBuf);
+  } else {
+    nk_clear(pCtx);
+  }
 
   if (!pOverlay->pPipeline || !pOverlay->pSampler) return;
 

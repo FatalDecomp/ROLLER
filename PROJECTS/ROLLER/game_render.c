@@ -351,24 +351,36 @@ void game_render_draw_sky(GameRenderer *renderer,
             float fSinElev   = tsin[elevMasked];
             int   groundColor = -1;
             float horizonFrac = 0.5f;
+            bool  groundOnTop = false;
 
-            /* Same guard as DrawHorizon: skip complex path at extreme elevation angles. */
-            if (fSinElev <= 0.7f && fSinElev >= -0.7f
-                    && (textures_off & TEX_OFF_HORIZON) == 0) {
-                int    tiltMasked   = worldtilt & 0x3FFF;
-                double dViewDistTan = (double)VIEWDIST * ptan[elevMasked];
-                double dHorizonY    = (double)(199 - ybase)
-                                      + dViewDistTan * (double)tcos[tiltMasked];
-                int    iHorizonY    = (int)dHorizonY;
-                int    iSkyH        = iHorizonY * scr_size / 64;
-                if (iSkyH < 0)    iSkyH = 0;
-                if (iSkyH > winh) iSkyH = winh;
-                horizonFrac = (winh > 0) ? (float)iSkyH / (float)winh : 0.5f;
-                /* Cast to uint8 like DrawHorizon (byGroundColor = HorizonColour[front_sec])
-                 * so any out-of-range int is silently truncated, never rejected. */
-                groundColor = (int)(uint8)HorizonColour[front_sec];
+            if ((textures_off & TEX_OFF_HORIZON) == 0) {
+                if (fSinElev < -0.7f) {
+                    /* SW simple case: fSinElev < -0.7 → fill entire screen with ground.
+                     * Match by setting groundOnTop=true, horizonFrac=1 (all ground). */
+                    groundColor = (int)(uint8)HorizonColour[front_sec];
+                    horizonFrac = 1.0f;
+                    groundOnTop = true;
+                } else if (fSinElev <= 0.7f) {
+                    /* SW complex path.  Compute upside_down = tcos[worldelev]<0 XOR
+                     * fCosTilt<0, matching horizon.c exactly. */
+                    int    tiltMasked   = worldtilt & 0x3FFF;
+                    float  fCosElev     = tcos[elevMasked];
+                    float  fCosTiltVal  = tcos[tiltMasked];
+                    groundOnTop = (fCosElev < 0.0f) != (fCosTiltVal < 0.0f);
+                    double dViewDistTan = (double)VIEWDIST * ptan[elevMasked];
+                    double dHorizonY    = (double)(199 - ybase)
+                                          + dViewDistTan * (double)fCosTiltVal;
+                    int    iHorizonY    = (int)dHorizonY;
+                    int    iSkyH        = iHorizonY * scr_size / 64;
+                    if (iSkyH < 0)    iSkyH = 0;
+                    if (iSkyH > winh) iSkyH = winh;
+                    horizonFrac = (winh > 0) ? (float)iSkyH / (float)winh : 0.5f;
+                    groundColor = (int)(uint8)HorizonColour[front_sec];
+                }
+                /* fSinElev > 0.7: SW fills all with sky; groundColor stays -1. */
             }
-            scene_render_gpu_set_horizon(renderer->gpu, groundColor, horizonFrac);
+            scene_render_gpu_set_horizon(renderer->gpu, groundColor, horizonFrac,
+                                         groundOnTop);
         }
 
         if ((textures_off & TEX_OFF_CLOUDS) == 0)
