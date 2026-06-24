@@ -18,8 +18,13 @@
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 #if !defined(IS_ANDROID)
 #include <SDL3_image/SDL_image.h>
+#endif
+#if defined(IS_ANDROID)
+#include <jni.h>
+#include <SDL3/SDL_system.h>
 #endif
 #if !defined(IS_ANDROID)
 #include <wildmidi_lib.h>
@@ -64,6 +69,8 @@
 #endif
 //-------------------------------------------------------------------------------------------------
 
+#define ROLLER_DIALOG_MAX_FILES 32
+
 typedef struct
 {
   uint32 uiHandle;
@@ -75,6 +82,8 @@ typedef struct
 typedef struct
 {
   char szPath[ROLLER_MAX_PATH];
+  char aszPaths[ROLLER_DIALOG_MAX_FILES][ROLLER_MAX_PATH];
+  int iNumPaths;
   bool bFolder;
   bool bDone;
   bool bCancelled;
@@ -87,6 +96,12 @@ static SDL_GPUDevice *s_pGPUDevice = NULL;
 static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 static int s_iGPUPresentSkipFrames = 0;
+/* Hard-disables GPU swapchain presentation while set. Used on Android during the
+ * InitFATDATA import flow, where showing native dialogs (message box + SAF file
+ * picker) destroys/recreates the Activity surface; driving the SDL Vulkan renderer
+ * against the in-flux surface corrupts the Adreno driver (libvulkan crash /
+ * destroyed-mutex abort on the HWUI RenderThread). */
+static bool s_bGpuPresentDisabled = false;
 bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = true;
 bool g_bNoCollisionLimit = true;
@@ -188,6 +203,9 @@ static void DeferGPUPresentation(int iFrames)
 
 bool ROLLERGpuPresentationSuspended(void)
 {
+  if (s_bGpuPresentDisabled)
+    return true;
+
   if (!s_pWindow)
     return true;
 
@@ -756,16 +774,336 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFilter)
 {
   tDialogResult *pResult = (tDialogResult *)pUserData;
+  int i;
+
+  (void)iFilter;
+  pResult->szPath[0] = '\0';
+  pResult->iNumPaths = 0;
 
   if (!filelist || !filelist[0]) {
     pResult->bCancelled = true;
   } else {
-    SDL_strlcpy(pResult->szPath, filelist[0], ROLLER_MAX_PATH);
+    for (i = 0; filelist[i]; i++) {
+#if defined(IS_ANDROID)
+      SDL_Log("CD image picker selected: %s", filelist[i]);
+#endif
+      if (pResult->iNumPaths >= ROLLER_DIALOG_MAX_FILES) {
+        SDL_Log("CD image picker selected more than %d files; ignoring '%s'",
+                ROLLER_DIALOG_MAX_FILES, filelist[i]);
+        continue;
+      }
+
+      SDL_strlcpy(pResult->aszPaths[pResult->iNumPaths], filelist[i],
+                  ROLLER_MAX_PATH);
+      if (pResult->iNumPaths == 0)
+        SDL_strlcpy(pResult->szPath, filelist[i], ROLLER_MAX_PATH);
+      pResult->iNumPaths++;
+    }
+
+    if (pResult->iNumPaths == 0)
+      pResult->bCancelled = true;
   }
   pResult->bDone = true;
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_ANDROID)
+static void AndroidShowFatdataInstructions(void)
+{
+  const char *szExternal = SDL_GetAndroidExternalStoragePath();
+  const char *szShown = szExternal ? szExternal : "<external storage unavailable>";
+  char szMessage[1024];
+
+  snprintf(szMessage, sizeof(szMessage),
+           "ROLLER needs the FATDATA assets from a retail copy of the game.\n\n"
+           "Copy your game data so the folders end up here:\n\n"
+           "%s/FATDATA\n"
+           "%s/TRACKS    (community tracks)\n"
+           "%s/REPLAYS   (saved replays)\n\n"
+           "For CD music, also copy your extracted track WAVs to:\n"
+           "%s/audio\n\n"
+           "Then relaunch ROLLER.",
+           szShown, szShown, szShown, szShown);
+
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                           "FATDATA not found", szMessage, s_pWindow);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidPromptForCdImage(void)
+{
+  SDL_MessageBoxButtonData buttons[] = {
+    { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image" },
+    { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel" },
+  };
+
+  SDL_MessageBoxData msgbox = {
+      SDL_MESSAGEBOX_INFORMATION,
+      s_pWindow,
+      "FATDATA not found",
+      "Select an ISO, BIN, or CUE image to extract FATDATA and CD audio.\n\n"
+      "For CUE images, select the CUE and all referenced BIN/audio files together.\n\n"
+      "Extraction may take a while.",
+      SDL_arraysize(buttons),
+      buttons,
+      NULL
+  };
+
+  int iButtonID = 1;
+  if (!SDL_ShowMessageBox(&msgbox, &iButtonID)) {
+    SDL_Log("Android CD image prompt failed: %s", SDL_GetError());
+    return false;
+  }
+
+  return iButtonID == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidCreateCdImageStagingDir(const char *szDataRoot,
+                                           char *szOutDir,
+                                           size_t nOutDirSize)
+{
+  char szImportDir[ROLLER_MAX_PATH];
+  time_t tNow = time(NULL);
+  Uint64 uiTicks = SDL_GetTicks();
+
+  SDL_snprintf(szImportDir, sizeof(szImportDir), "%s/import", szDataRoot);
+  if (!SDL_CreateDirectory(szImportDir) && !ROLLERdirexists(szImportDir)) {
+    SDL_Log("Android CD image import: failed to create '%s': %s",
+            szImportDir, SDL_GetError());
+    return false;
+  }
+
+  for (int i = 0; i < 100; i++) {
+    int nWritten = SDL_snprintf(szOutDir, nOutDirSize,
+                                "%s/cdimage-%lld-%llu-%02d",
+                                szImportDir, (long long)tNow,
+                                (unsigned long long)uiTicks, i);
+    if (nWritten < 0 || (size_t)nWritten >= nOutDirSize) {
+      SDL_Log("Android CD image import: staging path is too long");
+      return false;
+    }
+
+    if (SDL_CreateDirectory(szOutDir))
+      return true;
+  }
+
+  SDL_Log("Android CD image import: could not create a unique staging directory under '%s'",
+          szImportDir);
+  return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidStageContentUri(const char *szUri, const char *szDestDir,
+                                   char *szOutPath, size_t nOutPathSize)
+{
+  JNIEnv *pEnv;
+  jobject activity = NULL;
+  jclass activityClass = NULL;
+  jmethodID stageContentUri = NULL;
+  jstring jUri = NULL;
+  jstring jDestDir = NULL;
+  jstring jStagedPath = NULL;
+  const char *szStagedPath = NULL;
+  bool bOk = false;
+
+  szOutPath[0] = '\0';
+
+  pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
+  if (!pEnv)
+    return false;
+
+  activity = (jobject)SDL_GetAndroidActivity();
+  if (!activity)
+    return false;
+
+  activityClass = (*pEnv)->GetObjectClass(pEnv, activity);
+  if (!activityClass)
+    goto cleanup;
+
+  stageContentUri = (*pEnv)->GetMethodID(
+      pEnv, activityClass, "stageContentUri",
+      "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  if (!stageContentUri)
+    goto cleanup;
+
+  jUri = (*pEnv)->NewStringUTF(pEnv, szUri);
+  jDestDir = (*pEnv)->NewStringUTF(pEnv, szDestDir);
+  if (!jUri || !jDestDir)
+    goto cleanup;
+
+  jStagedPath = (jstring)(*pEnv)->CallObjectMethod(
+      pEnv, activity, stageContentUri, jUri, jDestDir);
+  if ((*pEnv)->ExceptionCheck(pEnv)) {
+    (*pEnv)->ExceptionDescribe(pEnv);
+    (*pEnv)->ExceptionClear(pEnv);
+    goto cleanup;
+  }
+
+  if (!jStagedPath)
+    goto cleanup;
+
+  szStagedPath = (*pEnv)->GetStringUTFChars(pEnv, jStagedPath, NULL);
+  if (!szStagedPath)
+    goto cleanup;
+
+  if (SDL_strlcpy(szOutPath, szStagedPath, nOutPathSize) >= nOutPathSize) {
+    SDL_Log("Android CD image import: staged path is too long: '%s'",
+            szStagedPath);
+    szOutPath[0] = '\0';
+    goto cleanup;
+  }
+
+  bOk = szOutPath[0] != '\0';
+
+cleanup:
+  if (jStagedPath && szStagedPath)
+    (*pEnv)->ReleaseStringUTFChars(pEnv, jStagedPath, szStagedPath);
+  if (jStagedPath)
+    (*pEnv)->DeleteLocalRef(pEnv, jStagedPath);
+  if (jDestDir)
+    (*pEnv)->DeleteLocalRef(pEnv, jDestDir);
+  if (jUri)
+    (*pEnv)->DeleteLocalRef(pEnv, jUri);
+  if (activityClass)
+    (*pEnv)->DeleteLocalRef(pEnv, activityClass);
+  (*pEnv)->DeleteLocalRef(pEnv, activity);
+  return bOk;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidPathEndsWithIgnoreCase(const char *szPath, const char *szExt)
+{
+  size_t nPath = strlen(szPath);
+  size_t nExt = strlen(szExt);
+
+  if (nPath < nExt)
+    return false;
+
+  return SDL_strcasecmp(szPath + nPath - nExt, szExt) == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *AndroidPathFilename(const char *szPath)
+{
+  const char *szSlash = strrchr(szPath, '/');
+  const char *szBackslash = strrchr(szPath, '\\');
+  const char *szName = szPath;
+
+  if (szSlash && szSlash + 1 > szName)
+    szName = szSlash + 1;
+  if (szBackslash && szBackslash + 1 > szName)
+    szName = szBackslash + 1;
+
+  return szName;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int AndroidCdImagePriority(const char *szPath)
+{
+  if (AndroidPathEndsWithIgnoreCase(szPath, ".cue"))
+    return 0;
+  if (AndroidPathEndsWithIgnoreCase(szPath, ".iso"))
+    return 1;
+  if (AndroidPathEndsWithIgnoreCase(szPath, ".bin"))
+    return 2;
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidChooseCdImageEntry(char aszStagedPaths[][ROLLER_MAX_PATH],
+                                      int iNumPaths,
+                                      char *szOutEntry,
+                                      size_t nOutEntrySize)
+{
+  int iBest = -1;
+  int iBestPriority = 100;
+
+  for (int i = 0; i < iNumPaths; i++) {
+    int iPriority = AndroidCdImagePriority(aszStagedPaths[i]);
+    if (iPriority < 0)
+      continue;
+
+    if (iBest < 0 || iPriority < iBestPriority ||
+        (iPriority == iBestPriority &&
+         SDL_strcasecmp(AndroidPathFilename(aszStagedPaths[i]),
+                        AndroidPathFilename(aszStagedPaths[iBest])) < 0)) {
+      iBest = i;
+      iBestPriority = iPriority;
+    }
+  }
+
+  if (iBest < 0)
+    return false;
+
+  if (SDL_strlcpy(szOutEntry, aszStagedPaths[iBest], nOutEntrySize) >=
+      nOutEntrySize) {
+    SDL_Log("Android CD image import: selected entry path is too long: '%s'",
+            aszStagedPaths[iBest]);
+    szOutEntry[0] = '\0';
+    return false;
+  }
+
+  SDL_Log("Android CD image import: selected staged entry '%s'", szOutEntry);
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidStageCdImageSelection(const tDialogResult *pResult,
+                                         const char *szDataRoot,
+                                         char *szOutEntry,
+                                         size_t nOutEntrySize)
+{
+  char szStagingDir[ROLLER_MAX_PATH];
+  char aszStagedPaths[ROLLER_DIALOG_MAX_FILES][ROLLER_MAX_PATH];
+  int iNumStaged = 0;
+
+  szOutEntry[0] = '\0';
+
+  if (!pResult || pResult->iNumPaths <= 0)
+    return false;
+
+  if (!AndroidCreateCdImageStagingDir(szDataRoot, szStagingDir,
+                                      sizeof(szStagingDir)))
+    return false;
+
+  SDL_Log("Android CD image import: staging into '%s'", szStagingDir);
+
+  for (int i = 0; i < pResult->iNumPaths; i++) {
+    char szStagedPath[ROLLER_MAX_PATH];
+    if (!AndroidStageContentUri(pResult->aszPaths[i], szStagingDir,
+                                szStagedPath, sizeof(szStagedPath))) {
+      SDL_Log("Android CD image import: failed to stage '%s'",
+              pResult->aszPaths[i]);
+      return false;
+    }
+
+    SDL_Log("Android CD image import: staged '%s' -> '%s'",
+            pResult->aszPaths[i], szStagedPath);
+    SDL_strlcpy(aszStagedPaths[iNumStaged++], szStagedPath, ROLLER_MAX_PATH);
+  }
+
+  if (!AndroidChooseCdImageEntry(aszStagedPaths, iNumStaged, szOutEntry,
+                                 nOutEntrySize)) {
+    SDL_Log("Android CD image import: no .cue, .iso, or .bin file was selected");
+    return false;
+  }
+
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
 
 void InitFATDATA(const char *szDataRoot)
 {
@@ -775,23 +1113,51 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
 #if defined(IS_ANDROID)
-    const char *szExternal = SDL_GetAndroidExternalStoragePath();
-    const char *szShown = szExternal ? szExternal : "<external storage unavailable>";
-    char szMessage[1024];
+    bool bAttemptedImport = false;
+    bool bImported = false;
 
-    snprintf(szMessage, sizeof(szMessage),
-             "ROLLER needs the FATDATA assets from a retail copy of the game.\n\n"
-             "Copy your game data so the folders end up here:\n\n"
-             "%s/FATDATA\n"
-             "%s/TRACKS    (community tracks)\n"
-             "%s/REPLAYS   (saved replays)\n\n"
-             "For CD music, also copy your extracted track WAVs to:\n"
-             "%s/audio\n\n"
-             "Then relaunch ROLLER.",
-             szShown, szShown, szShown, szShown);
+    // Showing native dialogs (message box + SAF picker) below destroys and
+    // recreates the Activity surface. Driving the SDL Vulkan renderer against the
+    // in-flux surface crashes the Adreno driver, so suppress all GPU presentation
+    // for the whole import flow. ROLLERRefreshStartupOverlay() still pumps events
+    // (needed for the picker callback and SDL_EVENT_QUIT); it just won't present.
+    s_bGpuPresentDisabled = true;
 
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                             "FATDATA not found", szMessage, s_pWindow);
+    if (AndroidPromptForCdImage()) {
+      SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
+      tDialogResult result = { 0 };
+
+      bAttemptedImport = true;
+      SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1,
+                             szDataRoot, true);
+
+      while (!result.bDone) {
+        ROLLERRefreshStartupOverlay();
+        SDL_Delay(10);
+      }
+
+      if (!result.bCancelled) {
+        char szStagedEntry[ROLLER_MAX_PATH];
+        if (AndroidStageCdImageSelection(&result, szDataRoot, szStagedEntry,
+                                         sizeof(szStagedEntry))) {
+          ROLLERRefreshStartupOverlay();
+          ExtractFATDATA(szStagedEntry, szDataRoot);
+          SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
+          ROLLERRefreshStartupOverlay();
+          bImported = ROLLERdirexists("./FATDATA") || ROLLERdirexists("./fatdata");
+        }
+      }
+    }
+
+    if (!bImported) {
+      if (bAttemptedImport)
+        SDL_Log("Android CD image import did not produce FATDATA; showing side-load instructions");
+      AndroidShowFatdataInstructions();
+    }
+
+    // Re-enable GPU presentation now that all native dialogs are dismissed.
+    s_bGpuPresentDisabled = false;
+    DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
 #else
     debug_overlay_set_visible(s_pDebugOverlay, true);
     PresentDebugOverlayOnly();

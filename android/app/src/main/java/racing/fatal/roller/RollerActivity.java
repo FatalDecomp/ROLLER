@@ -4,11 +4,14 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.AssetManager;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.text.Spanned;
@@ -296,6 +299,106 @@ public class RollerActivity extends SDLActivity {
         }
     }
 
+    public String stageContentUri(String uriText, String destDirText) {
+        if (uriText == null || destDirText == null) {
+            return null;
+        }
+
+        Uri uri;
+        try {
+            uri = Uri.parse(uriText);
+        } catch (Exception e) {
+            Log.w(TAG, "Invalid CD image URI: " + uriText, e);
+            return null;
+        }
+
+        File destDir = new File(destDirText);
+        if (!destDir.isDirectory() && !destDir.mkdirs()) {
+            Log.w(TAG, "Could not create CD image staging dir " + destDir);
+            return null;
+        }
+
+        String fileName = sanitizeImportFileName(queryDisplayName(uri));
+        if (fileName.isEmpty()) {
+            fileName = sanitizeImportFileName(importFallbackName(uri));
+        }
+        if (fileName.isEmpty()) {
+            Log.w(TAG, "CD image URI has no usable display name: " + uriText);
+            return null;
+        }
+
+        File outFile = new File(destDir, fileName);
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("ContentResolver returned null stream");
+            }
+            try (FileOutputStream out = new FileOutputStream(outFile, false)) {
+                copyStream(in, out);
+            }
+            Log.i(TAG, "Staged CD image URI to " + outFile.getAbsolutePath());
+            return outFile.getAbsolutePath();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to stage CD image URI " + uriText, e);
+            return null;
+        }
+    }
+
+    private String queryDisplayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(
+                uri, new String[] { OpenableColumns.DISPLAY_NAME },
+                null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (nameIndex >= 0) {
+                    return cursor.getString(nameIndex);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to query display name for " + uri, e);
+        }
+        return null;
+    }
+
+    private static String importFallbackName(Uri uri) {
+        String name = uri.getLastPathSegment();
+        if (name == null) {
+            return "";
+        }
+
+        int colon = name.lastIndexOf(':');
+        if (colon >= 0 && colon + 1 < name.length()) {
+            return name.substring(colon + 1);
+        }
+        return name;
+    }
+
+    private static String sanitizeImportFileName(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        String name = value.trim();
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0 && slash + 1 < name.length()) {
+            name = name.substring(slash + 1);
+        }
+
+        StringBuilder builder = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); ++i) {
+            char ch = name.charAt(i);
+            if (ch == '/' || ch == '\\' || Character.isISOControl(ch)) {
+                continue;
+            }
+            builder.append(ch);
+        }
+
+        String sanitized = builder.toString().trim();
+        if (sanitized.equals(".") || sanitized.equals("..")) {
+            return "";
+        }
+        return sanitized;
+    }
+
     private void syncMidiAssets() {
         File externalFilesDir = getExternalFilesDir(null);
         if (externalFilesDir == null) {
@@ -365,11 +468,15 @@ public class RollerActivity extends SDLActivity {
 
         try (InputStream in = assets.open(assetPath);
              FileOutputStream out = new FileOutputStream(outPath, false)) {
-            byte[] buffer = new byte[64 * 1024];
-            int bytesRead;
-            while ((bytesRead = in.read(buffer)) != -1) {
-                out.write(buffer, 0, bytesRead);
-            }
+            copyStream(in, out);
+        }
+    }
+
+    private static void copyStream(InputStream in, FileOutputStream out) throws IOException {
+        byte[] buffer = new byte[64 * 1024];
+        int bytesRead;
+        while ((bytesRead = in.read(buffer)) != -1) {
+            out.write(buffer, 0, bytesRead);
         }
     }
 }
