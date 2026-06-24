@@ -114,8 +114,8 @@ int calibrate_mode = 0;     //000A319C
 int graphic_mode = 0;       //000A31A0
 int sound_edit = 0;         //000A31A8
 int showversion = 0;        //000A31AC
-int game_svga = 1;          //000A31B0 ROLLER modification - SVGA mode by default
-int game_size = 64;         //000A31B4
+int game_svga = -1;         //000A31B0 ROLLER modification - SVGA mode by default. Must be -1 (linear SVGA), not 1 (legacy mode-X / VGA-looking copyscreenmodex path)
+int game_size = 128;        //000A31B4 ROLLER modification - full SVGA view size by default (64 is the VGA full size). Must match the SVGA-on default above so a freshly-saved default config renders the race at SVGA scale (scr_size = game_size)
 int game_view[2] = { 0, 0 }; //000A31B8
 int svga_possible = -1;     //000A31C0
 int autoswitch = -1;        //000A31C4
