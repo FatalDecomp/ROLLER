@@ -502,6 +502,8 @@ static void network_orphan_tick(void)
 
 void tick_clock_step(void)
 {
+  if (g_bShiftFrozen) return;
+
   int iTickAdvance = 1;
 
   if (network_on && syncleft) {

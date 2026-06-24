@@ -804,9 +804,13 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
 
     if (count == 0) {
         // Full-screen background (raw pixels, no block headers)
-        uint8 *rgba = malloc(MENU_WIDTH * MENU_HEIGHT * 4);
+        int pixCount = MENU_WIDTH * MENU_HEIGHT;
+        uint32 bufSize = getbuffer_size(blocks);
+        if (bufSize > 0 && (uint32)pixCount > bufSize)
+            pixCount = (int)bufSize;
+        uint8 *rgba = calloc(MENU_WIDTH * MENU_HEIGHT, 4);
         if (!rgba) return 0;
-        IndexedToRGBA((uint8 *)blocks, pal, rgba, MENU_WIDTH * MENU_HEIGHT);
+        IndexedToRGBA((uint8 *)blocks, pal, rgba, pixCount);
         r->backgroundTextures[slot] = UploadRGBA(r->device, rgba, MENU_WIDTH, MENU_HEIGHT);
         free(rgba);
         return r->backgroundTextures[slot] != NULL;

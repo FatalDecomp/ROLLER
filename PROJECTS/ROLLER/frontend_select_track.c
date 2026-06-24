@@ -288,6 +288,48 @@ static void frontend_track_select_handle_cup_switch(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_track_select_handle_cup_switch_back(void)
+{
+  if (game_type == 1 || TrackLoad <= 0)
+    return;
+
+  sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
+  iFrontendTrackSpeechPending = 0;
+  if (frontend_track_select_stock_selection_disabled()) {
+    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+    scan_community_tracks();
+    frontend_track_select_show_community_selection();
+  } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
+             TrackLoad == TRACK_LOAD_COMMUNITY) {
+    /* community → last available cup going backwards */
+    if (cup_won & 2)
+      iFrontendTrackCurrentTrack = 17;
+    else if (cup_won & 1)
+      iFrontendTrackCurrentTrack = 9;
+    else
+      iFrontendTrackCurrentTrack = 1;
+    iFrontendTrackSelectedTrack = ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+  } else {
+    iFrontendTrackCurrentTrack -= 8;
+    /* skip locked premium cup when going back from bonus */
+    if (iFrontendTrackCurrentTrack > 8 &&
+        iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
+      iFrontendTrackCurrentTrack -= 8;
+    if (iFrontendTrackCurrentTrack <= 0) {
+      /* wrapped past gremlin → community */
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      scan_community_tracks();
+      frontend_track_select_show_community_selection();
+    } else {
+      iFrontendTrackSelectedTrack =
+          ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+    }
+  }
+  frontend_track_select_begin_track_animation();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_handle_mouse(void)
 {
   int iHovered = frontend_mouse_take_hovered_id();
@@ -732,7 +774,12 @@ static void frontend_track_select_handle_input(int iBlockIdx)
         sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
         frontend_track_select_request_exit();
       } else if (byKey == 32) {
-        frontend_track_select_handle_cup_switch();
+        const bool *kbs = SDL_GetKeyboardState(NULL);
+        bool shiftHeld = kbs[SDL_SCANCODE_LSHIFT] || kbs[SDL_SCANCODE_RSHIFT];
+        if (shiftHeld)
+          frontend_track_select_handle_cup_switch_back();
+        else
+          frontend_track_select_handle_cup_switch();
       }
     }
 

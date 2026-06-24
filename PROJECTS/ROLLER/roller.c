@@ -113,7 +113,10 @@ float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
 bool  g_bWireframe       = false;
+int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
+bool  g_bSurfaceDebugViz = false;
+bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -145,6 +148,13 @@ CRTFilter    *ROLLERGetCRTFilter(void)    { return s_pCRTFilter; }
 /* Deferred SHIFT key press — held until we know whether TAB follows (SHIFT+TAB
  * toggles split screen) or SHIFT is released alone (fires normally). */
 static SDL_Event s_pendingShiftDown;
+/* Timestamp (ms) when the current SHIFT press began; 0 = not held. */
+static uint64 s_shiftPressedMs = 0;
+/* Next frame deadline (ms) for the background FPS cap; 0 = not active. */
+static uint64 s_nextPauseFrameMs = 0;
+bool g_bShiftFrozen = false;
+bool g_bShiftFreezeEnabled = false;
+int  g_iFpsBackground = 0; /* 0=off, else target fps (15/30/60) */
 
 static void UpdateMouseCursorVisibility(void)
 {
@@ -530,14 +540,28 @@ void ToggleFullscreen()
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
 
+  /* Save windowed size before entering fullscreen so we can restore it. */
+  static int s_iWndW = 0, s_iWndH = 0;
+  if (!bFullscreen) {
+    SDL_GetWindowSize(s_pWindow, &s_iWndW, &s_iWndH);
+    if (s_iWndW < 320 || s_iWndH < 200) { s_iWndW = 640; s_iWndH = 400; }
+  }
+
   DeferGPUPresentation(3);
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
 
-  if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
+    if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
   } else {
     SDL_SyncWindow(s_pWindow);
+    if (bFullscreen) {
+      /* SDL doesn't always shrink the window on Windows; restore explicitly. */
+      int rW = (s_iWndW >= 320) ? s_iWndW : 640;
+      int rH = (s_iWndH >= 200) ? s_iWndH : 400;
+      SDL_SetWindowSize(s_pWindow, rW, rH);
+      SDL_SyncWindow(s_pWindow);
+    }
   }
 
   if (s_pGPUDevice)
@@ -610,6 +634,11 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 #endif
 
   SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
+#if defined(_WIN32)
+  /* Hide until InputLoadConfig shows it at the correct size; prevents the
+   * white-border flash that occurs when the window is resized on startup. */
+  uiWindowFlags |= SDL_WINDOW_HIDDEN;
+#endif
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
@@ -632,10 +661,18 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   /* Apply vsync immediately after claiming — the present mode is a window-level
    * setting that covers all GPU rendering (menu, overlay, scene).  The game
    * renderer's deferred mechanism handles runtime changes but isn't called until
-   * a race begins, leaving menu frames uncapped otherwise. */
-  SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
-      SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-      g_bVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
+   * a race begins, leaving menu frames uncapped otherwise.
+   * Vsync-on: MAILBOX (no tearing, lower latency than VSYNC/FIFO) if supported, else VSYNC.
+   * Vsync-off: IMMEDIATE (uncapped, no sync). */
+  {
+    bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
+            SDL_GPU_PRESENTMODE_MAILBOX);
+    SDL_GPUPresentMode mode = g_bVsync
+        ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
+        : SDL_GPU_PRESENTMODE_IMMEDIATE;
+    SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+        SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
+  }
 
   s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
   s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
@@ -1091,6 +1128,17 @@ void UpdateSDL()
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
       switch (e.type) {
         case SDL_EVENT_WINDOW_RESIZED:
+          if (g_bKeepWindowSize &&
+              !(SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_FULLSCREEN)) {
+            int iW = 0, iH = 0;
+            if (SDL_GetWindowSize(s_pWindow, &iW, &iH) && iW >= 320 && iH >= 200) {
+              extern int g_iSavedWindowWidth, g_iSavedWindowHeight;
+              g_iSavedWindowWidth  = iW;
+              g_iSavedWindowHeight = iH;
+              InputSaveConfig();
+            }
+          }
+          /* fall through */
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_MINIMIZED:
         case SDL_EVENT_WINDOW_RESTORED:
@@ -1129,19 +1177,28 @@ void UpdateSDL()
       /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
         s_pendingShiftDown = e;
+        if (s_shiftPressedMs == 0)
+          s_shiftPressedMs = SDL_GetTicks();
         continue;
       }
     }
     if (e.type == SDL_EVENT_KEY_UP) {
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        s_shiftPressedMs = 0;
         if (s_pendingShiftDown.type) {
+          if (g_bShiftFreezeEnabled) {
+            /* Freeze enabled: discard DOWN+UP so SHIFT never reaches the DOS
+             * key buffer while the freeze checkbox is on. */
+            s_pendingShiftDown.type = 0;
+            continue;
+          }
           /* SHIFT released without TAB — write the deferred DOWN into the DOS
            * key buffer directly, then let the UP fall through to do the same. */
           SDL_Scancode sc = s_pendingShiftDown.key.scancode;
           if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
             key_handler(sdl_to_set1[sc]);
           s_pendingShiftDown.type = 0;
-          /* no continue — SHIFT UP falls through to key_handler at 1161+ */
+          /* no continue — SHIFT UP falls through to key_handler */
         } else {
           /* SHIFT was consumed by SHIFT+TAB — suppress the UP too. */
           continue;
@@ -1242,12 +1299,23 @@ void UpdateSDL()
   {
     static uint64 s_targetFrameNs = 0;
     static uint64 s_nextFrameNs   = 0;
-    static bool   s_vsyncWas      = false;
+    static bool   s_vsyncWas      = true; /* init=true (vsync default) so first
+                                             frame re-applies when config=off */
 
     if (g_bVsync != s_vsyncWas) {
       s_vsyncWas      = g_bVsync;
       s_targetFrameNs = 0;
       s_nextFrameNs   = 0;
+      if (s_pGPUDevice && s_pWindow) {
+        bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
+                SDL_GPU_PRESENTMODE_MAILBOX);
+        SDL_GPUPresentMode mode = g_bVsync
+            ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
+            : SDL_GPU_PRESENTMODE_IMMEDIATE;
+        if (!SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+                SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode))
+          SDL_Log("roller: SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
+      }
     }
 
     if (g_bVsync && g_pGameRenderer &&
@@ -1269,6 +1337,31 @@ void UpdateSDL()
       else
         s_nextFrameNs += s_targetFrameNs;
     }
+  }
+
+  /* Shift freeze: block all tick steps so the engine image holds still. */
+  g_bShiftFrozen = g_bShiftFreezeEnabled && s_shiftPressedMs != 0;
+  if (g_bShiftFrozen)
+    SDL_SetAtomicInt(&iTicksPending, 0);
+
+  /* Background FPS cap: active when paused, shift-frozen, or the window is
+   * minimized, and the user has selected a limit other than Off. */
+  bool bWindowMinimized = s_pWindow &&
+      (SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_MINIMIZED) != 0;
+  bool bDebugOverlayVisible = debug_overlay_visible(s_pDebugOverlay);
+  bool bApplyBgCap = g_iFpsBackground > 0 &&
+      (eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+       g_bShiftFrozen || bWindowMinimized || bDebugOverlayVisible);
+  if (bApplyBgCap) {
+    uint64 frameMs = 1000u / (uint64)g_iFpsBackground;
+    uint64 now = SDL_GetTicks();
+    if (s_nextPauseFrameMs == 0)
+      s_nextPauseFrameMs = now;
+    if (now < s_nextPauseFrameMs)
+      SDL_Delay((uint32)(s_nextPauseFrameMs - now));
+    s_nextPauseFrameMs = SDL_GetTicks() + frameMs;
+  } else {
+    s_nextPauseFrameMs = 0;
   }
 }
 

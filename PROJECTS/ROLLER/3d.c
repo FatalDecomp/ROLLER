@@ -1661,7 +1661,7 @@ void race_update(void)
     // backs up iTicksPending, catching up burns main-thread time and starves
     // the next render, which backs up more ticks, and so on.
     int iDrained = 0;
-    while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+    while (!g_bShiftFrozen && iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
       // Claim one pending tick with CAS. The timer thread can enqueue between
       // this read and update, so a plain read/add pair can race, especially
       // when replay rewind changes the pending count's sign.
@@ -1674,7 +1674,7 @@ void race_update(void)
   } else {
     SDL_SetAtomicInt(&iTicksPending, 0);
   }
-  if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
+  if (!g_bShiftFrozen && replaytype == 2 && !frontend_on && ticks != currentreplayframe)
     game_tick_step();
   if (!replayspeed && intro && !game_req)       // Exit replay if intro mode and no game requested
     racing = replayspeed;
