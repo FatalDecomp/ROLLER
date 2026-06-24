@@ -41,6 +41,8 @@ void game_render_set_vignette(GameRenderer *renderer, float strength);
 void game_render_set_fov_multiplier(GameRenderer *renderer, float mult);
 /* Wireframe: true=line fill, false=solid */
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled);
+/* Cull mode: 0=default, 1=none, 2=back, 3=front (debug only, not saved) */
+void game_render_set_cull_mode(GameRenderer *renderer, int mode);
 /* Additive brightness offset: 0.0=neutral, positive=brighter, negative=darker */
 void game_render_set_brightness(GameRenderer *renderer, float brightness);
 

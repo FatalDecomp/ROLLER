@@ -106,6 +106,8 @@ static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
 static bool s_bDeviceRefreshPending = false;
 static uint64 s_ullDeviceRefreshMs = 0;
+int g_iSavedWindowWidth  = 0;
+int g_iSavedWindowHeight = 0;
 #if defined(_WIN32)
 static uint32 s_uWinMMDeviceMask = 0;
 static uint64 s_ullNextWinMMRefreshMs = 0;
@@ -2835,6 +2837,8 @@ static int InputParseWindowsBackendSetting(const char *szValue)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputParseDebugSetting(const char *szName, const char *szValue);
+
 void InputLoadStartupConfig(void)
 {
   FILE *fp = ROLLERfopen("ROLLER.INI", "r");
@@ -2855,9 +2859,13 @@ void InputLoadStartupConfig(void)
       continue;
 
     *szEquals = '\0';
+    char *szValue2 = InputTrim(szEquals + 1);
     szText = InputTrim(szText);
     if (InputIsWindowsBackendSettingName(szText))
-      InputParseWindowsBackendSetting(InputTrim(szEquals + 1));
+      InputParseWindowsBackendSetting(szValue2);
+    /* Also pre-parse window-size keys so roller.c can apply them before
+     * the main InputLoadConfig (which runs after window creation). */
+    InputParseDebugSetting(szText, szValue2);
   }
 
   fclose(fp);
@@ -2994,6 +3002,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "ShiftFreeze")) {
+    g_bShiftFreezeEnabled = InputStringEqualsNoCase(szValue, "On") ||
+                            InputStringEqualsNoCase(szValue, "1")  ||
+                            InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
     g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
                    InputStringEqualsNoCase(szValue, "1")  ||
@@ -3064,6 +3079,12 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "FpsBackground")) {
+    int v = atoi(szValue);
+    g_iFpsBackground = (v == 15 || v == 30 || v == 60) ? v : 0;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "AntiAliasing") ||
       InputStringEqualsNoCase(szName, "MSAA")) {
     if (InputStringEqualsNoCase(szValue, "2x") || InputStringEqualsNoCase(szValue, "2"))
@@ -3074,6 +3095,25 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
       g_iAntiAliasing = 3;
     else
       g_iAntiAliasing = 0;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "KeepWindowSize")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bKeepWindowSize = bValue;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "WindowWidth")) {
+    int v = InputParseInt(szValue, 0);
+    if (v >= 320) g_iSavedWindowWidth = v;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "WindowHeight")) {
+    int v = InputParseInt(szValue, 0);
+    if (v >= 200) g_iSavedWindowHeight = v;
     return 1;
   }
 
@@ -3287,6 +3327,18 @@ int InputLoadConfig(void)
                                        uiCommunityTrackCRC != 0))
       CommunityRecordLoadForCurrentTrack();
   }
+#if defined(_WIN32)
+  {
+    SDL_Window *pWin = ROLLERGetWindow();
+    if (pWin) {
+      if (g_bKeepWindowSize && g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
+        SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
+        SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+      }
+      SDL_ShowWindow(pWin);
+    }
+  }
+#endif
   InputResolveAllBindings();
   return 1;
 }
@@ -3343,6 +3395,20 @@ void InputSaveConfig(void)
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
   fprintf(fp, "CRTFilter=%s\n", g_bCRTFilter ? "On" : "Off");
+  fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");
+  fprintf(fp, "KeepWindowSize=%d\n", g_bKeepWindowSize ? 1 : 0);
+  if (g_bKeepWindowSize) {
+    SDL_Window *pWin = ROLLERGetWindow();
+    int iW = 0, iH = 0;
+    bool bIsFullscreen = pWin && (SDL_GetWindowFlags(pWin) & SDL_WINDOW_FULLSCREEN);
+    if (!bIsFullscreen && pWin && SDL_GetWindowSize(pWin, &iW, &iH) && iW >= 320 && iH >= 200) {
+      fprintf(fp, "WindowWidth=%d\n",  iW);
+      fprintf(fp, "WindowHeight=%d\n", iH);
+    } else if (g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
+      fprintf(fp, "WindowWidth=%d\n",  g_iSavedWindowWidth);
+      fprintf(fp, "WindowHeight=%d\n", g_iSavedWindowHeight);
+    }
+  }
   fprintf(fp, "FogDensity=%.6f\n", g_fFogDensity);
   fprintf(fp, "FogColor=%06x\n", g_uFogColor);
   fprintf(fp, "Gamma=%.2f\n", g_fGamma);
@@ -3357,6 +3423,7 @@ void InputSaveConfig(void)
     int idx = (g_iFpsDisplay >= 0 && g_iFpsDisplay <= 4) ? g_iFpsDisplay : 0;
     fprintf(fp, "FpsDisplay=%s\n", fps_pos[idx]);
   }
+  fprintf(fp, "FpsBackground=%d\n", g_iFpsBackground > 0 ? g_iFpsBackground : 0);
 #if defined(_WIN32)
   fprintf(fp, "WindowsInputBackend=%s\n",
           InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? "SDLDirectInput" : "WinMM");

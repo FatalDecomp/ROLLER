@@ -5,6 +5,7 @@
 #include "3d.h"
 #include "func2.h"
 #include "horizon.h"
+#include "drawtrk3.h"
 #include "sound.h"
 
 #include <stdlib.h>
@@ -166,11 +167,11 @@ void game_render_set_viewport(GameRenderer *renderer,
     scene_render_set_viewport(renderer->scene, x, y, w, h);
 }
 
-void game_render_set_target(GameRenderer *renderer, uint8 *buffer,
+void game_render_set_target(GameRenderer *renderer, uint8 *pixBuf,
                             int stride, int width, int height) {
     if (!renderer)
         return;
-    scene_render_set_target(renderer->scene, buffer, stride, width, height);
+    scene_render_set_target(renderer->scene, pixBuf, stride, width, height);
 }
 
 // Camera
@@ -248,10 +249,10 @@ TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
 
 TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
                                       tBlockHeader *blocks,
-                                      const tColor *palette) {
+                                      const tColor *pal) {
     if (!renderer)
         return TEXTURE_HANDLE_INVALID;
-    return game_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
+    return game_render_sw_load_blocks(renderer->sw, slot, blocks, pal);
 }
 
 void game_render_free_blocks(GameRenderer *renderer, int slot) {
@@ -343,23 +344,64 @@ void game_render_draw_sky(GameRenderer *renderer,
                 sky->byG / 63.0f,
                 sky->byB / 63.0f);
         }
+
         /* Set up SW view globals (viewx/viewy/viewz, vk1-vk9, xbase/ybase, etc.)
-         * that displayclouds() uses to project cloud quads into screen space.
-         * displayclouds() only calls game_render_quad_world_subdivide_type —
-         * it does NOT write to any screen buffer, so passing NULL is safe. */
-        if ((textures_off & TEX_OFF_CLOUDS) == 0) {
-            game_render_sw_set_camera(renderer->sw, camera);
-            game_render_sw_set_projection(renderer->sw, projection);
-            displayclouds(NULL);
+         * Always done here — both for clouds and so that ybase/winh are current
+         * for the horizon fraction computation below.
+         * displayclouds() does NOT write to any screen buffer, so NULL is safe. */
+        game_render_sw_set_camera(renderer->sw, camera);
+        game_render_sw_set_projection(renderer->sw, projection);
+
+        /* Compute horizon fraction (sky height as a proportion of the viewport)
+         * using the same formula as DrawHorizon() in horizon.c.
+         * ybase and winh are now current from set_projection above. */
+        {
+            int   elevMasked = worldelev & 0x3FFF;
+            float fSinElev   = tsin[elevMasked];
+            int   groundColor = -1;
+            float horizonFrac = 0.5f;
+            bool  groundOnTop = false;
+
+            if ((textures_off & TEX_OFF_HORIZON) == 0) {
+                if (fSinElev < -0.7f) {
+                    /* SW simple case: fSinElev < -0.7 → fill entire screen with ground.
+                     * Match by setting groundOnTop=true, horizonFrac=1 (all ground). */
+                    groundColor = (int)(uint8)HorizonColour[front_sec];
+                    horizonFrac = 1.0f;
+                    groundOnTop = true;
+                } else if (fSinElev <= 0.7f) {
+                    /* SW complex path.  Compute upside_down = tcos[worldelev]<0 XOR
+                     * fCosTilt<0, matching horizon.c exactly. */
+                    int    tiltMasked   = worldtilt & 0x3FFF;
+                    float  fCosElev     = tcos[elevMasked];
+                    float  fCosTiltVal  = tcos[tiltMasked];
+                    groundOnTop = (fCosElev < 0.0f) != (fCosTiltVal < 0.0f);
+                    double dViewDistTan = (double)VIEWDIST * ptan[elevMasked];
+                    double dHorizonY    = (double)(199 - ybase)
+                                          + dViewDistTan * (double)fCosTiltVal;
+                    int    iHorizonY    = (int)dHorizonY;
+                    int    iSkyH        = iHorizonY * scr_size / 64;
+                    if (iSkyH < 0)    iSkyH = 0;
+                    if (iSkyH > winh) iSkyH = winh;
+                    horizonFrac = (winh > 0) ? (float)iSkyH / (float)winh : 0.5f;
+                    groundColor = (int)(uint8)HorizonColour[front_sec];
+                }
+                /* fSinElev > 0.7: SW fills all with sky; groundColor stays -1. */
+            }
+            scene_render_gpu_set_horizon(renderer->gpu, groundColor, horizonFrac,
+                                         groundOnTop);
         }
+
+        if ((textures_off & TEX_OFF_CLOUDS) == 0)
+            displayclouds(NULL);
     }
 }
 
 void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
-                        const tColor *palette) {
+                        const tColor *pal) {
     game_render_sw_sprite(renderer->sw, slot, blockIdx, x, y,
-                          transparentColorIndex, palette);
+                          transparentColorIndex, pal);
 }
 
 void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
@@ -369,9 +411,9 @@ void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
 
 // Palette
 
-void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {
+void game_render_set_palette(GameRenderer *renderer, const tColor *pal) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_set_palette(renderer->sw, palette);
+        game_render_sw_set_palette(renderer->sw, pal);
 }
 
 // Fade
@@ -452,6 +494,10 @@ void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
 
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_wireframe(renderer->gpu, enabled);
+}
+
+void game_render_set_cull_mode(GameRenderer *renderer, int mode) {
+    if (renderer) scene_render_gpu_set_cull_mode(renderer->gpu, mode);
 }
 
 void game_render_set_brightness(GameRenderer *renderer, float brightness) {

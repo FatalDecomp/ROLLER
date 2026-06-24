@@ -5,6 +5,16 @@
 
 typedef struct DebugOverlay DebugOverlay;
 
+/* Per-quad labels drawn on screen when surface debug viz is enabled. */
+#define SURFACE_LABEL_MAX 512
+typedef struct {
+    float nx, ny;   /* normalised viewport position [0,1] */
+    char  text[128];
+} SurfaceDebugLabel;
+
+void debug_overlay_surface_labels_reset(void);
+void debug_overlay_surface_label_push(float nx, float ny, const char *text);
+
 DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow);
 void          debug_overlay_destroy(DebugOverlay *pOverlay);
 void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible);
