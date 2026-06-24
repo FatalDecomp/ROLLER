@@ -832,6 +832,20 @@ static void AndroidShowFatdataInstructions(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void AndroidShowExtractionFailed(void)
+{
+  SDL_ShowSimpleMessageBox(
+      SDL_MESSAGEBOX_ERROR, "Extraction failed",
+      "No game data could be extracted from the files you selected.\n\n"
+      "For a CUE/BIN image you must select the .CUE file AND all of its "
+      ".BIN/audio files together - selecting only the .CUE or only the .BIN "
+      "will not work, because the other files cannot be read on their own.\n\n"
+      "Please try again and select the .CUE and every file it references.",
+      s_pWindow);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static bool AndroidPromptForCdImage(void)
 {
   SDL_MessageBoxButtonData buttons[] = {
@@ -843,9 +857,11 @@ static bool AndroidPromptForCdImage(void)
       SDL_MESSAGEBOX_INFORMATION,
       s_pWindow,
       "FATDATA not found",
-      "Select an ISO, BIN, or CUE image to extract FATDATA and CD audio.\n\n"
-      "For CUE images, select the CUE and all referenced BIN/audio files together.\n\n"
-      "Extraction may take a while.",
+      "Select your retail game CD image to extract the game data and music.\n\n"
+      "- CUE/BIN image: select the .CUE file AND all of its .BIN/audio files "
+      "together (tap each one in the picker).\n"
+      "- Single ISO: select the .ISO file.\n\n"
+      "Extraction may take a minute.",
       SDL_arraysize(buttons),
       buttons,
       NULL
@@ -1008,12 +1024,14 @@ static const char *AndroidPathFilename(const char *szPath)
 
 static int AndroidCdImagePriority(const char *szPath)
 {
+  // Only a .cue or .iso is a valid extraction entry. A bare .bin has no track or
+  // sector layout without its .cue, and handing a raw .bin to libcdio's
+  // DRIVER_UNKNOWN probe corrupts the heap and crashes. .bin files are still
+  // *staged* (as cue siblings) - they just can't be the entry on their own.
   if (AndroidPathEndsWithIgnoreCase(szPath, ".cue"))
     return 0;
   if (AndroidPathEndsWithIgnoreCase(szPath, ".iso"))
     return 1;
-  if (AndroidPathEndsWithIgnoreCase(szPath, ".bin"))
-    return 2;
 
   return -1;
 }
@@ -1095,7 +1113,7 @@ static bool AndroidStageCdImageSelection(const tDialogResult *pResult,
 
   if (!AndroidChooseCdImageEntry(aszStagedPaths, iNumStaged, szOutEntry,
                                  nOutEntrySize)) {
-    SDL_Log("Android CD image import: no .cue, .iso, or .bin file was selected");
+    SDL_Log("Android CD image import: no .cue or .iso entry in selection (a .bin alone is not enough)");
     return false;
   }
 
@@ -1113,7 +1131,7 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
 #if defined(IS_ANDROID)
-    bool bAttemptedImport = false;
+    bool bSelectedFiles = false;
     bool bImported = false;
 
     // Showing native dialogs (message box + SAF picker) below destroys and
@@ -1127,7 +1145,6 @@ void InitFATDATA(const char *szDataRoot)
       SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
       tDialogResult result = { 0 };
 
-      bAttemptedImport = true;
       SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1,
                              szDataRoot, true);
 
@@ -1136,7 +1153,8 @@ void InitFATDATA(const char *szDataRoot)
         SDL_Delay(10);
       }
 
-      if (!result.bCancelled) {
+      if (!result.bCancelled && result.iNumPaths > 0) {
+        bSelectedFiles = true;
         char szStagedEntry[ROLLER_MAX_PATH];
         if (AndroidStageCdImageSelection(&result, szDataRoot, szStagedEntry,
                                          sizeof(szStagedEntry))) {
@@ -1150,9 +1168,16 @@ void InitFATDATA(const char *szDataRoot)
     }
 
     if (!bImported) {
-      if (bAttemptedImport)
-        SDL_Log("Android CD image import did not produce FATDATA; showing side-load instructions");
-      AndroidShowFatdataInstructions();
+      if (bSelectedFiles) {
+        // The user picked files but no FATDATA came out - almost always because
+        // they selected only the .CUE or only the .BIN (the sibling files were
+        // never granted/staged). Tell them exactly what to select.
+        SDL_Log("Android CD image import did not produce FATDATA; showing extraction-failed error");
+        AndroidShowExtractionFailed();
+      } else {
+        // Cancelled or nothing selected: fall back to the side-load instructions.
+        AndroidShowFatdataInstructions();
+      }
     }
 
     // Re-enable GPU presentation now that all native dialogs are dismissed.
