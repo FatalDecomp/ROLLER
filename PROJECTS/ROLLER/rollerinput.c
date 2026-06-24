@@ -82,7 +82,7 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
-ePhoneControls g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+ePhoneControls g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
 bool g_bShowActiveTouchControls = false;
 
 static tInputDevice *s_pDevices = NULL;
@@ -3254,7 +3254,7 @@ int InputLoadConfig(void)
 
   InputResetBindings();
 #if defined(IS_ANDROID)
-  g_ePhoneControls = PHONE_CONTROLS_DISABLED;
+  g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
   g_bShowActiveTouchControls = false;
 #endif
 
