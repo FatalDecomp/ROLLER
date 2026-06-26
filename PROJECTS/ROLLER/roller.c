@@ -116,6 +116,11 @@ bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
 bool  g_bSurfaceDebugViz = false;
+bool  g_bSurfaceLog      = false;
+int   g_iSurfaceLogId    = -2;
+bool  g_pendingClickQuery = false;
+float g_clickQueryNX      = 0.0f;
+float g_clickQueryNY      = 0.0f;
 bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
@@ -551,7 +556,7 @@ void ToggleFullscreen()
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
 
-    if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
+  if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
   } else {
     SDL_SyncWindow(s_pWindow);
@@ -1195,13 +1200,28 @@ void UpdateSDL()
           /* SHIFT released without TAB — write the deferred DOWN into the DOS
            * key buffer directly, then let the UP fall through to do the same. */
           SDL_Scancode sc = s_pendingShiftDown.key.scancode;
-          if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
+          if ((size_t)sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
             key_handler(sdl_to_set1[sc]);
           s_pendingShiftDown.type = 0;
           /* no continue — SHIFT UP falls through to key_handler */
         } else {
           /* SHIFT was consumed by SHIFT+TAB — suppress the UP too. */
           continue;
+        }
+      }
+    }
+
+    /* Right-click surface pick: record normalised game-viewport coords before
+     * the overlay consumes the event. Works whether the overlay is open or not. */
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+      int wpx = 0, wpy = 0;
+      if (SDL_GetWindowSizeInPixels(s_pWindow, &wpx, &wpy) && wpx > 0 && wpy > 0) {
+        SDL_GPUViewport vp;
+        ROLLERGetPresentViewport((Uint32)wpx, (Uint32)wpy, ROLLER_PRESENT_ASPECT, &vp);
+        if (vp.w > 0.0f && vp.h > 0.0f) {
+          g_clickQueryNX      = (e.button.x - vp.x) / vp.w;
+          g_clickQueryNY      = (e.button.y - vp.y) / vp.h;
+          g_pendingClickQuery = true;
         }
       }
     }
@@ -1268,7 +1288,7 @@ void UpdateSDL()
       }
 
       // Translate SDL scancode to set1 scancode
-      if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc]) {
+      if ((size_t)sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc]) {
         uint8 byRawCode = sdl_to_set1[sc];
         if (e.type == SDL_EVENT_KEY_UP) {
           byRawCode |= 0x80;  // Set high bit for release
@@ -2224,7 +2244,7 @@ void UpdateAudioTracks(void)
           if (mciSendCommand(g_wDeviceID, MCI_STATUS, MCI_STATUS_ITEM,
                              (DWORD_PTR)&mciStatusParms) == 0) {
                // If we've moved past our track, it finished
-            if (mciStatusParms.dwReturn != g_iCurrentTrack) {
+            if ((int)mciStatusParms.dwReturn != g_iCurrentTrack) {
               bTrackFinished = true;
             }
           }

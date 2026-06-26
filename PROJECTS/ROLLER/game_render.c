@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 struct GameRenderer {
     GameRenderMode mode;
@@ -316,6 +317,30 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
     }
 }
 
+/* Clip the NDC screen rectangle against the sky half-plane (S-H, 1 clip plane).
+ * hx/hy: horizon point in NDC. nx/ny: sky-side normal (unnormalized, NDC-space).
+ * Returns number of output vertices (0-5) in out_x/out_y. */
+static int clip_sky_poly_ndc(float hx, float hy, float nx, float ny,
+                              float out_x[5], float out_y[5])
+{
+    static const float cx[4] = {-1.f, +1.f, +1.f, -1.f};
+    static const float cy[4] = {-1.f, -1.f, +1.f, +1.f};
+    int n = 0;
+    for (int i = 0; i < 4; i++) {
+        int j = (i + 1) & 3;
+        float d0 = nx*(cx[i]-hx) + ny*(cy[i]-hy);
+        float d1 = nx*(cx[j]-hx) + ny*(cy[j]-hy);
+        if (d0 >= 0.f) { out_x[n] = cx[i]; out_y[n] = cy[i]; n++; }
+        if ((d0 > 0.f) != (d1 > 0.f)) {
+            float t = d0 / (d0 - d1);
+            out_x[n] = cx[i] + t*(cx[j]-cx[i]);
+            out_y[n] = cy[i] + t*(cy[j]-cy[i]);
+            n++;
+        }
+    }
+    return n;
+}
+
 void game_render_draw_sky(GameRenderer *renderer,
                           const GameRenderCamera *camera,
                           const GameRenderProjection *projection) {
@@ -347,40 +372,66 @@ void game_render_draw_sky(GameRenderer *renderer,
          * using the same formula as DrawHorizon() in horizon.c.
          * ybase and winh are now current from set_projection above. */
         {
-            int   elevMasked = worldelev & 0x3FFF;
-            float fSinElev   = tsin[elevMasked];
+            int   elevMasked  = worldelev & 0x3FFF;
+            float fSinElev    = tsin[elevMasked];
             int   groundColor = -1;
-            float horizonFrac = 0.5f;
-            bool  groundOnTop = false;
+            float skyPolyX[5], skyPolyY[5]; int skyPolyN = 0; bool skyAnyGround = false;
 
             if ((textures_off & TEX_OFF_HORIZON) == 0) {
                 if (fSinElev < -0.7f) {
-                    /* SW simple case: fSinElev < -0.7 → fill entire screen with ground.
-                     * Match by setting groundOnTop=true, horizonFrac=1 (all ground). */
-                    groundColor = (int)(uint8)HorizonColour[front_sec];
-                    horizonFrac = 1.0f;
-                    groundOnTop = true;
+                    /* All ground — clear with ground, no sky quad needed. */
+                    groundColor  = (int)(uint8)HorizonColour[front_sec];
+                    skyAnyGround = true;
                 } else if (fSinElev <= 0.7f) {
-                    /* SW complex path.  Compute upside_down = tcos[worldelev]<0 XOR
-                     * fCosTilt<0, matching horizon.c exactly. */
-                    int    tiltMasked   = worldtilt & 0x3FFF;
-                    float  fCosElev     = tcos[elevMasked];
-                    float  fCosTiltVal  = tcos[tiltMasked];
-                    groundOnTop = (fCosElev < 0.0f) != (fCosTiltVal < 0.0f);
+                    int   tiltMasked   = worldtilt & 0x3FFF;
+                    float fCosElev     = tcos[elevMasked];
+                    float fCosTiltVal  = tcos[tiltMasked];
+                    float fNegSinTilt  = -tsin[tiltMasked];
+                    bool  groundOnTop  = (fCosElev < 0.0f);
                     double dViewDistTan = (double)VIEWDIST * ptan[elevMasked];
-                    double dHorizonY    = (double)(199 - ybase)
-                                          + dViewDistTan * (double)fCosTiltVal;
-                    int    iHorizonY    = (int)dHorizonY;
-                    int    iSkyH        = iHorizonY * scr_size / 64;
-                    if (iSkyH < 0)    iSkyH = 0;
-                    if (iSkyH > winh) iSkyH = winh;
-                    horizonFrac = (winh > 0) ? (float)iSkyH / (float)winh : 0.5f;
+
+                    /* Horizon point in screen pixels (Y-down, origin top-left). */
+                    float ww = (float)winw, wh = (float)winh;
+                    float hx_pix = (float)((dViewDistTan * fNegSinTilt + xbase) * scr_size / 64);
+                    float hy_pix = (float)(((199 - ybase) + dViewDistTan * fCosTiltVal) * scr_size / 64);
+
+                    /* Horizon point in NDC. */
+                    float hx = (ww > 0.f) ? 2.f*hx_pix/ww - 1.f : 0.f;
+                    float hy = (wh > 0.f) ? 1.f - 2.f*hy_pix/wh : 0.f;
+
+                    /* Sky-side NDC normal derived from screen-space sky normal
+                     * (fNegSinTilt, -fCosTiltVal) with aspect-ratio correction:
+                     *   nx_ndc = fNegSinTilt * winw
+                     *   ny_ndc = fCosTiltVal * winh
+                     * Flip both when groundOnTop (inverted camera). */
+                    float nx = -fNegSinTilt * ww;
+                    float ny =  fCosTiltVal * wh;
+                    if (groundOnTop) { nx = -nx; ny = -ny; }
+
+                    /* Clip screen rectangle against sky half-plane. */
+                    skyPolyN = clip_sky_poly_ndc(hx, hy, nx, ny, skyPolyX, skyPolyY);
+
+                    /* anyGround: any NDC corner on the ground side. */
+                    static const float ccx[4] = {-1.f,+1.f,+1.f,-1.f};
+                    static const float ccy[4] = {-1.f,-1.f,+1.f,+1.f};
+                    for (int i = 0; i < 4; i++) {
+                        if (nx*(ccx[i]-hx) + ny*(ccy[i]-hy) < 0.f)
+                            { skyAnyGround = true; break; }
+                    }
+
                     groundColor = (int)(uint8)HorizonColour[front_sec];
                 }
-                /* fSinElev > 0.7: SW fills all with sky; groundColor stays -1. */
+                /* fSinElev > 0.7: all sky — groundColor stays -1. */
             }
-            scene_render_gpu_set_horizon(renderer->gpu, groundColor, horizonFrac,
-                                         groundOnTop);
+
+            /* Pack polygon into float[5][2] for the GPU call. */
+            float skyPoly[5][2];
+            for (int i = 0; i < skyPolyN; i++) {
+                skyPoly[i][0] = skyPolyX[i];
+                skyPoly[i][1] = skyPolyY[i];
+            }
+            scene_render_gpu_set_horizon(renderer->gpu, groundColor, skyAnyGround,
+                                         (const float (*)[2])skyPoly, skyPolyN);
         }
 
         if ((textures_off & TEX_OFF_CLOUDS) == 0)

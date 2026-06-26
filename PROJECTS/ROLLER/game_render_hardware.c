@@ -558,23 +558,19 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
     float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
     M[14] -= fZLow;  /* lift body so bottom vertex lands at physics pos */
 
-    /* Yaw-only cos/sin for the shadow matrix — shared by both airborne and
-     * grounded paths so shadow never reacts to pitch/roll/motion offsets. */
-    static const float kShadowToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
-    float sCY = cosf((float)pose->yaw * kShadowToRad);
-    float sSY = sinf((float)pose->yaw * kShadowToRad);
-
     if (!airborne) {
         float Mc[16], Mcar_chunk[16];
         chunk_model_matrix(Mc, &localdata[chunk]);
         mat4_mul(Mcar_chunk, Mc, M);
         mat4_mul(mvp, vp, Mcar_chunk);
-        /* Body only — shadow drawn separately with yaw-only matrix below. */
+        /* Body only — shadow drawn separately with flat matrix below. */
         scene_render_gpu_queue_car_draw(scene,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: world XY from chunk transform, groundZ from current chunk. */
+        /* Shadow: world XY from chunk transform, groundZ from current chunk.
+         * Direction from Mcar_chunk col-0 XY (world-space car forward, projected
+         * flat) so the shadow tracks the car on curved/tilted track sections. */
         float wx = Mcar_chunk[12], wy = Mcar_chunk[13];
         const tData *gsd = &localdata[chunk];
         float gp3x = gsd->pointAy[3].fX, gp3y = gsd->pointAy[3].fY;
@@ -582,9 +578,12 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
         float gly = gsd->pointAy[0].fY*(wx+gp3x) + gsd->pointAy[1].fY*(wy+gp3y);
         float groundZ = gsd->pointAy[2].fX*glx + gsd->pointAy[2].fY*gly - gsd->pointAy[3].fZ;
 
+        float fx = Mcar_chunk[0], fy = Mcar_chunk[1];
+        float flen = sqrtf(fx*fx + fy*fy);
+        if (flen > 1e-6f) { fx /= flen; fy /= flen; }
         float Mshadow[16];
-        Mshadow[ 0]= sCY;  Mshadow[ 1]= sSY;  Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-        Mshadow[ 4]=-sSY;  Mshadow[ 5]= sCY;  Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
+        Mshadow[ 0]= fx;   Mshadow[ 1]= fy;   Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
+        Mshadow[ 4]=-fy;   Mshadow[ 5]= fx;   Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
         Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
         Mshadow[12]=wx;    Mshadow[13]=wy;
         Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
@@ -602,7 +601,8 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: project down to last valid chunk's road surface. */
+        /* Shadow: project down to last valid chunk's road surface.
+         * Direction from M col-0 XY projected flat (world-space when airborne). */
         int shadowChunk = Car[carIdx].iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
             const tData *sd = &localdata[shadowChunk];
@@ -612,9 +612,12 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y);
             float groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - sd->pointAy[3].fZ;
 
+            float fx = M[0], fy = M[1];
+            float flen = sqrtf(fx*fx + fy*fy);
+            if (flen > 1e-6f) { fx /= flen; fy /= flen; }
             float Mshadow[16];
-            Mshadow[ 0]= sCY;  Mshadow[ 1]= sSY;  Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-            Mshadow[ 4]=-sSY;  Mshadow[ 5]= sCY;  Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
+            Mshadow[ 0]= fx;   Mshadow[ 1]= fy;   Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
+            Mshadow[ 4]=-fy;   Mshadow[ 5]= fx;   Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
             Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
             Mshadow[12]=wx;    Mshadow[13]=wy;
             Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
