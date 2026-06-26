@@ -118,6 +118,14 @@ void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filt
 void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16]);
 int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);
 
+/* Queue a flat-colour screen-space quad for the particle pass.
+ * ndcX[4], ndcY[4]: NDC coordinates of the four corners (v0=top-right, v1=top-left,
+ * v2=bottom-left, v3=bottom-right; same winding as tPolyParams SW quads).
+ * cr/cg/cb/ca: linear RGBA colour [0..1]. */
+void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
+                                       const float ndcX[4], const float ndcY[4],
+                                       float cr, float cg, float cb, float ca);
+
 /* Queue a car mesh draw into the current frame (called by game_render_hardware.c). */
 void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
                                       SDL_GPUBuffer    *vertBuf,
