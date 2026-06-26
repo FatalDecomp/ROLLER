@@ -802,10 +802,11 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         count++;
     }
 
+    uint32 bufSize = getbuffer_size(blocks);
+
     if (count == 0) {
         // Full-screen background (raw pixels, no block headers)
         int pixCount = MENU_WIDTH * MENU_HEIGHT;
-        uint32 bufSize = getbuffer_size(blocks);
         if (bufSize > 0 && (uint32)pixCount > bufSize)
             pixCount = (int)bufSize;
         uint8 *rgba = calloc(MENU_WIDTH * MENU_HEIGHT, 4);
@@ -823,13 +824,21 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
 
     for (int i = 0; i < count; i++) {
         int w = blocks[i].iWidth, h = blocks[i].iHeight;
+        int pixCount = w * h;
+        if (bufSize > 0 && blocks[i].iDataOffset >= 0) {
+            uint32 avail = (uint32)blocks[i].iDataOffset < bufSize
+                           ? bufSize - (uint32)blocks[i].iDataOffset : 0u;
+            if ((uint32)pixCount > avail)
+                pixCount = (int)avail;
+        }
         uint8 *src = (uint8 *)blocks + blocks[i].iDataOffset;
-        uint8 *rgba = malloc(w * h * 4);
+        uint8 *rgba = calloc(w * h, 4);
         if (!rgba) {
             menu_render_gpu_free_blocks(r, slot);
             return 0;
         }
-        IndexedToRGBA(src, pal, rgba, w * h);
+        if (pixCount > 0)
+            IndexedToRGBA(src, pal, rgba, pixCount);
         r->slotTextures[slot][i].texture = UploadRGBA(r->device, rgba, w, h);
         r->slotTextures[slot][i].width = w;
         r->slotTextures[slot][i].height = h;

@@ -1166,6 +1166,31 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_bSurfaceDebugViz = (bool)bSurfDbg;
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bSurfLog = (int)g_bSurfaceLog;
+      if (nk_checkbox_label(pCtx, "Surface Log", &bSurfLog))
+        g_bSurfaceLog = (bool)bSurfLog;
+
+      {
+        static char s_surfLogIdBuf[8] = "";
+        static int  s_surfLogIdLen    = 0;
+        static const float aCols[]    = { 0.65f, 0.35f };
+        nk_layout_row(pCtx, NK_DYNAMIC, DEBUG_ROW_H, 2, aCols);
+        nk_label(pCtx, "Surface Log ID", NK_TEXT_LEFT);
+        nk_flags lastEv = nk_edit_string(pCtx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT,
+                                         s_surfLogIdBuf, &s_surfLogIdLen,
+                                         (int)sizeof(s_surfLogIdBuf) - 1,
+                                         nk_filter_default);
+        if (lastEv & NK_EDIT_ACTIVE) {
+          if (s_surfLogIdLen == 0) {
+            g_iSurfaceLogId = -2;
+          } else {
+            s_surfLogIdBuf[s_surfLogIdLen] = '\0';
+            g_iSurfaceLogId = SDL_atoi(s_surfLogIdBuf);
+          }
+        }
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bVsync = (int)g_bVsync;
       if (nk_checkbox_label(pCtx, "V-sync", &bVsync)) {
         g_bVsync = (bool)bVsync;

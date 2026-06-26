@@ -39,6 +39,11 @@ extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
+extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */
+extern int   g_iSurfaceLogId;    /* -2=disabled(empty), -1=all, >=0=specific surfIdx (not saved) */
+extern bool  g_pendingClickQuery; /* right-click surface pick: set by event loop, cleared after render */
+extern float g_clickQueryNX;     /* normalised [0,1] click X within game viewport */
+extern float g_clickQueryNY;     /* normalised [0,1] click Y within game viewport */
 extern bool  g_bKeepWindowSize; /* persist window size to ROLLER.INI */
 extern bool g_bRepeat;
 extern int g_iNumTracks;

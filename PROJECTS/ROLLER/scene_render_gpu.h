@@ -47,12 +47,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
 void scene_render_gpu_set_sky_color(SceneRendererGPU *r,
                                     float red, float green, float blue);
 
-/* colorIdx: palette index for ground clear colour (-1 = disable horizon split);
-   skyFrac:    horizon fraction (0..1); sky fraction at top when !groundOnTop,
-               ground fraction at top when groundOnTop (upside-down camera).
-   groundOnTop: true when camera is inverted (SW upside_down flag). */
-void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, float skyFrac,
-                                  bool groundOnTop);
+/* colorIdx:  palette index for ground clear colour (-1 = all sky).
+   anyGround: true when at least one screen corner is on the ground side.
+   poly:      NDC sky-region polygon vertices (CCW, 3-5 verts) from S-H clip.
+   n_verts:   number of polygon vertices (0 = no sky quad). */
+void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, bool anyGround,
+                                  const float (*poly)[2], int n_verts);
 
 /* filter: 0=nearest, 1=bilinear, 2=anisotropic */
 void scene_render_gpu_set_texture_filter(SceneRendererGPU *r, int filter);
