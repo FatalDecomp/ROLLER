@@ -190,6 +190,38 @@ with open(r'$W_HUD', 'w') as f:
 "
 echo "Generated $HUD_HEADER"
 
+# --- Particle shaders ---
+PARTICLE_HEADER="$SCRIPT_DIR/../game_particle_shaders.h"
+if command -v cygpath >/dev/null 2>&1; then
+    W_PARTICLE="$(cygpath -w "$PARTICLE_HEADER")"
+else
+    W_PARTICLE="$PARTICLE_HEADER"
+fi
+
+echo "Compiling particle vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.msl"
+
+echo "Compiling particle pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_pixel.msl"
+
+echo "Generating game_particle_shaders.h..."
+"$PYTHON" -c "
+$EMBED_FN
+out_dir = r'$W_OUT'
+h = '#ifndef GAME_PARTICLE_SHADERS_H\n#define GAME_PARTICLE_SHADERS_H\n\n'
+for name in ['game_particle_vertex', 'game_particle_pixel']:
+    for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
+        p = os.path.join(out_dir, f'{name}.{ext}')
+        if os.path.exists(p):
+            h += embed(p, f'{name}_{fmt}') + '\n'
+h += '#endif\n'
+with open(r'$W_PARTICLE', 'w') as f:
+    f.write(h)
+"
+echo "Generated $PARTICLE_HEADER"
+
 echo "Generating crt_shaders.h..."
 "$PYTHON" -c "
 $EMBED_FN

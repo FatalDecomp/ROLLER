@@ -241,6 +241,7 @@ void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCa
                         const CarRenderPose *pose,
                         const CarRenderOptions *options);
 int carZcmp(const void *pCar1, const void *pCar2);
+void DisplayCarSmoke(int carIdx, const CarRenderPose *pose);
 
 //-------------------------------------------------------------------------------------------------
 #endif

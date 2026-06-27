@@ -7,6 +7,7 @@
 #include "horizon.h"
 #include "drawtrk3.h"
 #include "sound.h"
+#include "car.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -269,9 +270,30 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
                       const uint8 *palette_remap) {
     if (!renderer)
         return;
-    /* In GPU mode, scrbuf is composited as the HUD overlay (palette 0 = transparent).
-     * Screen-space effects (smoke, panel, sprites) write into scrbuf via the SW
-     * rasterizer so they appear on top of the 3D scene. */
+
+    /* GPU mode + flat colour: route to the dedicated particle pipeline so particles
+     * are drawn at full render resolution instead of the scrbuf SW overlay. */
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu
+        && !renderer->mirrorPass && handle == TEXTURE_HANDLE_INVALID) {
+        int colorIdx = poly->iSurfaceType & 0xFF;
+        if (palette_remap)
+            colorIdx = palette_remap[colorIdx] & 0xFF;
+        const tColor *c = &palette[colorIdx];
+        float cr = (float)c->byR / 63.0f;
+        float cg = (float)c->byG / 63.0f;
+        float cb = (float)c->byB / 63.0f;
+        float ca = (poly->iSurfaceType & SURFACE_FLAG_TRANSPARENT) ? 0.5f : 1.0f;
+        float ww = (float)winw, wh = (float)winh;
+        float ndcX[4], ndcY[4];
+        for (int i = 0; i < 4; i++) {
+            ndcX[i] = (float)poly->vertices[i].x / ww * 2.0f - 1.0f;
+            ndcY[i] = 1.0f - (float)poly->vertices[i].y / wh * 2.0f;
+        }
+        scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
+        return;
+    }
+
+    /* SW path: scrbuf overlay (also used for textured screen quads in GPU mode). */
     int tex_idx = game_render_texture_index_from_handle(handle);
     TextureHandle swHandle = tex_idx >= 0
         ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
@@ -323,6 +345,8 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
             game_render_hw_draw_car(renderer->hw, renderer->gpu, carIdx, pose, options);
             game_render_hw_draw_car_name_tag(carIdx, pose);
         }
+        CarRenderPose sw_pose = { pose->position, pose->yaw, pose->pitch, pose->roll };
+        DisplayCarSmoke(carIdx, &sw_pose);
     }
 }
 

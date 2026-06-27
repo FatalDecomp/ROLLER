@@ -6,6 +6,7 @@
 #include "game_scene_shaders.h"   /* scene vertex/pixel SPIRV+MSL */
 #include "menu_shaders.h"         /* menu_mesh_* — reused for car pipeline */
 #include "game_hud_shaders.h"     /* HUD overlay vertex/pixel */
+#include "game_particle_shaders.h" /* particle vertex/pixel */
 #include "3d.h"                   /* wide_on */
 #include "roller.h"               /* ROLLERTryAcquireGPUSwapchainTexture */
 #include <SDL3/SDL.h>
@@ -27,6 +28,7 @@ extern tColor palette[256];
 #define SCENE_GPU_MAX_VERTICES       300000
 #define SCENE_GPU_MAX_DRAW_CMDS      8192
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
+#define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_NEAR               80.0f
 #define SCENE_GPU_FAR                20000000.0f
 
@@ -51,6 +53,12 @@ typedef struct {
     float x, y;
     float u, v;
 } SceneGPUHUDVertex;
+
+/* 2D NDC vertex for screen-space particle quads: position + flat colour. */
+typedef struct {
+    float x, y;
+    float r, g, b, a;
+} SceneGPUParticleVertex;
 
 /* --------------------------------------------------------------------------
  * Per-texture slot — one SDL_GPUTexture per tile rather than one atlas.
@@ -218,6 +226,13 @@ struct SceneRendererGPU {
 
     /* Optional CRT post-process filter applied instead of the plain blit. */
     CRTFilter *crtFilter;
+
+    /* ---- Screen-space particle pass ---- */
+    SDL_GPUGraphicsPipeline *particlePipeline;
+    SDL_GPUBuffer           *particleVertBuf;
+    SDL_GPUTransferBuffer   *particleVertXfer;
+    SceneGPUParticleVertex  *particleVerts;  /* CPU-side accumulation buffer */
+    int                      particleVertCount;
 };
 
 /* ==========================================================================
@@ -798,6 +813,53 @@ static SDL_GPUGraphicsPipeline *make_sky_pipeline(SceneRendererGPU *r,
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
+static SDL_GPUGraphicsPipeline *make_particle_pipeline(SceneRendererGPU *r,
+                                                        SDL_GPUShader *vert,
+                                                        SDL_GPUShader *frag)
+{
+    SDL_GPUVertexAttribute attrs[2] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUParticleVertex, x)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+         .offset=(Uint32)offsetof(SceneGPUParticleVertex, r)},
+    };
+    SDL_GPUVertexBufferDescription binding = {
+        .pitch      = sizeof(SceneGPUParticleVertex),
+        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX
+    };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+        .blend_state = {
+            .enable_blend          = true,
+            .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+            .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .color_blend_op        = SDL_GPU_BLENDOP_ADD,
+            .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+            .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .alpha_blend_op        = SDL_GPU_BLENDOP_ADD
+        }
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = frag,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = {
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 2,
+            .vertex_buffer_descriptions = &binding,
+            .num_vertex_buffers         = 1
+        },
+        .target_info = {
+            .color_target_descriptions = &ct,
+            .num_color_targets         = 1,
+            .has_depth_stencil_target  = false
+        }
+    };
+    pi.rasterizer_state.fill_mode  = SDL_GPU_FILLMODE_FILL;
+    pi.rasterizer_state.cull_mode  = SDL_GPU_CULLMODE_NONE;
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
 static SDL_GPUGraphicsPipeline *make_hud_pipeline(SceneRendererGPU *r,
                                                    SDL_GPUShader *vert,
                                                    SDL_GPUShader *frag)
@@ -949,6 +1011,19 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     SDL_ReleaseGPUShader(device, hf);
     if (!r->hudPipeline) goto fail;
 
+    /* ---- Particle shaders ---- */
+    SDL_GPUShader *pv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
+        game_particle_vertex_spirv, game_particle_vertex_spirv_size,
+        game_particle_vertex_msl,   game_particle_vertex_msl_size, 0, 0);
+    SDL_GPUShader *pf = load_shader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_particle_pixel_spirv,  game_particle_pixel_spirv_size,
+        game_particle_pixel_msl,    game_particle_pixel_msl_size,  0, 0);
+    if (!pv || !pf) goto fail;
+    r->particlePipeline = make_particle_pipeline(r, pv, pf);
+    SDL_ReleaseGPUShader(device, pv);
+    SDL_ReleaseGPUShader(device, pf);
+    if (!r->particlePipeline) { SDL_Log("PARTICLE: pipeline creation failed: %s", SDL_GetError()); goto fail; }
+
     /* ---- Static HUD full-screen quad (6 verts) ----
      * shadercross (HLSL→SPIR-V) negates SV_Position.y to convert from D3D
      * convention (y=+1 top) to Vulkan (y=-1 top).  Supply D3D-convention Y so
@@ -987,6 +1062,18 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         r->skyVertXfer = SDL_CreateGPUTransferBuffer(device, &gtbi);
         if (!r->skyVertBuf || !r->skyVertXfer) goto fail;
     }
+
+    /* ---- Particle vertex buffer ---- */
+    {
+        Uint32 pvSize = (Uint32)(SCENE_GPU_MAX_PARTICLE_VERTS * (int)sizeof(SceneGPUParticleVertex));
+        SDL_GPUBufferCreateInfo pbi = { .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = pvSize };
+        r->particleVertBuf  = SDL_CreateGPUBuffer(device, &pbi);
+        SDL_GPUTransferBufferCreateInfo ptbi = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = pvSize };
+        r->particleVertXfer = SDL_CreateGPUTransferBuffer(device, &ptbi);
+        r->particleVerts    = malloc(pvSize);
+        if (!r->particleVertBuf || !r->particleVertXfer || !r->particleVerts) goto fail;
+    }
+
     r->groundColorIdx = -1;
 
     return r;
@@ -1033,9 +1120,13 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->bfWallPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);
     if (r->shadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
     if (r->carPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
-    if (r->skyPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
-    if (r->hudPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->hudPipeline);
-    if (r->sampler)        SDL_ReleaseGPUSampler(r->device, r->sampler);
+    if (r->skyPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
+    if (r->hudPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->hudPipeline);
+    if (r->particlePipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);
+    if (r->particleVertBuf)  SDL_ReleaseGPUBuffer(r->device, r->particleVertBuf);
+    if (r->particleVertXfer) SDL_ReleaseGPUTransferBuffer(r->device, r->particleVertXfer);
+    free(r->particleVerts);
+    if (r->sampler)          SDL_ReleaseGPUSampler(r->device, r->sampler);
     if (r->samplerNearest) SDL_ReleaseGPUSampler(r->device, r->samplerNearest);
     free(r);
 }
@@ -1054,6 +1145,22 @@ static bool s_pt_in_tri(float qx, float qy,
 }
 static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float vZ; } s_clickHit;
 static bool s_clickWasPending;
+
+void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
+                                       const float ndcX[4], const float ndcY[4],
+                                       float cr, float cg, float cb, float ca)
+{
+    if (!r || !r->particleVerts) return;
+    if (r->particleVertCount + 6 > SCENE_GPU_MAX_PARTICLE_VERTS) return;
+    SceneGPUParticleVertex *v = r->particleVerts + r->particleVertCount;
+    /* Two triangles (v0,v1,v2) and (v0,v2,v3) covering the quad. */
+    static const int idx[6] = {0, 1, 2, 0, 2, 3};
+    for (int i = 0; i < 6; i++) {
+        int k = idx[i];
+        v[i] = (SceneGPUParticleVertex){ndcX[k], ndcY[k], cr, cg, cb, ca};
+    }
+    r->particleVertCount += 6;
+}
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r)
 {
@@ -1102,10 +1209,11 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
                     SDL_GetError());
         r->pendingVsyncSet = false;
     }
-    r->vertexCount  = 0;
-    r->drawCmdCount = 0;
-    r->carDrawCount = 0;
-    r->hudSrcBuf    = NULL;
+    r->vertexCount       = 0;
+    r->drawCmdCount      = 0;
+    r->carDrawCount      = 0;
+    r->particleVertCount = 0;
+    r->hudSrcBuf         = NULL;
     debug_overlay_surface_labels_reset();
     s_clickHit.active = false;
     s_clickWasPending = g_pendingClickQuery;
@@ -1238,6 +1346,25 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             skyVertCount = gi;
         } else {
             drawSky = false;
+        }
+    }
+
+    /* ---- Particle vertex upload ---- */
+    bool drawParticles = (r->particleVertCount > 0
+                          && r->particlePipeline && r->particleVerts && r->particleVertBuf);
+    if (drawParticles) {
+        SceneGPUParticleVertex *pm = SDL_MapGPUTransferBuffer(r->device, r->particleVertXfer, false);
+        if (pm) {
+            memcpy(pm, r->particleVerts, (size_t)r->particleVertCount * sizeof(SceneGPUParticleVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->particleVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation psrc = {.transfer_buffer = r->particleVertXfer};
+            SDL_GPUBufferRegion pdst = {.buffer = r->particleVertBuf,
+                                        .size = (Uint32)(r->particleVertCount * (int)sizeof(SceneGPUParticleVertex))};
+            SDL_UploadToGPUBuffer(cp, &psrc, &pdst, false);
+            SDL_EndGPUCopyPass(cp);
+        } else {
+            drawParticles = false;
         }
     }
 
@@ -1435,6 +1562,28 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     }
 
     SDL_EndGPURenderPass(rp);
+
+    /* ====================================================================
+     * Pass 1.5: Screen-space particles → offscreen (no depth, alpha-blended)
+     * ==================================================================== */
+    if (drawParticles) {
+        SDL_GPUColorTargetInfo particleColor = {
+            .texture  = resolveTarget,
+            .load_op  = SDL_GPU_LOADOP_LOAD,
+            .store_op = SDL_GPU_STOREOP_STORE
+        };
+        SDL_GPURenderPass *prp = SDL_BeginGPURenderPass(r->cmdBuf, &particleColor, 1, NULL);
+        SDL_SetGPUViewport(prp, &vp);
+        if (r->splitScreen) {
+            SDL_Rect scissor = { .x = 0, .y = 0, .w = renderW / 2, .h = renderH };
+            SDL_SetGPUScissor(prp, &scissor);
+        }
+        SDL_BindGPUGraphicsPipeline(prp, r->particlePipeline);
+        SDL_GPUBufferBinding pvbb = {.buffer = r->particleVertBuf};
+        SDL_BindGPUVertexBuffers(prp, 0, &pvbb, 1);
+        SDL_DrawGPUPrimitives(prp, (Uint32)r->particleVertCount, 1, 0, 0);
+        SDL_EndGPURenderPass(prp);
+    }
 
     /* ====================================================================
      * Pass 2: HUD overlay → offscreen (no depth)
