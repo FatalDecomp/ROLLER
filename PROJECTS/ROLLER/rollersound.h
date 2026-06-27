@@ -16,6 +16,20 @@ void MIDIStopSong();
 void MIDISetMasterVolume(int8 volume);
 int MIDIGetMasterVolume();
 
+bool MIDI_OS_Init(void);
+void MIDI_OS_Shutdown(void);
+void MIDI_OS_InitSong(const tInitSong *data);
+void MIDI_OS_StartSong(void);
+void MIDI_OS_StopSong(void);
+void MIDI_OS_SetMasterVolume(int8 volume);
+
+bool MIDI_OPL_Init(void);
+void MIDI_OPL_Shutdown(void);
+void MIDI_OPL_InitSong(const tInitSong *data);
+void MIDI_OPL_StartSong(void);
+void MIDI_OPL_StopSong(void);
+void MIDI_OPL_SetMasterVolume(int8 volume);
+
 int DIGISampleStart(tSampleData *data);
 bool DIGISampleDone(int index);
 int DIGISampleGeneration(int index);

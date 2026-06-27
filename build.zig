@@ -179,6 +179,19 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("ws2_32");
             exe.linkSystemLibrary("iphlpapi");
             exe.linkSystemLibrary("winmm");
+
+            // rtmidi: OS MIDI output (WinMM backend); needs libc++ for RtMidi.cpp
+            exe_mod.link_libcpp = true;
+            exe_mod.addIncludePath(b.path("external/rtmidi"));
+            exe_mod.addCSourceFiles(.{
+                .root  = b.path("external/rtmidi"),
+                .files = &.{ "RtMidi.cpp", "rtmidi_c.cpp" },
+                .flags = &.{"-D__WINDOWS_MM__"},
+            });
+            exe_mod.addCSourceFiles(.{
+                .flags = c_flags,
+                .files = &.{ "PROJECTS/ROLLER/midi_player.c" },
+            });
         },
         else => {
             exe_mod.addCMacro("__int16", "int16");
@@ -493,6 +506,21 @@ fn configureDependencies(
 
         if (!bAndroid)
             exe_mod.linkLibrary(sdl.artifact("SDL3"));
+    }
+
+    // libADLMIDI: OPL3 FM synthesis backend (pure PCM, works on all platforms)
+    {
+        const adlmidi = b.dependency("libadlmidi", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const adlmidi_lib = adlmidi.artifact("adlmidi");
+        // Give the dependency's static library the Android NDK sysroot so that
+        // Zig's bundled libcxx can find the platform C headers via #include_next.
+        if (android_libc_file) |lc_file| adlmidi_lib.setLibCFile(lc_file);
+        exe_mod.addIncludePath(adlmidi.builder.path("include"));
+        exe_mod.linkLibrary(adlmidi_lib);
+        cflags.addIncludePath(adlmidi.builder.path("include"));
     }
 
     if (!bAndroid) {

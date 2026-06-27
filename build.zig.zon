@@ -24,6 +24,9 @@
             .url = "git+https://github.com/Zizin13/libcdio#194738f44585362096df6834ae891c5a4acd8a11",
             .hash = "libcdio-2.3.0-LMRPmUkTFgCeNRky4PjRDBMIHE2EBi0yLphewao0rXVC",
         },
+        .libadlmidi = .{
+            .path = "external/libadlmidi",
+        },
     },
     .paths = .{
         "build.zig",

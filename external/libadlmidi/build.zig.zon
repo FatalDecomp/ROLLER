@@ -1,0 +1,10 @@
+.{
+    .name = .libadlmidi,
+    .version = "1.6.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "include/",
+        "src/",
+    },
+}
