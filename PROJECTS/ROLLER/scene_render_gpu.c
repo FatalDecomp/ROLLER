@@ -1023,7 +1023,6 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     SDL_ReleaseGPUShader(device, pv);
     SDL_ReleaseGPUShader(device, pf);
     if (!r->particlePipeline) { SDL_Log("PARTICLE: pipeline creation failed: %s", SDL_GetError()); goto fail; }
-    SDL_Log("PARTICLE: pipeline OK");
 
     /* ---- Static HUD full-screen quad (6 verts) ----
      * shadercross (HLSL→SPIR-V) negates SV_Position.y to convert from D3D

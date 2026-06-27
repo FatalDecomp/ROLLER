@@ -654,7 +654,7 @@ void draw_smoke(uint8 *pScrBuf, int iPlayerCarIdx)
 
   bIsPlayer2 = iPlayerCarIdx != ViewType[0];    // Check if this is player 2 (not player 1)
   iSelectedView = SelectedView[bIsPlayer2];     // Get the selected view mode for this player
-  if (!iSelectedView || iSelectedView == 2 || iSelectedView == 7)
+  if (!iSelectedView || iSelectedView == 2 || iSelectedView == 7) // Only render smoke in cockpit (0), in-car (2), or behind-car (7) views
   {
     set_starts(0);
     if (player_type == 2)                     // Two player mode - adjust car index for player 2
