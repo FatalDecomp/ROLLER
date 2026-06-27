@@ -509,16 +509,15 @@ fn configureDependencies(
     }
 
     // libADLMIDI: OPL3 FM synthesis backend (pure PCM, works on all platforms)
-    // link_libcpp is NOT set on exe_mod here: the library's own module already
-    // has it, which propagates through linkLibrary. Setting it on exe_mod too
-    // would make Zig inject its bundled libc++ include path ahead of the Android
-    // NDK sysroot, breaking C file compilation on Android.
     {
         const adlmidi = b.dependency("libadlmidi", .{
             .target = target,
             .optimize = optimize,
         });
         const adlmidi_lib = adlmidi.artifact("adlmidi");
+        // Give the dependency's static library the Android NDK sysroot so that
+        // Zig's bundled libcxx can find the platform C headers via #include_next.
+        if (android_libc_file) |lc_file| adlmidi_lib.setLibCFile(lc_file);
         exe_mod.addIncludePath(adlmidi.builder.path("include"));
         exe_mod.linkLibrary(adlmidi_lib);
         cflags.addIncludePath(adlmidi.builder.path("include"));

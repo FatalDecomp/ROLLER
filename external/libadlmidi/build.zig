@@ -9,10 +9,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    // On Android the NDK sysroot provides C++ headers; using Zig's bundled
-    // libcxx headers would inject them ahead of the sysroot and break C file
-    // compilation (FP_NAN, ldiv_t etc. missing from the C++ math.h/stdlib.h).
-    if (!target.result.abi.isAndroid()) lib_mod.link_libcpp = true;
+    lib_mod.link_libcpp = true;
     lib_mod.sanitize_c = .off;
     lib_mod.addIncludePath(b.path("include"));
     lib_mod.addIncludePath(b.path("src"));
