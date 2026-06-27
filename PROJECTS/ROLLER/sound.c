@@ -90,6 +90,8 @@ int SpeechVolume = 127;     //000A478C
 int MusicVolume = 108;      //000A4790
 int MusicCard = 0;          //000A4794
 int MusicCD = 0;            //000A4798
+int MusicOS = 0;
+int MusicOPL = 0;
 int MusicPort = 0;          //000A479C
 uint8 *SongPtr = NULL;      //000A47A0
 int CDSong[20] = { 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0 }; //000A47A8
@@ -1546,6 +1548,12 @@ void stop()
       //sosMIDIStopSong(SongHandle);
       //sosMIDIResetSong(SongHandle);
     }
+  }
+  if (MusicOS) {
+    MIDI_OS_StopSong();
+  }
+  if (MusicOPL) {
+    MIDI_OPL_StopSong();
   }
 }
 
@@ -3107,10 +3115,18 @@ void startmusic(int iSong)
     stop();
     // sosMIDIUnInitSong(SongHandle);
     SongPtr = 0;
+  } else if (MusicOS) {
+    MIDI_OS_StopSong();
+  } else if (MusicOPL) {
+    MIDI_OPL_StopSong();
   }
 
-  if (musicon)
+  if (MusicCard && musicon)
     MIDISetMasterVolume(MusicVolume);
+  if (MusicOS && musicon)
+    MIDI_OS_SetMasterVolume(MusicVolume);
+  if (MusicOPL && musicon)
+    MIDI_OPL_SetMasterVolume(MusicVolume);
 
   if (MusicCD)
     SetAudioVolume(MusicVolume);
@@ -3143,7 +3159,40 @@ void startmusic(int iSong)
     return;
   }
 
-  if (musicon) {
+  if (MusicOS && musicon) {
+    uint32_t musiclength;
+    const char *szMidiFile = (const char *)&Song[GMSong[iMusic]];
+    SDL_Log("midi_player: startmusic song=%d file=%s", iSong, szMidiFile);
+    loadfile(szMidiFile, (void *)&musicbuffer, &musiclength, 0);
+    SDL_Log("midi_player: loadfile returned buf=%p len=%u", (void *)musicbuffer, musiclength);
+    if (musicbuffer) {
+      tInitSong InitSong = {
+        .pData = (void *)musicbuffer,
+        .iLength = musiclength,
+      };
+      MIDI_OS_InitSong(&InitSong);
+      fre((void **)&musicbuffer);
+      MIDI_OS_StartSong();
+    }
+    return;
+  }
+
+  if (MusicOPL && musicon) {
+    uint32_t musiclength;
+    loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
+    if (musicbuffer) {
+      tInitSong InitSong = {
+        .pData = (void *)musicbuffer,
+        .iLength = musiclength,
+      };
+      MIDI_OPL_InitSong(&InitSong);
+      fre((void **)&musicbuffer);
+      MIDI_OPL_StartSong();
+    }
+    return;
+  }
+
+  if (MusicCard && musicon) {
     uint32_t musiclength;
     loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
     SongPtr = musicbuffer;
@@ -3178,6 +3227,10 @@ void stopmusic()
     }
     //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
     SongPtr = 0;
+  } else if (MusicOS) {
+    MIDI_OS_StopSong();
+  } else if (MusicOPL) {
+    MIDI_OPL_StopSong();
   }
 }
 

@@ -770,6 +770,12 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (!MIDI_Init(localMidiPath)) {
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
   }
+  if (!MIDI_OS_Init()) {
+    SDL_Log("Failed to initialize OS MIDI (rtmidi).");
+  }
+  if (!MIDI_OPL_Init()) {
+    SDL_Log("Failed to initialize OPL3 MIDI (libADLMIDI).");
+  }
 
   return 0;
 }
@@ -1339,6 +1345,8 @@ void ShutdownSDL()
   if (!g_bSnapshotMode) {
     DIGIClearAllStream();
     MIDI_Shutdown();
+    MIDI_OS_Shutdown();
+    MIDI_OPL_Shutdown();
 
     InputShutdown();
 

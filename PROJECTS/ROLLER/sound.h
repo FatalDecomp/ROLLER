@@ -289,6 +289,8 @@ extern int SpeechVolume;
 extern int MusicVolume;
 extern int MusicCard;
 extern int MusicCD;
+extern int MusicOS;
+extern int MusicOPL;
 extern int MusicPort;
 extern uint8 *SongPtr;
 extern int CDSong[20];

@@ -212,6 +212,129 @@ int MIDIGetMasterVolume()
 
 #pragma endregion
 //-------------------------------------------------------------------------------------------------
+#pragma region MIDI_OS
+
+#include "midi_player.h"
+
+bool MIDI_OS_Init(void)
+{
+  return midi_player_init();
+}
+
+void MIDI_OS_Shutdown(void)
+{
+  midi_player_shutdown();
+}
+
+void MIDI_OS_InitSong(const tInitSong *data)
+{
+  midi_player_load(data->pData, data->iLength, true);
+  midi_player_set_volume(MIDIGetMasterVolume());
+}
+
+void MIDI_OS_StartSong(void)
+{
+  midi_player_start();
+}
+
+void MIDI_OS_StopSong(void)
+{
+  midi_player_stop();
+}
+
+void MIDI_OS_SetMasterVolume(int8 volume)
+{
+  if (volume < 0) volume = 0;
+  midi_player_set_volume(volume);
+}
+
+#pragma endregion
+//-------------------------------------------------------------------------------------------------
+#pragma region MIDI_OPL
+
+#include <adlmidi.h>
+
+#define MIDI_OPL_RATE 49716
+
+static struct ADL_MIDIPlayer *s_adl       = NULL;
+static SDL_AudioStream      *s_adl_stream = NULL;
+
+static void MIDI_OPL_Callback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
+{
+  (void)userdata; (void)additional_amount;
+  if (!s_adl) return;
+  int n = total_amount / (int)sizeof(short);
+  short *buf = (short *)SDL_malloc((size_t)total_amount);
+  if (!buf) return;
+  int got = adl_play(s_adl, n, buf);
+  if (got > 0)
+    SDL_PutAudioStreamData(stream, buf, got * (int)sizeof(short));
+  SDL_free(buf);
+}
+
+bool MIDI_OPL_Init(void)
+{
+  SDL_Log("MIDI_OPL_Init: libADLMIDI %s", adl_linkedLibraryVersion());
+  s_adl = adl_init((long)MIDI_OPL_RATE);
+  if (!s_adl) {
+    SDL_Log("MIDI_OPL_Init: adl_init failed: %s", adl_errorString());
+    return false;
+  }
+  adl_setBank(s_adl, 0);
+
+  SDL_AudioSpec spec = { .channels = 2, .freq = MIDI_OPL_RATE, .format = SDL_AUDIO_S16 };
+  s_adl_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, MIDI_OPL_Callback, NULL);
+  return s_adl_stream != NULL;
+}
+
+void MIDI_OPL_Shutdown(void)
+{
+  if (s_adl_stream) {
+    SDL_PauseAudioStreamDevice(s_adl_stream);
+    SDL_LockAudioStream(s_adl_stream);
+    SDL_SetAudioStreamGetCallback(s_adl_stream, NULL, NULL);
+    SDL_UnlockAudioStream(s_adl_stream);
+    SDL_DestroyAudioStream(s_adl_stream);
+    s_adl_stream = NULL;
+  }
+  if (s_adl) {
+    adl_close(s_adl);
+    s_adl = NULL;
+  }
+}
+
+void MIDI_OPL_InitSong(const tInitSong *data)
+{
+  if (!s_adl || !s_adl_stream) return;
+  SDL_LockAudioStream(s_adl_stream);
+  if (adl_openData(s_adl, data->pData, (unsigned long)data->iLength) < 0) {
+    SDL_Log("MIDI_OPL_InitSong: failed: %s", adl_errorInfo(s_adl));
+  } else {
+    adl_setLoopEnabled(s_adl, 1);
+    adl_setLoopCount(s_adl, -1);
+  }
+  SDL_UnlockAudioStream(s_adl_stream);
+}
+
+void MIDI_OPL_StartSong(void)
+{
+  if (s_adl_stream) SDL_ResumeAudioStreamDevice(s_adl_stream);
+}
+
+void MIDI_OPL_StopSong(void)
+{
+  if (s_adl_stream) SDL_PauseAudioStreamDevice(s_adl_stream);
+}
+
+void MIDI_OPL_SetMasterVolume(int8 volume)
+{
+  if (volume < 0) volume = 0;
+  if (s_adl_stream)
+    SDL_SetAudioStreamGain(s_adl_stream, (float)volume / 127.0f);
+}
+
+#pragma endregion
+//-------------------------------------------------------------------------------------------------
 #pragma region DIGI
 #define NUM_DIGI_STREAMS 32
 #define DIGI_SAMPLE_LOOP_FLAGS 18176

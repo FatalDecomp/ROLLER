@@ -2687,12 +2687,20 @@ static int InputParseBoolSetting(const char *szValue, bool *pbOut)
 static void InputApplyMusicSource(int iUseCD)
 {
   if (iUseCD) {
-    MusicCD = -1;
-    MusicCard = 0;
+    MusicCD = -1; MusicCard = 0;  MusicOS = 0; MusicOPL = 0;
   } else {
-    MusicCD = 0;
-    MusicCard = -1;
+    MusicCD = 0;  MusicCard = -1; MusicOS = 0; MusicOPL = 0;
   }
+}
+
+static void InputApplyMusicSourceOS(void)
+{
+  MusicCD = 0; MusicCard = 0; MusicOS = -1; MusicOPL = 0;
+}
+
+static void InputApplyMusicSourceOPL(void)
+{
+  MusicCD = 0; MusicCard = 0; MusicOS = 0; MusicOPL = -1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2710,6 +2718,19 @@ static int InputParseMusicSourceSetting(const char *szValue)
 
   if (InputStringEqualsNoCase(szValue, "midi")) {
     InputApplyMusicSource(0);
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "midi_os") ||
+      InputStringEqualsNoCase(szValue, "os_midi")) {
+    InputApplyMusicSourceOS();
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szValue, "midi_opl") ||
+      InputStringEqualsNoCase(szValue, "opl") ||
+      InputStringEqualsNoCase(szValue, "opl3")) {
+    InputApplyMusicSourceOPL();
     return 1;
   }
 
@@ -3373,7 +3394,7 @@ void InputSaveConfig(void)
 
   fprintf(fp, "InputVersion=2\n");
   fprintf(fp, "[Settings]\n");
-  fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : "MIDI");
+  fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : MusicOPL ? "MIDI_OPL" : MusicOS ? "MIDI_OS" : "MIDI");
   fprintf(fp, "InfiniteDrawDistance=%d\n", g_bForceMaxDraw ? 1 : 0);
   fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
   fprintf(fp, "AirborneCollisions=%d\n", g_bAirborneCollisions ? 1 : 0);

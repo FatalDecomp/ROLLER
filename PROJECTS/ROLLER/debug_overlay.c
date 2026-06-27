@@ -790,15 +790,17 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-    static const char *apszMusic[] = { "MIDI", "CD" };
-    int iMusicSel = (MusicCD != 0) ? 1 : 0;
+    static const char *apszMusic[] = { "MIDI", "MIDI (OS)", "MIDI (OPL3)", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 3 : (MusicOPL != 0) ? 2 : (MusicOS != 0) ? 1 : 0;
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
     nk_label(pCtx, "Music", NK_TEXT_LEFT);
-    int iNewMusicSel = nk_combo(pCtx, apszMusic, 2, iMusicSel, DEBUG_ROW_H, nk_vec2(140, 90));
+    int iNewMusicSel = nk_combo(pCtx, apszMusic, 4, iMusicSel, DEBUG_ROW_H, nk_vec2(140, 110));
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
-      if (iNewMusicSel == 1) { MusicCD = -1; MusicCard = 0; }
-      else                   { MusicCD = 0;  MusicCard = -1; }
+      if (iNewMusicSel == 3)      { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
+      else if (iNewMusicSel == 2) { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
+      else if (iNewMusicSel == 1) { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
+      else                        { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
       startmusic(g_iCurrentSong);
       InputSaveConfig();
     }
