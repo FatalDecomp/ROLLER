@@ -100,7 +100,6 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/rollerinput.c",
             "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/rollersound.c",
-            "PROJECTS/ROLLER/midi_player.c",
             "PROJECTS/ROLLER/snapshot.c",
             "PROJECTS/ROLLER/snapshot_scenes.c",
             "PROJECTS/ROLLER/sound.c",
@@ -187,6 +186,10 @@ pub fn build(b: *std.Build) void {
                 .root  = b.path("external/rtmidi"),
                 .files = &.{ "RtMidi.cpp", "rtmidi_c.cpp" },
                 .flags = &.{"-D__WINDOWS_MM__"},
+            });
+            exe_mod.addCSourceFiles(.{
+                .flags = c_flags,
+                .files = &.{ "PROJECTS/ROLLER/midi_player.c" },
             });
         },
         else => {

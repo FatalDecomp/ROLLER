@@ -214,38 +214,58 @@ int MIDIGetMasterVolume()
 //-------------------------------------------------------------------------------------------------
 #pragma region MIDI_OS
 
+#ifdef _WIN32
 #include "midi_player.h"
+#endif
 
 bool MIDI_OS_Init(void)
 {
+#ifdef _WIN32
   return midi_player_init();
+#else
+  return false;
+#endif
 }
 
 void MIDI_OS_Shutdown(void)
 {
+#ifdef _WIN32
   midi_player_shutdown();
+#endif
 }
 
 void MIDI_OS_InitSong(const tInitSong *data)
 {
+#ifdef _WIN32
   midi_player_load(data->pData, data->iLength, true);
   midi_player_set_volume(MIDIGetMasterVolume());
+#else
+  (void)data;
+#endif
 }
 
 void MIDI_OS_StartSong(void)
 {
+#ifdef _WIN32
   midi_player_start();
+#endif
 }
 
 void MIDI_OS_StopSong(void)
 {
+#ifdef _WIN32
   midi_player_stop();
+#endif
 }
 
 void MIDI_OS_SetMasterVolume(int8 volume)
 {
   if (volume < 0) volume = 0;
+#ifdef _WIN32
   midi_player_set_volume(volume);
+#else
+  (void)volume;
+#endif
 }
 
 #pragma endregion
