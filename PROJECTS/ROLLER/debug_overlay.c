@@ -21,6 +21,7 @@
 #define NK_INCLUDE_DEFAULT_ALLOCATOR
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
+#define NK_ZERO_COMMAND_MEMORY
 #define NK_IMPLEMENTATION
 #include "nuklear.h"
 
@@ -37,6 +38,8 @@
 #define OVERLAY_FONT_SIZE 24.0f
 #define PANEL_MARGIN     10
 #define DEBUG_ROW_H      30
+#define COMBO_ITEM_H     (DEBUG_ROW_H + 4)
+#define COMBO_W          190
 #define DEBUG_SPACING_H  12
 #define HINT_H           42
 #define PANEL_Y          (PANEL_MARGIN + HINT_H + PANEL_MARGIN)
@@ -404,6 +407,8 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->window.border_color          = nk_rgba(60,  60,  60,  200);
   pStyle->checkbox.cursor_normal       = nk_style_item_color(nk_rgba(220, 220, 220, 255));
   pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
+  pStyle->combo.content_padding        = nk_vec2(4, 0);
+  pStyle->combo.border                 = 0;
 
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
@@ -790,17 +795,23 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+#ifdef __ANDROID__
+    static const char *apszMusic[] = { "MIDI", "MIDI (OPL3)", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 2 : (MusicOPL != 0) ? 1 : 0;
+#else
     static const char *apszMusic[] = { "MIDI", "MIDI (OS)", "MIDI (OPL3)", "CD" };
     int iMusicSel = (MusicCD != 0) ? 3 : (MusicOPL != 0) ? 2 : (MusicOS != 0) ? 1 : 0;
+#endif
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
     nk_label(pCtx, "Music", NK_TEXT_LEFT);
-    int iNewMusicSel = nk_combo(pCtx, apszMusic, 4, iMusicSel, DEBUG_ROW_H, nk_vec2(140, 110));
+    int iNewMusicSel = nk_combo(pCtx, apszMusic, NK_LEN(apszMusic), iMusicSel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
-      if (iNewMusicSel == 3)      { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
-      else if (iNewMusicSel == 2) { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
-      else if (iNewMusicSel == 1) { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
-      else                        { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
+      const char *pszSel = apszMusic[iNewMusicSel];
+      if (pszSel == "CD")          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
+      else if (pszSel == "MIDI (OPL3)") { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
+      else if (pszSel == "MIDI (OS)")   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
+      else                         { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
       startmusic(g_iCurrentSong);
       InputSaveConfig();
     }
@@ -861,7 +872,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       int iInputBackend = InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? 1 : 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Windows input", NK_TEXT_LEFT);
-      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, 2, iInputBackend, DEBUG_ROW_H, nk_vec2(190, 90));
+      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, NK_LEN(apszInputBackends), iInputBackend, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewInputBackend != iInputBackend) {
         InputSetWindowsBackend(iNewInputBackend == 1 ? INPUT_WINDOWS_BACKEND_SDL_DINPUT : INPUT_WINDOWS_BACKEND_WINMM);
         InputSaveConfig();
@@ -877,7 +888,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         iSel = 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Phone controls", NK_TEXT_LEFT);
-      int iNewSel = nk_combo(pCtx, apszPhoneControls, 3, iSel, DEBUG_ROW_H, nk_vec2(190, 120));
+      int iNewSel = nk_combo(pCtx, apszPhoneControls, NK_LEN(apszPhoneControls), iSel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewSel != iSel) {
         g_ePhoneControls = (ePhoneControls)iNewSel;
         InputSaveConfig();
@@ -931,7 +942,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = i;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Render scale", NK_TEXT_LEFT);
-      int iNewScale = nk_combo(pCtx, apszScale, 4, iCurScale, 20, nk_vec2(130, 100));
+      int iNewScale = nk_combo(pCtx, apszScale, NK_LEN(apszScale), iCurScale, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewScale != iCurScale) {
         g_fRenderScale = k_scaleVals[iNewScale];
         game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
@@ -941,7 +952,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszAA[] = { "Off", "MSAA 2x", "MSAA 4x", "MSAA 8x" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Anti-aliasing", NK_TEXT_LEFT);
-      int iNewAA = nk_combo(pCtx, apszAA, 4, g_iAntiAliasing, 20, nk_vec2(130, 100));
+      int iNewAA = nk_combo(pCtx, apszAA, NK_LEN(apszAA), g_iAntiAliasing, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewAA != g_iAntiAliasing) {
         g_iAntiAliasing = iNewAA;
         game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
@@ -951,7 +962,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszAniso[] = { "2x", "4x", "8x", "16x" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Anisotropy", NK_TEXT_LEFT);
-      int iNewAniso = nk_combo(pCtx, apszAniso, 4, g_iAnisotropyLevel, 20, nk_vec2(130, 100));
+      int iNewAniso = nk_combo(pCtx, apszAniso, NK_LEN(apszAniso), g_iAnisotropyLevel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewAniso != g_iAnisotropyLevel) {
         g_iAnisotropyLevel = iNewAniso;
         game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
@@ -961,7 +972,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszFilter[] = { "Nearest", "Bilinear", "Anisotropic" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Texture filter", NK_TEXT_LEFT);
-      int iNewFilter = nk_combo(pCtx, apszFilter, 3, g_iTextureFilter, 20, nk_vec2(130, 80));
+      int iNewFilter = nk_combo(pCtx, apszFilter, NK_LEN(apszFilter), g_iTextureFilter, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewFilter != g_iTextureFilter) {
         g_iTextureFilter = iNewFilter;
         game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
@@ -1122,7 +1133,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszFps[] = { "FPS off", "Top left", "Top right", "Bottom left", "Bottom right" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "FPS counter", NK_TEXT_LEFT);
-      int iNewFps = nk_combo(pCtx, apszFps, 5, g_iFpsDisplay, 20, nk_vec2(130, 120));
+      int iNewFps = nk_combo(pCtx, apszFps, NK_LEN(apszFps), g_iFpsDisplay, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewFps != g_iFpsDisplay) {
         g_iFpsDisplay = iNewFps;
         InputSaveConfig();
@@ -1137,7 +1148,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, "FPS Background", NK_TEXT_LEFT);
-        int iNewBgFpsIdx = nk_combo(pCtx, apszBgFps, 4, iBgFpsIdx, 20, nk_vec2(130, 100));
+        int iNewBgFpsIdx = nk_combo(pCtx, apszBgFps, NK_LEN(apszBgFps), iBgFpsIdx, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
         if (iNewBgFpsIdx != iBgFpsIdx) {
           g_iFpsBackground = aiBgFpsValues[iNewBgFpsIdx];
           InputSaveConfig();
@@ -1148,7 +1159,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         static const char *apszCull[] = { "default", "none", "back", "front" };
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, "Culling", NK_TEXT_LEFT);
-        int iNewCull = nk_combo(pCtx, apszCull, 4, g_iCullMode, 20, nk_vec2(130, 100));
+        int iNewCull = nk_combo(pCtx, apszCull, NK_LEN(apszCull), g_iCullMode, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
         if (iNewCull != g_iCullMode) {
           g_iCullMode = iNewCull;
           game_render_set_cull_mode(g_pGameRenderer, g_iCullMode);
@@ -1330,6 +1341,7 @@ void debug_overlay_render(DebugOverlay *pOverlay,
     uHash ^= pCmdBytes[i];
     uHash *= 16777619u;
   }
+
   if (uHash != pOverlay->uLastCmdHash) {
     pOverlay->uLastCmdHash = uHash;
     memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
