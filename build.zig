@@ -180,7 +180,8 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("iphlpapi");
             exe.linkSystemLibrary("winmm");
 
-            // rtmidi: OS MIDI output (WinMM backend)
+            // rtmidi: OS MIDI output (WinMM backend); needs libc++ for RtMidi.cpp
+            exe_mod.link_libcpp = true;
             exe_mod.addIncludePath(b.path("external/rtmidi"));
             exe_mod.addCSourceFiles(.{
                 .root  = b.path("external/rtmidi"),
@@ -508,7 +509,10 @@ fn configureDependencies(
     }
 
     // libADLMIDI: OPL3 FM synthesis backend (pure PCM, works on all platforms)
-    exe_mod.link_libcpp = true;
+    // link_libcpp is NOT set on exe_mod here: the library's own module already
+    // has it, which propagates through linkLibrary. Setting it on exe_mod too
+    // would make Zig inject its bundled libc++ include path ahead of the Android
+    // NDK sysroot, breaking C file compilation on Android.
     {
         const adlmidi = b.dependency("libadlmidi", .{
             .target = target,
