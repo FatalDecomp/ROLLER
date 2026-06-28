@@ -37,6 +37,12 @@ typedef struct GameRenderCarOptions {
 #define GAME_RENDER_SUBDIVIDE_TYPE_BUILDING SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING
 #define GAME_RENDER_SUBDIVIDE_TYPE_SIGN SCENE_RENDER_SUBDIVIDE_TYPE_SIGN
 
+/* GPU-only routing flag set by building.c on real advert-sign quads.
+ * Uses bit 20 (SURFACE_FLAG_BOUNCE_20 in physics) which building polygon data
+ * never occupies (building uiTex is 16-bit) and is not checked by the GPU
+ * renderer for any visual purpose.  SW renderer ignores it entirely. */
+#define SURFACE_FLAG_GPU_IS_SIGN 0x00100000
+
 typedef struct GameRenderer GameRenderer;
 
 // Lifecycle
