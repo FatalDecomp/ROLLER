@@ -24,8 +24,9 @@ struct GameRenderer {
     SDL_Window *window;
     GameRendererHardware *hw;
     int hudW, hudH;
-    bool mirrorPass;  /* true during mirror buffer render — routes scene to SW */
-    bool splitScreen; /* GPU mode only: SW quads also run, HUD pass covers left half */
+    bool mirrorPass;    /* true during mirror buffer render — routes scene to SW */
+    bool splitScreen;   /* GPU mode only: SW quads also run, HUD pass covers left half */
+    bool forceGpuLoad;  /* always upload textures to GPU even in SW mode (set for intro) */
 };
 
 static TextureHandle game_render_texture_handle_from_index(int tex_idx) {
@@ -66,6 +67,11 @@ void game_render_destroy(GameRenderer *renderer) {
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
     if (!renderer)
         return;
+    /* GPU textures are only uploaded when the race/session starts in GPU mode.
+     * If they were skipped (started in SW), switching to GPU mid-session would
+     * render with an empty atlas — block it. */
+    if (mode == GAME_RENDER_GPU && !scene_render_get_gpu_load_enabled(renderer->scene))
+        return;
     /* Defer the actual switch to the next begin_frame so it never fires
      * mid-frame while a GPU command buffer is open. */
     renderer->pendingMode    = mode;
@@ -75,13 +81,18 @@ void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
         game_render_set_split_screen(renderer, false);
 }
 
+void game_render_set_force_gpu_load(GameRenderer *renderer, bool force) {
+    if (renderer)
+        renderer->forceGpuLoad = force;
+}
+
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay) {
     if (!renderer)
         return;
     scene_render_set_debug_overlay(renderer->scene, overlay);
 }
 
-GameRenderMode game_render_get_mode(GameRenderer *renderer) {
+GameRenderMode game_render_get_mode(const GameRenderer *renderer) {
     return renderer->mode;
 }
 
@@ -91,7 +102,7 @@ void game_render_set_split_screen(GameRenderer *renderer, bool split) {
     scene_render_set_split_screen(renderer->scene, split);
 }
 
-bool game_render_is_split_screen(GameRenderer *renderer) {
+bool game_render_is_split_screen(const GameRenderer *renderer) {
     return renderer && renderer->splitScreen;
 }
 
@@ -216,7 +227,8 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
      * queued (set before the first begin_frame), otherwise the current mode. */
     GameRenderMode target = renderer->pendingModeSet ? renderer->pendingMode
                                                      : renderer->mode;
-    scene_render_set_gpu_load_enabled(renderer->scene, target == GAME_RENDER_GPU);
+    scene_render_set_gpu_load_enabled(renderer->scene,
+        renderer->forceGpuLoad || target == GAME_RENDER_GPU);
     TextureHandle swHandle = game_render_sw_load_texture(renderer->sw, pixelData,
                                                          width, height, tex_idx, gfx_size);
     TextureHandle sceneHandle = scene_render_load_texture(renderer->scene, pixelData,
@@ -271,10 +283,9 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
     if (!renderer)
         return;
 
-    /* GPU mode + flat colour: route to the dedicated particle pipeline so particles
-     * are drawn at full render resolution instead of the scrbuf SW overlay. */
-    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu
-        && !renderer->mirrorPass && handle == TEXTURE_HANDLE_INVALID) {
+    /* GPU mode: route particles through the dedicated depth-tested pipeline so they
+     * are occluded by solid geometry instead of blitting over everything via SW overlay. */
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->mirrorPass) {
         int colorIdx = poly->iSurfaceType & 0xFF;
         if (palette_remap)
             colorIdx = palette_remap[colorIdx] & 0xFF;
@@ -289,11 +300,28 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
             ndcX[i] = (float)poly->vertices[i].x / ww * 2.0f - 1.0f;
             ndcY[i] = 1.0f - (float)poly->vertices[i].y / wh * 2.0f;
         }
+        if (handle == TEXTURE_HANDLE_INVALID) {
+            scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
+            return;
+        }
+        /* Tile index lives in the low byte of iSurfaceType, same as the SW path.
+         * For cargen (tex_idx 18) use the particle-variant tiles where palette index 0 is
+         * opaque white, so (texture × vertex_colour) gives the smoke/fire tint.  SW's POLYTEX
+         * substitutes index 0 with the car's runtime colour; this is the GPU equivalent. */
+        int tex_idx_gpu = game_render_texture_index_from_handle(handle);
+        int tile_idx    = poly->iSurfaceType & SURFACE_MASK_TEXTURE_INDEX;
+        SDL_GPUTexture *gpuTex = (tex_idx_gpu == 18)
+            ? scene_render_gpu_get_particle_tile_texture(renderer->gpu, 18, tile_idx)
+            : scene_render_gpu_get_tile_texture(renderer->gpu, tex_idx_gpu, tile_idx);
+        if (gpuTex && scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY,
+                                                            gpuTex, cr, cg, cb, ca))
+            return;
+        /* Tile unavailable — flat colour on the GPU depth-tested path. */
         scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
         return;
     }
 
-    /* SW path: scrbuf overlay (also used for textured screen quads in GPU mode). */
+    /* SW path: scrbuf overlay fallback. */
     int tex_idx = game_render_texture_index_from_handle(handle);
     TextureHandle swHandle = tex_idx >= 0
         ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
@@ -329,6 +357,12 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
         : SCENE_TEXTURE_HANDLE_INVALID;
     scene_render_quad_world_legacy(renderer->scene, verts, sceneHandle,
                                    surfaceFlags, options);
+}
+
+void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ)
+{
+    if (renderer && renderer->gpu)
+        scene_render_gpu_set_particle_ndcz(renderer->gpu, ndcZ);
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,

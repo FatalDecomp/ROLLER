@@ -29,6 +29,7 @@ extern tColor palette[256];
 #define SCENE_GPU_MAX_DRAW_CMDS      8192
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
+#define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
 #define SCENE_GPU_NEAR               80.0f
 #define SCENE_GPU_FAR                20000000.0f
 
@@ -56,9 +57,16 @@ typedef struct {
 
 /* 2D NDC vertex for screen-space particle quads: position + flat colour. */
 typedef struct {
-    float x, y;
+    float x, y, z;
     float r, g, b, a;
 } SceneGPUParticleVertex;
+
+/* 2D NDC vertex for screen-space textured particle quads: position + UV + colour tint. */
+typedef struct {
+    float x, y, z;
+    float u, v;
+    float r, g, b, a;
+} SceneGPUTexParticleVertex;
 
 /* --------------------------------------------------------------------------
  * Per-texture slot — one SDL_GPUTexture per tile rather than one atlas.
@@ -72,6 +80,10 @@ typedef struct {
     SDL_GPUTexture *tileTextures[SCENE_GPU_MAX_TILES_PER_SLOT];
     /* pairTextures[n] = [tile n | tile n+1]; NULL when n is the last tile. */
     SDL_GPUTexture *pairTextures[SCENE_GPU_MAX_TILES_PER_SLOT];
+    /* particleTileTextures: white-patched variant where palette index 0 maps to opaque white
+     * (only populated for tex_idx 18 / cargen); used by the screen-space particle path so that
+     * smoke/fire quads receive the correct vertex-colour tint via (texture × vertex_colour). */
+    SDL_GPUTexture *particleTileTextures[SCENE_GPU_MAX_TILES_PER_SLOT];
     int             numTiles;
     int             tileSize;   /* 32 for SVGA, 64 for VGA */
     int             tilesPerRow;
@@ -233,6 +245,20 @@ struct SceneRendererGPU {
     SDL_GPUTransferBuffer   *particleVertXfer;
     SceneGPUParticleVertex  *particleVerts;  /* CPU-side accumulation buffer */
     int                      particleVertCount;
+    float                    particleNdcZ;   /* depth for next screen_quad_flat call */
+
+    /* ---- Screen-space textured particle pass ---- */
+    SDL_GPUGraphicsPipeline   *texParticlePipeline;
+    SDL_GPUBuffer             *texParticleVertBuf;
+    SDL_GPUTransferBuffer     *texParticleVertXfer;
+    SceneGPUTexParticleVertex *texParticleVerts;
+    int                        texParticleVertCount;
+    struct {
+        SDL_GPUTexture *tex;
+        int             start; /* first vertex index in texParticleVerts */
+        int             count; /* number of vertices in this range */
+    }                          texParticleRanges[SCENE_GPU_MAX_TEX_RANGES];
+    int                        texParticleRangeCount;
 };
 
 /* ==========================================================================
@@ -815,10 +841,11 @@ static SDL_GPUGraphicsPipeline *make_sky_pipeline(SceneRendererGPU *r,
 
 static SDL_GPUGraphicsPipeline *make_particle_pipeline(SceneRendererGPU *r,
                                                         SDL_GPUShader *vert,
-                                                        SDL_GPUShader *frag)
+                                                        SDL_GPUShader *frag,
+                                                        SDL_GPUSampleCount sc)
 {
     SDL_GPUVertexAttribute attrs[2] = {
-        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
          .offset=(Uint32)offsetof(SceneGPUParticleVertex, x)},
         {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
          .offset=(Uint32)offsetof(SceneGPUParticleVertex, r)},
@@ -852,11 +879,75 @@ static SDL_GPUGraphicsPipeline *make_particle_pipeline(SceneRendererGPU *r,
         .target_info = {
             .color_target_descriptions = &ct,
             .num_color_targets         = 1,
-            .has_depth_stencil_target  = false
-        }
+            .has_depth_stencil_target  = true,
+            .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+        },
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = false,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL
+        },
+        .multisample_state = { .sample_count = sc }
     };
     pi.rasterizer_state.fill_mode  = SDL_GPU_FILLMODE_FILL;
     pi.rasterizer_state.cull_mode  = SDL_GPU_CULLMODE_NONE;
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
+static SDL_GPUGraphicsPipeline *make_tex_particle_pipeline(SceneRendererGPU *r,
+                                                           SDL_GPUShader *vert,
+                                                           SDL_GPUShader *frag,
+                                                           SDL_GPUSampleCount sc)
+{
+    SDL_GPUVertexAttribute attrs[3] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+         .offset=(Uint32)offsetof(SceneGPUTexParticleVertex, x)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUTexParticleVertex, u)},
+        {.location=2, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+         .offset=(Uint32)offsetof(SceneGPUTexParticleVertex, r)},
+    };
+    SDL_GPUVertexBufferDescription binding = {
+        .pitch      = sizeof(SceneGPUTexParticleVertex),
+        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX
+    };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+        .blend_state = {
+            .enable_blend          = true,
+            .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+            .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .color_blend_op        = SDL_GPU_BLENDOP_ADD,
+            .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+            .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .alpha_blend_op        = SDL_GPU_BLENDOP_ADD
+        }
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = frag,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = {
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 3,
+            .vertex_buffer_descriptions = &binding,
+            .num_vertex_buffers         = 1
+        },
+        .target_info = {
+            .color_target_descriptions = &ct,
+            .num_color_targets         = 1,
+            .has_depth_stencil_target  = true,
+            .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+        },
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = false,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL
+        },
+        .multisample_state = { .sample_count = sc }
+    };
+    pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
@@ -1019,10 +1110,23 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         game_particle_pixel_spirv,  game_particle_pixel_spirv_size,
         game_particle_pixel_msl,    game_particle_pixel_msl_size,  0, 0);
     if (!pv || !pf) goto fail;
-    r->particlePipeline = make_particle_pipeline(r, pv, pf);
+    r->particlePipeline = make_particle_pipeline(r, pv, pf, SDL_GPU_SAMPLECOUNT_1);
     SDL_ReleaseGPUShader(device, pv);
     SDL_ReleaseGPUShader(device, pf);
     if (!r->particlePipeline) { SDL_Log("PARTICLE: pipeline creation failed: %s", SDL_GetError()); goto fail; }
+
+    /* ---- Textured particle shaders ---- */
+    SDL_GPUShader *tpv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
+        game_particle_tex_vertex_spirv, game_particle_tex_vertex_spirv_size,
+        game_particle_tex_vertex_msl,   game_particle_tex_vertex_msl_size, 0, 0);
+    SDL_GPUShader *tpf = load_shader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_particle_tex_pixel_spirv,  game_particle_tex_pixel_spirv_size,
+        game_particle_tex_pixel_msl,    game_particle_tex_pixel_msl_size,  1, 0);
+    if (!tpv || !tpf) goto fail;
+    r->texParticlePipeline = make_tex_particle_pipeline(r, tpv, tpf, SDL_GPU_SAMPLECOUNT_1);
+    SDL_ReleaseGPUShader(device, tpv);
+    SDL_ReleaseGPUShader(device, tpf);
+    if (!r->texParticlePipeline) goto fail;
 
     /* ---- Static HUD full-screen quad (6 verts) ----
      * shadercross (HLSL→SPIR-V) negates SV_Position.y to convert from D3D
@@ -1074,6 +1178,17 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         if (!r->particleVertBuf || !r->particleVertXfer || !r->particleVerts) goto fail;
     }
 
+    /* ---- Textured particle vertex buffer ---- */
+    {
+        Uint32 tpvSize = (Uint32)(SCENE_GPU_MAX_PARTICLE_VERTS * (int)sizeof(SceneGPUTexParticleVertex));
+        SDL_GPUBufferCreateInfo tpbi = { .usage = SDL_GPU_BUFFERUSAGE_VERTEX, .size = tpvSize };
+        r->texParticleVertBuf  = SDL_CreateGPUBuffer(device, &tpbi);
+        SDL_GPUTransferBufferCreateInfo tptbi = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = tpvSize };
+        r->texParticleVertXfer = SDL_CreateGPUTransferBuffer(device, &tptbi);
+        r->texParticleVerts    = malloc(tpvSize);
+        if (!r->texParticleVertBuf || !r->texParticleVertXfer || !r->texParticleVerts) goto fail;
+    }
+
     r->groundColorIdx = -1;
 
     return r;
@@ -1092,6 +1207,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
                 SDL_ReleaseGPUTexture(r->device, r->texSlots[i].tileTextures[t]);
             if (r->texSlots[i].pairTextures[t])
                 SDL_ReleaseGPUTexture(r->device, r->texSlots[i].pairTextures[t]);
+            if (r->texSlots[i].particleTileTextures[t])
+                SDL_ReleaseGPUTexture(r->device, r->texSlots[i].particleTileTextures[t]);
         }
     }
     for (int i = 0; i < 256; i++) {
@@ -1122,10 +1239,14 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->carPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
     if (r->skyPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
     if (r->hudPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->hudPipeline);
-    if (r->particlePipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);
-    if (r->particleVertBuf)  SDL_ReleaseGPUBuffer(r->device, r->particleVertBuf);
-    if (r->particleVertXfer) SDL_ReleaseGPUTransferBuffer(r->device, r->particleVertXfer);
+    if (r->particlePipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);
+    if (r->particleVertBuf)     SDL_ReleaseGPUBuffer(r->device, r->particleVertBuf);
+    if (r->particleVertXfer)    SDL_ReleaseGPUTransferBuffer(r->device, r->particleVertXfer);
     free(r->particleVerts);
+    if (r->texParticlePipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->texParticlePipeline);
+    if (r->texParticleVertBuf)  SDL_ReleaseGPUBuffer(r->device, r->texParticleVertBuf);
+    if (r->texParticleVertXfer) SDL_ReleaseGPUTransferBuffer(r->device, r->texParticleVertXfer);
+    free(r->texParticleVerts);
     if (r->sampler)          SDL_ReleaseGPUSampler(r->device, r->sampler);
     if (r->samplerNearest) SDL_ReleaseGPUSampler(r->device, r->samplerNearest);
     free(r);
@@ -1157,9 +1278,78 @@ void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
     static const int idx[6] = {0, 1, 2, 0, 2, 3};
     for (int i = 0; i < 6; i++) {
         int k = idx[i];
-        v[i] = (SceneGPUParticleVertex){ndcX[k], ndcY[k], cr, cg, cb, ca};
+        v[i] = (SceneGPUParticleVertex){ndcX[k], ndcY[k], r->particleNdcZ, cr, cg, cb, ca};
     }
     r->particleVertCount += 6;
+}
+
+void scene_render_gpu_set_particle_ndcz(SceneRendererGPU *r, float ndcZ)
+{
+    if (r) r->particleNdcZ = ndcZ;
+}
+
+/* Returns the GPU texture for tile tile_idx within game tex_idx's slot, or NULL. */
+SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx)
+{
+    if (!r || tex_idx < 0 || tex_idx >= 32) return NULL;
+    SceneTextureHandle slotHandle = r->texIdxToHandle[tex_idx];
+    if (slotHandle == SCENE_TEXTURE_HANDLE_INVALID) return NULL;
+    const SceneGPUTextureSlot *s = &r->texSlots[slotHandle];
+    if (!s->in_use || tile_idx < 0 || tile_idx >= s->numTiles) return NULL;
+    return s->tileTextures[tile_idx];
+}
+
+/* Returns the particle-variant tile texture for tex_idx's slot (tex_idx 18 only).
+ * Falls back to the normal tile when absent. */
+SDL_GPUTexture *scene_render_gpu_get_particle_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx)
+{
+    if (!r || tex_idx < 0 || tex_idx >= 32) return NULL;
+    SceneTextureHandle slotHandle = r->texIdxToHandle[tex_idx];
+    if (slotHandle == SCENE_TEXTURE_HANDLE_INVALID) return NULL;
+    const SceneGPUTextureSlot *s = &r->texSlots[slotHandle];
+    if (!s->in_use || tile_idx < 0 || tile_idx >= s->numTiles) return NULL;
+    if (s->particleTileTextures[tile_idx]) return s->particleTileTextures[tile_idx];
+    return s->tileTextures[tile_idx];
+}
+
+/* Accumulate a textured particle quad for this frame.
+ * Returns true if accepted, false if full or texture conflicts (caller falls through to SW). */
+bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
+                                           const float ndcX[4], const float ndcY[4],
+                                           SDL_GPUTexture *tex,
+                                           float cr, float cg, float cb, float ca)
+{
+    if (!r || !r->texParticleVerts || !tex) return false;
+    if (r->texParticleVertCount + 6 > SCENE_GPU_MAX_PARTICLE_VERTS) return false;
+
+    /* Extend the last range if it uses the same texture; otherwise open a new one.
+     * Only checking the last range (not searching) guarantees each range's vertices
+     * are contiguous in the flat buffer even when tiles interleave across particles. */
+    int ri;
+    if (r->texParticleRangeCount > 0 &&
+        r->texParticleRanges[r->texParticleRangeCount - 1].tex == tex) {
+        ri = r->texParticleRangeCount - 1;
+    } else {
+        if (r->texParticleRangeCount >= SCENE_GPU_MAX_TEX_RANGES) return false;
+        ri = r->texParticleRangeCount++;
+        r->texParticleRanges[ri].tex   = tex;
+        r->texParticleRanges[ri].start = r->texParticleVertCount;
+        r->texParticleRanges[ri].count = 0;
+    }
+
+    static const float uvU[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    static const float uvV[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    static const int idx[6] = {0, 1, 2, 0, 2, 3};
+    SceneGPUTexParticleVertex *v = r->texParticleVerts + r->texParticleVertCount;
+    for (int i = 0; i < 6; i++) {
+        int k = idx[i];
+        v[i] = (SceneGPUTexParticleVertex){ndcX[k], ndcY[k], r->particleNdcZ,
+                                           uvU[k], uvV[k],
+                                           cr, cg, cb, ca};
+    }
+    r->texParticleVertCount              += 6;
+    r->texParticleRanges[ri].count       += 6;
+    return true;
 }
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r)
@@ -1212,7 +1402,10 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     r->vertexCount       = 0;
     r->drawCmdCount      = 0;
     r->carDrawCount      = 0;
-    r->particleVertCount = 0;
+    r->particleVertCount    = 0;
+    r->particleNdcZ         = 0.0f;
+    r->texParticleVertCount  = 0;
+    r->texParticleRangeCount = 0;
     r->hudSrcBuf         = NULL;
     debug_overlay_surface_labels_reset();
     s_clickHit.active = false;
@@ -1365,6 +1558,27 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             SDL_EndGPUCopyPass(cp);
         } else {
             drawParticles = false;
+        }
+    }
+
+    /* ---- Textured particle vertex upload ---- */
+    bool drawTexParticles = (r->texParticleRangeCount > 0
+                             && r->texParticlePipeline && r->texParticleVerts
+                             && r->texParticleVertBuf);
+    if (drawTexParticles) {
+        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, false);
+        if (tpm) {
+            memcpy(tpm, r->texParticleVerts,
+                   (size_t)r->texParticleVertCount * sizeof(SceneGPUTexParticleVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->texParticleVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation tpsrc = {.transfer_buffer = r->texParticleVertXfer};
+            SDL_GPUBufferRegion tpdst = {.buffer = r->texParticleVertBuf,
+                                         .size = (Uint32)(r->texParticleVertCount * (int)sizeof(SceneGPUTexParticleVertex))};
+            SDL_UploadToGPUBuffer(cp, &tpsrc, &tpdst, false);
+            SDL_EndGPUCopyPass(cp);
+        } else {
+            drawTexParticles = false;
         }
     }
 
@@ -1561,29 +1775,33 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    SDL_EndGPURenderPass(rp);
-
-    /* ====================================================================
-     * Pass 1.5: Screen-space particles → offscreen (no depth, alpha-blended)
-     * ==================================================================== */
+    /* Particles: depth-tested against scene geometry, drawn inside the same
+     * render pass so they share the live depth buffer without needing STORE. */
     if (drawParticles) {
-        SDL_GPUColorTargetInfo particleColor = {
-            .texture  = resolveTarget,
-            .load_op  = SDL_GPU_LOADOP_LOAD,
-            .store_op = SDL_GPU_STOREOP_STORE
-        };
-        SDL_GPURenderPass *prp = SDL_BeginGPURenderPass(r->cmdBuf, &particleColor, 1, NULL);
-        SDL_SetGPUViewport(prp, &vp);
-        if (r->splitScreen) {
-            SDL_Rect scissor = { .x = 0, .y = 0, .w = renderW / 2, .h = renderH };
-            SDL_SetGPUScissor(prp, &scissor);
-        }
-        SDL_BindGPUGraphicsPipeline(prp, r->particlePipeline);
+        SDL_BindGPUGraphicsPipeline(rp, r->particlePipeline);
         SDL_GPUBufferBinding pvbb = {.buffer = r->particleVertBuf};
-        SDL_BindGPUVertexBuffers(prp, 0, &pvbb, 1);
-        SDL_DrawGPUPrimitives(prp, (Uint32)r->particleVertCount, 1, 0, 0);
-        SDL_EndGPURenderPass(prp);
+        SDL_BindGPUVertexBuffers(rp, 0, &pvbb, 1);
+        SDL_DrawGPUPrimitives(rp, (Uint32)r->particleVertCount, 1, 0, 0);
     }
+    if (drawTexParticles) {
+        SDL_BindGPUGraphicsPipeline(rp, r->texParticlePipeline);
+        SDL_GPUBufferBinding tpvbb = {.buffer = r->texParticleVertBuf};
+        SDL_BindGPUVertexBuffers(rp, 0, &tpvbb, 1);
+        for (int ri = 0; ri < r->texParticleRangeCount; ri++) {
+            SDL_GPUTextureSamplerBinding tptsb = {
+                .texture = r->texParticleRanges[ri].tex,
+                .sampler = r->sampler
+            };
+            SDL_BindGPUFragmentSamplers(rp, 0, &tptsb, 1);
+            SDL_DrawGPUPrimitives(rp,
+                (Uint32)r->texParticleRanges[ri].count,
+                1,
+                (Uint32)r->texParticleRanges[ri].start,
+                0);
+        }
+    }
+
+    SDL_EndGPURenderPass(rp);
 
     /* ====================================================================
      * Pass 2: HUD overlay → offscreen (no depth)
@@ -1718,15 +1936,15 @@ void scene_render_gpu_set_sky_color(SceneRendererGPU *r, float red, float green,
 }
 
 void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, bool anyGround,
-                                  const float (*poly)[2], int n_verts)
+                                  const float (*skyPoly)[2], int n_verts)
 {
     if (!r) return;
     r->groundColorIdx = colorIdx;
     r->skyAnyGround   = anyGround;
     r->skyPolyN       = (n_verts > 5) ? 5 : n_verts;
     for (int i = 0; i < r->skyPolyN; i++) {
-        r->skyPoly[i][0] = poly[i][0];
-        r->skyPoly[i][1] = poly[i][1];
+        r->skyPoly[i][0] = skyPoly[i][0];
+        r->skyPoly[i][1] = skyPoly[i][1];
     }
 }
 
@@ -1963,7 +2181,9 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (r->bfWallPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);   r->bfWallPipeline   = NULL; }
     if (r->shadowPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);   r->shadowPipeline   = NULL; }
     if (r->carPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);      r->carPipeline      = NULL; }
-    if (r->skyPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);   r->skyPipeline   = NULL; }
+    if (r->skyPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);      r->skyPipeline      = NULL; }
+    if (r->particlePipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);    r->particlePipeline    = NULL; }
+    if (r->texParticlePipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->texParticlePipeline); r->texParticlePipeline = NULL; }
 
     /* Release MSAA textures — recreated in the next end_frame at the right size. */
     if (r->msaaTex)      { SDL_ReleaseGPUTexture(r->device, r->msaaTex);      r->msaaTex      = NULL; }
@@ -2005,6 +2225,28 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
         r->carPipeline = make_car_pipeline(r, cv, cf, sc, fm);
     if (cv) SDL_ReleaseGPUShader(r->device, cv);
     if (cf) SDL_ReleaseGPUShader(r->device, cf);
+
+    SDL_GPUShader *pv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
+        game_particle_vertex_spirv, game_particle_vertex_spirv_size,
+        game_particle_vertex_msl,   game_particle_vertex_msl_size, 0, 0);
+    SDL_GPUShader *pf = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_particle_pixel_spirv,  game_particle_pixel_spirv_size,
+        game_particle_pixel_msl,    game_particle_pixel_msl_size,  0, 0);
+    if (pv && pf)
+        r->particlePipeline = make_particle_pipeline(r, pv, pf, sc);
+    if (pv) SDL_ReleaseGPUShader(r->device, pv);
+    if (pf) SDL_ReleaseGPUShader(r->device, pf);
+
+    SDL_GPUShader *tpv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
+        game_particle_tex_vertex_spirv, game_particle_tex_vertex_spirv_size,
+        game_particle_tex_vertex_msl,   game_particle_tex_vertex_msl_size, 0, 0);
+    SDL_GPUShader *tpf = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        game_particle_tex_pixel_spirv,  game_particle_tex_pixel_spirv_size,
+        game_particle_tex_pixel_msl,    game_particle_tex_pixel_msl_size,  1, 0);
+    if (tpv && tpf)
+        r->texParticlePipeline = make_tex_particle_pipeline(r, tpv, tpf, sc);
+    if (tpv) SDL_ReleaseGPUShader(r->device, tpv);
+    if (tpf) SDL_ReleaseGPUShader(r->device, tpf);
 }
 
 void scene_render_gpu_set_hud_buffer(SceneRendererGPU *r, uint8 *buf, int w, int h)
@@ -2067,7 +2309,7 @@ static SDL_GPUTransferBuffer *stage_rgba_upload(SDL_GPUDevice *dev,
 }
 
 SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
-                                                  uint8 *pixelData,
+                                                  const uint8 *pixelData,
                                                   int width, int height,
                                                   int tex_idx, int texHalfRes)
 {
@@ -2117,8 +2359,8 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
         s->in_use = 0; free(tileRgba); free(atlasRgba);
         return SCENE_TEXTURE_HANDLE_INVALID;
     }
-    /* Max TBs: numTiles (tiles) + 2*(numTiles-1) (pairs + flipped) <= 3*numTiles */
-    SDL_GPUTransferBuffer *tbs[SCENE_GPU_MAX_TILES_PER_SLOT * 3];
+    /* Max TBs: numTiles (tiles) + 2*(numTiles-1) (pairs + flipped) + numTiles (particle tiles) <= 4*numTiles */
+    SDL_GPUTransferBuffer *tbs[SCENE_GPU_MAX_TILES_PER_SLOT * 4];
     int nTbs = 0;
     bool uploadOk = true;
 
@@ -2147,6 +2389,39 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     free(tileRgba);
+
+    /* --- Particle tile textures (cargen / tex_idx 18 only) ---
+     * Identical to tileTextures but palette index 0 is forced to opaque white so that
+     * the particle shader's (texture × vertex_colour) multiply produces the vertex colour
+     * for those pixels.  SW's POLYTEX substitutes index 0 with the car's runtime colour;
+     * this is the closest GPU equivalent for smoke/fire quads. */
+    if (tex_idx == 18 && uploadOk) {
+        uint8 *ptRgba = malloc((size_t)(tileSize * tileSize * 4));
+        if (ptRgba) {
+            for (int t = 0; t < numTiles && uploadOk; t++) {
+                int col = t % tilesPerRow;
+                int row = t / tilesPerRow;
+                for (int y = 0; y < tileSize; y++) {
+                    int srcRow = row * tileSize + y;
+                    for (int x = 0; x < tileSize; x++) {
+                        int atlasIdx = srcRow * width + col * tileSize + x;
+                        int srcOff   = atlasIdx * 4;
+                        int dstOff   = (y * tileSize + x) * 4;
+                        ptRgba[dstOff+0] = atlasRgba[srcOff+0];
+                        ptRgba[dstOff+1] = atlasRgba[srcOff+1];
+                        ptRgba[dstOff+2] = atlasRgba[srcOff+2];
+                        ptRgba[dstOff+3] = atlasRgba[srcOff+3];
+                    }
+                }
+                SDL_GPUTexture *ptex = NULL;
+                SDL_GPUTransferBuffer *ptb = stage_rgba_upload(r->device, cp, ptRgba, tileSize, tileSize, &ptex);
+                if (!ptb) { uploadOk = false; break; }
+                tbs[nTbs++] = ptb;
+                s->particleTileTextures[t] = ptex;
+            }
+            free(ptRgba);
+        }
+    }
 
     /* --- Pair textures: tile N (left) + tile N+1 (right), used for walls ---
      * SW's polyt reads atlas UV 0..128 from tile N's base pointer.
@@ -2196,8 +2471,10 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
 
     /* Generate mipmaps for all uploaded textures (outside copy pass, same cmd). */
     if (uploadOk && mip_level_count(tileSize, tileSize) > 1) {
-        for (int t = 0; t < numTiles; t++)
-            if (s->tileTextures[t]) SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->tileTextures[t]);
+        for (int t = 0; t < numTiles; t++) {
+            if (s->tileTextures[t])         SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->tileTextures[t]);
+            if (s->particleTileTextures[t]) SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->particleTileTextures[t]);
+        }
         for (int n = 0; n + 1 < numTiles; n++)
             if (s->pairTextures[n]) SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->pairTextures[n]);
     }
@@ -2211,8 +2488,9 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
 
     if (!uploadOk) {
         for (int t = 0; t < numTiles; t++) {
-            if (s->tileTextures[t]) { SDL_ReleaseGPUTexture(r->device, s->tileTextures[t]); s->tileTextures[t] = NULL; }
-            if (s->pairTextures[t]) { SDL_ReleaseGPUTexture(r->device, s->pairTextures[t]); s->pairTextures[t] = NULL; }
+            if (s->tileTextures[t])         { SDL_ReleaseGPUTexture(r->device, s->tileTextures[t]);         s->tileTextures[t]         = NULL; }
+            if (s->pairTextures[t])         { SDL_ReleaseGPUTexture(r->device, s->pairTextures[t]);         s->pairTextures[t]         = NULL; }
+            if (s->particleTileTextures[t]) { SDL_ReleaseGPUTexture(r->device, s->particleTileTextures[t]); s->particleTileTextures[t] = NULL; }
         }
         s->in_use = 0;
         return SCENE_TEXTURE_HANDLE_INVALID;
@@ -2244,7 +2522,7 @@ void scene_render_gpu_free_texture(SceneRendererGPU *r, SceneTextureHandle handl
     memset(s, 0, sizeof(*s));
 }
 
-SceneTextureHandle scene_render_gpu_get_texture_handle(SceneRendererGPU *r, int tex_idx)
+SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r, int tex_idx)
 {
     if (!r || tex_idx < 0 || tex_idx >= 32) return SCENE_TEXTURE_HANDLE_INVALID;
     return r->texIdxToHandle[tex_idx];
@@ -2340,7 +2618,6 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                   + ny*(r->camera.viewY - verts[0].y)
                   + nz*(r->camera.viewZ - verts[0].z);
         if (dot < 0.0f) {
-            extern int texture_back[];
             int newType = texture_back[256 * slot->tex_idx + surfIdx];
             int newIdx  = newType & SURFACE_MASK_TEXTURE_INDEX;
             if (newIdx >= 0 && newIdx < slot->numTiles)

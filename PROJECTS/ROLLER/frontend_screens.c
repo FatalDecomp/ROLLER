@@ -1492,7 +1492,13 @@ static void frontend_main_menu_handle_input(void)
       }
     } else {
       uint8 byKey2 = fatgetch();
-      if (byKey2 >= 0x48u) {
+      if (byKey2 == WHIP_MAPPED_F11) {
+        intro = -1;
+        iFrontendMainMenuContinue = -1;
+        replaytype = 2;
+        frontend_main_menu_prepare_to_start();
+        return;
+      } else if (byKey2 >= 0x48u) {
         if (byKey2 <= 0x48u) {
           if (--iFrontendMainMenuSelection < 0)
             iFrontendMainMenuSelection = 0;

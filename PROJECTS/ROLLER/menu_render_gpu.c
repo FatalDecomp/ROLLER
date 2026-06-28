@@ -256,7 +256,7 @@ static void RecordDrawWithColorReplace(MenuRendererGPU *r, SDL_GPUTexture *textu
     cmd->uniforms.alphaMul = alphaMul;
 
     // Enable alpha-based transparency discard (shader checks transparentR >= 0)
-    cmd->uniforms.transparentR = 0.0f;
+      cmd->uniforms.transparentR = 0.0f;
     cmd->uniforms.transparentG = 0.0f;
     cmd->uniforms.transparentB = 0.0f;
 
