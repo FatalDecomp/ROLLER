@@ -787,7 +787,8 @@ void menu_render_gpu_end_frame(MenuRendererGPU *r)
 // Asset conversion
 //---------------------------------------------------------------------------
 
-int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *blocks, const tColor *pal)
+int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *blocks, const tColor *pal,
+                               uint32 blocksBytes)
 {
     if (!r || slot < 0 || slot >= MAX_SLOTS || !blocks || !pal) return 0;
     menu_render_gpu_free_blocks(r, slot);
@@ -802,7 +803,9 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         count++;
     }
 
-    uint32 bufSize = getbuffer_size(blocks);
+    // Prefer caller-supplied size (captured when pointer was live in mem_blocks).
+    // Fall back to getbuffer_size in case the caller passed 0 (unknown).
+    uint32 bufSize = blocksBytes ? blocksBytes : getbuffer_size(blocks);
 
     if (count == 0) {
         // Full-screen background (raw pixels, no block headers)

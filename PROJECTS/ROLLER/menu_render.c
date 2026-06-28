@@ -19,6 +19,7 @@ struct MenuRenderer {
     SDL_GPUDevice *device;
     SDL_Window *window;
     tBlockHeader *cachedBlocks[MENU_RENDER_MAX_SLOTS];
+    uint32 cachedBlocksBytes[MENU_RENDER_MAX_SLOTS];
     const tColor *cachedPalettes[MENU_RENDER_MAX_SLOTS];
     int gpuBlockLoaded[MENU_RENDER_MAX_SLOTS];
     int gpuBlockDirty[MENU_RENDER_MAX_SLOTS];
@@ -45,7 +46,8 @@ static int menu_render_upload_gpu_slot(MenuRenderer *renderer, int slot) {
         return 0;
 
     int uploaded = menu_render_gpu_load_blocks(renderer->gpu, slot,
-        renderer->cachedBlocks[slot], renderer->cachedPalettes[slot]);
+        renderer->cachedBlocks[slot], renderer->cachedPalettes[slot],
+        renderer->cachedBlocksBytes[slot]);
     renderer->gpuBlockLoaded[slot] = uploaded != 0;
     renderer->gpuBlockDirty[slot] = 0;
     return uploaded;
@@ -109,6 +111,7 @@ int menu_render_load_blocks(MenuRenderer *renderer, int slot,
     if (!renderer) return 1;
     if (slot >= 0 && slot < MENU_RENDER_MAX_SLOTS) {
         renderer->cachedBlocks[slot] = blocks;
+        renderer->cachedBlocksBytes[slot] = getbuffer_size(blocks);
         renderer->cachedPalettes[slot] = palette;
         renderer->gpuBlockDirty[slot] = 1;
     }
