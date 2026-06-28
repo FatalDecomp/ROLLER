@@ -43,9 +43,11 @@ typedef struct GameRenderer GameRenderer;
 GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window);
 void game_render_destroy(GameRenderer *renderer);
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode);
-GameRenderMode game_render_get_mode(GameRenderer *renderer);
+GameRenderMode game_render_get_mode(const GameRenderer *renderer);
+void game_render_set_force_gpu_load(GameRenderer *renderer, bool force);
+void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ);
 void game_render_set_split_screen(GameRenderer *renderer, bool split);
-bool game_render_is_split_screen(GameRenderer *renderer);
+bool game_render_is_split_screen(const GameRenderer *renderer);
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay);
 void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter);
 
@@ -100,6 +102,11 @@ void game_render_quad_screen(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);
+
+// Set the clip-space depth (NDC Z in [0,1]) for the next game_render_quad_screen
+// call so GPU particles are depth-tested against scene geometry.
+// Must be called before each particle quad.  Ignored in SW mode.
+void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ);
 
 // Draw — world-space quad (GPU-ready interface)
 // verts must point to exactly 4 GameRenderVertex entries.

@@ -2213,6 +2213,15 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
         SmokePt[0][i].screen.y = sy;
         SmokePt[0][i].view.fZ  = camZ;
 
+        /* Provide GPU depth so particles are occluded by solid geometry.
+         * Bias forward slightly so smoke passes depth test against road/ground
+         * at the same distance (floating-point precision tie at z≈1).  The bias
+         * is proportional to z² so it stays small at close range. */
+        float gndcZ = (camZ - 80.0f) * (20000000.0f / (20000000.0f - 80.0f)) / camZ;
+        gndcZ -= 0.0002f;
+        if (gndcZ < 0.0f) gndcZ = 0.0f;
+        game_render_set_particle_depth(g_pGameRenderer, gndcZ);
+
         if ((uint8)p->iType == 1) {
             float vx2 = px + p->velocity.fX, vy2 = py + p->velocity.fY, vz2 = pz + p->velocity.fZ;
             float wx2 = vx2 * fRotMat00 + vy2 * fRotMat10 + vz2 * fRotMat20 + fCarPosX;

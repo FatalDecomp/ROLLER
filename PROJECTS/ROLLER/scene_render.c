@@ -36,6 +36,10 @@ void scene_render_set_gpu_load_enabled(SceneRenderer *renderer, bool enabled) {
         renderer->gpu_load_enabled = enabled;
 }
 
+bool scene_render_get_gpu_load_enabled(SceneRenderer *renderer) {
+    return renderer && renderer->gpu_load_enabled;
+}
+
 void scene_render_destroy(SceneRenderer *renderer) {
     if (!renderer)
         return;

@@ -29,13 +29,13 @@ void scene_render_gpu_set_projection(SceneRendererGPU *r,
                                      const SceneRenderProjection *proj);
 
 SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
-                                                 uint8 *pixelData,
+                                                 const uint8 *pixelData,
                                                  int width, int height,
                                                  int tex_idx,
                                                  int texHalfRes);
 void               scene_render_gpu_free_texture(SceneRendererGPU *r,
                                                  SceneTextureHandle handle);
-SceneTextureHandle scene_render_gpu_get_texture_handle(SceneRendererGPU *r,
+SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r,
                                                        int tex_idx);
 
 void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
@@ -52,7 +52,7 @@ void scene_render_gpu_set_sky_color(SceneRendererGPU *r,
    poly:      NDC sky-region polygon vertices (CCW, 3-5 verts) from S-H clip.
    n_verts:   number of polygon vertices (0 = no sky quad). */
 void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, bool anyGround,
-                                  const float (*poly)[2], int n_verts);
+                                  const float (*skyPoly)[2], int n_verts);
 
 /* filter: 0=nearest, 1=bilinear, 2=anisotropic */
 void scene_render_gpu_set_texture_filter(SceneRendererGPU *r, int filter);
@@ -121,10 +121,30 @@ int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);
 /* Queue a flat-colour screen-space quad for the particle pass.
  * ndcX[4], ndcY[4]: NDC coordinates of the four corners (v0=top-right, v1=top-left,
  * v2=bottom-left, v3=bottom-right; same winding as tPolyParams SW quads).
- * cr/cg/cb/ca: linear RGBA colour [0..1]. */
+ * cr/cg/cb/ca: linear RGBA colour [0..1].
+ * Uses the current particleNdcZ set by scene_render_gpu_set_particle_ndcz. */
 void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
                                        const float ndcX[4], const float ndcY[4],
                                        float cr, float cg, float cb, float ca);
+
+/* Set the per-particle NDC depth used by subsequent screen_quad_* calls.
+ * 0.0 = near plane (always passes depth test). Reset to 0 each begin_frame. */
+void scene_render_gpu_set_particle_ndcz(SceneRendererGPU *r, float ndcZ);
+
+/* Return the GPU texture for tile_idx within slot tex_idx, or NULL if out of range. */
+SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
+
+/* Return the particle-variant tile texture (palette index 0 = opaque white) for tile_idx.
+ * Only cargen (tex_idx 18) has a particle variant; other slots fall back to the normal tile. */
+SDL_GPUTexture *scene_render_gpu_get_particle_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
+
+/* Accumulate a textured particle quad for this frame (depth-tested via particleNdcZ).
+ * Returns true if accepted, false if the frame's texture slot is already taken by a
+ * different texture — caller should fall through to SW in that case. */
+bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
+                                           const float ndcX[4], const float ndcY[4],
+                                           SDL_GPUTexture *tex,
+                                           float cr, float cg, float cb, float ca);
 
 /* Queue a car mesh draw into the current frame (called by game_render_hardware.c). */
 void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,

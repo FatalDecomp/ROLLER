@@ -3326,6 +3326,8 @@ void play_game_init()
       if (pMR && menu_render_get_pending_mode(pMR) == MENU_RENDER_GPU)
           game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
   }
+  if (intro)
+      game_render_set_force_gpu_load(g_pGameRenderer, true);
   game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
   game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
   game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
@@ -3530,6 +3532,7 @@ void game_keys()
                   } else {
                     fatgetch();
                     uiKeyCode = -1;
+                    racing = 0;
                   }
                 }
                 if (trying_to_exit)           // Handle exit confirmation (Y/N prompt)

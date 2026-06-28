@@ -10,10 +10,13 @@
  * ------------------------------------------------------------------- */
 
 typedef struct {
-    uint32_t tick;      /* absolute tick */
-    uint8_t  msg[8];    /* raw MIDI bytes */
-    uint8_t  msglen;    /* 0 = tempo-change pseudo-event, stored in tempo_us */
-    uint32_t tempo_us;  /* µs/beat, used when msglen==0 */
+    uint32_t  tick;       /* absolute tick */
+    uint32_t  seq;        /* parse order — tiebreaker to make sort stable */
+    uint8_t   msg[8];     /* raw MIDI bytes for channel messages */
+    uint8_t   msglen;     /* 0=tempo (sysex==NULL), else byte count */
+    uint32_t  tempo_us;   /* µs/beat, used when msglen==0 and sysex==NULL */
+    uint8_t  *sysex;      /* malloc'd F0…F7 blob; non-NULL = SysEx event */
+    uint32_t  sysex_len;  /* byte count of sysex including F0 and F7 */
 } MidiEvt;
 
 static MidiEvt   *g_evts    = NULL;
@@ -21,6 +24,16 @@ static int        g_evcount = 0;
 static int        g_evcap   = 0;
 static uint16_t   g_ppqn    = 480;
 static bool       g_loop    = true;
+
+static void evts_free(void)
+{
+    for (int i = 0; i < g_evcount; i++)
+        free(g_evts[i].sysex);
+    free(g_evts);
+    g_evts    = NULL;
+    g_evcount = 0;
+    g_evcap   = 0;
+}
 
 static bool evt_push(MidiEvt ev)
 {
@@ -31,6 +44,7 @@ static bool evt_push(MidiEvt ev)
         g_evts  = p;
         g_evcap = nc;
     }
+    ev.seq = (uint32_t)g_evcount;
     g_evts[g_evcount++] = ev;
     return true;
 }
@@ -40,8 +54,14 @@ static int evt_cmp(const void *a, const void *b)
     const MidiEvt *ea = a, *eb = b;
     if (ea->tick < eb->tick) return -1;
     if (ea->tick > eb->tick) return  1;
-    /* tempo changes before note events at the same tick */
-    return (int)(ea->msglen != 0) - (int)(eb->msglen != 0);
+    /* at the same tick: tempo events first */
+    int at = (ea->msglen == 0 && !ea->sysex);
+    int bt = (eb->msglen == 0 && !eb->sysex);
+    if (at != bt) return bt - at;
+    /* preserve parse order to make the sort stable */
+    if (ea->seq < eb->seq) return -1;
+    if (ea->seq > eb->seq) return  1;
+    return 0;
 }
 
 /* -------------------------------------------------------------------
@@ -129,14 +149,28 @@ static void parse_track(const uint8_t *data, int len)
                 evt_push(ev);
             }
             pos += (int)mlen;
-            rs = 0;
+            /* meta events do NOT cancel running status per SMF spec */
         } else if (b == 0xF0 || b == 0xF7) {
-            /* SysEx - skip */
+            /* SysEx: forward if it fits in msg[], skip otherwise */
             pos++;
             uint32_t slen = 0;
             n = read_vlq(data + pos, len - pos, &slen);
             if (n < 0) break;
-            pos += n + (int)slen;
+            pos += n;
+            if (b == 0xF0 && slen > 0 && pos + (int)slen <= len) {
+                uint8_t *sx = malloc(1 + slen);
+                if (sx) {
+                    sx[0] = 0xF0;
+                    memcpy(sx + 1, data + pos, slen); /* slen includes trailing F7 */
+                    MidiEvt ev;
+                    memset(&ev, 0, sizeof(ev));
+                    ev.tick      = abs_t;
+                    ev.sysex     = sx;
+                    ev.sysex_len = 1 + (uint32_t)slen;
+                    if (!evt_push(ev)) free(sx);
+                }
+            }
+            pos += (int)slen;
             rs = 0;
         } else {
             /* channel message (possibly with running status) */
@@ -183,6 +217,19 @@ static void parse_track(const uint8_t *data, int len)
 static SDL_Thread    *g_thread = NULL;
 static SDL_AtomicInt  g_stop;
 static SDL_AtomicInt  g_target_vol; /* 0-127, set from main thread */
+
+static void send_panic(RtMidiOutPtr out)
+{
+    for (int ch = 0; ch < 16; ch++) {
+        uint8_t msg[3] = { (uint8_t)(0xB0 | ch), 0, 0 };
+        msg[1] = 121; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* Reset All Controllers */
+        msg[1] =  64; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* Sustain off (belt+suspenders) */
+        msg[1] =  66; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* Sostenuto off */
+        msg[1] = 127; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* Poly On (undo any Mono On) */
+        msg[1] = 120; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* All Sound Off (immediate) */
+        msg[1] = 123; msg[2] =   0; rtmidi_out_send_message(out, msg, 3); /* All Notes Off */
+    }
+}
 
 static int SDLCALL playback_thread(void *userdata)
 {
@@ -235,8 +282,11 @@ static int SDLCALL playback_thread(void *userdata)
         return 1;
     }
     SDL_Log("midi_player: port opened, ppqn=%u, events=%d", g_ppqn, g_evcount);
+    send_panic(out);
 
     int cur_vol = -1; /* force initial CC7 blast */
+    int active[16][128];
+    memset(active, 0, sizeof(active));
 
 restart:;
     uint64_t wall_ns    = SDL_GetTicksNS();
@@ -261,34 +311,54 @@ restart:;
         wall_ns   += (uint64_t)dtick * (uint64_t)tempo_us * 1000ULL / g_ppqn;
         prev_tick  = g_evts[i].tick;
 
-        /* wait until event time */
-        uint64_t now = SDL_GetTicksNS();
-        if (wall_ns > now)
-            SDL_DelayNS(wall_ns - now);
+        /* wait until event time; sleep in ≤20ms chunks so stop is noticed quickly */
+        {
+            uint64_t now = SDL_GetTicksNS();
+            while (wall_ns > now) {
+                if (SDL_GetAtomicInt(&g_stop)) goto done;
+                uint64_t rem = wall_ns - now;
+                SDL_DelayNS(rem < 20000000ULL ? rem : 20000000ULL);
+                now = SDL_GetTicksNS();
+            }
+        }
 
         if (SDL_GetAtomicInt(&g_stop)) goto done;
 
-        if (g_evts[i].msglen == 0) {
-            tempo_us = g_evts[i].tempo_us;
-        } else {
+        if (g_evts[i].sysex) {
+            rtmidi_out_send_message(out, g_evts[i].sysex, g_evts[i].sysex_len);
+        } else if (g_evts[i].msglen > 0) {
+            /* note overlap tracking */
+            if (g_evts[i].msglen >= 3) {
+                uint8_t st   = g_evts[i].msg[0];
+                int     ch   = st & 0x0F;
+                int     type = st & 0xF0;
+                int     note = g_evts[i].msg[1];
+                int     vel  = g_evts[i].msg[2];
+                if (type == 0x90 && vel > 0) {
+                    if (active[ch][note]) {
+                        uint8_t off[3] = { (uint8_t)(0x80 | ch), (uint8_t)note, 0 };
+                        rtmidi_out_send_message(out, off, 3);
+                    }
+                    active[ch][note] = 1;
+                } else if (type == 0x80 || (type == 0x90 && vel == 0)) {
+                    active[ch][note] = 0;
+                }
+            }
             rtmidi_out_send_message(out, g_evts[i].msg, g_evts[i].msglen);
+        } else {
+            tempo_us = g_evts[i].tempo_us;
         }
     }
 
     if (g_loop && !SDL_GetAtomicInt(&g_stop)) {
-        /* all-notes-off before looping */
-        for (int ch = 0; ch < 16; ch++) {
-            uint8_t ano[3] = { (uint8_t)(0xB0 | ch), 123, 0 };
-            rtmidi_out_send_message(out, ano, 3);
-        }
+        memset(active, 0, sizeof(active));
+        send_panic(out);
         goto restart;
     }
 
 done:
-    for (int ch = 0; ch < 16; ch++) {
-        uint8_t ano[3] = { (uint8_t)(0xB0 | ch), 123, 0 };
-        rtmidi_out_send_message(out, ano, 3);
-    }
+    memset(active, 0, sizeof(active));
+    send_panic(out);
     rtmidi_close_port(out);
     rtmidi_out_free(out);
     return 0;
@@ -323,10 +393,7 @@ bool midi_player_init(void)
 void midi_player_shutdown(void)
 {
     midi_player_stop();
-    free(g_evts);
-    g_evts    = NULL;
-    g_evcount = 0;
-    g_evcap   = 0;
+    evts_free();
 }
 
 /* -------------------------------------------------------------------
@@ -348,9 +415,9 @@ static void parse_hmp_chunk(const uint8_t *p, int len, uint32_t initial_delta)
         if (status == 0xFF && len >= 3 && p[1] == 0x2F && p[2] == 0x00)
             break;
 
-        /* Loop marker: CC with controller 110 or 111 and value > 0x7F - skip */
+        /* HMP loop markers: CC 110 (loop start) and CC 111 (loop end) - skip */
         if ((status & 0xF0) == 0xB0 && len >= 3
-                && (p[1] == 110 || p[1] == 111) && p[2] > 0x7F) {
+                && (p[1] == 110 || p[1] == 111)) {
             p += 3; len -= 3;
             goto read_delta;
         }
@@ -380,11 +447,24 @@ static void parse_hmp_chunk(const uint8_t *p, int len, uint32_t initial_delta)
                 esize = 2 + n + (int)mlen;
             }
         } else if (status == 0xF0 || status == 0xF7) {
-            /* SysEx - skip using HMP VLQ length */
+            /* SysEx: forward if it fits in msg[], skip otherwise */
             uint32_t slen = 0;
             int n = hmp_vlq(p + 1, len - 1, &slen);
             if (n < 0) break;
             esize = 1 + n + (int)slen;
+            if (status == 0xF0 && slen > 0 && esize <= len) {
+                uint8_t *sx = malloc(1 + slen);
+                if (sx) {
+                    sx[0] = 0xF0;
+                    memcpy(sx + 1, p + 1 + n, slen);
+                    MidiEvt ev;
+                    memset(&ev, 0, sizeof(ev));
+                    ev.tick      = abs_t;
+                    ev.sysex     = sx;
+                    ev.sysex_len = 1 + (uint32_t)slen;
+                    if (!evt_push(ev)) free(sx);
+                }
+            }
         } else {
             /* Channel message */
             uint8_t type = status & 0xF0;
@@ -509,10 +589,8 @@ static bool parse_hmp(const uint8_t *p, int len)
 
 bool midi_player_load(const void *raw, int len, bool loop)
 {
-    free(g_evts);
-    g_evts    = NULL;
-    g_evcount = 0;
-    g_evcap   = 0;
+    midi_player_stop(); /* join thread before touching g_evts */
+    evts_free();
     g_loop    = loop;
 
     const uint8_t *p = (const uint8_t *)raw;

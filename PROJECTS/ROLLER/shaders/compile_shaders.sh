@@ -206,12 +206,20 @@ echo "Compiling particle pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_pixel.msl"
 
+echo "Compiling textured particle vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.msl"
+
+echo "Compiling textured particle pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.msl"
+
 echo "Generating game_particle_shaders.h..."
 "$PYTHON" -c "
 $EMBED_FN
 out_dir = r'$W_OUT'
 h = '#ifndef GAME_PARTICLE_SHADERS_H\n#define GAME_PARTICLE_SHADERS_H\n\n'
-for name in ['game_particle_vertex', 'game_particle_pixel']:
+for name in ['game_particle_vertex', 'game_particle_pixel', 'game_particle_tex_vertex', 'game_particle_tex_pixel']:
     for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
         p = os.path.join(out_dir, f'{name}.{ext}')
         if os.path.exists(p):
