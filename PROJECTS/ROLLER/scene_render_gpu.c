@@ -3330,10 +3330,10 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
-            char bfExtra[32]; bfExtra[0] = '\0';
+            /* char bfExtra[32]; bfExtra[0] = '\0';
             if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE)
                 SDL_snprintf(bfExtra, sizeof(bfExtra), " bcross=%.3f", (double)bfCross);
-            pair_uv_log("GEN", surfIdx, surfaceFlags, flipV, flipV, flipH, bfExtra);
+            pair_uv_log("GEN", surfIdx, surfaceFlags, flipV, flipV, flipH, bfExtra); */
         }
     }
 
