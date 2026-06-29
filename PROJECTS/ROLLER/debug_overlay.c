@@ -1167,6 +1167,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      {
+        int bSignsOnTop = (int)g_bSignsOnTop;
+        if (nk_checkbox_label(pCtx, "Signs on top", &bSignsOnTop))
+          g_bSignsOnTop = (bool)bSignsOnTop;
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bWireframe = (int)g_bWireframe;
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
         g_bWireframe = (bool)bWireframe;

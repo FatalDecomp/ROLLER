@@ -130,6 +130,7 @@ float g_fFovMultiplier   = 1.0f;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
+bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;

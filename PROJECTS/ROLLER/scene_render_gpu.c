@@ -20,6 +20,7 @@
  * channels when read as tColor* because byB and byG are swapped in memory
  * relative to the raw R,G,B file order). */
 extern tColor palette[256];
+extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along track */
 
 /* --------------------------------------------------------------------------
  * Limits
@@ -3002,7 +3003,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * pipeline (sfOp, no alpha discard, LESS_OR_EQUAL) so the colour renders. */
     SceneGPUDrawKind kind;
     if (isSign)
-        kind = SCENE_GPU_DRAW_SIGN;
+        kind = g_bSignsOnTop ? SCENE_GPU_DRAW_SIGN : SCENE_GPU_DRAW_BUILDING;
     else if (isBackTexSign)
         kind = SCENE_GPU_DRAW_SIGN_BK;
     else if (gpuTex == r->shadowTex)
@@ -3133,14 +3134,14 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
                     s_bcross = (sX[1]-sX[0])*(sY[3]-sY[0])
                              - (sY[1]-sY[0])*(sX[3]-sX[0]);
-                    /* For FV pair03Left=1 back-face surfaces the world-space pair03Left
-                     * disagrees with screen-space when seen from behind, so cancel the
-                     * H-flip to match SW's back-face UV assignment. pair03Left=0 surfaces
-                     * are unaffected; non-FV surfaces (flipV=0) are also unaffected. */
-                    if (s_bcross > 0.0f && flipV && pair03Left) effectiveFlipH = false;
                 }
-                float u03 = pair03Left ? 0.0f : uMaxN;
-                float u12 = pair03Left ? uMaxN : 0.0f;
+                /* SW set_starts(1): startsx[0]=startsx[3]=max, startsx[1]=startsx[2]=0.
+                 * polyt assigns U=max to the v0/v3 edge and U=0 to the v1/v2 edge
+                 * regardless of which world-side they're on; screen-space tile placement
+                 * then follows from polyt's winding-adaptive edge traversal.
+                 * pair03Left is used only by the BF screen-check above, not for U. */
+                float u03 = uMaxN;
+                float u12 = 0.0f;
                 /* FH: swap u03/u12 — matches SW which reverses the U scan so the
                  * tile-N/N+1 world assignment is preserved. */
                 if (effectiveFlipH) {
@@ -3149,8 +3150,15 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
                 /* Determine screen-bottom row from projected Y rather than fixed vertex index.
                  * For walls v0,v1=top(high sY) so row01IsBottom=false→isBottom=(k==2||k==3).
-                 * For sloped/ceiling surfaces v0,v1 can be the lower screen row, flipping this. */
-                bool row01IsBottom = (sY[0]+sY[1]) < (sY[2]+sY[3]);
+                 * For sloped/ceiling surfaces v0,v1 can be the lower screen row, flipping this.
+                 * Guard with vZ: when NEXT section (v0,v1) is behind the camera (vZ<0) in
+                 * reverse drive, sY = vY/vZ flips sign (floor verts below camera go positive).
+                 * Snapping behind-camera sY to -1e9 prevents row01IsBottom and spansCameraCenter
+                 * from inverting — they stay consistent with the forward-drive assignment. */
+                float adjSY[4];
+                for (int vi = 0; vi < 4; vi++)
+                    adjSY[vi] = (vZ[vi] > 0.0f) ? sY[vi] : -1e9f;
+                bool row01IsBottom = (adjSY[0]+adjSY[1]) < (adjSY[2]+adjSY[3]);
                 /* Use row01IsBottom when BF non-CONCAVE (effectiveFlipV): the BF vertex
                  * swap changes which screen-row v0 occupies without changing SW's startsy[0],
                  * so screen-row detection is required to keep sign content visible.
@@ -3159,7 +3167,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * SW vertex-index assignment maps the wrong tile region to the visible area.
                  * For all other efV=0 cases (small sY spread, same-sign rows), SW's fixed
                  * vertex-index assignment is correct and row01IsBottom is spurious. */
-                bool spansCameraCenter = ((sY[0]+sY[1]) < 0.0f) != ((sY[2]+sY[3]) < 0.0f);
+                bool spansCameraCenter = ((adjSY[0]+adjSY[1]) < 0.0f) != ((adjSY[2]+adjSY[3]) < 0.0f);
                 bool useRowDetect = (effectiveFlipV || spansCameraCenter)
                                     && !flipV
                                     && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0;
@@ -3256,47 +3264,62 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
              * UV causes h-flip when camera is on the back side of FH surfaces.
              * See FH+BF subcase below for the fix. */
             bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
-            if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) {
-                /* Replicate SW POLYTEX backface detection: SW computes screen-space
-                 * cross product and swaps v0↔v1/v2↔v3 + toggles flipH when > 0.
-                 * GPU Y is up (SW Y is down), so GPU cross < 0 = SW back-facing. */
+            float bfCross = 0.0f;
+            if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) && flipH) {
+                /* FH+BF: SW keeps FH on the front face and cancels it on the back
+                 * face.  Need to know which face the camera is on.  Compute GPU
+                 * screen-space cross product (sign inverted vs SW Y-DOWN screen). */
                 const float (*Mv)[3] = r->proj.view;
-                float gsx[4], gsy[4];
+                float gsx[4], gsy[4], gvZ[4];
                 for (int vi = 0; vi < 4; vi++) {
                     float ddx = verts[vi].x - r->camera.viewX;
                     float ddy = verts[vi].y - r->camera.viewY;
                     float ddz = verts[vi].z - r->camera.viewZ;
                     float vZ2 = ddx*Mv[0][2] + ddy*Mv[1][2] + ddz*Mv[2][2];
-                    float iz  = (fabsf(vZ2) > 1e-6f) ? 1.0f / vZ2 : 1.0f;
+                    gvZ[vi] = vZ2;
+                    /* SW clamps fProjectedZ at 80 before perspective division so
+                     * behind-camera vertices (vZ<0) don't invert gsx/gsy and corrupt
+                     * the bfCross sign or g03Left ordering. Match that here. */
+                    float vZ2c = (vZ2 < 80.0f) ? 80.0f : vZ2;
+                    float iz  = 1.0f / vZ2c;
                     gsx[vi]   = (ddx*Mv[0][0] + ddy*Mv[1][0] + ddz*Mv[2][0]) * iz;
                     gsy[vi]   = (ddx*Mv[0][1] + ddy*Mv[1][1] + ddz*Mv[2][1]) * iz;
                 }
-                float bcross = (gsx[0]-gsx[1])*(gsy[0]-gsy[2])
-                             - (gsy[0]-gsy[1])*(gsx[0]-gsx[2]);
-                bool bfBack  = (bcross < 0.0f);
-                if (flipH) {
-                    /* FH+BF: SW keeps FH on the front face (h-flip) and cancels it on
-                     * the back face (natural).  Which face is "front" depends on screen-X
-                     * position of {v0,v3} vs {v1,v2}: when the v0,v3 column is screen-left
-                     * AND bfBack=false (SW front), or screen-right AND bfBack=true (SW back
-                     * with vertex swap), the column assignment flips.  flipV-paired surfaces
-                     * (FV/non-FV pair) have inverted g03Left, so XOR with flipV corrects it. */
-                    bool g03Left = (gsx[0]+gsx[3]) < (gsx[1]+gsx[2]);
-                    bool uLeftHi = (g03Left != bfBack) != flipV;
-                    cu[0] = cu[3] = uLeftHi ? uMaxN : 0.0f;
-                    cu[1] = cu[2] = uLeftHi ? 0.0f  : uMaxN;
-                } else {
-                    /* Non-FH BF: replicate SW's backface swap (v0↔v1, v2↔v3) +
-                     * flipH toggle.  Net effect for each face: bfBack=true → h-flip,
-                     * bfBack=false → natural.  Same logic as the FH+BF branch above
-                     * (bfBack drives the flip direction independently of the FH flag). */
-                    for (int k = 0; k < 4; k++) {
-                        int sk = k;
-                        if (bfBack) { static const int hm[4] = {1,0,3,2}; sk = hm[sk]; }
-                        cu[k] = (sk == 0 || sk == 3) ? uMaxN : 0.0f;
-                    }
-                }
+                bfCross = (gsx[0]-gsx[1])*(gsy[0]-gsy[2])
+                        - (gsy[0]-gsy[1])*(gsx[0]-gsx[2]);
+                bool bfBack = (bfCross < 0.0f);
+                /* if (g_bSurfaceLog && (g_iSurfaceLogId < 0 || g_iSurfaceLogId == surfIdx)) {
+                    float cx = (verts[0].x+verts[1].x+verts[2].x+verts[3].x)*0.25f - r->camera.viewX;
+                    float cy = (verts[0].y+verts[1].y+verts[2].y+verts[3].y)*0.25f - r->camera.viewY;
+                    float cz = (verts[0].z+verts[1].z+verts[2].z+verts[3].z)*0.25f - r->camera.viewZ;
+                    float dist = sqrtf(cx*cx + cy*cy + cz*cz);
+                    SDL_Log("GEN-BFHF idx=%d sf=0x%X bfCross=%.4f bfBack=%d backwards=%d match=%d vZ=%.1f/%.1f/%.1f/%.1f dist=%.1f",
+                            surfIdx, surfaceFlags, (double)bfCross,
+                            (int)bfBack, backwards, (int)(bfBack == (backwards != 0)),
+                            (double)gvZ[0], (double)gvZ[1], (double)gvZ[2], (double)gvZ[3],
+                            (double)dist);
+                } */
+                /* Screen-space g03Left: tracks which screen side v0/v3 land on.
+                 * For surfaces seen from both sides (BF wall, loop), bfCross and
+                 * gsx flip together, so (g03Left != bfBack) stays constant — correct.
+                 * Exception: reverse drive (backwards!=0) front-facing floor surface
+                 * (bfBack=false). Camera rotates 180° → gsx flips without a matching
+                 * bfCross flip, so g03Left_screen incorrectly inverts. In that case
+                 * only, use world-space X, which is stable across drive direction. */
+                bool g03Left;
+                if (backwards != 0 && !bfBack)
+                    g03Left = (verts[0].x + verts[3].x) < (verts[1].x + verts[2].x);
+                else
+                    g03Left = (gsx[0]+gsx[3]) < (gsx[1]+gsx[2]);
+
+                bool uLeftHi = (g03Left != bfBack) != flipV;
+                cu[0] = cu[3] = uLeftHi ? uMaxN : 0.0f;
+                cu[1] = cu[2] = uLeftHi ? 0.0f  : uMaxN;
             } else {
+                /* Non-FH (or non-BF) gen surfaces: SW polytex's backface swap +
+                 * flipH toggle cancel out in UV space for non-FH surfaces — the
+                 * net screen-space UV is unchanged regardless of which face the
+                 * camera sees.  Assign U by vertex index, honouring flipH only. */
                 for (int k = 0; k < 4; k++) {
                     int sk = k;
                     if (flipH) { static const int hm[4] = {1,0,3,2}; sk = hm[sk]; }
@@ -3307,7 +3330,10 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
-            pair_uv_log("GEN", surfIdx, surfaceFlags, flipV, flipV, flipH, "");
+            char bfExtra[32]; bfExtra[0] = '\0';
+            if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE)
+                SDL_snprintf(bfExtra, sizeof(bfExtra), " bcross=%.3f", (double)bfCross);
+            pair_uv_log("GEN", surfIdx, surfaceFlags, flipV, flipV, flipH, bfExtra);
         }
     }
 
