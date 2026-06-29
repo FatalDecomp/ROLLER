@@ -6,6 +6,7 @@
 #include "touch_ui.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #define MENU_RENDER_MAX_SLOTS 16
 #define MENU_RENDER_WIDTH 640
@@ -20,6 +21,7 @@ struct MenuRenderer {
     SDL_Window *window;
     tBlockHeader *cachedBlocks[MENU_RENDER_MAX_SLOTS];
     uint32 cachedBlocksBytes[MENU_RENDER_MAX_SLOTS];
+    void *cachedBlocksCopy[MENU_RENDER_MAX_SLOTS]; /* malloc'd snapshot, immune to fre() */
     const tColor *cachedPalettes[MENU_RENDER_MAX_SLOTS];
     int gpuBlockLoaded[MENU_RENDER_MAX_SLOTS];
     int gpuBlockDirty[MENU_RENDER_MAX_SLOTS];
@@ -44,9 +46,13 @@ static int menu_render_upload_gpu_slot(MenuRenderer *renderer, int slot) {
         return 0;
     if (!renderer->cachedBlocks[slot] || !renderer->cachedPalettes[slot])
         return 0;
-
+    /* Use the private copy when available — it stays valid after the game
+     * calls fre() on the original front_vga pointer. */
+    tBlockHeader *uploadBlocks = renderer->cachedBlocksCopy[slot]
+                                 ? (tBlockHeader *)renderer->cachedBlocksCopy[slot]
+                                 : renderer->cachedBlocks[slot];
     int uploaded = menu_render_gpu_load_blocks(renderer->gpu, slot,
-        renderer->cachedBlocks[slot], renderer->cachedPalettes[slot],
+        uploadBlocks, renderer->cachedPalettes[slot],
         renderer->cachedBlocksBytes[slot]);
     renderer->gpuBlockLoaded[slot] = uploaded != 0;
     renderer->gpuBlockDirty[slot] = 0;
@@ -80,6 +86,8 @@ void menu_render_destroy(MenuRenderer *renderer) {
     if (renderer->gpu)
         menu_render_gpu_destroy(renderer->gpu);
     menu_render_sw_destroy(renderer->sw);
+    for (int i = 0; i < MENU_RENDER_MAX_SLOTS; i++)
+        free(renderer->cachedBlocksCopy[i]);
     free(renderer);
 }
 
@@ -114,6 +122,14 @@ int menu_render_load_blocks(MenuRenderer *renderer, int slot,
         renderer->cachedBlocksBytes[slot] = getbuffer_size(blocks);
         renderer->cachedPalettes[slot] = palette;
         renderer->gpuBlockDirty[slot] = 1;
+        /* Take a private copy so the GPU upload is safe even after fre(). */
+        free(renderer->cachedBlocksCopy[slot]);
+        renderer->cachedBlocksCopy[slot] = NULL;
+        if (renderer->cachedBlocksBytes[slot] > 0) {
+            renderer->cachedBlocksCopy[slot] = malloc(renderer->cachedBlocksBytes[slot]);
+            if (renderer->cachedBlocksCopy[slot])
+                memcpy(renderer->cachedBlocksCopy[slot], blocks, renderer->cachedBlocksBytes[slot]);
+        }
     }
     menu_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
     if (menu_render_wants_gpu_assets(renderer) &&
