@@ -2762,8 +2762,8 @@ SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r
  *
  * A global key→list map for comparing quad UV/XYZ data between GPU mode and
  * split-screen mode.  Key = SceneTextureHandle (int).  Enable by setting
- * g_bTexUVMap = true before the frame you want to capture, then call
- * texture_uv_map_dump() to print all collected entries.
+ * Populated whenever g_bSurfaceLog is true. Call texture_uv_map_dump() to
+ * print all collected entries, texture_uv_map_reset() to clear.
  * Only surface_uv_log records into the map (it carries the most data).
  * -------------------------------------------------------------------------- */
 typedef struct {
@@ -2779,7 +2779,7 @@ typedef struct {
 } TexUVEntry;
 
 #define TEX_UV_MAX_KEYS    64
-#define TEX_UV_MAX_ENTRIES 32
+#define TEX_UV_MAX_ENTRIES 256
 
 typedef struct {
     int        texId;
@@ -2799,8 +2799,12 @@ void texture_uv_map_reset(void)
 void texture_uv_map_dump(int texId, bool splitScreen)
 {
     system("cls");
-    SDL_Log("=== texture_uv_map: %d distinct texIds (filter tex=%d) [%s] ===",
-            s_texUVMapKeys, texId, splitScreen ? "split-screen" : "hardware");
+    if (texId < 0)
+        SDL_Log("=== texture_uv_map: %d distinct texIds (filter=all) [%s] ===",
+                s_texUVMapKeys, splitScreen ? "split-screen" : "hardware");
+    else
+        SDL_Log("=== texture_uv_map: %d distinct texIds (filter tex=%d) [%s] ===",
+                s_texUVMapKeys, texId, splitScreen ? "split-screen" : "hardware");
     for (int b = 0; b < TEX_UV_MAX_KEYS; b++) {
         const TexUVBucket *bkt = &s_texUVMap[b];
         if (bkt->count == 0) continue;
@@ -2856,7 +2860,7 @@ static void surface_uv_log(const char *type, int texId, int surfIdx, int surface
                  (double)sY0, (double)sY1, (double)sY2, (double)sY3);
     texture_uv_log(type, surfIdx, surfaceFlags, flipV, efV, efH, extra);
 
-    if (!g_bTexUVMap) return;
+    if (!g_bSurfaceLog) return;
     /* Find or create a bucket for this texId. */
     TexUVBucket *bkt = NULL;
     for (int b = 0; b < s_texUVMapKeys; b++) {
