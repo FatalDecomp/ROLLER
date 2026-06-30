@@ -1,4 +1,5 @@
 #include "roller.h"
+#include "scene_render_gpu.h"
 #include "crt_filter.h"
 #include "rollersound.h"
 #include "rollerinput.h"
@@ -134,6 +135,7 @@ bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;
+bool  g_bTexUVMap        = false;
 bool  g_pendingClickQuery = false;
 float g_clickQueryNX      = 0.0f;
 float g_clickQueryNY      = 0.0f;
@@ -1576,6 +1578,9 @@ void UpdateSDL()
             InputSaveConfig();
           }
           game_render_set_split_screen(g_pGameRenderer, newSplit);
+          texture_uv_map_dump(g_iSurfaceLogId);
+          texture_uv_map_reset();
+          g_bTexUVMap = true;
         }
         continue;
       }

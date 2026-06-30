@@ -2757,8 +2757,76 @@ SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r
     return r->texIdxToHandle[tex_idx];
 }
 
-static void pair_uv_log(const char *type, int surfIdx, int surfaceFlags,
-                        bool flipV, bool efV, bool efH, const char *extra)
+/* --------------------------------------------------------------------------
+ * Texture UV map
+ *
+ * A global key→list map for comparing quad UV/XYZ data between GPU mode and
+ * split-screen mode.  Key = SceneTextureHandle (int).  Enable by setting
+ * g_bTexUVMap = true before the frame you want to capture, then call
+ * texture_uv_map_dump() to print all collected entries.
+ * Only surface_uv_log records into the map (it carries the most data).
+ * -------------------------------------------------------------------------- */
+typedef struct {
+    char     type[8];
+    int      texId;
+    int      surfIdx;
+    uint32   surfaceFlags;
+    bool     flipV, efV, efH;
+    bool     pair03Left, row01Bot;
+    float    cu0, cv0, cv2, bcross;
+    float    v0[3], v2[3];
+    float    sY[4];
+} TexUVEntry;
+
+#define TEX_UV_MAX_KEYS    64
+#define TEX_UV_MAX_ENTRIES 32
+
+typedef struct {
+    int        texId;
+    int        count;
+    TexUVEntry entries[TEX_UV_MAX_ENTRIES];
+} TexUVBucket;
+
+static TexUVBucket s_texUVMap[TEX_UV_MAX_KEYS];
+static int         s_texUVMapKeys = 0;
+
+void texture_uv_map_reset(void)
+{
+    SDL_memset(s_texUVMap, 0, sizeof(s_texUVMap));
+    s_texUVMapKeys = 0;
+}
+
+void texture_uv_map_dump(int texId)
+{
+    system("cls");
+    SDL_Log("=== texture_uv_map: %d distinct texIds (filter tex=%d) ===",
+            s_texUVMapKeys, texId);
+    for (int b = 0; b < TEX_UV_MAX_KEYS; b++) {
+        const TexUVBucket *bkt = &s_texUVMap[b];
+        if (bkt->count == 0) continue;
+        if (texId >= 0 && bkt->texId != texId) continue;
+        for (int i = 0; i < bkt->count; i++) {
+            const TexUVEntry *e = &bkt->entries[i];
+            SDL_Log("%s tex=%d idx=%d sf=0x%X flipV=%d efV=%d efH=%d"
+                    " p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f"
+                    " | v0=(%.1f,%.1f,%.1f) v2=(%.1f,%.1f,%.1f)"
+                    " sY=(%.4f,%.4f,%.4f,%.4f)",
+                    e->type, e->texId, e->surfIdx, e->surfaceFlags,
+                    (int)e->flipV, (int)e->efV, (int)e->efH,
+                    (int)e->pair03Left, (int)e->row01Bot,
+                    (double)e->cu0, (double)e->cv0, (double)e->cv2,
+                    (double)e->bcross,
+                    (double)e->v0[0], (double)e->v0[1], (double)e->v0[2],
+                    (double)e->v2[0], (double)e->v2[1], (double)e->v2[2],
+                    (double)e->sY[0], (double)e->sY[1],
+                    (double)e->sY[2], (double)e->sY[3]);
+        }
+    }
+    SDL_Log("=== end texture_uv_map ===");
+}
+
+static void texture_uv_log(const char *type, int surfIdx, int surfaceFlags,
+                            bool flipV, bool efV, bool efH, const char *extra)
 {
     if (!g_bSurfaceLog) return;
     if (g_iSurfaceLogId < -1) return;
@@ -2768,23 +2836,13 @@ static void pair_uv_log(const char *type, int surfIdx, int surfaceFlags,
     SDL_Log("%s idx=%d sf=0x%X flipV=%d efV=%d efH=%d%s",
             type, surfIdx, surfaceFlags, (int)flipV, (int)efV, (int)efH, extra);
 }
-static void pair_uv_log_xface(int surfIdx, int surfaceFlags,
-                              bool flipV, bool efV, bool efH,
-                              bool col01Left,
-                              float cu0, float cv0, float cv2)
-{
-    char extra[64];
-    SDL_snprintf(extra, sizeof(extra), " col01L=%d cu0=%.3f cv0=%.3f cv2=%.3f",
-                 (int)col01Left, (double)cu0, (double)cv0, (double)cv2);
-    pair_uv_log("PAIR X-face", surfIdx, surfaceFlags, flipV, efV, efH, extra);
-}
-static void pair_uv_log_zface(int surfIdx, int surfaceFlags,
-                              bool flipV, bool efV, bool efH,
-                              bool pair03Left, bool row01Bot,
-                              float cu0, float cv0, float cv2, float bcross,
-                              float v0x, float v0y, float v0z,
-                              float v2x, float v2y, float v2z,
-                              float sY0, float sY1, float sY2, float sY3)
+static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
+                                  bool flipV, bool efV, bool efH,
+                                  bool pair03Left, bool row01Bot,
+                                  float cu0, float cv0, float cv2, float bcross,
+                                  float v0x, float v0y, float v0z,
+                                  float v2x, float v2y, float v2z,
+                                  float sY0, float sY1, float sY2, float sY3)
 {
     char extra[192];
     SDL_snprintf(extra, sizeof(extra),
@@ -2796,7 +2854,40 @@ static void pair_uv_log_zface(int surfIdx, int surfaceFlags,
                  (double)v0x, (double)v0y, (double)v0z,
                  (double)v2x, (double)v2y, (double)v2z,
                  (double)sY0, (double)sY1, (double)sY2, (double)sY3);
-    pair_uv_log("PAIR Z-face", surfIdx, surfaceFlags, flipV, efV, efH, extra);
+    texture_uv_log(type, surfIdx, surfaceFlags, flipV, efV, efH, extra);
+
+    if (!g_bTexUVMap) return;
+    /* Find or create a bucket for this texId. */
+    TexUVBucket *bkt = NULL;
+    for (int b = 0; b < s_texUVMapKeys; b++) {
+        if (s_texUVMap[b].texId == texId) { bkt = &s_texUVMap[b]; break; }
+    }
+    if (!bkt && s_texUVMapKeys < TEX_UV_MAX_KEYS) {
+        bkt = &s_texUVMap[s_texUVMapKeys++];
+        bkt->texId = texId;
+        bkt->count = 0;
+    }
+    if (!bkt) return;
+    /* Dedup: skip if a quad with the same world position is already recorded.
+     * Each tile has a unique v0 position, so this catches same-tile repeats
+     * across multiple frames without discarding tiles that differ in UV. */
+    for (int i = 0; i < bkt->count; i++) {
+        const TexUVEntry *x = &bkt->entries[i];
+        if (x->v0[0] == v0x && x->v0[1] == v0y && x->v0[2] == v0z) return;
+    }
+    if (bkt->count < TEX_UV_MAX_ENTRIES) {
+        TexUVEntry *e = &bkt->entries[bkt->count++];
+        SDL_strlcpy(e->type, type, sizeof(e->type));
+        e->texId        = texId;
+        e->surfIdx      = surfIdx;
+        e->surfaceFlags = surfaceFlags;
+        e->flipV        = flipV;   e->efV = efV;   e->efH = efH;
+        e->pair03Left   = pair03Left; e->row01Bot = row01Bot;
+        e->cu0 = cu0; e->cv0 = cv0; e->cv2 = cv2; e->bcross = bcross;
+        e->v0[0] = v0x; e->v0[1] = v0y; e->v0[2] = v0z;
+        e->v2[0] = v2x; e->v2[1] = v2y; e->v2[2] = v2z;
+        e->sY[0] = sY0; e->sY[1] = sY1; e->sY[2] = sY2; e->sY[3] = sY3;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -3109,10 +3200,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 }
                 cv[0] = vL; cv[1] = vL;
                 cv[2] = vR; cv[3] = vR;
-                pair_uv_log_xface(surfIdx, surfaceFlags,
-                                  flipV, effectiveFlipV, effectiveFlipH,
-                                  col01Left,
-                                  cu[0], cv[0], cv[2]);
+                surface_uv_log("PAIR-X", texture, surfIdx, surfaceFlags,
+                               flipV, effectiveFlipV, effectiveFlipH,
+                               col01Left, false,
+                               cu[0], cv[0], cv[2], 0.0f,
+                                     verts[0].x, verts[0].y, verts[0].z,
+                                     verts[2].x, verts[2].y, verts[2].z,
+                                     sY[0], sY[1], sY[2], sY[3]);
             } else {
                 /* Z-facing wall: {v0=TL,v3=BL}=left col, {v1=TR,v2=BR}=right col.
                  * pair03Left determines which world-space column is the "left" tile (N).
@@ -3177,13 +3271,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                         : (k==2||k==3);
                     cv[k] = (isBottom != effectiveFlipV) ? vMaxN : 0.0f;
                 }
-                pair_uv_log_zface(surfIdx, surfaceFlags,
-                                  flipV, effectiveFlipV, effectiveFlipH,
-                                  pair03Left, row01IsBottom,
-                                  cu[0], cv[0], cv[2], s_bcross,
-                                  verts[0].x, verts[0].y, verts[0].z,
-                                  verts[2].x, verts[2].y, verts[2].z,
-                                  sY[0], sY[1], sY[2], sY[3]);
+                surface_uv_log("PAIR-Z", texture, surfIdx, surfaceFlags,
+                               flipV, effectiveFlipV, effectiveFlipH,
+                               pair03Left, row01IsBottom,
+                               cu[0], cv[0], cv[2], s_bcross,
+                                     verts[0].x, verts[0].y, verts[0].z,
+                                     verts[2].x, verts[2].y, verts[2].z,
+                                     sY[0], sY[1], sY[2], sY[3]);
             }
         } else if (isCloud) {
             /* Cloud quads: the SW renderer's polyt() walks edges based on
@@ -3228,7 +3322,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = isBottom ? vMaxN : 0.0f;
             }
-            pair_uv_log("BLDG", surfIdx, surfaceFlags, false, false, flipH, "");
+            surface_uv_log("BLDG", texture, surfIdx, surfaceFlags,
+                           false, false, flipH, false, false,
+                           cu[0], cv[0], cv[2], 0.0f,
+                           verts[0].x, verts[0].y, verts[0].z,
+                           verts[2].x, verts[2].y, verts[2].z,
+                           0.0f, 0.0f, 0.0f, 0.0f);
         } else if (isSign) {
             /* Roadside signs / adverts (SUBDIVIDE_TYPE_SIGN = 667):
              * same winding convention as general track surfaces; honour FLIP_VERT. */
@@ -3240,7 +3339,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
-            pair_uv_log("SIGN", surfIdx, surfaceFlags, flipV, flipV, flipH, "");
+            surface_uv_log("SIGN", texture, surfIdx, surfaceFlags,
+                           flipV, flipV, flipH, false, false,
+                           cu[0], cv[0], cv[2], 0.0f,
+                           verts[0].x, verts[0].y, verts[0].z,
+                           verts[2].x, verts[2].y, verts[2].z,
+                           0.0f, 0.0f, 0.0f, 0.0f);
         } else if (isWall) {
             /* Non-pair walls: isWall=true but usePair=false (pair texture not
              * loaded for this tile index).  Single-tile fallback; honour FLIP_VERT. */
@@ -3252,7 +3356,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
-            pair_uv_log("WALL", surfIdx, surfaceFlags, flipV, flipV, flipH, "");
+            surface_uv_log("WALL", texture, surfIdx, surfaceFlags,
+                           flipV, flipV, flipH, false, false,
+                           cu[0], cv[0], cv[2], 0.0f,
+                           verts[0].x, verts[0].y, verts[0].z,
+                           verts[2].x, verts[2].y, verts[2].z,
+                           0.0f, 0.0f, 0.0f, 0.0f);
         } else {
             /* General track surfaces: road, ground, mountain sides, concrete
              * barrier walls (non-pair, non-TEXTURE_PAIR), fences, and everything
@@ -3330,10 +3439,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
             }
-            /* char bfExtra[32]; bfExtra[0] = '\0';
-            if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE)
-                SDL_snprintf(bfExtra, sizeof(bfExtra), " bcross=%.3f", (double)bfCross);
-            pair_uv_log("GEN", surfIdx, surfaceFlags, flipV, flipV, flipH, bfExtra); */
+            surface_uv_log("GEN", texture, surfIdx, surfaceFlags,
+                           flipV, flipV, flipH, false, false,
+                           cu[0], cv[0], cv[2], bfCross,
+                           verts[0].x, verts[0].y, verts[0].z,
+                           verts[2].x, verts[2].y, verts[2].z,
+                           0.0f, 0.0f, 0.0f, 0.0f);
         }
     }
 

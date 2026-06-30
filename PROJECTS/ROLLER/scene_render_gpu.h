@@ -112,6 +112,9 @@ void scene_render_gpu_set_hud_buffer(SceneRendererGPU *r,
                                      uint8 *buf, int w, int h);
 void scene_render_gpu_set_split_screen(SceneRendererGPU *r, bool split);
 
+void texture_uv_map_reset(void);
+void texture_uv_map_dump(int texId);
+
 void scene_render_gpu_set_debug_overlay(SceneRendererGPU *r, DebugOverlay *overlay);
 void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filter);
 
