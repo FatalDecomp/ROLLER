@@ -285,7 +285,8 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
 
     /* GPU mode: route particles through the dedicated depth-tested pipeline so they
      * are occluded by solid geometry instead of blitting over everything via SW overlay. */
-    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->mirrorPass) {
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->mirrorPass
+        && !renderer->splitScreen) {
         int colorIdx = poly->iSurfaceType & 0xFF;
         if (palette_remap)
             colorIdx = palette_remap[colorIdx] & 0xFF;
