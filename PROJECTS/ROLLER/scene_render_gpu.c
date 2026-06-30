@@ -2796,11 +2796,11 @@ void texture_uv_map_reset(void)
     s_texUVMapKeys = 0;
 }
 
-void texture_uv_map_dump(int texId)
+void texture_uv_map_dump(int texId, bool splitScreen)
 {
     system("cls");
-    SDL_Log("=== texture_uv_map: %d distinct texIds (filter tex=%d) ===",
-            s_texUVMapKeys, texId);
+    SDL_Log("=== texture_uv_map: %d distinct texIds (filter tex=%d) [%s] ===",
+            s_texUVMapKeys, texId, splitScreen ? "split-screen" : "hardware");
     for (int b = 0; b < TEX_UV_MAX_KEYS; b++) {
         const TexUVBucket *bkt = &s_texUVMap[b];
         if (bkt->count == 0) continue;

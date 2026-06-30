@@ -1578,7 +1578,7 @@ void UpdateSDL()
             InputSaveConfig();
           }
           game_render_set_split_screen(g_pGameRenderer, newSplit);
-          texture_uv_map_dump(g_iSurfaceLogId);
+          texture_uv_map_dump(g_iSurfaceLogId, !newSplit);
           texture_uv_map_reset();
           g_bTexUVMap = true;
         }
