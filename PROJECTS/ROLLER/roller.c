@@ -1,8 +1,10 @@
 #include "roller.h"
+#include "scene_render_gpu.h"
 #include "crt_filter.h"
 #include "rollersound.h"
 #include "rollerinput.h"
 #include "3d.h"
+#include "car.h"
 #include "sound.h"
 #include "frontend.h"
 #include "func2.h"
@@ -130,6 +132,7 @@ float g_fFovMultiplier   = 1.0f;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
+bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;
@@ -1575,6 +1578,12 @@ void UpdateSDL()
             InputSaveConfig();
           }
           game_render_set_split_screen(g_pGameRenderer, newSplit);
+          if (g_bSurfaceLog) {
+              SDL_Log("car pos: (%.1f, %.1f, %.1f)",
+                      (double)Car[0].pos.fX, (double)Car[0].pos.fY, (double)Car[0].pos.fZ);
+              texture_uv_map_dump(g_iSurfaceLogId, !newSplit);
+              texture_uv_map_reset();
+          }
         }
         continue;
       }

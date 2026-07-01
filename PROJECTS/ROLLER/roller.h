@@ -38,6 +38,7 @@ extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
+extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top); false = depth-tested */
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
 extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */
 extern int   g_iSurfaceLogId;    /* -2=disabled(empty), -1=all, >=0=specific surfIdx (not saved) */

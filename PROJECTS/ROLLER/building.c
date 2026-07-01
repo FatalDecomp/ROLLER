@@ -708,6 +708,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             goto skip_polygon;
 
           // Handle special textures (advertisements, building remapping)
+          bool isRealSign = (uiTex & 0x2200) == 0x2200; // FLIP_BACKFACE+NO_EXTRAS: real advert panel
           bool isSign = (uiTex & 0x200) != 0;
           if (isSign) {
             uiTex = advert_list[iBuildingIdx];
@@ -748,14 +749,23 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           TextureHandle th = ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
             ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
             : TEXTURE_HANDLE_INVALID;
-          /* Sign polygons use a dedicated sign subdivide type so the GPU renderer
-           * routes them through the sign pipeline (LESS_OR_EQUAL + depth write),
-           * which beats coplanar wall depth while still being occluded by closer
-           * geometry (barriers, hills). */
+          /* All sign-type polygons use GAME_RENDER_SUBDIVIDE_TYPE_SIGN so the GPU
+           * renderer knows to bypass the normal backface-cull and depth routing.
+           * SURFACE_FLAG_GPU_IS_SIGN (bit 20) is ORed in for real advert panels only;
+           * the GPU renderer uses it to route real signs to the depth-check pipeline
+           * while background buildings (flag absent) fall to the building pipeline.
+           * The SW renderer never checks bit 20 for building quads — no effect there. */
           int subdivType = isSign ? GAME_RENDER_SUBDIVIDE_TYPE_SIGN
                                   : GAME_RENDER_SUBDIVIDE_TYPE_BUILDING;
+          int gpuSurfFlags = (int)(uint16)uiTex;
+          if (isRealSign) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_SIGN;
+          /* Building types 9, 10, 15 rotate using worlddirn (camera-facing billboards = trees).
+           * Mark them so the GPU renderer can draw them without depth testing, matching
+           * the SW painter's algorithm where trees are always visible. */
+          bool isTree = (uiBuildingType == 10); /* SIGN_TREE: fixed tree texture, never advert_list */
+          if (isTree) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_TREE;
           game_render_quad_world_subdivide_type(
-            g_pGameRenderer, verts, th, (int)uiTex,
+            g_pGameRenderer, verts, th, gpuSurfFlags,
             subdivType,
             (float)BuildingSub[uiBuildingType] * subscale);
         }
