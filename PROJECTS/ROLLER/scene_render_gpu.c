@@ -31,7 +31,7 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
-#define SCENE_GPU_NEAR               80.0f
+#define SCENE_GPU_NEAR               10.0f
 #define SCENE_GPU_FAR                20000000.0f
 
 /* --------------------------------------------------------------------------
@@ -2875,10 +2875,10 @@ static void surface_uv_log(const char *type, int texId, int surfIdx, int surface
 {
     char extra[192];
     SDL_snprintf(extra, sizeof(extra),
-                 " p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f"
+                 " tex=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f"
                  " | v0xyz=(%.1f,%.1f,%.1f) v2xyz=(%.1f,%.1f,%.1f)"
                  " sY01=(%.4f,%.4f) sY23=(%.4f,%.4f)",
-                 (int)pair03Left, (int)row01Bot,
+                 texId, (int)pair03Left, (int)row01Bot,
                  (double)cu0, (double)cv0, (double)cv2, (double)bcross,
                  (double)v0x, (double)v0y, (double)v0z,
                  (double)v2x, (double)v2y, (double)v2z,
@@ -3002,30 +3002,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * render in SW regardless of winding. Loop sections rely on this: the outer
      * walls at section boundaries are back-facing from outside the loop but must
      * render to produce the dark dividing lines between sections. */
-    /* SURFACE_FLAG_TEXTURE_PAIR removed from bypass: SW culls non-BF pair
-     * surfaces from behind (polytex backface check fires).  GPU must match.
-     * All legitimately two-sided pair surfaces (loop road, etc.) carry
-     * SURFACE_FLAG_FLIP_BACKFACE explicitly, so they stay in the bypass. */
-    if (!isBuilding && !isSign && !isCloud
-        && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_BACK
-                             | SURFACE_FLAG_TRANSPARENT
-                             | SURFACE_FLAG_CONCAVE)))
-    {
-        const float (*M)[3] = r->proj.view;
-        float sx[3], sy[3];
-        for (int vi = 0; vi < 3; vi++) {
-            float ddx = verts[vi].x - r->camera.viewX;
-            float ddy = verts[vi].y - r->camera.viewY;
-            float ddz = verts[vi].z - r->camera.viewZ;
-            float vZ = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
-            float iz = (fabsf(vZ) > 1e-6f) ? 1.0f / vZ : 1.0f;
-            sx[vi] = (ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0]) * iz;
-            sy[vi] = (ddx*M[0][1] + ddy*M[1][1] + ddz*M[2][1]) * iz;
-        }
-        float cross = (sx[0]-sx[1])*(sy[0]-sy[2])
-                    - (sy[0]-sy[1])*(sx[0]-sx[2]);
-        if (cross < 0.0f) return;
-    }
+    /* CPU backface cull removed for track surfaces.
+     * The screen-space cross-product check was unreliable near the near-plane
+     * (clamping artefacts flipped the sign for valley/slope surfaces) and it
+     * incorrectly hid roads above the camera (e.g. elevated sections seen from
+     * below).  Track surfaces are thin single-face quads so rendering both
+     * sides is harmless; the depth buffer handles ordering correctly.
+     * Buildings and signs are still culled earlier by building.c. */
 
     /* For single-sided TEXTURE_PAIR walls (no FLIP_BACKFACE/BACK) check the
      * camera is on the front side of the wall plane before applying the pair
@@ -3317,33 +3300,19 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                      sY[0], sY[1], sY[2], sY[3]);
             }
         } else if (isCloud) {
-            /* Cloud quads: the SW renderer's polyt() walks edges based on
-             * winding order, which makes u=0 always land on the screen-left
-             * side regardless of vertex order.  Replicate that by projecting
-             * pairs (v0,v3) and (v1,v2) to screen X and assigning u=0 to
-             * whichever pair is screen-left.  FLIP_HORIZ then inverts this. */
-            const float (*M)[3] = r->proj.view;
-            float vX[4], vZ[4];
-            for (int vi = 0; vi < 4; vi++) {
-                float ddx = verts[vi].x - r->camera.viewX;
-                float ddy = verts[vi].y - r->camera.viewY;
-                float ddz = verts[vi].z - r->camera.viewZ;
-                vX[vi] = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
-                vZ[vi] = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
-            }
-            float px03 = (fabsf(vZ[0]) > 1e-6f ? vX[0]/vZ[0] : vX[0])
-                       + (fabsf(vZ[3]) > 1e-6f ? vX[3]/vZ[3] : vX[3]);
-            float px12 = (fabsf(vZ[1]) > 1e-6f ? vX[1]/vZ[1] : vX[1])
-                       + (fabsf(vZ[2]) > 1e-6f ? vX[2]/vZ[2] : vX[2]);
-            bool pair03IsLeft = px03 < px12;
-            float u03 = pair03IsLeft ? 0.0f : uMaxN;
-            float u12 = pair03IsLeft ? uMaxN : 0.0f;
-            if (flipH) { float tmp = u03; u03 = u12; u12 = tmp; }
-            /* POLYTEX applies FLIP_VERT for clouds (startsy swap).
-             * Clouds randomly get SURFACE_FLAG_FLIP_VERT set (horizon.c).
-             * Unlike walls, clouds must honour it to match SW behaviour. */
+            /* Cloud quads: fixed vertex-index UV matching SW's set_starts(0):
+             *   v0,v3 → U=uMaxN; v1,v2 → U=0   (swapped if flipH)
+             *   v0,v1 → V per flipV; v2,v3 → complement
+             * The earlier screen-space pair03IsLeft U detection caused an abrupt
+             * H-mirror at ~90°/270° camera roll: as the quad rolled, the pair sum
+             * threshold crossed and cu flipped (uMax,0,0,uMax)↔(0,uMax,uMax,0).
+             * SW (set_starts) never adapts UV to camera roll — it is always fixed
+             * by vertex index — so this detection was wrong. */
             bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
-            cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
+            cu[0] = flipH ? 0.0f : uMaxN;
+            cu[1] = flipH ? uMaxN : 0.0f;
+            cu[2] = flipH ? uMaxN : 0.0f;
+            cu[3] = flipH ? 0.0f : uMaxN;
             for (int k = 0; k < 4; k++) {
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
@@ -3568,12 +3537,38 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         }
     }
 
+    if (r->vertexCount + 6 > SCENE_GPU_MAX_VERTICES) return;
+
+    /* Near-plane fix (part 2 of 2): push each vertex forward along the camera
+     * forward direction until fVz >= SCENE_GPU_NEAR.  Part 1 (backface check
+     * above) stops near-camera quads from being incorrectly culled; this part
+     * stops the GPU from hardware-clipping the surviving near-camera vertices.
+     * The SW renderer does fWorldZ = max(fWorldZ, NEAR) per vertex, keeping
+     * camera-space X and Y unchanged — pushing along the camera forward axis
+     * in world space is mathematically identical.  Only applied when fVz > 0
+     * to avoid pushing behind-camera geometry (which the GPU discards safely). */
+    float fwd_x = r->proj.view[0][2];   /* vk3 — camera forward in world X */
+    float fwd_y = r->proj.view[1][2];   /* vk6 — camera forward in world Y */
+    float fwd_z = r->proj.view[2][2];   /* vk9 — camera forward in world Z */
+    float cx = r->camera.viewX, cy = r->camera.viewY, cz = r->camera.viewZ;
+    float px[4], py[4], pz[4];
+    for (int k = 0; k < 4; k++) {
+        px[k] = verts[k].x; py[k] = verts[k].y; pz[k] = verts[k].z;
+        float fVz = fwd_x*(px[k]-cx) + fwd_y*(py[k]-cy) + fwd_z*(pz[k]-cz);
+        if (fVz > 0.0f && fVz < SCENE_GPU_NEAR) {
+            float delta = SCENE_GPU_NEAR - fVz;
+            px[k] += delta * fwd_x;
+            py[k] += delta * fwd_y;
+            pz[k] += delta * fwd_z;
+        }
+    }
+
     int base = r->vertexCount;
     static const int order[6] = {0,1,2, 0,2,3};
     for (int i = 0; i < 6; i++) {
         int k = order[i];
         r->vertices[base+i] = (SceneGPUVertex){
-            verts[k].x, verts[k].y, verts[k].z,
+            px[k], py[k], pz[k],
             cu[k], cv[k]
         };
     }
