@@ -37,11 +37,11 @@ typedef struct GameRenderCarOptions {
 #define GAME_RENDER_SUBDIVIDE_TYPE_BUILDING SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING
 #define GAME_RENDER_SUBDIVIDE_TYPE_SIGN SCENE_RENDER_SUBDIVIDE_TYPE_SIGN
 
-/* GPU-only routing flag set by building.c on real advert-sign quads.
- * Uses bit 20 (SURFACE_FLAG_BOUNCE_20 in physics) which building polygon data
- * never occupies (building uiTex is 16-bit) and is not checked by the GPU
- * renderer for any visual purpose.  SW renderer ignores it entirely. */
-#define SURFACE_FLAG_GPU_IS_SIGN 0x00100000
+/* GPU-only routing flags set by building.c.  Both use bits above 15 so they
+ * cannot appear in building polygon data (uiTex is 16-bit).  SW renderer
+ * ignores them entirely. */
+#define SURFACE_FLAG_GPU_IS_SIGN 0x00100000  /* real advert-sign quad (bit 20 / BOUNCE_20) */
+#define SURFACE_FLAG_GPU_IS_TREE 0x00400000  /* camera-facing billboard tree (bit 22 / WALL_22) */
 
 typedef struct GameRenderer GameRenderer;
 

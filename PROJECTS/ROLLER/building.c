@@ -759,6 +759,11 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
                                   : GAME_RENDER_SUBDIVIDE_TYPE_BUILDING;
           int gpuSurfFlags = (int)(uint16)uiTex;
           if (isRealSign) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_SIGN;
+          /* Building types 9, 10, 15 rotate using worlddirn (camera-facing billboards = trees).
+           * Mark them so the GPU renderer can draw them without depth testing, matching
+           * the SW painter's algorithm where trees are always visible. */
+          bool isTree = (uiBuildingType == 10); /* SIGN_TREE: fixed tree texture, never advert_list */
+          if (isTree) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_TREE;
           game_render_quad_world_subdivide_type(
             g_pGameRenderer, verts, th, gpuSurfFlags,
             subdivType,

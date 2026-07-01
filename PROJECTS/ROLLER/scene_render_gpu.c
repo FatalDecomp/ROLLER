@@ -96,7 +96,7 @@ typedef struct {
 /* --------------------------------------------------------------------------
  * Deferred draw commands
  * -------------------------------------------------------------------------- */
-typedef enum { SCENE_GPU_DRAW_OPAQUE = 0, SCENE_GPU_DRAW_BLEND, SCENE_GPU_DRAW_BUILDING, SCENE_GPU_DRAW_SIGN, SCENE_GPU_DRAW_SIGN_BK, SCENE_GPU_DRAW_WALL, SCENE_GPU_DRAW_BF_WALL, SCENE_GPU_DRAW_SHADOW } SceneGPUDrawKind;
+typedef enum { SCENE_GPU_DRAW_OPAQUE = 0, SCENE_GPU_DRAW_BLEND, SCENE_GPU_DRAW_BUILDING, SCENE_GPU_DRAW_BF_BUILDING, SCENE_GPU_DRAW_SIGN, SCENE_GPU_DRAW_SIGN_BK, SCENE_GPU_DRAW_TREE, SCENE_GPU_DRAW_WALL, SCENE_GPU_DRAW_BF_WALL, SCENE_GPU_DRAW_SHADOW } SceneGPUDrawKind;
 
 typedef struct {
     SDL_GPUTexture  *texture;
@@ -126,11 +126,13 @@ struct SceneRendererGPU {
     /* ---- 3D scene pipeline (SceneGPUVertex: pos[3] + uv[2]) ---- */
     SDL_GPUGraphicsPipeline *opaquePipeline;
     SDL_GPUGraphicsPipeline *blendPipeline;
-    SDL_GPUGraphicsPipeline *buildingPipeline; /* opaque + LESS_OR_EQUAL + depth bias */
+    SDL_GPUGraphicsPipeline *buildingPipeline;   /* opaque + LESS_OR_EQUAL; for PT and isBuilding surfaces */
+    SDL_GPUGraphicsPipeline *bfBuildingPipeline; /* like buildingPipeline + small depth bias; for PT|FLIP_BACKFACE fence panels coplanar with walls */
     SDL_GPUGraphicsPipeline *signPipeline;          /* LESS_OR_EQUAL + neg bias + CULL_BACK: building signs (MSAA fallback) */
     SDL_GPUGraphicsPipeline *signBkPipeline;        /* same + CULL_NONE: gen BK BF sign content (MSAA fallback) */
     SDL_GPUGraphicsPipeline *signDepthPipeline;     /* COMPARE_ALWAYS + no depth write + CULL_BACK + depth-check shader */
     SDL_GPUGraphicsPipeline *signBkDepthPipeline;   /* same + CULL_NONE */
+    SDL_GPUGraphicsPipeline *treePipeline;          /* COMPARE_ALWAYS + no depth write + CULL_NONE: tree billboards always visible */
     SDL_GPUGraphicsPipeline *wallPipeline;     /* sfBl + LESS_OR_EQUAL; for TEXTURE_PAIR surfaces */
     SDL_GPUGraphicsPipeline *bfWallPipeline;  /* like wallPipeline + small depth bias; for TEXTURE_PAIR|FLIP_BACKFACE surfaces coplanar with adjacent walls */
     SDL_GPUGraphicsPipeline *shadowPipeline;   /* blend + LESS_OR_EQUAL + no depth write + large bias; for car shadow quads coplanar with road */
@@ -850,6 +852,62 @@ static SDL_GPUGraphicsPipeline *make_sign_depth_pipeline(SceneRendererGPU *r,
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
+/* LESS_OR_EQUAL + negative bias + no depth write + CULL_NONE: tree billboard
+ * sprites win against walls (similar depth) but still lose to the road
+ * (genuinely closer to camera → smaller depth value despite bias). */
+static SDL_GPUGraphicsPipeline *make_tree_pipeline(SceneRendererGPU *r,
+                                                    SDL_GPUShader *vert,
+                                                    SDL_GPUShader *fragOp,
+                                                    SDL_GPUSampleCount sc,
+                                                    SDL_GPUFillMode fillMode)
+{
+    SDL_GPUVertexAttribute attrs[2] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+         .offset=(Uint32)offsetof(SceneGPUVertex, x)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUVertex, u)},
+    };
+    SDL_GPUVertexBufferDescription binding = {
+        .pitch = sizeof(SceneGPUVertex),
+        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX
+    };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window)
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = fragOp,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = {
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 2,
+            .vertex_buffer_descriptions = &binding,
+            .num_vertex_buffers         = 1
+        },
+        .target_info = {
+            .color_target_descriptions = &ct,
+            .num_color_targets         = 1,
+            .has_depth_stencil_target  = true,
+            .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+        },
+        .multisample_state  = { .sample_count = sc },
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = false,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL
+        },
+        .rasterizer_state = {
+            .fill_mode                  = fillMode,
+            .cull_mode                  = SDL_GPU_CULLMODE_NONE,
+            .front_face                 = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+            .depth_bias_constant_factor = -200.0f,
+            .depth_bias_clamp           = 0.0f,
+            .depth_bias_slope_factor    = -1.0f,
+        }
+    };
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
 static SDL_GPUGraphicsPipeline *make_car_pipeline(SceneRendererGPU *r,
                                                    SDL_GPUShader *vert,
                                                    SDL_GPUShader *frag,
@@ -1123,6 +1181,8 @@ static SDL_GPUGraphicsPipeline *make_hud_pipeline(SceneRendererGPU *r,
  * Public API
  * ========================================================================== */
 
+static void rebuild_scene_pipelines(SceneRendererGPU *r, SDL_GPUSampleCount sc, SDL_GPUFillMode fm);
+
 SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window)
 {
     SceneRendererGPU *r = calloc(1, sizeof(*r));
@@ -1172,37 +1232,9 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         r->shadowTex = upload_rgba(device, shadowRgba, 4, 4);
     }
 
-    /* ---- Scene shaders ---- */
-    SDL_GPUShader *sv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
-        game_scene_vertex_spirv, game_scene_vertex_spirv_size,
-        game_scene_vertex_msl,   game_scene_vertex_msl_size, 0, 1);
-    SDL_GPUShader *sfOp = load_shader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_pixel_spirv,  game_scene_pixel_spirv_size,
-        game_scene_pixel_msl,    game_scene_pixel_msl_size,  1, 1);
-    SDL_GPUShader *sfBl = load_shader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_pixel_blend_spirv, game_scene_pixel_blend_spirv_size,
-        game_scene_pixel_blend_msl,   game_scene_pixel_blend_msl_size,  1, 1);
-    SDL_GPUShader *sfSign = load_shader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_sign_pixel_spirv,  game_scene_sign_pixel_spirv_size,
-        game_scene_sign_pixel_msl,    game_scene_sign_pixel_msl_size,    2, 1);
-    if (!sv || !sfOp || !sfBl || !sfSign) goto fail;
-
-    r->opaquePipeline        = make_scene_pipeline(r, sv, sfOp, false, false, 0.0f,   0.0f, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->blendPipeline         = make_scene_pipeline(r, sv, sfBl, true,  true,  0.0f,   0.0f, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->buildingPipeline      = make_scene_pipeline(r, sv, sfOp, false, true,  0.0f,   0.0f, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->signPipeline          = make_sign_pipeline   (r, sv, sfOp,               SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->signBkPipeline        = make_sign_bk_pipeline(r, sv, sfOp,               SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->signDepthPipeline     = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_BACK, SDL_GPU_FILLMODE_FILL);
-    r->signBkDepthPipeline   = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_NONE, SDL_GPU_FILLMODE_FILL);
-    r->wallPipeline          = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->bfWallPipeline        = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->shadowPipeline        = make_shadow_pipeline (r, sv, sfBl,               SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    r->skyPipeline           = make_sky_pipeline    (r, sv, sfOp, SDL_GPU_SAMPLECOUNT_1);
-    SDL_ReleaseGPUShader(device, sv);
-    SDL_ReleaseGPUShader(device, sfOp);
-    SDL_ReleaseGPUShader(device, sfBl);
-    SDL_ReleaseGPUShader(device, sfSign);
-    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->signPipeline || !r->signBkPipeline || !r->signDepthPipeline || !r->signBkDepthPipeline || !r->wallPipeline || !r->bfWallPipeline || !r->shadowPipeline || !r->skyPipeline) goto fail;
+    /* ---- Scene shaders + pipelines ---- */
+    rebuild_scene_pipelines(r, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
+    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->bfBuildingPipeline || !r->signPipeline || !r->signBkPipeline || !r->signDepthPipeline || !r->signBkDepthPipeline || !r->treePipeline || !r->wallPipeline || !r->bfWallPipeline || !r->shadowPipeline || !r->skyPipeline) goto fail;
 
     /* ---- Car shaders (game_car_* add fog+gamma; menu_mesh_* kept for menu) ---- */
     SDL_GPUShader *cv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -1362,11 +1394,13 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     free(r->drawCmds);
     if (r->opaquePipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);
     if (r->blendPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);
-    if (r->buildingPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);
+    if (r->buildingPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);
+    if (r->bfBuildingPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfBuildingPipeline);
     if (r->signPipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);
     if (r->signBkPipeline)       SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkPipeline);
     if (r->signDepthPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->signDepthPipeline);
     if (r->signBkDepthPipeline)  SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkDepthPipeline);
+    if (r->treePipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->treePipeline);
     if (r->wallPipeline)     SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);
     if (r->bfWallPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);
     if (r->shadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
@@ -1866,6 +1900,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
         DRAW_CMD(SCENE_GPU_DRAW_BUILDING)
     }
+    if (r->bfBuildingPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_BF_BUILDING)
+    }
     /* Sign rendering: non-MSAA uses depth-copy pass split so signs behind canyon walls
      * are correctly hidden; MSAA falls back to the old bias-based pipeline. */
     if (!useMSAA && r->signDepthPipeline && r->signBkDepthPipeline && r->signDepthCopyTex) {
@@ -1927,6 +1965,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline);
             DRAW_CMD(SCENE_GPU_DRAW_SIGN_BK)
         }
+    }
+    if (r->treePipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);
+        DRAW_CMD(SCENE_GPU_DRAW_TREE)
     }
     if (r->blendPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
@@ -2259,29 +2301,8 @@ void scene_render_gpu_set_fov_multiplier(SceneRendererGPU *r, float mult)
     r->fovMultiplier = (mult > 0.1f) ? mult : 1.0f;
 }
 
-void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
+static void rebuild_scene_pipelines(SceneRendererGPU *r, SDL_GPUSampleCount sc, SDL_GPUFillMode fm)
 {
-    if (!r || r->wireframe == enabled) return;
-    r->wireframe = enabled;
-
-    SDL_WaitForGPUIdle(r->device);
-
-    if (r->opaquePipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);   r->opaquePipeline   = NULL; }
-    if (r->blendPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);    r->blendPipeline    = NULL; }
-    if (r->buildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline); r->buildingPipeline = NULL; }
-    if (r->signPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);         r->signPipeline         = NULL; }
-    if (r->signBkPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkPipeline);       r->signBkPipeline       = NULL; }
-    if (r->signDepthPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signDepthPipeline);    r->signDepthPipeline    = NULL; }
-    if (r->signBkDepthPipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkDepthPipeline);  r->signBkDepthPipeline  = NULL; }
-    if (r->wallPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);         r->wallPipeline         = NULL; }
-    if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
-    if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
-    if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
-    if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
-
-    SDL_GPUFillMode fm = enabled ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
-    SDL_GPUSampleCount sc = r->msaaSampleCount;
-
     SDL_GPUShader *sv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
         game_scene_vertex_spirv, game_scene_vertex_spirv_size,
         game_scene_vertex_msl,   game_scene_vertex_msl_size, 0, 1);
@@ -2295,24 +2316,54 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
         game_scene_sign_pixel_spirv,  game_scene_sign_pixel_spirv_size,
         game_scene_sign_pixel_msl,    game_scene_sign_pixel_msl_size,    2, 1);
     if (sv && sfOp && sfBl) {
-        r->opaquePipeline   = make_scene_pipeline(r, sv, sfOp, false, false, 0.0f,   0.0f, sc, fm);
-        r->blendPipeline    = make_scene_pipeline(r, sv, sfBl, true,  true,  0.0f,   0.0f, sc, fm);
-        r->buildingPipeline = make_scene_pipeline(r, sv, sfOp, false, true,  0.0f,   0.0f, sc, fm);
-        r->signPipeline     = make_sign_pipeline   (r, sv, sfOp,               sc, fm);
-        r->signBkPipeline   = make_sign_bk_pipeline(r, sv, sfOp,               sc, fm);
-        r->wallPipeline     = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, sc, fm);
-        r->bfWallPipeline   = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
-        r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
-        r->skyPipeline      = make_sky_pipeline(r, sv, sfOp, sc);
+        r->opaquePipeline        = make_scene_pipeline(r, sv, sfOp, false, false, 0.0f,    0.0f,  sc, fm);
+        r->blendPipeline         = make_scene_pipeline(r, sv, sfBl, true,  true,  0.0f,    0.0f,  sc, fm);
+        r->buildingPipeline      = make_scene_pipeline(r, sv, sfOp, false, true,  0.0f,    0.0f,  sc, fm);
+        r->bfBuildingPipeline    = make_scene_pipeline(r, sv, sfOp, false, true,  -200.0f, -1.0f, sc, fm);
+        r->signPipeline          = make_sign_pipeline   (r, sv, sfOp,               sc, fm);
+        r->signBkPipeline        = make_sign_bk_pipeline(r, sv, sfOp,               sc, fm);
+        r->wallPipeline          = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, sc, fm);
+        r->bfWallPipeline        = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
+        r->shadowPipeline        = make_shadow_pipeline (r, sv, sfBl,               sc, fm);
+        r->skyPipeline           = make_sky_pipeline    (r, sv, sfOp, sc);
+        r->treePipeline          = make_tree_pipeline   (r, sv, sfOp,               sc, fm);
     }
     if (sv && sfSign) {
-        r->signDepthPipeline   = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_BACK, fm);
-        r->signBkDepthPipeline = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_NONE, fm);
+        r->signDepthPipeline     = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_BACK, fm);
+        r->signBkDepthPipeline   = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_NONE, fm);
     }
     if (sv)     SDL_ReleaseGPUShader(r->device, sv);
     if (sfOp)   SDL_ReleaseGPUShader(r->device, sfOp);
     if (sfBl)   SDL_ReleaseGPUShader(r->device, sfBl);
     if (sfSign) SDL_ReleaseGPUShader(r->device, sfSign);
+}
+
+void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
+{
+    if (!r || r->wireframe == enabled) return;
+    r->wireframe = enabled;
+
+    SDL_WaitForGPUIdle(r->device);
+
+    if (r->opaquePipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);   r->opaquePipeline   = NULL; }
+    if (r->blendPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);    r->blendPipeline    = NULL; }
+    if (r->buildingPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);   r->buildingPipeline   = NULL; }
+    if (r->bfBuildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfBuildingPipeline); r->bfBuildingPipeline = NULL; }
+    if (r->signPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);         r->signPipeline         = NULL; }
+    if (r->signBkPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkPipeline);       r->signBkPipeline       = NULL; }
+    if (r->signDepthPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signDepthPipeline);    r->signDepthPipeline    = NULL; }
+    if (r->signBkDepthPipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkDepthPipeline);  r->signBkDepthPipeline  = NULL; }
+    if (r->treePipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->treePipeline);         r->treePipeline         = NULL; }
+    if (r->wallPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);         r->wallPipeline         = NULL; }
+    if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
+    if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
+    if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
+    if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
+
+    SDL_GPUFillMode fm = enabled ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
+    SDL_GPUSampleCount sc = r->msaaSampleCount;
+
+    rebuild_scene_pipelines(r, sc, fm);
 
     SDL_GPUShader *cv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
         game_car_vertex_spirv, game_car_vertex_spirv_size,
@@ -2335,7 +2386,8 @@ void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode)
 
     if (r->opaquePipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);   r->opaquePipeline   = NULL; }
     if (r->blendPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);    r->blendPipeline    = NULL; }
-    if (r->buildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline); r->buildingPipeline = NULL; }
+    if (r->buildingPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);   r->buildingPipeline   = NULL; }
+    if (r->bfBuildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfBuildingPipeline); r->bfBuildingPipeline = NULL; }
     if (r->signPipeline)        { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);        r->signPipeline        = NULL; }
     if (r->signBkPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkPipeline);      r->signBkPipeline      = NULL; }
     if (r->signDepthPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signDepthPipeline);   r->signDepthPipeline   = NULL; }
@@ -2348,37 +2400,7 @@ void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode)
     SDL_GPUFillMode fm = r->wireframe ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
     SDL_GPUSampleCount sc = r->msaaSampleCount;
 
-    SDL_GPUShader *sv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
-        game_scene_vertex_spirv, game_scene_vertex_spirv_size,
-        game_scene_vertex_msl,   game_scene_vertex_msl_size, 0, 1);
-    SDL_GPUShader *sfOp = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_pixel_spirv,  game_scene_pixel_spirv_size,
-        game_scene_pixel_msl,    game_scene_pixel_msl_size,  1, 1);
-    SDL_GPUShader *sfBl = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_pixel_blend_spirv, game_scene_pixel_blend_spirv_size,
-        game_scene_pixel_blend_msl,   game_scene_pixel_blend_msl_size,  1, 1);
-    SDL_GPUShader *sfSign = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
-        game_scene_sign_pixel_spirv,  game_scene_sign_pixel_spirv_size,
-        game_scene_sign_pixel_msl,    game_scene_sign_pixel_msl_size,    2, 1);
-    if (sv && sfOp && sfBl) {
-        r->opaquePipeline   = make_scene_pipeline(r, sv, sfOp, false, false, 0.0f,   0.0f, sc, fm);
-        r->blendPipeline    = make_scene_pipeline(r, sv, sfBl, true,  true,  0.0f,   0.0f, sc, fm);
-        r->buildingPipeline = make_scene_pipeline(r, sv, sfOp, false, true,  0.0f,   0.0f, sc, fm);
-        r->signPipeline     = make_sign_pipeline   (r, sv, sfOp,               sc, fm);
-        r->signBkPipeline   = make_sign_bk_pipeline(r, sv, sfOp,               sc, fm);
-        r->wallPipeline     = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, sc, fm);
-        r->bfWallPipeline   = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
-        r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
-        r->skyPipeline      = make_sky_pipeline(r, sv, sfOp, sc);
-    }
-    if (sv && sfSign) {
-        r->signDepthPipeline   = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_BACK, fm);
-        r->signBkDepthPipeline = make_sign_depth_pipeline(r, sv, sfSign, SDL_GPU_CULLMODE_NONE, fm);
-    }
-    if (sv)     SDL_ReleaseGPUShader(r->device, sv);
-    if (sfOp)   SDL_ReleaseGPUShader(r->device, sfOp);
-    if (sfBl)   SDL_ReleaseGPUShader(r->device, sfBl);
-    if (sfSign) SDL_ReleaseGPUShader(r->device, sfSign);
+    rebuild_scene_pipelines(r, sc, fm);
 }
 
 void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
@@ -2392,11 +2414,13 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     /* Release pipelines — they must be rebuilt with the new sample count. */
     if (r->opaquePipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);   r->opaquePipeline   = NULL; }
     if (r->blendPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);    r->blendPipeline    = NULL; }
-    if (r->buildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline); r->buildingPipeline = NULL; }
+    if (r->buildingPipeline)   { SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);   r->buildingPipeline   = NULL; }
+    if (r->bfBuildingPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfBuildingPipeline); r->bfBuildingPipeline = NULL; }
     if (r->signPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signPipeline);         r->signPipeline         = NULL; }
     if (r->signBkPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkPipeline);       r->signBkPipeline       = NULL; }
     if (r->signDepthPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signDepthPipeline);    r->signDepthPipeline    = NULL; }
     if (r->signBkDepthPipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->signBkDepthPipeline);  r->signBkDepthPipeline  = NULL; }
+    if (r->treePipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->treePipeline);         r->treePipeline         = NULL; }
     if (r->wallPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);         r->wallPipeline         = NULL; }
     if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
     if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
@@ -2427,10 +2451,11 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (sv && sfOp && sfBl) {
         r->opaquePipeline   = make_scene_pipeline(r, sv, sfOp, false, false, 0.0f,   0.0f, sc, fm);
         r->blendPipeline    = make_scene_pipeline(r, sv, sfBl, true,  true,  0.0f,   0.0f, sc, fm);
-        r->buildingPipeline = make_scene_pipeline(r, sv, sfOp, false, true,  0.0f,   0.0f, sc, fm);
+        r->buildingPipeline   = make_scene_pipeline(r, sv, sfOp, false, true,   0.0f,  0.0f, sc, fm);
+        r->bfBuildingPipeline = make_scene_pipeline(r, sv, sfOp, false, true,  -200.0f, -1.0f, sc, fm);
         r->signPipeline     = make_sign_pipeline   (r, sv, sfOp,               sc, fm);
         r->signBkPipeline   = make_sign_bk_pipeline(r, sv, sfOp,               sc, fm);
-        r->wallPipeline     = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, sc, fm);
+        r->wallPipeline     = make_scene_pipeline  (r, sv, sfBl, false, true,   0.0f, 0.0f, sc, fm);
         r->bfWallPipeline   = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
         r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
         r->skyPipeline      = make_sky_pipeline(r, sv, sfOp, sc);
@@ -3096,8 +3121,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * textures can be entirely palette-index-0 (solid dark colour), and sfBl
      * would discard every pixel → invisible. Route them through the building
      * pipeline (sfOp, no alpha discard, LESS_OR_EQUAL) so the colour renders. */
+    bool isTree = (surfaceFlags & SURFACE_FLAG_GPU_IS_TREE) != 0
+              && (options.subdivideType == SCENE_RENDER_SUBDIVIDE_TYPE_BUILDING
+                  || options.subdivideType == SCENE_RENDER_SUBDIVIDE_TYPE_SIGN);
     SceneGPUDrawKind kind;
-    if (isSign)
+    if (isTree)
+        kind = SCENE_GPU_DRAW_TREE;
+    else if (isSign)
         kind = g_bSignsOnTop ? SCENE_GPU_DRAW_SIGN : SCENE_GPU_DRAW_BUILDING;
     else if (isBackTexSign)
         kind = SCENE_GPU_DRAW_SIGN_BK;
@@ -3105,6 +3135,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         kind = SCENE_GPU_DRAW_SHADOW;
     else if (surfaceFlags & SURFACE_FLAG_TRANSPARENT)
         kind = SCENE_GPU_DRAW_BLEND;
+    else if ((surfaceFlags & SURFACE_FLAG_PARTIAL_TRANS) && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE))
+        kind = SCENE_GPU_DRAW_BF_BUILDING;
     else if (surfaceFlags & SURFACE_FLAG_PARTIAL_TRANS)
         kind = SCENE_GPU_DRAW_BUILDING;
     else if (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE)
@@ -3115,6 +3147,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         kind = SCENE_GPU_DRAW_BUILDING;
     else
         kind = SCENE_GPU_DRAW_OPAQUE;
+
 
     float cu[4], cv[4];
     if (isFlatColor) {
@@ -3389,7 +3422,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                     float ddy = verts[vi].y - r->camera.viewY;
                     float ddz = verts[vi].z - r->camera.viewZ;
                     float vZ2 = ddx*Mv[0][2] + ddy*Mv[1][2] + ddz*Mv[2][2];
-                    gvZ[vi] = vZ2;
+                    /* gvZ[vi] = vZ2; */
                     /* SW clamps fProjectedZ at 80 before perspective division so
                      * behind-camera vertices (vZ<0) don't invert gsx/gsy and corrupt
                      * the bfCross sign or g03Left ordering. Match that here. */
