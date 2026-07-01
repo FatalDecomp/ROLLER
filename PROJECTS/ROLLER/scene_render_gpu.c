@@ -3300,33 +3300,19 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                      sY[0], sY[1], sY[2], sY[3]);
             }
         } else if (isCloud) {
-            /* Cloud quads: the SW renderer's polyt() walks edges based on
-             * winding order, which makes u=0 always land on the screen-left
-             * side regardless of vertex order.  Replicate that by projecting
-             * pairs (v0,v3) and (v1,v2) to screen X and assigning u=0 to
-             * whichever pair is screen-left.  FLIP_HORIZ then inverts this. */
-            const float (*M)[3] = r->proj.view;
-            float vX[4], vZ[4];
-            for (int vi = 0; vi < 4; vi++) {
-                float ddx = verts[vi].x - r->camera.viewX;
-                float ddy = verts[vi].y - r->camera.viewY;
-                float ddz = verts[vi].z - r->camera.viewZ;
-                vX[vi] = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
-                vZ[vi] = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
-            }
-            float px03 = (fabsf(vZ[0]) > 1e-6f ? vX[0]/vZ[0] : vX[0])
-                       + (fabsf(vZ[3]) > 1e-6f ? vX[3]/vZ[3] : vX[3]);
-            float px12 = (fabsf(vZ[1]) > 1e-6f ? vX[1]/vZ[1] : vX[1])
-                       + (fabsf(vZ[2]) > 1e-6f ? vX[2]/vZ[2] : vX[2]);
-            bool pair03IsLeft = px03 < px12;
-            float u03 = pair03IsLeft ? 0.0f : uMaxN;
-            float u12 = pair03IsLeft ? uMaxN : 0.0f;
-            if (flipH) { float tmp = u03; u03 = u12; u12 = tmp; }
-            /* POLYTEX applies FLIP_VERT for clouds (startsy swap).
-             * Clouds randomly get SURFACE_FLAG_FLIP_VERT set (horizon.c).
-             * Unlike walls, clouds must honour it to match SW behaviour. */
+            /* Cloud quads: fixed vertex-index UV matching SW's set_starts(0):
+             *   v0,v3 → U=uMaxN; v1,v2 → U=0   (swapped if flipH)
+             *   v0,v1 → V per flipV; v2,v3 → complement
+             * The earlier screen-space pair03IsLeft U detection caused an abrupt
+             * H-mirror at ~90°/270° camera roll: as the quad rolled, the pair sum
+             * threshold crossed and cu flipped (uMax,0,0,uMax)↔(0,uMax,uMax,0).
+             * SW (set_starts) never adapts UV to camera roll — it is always fixed
+             * by vertex index — so this detection was wrong. */
             bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
-            cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
+            cu[0] = flipH ? 0.0f : uMaxN;
+            cu[1] = flipH ? uMaxN : 0.0f;
+            cu[2] = flipH ? uMaxN : 0.0f;
+            cu[3] = flipH ? 0.0f : uMaxN;
             for (int k = 0; k < 4; k++) {
                 bool isBottom = (k == 2 || k == 3);
                 cv[k] = (isBottom != flipV) ? vMaxN : 0.0f;
