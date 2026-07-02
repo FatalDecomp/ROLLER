@@ -52,6 +52,7 @@ typedef struct {
     int             indexCount;
     int             bodyIndexCount;
     bool            built;
+    bool            advancedCars; /* TEX_OFF_ADVANCED_CARS state when built */
 } GRHWCarMesh;
 
 struct GameRendererHardware {
@@ -264,7 +265,8 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
             cr = cg = cb = ca = 1.0f;
         } else {
             uint8 colorIdx = (uint8)tex;
-            if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+            if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                 remap->uiColorFrom != 0xFFFFFFFF &&
                 colorIdx == (uint8)remap->uiColorFrom)
                 colorIdx = (uint8)remap->uiColorTo;
@@ -344,7 +346,8 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
             crb = cgb = cbb = cab = 1.0f;
         } else {
             uint8 colorIdx = (uint8)tex;
-            if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+            if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                 remap->uiColorFrom != 0xFFFFFFFF &&
                 colorIdx == (uint8)remap->uiColorFrom)
                 colorIdx = (uint8)remap->uiColorTo;
@@ -528,11 +531,21 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
     if (carIdx < 0 || carIdx >= GAME_RENDER_HW_NUM_CARS) return;
 
     GRHWCarMesh *mesh = &r->meshes[carIdx];
+    bool wantAdvanced = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
+    if (mesh->built && mesh->advancedCars != wantAdvanced) {
+        for (int f = 0; f < GRHW_ANIM_FRAMES; f++) {
+            if (mesh->vertexBufs[f]) { SDL_ReleaseGPUBuffer(r->device, mesh->vertexBufs[f]); mesh->vertexBufs[f] = NULL; }
+        }
+        if (mesh->indexBuf)  { SDL_ReleaseGPUBuffer(r->device, mesh->indexBuf);  mesh->indexBuf  = NULL; }
+        if (mesh->atlas)     { SDL_ReleaseGPUTexture(r->device, mesh->atlas);    mesh->atlas      = NULL; }
+        mesh->built = false;
+    }
     if (!mesh->built) {
         if (build_car_mesh(r->device, carIdx, palette, mesh))
             mesh->built = true;
         else
             return;
+        mesh->advancedCars = wantAdvanced;
     }
     if (mesh->indexCount <= 0) return;
 
