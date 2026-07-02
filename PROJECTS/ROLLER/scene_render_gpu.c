@@ -2734,6 +2734,8 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     SDL_SubmitGPUCommandBuffer(uploadCmd);
+    SDL_Log("tex_idx=%d tiles=%d uploadOk=%d err=%s",
+        tex_idx, numTiles, uploadOk, uploadOk ? "ok" : SDL_GetError());
 
     for (int i = 0; i < nTbs; i++)
         SDL_ReleaseGPUTransferBuffer(r->device, tbs[i]);

@@ -680,6 +680,12 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU device: %s", SDL_GetError());
     return 1;
   }
+  SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(s_pGPUDevice));
+  SDL_Log("D32_FLOAT depth supported: %d",
+    SDL_GPUTextureSupportsFormat(s_pGPUDevice,
+      SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+      SDL_GPU_TEXTURETYPE_2D,
+      SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET));
 
   if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
     ErrorBoxExit("Couldn't claim window for GPU device: %s", SDL_GetError());
