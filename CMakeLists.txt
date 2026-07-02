@@ -77,6 +77,7 @@ add_executable(roller
     PROJECTS/ROLLER/moving.c
     PROJECTS/ROLLER/network.c
     PROJECTS/ROLLER/plans.c
+    PROJECTS/ROLLER/platform_log.c
     PROJECTS/ROLLER/png_writer.c
     PROJECTS/ROLLER/polyf.c
     PROJECTS/ROLLER/polytex.c

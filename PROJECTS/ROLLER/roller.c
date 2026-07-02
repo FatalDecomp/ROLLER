@@ -15,6 +15,7 @@
 #include "snapshot.h"
 #include "rollercd.h"
 #include "view.h"
+#include "platform_log.h"
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -618,6 +619,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
   }
+  ROLLERInstallPlatformLogSink();
 
   if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
@@ -1374,6 +1376,7 @@ void ShutdownSDL()
     g_pTimerMutex = NULL;
   }
 
+  ROLLERRestorePlatformLogSink();
   SDL_Quit();
 }
 
