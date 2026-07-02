@@ -170,4 +170,13 @@ void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
                                       int               idxCount,
                                       const float       mvp[16]);
 
+/* Queue a car shadow draw — uses carShadowPipeline (LESS_OR_EQUAL, no depth write, biased). */
+void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
+                                             SDL_GPUBuffer    *vertBuf,
+                                             SDL_GPUBuffer    *idxBuf,
+                                             SDL_GPUTexture   *texture,
+                                             int               firstIndex,
+                                             int               idxCount,
+                                             const float       mvp[16]);
+
 #endif /* SCENE_RENDER_GPU_H */

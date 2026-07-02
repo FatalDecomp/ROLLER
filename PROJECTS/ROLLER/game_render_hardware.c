@@ -584,34 +584,20 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
         chunk_model_matrix(Mc, &localdata[chunk]);
         mat4_mul(Mcar_chunk, Mc, M);
         mat4_mul(mvp, vp, Mcar_chunk);
-        /* Body only — shadow drawn separately with flat matrix below. */
         scene_render_gpu_queue_car_draw(scene,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: world XY from chunk transform, groundZ from current chunk.
-         * Direction from Mcar_chunk col-0 XY (world-space car forward, projected
-         * flat) so the shadow tracks the car on curved/tilted track sections. */
-        float wx = Mcar_chunk[12], wy = Mcar_chunk[13];
-        const tData *gsd = &localdata[chunk];
-        float gp3x = gsd->pointAy[3].fX, gp3y = gsd->pointAy[3].fY;
-        float glx = gsd->pointAy[0].fX*(wx+gp3x) + gsd->pointAy[1].fX*(wy+gp3y);
-        float gly = gsd->pointAy[0].fY*(wx+gp3x) + gsd->pointAy[1].fY*(wy+gp3y);
-        float groundZ = gsd->pointAy[2].fX*glx + gsd->pointAy[2].fY*gly - gsd->pointAy[3].fZ;
-
-        float fx = Mcar_chunk[0], fy = Mcar_chunk[1];
-        float flen = sqrtf(fx*fx + fy*fy);
-        if (flen > 1e-6f) { fx /= flen; fy /= flen; }
-        float Mshadow[16];
-        Mshadow[ 0]= fx;   Mshadow[ 1]= fy;   Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-        Mshadow[ 4]=-fy;   Mshadow[ 5]= fx;   Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
-        Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
-        Mshadow[12]=wx;    Mshadow[13]=wy;
-        Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
-        Mshadow[15]=1.0f;
-        float shadowMvp[16];
-        mat4_mul(shadowMvp, vp, Mshadow);
-        scene_render_gpu_queue_car_draw(scene,
+        /* Shadow: use physical pose (no camera lean offsets) so shadow corners
+         * stay exactly on the road surface (chunk-local Z=0).  adjPose tilts the
+         * quad slightly off-road, letting it pass depth-test through barriers. */
+        float M_phys[16];
+        car_model_matrix(M_phys, pose);
+        M_phys[14] -= fZLow;
+        float Mcar_chunk_phys[16], shadowMvp[16];
+        mat4_mul(Mcar_chunk_phys, Mc, M_phys);
+        mat4_mul(shadowMvp, vp, Mcar_chunk_phys);
+        scene_render_gpu_queue_car_shadow_draw(scene,
             vertBuf, mesh->indexBuf, mesh->atlas,
             mesh->bodyIndexCount, 6, shadowMvp);
 
@@ -633,19 +619,25 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y);
             float groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - sd->pointAy[3].fZ;
 
+            float sxA = sd->pointAy[2].fX * sd->pointAy[0].fX
+                      + sd->pointAy[2].fY * sd->pointAy[0].fY;
+            float syA = sd->pointAy[2].fX * sd->pointAy[1].fX
+                      + sd->pointAy[2].fY * sd->pointAy[1].fY;
             float fx = M[0], fy = M[1];
             float flen = sqrtf(fx*fx + fy*fy);
             if (flen > 1e-6f) { fx /= flen; fy /= flen; }
-            float Mshadow[16];
-            Mshadow[ 0]= fx;   Mshadow[ 1]= fy;   Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-            Mshadow[ 4]=-fy;   Mshadow[ 5]= fx;   Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
-            Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
-            Mshadow[12]=wx;    Mshadow[13]=wy;
-            Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
+            float Mshadow[16] = {0};
+            Mshadow[ 0]= fx;            Mshadow[ 1]= fy;
+            Mshadow[ 2]= sxA*fx + syA*fy;
+            Mshadow[ 4]=-fy;            Mshadow[ 5]= fx;
+            Mshadow[ 6]= sxA*(-fy) + syA*fx;
+            Mshadow[10]=1.0f;
+            Mshadow[12]=wx;             Mshadow[13]=wy;
+            Mshadow[14]=groundZ - fZLow;
             Mshadow[15]=1.0f;
             float shadowMvp[16];
             mat4_mul(shadowMvp, vp, Mshadow);
-            scene_render_gpu_queue_car_draw(scene,
+            scene_render_gpu_queue_car_shadow_draw(scene,
                 vertBuf, mesh->indexBuf, mesh->atlas,
                 mesh->bodyIndexCount, 6, shadowMvp);
         }

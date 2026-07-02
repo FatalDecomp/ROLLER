@@ -152,9 +152,12 @@ struct SceneRendererGPU {
 
     /* ---- Car mesh pipeline (SceneGPUMeshVertex: pos[3]+uv[2]+col[4]) ---- */
     SDL_GPUGraphicsPipeline *carPipeline;
+    SDL_GPUGraphicsPipeline *carShadowPipeline; /* LESS_OR_EQUAL + no depth write + bias */
 
     SceneGPUCarDrawCmd carDraws[SCENE_GPU_MAX_CAR_DRAWS];
     int                carDrawCount;
+    SceneGPUCarDrawCmd carShadowDraws[SCENE_GPU_MAX_CAR_DRAWS];
+    int                carShadowDrawCount;
 
     /* ---- HUD overlay pipeline (SceneGPUHUDVertex: NDC pos[2]+uv[2]) ---- */
     SDL_GPUGraphicsPipeline *hudPipeline;
@@ -979,6 +982,73 @@ static SDL_GPUGraphicsPipeline *make_car_pipeline(SceneRendererGPU *r,
     return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
 }
 
+static SDL_GPUGraphicsPipeline *make_car_shadow_pipeline(SceneRendererGPU *r,
+                                                          SDL_GPUShader *vert,
+                                                          SDL_GPUShader *frag,
+                                                          SDL_GPUSampleCount sc,
+                                                          SDL_GPUFillMode fillMode)
+{
+    SDL_GPUVertexAttribute attrs[3] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+         .offset=(Uint32)offsetof(SceneGPUMeshVertex, position)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUMeshVertex, uv)},
+        {.location=2, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+         .offset=(Uint32)offsetof(SceneGPUMeshVertex, color)}
+    };
+    SDL_GPUVertexBufferDescription binding = {
+        .pitch = sizeof(SceneGPUMeshVertex),
+        .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX
+    };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+        .blend_state = {
+            .enable_blend          = true,
+            .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+            .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .color_blend_op        = SDL_GPU_BLENDOP_ADD,
+            .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+            .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .alpha_blend_op        = SDL_GPU_BLENDOP_ADD
+        }
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = frag,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = {
+            .vertex_attributes          = attrs,
+            .num_vertex_attributes      = 3,
+            .vertex_buffer_descriptions = &binding,
+            .num_vertex_buffers         = 1
+        },
+        /* CULL_NONE: shadow quad may be seen at a grazing angle */
+        .rasterizer_state = {
+            .fill_mode  = fillMode,
+            .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+            .cull_mode  = SDL_GPU_CULLMODE_NONE,
+            .enable_depth_bias          = true,
+            .depth_bias_constant_factor = -50.0f,
+            .depth_bias_slope_factor    = -5.0f,
+        },
+        .target_info = {
+            .color_target_descriptions = &ct,
+            .num_color_targets         = 1,
+            .has_depth_stencil_target  = true,
+            .depth_stencil_format      = SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+        },
+        .multisample_state = { .sample_count = sc },
+        /* Drawn after car body: car-written depth blocks shadow on car surface.
+         * No depth write: preserve car body depth for subsequent passes. */
+        .depth_stencil_state = {
+            .enable_depth_test  = true,
+            .enable_depth_write = false,
+            .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL
+        }
+    };
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
 static SDL_GPUGraphicsPipeline *make_sky_pipeline(SceneRendererGPU *r,
                                                       SDL_GPUShader *vert,
                                                       SDL_GPUShader *frag,
@@ -1248,9 +1318,10 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     if (!cv || !cf) goto fail;
 
     r->carPipeline = make_car_pipeline(r, cv, cf, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
+    r->carShadowPipeline = make_car_shadow_pipeline(r, cv, cf, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
     SDL_ReleaseGPUShader(device, cv);
     SDL_ReleaseGPUShader(device, cf);
-    if (!r->carPipeline) goto fail;
+    if (!r->carPipeline || !r->carShadowPipeline) goto fail;
 
     /* ---- HUD shaders ---- */
     SDL_GPUShader *hv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -1405,9 +1476,10 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->treePipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->treePipeline);
     if (r->wallPipeline)     SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);
     if (r->bfWallPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);
-    if (r->shadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
-    if (r->carPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
-    if (r->skyPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
+    if (r->shadowPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
+    if (r->carPipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
+    if (r->carShadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);
+    if (r->skyPipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
     if (r->hudPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->hudPipeline);
     if (r->particlePipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);
     if (r->particleVertBuf)     SDL_ReleaseGPUBuffer(r->device, r->particleVertBuf);
@@ -1588,6 +1660,7 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     r->vertexCount       = 0;
     r->drawCmdCount      = 0;
     r->carDrawCount      = 0;
+    r->carShadowDrawCount = 0;
     r->particleVertCount    = 0;
     r->particleNdcZ         = 0.0f;
     r->useParticleNdcZv     = false;
@@ -2013,7 +2086,27 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    /* Shadow pass: drawn after car mesh so the car's written depth masks the
+    /* Car shadow pass: drawn after car body so car-written depth blocks shadow
+     * on the car surface (LESS_OR_EQUAL fails where car body wrote smaller depth). */
+    if (r->carShadowDrawCount > 0 && r->carShadowPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->carShadowPipeline);
+        SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        for (int i = 0; i < r->carShadowDrawCount; i++) {
+            SceneGPUCarDrawCmd *cmd = &r->carShadowDraws[i];
+            if (!cmd->texture) continue;
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
+            SDL_GPUBufferBinding cvbb = {.buffer = cmd->vertBuf};
+            SDL_BindGPUVertexBuffers(rp, 0, &cvbb, 1);
+            SDL_GPUBufferBinding cibb = {.buffer = cmd->idxBuf};
+            SDL_BindGPUIndexBuffer(rp, &cibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            tsb.texture = cmd->texture;
+            tsb.sampler = r->sampler;
+            SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
+            SDL_DrawGPUIndexedPrimitives(rp, (Uint32)cmd->idxCount, 1, (Uint32)cmd->firstIndex, 0, 0);
+        }
+    }
+
+    /* Road shadow pass: drawn after car mesh so the car's written depth masks the
      * shadow from appearing on the car body (fails LESS_OR_EQUAL where car is). */
     if (r->shadowPipeline && r->drawCmdCount > 0) {
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
@@ -2146,6 +2239,7 @@ void scene_render_gpu_discard_queued(SceneRendererGPU *r)
     r->vertexCount  = 0;
     r->drawCmdCount = 0;
     r->carDrawCount = 0;
+    r->carShadowDrawCount = 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -2384,6 +2478,7 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
     if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
     if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
     if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
+    if (r->carShadowPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);    r->carShadowPipeline    = NULL; }
     if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
 
     SDL_GPUFillMode fm = enabled ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
@@ -2397,8 +2492,10 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
     SDL_GPUShader *cf = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
         game_car_pixel_spirv,  game_car_pixel_spirv_size,
         game_car_pixel_msl,    game_car_pixel_msl_size,  1, 1);
-    if (cv && cf)
-        r->carPipeline = make_car_pipeline(r, cv, cf, sc, fm);
+    if (cv && cf) {
+        r->carPipeline       = make_car_pipeline(r, cv, cf, sc, fm);
+        r->carShadowPipeline = make_car_shadow_pipeline(r, cv, cf, sc, fm);
+    }
     if (cv) SDL_ReleaseGPUShader(r->device, cv);
     if (cf) SDL_ReleaseGPUShader(r->device, cf);
 }
@@ -2451,6 +2548,7 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
     if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
     if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
+    if (r->carShadowPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);    r->carShadowPipeline    = NULL; }
     if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
     if (r->particlePipeline)     { SDL_ReleaseGPUGraphicsPipeline(r->device, r->particlePipeline);     r->particlePipeline     = NULL; }
     if (r->texParticlePipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->texParticlePipeline);  r->texParticlePipeline  = NULL; }
@@ -2501,8 +2599,10 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     SDL_GPUShader *cf = load_shader(r->device, SDL_GPU_SHADERSTAGE_FRAGMENT,
         game_car_pixel_spirv,  game_car_pixel_spirv_size,
         game_car_pixel_msl,    game_car_pixel_msl_size,  1, 1);
-    if (cv && cf)
-        r->carPipeline = make_car_pipeline(r, cv, cf, sc, fm);
+    if (cv && cf) {
+        r->carPipeline       = make_car_pipeline(r, cv, cf, sc, fm);
+        r->carShadowPipeline = make_car_shadow_pipeline(r, cv, cf, sc, fm);
+    }
     if (cv) SDL_ReleaseGPUShader(r->device, cv);
     if (cf) SDL_ReleaseGPUShader(r->device, cf);
 
@@ -3639,6 +3739,24 @@ void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
 {
     if (!r || r->carDrawCount >= SCENE_GPU_MAX_CAR_DRAWS) return;
     SceneGPUCarDrawCmd *cmd = &r->carDraws[r->carDrawCount++];
+    cmd->vertBuf    = vertBuf;
+    cmd->idxBuf     = idxBuf;
+    cmd->texture    = texture;
+    cmd->firstIndex = firstIndex;
+    cmd->idxCount   = idxCount;
+    memcpy(cmd->mvp, mvp, 16 * sizeof(float));
+}
+
+void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
+                                            SDL_GPUBuffer *vertBuf,
+                                            SDL_GPUBuffer *idxBuf,
+                                            SDL_GPUTexture *texture,
+                                            int firstIndex,
+                                            int idxCount,
+                                            const float mvp[16])
+{
+    if (!r || r->carShadowDrawCount >= SCENE_GPU_MAX_CAR_DRAWS) return;
+    SceneGPUCarDrawCmd *cmd = &r->carShadowDraws[r->carShadowDrawCount++];
     cmd->vertBuf    = vertBuf;
     cmd->idxBuf     = idxBuf;
     cmd->texture    = texture;
