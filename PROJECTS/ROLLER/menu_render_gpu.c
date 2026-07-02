@@ -1220,9 +1220,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
     float whiteU = hasAtlas ? 0.5f / 256.0f : 0.0f;
     float whiteV = hasAtlas ? (atlasH - 0.5f) / fAtlasH : 0.0f;
 
-    // Each quad: up to 2×(4 verts + 6 indices) when back face is present, plus shadow
-    MeshVertex *vertices = calloc(numPols * 8 + 4, sizeof(MeshVertex));
-    uint32 *indices = calloc(numPols * 12 + 6, sizeof(uint32));
+    // Each quad: up to 3×(4 verts + 6 indices): front + BACK reversed + FLIP_BACKFACE reversed
+    MeshVertex *vertices = calloc(numPols * 12 + 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numPols * 18 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
 
     tCarColorRemap *remap = &car_flat_remap[carIdx];
@@ -1316,9 +1316,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
         indices[idxCount++] = baseVert + 2;
         indices[idxCount++] = baseVert + 3;
 
-        // Back face: emit reversed-winding quad with the back texture (pBacks[p]).
-        // Matches SW DrawCar which uses design->pBacks[polIdx] when viewed from behind.
-        if ((tex & SURFACE_FLAG_BACK) && design->pBacks) {
+        // Back face for BACK-only (no FLIP_BACKFACE) polygons.
+        // FLIP_BACKFACE polygons (with or without BACK) are handled in the loop below.
+        if ((tex & SURFACE_FLAG_BACK) && !(pols[p].uiTex & SURFACE_FLAG_FLIP_BACKFACE) && design->pBacks) {
             uint32 backTex = design->pBacks[p];
 
             float bu0, bu1, bv0, bv1;
@@ -1379,6 +1379,83 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
             indices[idxCount++] = backBase + 3;
             indices[idxCount++] = backBase + 2;
         }
+    }
+
+    /* FLIP_BACKFACE pass: reversed-winding quad, matching game_render_hardware.c logic.
+       - FLIP_BACKFACE + BACK: reversed polygon uses pBacks[p] (explicit back texture)
+       - FLIP_BACKFACE only:   reversed polygon uses same resolved texture as front face */
+    for (int p = 0; p < numPols; p++) {
+        uint32 rawFront = pols[p].uiTex;
+        if (rawFront & SURFACE_FLAG_SKIP_RENDER) continue;
+        if (!(rawFront & SURFACE_FLAG_FLIP_BACKFACE)) continue;
+
+        uint32 tex;
+        if (rawFront & SURFACE_FLAG_BACK) {
+            if (!design->pBacks) continue;
+            tex = design->pBacks[p];
+        } else {
+            tex = rawFront;
+            if ((tex & CAR_FLAG_ANMS_LOOKUP) && pAnms)
+                tex = pAnms[(uint8)tex].framesAy[0];
+        }
+        if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+
+        bool isTextured = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                          (uint8)tex < numTiles;
+
+        float u0, u1, v0, v1;
+        float cr, cg, cb;
+
+        if (isTextured) {
+            uint8 tileIdx = (uint8)tex;
+            int col = tileIdx % 4, row = tileIdx / 4;
+            u0 = (col * 64.0f) / 256.0f;
+            u1 = ((col + 1) * 64.0f) / 256.0f;
+            v0 = (row * 64.0f) / fAtlasH;
+            v1 = ((row + 1) * 64.0f) / fAtlasH;
+            if (tex & SURFACE_FLAG_FLIP_HORIZ) { float t = u0; u0 = u1; u1 = t; }
+            if (tex & SURFACE_FLAG_FLIP_VERT)  { float t = v0; v0 = v1; v1 = t; }
+            cr = cg = cb = 1.0f;
+        } else {
+            uint8 colorIdx = (uint8)tex;
+            if (wantAdvanced &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                remap->uiColorFrom != 0xFFFFFFFF &&
+                colorIdx == (uint8)remap->uiColorFrom)
+                colorIdx = (uint8)remap->uiColorTo;
+            const tColor *c = &pal[colorIdx];
+            cr = (c->byR * 255.0f / 63.0f) / 255.0f;
+            cg = (c->byG * 255.0f / 63.0f) / 255.0f;
+            cb = (c->byB * 255.0f / 63.0f) / 255.0f;
+            u0 = u1 = whiteU;
+            v0 = v1 = whiteV;
+        }
+
+        /* Reversed vertex order (3,2,1,0) makes the quad visible from the back side. */
+        float uvs[4][2] = {
+            { u1, v0 }, { u0, v0 }, { u0, v1 }, { u1, v1 }
+        };
+        int baseVert = vertCount;
+        for (int v = 0; v < 4; v++) {
+            uint8 vi = pols[p].verts[3 - v];
+            if (vi >= numCoords) vi = 0;
+            MeshVertex *mv = &vertices[vertCount++];
+            mv->position[0] = coords[vi].fY;
+            mv->position[1] = coords[vi].fZ;
+            mv->position[2] = coords[vi].fX;
+            mv->uv[0] = uvs[v][0];
+            mv->uv[1] = uvs[v][1];
+            mv->color[0] = cr;
+            mv->color[1] = cg;
+            mv->color[2] = cb;
+            mv->color[3] = 1.0f;
+        }
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 1);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 3);
     }
 
     // Shadow quad: semi-transparent ground plane computed from mesh bounding box
