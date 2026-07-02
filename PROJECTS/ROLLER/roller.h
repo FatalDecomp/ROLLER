@@ -18,9 +18,11 @@ extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
 extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
+extern bool g_bShowCarOnExplosion; /* true = keep car mesh visible during explosion animation */
 extern int   g_iTextureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
 extern int   g_iAnisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */
 extern bool  g_bTrilinear;       /* true = blend linearly between mip levels */
+extern bool  g_bDisableMipmaps;  /* true = clamp sampler to mip 0 (debug) */
 extern float g_fLodBias;         /* mip LOD bias; 0 = neutral */
 extern float g_fRenderScale;     /* render resolution multiplier; 1.0 = native */
 extern int   g_iAntiAliasing;    /* 0=off, 1=MSAA 2x, 2=MSAA 4x, 3=MSAA 8x */

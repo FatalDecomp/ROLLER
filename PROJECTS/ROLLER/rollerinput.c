@@ -3030,6 +3030,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "ShowCarOnExplosion")) {
+    g_bShowCarOnExplosion = InputStringEqualsNoCase(szValue, "On") ||
+                            InputStringEqualsNoCase(szValue, "1")  ||
+                            InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
     g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
                    InputStringEqualsNoCase(szValue, "1")  ||
@@ -3422,6 +3429,7 @@ void InputSaveConfig(void)
           g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
+  fprintf(fp, "ShowCarOnExplosion=%s\n", g_bShowCarOnExplosion ? "On" : "Off");
   fprintf(fp, "CRTFilter=%s\n",   g_bCRTFilter   ? "On" : "Off");
   fprintf(fp, "SignsOnTop=%s\n",  g_bSignsOnTop  ? "On" : "Off");
   fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");

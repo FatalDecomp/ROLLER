@@ -52,6 +52,7 @@ void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode);
 GameRenderMode game_render_get_mode(const GameRenderer *renderer);
 void game_render_set_force_gpu_load(GameRenderer *renderer, bool force);
 void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ);
+void game_render_set_particle_depth_pervertex(GameRenderer *renderer, const float ndcZ[4]);
 void game_render_set_split_screen(GameRenderer *renderer, bool split);
 bool game_render_is_split_screen(const GameRenderer *renderer);
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay);
@@ -113,6 +114,9 @@ void game_render_quad_screen(GameRenderer *renderer,
 // call so GPU particles are depth-tested against scene geometry.
 // Must be called before each particle quad.  Ignored in SW mode.
 void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ);
+// Per-vertex variant: ndcZ[4] maps to quad vertices v0..v3.  Consumed after one call.
+// Use for elongated trails (type 1) where head and tail are at different depths.
+void game_render_set_particle_depth_pervertex(GameRenderer *renderer, const float ndcZ[4]);
 
 // Draw — world-space quad (GPU-ready interface)
 // verts must point to exactly 4 GameRenderVertex entries.

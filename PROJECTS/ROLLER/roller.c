@@ -112,9 +112,11 @@ bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage d
 bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
+bool g_bShowCarOnExplosion = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
 bool  g_bTrilinear       = false;
+bool  g_bDisableMipmaps  = false;
 float g_fLodBias         = 0.0f;
 float g_fRenderScale     = 1.0f;
 int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */

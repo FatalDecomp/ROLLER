@@ -31,8 +31,7 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
-#define SCENE_GPU_NEAR               10.0f
-#define SCENE_GPU_FAR                20000000.0f
+/* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
 /* --------------------------------------------------------------------------
  * Vertex layouts
@@ -218,6 +217,7 @@ struct SceneRendererGPU {
 
     int   textureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
     bool  trilinear;       /* true = LINEAR mipmap mode; textures always have full mip chain */
+    bool  disableMipmaps;  /* true = clamp sampler to mip 0 only (debug: isolates Adreno layout bug) */
     int   anisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */
     float lodBias;         /* mip LOD bias applied to all texture samples */
     float renderScale;     /* internal render resolution multiplier; 1.0 = native */
@@ -253,6 +253,8 @@ struct SceneRendererGPU {
     SceneGPUParticleVertex  *particleVerts;  /* CPU-side accumulation buffer */
     int                      particleVertCount;
     float                    particleNdcZ;   /* depth for next screen_quad_flat call */
+    float                    particleNdcZv[4]; /* per-vertex depth override (v0..v3) */
+    bool                     useParticleNdcZv; /* true = use particleNdcZv instead of particleNdcZ */
 
     /* ---- Screen-space textured particle pass ---- */
     SDL_GPUGraphicsPipeline   *texParticlePipeline;
@@ -1444,16 +1446,29 @@ void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
     SceneGPUParticleVertex *v = r->particleVerts + r->particleVertCount;
     /* Two triangles (v0,v1,v2) and (v0,v2,v3) covering the quad. */
     static const int idx[6] = {0, 1, 2, 0, 2, 3};
+    bool perZ = r->useParticleNdcZv;
     for (int i = 0; i < 6; i++) {
         int k = idx[i];
-        v[i] = (SceneGPUParticleVertex){ndcX[k], ndcY[k], r->particleNdcZ, cr, cg, cb, ca};
+        float z = perZ ? r->particleNdcZv[k] : r->particleNdcZ;
+        v[i] = (SceneGPUParticleVertex){ndcX[k], ndcY[k], z, cr, cg, cb, ca};
     }
     r->particleVertCount += 6;
+    r->useParticleNdcZv = false;
 }
 
 void scene_render_gpu_set_particle_ndcz(SceneRendererGPU *r, float ndcZ)
 {
     if (r) r->particleNdcZ = ndcZ;
+}
+
+void scene_render_gpu_set_particle_ndcz_pervertex(SceneRendererGPU *r, const float ndcZ[4])
+{
+    if (!r) return;
+    r->particleNdcZv[0] = ndcZ[0];
+    r->particleNdcZv[1] = ndcZ[1];
+    r->particleNdcZv[2] = ndcZ[2];
+    r->particleNdcZv[3] = ndcZ[3];
+    r->useParticleNdcZv = true;
 }
 
 /* Returns the GPU texture for tile tile_idx within game tex_idx's slot, or NULL. */
@@ -1508,15 +1523,18 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
     static const float uvU[4] = {1.0f, 0.0f, 0.0f, 1.0f};
     static const float uvV[4] = {0.0f, 0.0f, 1.0f, 1.0f};
     static const int idx[6] = {0, 1, 2, 0, 2, 3};
+    bool perZ = r->useParticleNdcZv;
     SceneGPUTexParticleVertex *v = r->texParticleVerts + r->texParticleVertCount;
     for (int i = 0; i < 6; i++) {
         int k = idx[i];
-        v[i] = (SceneGPUTexParticleVertex){ndcX[k], ndcY[k], r->particleNdcZ,
+        float z = perZ ? r->particleNdcZv[k] : r->particleNdcZ;
+        v[i] = (SceneGPUTexParticleVertex){ndcX[k], ndcY[k], z,
                                            uvU[k], uvV[k],
                                            cr, cg, cb, ca};
     }
     r->texParticleVertCount              += 6;
     r->texParticleRanges[ri].count       += 6;
+    r->useParticleNdcZv = false;
     return true;
 }
 
@@ -1572,6 +1590,7 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     r->carDrawCount      = 0;
     r->particleVertCount    = 0;
     r->particleNdcZ         = 0.0f;
+    r->useParticleNdcZv     = false;
     r->texParticleVertCount  = 0;
     r->texParticleRangeCount = 0;
     r->hudSrcBuf         = NULL;
@@ -2199,7 +2218,7 @@ static void rebuild_sampler(SceneRendererGPU *r)
         .mipmap_mode       = r->trilinear ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR
                                           : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
         .mip_lod_bias      = r->lodBias,
-        .max_lod           = 1000.0f,
+        .max_lod           = r->disableMipmaps ? 0.0f : 1000.0f,
     };
     r->sampler = SDL_CreateGPUSampler(r->device, &si);
 }
@@ -2215,6 +2234,13 @@ void scene_render_gpu_set_trilinear(SceneRendererGPU *r, bool enabled)
 {
     if (!r) return;
     r->trilinear = enabled;
+    rebuild_sampler(r);
+}
+
+void scene_render_gpu_set_disable_mipmaps(SceneRendererGPU *r, bool disabled)
+{
+    if (!r) return;
+    r->disableMipmaps = disabled;
     rebuild_sampler(r);
 }
 

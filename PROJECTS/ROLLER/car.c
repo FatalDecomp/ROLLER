@@ -14,6 +14,7 @@
 #include "polyf.h"
 #include "polytex.h"
 #include "roller.h"
+#include "scene_render_gpu.h"
 #include <math.h>
 #include <assert.h>
 #include <string.h>
@@ -1519,7 +1520,7 @@ LABEL_105:
 LABEL_117:
   pCoords = CarDesigns[carDesignIndex].pCoords;
   pPols = CarDesigns[carDesignIndex].pPols;
-  if ((Car[iCarIndexCopy].byStatusFlags & 2) != 0) {
+  if ((Car[iCarIndexCopy].byStatusFlags & 2) != 0 && !g_bShowCarOnExplosion) {
     pCarDesign = NULL;
     iNumCoords = 0;
   }
@@ -2204,7 +2205,7 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
         float vx = (float)(dx * vk1 + dy * vk4 + dz * vk7);
         float vy = (float)(dx * vk2 + dy * vk5 + dz * vk8);
         float camZ = (float)(dx * vk3 + dy * vk6 + dz * vk9);
-        if (camZ <= 80.0f) continue;
+        if (camZ <= SCENE_GPU_NEAR) continue;
 
         float invZ = 1.0f / camZ;
         int sx = d2i((double)VIEWDIST * vx * invZ + xbase) * scr_size >> 6;
@@ -2213,12 +2214,11 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
         SmokePt[0][i].screen.y = sy;
         SmokePt[0][i].view.fZ  = camZ;
 
-        /* Provide GPU depth so particles are occluded by solid geometry.
-         * Bias forward slightly so smoke passes depth test against road/ground
-         * at the same distance (floating-point precision tie at z≈1).  The bias
-         * is proportional to z² so it stays small at close range. */
-        float gndcZ = (camZ - 80.0f) * (20000000.0f / (20000000.0f - 80.0f)) / camZ;
-        gndcZ -= 0.0002f;
+        /* GPU depth for this particle, matching the perspective formula in build_mvp.
+         * Tiny forward bias covers CPU vs GPU float rounding (a few ULPs).
+         * Keep it minimal so crash-smoke at wall depth doesn't bleed through. */
+        float gndcZ = (camZ - SCENE_GPU_NEAR) * (SCENE_GPU_FAR / (SCENE_GPU_FAR - SCENE_GPU_NEAR)) / camZ;
+        gndcZ -= 0.000002f;
         if (gndcZ < 0.0f) gndcZ = 0.0f;
         game_render_set_particle_depth(g_pGameRenderer, gndcZ);
 
@@ -2237,7 +2237,7 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
             float svx = (float)(dx2 * vk1 + dy2 * vk4 + dz2 * vk7);
             float svy = (float)(dx2 * vk2 + dy2 * vk5 + dz2 * vk8);
             float camZ2 = (float)(dx2 * vk3 + dy2 * vk6 + dz2 * vk9);
-            float clamp2 = camZ2 < 80.0f ? 80.0f : camZ2;
+            float clamp2 = camZ2 < SCENE_GPU_NEAR ? SCENE_GPU_NEAR : camZ2;
             float invZ2 = 1.0f / clamp2;
             int sx2 = d2i((double)VIEWDIST * svx * invZ2 + xbase) * scr_size >> 6;
             int sy2 = (scr_size * (199 - d2i((double)VIEWDIST * svy * invZ2 + ybase))) >> 6;
@@ -2252,6 +2252,17 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
             CarPol.vertices[1].x = sx2 - iTemp; CarPol.vertices[1].y = sy2;
             CarPol.vertices[2].x = sx  - iTemp; CarPol.vertices[2].y = sy;
             CarPol.vertices[3].x = sx  + iTemp; CarPol.vertices[3].y = sy;
+            /* v0,v1 are at the tail (camZ2); v2,v3 are at the head (camZ).
+             * Supply per-vertex depth so the GPU interpolates Z across the quad
+             * instead of using the head's flat depth for the whole trail. */
+            if (camZ2 > SCENE_GPU_NEAR) {
+                float tailNdcZ = (camZ2 - SCENE_GPU_NEAR) *
+                                 (SCENE_GPU_FAR / (SCENE_GPU_FAR - SCENE_GPU_NEAR)) / camZ2;
+                tailNdcZ -= 0.000002f;
+                if (tailNdcZ < 0.0f) tailNdcZ = 0.0f;
+                const float ndcZv[4] = {tailNdcZ, tailNdcZ, gndcZ, gndcZ};
+                game_render_set_particle_depth_pervertex(g_pGameRenderer, ndcZv);
+            }
             if ((surf & SURFACE_FLAG_APPLY_TEXTURE) == 0)
                 game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
             else
