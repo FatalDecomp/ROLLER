@@ -672,8 +672,8 @@ void frontend_car_select_update(void)
         frontend_car_select_request_exit();
       }
     } else if (byInputKey <= 0x20u) {
-      // Space: switch active player in two-player mode
       if (player_type == 2) {
+        // Space: switch active player in two-player mode
         if (iFrontendCarActivePlayer) {
           iFrontendCarActivePlayer = 0;
           frontend_car_select_begin_car_out(Players_Cars[player1_car]);
@@ -683,6 +683,10 @@ void frontend_car_select_update(void)
           frontend_car_select_begin_car_out(Players_Cars[player2_car]);
           iFrontendCarSpeechPending = 0;
         }
+      } else {
+        // Space: toggle basic/advanced car set
+        textures_off ^= TEX_OFF_ADVANCED_CARS;
+        switch_sets = -1;
       }
     } else if (byInputKey < 0x2Du) {
       if (byInputKey == 43)  // '+'

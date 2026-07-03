@@ -114,7 +114,8 @@ struct MenuRendererGPU {
 
     // 3D mesh state
     MeshPreview carMesh;
-    int loadedCarIdx;   // -1 = no car loaded (avoids per-frame reload)
+    int loadedCarIdx;       // -1 = no car loaded (avoids per-frame reload)
+    bool loadedAdvancedCars; // TEX_OFF_ADVANCED_CARS state when car mesh was built
     bool trackMeshLoaded;
     MeshPreview trackMesh;
 
@@ -1194,7 +1195,8 @@ static SDL_GPUTexture *BuildCarTextureAtlas(MenuRendererGPU *r, int carIdx,
 
 void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor *pal)
 {
-    if (r->loadedCarIdx == carIdx && r->carMesh.loaded) return;
+    bool wantAdvanced = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
+    if (r->loadedCarIdx == carIdx && r->carMesh.loaded && r->loadedAdvancedCars == wantAdvanced) return;
     menu_render_gpu_free_car_mesh(r);
 
     if (carIdx < 0 || carIdx > CAR_DESIGN_DEATH) return;
@@ -1218,9 +1220,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
     float whiteU = hasAtlas ? 0.5f / 256.0f : 0.0f;
     float whiteV = hasAtlas ? (atlasH - 0.5f) / fAtlasH : 0.0f;
 
-    // Each quad becomes 4 verts + 6 indices (2 triangles), plus 4+6 for shadow quad
-    MeshVertex *vertices = calloc(numPols * 4 + 4, sizeof(MeshVertex));
-    uint32 *indices = calloc(numPols * 6 + 6, sizeof(uint32));
+    // Each quad: up to 3×(4 verts + 6 indices): front + BACK reversed + FLIP_BACKFACE reversed
+    MeshVertex *vertices = calloc(numPols * 12 + 4, sizeof(MeshVertex));
+    uint32 *indices = calloc(numPols * 18 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
 
     tCarColorRemap *remap = &car_flat_remap[carIdx];
@@ -1262,7 +1264,8 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
         } else {
             // Flat-colored polygon — palette color via vertex color
             uint8 colorIdx = (uint8)tex;
-            if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+            if (wantAdvanced &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                 remap->uiColorFrom != 0xFFFFFFFF &&
                 colorIdx == (uint8)remap->uiColorFrom)
                 colorIdx = (uint8)remap->uiColorTo;
@@ -1312,6 +1315,147 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
         indices[idxCount++] = baseVert + 0;
         indices[idxCount++] = baseVert + 2;
         indices[idxCount++] = baseVert + 3;
+
+        // Back face for BACK-only (no FLIP_BACKFACE) polygons.
+        // FLIP_BACKFACE polygons (with or without BACK) are handled in the loop below.
+        if ((tex & SURFACE_FLAG_BACK) && !(pols[p].uiTex & SURFACE_FLAG_FLIP_BACKFACE) && design->pBacks) {
+            uint32 backTex = design->pBacks[p];
+
+            float bu0, bu1, bv0, bv1;
+            float bcr, bcg, bcb;
+            bool backIsTextured = hasAtlas && (backTex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                                  (uint8)backTex < numTiles;
+            if (backIsTextured) {
+                uint8 btile = (uint8)backTex;
+                int bcol = btile % 4, brow = btile / 4;
+                bu0 = (bcol * 64.0f) / 256.0f;
+                bu1 = ((bcol + 1) * 64.0f) / 256.0f;
+                bv0 = (brow * 64.0f) / fAtlasH;
+                bv1 = ((brow + 1) * 64.0f) / fAtlasH;
+                if (backTex & SURFACE_FLAG_FLIP_HORIZ) { float t = bu0; bu0 = bu1; bu1 = t; }
+                if (backTex & SURFACE_FLAG_FLIP_VERT)  { float t = bv0; bv0 = bv1; bv1 = t; }
+                bcr = bcg = bcb = 1.0f;
+            } else {
+                uint8 colorIdx = (uint8)backTex;
+                if (wantAdvanced &&
+                    !(backTex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                    remap->uiColorFrom != 0xFFFFFFFF &&
+                    colorIdx == (uint8)remap->uiColorFrom)
+                    colorIdx = (uint8)remap->uiColorTo;
+                const tColor *bc = &pal[colorIdx];
+                bcr = (bc->byR * 255.0f / 63.0f) / 255.0f;
+                bcg = (bc->byG * 255.0f / 63.0f) / 255.0f;
+                bcb = (bc->byB * 255.0f / 63.0f) / 255.0f;
+                bu0 = bu1 = whiteU;
+                bv0 = bv1 = whiteV;
+            }
+
+            // Same UV layout as front; reversed winding makes it visible from the other side.
+            float back_uvs[4][2] = {
+                { bu1, bv0 }, { bu0, bv0 }, { bu0, bv1 }, { bu1, bv1 }
+            };
+
+            int backBase = vertCount;
+            for (int v = 0; v < 4; v++) {
+                uint8 vi = pols[p].verts[v];
+                if (vi >= numCoords) vi = 0;
+                MeshVertex *mv = &vertices[vertCount++];
+                mv->position[0] = coords[vi].fY;
+                mv->position[1] = coords[vi].fZ;
+                mv->position[2] = coords[vi].fX;
+                mv->uv[0] = back_uvs[v][0];
+                mv->uv[1] = back_uvs[v][1];
+                mv->color[0] = bcr;
+                mv->color[1] = bcg;
+                mv->color[2] = bcb;
+                mv->color[3] = 1.0f;
+            }
+
+            // Reversed winding: (0,2,1) and (0,3,2)
+            indices[idxCount++] = backBase + 0;
+            indices[idxCount++] = backBase + 2;
+            indices[idxCount++] = backBase + 1;
+            indices[idxCount++] = backBase + 0;
+            indices[idxCount++] = backBase + 3;
+            indices[idxCount++] = backBase + 2;
+        }
+    }
+
+    /* FLIP_BACKFACE pass: reversed-winding quad, matching game_render_hardware.c logic.
+       - FLIP_BACKFACE + BACK: reversed polygon uses pBacks[p] (explicit back texture)
+       - FLIP_BACKFACE only:   reversed polygon uses same resolved texture as front face */
+    for (int p = 0; p < numPols; p++) {
+        uint32 rawFront = pols[p].uiTex;
+        if (rawFront & SURFACE_FLAG_SKIP_RENDER) continue;
+        if (!(rawFront & SURFACE_FLAG_FLIP_BACKFACE)) continue;
+
+        uint32 tex;
+        if (rawFront & SURFACE_FLAG_BACK) {
+            if (!design->pBacks) continue;
+            tex = design->pBacks[p];
+        } else {
+            tex = rawFront;
+            if ((tex & CAR_FLAG_ANMS_LOOKUP) && pAnms)
+                tex = pAnms[(uint8)tex].framesAy[0];
+        }
+        if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+
+        bool isTextured = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                          (uint8)tex < numTiles;
+
+        float u0, u1, v0, v1;
+        float cr, cg, cb;
+
+        if (isTextured) {
+            uint8 tileIdx = (uint8)tex;
+            int col = tileIdx % 4, row = tileIdx / 4;
+            u0 = (col * 64.0f) / 256.0f;
+            u1 = ((col + 1) * 64.0f) / 256.0f;
+            v0 = (row * 64.0f) / fAtlasH;
+            v1 = ((row + 1) * 64.0f) / fAtlasH;
+            if (tex & SURFACE_FLAG_FLIP_HORIZ) { float t = u0; u0 = u1; u1 = t; }
+            if (tex & SURFACE_FLAG_FLIP_VERT)  { float t = v0; v0 = v1; v1 = t; }
+            cr = cg = cb = 1.0f;
+        } else {
+            uint8 colorIdx = (uint8)tex;
+            if (wantAdvanced &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                remap->uiColorFrom != 0xFFFFFFFF &&
+                colorIdx == (uint8)remap->uiColorFrom)
+                colorIdx = (uint8)remap->uiColorTo;
+            const tColor *c = &pal[colorIdx];
+            cr = (c->byR * 255.0f / 63.0f) / 255.0f;
+            cg = (c->byG * 255.0f / 63.0f) / 255.0f;
+            cb = (c->byB * 255.0f / 63.0f) / 255.0f;
+            u0 = u1 = whiteU;
+            v0 = v1 = whiteV;
+        }
+
+        /* Reversed vertex order (3,2,1,0) makes the quad visible from the back side. */
+        float uvs[4][2] = {
+            { u1, v0 }, { u0, v0 }, { u0, v1 }, { u1, v1 }
+        };
+        int baseVert = vertCount;
+        for (int v = 0; v < 4; v++) {
+            uint8 vi = pols[p].verts[3 - v];
+            if (vi >= numCoords) vi = 0;
+            MeshVertex *mv = &vertices[vertCount++];
+            mv->position[0] = coords[vi].fY;
+            mv->position[1] = coords[vi].fZ;
+            mv->position[2] = coords[vi].fX;
+            mv->uv[0] = uvs[v][0];
+            mv->uv[1] = uvs[v][1];
+            mv->color[0] = cr;
+            mv->color[1] = cg;
+            mv->color[2] = cb;
+            mv->color[3] = 1.0f;
+        }
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 1);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 3);
     }
 
     // Shadow quad: semi-transparent ground plane computed from mesh bounding box
@@ -1367,6 +1511,7 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
         r->carMesh.indexCount = idxCount;
         r->carMesh.loaded = true;
         r->loadedCarIdx = carIdx;
+        r->loadedAdvancedCars = wantAdvanced;
     } else if (atlas) {
         SDL_ReleaseGPUTexture(r->device, atlas);
     }

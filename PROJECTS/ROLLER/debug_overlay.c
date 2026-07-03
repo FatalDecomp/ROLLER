@@ -866,6 +866,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       noclip_camera_set_input_enabled(!pOverlay->bVisible);
     }
 
+    int bShowCarOnExplosion = (int)g_bShowCarOnExplosion;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Show car on explosion", &bShowCarOnExplosion)) {
+      g_bShowCarOnExplosion = (bool)bShowCarOnExplosion;
+      InputSaveConfig();
+    }
+
 #if defined(_WIN32)
     {
       static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
@@ -979,6 +986,9 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
 
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+      if (!bGPU || g_bDisableMipmaps) nk_widget_disable_begin(pCtx);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bTrilinear = (int)g_bTrilinear;
       if (nk_checkbox_label(pCtx, "Trilinear filtering", &bTrilinear)) {
@@ -986,11 +996,19 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
         InputSaveConfig();
       }
+      if (!bGPU || g_bDisableMipmaps) nk_widget_disable_end(pCtx);
 
+      if (!bGPU) nk_widget_disable_begin(pCtx);
+      
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bDisableMipmaps = (int)g_bDisableMipmaps;
+      if (nk_checkbox_label(pCtx, "Disable mipmaps (debug)", &bDisableMipmaps)) {
+        g_bDisableMipmaps = (bool)bDisableMipmaps;
+        game_render_set_disable_mipmaps(g_pGameRenderer, g_bDisableMipmaps);
+      }
       if (!bGPU) nk_widget_disable_end(pCtx);
 
-
-      if (!bGPU || !g_bTrilinear) nk_widget_disable_begin(pCtx);
+      if (!bGPU || !g_bTrilinear || g_bDisableMipmaps) nk_widget_disable_begin(pCtx);
       { char buf[20]; snprintf(buf, sizeof(buf), "LOD bias %.1f", g_fLodBias);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, buf, NK_TEXT_LEFT);
@@ -1001,7 +1019,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
           InputSaveConfig();
         }
       }
-      if (!bGPU || !g_bTrilinear) nk_widget_disable_end(pCtx);
+      if (!bGPU || !g_bTrilinear || g_bDisableMipmaps) nk_widget_disable_end(pCtx);
 
 
       if (!bGPU) nk_widget_disable_begin(pCtx);

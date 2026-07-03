@@ -366,6 +366,12 @@ void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ)
         scene_render_gpu_set_particle_ndcz(renderer->gpu, ndcZ);
 }
 
+void game_render_set_particle_depth_pervertex(GameRenderer *renderer, const float ndcZ[4])
+{
+    if (renderer && renderer->gpu)
+        scene_render_gpu_set_particle_ndcz_pervertex(renderer->gpu, ndcZ);
+}
+
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
                           const GameRenderCarPose *pose,
                           const GameRenderCarOptions *options) {
@@ -552,6 +558,10 @@ void game_render_set_texture_filter(GameRenderer *renderer, int filter) {
 
 void game_render_set_trilinear(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_trilinear(renderer->gpu, enabled);
+}
+
+void game_render_set_disable_mipmaps(GameRenderer *renderer, bool disabled) {
+    if (renderer) scene_render_gpu_set_disable_mipmaps(renderer->gpu, disabled);
 }
 
 void game_render_set_anisotropy_level(GameRenderer *renderer, int level) {

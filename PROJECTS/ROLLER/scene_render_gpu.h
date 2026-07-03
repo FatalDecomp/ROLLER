@@ -5,6 +5,10 @@
 #include "debug_overlay.h"
 #include "sound.h"    /* tColor, pal_addr */
 
+/* GPU projection near/far planes — must match the perspective matrix in scene_render_gpu.c */
+#define SCENE_GPU_NEAR 10.0f
+#define SCENE_GPU_FAR  20000000.0f
+
 typedef struct SceneRendererGPU SceneRendererGPU;
 struct SceneRenderer;
 struct CRTFilter;
@@ -59,6 +63,9 @@ void scene_render_gpu_set_texture_filter(SceneRendererGPU *r, int filter);
 
 /* enabled: true = trilinear (LINEAR between mip levels); textures always carry a full mip chain */
 void scene_render_gpu_set_trilinear(SceneRendererGPU *r, bool enabled);
+
+/* disabled: clamp sampler max_lod to 0 — debug flag to isolate mipmap-related GPU bugs */
+void scene_render_gpu_set_disable_mipmaps(SceneRendererGPU *r, bool disabled);
 
 /* vsync: deferred to next begin_frame to avoid mid-frame swapchain conflict */
 void scene_render_gpu_set_vsync(SceneRendererGPU *r, bool enabled);
@@ -134,6 +141,11 @@ void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
  * 0.0 = near plane (always passes depth test). Reset to 0 each begin_frame. */
 void scene_render_gpu_set_particle_ndcz(SceneRendererGPU *r, float ndcZ);
 
+/* Set per-vertex NDC depth for the NEXT screen_quad_* call only (v0..v3 order).
+ * Consumed and cleared after a single call. Use for elongated trails where head
+ * and tail are at different camera depths to avoid Z-fighting through walls. */
+void scene_render_gpu_set_particle_ndcz_pervertex(SceneRendererGPU *r, const float ndcZ[4]);
+
 /* Return the GPU texture for tile_idx within slot tex_idx, or NULL if out of range. */
 SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
 
@@ -157,5 +169,14 @@ void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
                                       int               firstIndex,
                                       int               idxCount,
                                       const float       mvp[16]);
+
+/* Queue a car shadow draw — uses carShadowPipeline (LESS_OR_EQUAL, no depth write, biased). */
+void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
+                                             SDL_GPUBuffer    *vertBuf,
+                                             SDL_GPUBuffer    *idxBuf,
+                                             SDL_GPUTexture   *texture,
+                                             int               firstIndex,
+                                             int               idxCount,
+                                             const float       mvp[16]);
 
 #endif /* SCENE_RENDER_GPU_H */

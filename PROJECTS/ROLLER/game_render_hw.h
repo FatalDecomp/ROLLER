@@ -13,6 +13,8 @@ typedef struct GameRenderer GameRenderer;
 void game_render_set_texture_filter(GameRenderer *renderer, int filter);
 /* Trilinear mip blending */
 void game_render_set_trilinear(GameRenderer *renderer, bool enabled);
+/* Debug: clamp sampler to mip 0 only (isolates Adreno mipmap layout bug) */
+void game_render_set_disable_mipmaps(GameRenderer *renderer, bool disabled);
 /* Anisotropy level: 0=2x, 1=4x, 2=8x, 3=16x */
 void game_render_set_anisotropy_level(GameRenderer *renderer, int level);
 /* Mip LOD bias: negative=sharper, positive=blurrier */
