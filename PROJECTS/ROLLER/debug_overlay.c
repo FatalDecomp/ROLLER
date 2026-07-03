@@ -21,6 +21,7 @@
 #define NK_INCLUDE_DEFAULT_ALLOCATOR
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
+#define NK_ZERO_COMMAND_MEMORY
 #define NK_IMPLEMENTATION
 #include "nuklear.h"
 
@@ -37,6 +38,8 @@
 #define OVERLAY_FONT_SIZE 24.0f
 #define PANEL_MARGIN     10
 #define DEBUG_ROW_H      30
+#define COMBO_ITEM_H     (DEBUG_ROW_H + 4)
+#define COMBO_W          190
 #define DEBUG_SPACING_H  12
 #define HINT_H           42
 #define PANEL_Y          (PANEL_MARGIN + HINT_H + PANEL_MARGIN)
@@ -77,6 +80,8 @@ struct DebugOverlay {
   SDL_LogOutputFunction  pPrevLogFn;
   void                  *pPrevLogUserdata;
 
+  uint32_t               uLastCmdHash; // FNV-1a of Nuklear command buffer; 0 = force rasterize
+
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
@@ -88,6 +93,37 @@ struct DebugOverlay {
   bool                   bHideLog;
 
 };
+
+// ---------------------------------------------------------------------------
+// Surface debug label storage
+// ---------------------------------------------------------------------------
+
+static SurfaceDebugLabel s_surfLabels[SURFACE_LABEL_MAX];
+static int               s_surfLabelCount;
+
+/* Grid deduplication: one label per cell, O(1) per push. */
+#define LABEL_CELL_W 240
+#define LABEL_CELL_H  32
+#define LABEL_GRID_COLS (OVERLAY_W  / LABEL_CELL_W)
+#define LABEL_GRID_ROWS (OVERLAY_H  / LABEL_CELL_H)
+static bool s_labelGrid[LABEL_GRID_ROWS][LABEL_GRID_COLS];
+
+void debug_overlay_surface_labels_reset(void) {
+  s_surfLabelCount = 0;
+  memset(s_labelGrid, 0, sizeof(s_labelGrid));
+}
+
+void debug_overlay_surface_label_push(float nx, float ny, const char *text) {
+  if (s_surfLabelCount >= SURFACE_LABEL_MAX) return;
+  int col = (int)(nx * OVERLAY_W) / LABEL_CELL_W;
+  int row = (int)(ny * OVERLAY_H) / LABEL_CELL_H;
+  if (col < 0 || col >= LABEL_GRID_COLS || row < 0 || row >= LABEL_GRID_ROWS) return;
+  if (s_labelGrid[row][col]) return;
+  s_labelGrid[row][col] = true;
+  SurfaceDebugLabel *p = &s_surfLabels[s_surfLabelCount++];
+  p->nx = nx; p->ny = ny;
+  snprintf(p->text, sizeof(p->text), "%s", text);
+}
 
 // ---------------------------------------------------------------------------
 // Log callback
@@ -221,6 +257,33 @@ static void OverlayDrawGlyph(DebugOverlay *pOverlay, const struct nk_font_glyph 
   }
 }
 
+static void OverlayDrawString(DebugOverlay *pOverlay, int x, int y,
+                              const char *text, struct nk_color fg) {
+  struct nk_font *pFont = (struct nk_font *)pOverlay->nk.style.font->userdata.ptr;
+  float fCx = (float)x;
+  for (; *text; text++) {
+    const struct nk_font_glyph *pG = nk_font_find_glyph(pFont, (nk_rune)(unsigned char)*text);
+    if (!pG) { fCx += pOverlay->nk.style.font->height * 0.5f; continue; }
+    OverlayDrawGlyph(pOverlay, pG, (int)fCx, y, fg);
+    fCx += pG->xadvance;
+  }
+}
+
+static void DrawSurfaceLabels(DebugOverlay *pOverlay) {
+  struct nk_color bg  = nk_rgba(0, 0, 0, 176);
+  struct nk_color fg  = nk_rgba(255, 255, 100, 255);
+  float fh = pOverlay->nk.style.font->height;
+  for (int i = 0; i < s_surfLabelCount; i++) {
+    const SurfaceDebugLabel *p = &s_surfLabels[i];
+    int ox = (int)(p->nx * OVERLAY_W);
+    int oy = (int)(p->ny * OVERLAY_H) - (int)(fh * 0.5f);
+    int len = (int)strlen(p->text);
+    int tw  = (int)(len * fh * 0.52f);  /* approximate text width */
+    OverlayFillRect(pOverlay->pPixels, ox - 1, oy - 1, tw + 4, (int)fh + 2, bg);
+    OverlayDrawString(pOverlay, ox + 1, oy, p->text, fg);
+  }
+}
+
 static void RenderCommands(DebugOverlay *pOverlay) {
   const struct nk_command *pCmd;
   nk_foreach(pCmd, &pOverlay->nk) {
@@ -344,6 +407,8 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->window.border_color          = nk_rgba(60,  60,  60,  200);
   pStyle->checkbox.cursor_normal       = nk_style_item_color(nk_rgba(220, 220, 220, 255));
   pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
+  pStyle->combo.content_padding        = nk_vec2(4, 0);
+  pStyle->combo.border                 = 0;
 
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
@@ -730,15 +795,23 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-    static const char *apszMusic[] = { "MIDI", "CD" };
-    int iMusicSel = (MusicCD != 0) ? 1 : 0;
+#ifdef __ANDROID__
+    static const char *apszMusic[] = { "MIDI", "MIDI (OPL3)", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 2 : (MusicOPL != 0) ? 1 : 0;
+#else
+    static const char *apszMusic[] = { "MIDI", "MIDI (OS)", "MIDI (OPL3)", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 3 : (MusicOPL != 0) ? 2 : (MusicOS != 0) ? 1 : 0;
+#endif
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
     nk_label(pCtx, "Music", NK_TEXT_LEFT);
-    int iNewMusicSel = nk_combo(pCtx, apszMusic, 2, iMusicSel, DEBUG_ROW_H, nk_vec2(140, 90));
+    int iNewMusicSel = nk_combo(pCtx, apszMusic, NK_LEN(apszMusic), iMusicSel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
-      if (iNewMusicSel == 1) { MusicCD = -1; MusicCard = 0; }
-      else                   { MusicCD = 0;  MusicCard = -1; }
+      const char *pszSel = apszMusic[iNewMusicSel];
+      if (pszSel == "CD")          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
+      else if (pszSel == "MIDI (OPL3)") { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
+      else if (pszSel == "MIDI (OS)")   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
+      else                         { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
       startmusic(g_iCurrentSong);
       InputSaveConfig();
     }
@@ -793,13 +866,20 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       noclip_camera_set_input_enabled(!pOverlay->bVisible);
     }
 
+    int bShowCarOnExplosion = (int)g_bShowCarOnExplosion;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Show car on explosion", &bShowCarOnExplosion)) {
+      g_bShowCarOnExplosion = (bool)bShowCarOnExplosion;
+      InputSaveConfig();
+    }
+
 #if defined(_WIN32)
     {
       static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
       int iInputBackend = InputGetWindowsBackend() == INPUT_WINDOWS_BACKEND_SDL_DINPUT ? 1 : 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Windows input", NK_TEXT_LEFT);
-      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, 2, iInputBackend, DEBUG_ROW_H, nk_vec2(190, 90));
+      int iNewInputBackend = nk_combo(pCtx, apszInputBackends, NK_LEN(apszInputBackends), iInputBackend, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewInputBackend != iInputBackend) {
         InputSetWindowsBackend(iNewInputBackend == 1 ? INPUT_WINDOWS_BACKEND_SDL_DINPUT : INPUT_WINDOWS_BACKEND_WINMM);
         InputSaveConfig();
@@ -815,7 +895,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         iSel = 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Phone controls", NK_TEXT_LEFT);
-      int iNewSel = nk_combo(pCtx, apszPhoneControls, 3, iSel, DEBUG_ROW_H, nk_vec2(190, 120));
+      int iNewSel = nk_combo(pCtx, apszPhoneControls, NK_LEN(apszPhoneControls), iSel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewSel != iSel) {
         g_ePhoneControls = (ePhoneControls)iNewSel;
         InputSaveConfig();
@@ -869,7 +949,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = i;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Render scale", NK_TEXT_LEFT);
-      int iNewScale = nk_combo(pCtx, apszScale, 4, iCurScale, 20, nk_vec2(130, 100));
+      int iNewScale = nk_combo(pCtx, apszScale, NK_LEN(apszScale), iCurScale, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewScale != iCurScale) {
         g_fRenderScale = k_scaleVals[iNewScale];
         game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
@@ -879,7 +959,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszAA[] = { "Off", "MSAA 2x", "MSAA 4x", "MSAA 8x" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Anti-aliasing", NK_TEXT_LEFT);
-      int iNewAA = nk_combo(pCtx, apszAA, 4, g_iAntiAliasing, 20, nk_vec2(130, 100));
+      int iNewAA = nk_combo(pCtx, apszAA, NK_LEN(apszAA), g_iAntiAliasing, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewAA != g_iAntiAliasing) {
         g_iAntiAliasing = iNewAA;
         game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
@@ -889,7 +969,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszAniso[] = { "2x", "4x", "8x", "16x" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Anisotropy", NK_TEXT_LEFT);
-      int iNewAniso = nk_combo(pCtx, apszAniso, 4, g_iAnisotropyLevel, 20, nk_vec2(130, 100));
+      int iNewAniso = nk_combo(pCtx, apszAniso, NK_LEN(apszAniso), g_iAnisotropyLevel, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewAniso != g_iAnisotropyLevel) {
         g_iAnisotropyLevel = iNewAniso;
         game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
@@ -899,13 +979,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszFilter[] = { "Nearest", "Bilinear", "Anisotropic" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Texture filter", NK_TEXT_LEFT);
-      int iNewFilter = nk_combo(pCtx, apszFilter, 3, g_iTextureFilter, 20, nk_vec2(130, 80));
+      int iNewFilter = nk_combo(pCtx, apszFilter, NK_LEN(apszFilter), g_iTextureFilter, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewFilter != g_iTextureFilter) {
         g_iTextureFilter = iNewFilter;
         game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
         InputSaveConfig();
       }
 
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+      if (!bGPU || g_bDisableMipmaps) nk_widget_disable_begin(pCtx);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bTrilinear = (int)g_bTrilinear;
       if (nk_checkbox_label(pCtx, "Trilinear filtering", &bTrilinear)) {
@@ -913,8 +996,19 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
         InputSaveConfig();
       }
+      if (!bGPU || g_bDisableMipmaps) nk_widget_disable_end(pCtx);
 
-      if (!g_bTrilinear) nk_widget_disable_begin(pCtx);
+      if (!bGPU) nk_widget_disable_begin(pCtx);
+      
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bDisableMipmaps = (int)g_bDisableMipmaps;
+      if (nk_checkbox_label(pCtx, "Disable mipmaps (debug)", &bDisableMipmaps)) {
+        g_bDisableMipmaps = (bool)bDisableMipmaps;
+        game_render_set_disable_mipmaps(g_pGameRenderer, g_bDisableMipmaps);
+      }
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+      if (!bGPU || !g_bTrilinear || g_bDisableMipmaps) nk_widget_disable_begin(pCtx);
       { char buf[20]; snprintf(buf, sizeof(buf), "LOD bias %.1f", g_fLodBias);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, buf, NK_TEXT_LEFT);
@@ -925,7 +1019,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
           InputSaveConfig();
         }
       }
-      if (!g_bTrilinear) nk_widget_disable_end(pCtx);
+      if (!bGPU || !g_bTrilinear || g_bDisableMipmaps) nk_widget_disable_end(pCtx);
+
+
+      if (!bGPU) nk_widget_disable_begin(pCtx);
 
       { char buf[20]; snprintf(buf, sizeof(buf), "Fog start %.0f", g_fFogStart);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
@@ -949,6 +1046,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
       }
 
+      if (!bGPU) nk_widget_disable_end(pCtx);
+
+      if (!bGPU || frontend_on) nk_widget_disable_begin(pCtx);
+
       { static char szBuf[8]; static int iLen = 0; static nk_flags lastEv = 0;
         /* Only sync buffer from global when the field was not active last frame,
          * so we never clobber Nuklear's internal edit state mid-edit. */
@@ -958,11 +1059,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
         nk_label(pCtx, "Fog color", NK_TEXT_LEFT);
-        if (frontend_on) nk_widget_disable_begin(pCtx);
         nk_flags ev = nk_edit_string(pCtx,
                                      NK_EDIT_FIELD|NK_EDIT_SIG_ENTER|NK_EDIT_AUTO_SELECT,
                                      szBuf, &iLen, 7, nk_filter_hex);
-        if (frontend_on) nk_widget_disable_end(pCtx);
+        if (!bGPU || frontend_on) nk_widget_disable_end(pCtx);
         lastEv = frontend_on ? 0 : ev;
         if (!frontend_on && (ev & (NK_EDIT_DEACTIVATED | NK_EDIT_COMMITED))) {
           szBuf[iLen < 7 ? iLen : 6] = '\0';
@@ -979,6 +1079,8 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
           }
         }
       }
+
+      if (!bGPU) nk_widget_disable_begin(pCtx);
 
       { char buf[14]; snprintf(buf, sizeof(buf), "FOV %.2f", g_fFovMultiplier);
         nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
@@ -1049,10 +1151,44 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       static const char *apszFps[] = { "FPS off", "Top left", "Top right", "Bottom left", "Bottom right" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "FPS counter", NK_TEXT_LEFT);
-      int iNewFps = nk_combo(pCtx, apszFps, 5, g_iFpsDisplay, 20, nk_vec2(130, 120));
+      int iNewFps = nk_combo(pCtx, apszFps, NK_LEN(apszFps), g_iFpsDisplay, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewFps != g_iFpsDisplay) {
         g_iFpsDisplay = iNewFps;
         InputSaveConfig();
+      }
+
+      {
+        static const char *apszBgFps[] = { "Off (default)", "15", "30", "60" };
+        static const int aiBgFpsValues[] = { 0, 15, 30, 60 };
+        int iBgFpsIdx = 0;
+        for (int i = 1; i < 4; i++) {
+          if (g_iFpsBackground == aiBgFpsValues[i]) { iBgFpsIdx = i; break; }
+        }
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, "FPS Background", NK_TEXT_LEFT);
+        int iNewBgFpsIdx = nk_combo(pCtx, apszBgFps, NK_LEN(apszBgFps), iBgFpsIdx, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
+        if (iNewBgFpsIdx != iBgFpsIdx) {
+          g_iFpsBackground = aiBgFpsValues[iNewBgFpsIdx];
+          InputSaveConfig();
+        }
+      }
+
+      {
+        static const char *apszCull[] = { "default", "none", "back", "front" };
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, "Culling", NK_TEXT_LEFT);
+        int iNewCull = nk_combo(pCtx, apszCull, NK_LEN(apszCull), g_iCullMode, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
+        if (iNewCull != g_iCullMode) {
+          g_iCullMode = iNewCull;
+          game_render_set_cull_mode(g_pGameRenderer, g_iCullMode);
+        }
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      {
+        int bSignsOnTop = (int)g_bSignsOnTop;
+        if (nk_checkbox_label(pCtx, "Signs on top", &bSignsOnTop))
+          g_bSignsOnTop = (bool)bSignsOnTop;
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1060,6 +1196,36 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
         g_bWireframe = (bool)bWireframe;
         game_render_set_wireframe(g_pGameRenderer, g_bWireframe);
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bSurfDbg = (int)g_bSurfaceDebugViz;
+      if (nk_checkbox_label(pCtx, "Surface debug labels", &bSurfDbg))
+        g_bSurfaceDebugViz = (bool)bSurfDbg;
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bSurfLog = (int)g_bSurfaceLog;
+      if (nk_checkbox_label(pCtx, "Surface Log", &bSurfLog))
+        g_bSurfaceLog = (bool)bSurfLog;
+
+      {
+        static char s_surfLogIdBuf[8] = "";
+        static int  s_surfLogIdLen    = 0;
+        static const float aCols[]    = { 0.65f, 0.35f };
+        nk_layout_row(pCtx, NK_DYNAMIC, DEBUG_ROW_H, 2, aCols);
+        nk_label(pCtx, "Surface Log ID", NK_TEXT_LEFT);
+        nk_flags lastEv = nk_edit_string(pCtx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT,
+                                         s_surfLogIdBuf, &s_surfLogIdLen,
+                                         (int)sizeof(s_surfLogIdBuf) - 1,
+                                         nk_filter_default);
+        if (lastEv & NK_EDIT_ACTIVE) {
+          if (s_surfLogIdLen == 0) {
+            g_iSurfaceLogId = -2;
+          } else {
+            s_surfLogIdBuf[s_surfLogIdLen] = '\0';
+            g_iSurfaceLogId = SDL_atoi(s_surfLogIdBuf);
+          }
+        }
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1071,6 +1237,20 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       if (!bGPU) nk_widget_disable_end(pCtx);
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bShiftFreeze = (int)g_bShiftFreezeEnabled;
+      if (nk_checkbox_label(pCtx, "Hold SHIFT to freeze", &bShiftFreeze)) {
+        g_bShiftFreezeEnabled = (bool)bShiftFreeze;
+        InputSaveConfig();
+      }
+
+      int bKeepWindowSize = g_bKeepWindowSize ? 1 : 0;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Keep Window Size", &bKeepWindowSize)) {
+        g_bKeepWindowSize = (bool)bKeepWindowSize;
+        InputSaveConfig();
+      }
 
       int bHideLog = pOverlay->bHideLog ? 1 : 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1088,7 +1268,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fFovMultiplier  = 1.0f;  g_fVigStrength    = 0.0f;
         g_fBrightness     = 0.0f;  g_fContrast       = 1.0f;
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
-        g_iFpsDisplay     = 0;     g_bWireframe      = false;
+        g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
@@ -1110,6 +1290,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_saturation(g_pGameRenderer,      g_fSaturation);
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
+        game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);
         InputSaveConfig();
       }
@@ -1151,7 +1332,11 @@ void debug_overlay_render(DebugOverlay *pOverlay,
                           Uint32 uiSwapchainW, Uint32 uiSwapchainH) {
   SDL_GPUViewport viewport = {0};
 
-  if (!pOverlay || !pOverlay->bVisible) return;
+  const bool *_kb = SDL_GetKeyboardState(NULL);
+  bool bShiftLabel = _kb[SDL_SCANCODE_LSHIFT] || _kb[SDL_SCANCODE_RSHIFT];
+  bool bShowLabels = g_bSurfaceDebugViz || bShiftLabel;
+
+  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels)) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
   // Close input bracket (open it first if no events arrived this frame)
@@ -1160,14 +1345,37 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   nk_input_end(pCtx);
   pOverlay->bInputBegun = false;
 
-  DrawHintPanel(pOverlay);
-  DrawDebugPanel(pOverlay);
-  if (!pOverlay->bHideLog)
-    DrawLogPanel(pOverlay);
+  if (pOverlay->bVisible) {
+    DrawHintPanel(pOverlay);
+    DrawDebugPanel(pOverlay);
+    if (!pOverlay->bHideLog)
+      DrawLogPanel(pOverlay);
+  }
 
-  memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
-  RenderCommands(pOverlay);
-  UploadAndBlit(pOverlay, pCmdBuf);
+  /* Lazy re-rasterize: hash the Nuklear command buffer (FNV-1a).
+   * Skip the expensive software raster + GPU upload when nothing changed;
+   * the GPU texture still holds the previous frame's correct content.
+   * Surface debug labels change every frame, so bypass the cache while active. */
+  if (bShowLabels)
+    pOverlay->uLastCmdHash = 0;  /* force dirty every frame */
+
+  uint32_t uHash = 2166136261u;
+  const uint8_t *pCmdBytes = (const uint8_t *)pCtx->memory.memory.ptr;
+  nk_size uCmdSize = pCtx->memory.allocated;
+  for (nk_size i = 0; i < uCmdSize; i++) {
+    uHash ^= pCmdBytes[i];
+    uHash *= 16777619u;
+  }
+
+  if (uHash != pOverlay->uLastCmdHash) {
+    pOverlay->uLastCmdHash = uHash;
+    memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
+    RenderCommands(pOverlay);
+    if (bShowLabels) DrawSurfaceLabels(pOverlay);
+    UploadAndBlit(pOverlay, pCmdBuf);
+  } else {
+    nk_clear(pCtx);
+  }
 
   if (!pOverlay->pPipeline || !pOverlay->pSampler) return;
 

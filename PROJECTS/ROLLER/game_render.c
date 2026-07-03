@@ -5,10 +5,13 @@
 #include "3d.h"
 #include "func2.h"
 #include "horizon.h"
+#include "drawtrk3.h"
 #include "sound.h"
+#include "car.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 struct GameRenderer {
     GameRenderMode mode;
@@ -21,8 +24,9 @@ struct GameRenderer {
     SDL_Window *window;
     GameRendererHardware *hw;
     int hudW, hudH;
-    bool mirrorPass;  /* true during mirror buffer render — routes scene to SW */
-    bool splitScreen; /* GPU mode only: SW quads also run, HUD pass covers left half */
+    bool mirrorPass;    /* true during mirror buffer render — routes scene to SW */
+    bool splitScreen;   /* GPU mode only: SW quads also run, HUD pass covers left half */
+    bool forceGpuLoad;  /* always upload textures to GPU even in SW mode (set for intro) */
 };
 
 static TextureHandle game_render_texture_handle_from_index(int tex_idx) {
@@ -63,6 +67,11 @@ void game_render_destroy(GameRenderer *renderer) {
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
     if (!renderer)
         return;
+    /* GPU textures are only uploaded when the race/session starts in GPU mode.
+     * If they were skipped (started in SW), switching to GPU mid-session would
+     * render with an empty atlas — block it. */
+    if (mode == GAME_RENDER_GPU && !scene_render_get_gpu_load_enabled(renderer->scene))
+        return;
     /* Defer the actual switch to the next begin_frame so it never fires
      * mid-frame while a GPU command buffer is open. */
     renderer->pendingMode    = mode;
@@ -72,13 +81,18 @@ void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
         game_render_set_split_screen(renderer, false);
 }
 
+void game_render_set_force_gpu_load(GameRenderer *renderer, bool force) {
+    if (renderer)
+        renderer->forceGpuLoad = force;
+}
+
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay) {
     if (!renderer)
         return;
     scene_render_set_debug_overlay(renderer->scene, overlay);
 }
 
-GameRenderMode game_render_get_mode(GameRenderer *renderer) {
+GameRenderMode game_render_get_mode(const GameRenderer *renderer) {
     return renderer->mode;
 }
 
@@ -88,7 +102,7 @@ void game_render_set_split_screen(GameRenderer *renderer, bool split) {
     scene_render_set_split_screen(renderer->scene, split);
 }
 
-bool game_render_is_split_screen(GameRenderer *renderer) {
+bool game_render_is_split_screen(const GameRenderer *renderer) {
     return renderer && renderer->splitScreen;
 }
 
@@ -166,11 +180,11 @@ void game_render_set_viewport(GameRenderer *renderer,
     scene_render_set_viewport(renderer->scene, x, y, w, h);
 }
 
-void game_render_set_target(GameRenderer *renderer, uint8 *buffer,
+void game_render_set_target(GameRenderer *renderer, uint8 *pixBuf,
                             int stride, int width, int height) {
     if (!renderer)
         return;
-    scene_render_set_target(renderer->scene, buffer, stride, width, height);
+    scene_render_set_target(renderer->scene, pixBuf, stride, width, height);
 }
 
 // Camera
@@ -205,6 +219,16 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
                                        int tex_idx, int gfx_size) {
     if (!renderer)
         return TEXTURE_HANDLE_INVALID;
+    /* Only upload textures to the GPU renderer if the race will actually use it.
+     * In pure software mode the GPU scene textures are never sampled, and
+     * uploading every track/car tile (hundreds of mipmapped images, one GPU
+     * submit each) on a cold device can flood the driver and trigger
+     * VK_ERROR_DEVICE_LOST.  Target mode = the pending mode if a switch is
+     * queued (set before the first begin_frame), otherwise the current mode. */
+    GameRenderMode target = renderer->pendingModeSet ? renderer->pendingMode
+                                                     : renderer->mode;
+    scene_render_set_gpu_load_enabled(renderer->scene,
+        renderer->forceGpuLoad || target == GAME_RENDER_GPU);
     TextureHandle swHandle = game_render_sw_load_texture(renderer->sw, pixelData,
                                                          width, height, tex_idx, gfx_size);
     TextureHandle sceneHandle = scene_render_load_texture(renderer->scene, pixelData,
@@ -239,10 +263,10 @@ TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
 
 TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
                                       tBlockHeader *blocks,
-                                      const tColor *palette) {
+                                      const tColor *pal) {
     if (!renderer)
         return TEXTURE_HANDLE_INVALID;
-    return game_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
+    return game_render_sw_load_blocks(renderer->sw, slot, blocks, pal);
 }
 
 void game_render_free_blocks(GameRenderer *renderer, int slot) {
@@ -258,9 +282,47 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
                       const uint8 *palette_remap) {
     if (!renderer)
         return;
-    /* In GPU mode, scrbuf is composited as the HUD overlay (palette 0 = transparent).
-     * Screen-space effects (smoke, panel, sprites) write into scrbuf via the SW
-     * rasterizer so they appear on top of the 3D scene. */
+
+    /* GPU mode: route particles through the dedicated depth-tested pipeline so they
+     * are occluded by solid geometry instead of blitting over everything via SW overlay. */
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->mirrorPass
+        && !renderer->splitScreen) {
+        int colorIdx = poly->iSurfaceType & 0xFF;
+        if (palette_remap)
+            colorIdx = palette_remap[colorIdx] & 0xFF;
+        const tColor *c = &palette[colorIdx];
+        float cr = (float)c->byR / 63.0f;
+        float cg = (float)c->byG / 63.0f;
+        float cb = (float)c->byB / 63.0f;
+        float ca = (poly->iSurfaceType & SURFACE_FLAG_TRANSPARENT) ? 0.5f : 1.0f;
+        float ww = (float)winw, wh = (float)winh;
+        float ndcX[4], ndcY[4];
+        for (int i = 0; i < 4; i++) {
+            ndcX[i] = (float)poly->vertices[i].x / ww * 2.0f - 1.0f;
+            ndcY[i] = 1.0f - (float)poly->vertices[i].y / wh * 2.0f;
+        }
+        if (handle == TEXTURE_HANDLE_INVALID) {
+            scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
+            return;
+        }
+        /* Tile index lives in the low byte of iSurfaceType, same as the SW path.
+         * For cargen (tex_idx 18) use the particle-variant tiles where palette index 0 is
+         * opaque white, so (texture × vertex_colour) gives the smoke/fire tint.  SW's POLYTEX
+         * substitutes index 0 with the car's runtime colour; this is the GPU equivalent. */
+        int tex_idx_gpu = game_render_texture_index_from_handle(handle);
+        int tile_idx    = poly->iSurfaceType & SURFACE_MASK_TEXTURE_INDEX;
+        SDL_GPUTexture *gpuTex = (tex_idx_gpu == 18)
+            ? scene_render_gpu_get_particle_tile_texture(renderer->gpu, 18, tile_idx)
+            : scene_render_gpu_get_tile_texture(renderer->gpu, tex_idx_gpu, tile_idx);
+        if (gpuTex && scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY,
+                                                            gpuTex, cr, cg, cb, ca))
+            return;
+        /* Tile unavailable — flat colour on the GPU depth-tested path. */
+        scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
+        return;
+    }
+
+    /* SW path: scrbuf overlay fallback. */
     int tex_idx = game_render_texture_index_from_handle(handle);
     TextureHandle swHandle = tex_idx >= 0
         ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
@@ -298,6 +360,18 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
                                    surfaceFlags, options);
 }
 
+void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ)
+{
+    if (renderer && renderer->gpu)
+        scene_render_gpu_set_particle_ndcz(renderer->gpu, ndcZ);
+}
+
+void game_render_set_particle_depth_pervertex(GameRenderer *renderer, const float ndcZ[4])
+{
+    if (renderer && renderer->gpu)
+        scene_render_gpu_set_particle_ndcz_pervertex(renderer->gpu, ndcZ);
+}
+
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
                           const GameRenderCarPose *pose,
                           const GameRenderCarOptions *options) {
@@ -312,7 +386,33 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
             game_render_hw_draw_car(renderer->hw, renderer->gpu, carIdx, pose, options);
             game_render_hw_draw_car_name_tag(carIdx, pose);
         }
+        CarRenderPose sw_pose = { pose->position, pose->yaw, pose->pitch, pose->roll };
+        DisplayCarSmoke(carIdx, &sw_pose);
     }
+}
+
+/* Clip the NDC screen rectangle against the sky half-plane (S-H, 1 clip plane).
+ * hx/hy: horizon point in NDC. nx/ny: sky-side normal (unnormalized, NDC-space).
+ * Returns number of output vertices (0-5) in out_x/out_y. */
+static int clip_sky_poly_ndc(float hx, float hy, float nx, float ny,
+                              float out_x[5], float out_y[5])
+{
+    static const float cx[4] = {-1.f, +1.f, +1.f, -1.f};
+    static const float cy[4] = {-1.f, -1.f, +1.f, +1.f};
+    int n = 0;
+    for (int i = 0; i < 4; i++) {
+        int j = (i + 1) & 3;
+        float d0 = nx*(cx[i]-hx) + ny*(cy[i]-hy);
+        float d1 = nx*(cx[j]-hx) + ny*(cy[j]-hy);
+        if (d0 >= 0.f) { out_x[n] = cx[i]; out_y[n] = cy[i]; n++; }
+        if ((d0 > 0.f) != (d1 > 0.f)) {
+            float t = d0 / (d0 - d1);
+            out_x[n] = cx[i] + t*(cx[j]-cx[i]);
+            out_y[n] = cy[i] + t*(cy[j]-cy[i]);
+            n++;
+        }
+    }
+    return n;
 }
 
 void game_render_draw_sky(GameRenderer *renderer,
@@ -334,23 +434,90 @@ void game_render_draw_sky(GameRenderer *renderer,
                 sky->byG / 63.0f,
                 sky->byB / 63.0f);
         }
+
         /* Set up SW view globals (viewx/viewy/viewz, vk1-vk9, xbase/ybase, etc.)
-         * that displayclouds() uses to project cloud quads into screen space.
-         * displayclouds() only calls game_render_quad_world_subdivide_type —
-         * it does NOT write to any screen buffer, so passing NULL is safe. */
-        if ((textures_off & TEX_OFF_CLOUDS) == 0) {
-            game_render_sw_set_camera(renderer->sw, camera);
-            game_render_sw_set_projection(renderer->sw, projection);
-            displayclouds(NULL);
+         * Always done here — both for clouds and so that ybase/winh are current
+         * for the horizon fraction computation below.
+         * displayclouds() does NOT write to any screen buffer, so NULL is safe. */
+        game_render_sw_set_camera(renderer->sw, camera);
+        game_render_sw_set_projection(renderer->sw, projection);
+
+        /* Compute horizon fraction (sky height as a proportion of the viewport)
+         * using the same formula as DrawHorizon() in horizon.c.
+         * ybase and winh are now current from set_projection above. */
+        {
+            int   elevMasked  = worldelev & 0x3FFF;
+            float fSinElev    = tsin[elevMasked];
+            int   groundColor = -1;
+            float skyPolyX[5], skyPolyY[5]; int skyPolyN = 0; bool skyAnyGround = false;
+
+            if ((textures_off & TEX_OFF_HORIZON) == 0) {
+                if (fSinElev < -0.7f) {
+                    /* All ground — clear with ground, no sky quad needed. */
+                    groundColor  = (int)(uint8)HorizonColour[front_sec];
+                    skyAnyGround = true;
+                } else if (fSinElev <= 0.7f) {
+                    int   tiltMasked   = worldtilt & 0x3FFF;
+                    float fCosElev     = tcos[elevMasked];
+                    float fCosTiltVal  = tcos[tiltMasked];
+                    float fNegSinTilt  = -tsin[tiltMasked];
+                    bool  groundOnTop  = (fCosElev < 0.0f);
+                    double dViewDistTan = (double)VIEWDIST * ptan[elevMasked];
+
+                    /* Horizon point in screen pixels (Y-down, origin top-left). */
+                    float ww = (float)winw, wh = (float)winh;
+                    float hx_pix = (float)((dViewDistTan * fNegSinTilt + xbase) * scr_size / 64);
+                    float hy_pix = (float)(((199 - ybase) + dViewDistTan * fCosTiltVal) * scr_size / 64);
+
+                    /* Horizon point in NDC. */
+                    float hx = (ww > 0.f) ? 2.f*hx_pix/ww - 1.f : 0.f;
+                    float hy = (wh > 0.f) ? 1.f - 2.f*hy_pix/wh : 0.f;
+
+                    /* Sky-side NDC normal derived from screen-space sky normal
+                     * (fNegSinTilt, -fCosTiltVal) with aspect-ratio correction:
+                     *   nx_ndc = fNegSinTilt * winw
+                     *   ny_ndc = fCosTiltVal * winh
+                     * Flip both when groundOnTop (inverted camera). */
+                    float nx = -fNegSinTilt * ww;
+                    float ny =  fCosTiltVal * wh;
+                    if (groundOnTop) { nx = -nx; ny = -ny; }
+
+                    /* Clip screen rectangle against sky half-plane. */
+                    skyPolyN = clip_sky_poly_ndc(hx, hy, nx, ny, skyPolyX, skyPolyY);
+
+                    /* anyGround: any NDC corner on the ground side. */
+                    static const float ccx[4] = {-1.f,+1.f,+1.f,-1.f};
+                    static const float ccy[4] = {-1.f,-1.f,+1.f,+1.f};
+                    for (int i = 0; i < 4; i++) {
+                        if (nx*(ccx[i]-hx) + ny*(ccy[i]-hy) < 0.f)
+                            { skyAnyGround = true; break; }
+                    }
+
+                    groundColor = (int)(uint8)HorizonColour[front_sec];
+                }
+                /* fSinElev > 0.7: all sky — groundColor stays -1. */
+            }
+
+            /* Pack polygon into float[5][2] for the GPU call. */
+            float skyPoly[5][2];
+            for (int i = 0; i < skyPolyN; i++) {
+                skyPoly[i][0] = skyPolyX[i];
+                skyPoly[i][1] = skyPolyY[i];
+            }
+            scene_render_gpu_set_horizon(renderer->gpu, groundColor, skyAnyGround,
+                                         (const float (*)[2])skyPoly, skyPolyN);
         }
+
+        if ((textures_off & TEX_OFF_CLOUDS) == 0)
+            displayclouds(NULL);
     }
 }
 
 void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
-                        const tColor *palette) {
+                        const tColor *pal) {
     game_render_sw_sprite(renderer->sw, slot, blockIdx, x, y,
-                          transparentColorIndex, palette);
+                          transparentColorIndex, pal);
 }
 
 void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
@@ -360,9 +527,9 @@ void game_render_print_block(GameRenderer *renderer, int slot, int blockIdx,
 
 // Palette
 
-void game_render_set_palette(GameRenderer *renderer, const tColor *palette) {
+void game_render_set_palette(GameRenderer *renderer, const tColor *pal) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
-        game_render_sw_set_palette(renderer->sw, palette);
+        game_render_sw_set_palette(renderer->sw, pal);
 }
 
 // Fade
@@ -391,6 +558,10 @@ void game_render_set_texture_filter(GameRenderer *renderer, int filter) {
 
 void game_render_set_trilinear(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_trilinear(renderer->gpu, enabled);
+}
+
+void game_render_set_disable_mipmaps(GameRenderer *renderer, bool disabled) {
+    if (renderer) scene_render_gpu_set_disable_mipmaps(renderer->gpu, disabled);
 }
 
 void game_render_set_anisotropy_level(GameRenderer *renderer, int level) {
@@ -443,6 +614,10 @@ void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
 
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_wireframe(renderer->gpu, enabled);
+}
+
+void game_render_set_cull_mode(GameRenderer *renderer, int mode) {
+    if (renderer) scene_render_gpu_set_cull_mode(renderer->gpu, mode);
 }
 
 void game_render_set_brightness(GameRenderer *renderer, float brightness) {

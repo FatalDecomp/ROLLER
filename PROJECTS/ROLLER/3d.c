@@ -114,8 +114,8 @@ int calibrate_mode = 0;     //000A319C
 int graphic_mode = 0;       //000A31A0
 int sound_edit = 0;         //000A31A8
 int showversion = 0;        //000A31AC
-int game_svga = 1;          //000A31B0 ROLLER modification - SVGA mode by default
-int game_size = 64;         //000A31B4
+int game_svga = -1;         //000A31B0 ROLLER modification - SVGA mode by default. Must be -1 (linear SVGA), not 1 (legacy mode-X / VGA-looking copyscreenmodex path)
+int game_size = 128;        //000A31B4 ROLLER modification - full SVGA view size by default (64 is the VGA full size). Must match the SVGA-on default above so a freshly-saved default config renders the race at SVGA scale (scr_size = game_size)
 int game_view[2] = { 0, 0 }; //000A31B8
 int svga_possible = -1;     //000A31C0
 int autoswitch = -1;        //000A31C4
@@ -1661,7 +1661,7 @@ void race_update(void)
     // backs up iTicksPending, catching up burns main-thread time and starves
     // the next render, which backs up more ticks, and so on.
     int iDrained = 0;
-    while (iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
+    while (!g_bShiftFrozen && iDrained < 4 && (iPendingTicks = SDL_GetAtomicInt(&iTicksPending)) != 0) {
       // Claim one pending tick with CAS. The timer thread can enqueue between
       // this read and update, so a plain read/add pair can race, especially
       // when replay rewind changes the pending count's sign.
@@ -1674,7 +1674,7 @@ void race_update(void)
   } else {
     SDL_SetAtomicInt(&iTicksPending, 0);
   }
-  if (replaytype == 2 && !frontend_on && ticks != currentreplayframe)
+  if (!g_bShiftFrozen && replaytype == 2 && !frontend_on && ticks != currentreplayframe)
     game_tick_step();
   if (!replayspeed && intro && !game_req)       // Exit replay if intro mode and no game requested
     racing = replayspeed;
@@ -3326,6 +3326,8 @@ void play_game_init()
       if (pMR && menu_render_get_pending_mode(pMR) == MENU_RENDER_GPU)
           game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
   }
+  if (intro)
+      game_render_set_force_gpu_load(g_pGameRenderer, true);
   game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
   game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
   game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
@@ -3530,6 +3532,7 @@ void game_keys()
                   } else {
                     fatgetch();
                     uiKeyCode = -1;
+                    racing = 0;
                   }
                 }
                 if (trying_to_exit)           // Handle exit confirmation (Y/N prompt)

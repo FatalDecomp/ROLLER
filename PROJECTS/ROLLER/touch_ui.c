@@ -9,6 +9,7 @@
 #include "moving.h"
 #include "roller.h"
 #include "rollerinput.h"
+#include "replay.h"
 #include "snapshot.h"
 
 #define TOUCH_UI_MOUSE_DEBUG (-1001)
@@ -45,6 +46,26 @@ static int touch_ui_race_buttons_visible(void)
     return 0;
 
   return -1;
+#else
+  return 0;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int touch_ui_esc_button_visible(void)
+{
+#if defined(IS_ANDROID)
+  if (g_bSnapshotMode)
+    return 0;
+  if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
+    return 0;
+  if (frontend_on || game_req || intro || winner_mode)
+    return 0;
+  if (replaytype == 2)
+    return racing != 0;
+
+  return touch_ui_race_buttons_visible();
 #else
   return 0;
 #endif
@@ -114,6 +135,7 @@ static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
   int iRightX = iVirtualWidth - TOUCH_UI_MARGIN - TOUCH_UI_BUTTON_W;
   int iRaceButtonY = TOUCH_UI_MARGIN + TOUCH_UI_BUTTON_H + TOUCH_UI_GAP;
   int iInRace = touch_ui_race_buttons_visible();
+  int iEscVisible = touch_ui_esc_button_visible();
   int iCheatVisible = iInRace && (cheat_mode & CHEAT_MODE_CHEAT_CAR) != 0;
 
   if (iVirtualWidth <= 0)
@@ -129,7 +151,7 @@ static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H, true);
   touch_ui_add_button(TOUCH_UI_MOUSE_ESC, TOUCH_UI_MARGIN, iRaceButtonY,
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H,
-                      iInRace ? true : false);
+                      iEscVisible ? true : false);
   touch_ui_add_button(TOUCH_UI_MOUSE_CHEAT, iRightX, iTop,
                       TOUCH_UI_BUTTON_W, TOUCH_UI_BUTTON_H,
                       iCheatVisible ? true : false);
@@ -173,7 +195,14 @@ void touch_ui_handle_buttons(void)
   if (iClicked == TOUCH_UI_MOUSE_DEBUG) {
     debug_overlay_toggle(ROLLERGetDebugOverlay());
   } else if (iClicked == TOUCH_UI_MOUSE_ESC) {
-    pause_request = 1;
+    if (replaytype == 2 && filingmenu) {
+      filingmenu = 0;
+      lastfile = 0;
+      disciconpressed = 0;
+      rotpoint = currentreplayframe;
+    } else {
+      pause_request = -1;
+    }
   }
 }
 

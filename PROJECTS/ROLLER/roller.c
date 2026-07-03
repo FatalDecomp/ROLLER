@@ -1,8 +1,10 @@
 #include "roller.h"
+#include "scene_render_gpu.h"
 #include "crt_filter.h"
 #include "rollersound.h"
 #include "rollerinput.h"
 #include "3d.h"
+#include "car.h"
 #include "sound.h"
 #include "frontend.h"
 #include "func2.h"
@@ -13,13 +15,19 @@
 #include "snapshot.h"
 #include "rollercd.h"
 #include "view.h"
+#include "platform_log.h"
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 #if !defined(IS_ANDROID)
 #include <SDL3_image/SDL_image.h>
+#endif
+#if defined(IS_ANDROID)
+#include <jni.h>
+#include <SDL3/SDL_system.h>
 #endif
 #if !defined(IS_ANDROID)
 #include <wildmidi_lib.h>
@@ -64,6 +72,8 @@
 #endif
 //-------------------------------------------------------------------------------------------------
 
+#define ROLLER_DIALOG_MAX_FILES 32
+
 typedef struct
 {
   uint32 uiHandle;
@@ -75,6 +85,8 @@ typedef struct
 typedef struct
 {
   char szPath[ROLLER_MAX_PATH];
+  char aszPaths[ROLLER_DIALOG_MAX_FILES][ROLLER_MAX_PATH];
+  int iNumPaths;
   bool bFolder;
   bool bDone;
   bool bCancelled;
@@ -87,6 +99,12 @@ static SDL_GPUDevice *s_pGPUDevice = NULL;
 static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 static int s_iGPUPresentSkipFrames = 0;
+/* Hard-disables GPU swapchain presentation while set. Used on Android during the
+ * InitFATDATA import flow, where showing native dialogs (message box + SAF file
+ * picker) destroys/recreates the Activity surface; driving the SDL Vulkan renderer
+ * against the in-flux surface corrupts the Adreno driver (libvulkan crash /
+ * destroyed-mutex abort on the HWUI RenderThread). */
+static bool s_bGpuPresentDisabled = false;
 bool g_bPaletteSet = false;
 bool g_bForceMaxDraw = true;
 bool g_bNoCollisionLimit = true;
@@ -95,9 +113,11 @@ bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage d
 bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
+bool g_bShowCarOnExplosion = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
 bool  g_bTrilinear       = false;
+bool  g_bDisableMipmaps  = false;
 float g_fLodBias         = 0.0f;
 float g_fRenderScale     = 1.0f;
 int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */
@@ -113,7 +133,16 @@ float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
 bool  g_bWireframe       = false;
+int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
+bool  g_bSignsOnTop      = false;
+bool  g_bSurfaceDebugViz = false;
+bool  g_bSurfaceLog      = false;
+int   g_iSurfaceLogId    = -2;
+bool  g_pendingClickQuery = false;
+float g_clickQueryNX      = 0.0f;
+float g_clickQueryNY      = 0.0f;
+bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -145,6 +174,13 @@ CRTFilter    *ROLLERGetCRTFilter(void)    { return s_pCRTFilter; }
 /* Deferred SHIFT key press — held until we know whether TAB follows (SHIFT+TAB
  * toggles split screen) or SHIFT is released alone (fires normally). */
 static SDL_Event s_pendingShiftDown;
+/* Timestamp (ms) when the current SHIFT press began; 0 = not held. */
+static uint64 s_shiftPressedMs = 0;
+/* Next frame deadline (ms) for the background FPS cap; 0 = not active. */
+static uint64 s_nextPauseFrameMs = 0;
+bool g_bShiftFrozen = false;
+bool g_bShiftFreezeEnabled = false;
+int  g_iFpsBackground = 0; /* 0=off, else target fps (15/30/60) */
 
 static void UpdateMouseCursorVisibility(void)
 {
@@ -178,6 +214,9 @@ static void DeferGPUPresentation(int iFrames)
 
 bool ROLLERGpuPresentationSuspended(void)
 {
+  if (s_bGpuPresentDisabled)
+    return true;
+
   if (!s_pWindow)
     return true;
 
@@ -530,6 +569,13 @@ void ToggleFullscreen()
   SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow);
   bool bFullscreen = (uiFlags & SDL_WINDOW_FULLSCREEN) != 0;
 
+  /* Save windowed size before entering fullscreen so we can restore it. */
+  static int s_iWndW = 0, s_iWndH = 0;
+  if (!bFullscreen) {
+    SDL_GetWindowSize(s_pWindow, &s_iWndW, &s_iWndH);
+    if (s_iWndW < 320 || s_iWndH < 200) { s_iWndW = 640; s_iWndH = 400; }
+  }
+
   DeferGPUPresentation(3);
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
@@ -538,6 +584,13 @@ void ToggleFullscreen()
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
   } else {
     SDL_SyncWindow(s_pWindow);
+    if (bFullscreen) {
+      /* SDL doesn't always shrink the window on Windows; restore explicitly. */
+      int rW = (s_iWndW >= 320) ? s_iWndW : 640;
+      int rH = (s_iWndH >= 200) ? s_iWndH : 400;
+      SDL_SetWindowSize(s_pWindow, rW, rH);
+      SDL_SyncWindow(s_pWindow);
+    }
   }
 
   if (s_pGPUDevice)
@@ -568,6 +621,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't initialize SDL: %s", SDL_GetError());
     return 1;
   }
+  ROLLERInstallPlatformLogSink();
 
   if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
@@ -610,6 +664,11 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 #endif
 
   SDL_WindowFlags uiWindowFlags = SDL_WINDOW_RESIZABLE;
+#if defined(_WIN32)
+  /* Hide until InputLoadConfig shows it at the correct size; prevents the
+   * white-border flash that occurs when the window is resized on startup. */
+  uiWindowFlags |= SDL_WINDOW_HIDDEN;
+#endif
   s_pWindow = SDL_CreateWindow("ROLLER", 640, 400, uiWindowFlags);
   if (!s_pWindow) {
     ErrorBoxExit("Couldn't create window: %s", SDL_GetError());
@@ -623,6 +682,12 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU device: %s", SDL_GetError());
     return 1;
   }
+  SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(s_pGPUDevice));
+  SDL_Log("D32_FLOAT depth supported: %d",
+    SDL_GPUTextureSupportsFormat(s_pGPUDevice,
+      SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+      SDL_GPU_TEXTURETYPE_2D,
+      SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET));
 
   if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
     ErrorBoxExit("Couldn't claim window for GPU device: %s", SDL_GetError());
@@ -632,10 +697,18 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   /* Apply vsync immediately after claiming — the present mode is a window-level
    * setting that covers all GPU rendering (menu, overlay, scene).  The game
    * renderer's deferred mechanism handles runtime changes but isn't called until
-   * a race begins, leaving menu frames uncapped otherwise. */
-  SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
-      SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-      g_bVsync ? SDL_GPU_PRESENTMODE_VSYNC : SDL_GPU_PRESENTMODE_IMMEDIATE);
+   * a race begins, leaving menu frames uncapped otherwise.
+   * Vsync-on: MAILBOX (no tearing, lower latency than VSYNC/FIFO) if supported, else VSYNC.
+   * Vsync-off: IMMEDIATE (uncapped, no sync). */
+  {
+    bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
+            SDL_GPU_PRESENTMODE_MAILBOX);
+    SDL_GPUPresentMode mode = g_bVsync
+        ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
+        : SDL_GPU_PRESENTMODE_IMMEDIATE;
+    SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+        SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
+  }
 
   s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
   s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
@@ -710,6 +783,12 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (!MIDI_Init(localMidiPath)) {
     SDL_Log("Failed to initialize WildMidi. Please check your configuration file '%s'.", localMidiPath);
   }
+  if (!MIDI_OS_Init()) {
+    SDL_Log("Failed to initialize OS MIDI (rtmidi).");
+  }
+  if (!MIDI_OPL_Init()) {
+    SDL_Log("Failed to initialize OPL3 MIDI (libADLMIDI).");
+  }
 
   return 0;
 }
@@ -719,16 +798,354 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 void SDLCALL FileCallback(void *pUserData, const char *const *filelist, int iFilter)
 {
   tDialogResult *pResult = (tDialogResult *)pUserData;
+  int i;
+
+  (void)iFilter;
+  pResult->szPath[0] = '\0';
+  pResult->iNumPaths = 0;
 
   if (!filelist || !filelist[0]) {
     pResult->bCancelled = true;
   } else {
-    SDL_strlcpy(pResult->szPath, filelist[0], ROLLER_MAX_PATH);
+    for (i = 0; filelist[i]; i++) {
+#if defined(IS_ANDROID)
+      SDL_Log("CD image picker selected: %s", filelist[i]);
+#endif
+      if (pResult->iNumPaths >= ROLLER_DIALOG_MAX_FILES) {
+        SDL_Log("CD image picker selected more than %d files; ignoring '%s'",
+                ROLLER_DIALOG_MAX_FILES, filelist[i]);
+        continue;
+      }
+
+      SDL_strlcpy(pResult->aszPaths[pResult->iNumPaths], filelist[i],
+                  ROLLER_MAX_PATH);
+      if (pResult->iNumPaths == 0)
+        SDL_strlcpy(pResult->szPath, filelist[i], ROLLER_MAX_PATH);
+      pResult->iNumPaths++;
+    }
+
+    if (pResult->iNumPaths == 0)
+      pResult->bCancelled = true;
   }
   pResult->bDone = true;
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_ANDROID)
+static void AndroidShowFatdataInstructions(void)
+{
+  const char *szExternal = SDL_GetAndroidExternalStoragePath();
+  const char *szShown = szExternal ? szExternal : "<external storage unavailable>";
+  char szMessage[1024];
+
+  snprintf(szMessage, sizeof(szMessage),
+           "ROLLER needs the FATDATA assets from a retail copy of the game.\n\n"
+           "Copy your game data so the folders end up here:\n\n"
+           "%s/FATDATA\n"
+           "%s/TRACKS    (community tracks)\n"
+           "%s/REPLAYS   (saved replays)\n\n"
+           "For CD music, also copy your extracted track WAVs to:\n"
+           "%s/audio\n\n"
+           "Then relaunch ROLLER.",
+           szShown, szShown, szShown, szShown);
+
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+                           "FATDATA not found", szMessage, s_pWindow);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void AndroidShowExtractionFailed(void)
+{
+  SDL_ShowSimpleMessageBox(
+      SDL_MESSAGEBOX_ERROR, "Extraction failed",
+      "No game data could be extracted from the files you selected.\n\n"
+      "For a CUE/BIN image you must select the .CUE file AND all of its "
+      ".BIN/audio files together - selecting only the .CUE or only the .BIN "
+      "will not work, because the other files cannot be read on their own.\n\n"
+      "Please try again and select the .CUE and every file it references.",
+      s_pWindow);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidPromptForCdImage(void)
+{
+  SDL_MessageBoxButtonData buttons[] = {
+    { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Select Image" },
+    { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "Cancel" },
+  };
+
+  SDL_MessageBoxData msgbox = {
+      SDL_MESSAGEBOX_INFORMATION,
+      s_pWindow,
+      "FATDATA not found",
+      "Select your retail game CD image to extract the game data and music.\n\n"
+      "- CUE/BIN image: select the .CUE file AND all of its .BIN/audio files "
+      "together (tap each one in the picker).\n"
+      "- Single ISO: select the .ISO file.\n\n"
+      "Extraction may take a minute.",
+      SDL_arraysize(buttons),
+      buttons,
+      NULL
+  };
+
+  int iButtonID = 1;
+  if (!SDL_ShowMessageBox(&msgbox, &iButtonID)) {
+    SDL_Log("Android CD image prompt failed: %s", SDL_GetError());
+    return false;
+  }
+
+  return iButtonID == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidCreateCdImageStagingDir(const char *szDataRoot,
+                                           char *szOutDir,
+                                           size_t nOutDirSize)
+{
+  char szImportDir[ROLLER_MAX_PATH];
+  time_t tNow = time(NULL);
+  Uint64 uiTicks = SDL_GetTicks();
+
+  SDL_snprintf(szImportDir, sizeof(szImportDir), "%s/import", szDataRoot);
+  if (!SDL_CreateDirectory(szImportDir) && !ROLLERdirexists(szImportDir)) {
+    SDL_Log("Android CD image import: failed to create '%s': %s",
+            szImportDir, SDL_GetError());
+    return false;
+  }
+
+  for (int i = 0; i < 100; i++) {
+    int nWritten = SDL_snprintf(szOutDir, nOutDirSize,
+                                "%s/cdimage-%lld-%llu-%02d",
+                                szImportDir, (long long)tNow,
+                                (unsigned long long)uiTicks, i);
+    if (nWritten < 0 || (size_t)nWritten >= nOutDirSize) {
+      SDL_Log("Android CD image import: staging path is too long");
+      return false;
+    }
+
+    if (SDL_CreateDirectory(szOutDir))
+      return true;
+  }
+
+  SDL_Log("Android CD image import: could not create a unique staging directory under '%s'",
+          szImportDir);
+  return false;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidStageContentUri(const char *szUri, const char *szDestDir,
+                                   char *szOutPath, size_t nOutPathSize)
+{
+  JNIEnv *pEnv;
+  jobject activity = NULL;
+  jclass activityClass = NULL;
+  jmethodID stageContentUri = NULL;
+  jstring jUri = NULL;
+  jstring jDestDir = NULL;
+  jstring jStagedPath = NULL;
+  const char *szStagedPath = NULL;
+  bool bOk = false;
+
+  szOutPath[0] = '\0';
+
+  pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
+  if (!pEnv)
+    return false;
+
+  activity = (jobject)SDL_GetAndroidActivity();
+  if (!activity)
+    return false;
+
+  activityClass = (*pEnv)->GetObjectClass(pEnv, activity);
+  if (!activityClass)
+    goto cleanup;
+
+  stageContentUri = (*pEnv)->GetMethodID(
+      pEnv, activityClass, "stageContentUri",
+      "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+  if (!stageContentUri)
+    goto cleanup;
+
+  jUri = (*pEnv)->NewStringUTF(pEnv, szUri);
+  jDestDir = (*pEnv)->NewStringUTF(pEnv, szDestDir);
+  if (!jUri || !jDestDir)
+    goto cleanup;
+
+  jStagedPath = (jstring)(*pEnv)->CallObjectMethod(
+      pEnv, activity, stageContentUri, jUri, jDestDir);
+  if ((*pEnv)->ExceptionCheck(pEnv)) {
+    (*pEnv)->ExceptionDescribe(pEnv);
+    (*pEnv)->ExceptionClear(pEnv);
+    goto cleanup;
+  }
+
+  if (!jStagedPath)
+    goto cleanup;
+
+  szStagedPath = (*pEnv)->GetStringUTFChars(pEnv, jStagedPath, NULL);
+  if (!szStagedPath)
+    goto cleanup;
+
+  if (SDL_strlcpy(szOutPath, szStagedPath, nOutPathSize) >= nOutPathSize) {
+    SDL_Log("Android CD image import: staged path is too long: '%s'",
+            szStagedPath);
+    szOutPath[0] = '\0';
+    goto cleanup;
+  }
+
+  bOk = szOutPath[0] != '\0';
+
+cleanup:
+  if (jStagedPath && szStagedPath)
+    (*pEnv)->ReleaseStringUTFChars(pEnv, jStagedPath, szStagedPath);
+  if (jStagedPath)
+    (*pEnv)->DeleteLocalRef(pEnv, jStagedPath);
+  if (jDestDir)
+    (*pEnv)->DeleteLocalRef(pEnv, jDestDir);
+  if (jUri)
+    (*pEnv)->DeleteLocalRef(pEnv, jUri);
+  if (activityClass)
+    (*pEnv)->DeleteLocalRef(pEnv, activityClass);
+  (*pEnv)->DeleteLocalRef(pEnv, activity);
+  return bOk;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidPathEndsWithIgnoreCase(const char *szPath, const char *szExt)
+{
+  size_t nPath = strlen(szPath);
+  size_t nExt = strlen(szExt);
+
+  if (nPath < nExt)
+    return false;
+
+  return SDL_strcasecmp(szPath + nPath - nExt, szExt) == 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static const char *AndroidPathFilename(const char *szPath)
+{
+  const char *szSlash = strrchr(szPath, '/');
+  const char *szBackslash = strrchr(szPath, '\\');
+  const char *szName = szPath;
+
+  if (szSlash && szSlash + 1 > szName)
+    szName = szSlash + 1;
+  if (szBackslash && szBackslash + 1 > szName)
+    szName = szBackslash + 1;
+
+  return szName;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static int AndroidCdImagePriority(const char *szPath)
+{
+  // Only a .cue or .iso is a valid extraction entry. A bare .bin has no track or
+  // sector layout without its .cue, and handing a raw .bin to libcdio's
+  // DRIVER_UNKNOWN probe corrupts the heap and crashes. .bin files are still
+  // *staged* (as cue siblings) - they just can't be the entry on their own.
+  if (AndroidPathEndsWithIgnoreCase(szPath, ".cue"))
+    return 0;
+  if (AndroidPathEndsWithIgnoreCase(szPath, ".iso"))
+    return 1;
+
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidChooseCdImageEntry(char aszStagedPaths[][ROLLER_MAX_PATH],
+                                      int iNumPaths,
+                                      char *szOutEntry,
+                                      size_t nOutEntrySize)
+{
+  int iBest = -1;
+  int iBestPriority = 100;
+
+  for (int i = 0; i < iNumPaths; i++) {
+    int iPriority = AndroidCdImagePriority(aszStagedPaths[i]);
+    if (iPriority < 0)
+      continue;
+
+    if (iBest < 0 || iPriority < iBestPriority ||
+        (iPriority == iBestPriority &&
+         SDL_strcasecmp(AndroidPathFilename(aszStagedPaths[i]),
+                        AndroidPathFilename(aszStagedPaths[iBest])) < 0)) {
+      iBest = i;
+      iBestPriority = iPriority;
+    }
+  }
+
+  if (iBest < 0)
+    return false;
+
+  if (SDL_strlcpy(szOutEntry, aszStagedPaths[iBest], nOutEntrySize) >=
+      nOutEntrySize) {
+    SDL_Log("Android CD image import: selected entry path is too long: '%s'",
+            aszStagedPaths[iBest]);
+    szOutEntry[0] = '\0';
+    return false;
+  }
+
+  SDL_Log("Android CD image import: selected staged entry '%s'", szOutEntry);
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static bool AndroidStageCdImageSelection(const tDialogResult *pResult,
+                                         const char *szDataRoot,
+                                         char *szOutEntry,
+                                         size_t nOutEntrySize)
+{
+  char szStagingDir[ROLLER_MAX_PATH];
+  char aszStagedPaths[ROLLER_DIALOG_MAX_FILES][ROLLER_MAX_PATH];
+  int iNumStaged = 0;
+
+  szOutEntry[0] = '\0';
+
+  if (!pResult || pResult->iNumPaths <= 0)
+    return false;
+
+  if (!AndroidCreateCdImageStagingDir(szDataRoot, szStagingDir,
+                                      sizeof(szStagingDir)))
+    return false;
+
+  SDL_Log("Android CD image import: staging into '%s'", szStagingDir);
+
+  for (int i = 0; i < pResult->iNumPaths; i++) {
+    char szStagedPath[ROLLER_MAX_PATH];
+    if (!AndroidStageContentUri(pResult->aszPaths[i], szStagingDir,
+                                szStagedPath, sizeof(szStagedPath))) {
+      SDL_Log("Android CD image import: failed to stage '%s'",
+              pResult->aszPaths[i]);
+      return false;
+    }
+
+    SDL_Log("Android CD image import: staged '%s' -> '%s'",
+            pResult->aszPaths[i], szStagedPath);
+    SDL_strlcpy(aszStagedPaths[iNumStaged++], szStagedPath, ROLLER_MAX_PATH);
+  }
+
+  if (!AndroidChooseCdImageEntry(aszStagedPaths, iNumStaged, szOutEntry,
+                                 nOutEntrySize)) {
+    SDL_Log("Android CD image import: no .cue or .iso entry in selection (a .bin alone is not enough)");
+    return false;
+  }
+
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
 
 void InitFATDATA(const char *szDataRoot)
 {
@@ -738,23 +1155,58 @@ void InitFATDATA(const char *szDataRoot)
   // check if data folder exists (case-insensitive for linux)
   if (!ROLLERdirexists("./FATDATA") && !ROLLERdirexists("./fatdata")) {
 #if defined(IS_ANDROID)
-    const char *szExternal = SDL_GetAndroidExternalStoragePath();
-    const char *szShown = szExternal ? szExternal : "<external storage unavailable>";
-    char szMessage[1024];
+    bool bSelectedFiles = false;
+    bool bImported = false;
 
-    snprintf(szMessage, sizeof(szMessage),
-             "ROLLER needs the FATDATA assets from a retail copy of the game.\n\n"
-             "Copy your game data so the folders end up here:\n\n"
-             "%s/FATDATA\n"
-             "%s/TRACKS    (community tracks)\n"
-             "%s/REPLAYS   (saved replays)\n\n"
-             "For CD music, also copy your extracted track WAVs to:\n"
-             "%s/audio\n\n"
-             "Then relaunch ROLLER.",
-             szShown, szShown, szShown, szShown);
+    // Showing native dialogs (message box + SAF picker) below destroys and
+    // recreates the Activity surface. Driving the SDL Vulkan renderer against the
+    // in-flux surface crashes the Adreno driver, so suppress all GPU presentation
+    // for the whole import flow. ROLLERRefreshStartupOverlay() still pumps events
+    // (needed for the picker callback and SDL_EVENT_QUIT); it just won't present.
+    s_bGpuPresentDisabled = true;
 
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
-                             "FATDATA not found", szMessage, s_pWindow);
+    if (AndroidPromptForCdImage()) {
+      SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
+      tDialogResult result = { 0 };
+
+      SDL_ShowOpenFileDialog(FileCallback, &result, s_pWindow, filters, 1,
+                             szDataRoot, true);
+
+      while (!result.bDone) {
+        ROLLERRefreshStartupOverlay();
+        SDL_Delay(10);
+      }
+
+      if (!result.bCancelled && result.iNumPaths > 0) {
+        bSelectedFiles = true;
+        char szStagedEntry[ROLLER_MAX_PATH];
+        if (AndroidStageCdImageSelection(&result, szDataRoot, szStagedEntry,
+                                         sizeof(szStagedEntry))) {
+          ROLLERRefreshStartupOverlay();
+          ExtractFATDATA(szStagedEntry, szDataRoot);
+          SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
+          ROLLERRefreshStartupOverlay();
+          bImported = ROLLERdirexists("./FATDATA") || ROLLERdirexists("./fatdata");
+        }
+      }
+    }
+
+    if (!bImported) {
+      if (bSelectedFiles) {
+        // The user picked files but no FATDATA came out - almost always because
+        // they selected only the .CUE or only the .BIN (the sibling files were
+        // never granted/staged). Tell them exactly what to select.
+        SDL_Log("Android CD image import did not produce FATDATA; showing extraction-failed error");
+        AndroidShowExtractionFailed();
+      } else {
+        // Cancelled or nothing selected: fall back to the side-load instructions.
+        AndroidShowFatdataInstructions();
+      }
+    }
+
+    // Re-enable GPU presentation now that all native dialogs are dismissed.
+    s_bGpuPresentDisabled = false;
+    DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
 #else
     debug_overlay_set_visible(s_pDebugOverlay, true);
     PresentDebugOverlayOnly();
@@ -906,6 +1358,8 @@ void ShutdownSDL()
   if (!g_bSnapshotMode) {
     DIGIClearAllStream();
     MIDI_Shutdown();
+    MIDI_OS_Shutdown();
+    MIDI_OPL_Shutdown();
 
     InputShutdown();
 
@@ -930,6 +1384,7 @@ void ShutdownSDL()
     g_pTimerMutex = NULL;
   }
 
+  ROLLERRestorePlatformLogSink();
   SDL_Quit();
 }
 
@@ -1091,6 +1546,17 @@ void UpdateSDL()
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
       switch (e.type) {
         case SDL_EVENT_WINDOW_RESIZED:
+          if (g_bKeepWindowSize &&
+              !(SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_FULLSCREEN)) {
+            int iW = 0, iH = 0;
+            if (SDL_GetWindowSize(s_pWindow, &iW, &iH) && iW >= 320 && iH >= 200) {
+              extern int g_iSavedWindowWidth, g_iSavedWindowHeight;
+              g_iSavedWindowWidth  = iW;
+              g_iSavedWindowHeight = iH;
+              InputSaveConfig();
+            }
+          }
+          /* fall through */
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_MINIMIZED:
         case SDL_EVENT_WINDOW_RESTORED:
@@ -1123,28 +1589,58 @@ void UpdateSDL()
             InputSaveConfig();
           }
           game_render_set_split_screen(g_pGameRenderer, newSplit);
+          if (g_bSurfaceLog) {
+              SDL_Log("car pos: (%.1f, %.1f, %.1f)",
+                      (double)Car[0].pos.fX, (double)Car[0].pos.fY, (double)Car[0].pos.fZ);
+              texture_uv_map_dump(g_iSurfaceLogId, !newSplit);
+              texture_uv_map_reset();
+          }
         }
         continue;
       }
       /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
         s_pendingShiftDown = e;
+        if (s_shiftPressedMs == 0)
+          s_shiftPressedMs = SDL_GetTicks();
         continue;
       }
     }
     if (e.type == SDL_EVENT_KEY_UP) {
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
+        s_shiftPressedMs = 0;
         if (s_pendingShiftDown.type) {
+          if (g_bShiftFreezeEnabled) {
+            /* Freeze enabled: discard DOWN+UP so SHIFT never reaches the DOS
+             * key buffer while the freeze checkbox is on. */
+            s_pendingShiftDown.type = 0;
+            continue;
+          }
           /* SHIFT released without TAB — write the deferred DOWN into the DOS
            * key buffer directly, then let the UP fall through to do the same. */
           SDL_Scancode sc = s_pendingShiftDown.key.scancode;
-          if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
+          if ((size_t)sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc])
             key_handler(sdl_to_set1[sc]);
           s_pendingShiftDown.type = 0;
-          /* no continue — SHIFT UP falls through to key_handler at 1161+ */
+          /* no continue — SHIFT UP falls through to key_handler */
         } else {
           /* SHIFT was consumed by SHIFT+TAB — suppress the UP too. */
           continue;
+        }
+      }
+    }
+
+    /* Right-click surface pick: record normalised game-viewport coords before
+     * the overlay consumes the event. Works whether the overlay is open or not. */
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+      int wpx = 0, wpy = 0;
+      if (SDL_GetWindowSizeInPixels(s_pWindow, &wpx, &wpy) && wpx > 0 && wpy > 0) {
+        SDL_GPUViewport vp;
+        ROLLERGetPresentViewport((Uint32)wpx, (Uint32)wpy, ROLLER_PRESENT_ASPECT, &vp);
+        if (vp.w > 0.0f && vp.h > 0.0f) {
+          g_clickQueryNX      = (e.button.x - vp.x) / vp.w;
+          g_clickQueryNY      = (e.button.y - vp.y) / vp.h;
+          g_pendingClickQuery = true;
         }
       }
     }
@@ -1211,7 +1707,7 @@ void UpdateSDL()
       }
 
       // Translate SDL scancode to set1 scancode
-      if (sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc]) {
+      if ((size_t)sc < SDL_arraysize(sdl_to_set1) && sdl_to_set1[sc]) {
         uint8 byRawCode = sdl_to_set1[sc];
         if (e.type == SDL_EVENT_KEY_UP) {
           byRawCode |= 0x80;  // Set high bit for release
@@ -1242,12 +1738,23 @@ void UpdateSDL()
   {
     static uint64 s_targetFrameNs = 0;
     static uint64 s_nextFrameNs   = 0;
-    static bool   s_vsyncWas      = false;
+    static bool   s_vsyncWas      = true; /* init=true (vsync default) so first
+                                             frame re-applies when config=off */
 
     if (g_bVsync != s_vsyncWas) {
       s_vsyncWas      = g_bVsync;
       s_targetFrameNs = 0;
       s_nextFrameNs   = 0;
+      if (s_pGPUDevice && s_pWindow) {
+        bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
+                SDL_GPU_PRESENTMODE_MAILBOX);
+        SDL_GPUPresentMode mode = g_bVsync
+            ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
+            : SDL_GPU_PRESENTMODE_IMMEDIATE;
+        if (!SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+                SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode))
+          SDL_Log("roller: SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
+      }
     }
 
     if (g_bVsync && g_pGameRenderer &&
@@ -1269,6 +1776,31 @@ void UpdateSDL()
       else
         s_nextFrameNs += s_targetFrameNs;
     }
+  }
+
+  /* Shift freeze: block all tick steps so the engine image holds still. */
+  g_bShiftFrozen = g_bShiftFreezeEnabled && s_shiftPressedMs != 0;
+  if (g_bShiftFrozen)
+    SDL_SetAtomicInt(&iTicksPending, 0);
+
+  /* Background FPS cap: active when paused, shift-frozen, or the window is
+   * minimized, and the user has selected a limit other than Off. */
+  bool bWindowMinimized = s_pWindow &&
+      (SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_MINIMIZED) != 0;
+  bool bDebugOverlayVisible = debug_overlay_visible(s_pDebugOverlay);
+  bool bApplyBgCap = g_iFpsBackground > 0 &&
+      (eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+       g_bShiftFrozen || bWindowMinimized || bDebugOverlayVisible);
+  if (bApplyBgCap) {
+    uint64 frameMs = 1000u / (uint64)g_iFpsBackground;
+    uint64 now = SDL_GetTicks();
+    if (s_nextPauseFrameMs == 0)
+      s_nextPauseFrameMs = now;
+    if (now < s_nextPauseFrameMs)
+      SDL_Delay((uint32)(s_nextPauseFrameMs - now));
+    s_nextPauseFrameMs = SDL_GetTicks() + frameMs;
+  } else {
+    s_nextPauseFrameMs = 0;
   }
 }
 
@@ -2131,7 +2663,7 @@ void UpdateAudioTracks(void)
           if (mciSendCommand(g_wDeviceID, MCI_STATUS, MCI_STATUS_ITEM,
                              (DWORD_PTR)&mciStatusParms) == 0) {
                // If we've moved past our track, it finished
-            if (mciStatusParms.dwReturn != g_iCurrentTrack) {
+            if ((int)mciStatusParms.dwReturn != g_iCurrentTrack) {
               bTrackFinished = true;
             }
           }

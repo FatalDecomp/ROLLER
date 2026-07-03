@@ -90,6 +90,8 @@ int SpeechVolume = 127;     //000A478C
 int MusicVolume = 108;      //000A4790
 int MusicCard = 0;          //000A4794
 int MusicCD = 0;            //000A4798
+int MusicOS = 0;
+int MusicOPL = 0;
 int MusicPort = 0;          //000A479C
 uint8 *SongPtr = NULL;      //000A47A0
 int CDSong[20] = { 10, 10, 10, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0 }; //000A47A8
@@ -502,6 +504,8 @@ static void network_orphan_tick(void)
 
 void tick_clock_step(void)
 {
+  if (g_bShiftFrozen) return;
+
   int iTickAdvance = 1;
 
   if (network_on && syncleft) {
@@ -1545,6 +1549,12 @@ void stop()
       //sosMIDIResetSong(SongHandle);
     }
   }
+  if (MusicOS) {
+    MIDI_OS_StopSong();
+  }
+  if (MusicOPL) {
+    MIDI_OPL_StopSong();
+  }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2289,16 +2299,8 @@ void loadfrontendsample(char *fileName)
   loadfile(szFilenameBuf, (void**)&frontendspeechptr, &frontendlen, 1);
 
   if (cheatsample && frontendspeechptr) {
-    uint8 *pData = frontendspeechptr;
-    int iLen = frontendlen;
-    uint32 uiSeed = 0x1C73;
-    uint32 uiStep = 0x896;
-    int i;
-
-    for (i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    // Cheat samples are XOR-encrypted with a Fibonacci-style key sequence.
+    decode(frontendspeechptr, frontendlen, 0x1C73, 0x896);
   }
 
   // if using 50Hz timer
@@ -3113,10 +3115,18 @@ void startmusic(int iSong)
     stop();
     // sosMIDIUnInitSong(SongHandle);
     SongPtr = 0;
+  } else if (MusicOS) {
+    MIDI_OS_StopSong();
+  } else if (MusicOPL) {
+    MIDI_OPL_StopSong();
   }
 
-  if (musicon)
+  if (MusicCard && musicon)
     MIDISetMasterVolume(MusicVolume);
+  if (MusicOS && musicon)
+    MIDI_OS_SetMasterVolume(MusicVolume);
+  if (MusicOPL && musicon)
+    MIDI_OPL_SetMasterVolume(MusicVolume);
 
   if (MusicCD)
     SetAudioVolume(MusicVolume);
@@ -3149,7 +3159,40 @@ void startmusic(int iSong)
     return;
   }
 
-  if (musicon) {
+  if (MusicOS && musicon) {
+    uint32_t musiclength;
+    const char *szMidiFile = (const char *)&Song[GMSong[iMusic]];
+    SDL_Log("midi_player: startmusic song=%d file=%s", iSong, szMidiFile);
+    loadfile(szMidiFile, (void *)&musicbuffer, &musiclength, 0);
+    SDL_Log("midi_player: loadfile returned buf=%p len=%u", (void *)musicbuffer, musiclength);
+    if (musicbuffer) {
+      tInitSong InitSong = {
+        .pData = (void *)musicbuffer,
+        .iLength = musiclength,
+      };
+      MIDI_OS_InitSong(&InitSong);
+      fre((void **)&musicbuffer);
+      MIDI_OS_StartSong();
+    }
+    return;
+  }
+
+  if (MusicOPL && musicon) {
+    uint32_t musiclength;
+    loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
+    if (musicbuffer) {
+      tInitSong InitSong = {
+        .pData = (void *)musicbuffer,
+        .iLength = musiclength,
+      };
+      MIDI_OPL_InitSong(&InitSong);
+      fre((void **)&musicbuffer);
+      MIDI_OPL_StartSong();
+    }
+    return;
+  }
+
+  if (MusicCard && musicon) {
     uint32_t musiclength;
     loadfile((const char *)&Song[GMSong[iMusic]], (void *)&musicbuffer, &musiclength, 0);
     SongPtr = musicbuffer;
@@ -3184,6 +3227,10 @@ void stopmusic()
     }
     //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
     SongPtr = 0;
+  } else if (MusicOS) {
+    MIDI_OS_StopSong();
+  } else if (MusicOPL) {
+    MIDI_OPL_StopSong();
   }
 }
 
@@ -3421,29 +3468,13 @@ void loadasample(int iIndex)
 
   // check if cheat sample flag is set and process if needed
   if (cheatsample && SamplePtr[iIndex]) {
-    uint8 *pData = SamplePtr[iIndex];
-    int iLen = SampleLen[iIndex];
-    uint32 uiSeed = 0x1C73;
-    uint32 uiStep = 0x896;
-    int i;
-
-    for (i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    // Cheat samples are XOR-encrypted with a Fibonacci-style key sequence.
+    decode(SamplePtr[iIndex], SampleLen[iIndex], 0x1C73, 0x896);
   }
 
   // if the index is between 79 and 82 apply a second xor pass
   if (iIndex >= 79 && iIndex <= 82 && SamplePtr[iIndex]) {
-    uint8 *pData = SamplePtr[iIndex];
-    int iLen = SampleLen[iIndex];
-    uint32 uiSeed = 0x4D;
-    uint32 uiStep = 0x57;
-
-    for (int i = 0; i < iLen; ++i) {
-      uiSeed += uiStep;
-      pData[i] ^= (uint8)uiSeed;
-    }
+    decode(SamplePtr[iIndex], SampleLen[iIndex], 0x4D, 0x57);
   }
 
   // if using 50Hz timer

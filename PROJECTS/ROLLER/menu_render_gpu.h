@@ -20,7 +20,8 @@ void menu_render_gpu_destroy(MenuRendererGPU *renderer);
 
 // Asset conversion
 int menu_render_gpu_load_blocks(MenuRendererGPU *renderer, int slot,
-                            tBlockHeader *blocks, const tColor *palette);
+                            tBlockHeader *blocks, const tColor *palette,
+                            uint32 blocksBytes);
 void menu_render_gpu_free_blocks(MenuRendererGPU *renderer, int slot);
 
 // Frame lifecycle

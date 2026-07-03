@@ -81,6 +81,14 @@ static volatile LONG s_lHandlingCrash = 0;
 #else
 static volatile sig_atomic_t s_iHandlingCrash = 0;
 static uint8 s_abyAltStack[CRASHDUMP_ALT_STACK_SIZE];
+#define CRASHDUMP_NUM_SIGNALS 5
+static const int s_aiCrashSignals[CRASHDUMP_NUM_SIGNALS] = {
+  SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS
+};
+/* Handlers that were installed before ours (debuggerd's on Android). We chain to
+ * them with the original siginfo/context so the platform still produces a full
+ * symbolized tombstone + native backtrace at the real crash site. */
+static struct sigaction s_aPrevActions[CRASHDUMP_NUM_SIGNALS];
 #ifdef IS_MACOS
 static char s_szDyldInfo[CRASHDUMP_DYLD_INFO_SIZE];
 static int s_iDyldInfoLen = 0;
@@ -604,7 +612,8 @@ static void WriteBacktrace(int iFd)
 {
 #if defined(IS_ANDROID)
   WriteLiteral(iFd, "\nBacktrace:\n");
-  WriteLiteral(iFd, "Backtrace symbols not available on Android\n");
+  WriteLiteral(iFd, "Backtrace symbols not available on Android; see the debuggerd\n");
+  WriteLiteral(iFd, "tombstone (adb logcat -b crash, tag DEBUG) or /data/tombstones\n");
 #else
   void *pFrames[64];
   int iFrameCount;
@@ -636,6 +645,34 @@ static void RestoreDefaultAndReraise(int iSig)
 
   kill(getpid(), iSig);
   _exit(128 + iSig);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void ChainToPreviousHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
+{
+  for (int i = 0; i < CRASHDUMP_NUM_SIGNALS; ++i) {
+    if (s_aiCrashSignals[i] != iSig)
+      continue;
+
+    struct sigaction *pPrev = &s_aPrevActions[i];
+
+    // Invoke the previously-installed handler with the ORIGINAL siginfo/context so
+    // it unwinds the real crash site. On Android this is debuggerd's handler, which
+    // writes a full symbolized tombstone + backtrace to logcat and then terminates
+    // the process. SIG_DFL/SIG_IGN have no function to call, so fall through.
+    if ((pPrev->sa_flags & SA_SIGINFO) && pPrev->sa_sigaction) {
+      pPrev->sa_sigaction(iSig, pSigInfo, pContext);
+      return;
+    }
+    if (pPrev->sa_handler != SIG_DFL && pPrev->sa_handler != SIG_IGN) {
+      pPrev->sa_handler(iSig);
+      return;
+    }
+    break;
+  }
+
+  RestoreDefaultAndReraise(iSig);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -678,7 +715,7 @@ static void CrashSignalHandler(int iSig, siginfo_t *pSigInfo, void *pContext)
     close(iFd);
   }
 
-  RestoreDefaultAndReraise(iSig);
+  ChainToPreviousHandler(iSig, pSigInfo, pContext);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -734,7 +771,6 @@ static void CaptureDyldInfo(void)
 
 static void InstallPosixCrashHandlers(void)
 {
-  const int iSignalAy[] = { SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS };
   stack_t stAltStack;
   struct sigaction stAction;
 
@@ -748,8 +784,8 @@ static void InstallPosixCrashHandlers(void)
   stAction.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&stAction.sa_mask);
 
-  for (int i = 0; i < (int)(sizeof(iSignalAy) / sizeof(iSignalAy[0])); ++i)
-    sigaction(iSignalAy[i], &stAction, NULL);
+  for (int i = 0; i < CRASHDUMP_NUM_SIGNALS; ++i)
+    sigaction(s_aiCrashSignals[i], &stAction, &s_aPrevActions[i]);
 }
 #endif
 

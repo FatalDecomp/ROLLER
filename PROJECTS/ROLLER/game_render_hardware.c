@@ -30,6 +30,7 @@ static inline int hw_d2i(double d) {
 
 #define GAME_RENDER_HW_NUM_CARS      16
 #define GAME_RENDER_HW_MAX_CAR_DRAWS 32  /* 16 cars × up to 2 draws each */
+#define GRHW_ANIM_FRAMES             4   /* wheel animation frames 0-3 */
 
 /* --------------------------------------------------------------------------
  * Vertex layout matching SceneGPUMeshVertex in menu_render_gpu.c (same
@@ -45,12 +46,13 @@ typedef struct {
  * Per-car mesh cache entry
  * -------------------------------------------------------------------------- */
 typedef struct {
-    SDL_GPUBuffer  *vertexBuf;
-    SDL_GPUBuffer  *indexBuf;
+    SDL_GPUBuffer  *vertexBufs[GRHW_ANIM_FRAMES]; /* one per wheel animation frame */
+    SDL_GPUBuffer  *indexBuf;                      /* shared across all frames */
     SDL_GPUTexture *atlas;
     int             indexCount;
     int             bodyIndexCount;
     bool            built;
+    bool            advancedCars; /* TEX_OFF_ADVANCED_CARS state when built */
 } GRHWCarMesh;
 
 struct GameRendererHardware {
@@ -182,6 +184,22 @@ static SDL_GPUTexture *build_car_atlas(SDL_GPUDevice *dev, int carIdx,
     return tex;
 }
 
+/* Resolve animated polygon texture for a given animation frame.
+ * Wheel-animation entries have animIdx 0-3 and advance with anim_frame.
+ * Body-variant entries (animIdx >= 4) use bodyVariant = carIdx & 1, matching
+ * SW's iAnimationOffset / 4 = carIdx & 1 scheme (car.c:1881). */
+static uint32 resolve_car_tex(uint32 rawTex, tAnimation *pAnms, int animFrame, int bodyVariant)
+{
+    if ((rawTex & CAR_FLAG_ANMS_LOOKUP) && pAnms) {
+        uint8 animIdx = (uint8)rawTex;
+        tAnimation *anim = &pAnms[animIdx];
+        int f = (animIdx < 4) ? animFrame : bodyVariant;
+        if (anim->uiCount > 0 && f >= (int)anim->uiCount) f = 0;
+        return anim->framesAy[f];
+    }
+    return rawTex;
+}
+
 /* Build vertex/index buffers for one car design. */
 static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
                             const tColor *pal, GRHWCarMesh *out)
@@ -220,13 +238,15 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
         return false;
     }
 
+    /* Build one vertex buffer per animation frame; share one index buffer (geometry is
+     * identical across frames — only UV coordinates change for animated wheel polys). */
+    for (int animFrame = 0; animFrame < GRHW_ANIM_FRAMES; animFrame++) {
     int vertCount = 0, idxCount = 0;
 
     for (int p = 0; p < numPols; p++) {
         uint32 tex = pols[p].uiTex;
         if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
-        if ((tex & CAR_FLAG_ANMS_LOOKUP) && pAnms)
-            tex = pAnms[(uint8)tex].framesAy[0];
+        tex = resolve_car_tex(tex, pAnms, animFrame, carIdx & 1);
 
         bool isTextured = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                           (uint8)tex < (uint8)numTiles;
@@ -245,7 +265,8 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
             cr = cg = cb = ca = 1.0f;
         } else {
             uint8 colorIdx = (uint8)tex;
-            if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+            if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
                 remap->uiColorFrom != 0xFFFFFFFF &&
                 colorIdx == (uint8)remap->uiColorFrom)
                 colorIdx = (uint8)remap->uiColorTo;
@@ -290,83 +311,103 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
         indices[idxCount++] = (uint32)(baseVert + 3);
     }
 
-    /* Back-face polygons: reversed winding + surface type from pBacks[].
-       Combined with CULLMODE_BACK on the car pipeline, each original polygon
-       is only visible from its front; its pBacks twin is only visible from
-       behind — so both sides show the correct texture with no Z-fighting. */
-    if (design->pBacks) {
-        for (int p = 0; p < numPols; p++) {
-            uint32 tex = design->pBacks[p];
-            if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+    /* Back-face polygons (reversed winding), following SW renderer logic (car.c:1647):
+       - FLIP_BACKFACE + BACK: front=uiTex, back=pBacks[p]  (explicit back texture)
+       - FLIP_BACKFACE only:   both sides use the same resolved texture (double-sided)
+       - BACK only or neither: front only — no reversed polygon needed (pBacks unused in SW) */
+    for (int p = 0; p < numPols; p++) {
+        uint32 rawFront = pols[p].uiTex;
+        if (rawFront & SURFACE_FLAG_SKIP_RENDER) continue;
+        if (!(rawFront & SURFACE_FLAG_FLIP_BACKFACE)) continue;
 
-            bool isTexturedBack = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
-                                  (uint8)tex < (uint8)numTiles;
-
-            float u0b, u1b, v0b, v1b, crb, cgb, cbb, cab;
-
-            if (isTexturedBack) {
-                uint8 tileIdx = (uint8)tex;
-                int col = tileIdx % 4, row = tileIdx / 4;
-                u0b = (col * 64.0f) / 256.0f;
-                u1b = ((col + 1) * 64.0f) / 256.0f;
-                v0b = (row * 64.0f) / fAtlasH;
-                v1b = ((row + 1) * 64.0f) / fAtlasH;
-                if (tex & SURFACE_FLAG_FLIP_HORIZ) { float t = u0b; u0b = u1b; u1b = t; }
-                if (tex & SURFACE_FLAG_FLIP_VERT)  { float t = v0b; v0b = v1b; v1b = t; }
-                crb = cgb = cbb = cab = 1.0f;
-            } else {
-                uint8 colorIdx = (uint8)tex;
-                if (!(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
-                    remap->uiColorFrom != 0xFFFFFFFF &&
-                    colorIdx == (uint8)remap->uiColorFrom)
-                    colorIdx = (uint8)remap->uiColorTo;
-                const tColor *c = &pal[colorIdx];
-                crb = (c->byR * 255.0f / 63.0f) / 255.0f;
-                cgb = (c->byG * 255.0f / 63.0f) / 255.0f;
-                cbb = (c->byB * 255.0f / 63.0f) / 255.0f;
-                cab = 1.0f;
-                u0b = u1b = whiteU;
-                v0b = v1b = whiteV;
-            }
-
-            int baseVert = vertCount;
-            float uvsBack[4][2] = {
-                { u1b, v0b }, { u0b, v0b }, { u0b, v1b }, { u1b, v1b }
-            };
-            for (int v = 0; v < 4; v++) {
-                uint8 vi = pols[p].verts[3 - v];  /* reversed vertex order */
-                if (vi >= (uint8)numCoords) vi = 0;
-                GRHWMeshVertex *mv = &vertices[vertCount++];
-                mv->position[0] = coords[vi].fX;
-                mv->position[1] = coords[vi].fY;
-                mv->position[2] = coords[vi].fZ;
-                mv->uv[0]       = uvsBack[v][0];
-                mv->uv[1]       = uvsBack[v][1];
-                mv->color[0]    = crb;
-                mv->color[1]    = cgb;
-                mv->color[2]    = cbb;
-                mv->color[3]    = cab;
-            }
-            indices[idxCount++] = (uint32)(baseVert + 0);
-            indices[idxCount++] = (uint32)(baseVert + 1);
-            indices[idxCount++] = (uint32)(baseVert + 2);
-            indices[idxCount++] = (uint32)(baseVert + 0);
-            indices[idxCount++] = (uint32)(baseVert + 2);
-            indices[idxCount++] = (uint32)(baseVert + 3);
+        uint32 tex;
+        if (rawFront & SURFACE_FLAG_BACK) {
+            if (!design->pBacks) continue;
+            tex = design->pBacks[p];
+        } else {
+            tex = resolve_car_tex(rawFront, pAnms, animFrame, carIdx & 1);
         }
+        if (tex & SURFACE_FLAG_SKIP_RENDER) continue;
+
+        bool isTexturedBack = hasAtlas && (tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                              (uint8)tex < (uint8)numTiles;
+
+        float u0b, u1b, v0b, v1b, crb, cgb, cbb, cab;
+
+        if (isTexturedBack) {
+            uint8 tileIdx = (uint8)tex;
+            int col = tileIdx % 4, row = tileIdx / 4;
+            u0b = (col * 64.0f) / 256.0f;
+            u1b = ((col + 1) * 64.0f) / 256.0f;
+            v0b = (row * 64.0f) / fAtlasH;
+            v1b = ((row + 1) * 64.0f) / fAtlasH;
+            if (tex & SURFACE_FLAG_FLIP_HORIZ) { float t = u0b; u0b = u1b; u1b = t; }
+            if (tex & SURFACE_FLAG_FLIP_VERT)  { float t = v0b; v0b = v1b; v1b = t; }
+            crb = cgb = cbb = cab = 1.0f;
+        } else {
+            uint8 colorIdx = (uint8)tex;
+            if ((textures_off & TEX_OFF_ADVANCED_CARS) != 0 &&
+                !(tex & SURFACE_FLAG_APPLY_TEXTURE) &&
+                remap->uiColorFrom != 0xFFFFFFFF &&
+                colorIdx == (uint8)remap->uiColorFrom)
+                colorIdx = (uint8)remap->uiColorTo;
+            const tColor *c = &pal[colorIdx];
+            crb = (c->byR * 255.0f / 63.0f) / 255.0f;
+            cgb = (c->byG * 255.0f / 63.0f) / 255.0f;
+            cbb = (c->byB * 255.0f / 63.0f) / 255.0f;
+            cab = 1.0f;
+            u0b = u1b = whiteU;
+            v0b = v1b = whiteV;
+        }
+
+        int baseVert = vertCount;
+        float uvsBack[4][2] = {
+            { u1b, v0b }, { u0b, v0b }, { u0b, v1b }, { u1b, v1b }
+        };
+        for (int v = 0; v < 4; v++) {
+            uint8 vi = pols[p].verts[3 - v];  /* reversed vertex order */
+            if (vi >= (uint8)numCoords) vi = 0;
+            GRHWMeshVertex *mv = &vertices[vertCount++];
+            mv->position[0] = coords[vi].fX;
+            mv->position[1] = coords[vi].fY;
+            mv->position[2] = coords[vi].fZ;
+            mv->uv[0]       = uvsBack[v][0];
+            mv->uv[1]       = uvsBack[v][1];
+            mv->color[0]    = crb;
+            mv->color[1]    = cgb;
+            mv->color[2]    = cbb;
+            mv->color[3]    = cab;
+        }
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 1);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 0);
+        indices[idxCount++] = (uint32)(baseVert + 2);
+        indices[idxCount++] = (uint32)(baseVert + 3);
     }
 
-    out->bodyIndexCount = idxCount;
+    if (animFrame == 0) out->bodyIndexCount = idxCount;
 
-    /* Shadow quad: hitbox bottom 4 corners in model space. */
+    /* Shadow quad: same X extents as the hitbox but narrower in Y to match
+     * the SW renderer, which uses carpoint corners narrowed by 50 units on
+     * each side (car.c:1149-1152, design index ≤ 7 only).
+     * Use hitbox values directly — CarBaseX/Y are design-0-only globals and
+     * may be 0 at first-draw time.  Hitbox is always valid (CalcCarSizes). */
     {
         const tVec3 *hb = CarBox.hitboxAy[designIdx];
+        /* hb[0]=(front,right), hb[1]=(rear,right), hb[2]=(rear,left), hb[3]=(front,left) */
+        float fYAdj = (designIdx <= 7) ? 50.0f : 0.0f;
+        float fYLS  = hb[0].fY + fYAdj;   /* right edge, pull inward (+) */
+        float fYHS  = hb[3].fY - fYAdj;   /* left edge, pull inward (−) */
+        float fShadowZ = hb[0].fZ;
+        float sx[4] = { hb[0].fX, hb[1].fX, hb[2].fX, hb[3].fX };
+        float sy[4] = { fYLS,     fYLS,      fYHS,     fYHS     };
         int shadowBase = vertCount;
         for (int k = 0; k < 4; k++) {
             GRHWMeshVertex *mv = &vertices[vertCount++];
-            mv->position[0] = hb[k].fX;
-            mv->position[1] = hb[k].fY;
-            mv->position[2] = hb[k].fZ;
+            mv->position[0] = sx[k];
+            mv->position[1] = sy[k];
+            mv->position[2] = fShadowZ;
             mv->uv[0] = whiteU; mv->uv[1] = whiteV;
             mv->color[0] = 0.0f; mv->color[1] = 0.0f;
             mv->color[2] = 0.0f; mv->color[3] = 0.5f;
@@ -379,18 +420,23 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
         indices[idxCount++] = (uint32)(shadowBase + 3);
     }
 
-    out->vertexBuf  = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_VERTEX,
+    out->vertexBufs[animFrame] = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_VERTEX,
                                             vertices,
                                             (Uint32)(vertCount * (int)sizeof(GRHWMeshVertex)));
-    out->indexBuf   = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_INDEX,
+    if (animFrame == 0) {
+        out->indexBuf   = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_INDEX,
                                             indices,
                                             (Uint32)(idxCount * (int)sizeof(uint32)));
-    out->indexCount = idxCount;
+        out->indexCount = idxCount;
+    }
+    } /* end animFrame loop */
     free(vertices);
     free(indices);
 
-    if (!out->vertexBuf || !out->indexBuf) {
-        if (out->vertexBuf) { SDL_ReleaseGPUBuffer(dev, out->vertexBuf); out->vertexBuf = NULL; }
+    if (!out->vertexBufs[0] || !out->indexBuf) {
+        for (int f = 0; f < GRHW_ANIM_FRAMES; f++) {
+            if (out->vertexBufs[f]) { SDL_ReleaseGPUBuffer(dev, out->vertexBufs[f]); out->vertexBufs[f] = NULL; }
+        }
         if (out->indexBuf)  { SDL_ReleaseGPUBuffer(dev, out->indexBuf);  out->indexBuf  = NULL; }
         if (out->atlas)     { SDL_ReleaseGPUTexture(dev, out->atlas);    out->atlas      = NULL; }
         return false;
@@ -414,18 +460,23 @@ static void mat4_mul(float out[16], const float A[16], const float B[16])
     }
 }
 
-/* Column-major model matrix: M = T * Rz(yaw). yaw in FATAL 14-bit units. */
+/* Column-major model matrix with yaw, pitch, roll — matches the SW vertex transform
+ * in car.c (worldX = carX*CY*CP + carY*(CY*SP*SR-SY*CR) + carZ*(-CY*SP*CR-SY*SR), etc.).
+ * All angles in FATAL 14-bit units (16384 = 360°). */
 static void car_model_matrix(float M[16], const GameRenderCarPose *pose)
 {
-    float yawRad = (float)pose->yaw * ((float)(2.0 * 3.14159265358979) / 16384.0f);
-    float cosY = cosf(yawRad), sinY = sinf(yawRad);
-    M[ 0]=cosY;  M[ 1]=sinY;  M[ 2]=0.0f; M[ 3]=0.0f;
-    M[ 4]=-sinY; M[ 5]=cosY;  M[ 6]=0.0f; M[ 7]=0.0f;
-    M[ 8]=0.0f;  M[ 9]=0.0f;  M[10]=1.0f; M[11]=0.0f;
-    M[12]=pose->position.fX;
-    M[13]=pose->position.fY;
-    M[14]=pose->position.fZ;
-    M[15]=1.0f;
+    static const float kToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
+    float CY = cosf((float)pose->yaw   * kToRad), SY = sinf((float)pose->yaw   * kToRad);
+    float CP = cosf((float)pose->pitch * kToRad), SP = sinf((float)pose->pitch * kToRad);
+    float CR = cosf((float)pose->roll  * kToRad), SR = sinf((float)pose->roll  * kToRad);
+
+    M[ 0] =  CY*CP;             M[ 1] =  SY*CP;             M[ 2] =  SP;      M[ 3] = 0.0f;
+    M[ 4] =  CY*SP*SR - SY*CR;  M[ 5] =  SY*SP*SR + CY*CR;  M[ 6] = -SR*CP;  M[ 7] = 0.0f;
+    M[ 8] = -CY*SP*CR - SY*SR;  M[ 9] = -SY*SP*CR + CY*SR;  M[10] =  CP*CR;  M[11] = 0.0f;
+    M[12] = pose->position.fX;
+    M[13] = pose->position.fY;
+    M[14] = pose->position.fZ;
+    M[15] = 1.0f;
 }
 
 /* Column-major chunk transform from localdata[chunk].pointAy. */
@@ -458,7 +509,8 @@ void game_render_hw_destroy(GameRendererHardware *r)
     for (int i = 0; i < GAME_RENDER_HW_NUM_CARS; i++) {
         GRHWCarMesh *m = &r->meshes[i];
         if (!m->built) continue;
-        if (m->vertexBuf) SDL_ReleaseGPUBuffer(r->device, m->vertexBuf);
+        for (int f = 0; f < GRHW_ANIM_FRAMES; f++)
+            if (m->vertexBufs[f]) SDL_ReleaseGPUBuffer(r->device, m->vertexBufs[f]);
         if (m->indexBuf)  SDL_ReleaseGPUBuffer(r->device, m->indexBuf);
         if (m->atlas)     SDL_ReleaseGPUTexture(r->device, m->atlas);
     }
@@ -475,35 +527,57 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
                               const GameRenderCarPose    *pose,
                               const GameRenderCarOptions *options)
 {
-    (void)options;
     if (!r || !scene || !pose) return;
     if (carIdx < 0 || carIdx >= GAME_RENDER_HW_NUM_CARS) return;
 
     GRHWCarMesh *mesh = &r->meshes[carIdx];
+    bool wantAdvanced = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
+    if (mesh->built && mesh->advancedCars != wantAdvanced) {
+        for (int f = 0; f < GRHW_ANIM_FRAMES; f++) {
+            if (mesh->vertexBufs[f]) { SDL_ReleaseGPUBuffer(r->device, mesh->vertexBufs[f]); mesh->vertexBufs[f] = NULL; }
+        }
+        if (mesh->indexBuf)  { SDL_ReleaseGPUBuffer(r->device, mesh->indexBuf);  mesh->indexBuf  = NULL; }
+        if (mesh->atlas)     { SDL_ReleaseGPUTexture(r->device, mesh->atlas);    mesh->atlas      = NULL; }
+        mesh->built = false;
+    }
     if (!mesh->built) {
         if (build_car_mesh(r->device, carIdx, palette, mesh))
             mesh->built = true;
         else
             return;
+        mesh->advancedCars = wantAdvanced;
     }
     if (mesh->indexCount <= 0) return;
 
+    int animFrame = (options && options->anim_frame >= 0 && options->anim_frame < GRHW_ANIM_FRAMES)
+                    ? options->anim_frame : 0;
+    SDL_GPUBuffer *vertBuf = mesh->vertexBufs[animFrame];
+
     float vp[16], M[16], mvp[16];
     scene_render_gpu_build_vp(scene, vp);
-    car_model_matrix(M, pose);
+
+    /* Apply the same visual offsets the SW renderer adds (car.c lines 1111-1113):
+     * yaw += iYawMotion; pitch += CameraOffset + Motion + DynamicOffset; same for roll. */
+    GameRenderCarPose adjPose = *pose;
+    adjPose.yaw   = (pose->yaw
+                     + (int)(int16)Car[carIdx].iYawMotion) & 0x3FFF;
+    adjPose.pitch = (pose->pitch
+                     + Car[carIdx].iPitchCameraOffset
+                     + Car[carIdx].iPitchMotion
+                     + Car[carIdx].iPitchDynamicOffset) & 0x3FFF;
+    adjPose.roll  = (pose->roll
+                     + Car[carIdx].iRollCameraOffset
+                     + Car[carIdx].iRollMotion
+                     + Car[carIdx].iRollDynamicOffset) & 0x3FFF;
+    car_model_matrix(M, &adjPose);
 
     int chunk = Car[carIdx].nCurrChunk;
     bool airborne = (chunk < 0 || chunk >= MAX_TRACK_CHUNKS);
 
-    /* Lift the model so its bottom vertex (fZLow) lands at the physics position
-     * (pos.fZ = road surface on flat road).  The airborne shadow already does this
-     * via Mshadow[14]=groundZ-fZLow; apply the same correction to the body. */
-    {
-        int designIdx = (int)Car[carIdx].byCarDesignIdx;
-        if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
-        float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
-        M[14] -= fZLow - 3.0f;  /* +3 clears coplanarity with road surface */
-    }
+    int designIdx = (int)Car[carIdx].byCarDesignIdx;
+    if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
+    float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
+    M[14] -= fZLow;  /* lift body so bottom vertex lands at physics pos */
 
     if (!airborne) {
         float Mc[16], Mcar_chunk[16];
@@ -511,35 +585,33 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
         mat4_mul(Mcar_chunk, Mc, M);
         mat4_mul(mvp, vp, Mcar_chunk);
         scene_render_gpu_queue_car_draw(scene,
-            mesh->vertexBuf, mesh->indexBuf, mesh->atlas,
-            0, mesh->indexCount, mvp);
+            vertBuf, mesh->indexBuf, mesh->atlas,
+            0, mesh->bodyIndexCount, mvp);
+
+        /* Shadow: use physical pose (no camera lean offsets) so shadow corners
+         * stay exactly on the road surface (chunk-local Z=0).  adjPose tilts the
+         * quad slightly off-road, letting it pass depth-test through barriers. */
+        float M_phys[16];
+        car_model_matrix(M_phys, pose);
+        M_phys[14] -= fZLow;
+        float Mcar_chunk_phys[16], shadowMvp[16];
+        mat4_mul(Mcar_chunk_phys, Mc, M_phys);
+        mat4_mul(shadowMvp, vp, Mcar_chunk_phys);
+        scene_render_gpu_queue_car_shadow_draw(scene,
+            vertBuf, mesh->indexBuf, mesh->atlas,
+            mesh->bodyIndexCount, 6, shadowMvp);
+
     } else {
         /* Body: no chunk transform (Car.pos is world-space when airborne) */
         mat4_mul(mvp, vp, M);
         scene_render_gpu_queue_car_draw(scene,
-            mesh->vertexBuf, mesh->indexBuf, mesh->atlas,
+            vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: Car.pos is world-space when airborne, so M[12/13] are already
-         * world X/Y. chunk_model_matrix must NOT be applied again (that would
-         * double-apply the chunk's rotation and -center offset).
-         *
-         * Ground Z at the car's world XY position, accounting for slope:
-         *   chunk transform:  world = R*local + t,  t = -pointAy[3],
-         *                     rows of R = pointAy[0..2]
-         *   inverse (R ortho): local = R^T * (world - t)
-         *   dropping the wz term (car is just above ground, wz ≈ -p3z):
-         *     lx ≈ pointAy[0].fX*(wx+p3x) + pointAy[1].fX*(wy+p3y)
-         *     ly ≈ pointAy[0].fY*(wx+p3x) + pointAy[1].fY*(wy+p3y)
-         *   world Z at local (lx,ly,0):
-         *     groundZ = pointAy[2].fX*lx + pointAy[2].fY*ly - p3z
-         * Reduces to -p3z on flat track (pointAy[2] ≈ (0,0,1)). */
+        /* Shadow: project down to last valid chunk's road surface.
+         * Direction from M col-0 XY projected flat (world-space when airborne). */
         int shadowChunk = Car[carIdx].iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
-            int designIdx = (int)Car[carIdx].byCarDesignIdx;
-            if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
-            float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
-
             const tData *sd = &localdata[shadowChunk];
             float wx = M[12], wy = M[13];
             float p3x = sd->pointAy[3].fX, p3y = sd->pointAy[3].fY;
@@ -547,18 +619,26 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y);
             float groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - sd->pointAy[3].fZ;
 
-            float Mshadow[16];
-            Mshadow[ 0]=M[ 0]; Mshadow[ 1]=M[ 1]; Mshadow[ 2]=0.0f; Mshadow[ 3]=0.0f;
-            Mshadow[ 4]=M[ 4]; Mshadow[ 5]=M[ 5]; Mshadow[ 6]=0.0f; Mshadow[ 7]=0.0f;
-            Mshadow[ 8]=0.0f;  Mshadow[ 9]=0.0f;  Mshadow[10]=1.0f; Mshadow[11]=0.0f;
-            Mshadow[12]=M[12]; Mshadow[13]=M[13];
-            Mshadow[14]=groundZ - fZLow + 3.0f;  /* +3 clears coplanarity with road */
+            float sxA = sd->pointAy[2].fX * sd->pointAy[0].fX
+                      + sd->pointAy[2].fY * sd->pointAy[0].fY;
+            float syA = sd->pointAy[2].fX * sd->pointAy[1].fX
+                      + sd->pointAy[2].fY * sd->pointAy[1].fY;
+            float fx = M[0], fy = M[1];
+            float flen = sqrtf(fx*fx + fy*fy);
+            if (flen > 1e-6f) { fx /= flen; fy /= flen; }
+            float Mshadow[16] = {0};
+            Mshadow[ 0]= fx;            Mshadow[ 1]= fy;
+            Mshadow[ 2]= sxA*fx + syA*fy;
+            Mshadow[ 4]=-fy;            Mshadow[ 5]= fx;
+            Mshadow[ 6]= sxA*(-fy) + syA*fx;
+            Mshadow[10]=1.0f;
+            Mshadow[12]=wx;             Mshadow[13]=wy;
+            Mshadow[14]=groundZ - fZLow;
             Mshadow[15]=1.0f;
-
             float shadowMvp[16];
             mat4_mul(shadowMvp, vp, Mshadow);
-            scene_render_gpu_queue_car_draw(scene,
-                mesh->vertexBuf, mesh->indexBuf, mesh->atlas,
+            scene_render_gpu_queue_car_shadow_draw(scene,
+                vertBuf, mesh->indexBuf, mesh->atlas,
                 mesh->bodyIndexCount, 6, shadowMvp);
         }
     }
@@ -632,15 +712,15 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
     }
 
     /* Build label string: "NAME (POS)". */
-    char buffer[32];
+    char tagLabel[32];
     if (pCar->byRacePosition < racers - 1 || racers == 1)
-        sprintf(buffer, "%s (%s)", driver_names[carIdx],
+        sprintf(tagLabel, "%s (%s)", driver_names[carIdx],
                 &language_buffer[64 * pCar->byRacePosition + 384]);
     else
-        sprintf(buffer, "%s (%s)", driver_names[carIdx], &language_buffer[1344]);
+        sprintf(tagLabel, "%s (%s)", driver_names[carIdx], &language_buffer[1344]);
 
     int iNameWidth = 0;
-    for (int i = 0; buffer[i]; i++) iNameWidth += 5;
+    for (int i = 0; tagLabel[i]; i++) iNameWidth += 5;
     int iNameHalfWidth = iNameWidth / 2;
 
     int iDisplayX = mirror ? scrX + iNameHalfWidth : scrX - iNameHalfWidth;
@@ -653,9 +733,9 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
     int iPrevScrSize = scr_size;
     scr_size = 64;
     if (mirror)
-        mini_prt_string_rev(rev_vga[0], buffer, iDisplayX, iDisplayY);
+        mini_prt_string_rev(rev_vga[0], tagLabel, iDisplayX, iDisplayY);
     else
-        mini_prt_string(rev_vga[0], buffer, iDisplayX, iDisplayY);
+        mini_prt_string(rev_vga[0], tagLabel, iDisplayX, iDisplayY);
     scr_size = iPrevScrSize;
 
     /* Coloured downward-pointing triangle above car. */

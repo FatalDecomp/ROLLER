@@ -5,6 +5,10 @@
 #include "debug_overlay.h"
 #include "sound.h"    /* tColor, pal_addr */
 
+/* GPU projection near/far planes — must match the perspective matrix in scene_render_gpu.c */
+#define SCENE_GPU_NEAR 10.0f
+#define SCENE_GPU_FAR  20000000.0f
+
 typedef struct SceneRendererGPU SceneRendererGPU;
 struct SceneRenderer;
 struct CRTFilter;
@@ -29,13 +33,13 @@ void scene_render_gpu_set_projection(SceneRendererGPU *r,
                                      const SceneRenderProjection *proj);
 
 SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
-                                                 uint8 *pixelData,
+                                                 const uint8 *pixelData,
                                                  int width, int height,
                                                  int tex_idx,
                                                  int texHalfRes);
 void               scene_render_gpu_free_texture(SceneRendererGPU *r,
                                                  SceneTextureHandle handle);
-SceneTextureHandle scene_render_gpu_get_texture_handle(SceneRendererGPU *r,
+SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r,
                                                        int tex_idx);
 
 void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
@@ -47,11 +51,21 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
 void scene_render_gpu_set_sky_color(SceneRendererGPU *r,
                                     float red, float green, float blue);
 
+/* colorIdx:  palette index for ground clear colour (-1 = all sky).
+   anyGround: true when at least one screen corner is on the ground side.
+   poly:      NDC sky-region polygon vertices (CCW, 3-5 verts) from S-H clip.
+   n_verts:   number of polygon vertices (0 = no sky quad). */
+void scene_render_gpu_set_horizon(SceneRendererGPU *r, int colorIdx, bool anyGround,
+                                  const float (*skyPoly)[2], int n_verts);
+
 /* filter: 0=nearest, 1=bilinear, 2=anisotropic */
 void scene_render_gpu_set_texture_filter(SceneRendererGPU *r, int filter);
 
 /* enabled: true = trilinear (LINEAR between mip levels); textures always carry a full mip chain */
 void scene_render_gpu_set_trilinear(SceneRendererGPU *r, bool enabled);
+
+/* disabled: clamp sampler max_lod to 0 — debug flag to isolate mipmap-related GPU bugs */
+void scene_render_gpu_set_disable_mipmaps(SceneRendererGPU *r, bool disabled);
 
 /* vsync: deferred to next begin_frame to avoid mid-frame swapchain conflict */
 void scene_render_gpu_set_vsync(SceneRendererGPU *r, bool enabled);
@@ -95,6 +109,9 @@ void scene_render_gpu_set_fov_multiplier(SceneRendererGPU *r, float mult);
 /* enabled: true = wireframe (line) fill mode, false = solid */
 void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled);
 
+/* mode: 0=default(none), 1=none, 2=back-face cull, 3=front-face cull (debug only) */
+void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode);
+
 /* level: 0=off, 1=2x, 2=4x, 3=8x */
 void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level);
 
@@ -102,11 +119,47 @@ void scene_render_gpu_set_hud_buffer(SceneRendererGPU *r,
                                      uint8 *buf, int w, int h);
 void scene_render_gpu_set_split_screen(SceneRendererGPU *r, bool split);
 
+void texture_uv_map_reset(void);
+void texture_uv_map_dump(int texId, bool splitScreen);
+
 void scene_render_gpu_set_debug_overlay(SceneRendererGPU *r, DebugOverlay *overlay);
 void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filter);
 
 void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16]);
 int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);
+
+/* Queue a flat-colour screen-space quad for the particle pass.
+ * ndcX[4], ndcY[4]: NDC coordinates of the four corners (v0=top-right, v1=top-left,
+ * v2=bottom-left, v3=bottom-right; same winding as tPolyParams SW quads).
+ * cr/cg/cb/ca: linear RGBA colour [0..1].
+ * Uses the current particleNdcZ set by scene_render_gpu_set_particle_ndcz. */
+void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
+                                       const float ndcX[4], const float ndcY[4],
+                                       float cr, float cg, float cb, float ca);
+
+/* Set the per-particle NDC depth used by subsequent screen_quad_* calls.
+ * 0.0 = near plane (always passes depth test). Reset to 0 each begin_frame. */
+void scene_render_gpu_set_particle_ndcz(SceneRendererGPU *r, float ndcZ);
+
+/* Set per-vertex NDC depth for the NEXT screen_quad_* call only (v0..v3 order).
+ * Consumed and cleared after a single call. Use for elongated trails where head
+ * and tail are at different camera depths to avoid Z-fighting through walls. */
+void scene_render_gpu_set_particle_ndcz_pervertex(SceneRendererGPU *r, const float ndcZ[4]);
+
+/* Return the GPU texture for tile_idx within slot tex_idx, or NULL if out of range. */
+SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
+
+/* Return the particle-variant tile texture (palette index 0 = opaque white) for tile_idx.
+ * Only cargen (tex_idx 18) has a particle variant; other slots fall back to the normal tile. */
+SDL_GPUTexture *scene_render_gpu_get_particle_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
+
+/* Accumulate a textured particle quad for this frame (depth-tested via particleNdcZ).
+ * Returns true if accepted, false if the frame's texture slot is already taken by a
+ * different texture — caller should fall through to SW in that case. */
+bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
+                                           const float ndcX[4], const float ndcY[4],
+                                           SDL_GPUTexture *tex,
+                                           float cr, float cg, float cb, float ca);
 
 /* Queue a car mesh draw into the current frame (called by game_render_hardware.c). */
 void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
@@ -116,5 +169,14 @@ void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
                                       int               firstIndex,
                                       int               idxCount,
                                       const float       mvp[16]);
+
+/* Queue a car shadow draw — uses carShadowPipeline (LESS_OR_EQUAL, no depth write, biased). */
+void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
+                                             SDL_GPUBuffer    *vertBuf,
+                                             SDL_GPUBuffer    *idxBuf,
+                                             SDL_GPUTexture   *texture,
+                                             int               firstIndex,
+                                             int               idxCount,
+                                             const float       mvp[16]);
 
 #endif /* SCENE_RENDER_GPU_H */

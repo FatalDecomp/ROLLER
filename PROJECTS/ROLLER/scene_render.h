@@ -40,6 +40,8 @@ void scene_render_quad_world_legacy(SceneRenderer *renderer,
                                     SceneRenderLegacyQuadOptions options);
 
 void scene_render_set_use_gpu(SceneRenderer *renderer, bool use_gpu);
+void scene_render_set_gpu_load_enabled(SceneRenderer *renderer, bool enabled);
+bool scene_render_get_gpu_load_enabled(SceneRenderer *renderer);
 void scene_render_set_split_screen(SceneRenderer *renderer, bool split);
 void scene_render_set_debug_overlay(SceneRenderer *renderer, DebugOverlay *overlay);
 

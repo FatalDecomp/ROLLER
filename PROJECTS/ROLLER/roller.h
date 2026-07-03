@@ -18,9 +18,11 @@ extern bool g_bAINoCheatStart;
 extern bool g_bFixCarMenuBug;
 extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
+extern bool g_bShowCarOnExplosion; /* true = keep car mesh visible during explosion animation */
 extern int   g_iTextureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
 extern int   g_iAnisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */
 extern bool  g_bTrilinear;       /* true = blend linearly between mip levels */
+extern bool  g_bDisableMipmaps;  /* true = clamp sampler to mip 0 (debug) */
 extern float g_fLodBias;         /* mip LOD bias; 0 = neutral */
 extern float g_fRenderScale;     /* render resolution multiplier; 1.0 = native */
 extern int   g_iAntiAliasing;    /* 0=off, 1=MSAA 2x, 2=MSAA 4x, 3=MSAA 8x */
@@ -36,11 +38,23 @@ extern float g_fVigStrength;     /* vignette strength; 0.0 = off */
 extern float g_fBrightness;      /* additive brightness; 0.0 = neutral */
 extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern bool  g_bWireframe;       /* wireframe rendering */
+extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
+extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top); false = depth-tested */
+extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
+extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */
+extern int   g_iSurfaceLogId;    /* -2=disabled(empty), -1=all, >=0=specific surfIdx (not saved) */
+extern bool  g_pendingClickQuery; /* right-click surface pick: set by event loop, cleared after render */
+extern float g_clickQueryNX;     /* normalised [0,1] click X within game viewport */
+extern float g_clickQueryNY;     /* normalised [0,1] click Y within game viewport */
+extern bool  g_bKeepWindowSize; /* persist window size to ROLLER.INI */
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
 extern SDL_AtomicInt iTicksPending;
+extern bool g_bShiftFrozen;        /* true while SHIFT is held with freeze enabled — blocks all tick steps */
+extern bool g_bShiftFreezeEnabled; /* debug overlay checkbox: enable hold-SHIFT-to-freeze */
+extern int  g_iFpsBackground;      /* background FPS cap: 0=off, else the target fps (15/30/60) */
 
 //-------------------------------------------------------------------------------------------------
 

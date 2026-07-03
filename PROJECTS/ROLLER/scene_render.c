@@ -12,6 +12,7 @@ struct SceneRenderer {
     SDL_Window *window;
     bool use_gpu;   /* route quads to GPU when true, SW when false */
     bool use_split; /* when true, route quads to BOTH SW and GPU simultaneously */
+    bool gpu_load_enabled; /* upload textures to the GPU renderer (skip in pure SW) */
 };
 
 SceneRenderer *scene_render_create(SDL_GPUDevice *device, SDL_Window *window) {
@@ -26,7 +27,17 @@ SceneRenderer *scene_render_create(SDL_GPUDevice *device, SDL_Window *window) {
         return NULL;
     }
     r->gpu = scene_render_gpu_create(device, window);
+    r->gpu_load_enabled = true;
     return r;
+}
+
+void scene_render_set_gpu_load_enabled(SceneRenderer *renderer, bool enabled) {
+    if (renderer)
+        renderer->gpu_load_enabled = enabled;
+}
+
+bool scene_render_get_gpu_load_enabled(SceneRenderer *renderer) {
+    return renderer && renderer->gpu_load_enabled;
 }
 
 void scene_render_destroy(SceneRenderer *renderer) {
@@ -82,7 +93,7 @@ SceneTextureHandle scene_render_load_texture(SceneRenderer *renderer,
     SceneTextureHandle swh = scene_render_sw_load_texture(renderer->sw, pixelData,
                                                           width, height,
                                                           tex_idx, texHalfRes);
-    if (renderer->gpu)
+    if (renderer->gpu && renderer->gpu_load_enabled)
         scene_render_gpu_load_texture(renderer->gpu, pixelData, width, height,
                                       tex_idx, texHalfRes);
     return swh;

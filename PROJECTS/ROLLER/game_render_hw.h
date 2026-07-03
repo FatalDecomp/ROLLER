@@ -13,6 +13,8 @@ typedef struct GameRenderer GameRenderer;
 void game_render_set_texture_filter(GameRenderer *renderer, int filter);
 /* Trilinear mip blending */
 void game_render_set_trilinear(GameRenderer *renderer, bool enabled);
+/* Debug: clamp sampler to mip 0 only (isolates Adreno mipmap layout bug) */
+void game_render_set_disable_mipmaps(GameRenderer *renderer, bool disabled);
 /* Anisotropy level: 0=2x, 1=4x, 2=8x, 3=16x */
 void game_render_set_anisotropy_level(GameRenderer *renderer, int level);
 /* Mip LOD bias: negative=sharper, positive=blurrier */
@@ -41,6 +43,8 @@ void game_render_set_vignette(GameRenderer *renderer, float strength);
 void game_render_set_fov_multiplier(GameRenderer *renderer, float mult);
 /* Wireframe: true=line fill, false=solid */
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled);
+/* Cull mode: 0=default, 1=none, 2=back, 3=front (debug only, not saved) */
+void game_render_set_cull_mode(GameRenderer *renderer, int mode);
 /* Additive brightness offset: 0.0=neutral, positive=brighter, negative=darker */
 void game_render_set_brightness(GameRenderer *renderer, float brightness);
 

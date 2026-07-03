@@ -81,6 +81,10 @@ echo "Compiling game scene pixel shader (alpha-blend)..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel_blend.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_pixel_blend.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel_blend.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_pixel_blend.msl"
 
+echo "Compiling game scene sign pixel shader (depth-check)..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_sign_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_sign_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_sign_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_sign_pixel.msl"
+
 echo "Compiling game car vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_car_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_car_vertex.msl"
@@ -163,7 +167,7 @@ echo "Generating game_scene_shaders.h..."
 $EMBED_FN
 out_dir = r'$W_OUT'
 h = '#ifndef GAME_SCENE_SHADERS_H\n#define GAME_SCENE_SHADERS_H\n\n'
-for name in ['game_scene_vertex', 'game_scene_pixel', 'game_scene_pixel_blend', 'game_car_vertex', 'game_car_pixel']:
+for name in ['game_scene_vertex', 'game_scene_pixel', 'game_scene_pixel_blend', 'game_scene_sign_pixel', 'game_car_vertex', 'game_car_pixel']:
     for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
         p = os.path.join(out_dir, f'{name}.{ext}')
         if os.path.exists(p):
@@ -189,6 +193,46 @@ with open(r'$W_HUD', 'w') as f:
     f.write(h)
 "
 echo "Generated $HUD_HEADER"
+
+# --- Particle shaders ---
+PARTICLE_HEADER="$SCRIPT_DIR/../game_particle_shaders.h"
+if command -v cygpath >/dev/null 2>&1; then
+    W_PARTICLE="$(cygpath -w "$PARTICLE_HEADER")"
+else
+    W_PARTICLE="$PARTICLE_HEADER"
+fi
+
+echo "Compiling particle vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.msl"
+
+echo "Compiling particle pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_pixel.msl"
+
+echo "Compiling textured particle vertex shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.msl"
+
+echo "Compiling textured particle pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.msl"
+
+echo "Generating game_particle_shaders.h..."
+"$PYTHON" -c "
+$EMBED_FN
+out_dir = r'$W_OUT'
+h = '#ifndef GAME_PARTICLE_SHADERS_H\n#define GAME_PARTICLE_SHADERS_H\n\n'
+for name in ['game_particle_vertex', 'game_particle_pixel', 'game_particle_tex_vertex', 'game_particle_tex_pixel']:
+    for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
+        p = os.path.join(out_dir, f'{name}.{ext}')
+        if os.path.exists(p):
+            h += embed(p, f'{name}_{fmt}') + '\n'
+h += '#endif\n'
+with open(r'$W_PARTICLE', 'w') as f:
+    f.write(h)
+"
+echo "Generated $PARTICLE_HEADER"
 
 echo "Generating crt_shaders.h..."
 "$PYTHON" -c "
