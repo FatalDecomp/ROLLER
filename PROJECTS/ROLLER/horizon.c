@@ -260,10 +260,8 @@ void DrawHorizon(uint8 *pScrBuf)
 void initclouds()
 {                                               // Loop through all 40 cloud slots
   int iCloudIdx; // edi
-  //int iRandVal1; // eax
-  //uint32 uiAngle1Calc; // eax
+  int iRandVal; // eax
   int iAngle1; // ebp
-  //int iRandVal2; // eax
   int iAngle2; // esi
   double dRadiusRotComp1; // st6
   double dRadiusRotComp2; // st5
@@ -311,21 +309,10 @@ void initclouds()
   for (iCloudIdx = 0; iCloudIdx < 40; ++iCloudIdx) {
     fRadius = 1800000.0;                        // Start with maximum radius for placement attempt
     do {
-      //iRandVal1 = ROLLERrandRaw();                       // Generate random angle1 (theta) for spherical coordinates
-      //uiAngle1Calc = (uint32)3400 * (uint32)GetHighOrderRand(iRandVal1, iRandVal1);
-      ////iAngle1Calc = 3400 * (((iRandVal1 * iRandVal1) & 0x7FFF) >> 15);
-      ////iAngle1Calc = 3400 * ((iRandVal1 * iRandVal1 - (__CFSHL__((iRandVal1 * iRandVal1) >> 31, 15) + ((iRandVal1 * iRandVal1) >> 31 << 15))) >> 15);
-      //iAngle1 = ((uiAngle1Calc & 0x8000) >> 15) + 520;  // Will be either 520 or 521
-      ////iAngle1 = ((iAngle1Calc - (__CFSHL__(iAngle1Calc >> 31, 15) + (iAngle1Calc >> 31 << 15))) >> 15) + 520;
-      //iRandVal2 = ROLLERrandRaw();                       // Generate random angle2 (phi) for spherical coordinates
-      //
-      ////TODO look at this
-      //iAngle2 = GetHighOrderRand(2, iRandVal2);  // Will be 0 or 1
-      ////iAngle2 = ((iRandVal2 << 14) - (__CFSHL__(iRandVal2 << 14 >> 31, 15) + (iRandVal2 << 14 >> 31 << 15))) >> 15;
-      
-      iAngle1 = (ROLLERrandRaw() & 0x0FFF) + 0x200;
-      iAngle2 = ROLLERrandRaw() & 0x3FFF;
-      
+      iRandVal = ROLLERrandRaw();               // Generate random pitch for spherical coordinates
+      iAngle1 = GetHighOrderRand(3400, GetHighOrderRand(iRandVal, iRandVal)) + 520;// [520, 3919] of 16384: squaring rand biases clouds toward the horizon
+      iAngle2 = GetHighOrderRand(16384, ROLLERrandRaw());// [0, 16383]: uniform heading around the sky dome (== rand / 2)
+
       fCos1Cos2 = tcos[iAngle2] * tcos[iAngle1];// Calculate rotation matrix elements using trigonometric tables
       fSin1Cos2 = tsin[iAngle2] * tcos[iAngle1];
       fNegSin1 = -tsin[iAngle2];
@@ -374,9 +361,8 @@ void initclouds()
       cloud[iCloudIdx].world.fY = 0.0f * fCos1 + fBaseY + 0.0f * fRotComp2;// World Y coordinate: final cloud position after transformation
       cloud[iCloudIdx].world.fZ = fBaseZ + 0.0f * fCos2;// World Z coordinate: final cloud position after transformation
       iRandColorBase = ROLLERrandRaw();                  // Generate random cloud color/texture index
-      iColorIndex = GetHighOrderRand(5, iRandColorBase);
-      //iColorIndex = (5 * iRandColorBase - (__CFSHL__((5 * iRandColorBase) >> 31, 15) + ((5 * iRandColorBase) >> 31 << 15))) >> 15;
-      cloud[iCloudIdx].iSurfaceType = iColorIndex;
+      iColorIndex = GetHighOrderRand(5, iRandColorBase); // [0, 4]
+      cloud[iCloudIdx].iSurfaceType = iColorIndex;       // dead store, present in original binary
       cloud[iCloudIdx].iSurfaceType = iColorIndex + 0x508;
       if (ROLLERrand() < 0x4000)                    // Randomly modify color properties (50% chance each)
         cloud[iCloudIdx].iSurfaceType += 0x1000;
@@ -393,9 +379,8 @@ void initclouds()
             fDeltaZ = cloud[iCheckIdx].world.fZ - cloud[iCloudIdx].world.fZ;
             fDistance = (float)sqrt(fXYDistSq + fDeltaZ * fDeltaZ);// Calculate 3D distance between cloud centers
           }
-          fMinDistance = fRadius + cloud[iCloudIdx].fRadius;
-          //TODO
-          if (fDistance < fMinDistance * 1.3f) // Check if clouds overlap (distance < combined radii * 1.3)
+          fMinDistance = fRadius + cloud[iCloudIdx].fRadius;// sic: original adds the new cloud's own radius (== 2 * fRadius), not cloud[iCheckIdx].fRadius
+          if (fDistance < fMinDistance * 1.3) // Check if clouds overlap; 1.3 is a double constant in the original binary
             iValidPlacement = 0;
         }
       }
