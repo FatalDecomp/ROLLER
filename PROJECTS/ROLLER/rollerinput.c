@@ -3105,6 +3105,12 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "MirrorFov")) {
+    g_fMirrorFov = (float)atof(szValue);
+    if (g_fMirrorFov <= 0.1f) g_fMirrorFov = 0.75f;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "FpsDisplay")) {
     if (InputStringEqualsNoCase(szValue, "TopLeft"))     g_iFpsDisplay = 1;
     else if (InputStringEqualsNoCase(szValue, "TopRight"))    g_iFpsDisplay = 2;
@@ -3455,6 +3461,7 @@ void InputSaveConfig(void)
   fprintf(fp, "VigStrength=%.2f\n", g_fVigStrength);
   fprintf(fp, "Brightness=%.2f\n", g_fBrightness);
   fprintf(fp, "FovMultiplier=%.2f\n", g_fFovMultiplier);
+  fprintf(fp, "MirrorFov=%.2f\n", g_fMirrorFov);
   {
     const char *fps_pos[] = { "Off", "TopLeft", "TopRight", "BottomLeft", "BottomRight" };
     int idx = (g_iFpsDisplay >= 0 && g_iFpsDisplay <= 4) ? g_iFpsDisplay : 0;

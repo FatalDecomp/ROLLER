@@ -62,10 +62,35 @@ void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter);
 void game_render_begin_frame(GameRenderer *renderer);
 void game_render_end_frame(GameRenderer *renderer);
 
-// Mirror pass: in GPU mode, temporarily routes scene calls through the SW
-// renderer so the mirror buffer gets a proper SW-rendered backward view.
-void game_render_begin_mirror_pass(GameRenderer *renderer);
-void game_render_end_mirror_pass(GameRenderer *renderer);
+// Mirror pass (rearview / side view): in GPU mode, the scene calls made
+// between begin/end (with a secondary camera already set via
+// game_render_set_camera/set_projection) render natively on the GPU into a
+// small offscreen target instead of falling back to SW. end_mirror_pass
+// flushes that offscreen render and caches the resulting texture; call
+// composite_mirror_pass afterward (once the real on-screen destination rect
+// is known -- SW globals winw/winh/xbase are typically restored to their
+// full-window values by then) to blit it onto the current frame.
+// scrSizeRatio: the same fraction 3d.c just divided scr_size by for the
+// mirror window (e.g. 0.25 for the 1/4-size rearview mirror, 0.5 for the
+// 1/2-size side mirror). The GPU's FOV/aspect math is coupled to the current
+// viewport size, so the mirror's queued geometry needs that same reference
+// scaled down by this ratio, or its effective FOV comes out wrong -- SW just
+// draws the same FOV into a smaller pixel buffer, but GPU normalizes FOV by
+// viewport size, so leaving the viewport unset (i.e. sized for the main
+// window) makes the mirror's picture significantly narrower/zoomed-in than
+// intended. Restored to the default (main-window) viewport in end_mirror_pass.
+// texW/texH: desired offscreen render-target pixel size.
+// screenX/Y/W/H: on-screen destination rect in the same logical pixel space
+// as winw/winh. flipH: true for a true left-right mirror image (rearview);
+// false for the side-view mirror. borderColorIdx: palette index for the
+// thin border drawn around the picture.
+// In SW mode these are all no-ops (the existing SW mirbuf path is used).
+void game_render_begin_mirror_pass(GameRenderer *renderer, float scrSizeRatio);
+void game_render_end_mirror_pass(GameRenderer *renderer, int texW, int texH);
+void game_render_composite_mirror_pass(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH,
+                                       bool flipH, int borderColorIdx);
 
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,

@@ -211,6 +211,16 @@ struct SceneRendererGPU {
     SDL_GPUTexture *offscreenTex;
     int             offscreenW, offscreenH;
 
+    /* Secondary offscreen view: lets a second camera's queued draws (produced
+     * via the normal camera/projection/draw_car/quad_world API) render to
+     * their own small target instead of the main swapchain, then get reset
+     * so the next queued scene starts clean. Used by the rearview/side
+     * mirror; the same primitive is the intended path for 2-player split
+     * screen (one secondary view per extra player) later. */
+    SDL_GPUTexture *secondaryColorTex;
+    SDL_GPUTexture *secondaryDepthTex;
+    int             secondaryTexW, secondaryTexH;
+
     /* MSAA: separate multisample colour + depth targets.  The resolved result
      * lands in offscreenTex (or swapchainTex when offscreen isn't available). */
     SDL_GPUTexture     *msaaTex;
@@ -414,6 +424,32 @@ static void ensure_offscreen_texture(SceneRendererGPU *r, int w, int h)
     r->offscreenTex = SDL_CreateGPUTexture(r->device, &ti);
     r->offscreenW   = w;
     r->offscreenH   = h;
+}
+
+static void ensure_secondary_textures(SceneRendererGPU *r, int w, int h)
+{
+    if (r->secondaryColorTex && r->secondaryTexW == w && r->secondaryTexH == h)
+        return;
+    if (r->secondaryColorTex) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex);
+    if (r->secondaryDepthTex) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex);
+    SDL_GPUTextureCreateInfo ci = {
+        .type   = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+        .width  = (Uint32)w, .height = (Uint32)h,
+        .layer_count_or_depth = 1, .num_levels = 1,
+        .usage  = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+    };
+    r->secondaryColorTex = SDL_CreateGPUTexture(r->device, &ci);
+    SDL_GPUTextureCreateInfo di = {
+        .type   = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+        .width  = (Uint32)w, .height = (Uint32)h,
+        .layer_count_or_depth = 1, .num_levels = 1,
+        .usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+    };
+    r->secondaryDepthTex = SDL_CreateGPUTexture(r->device, &di);
+    r->secondaryTexW = w;
+    r->secondaryTexH = h;
 }
 
 static SDL_GPUSampleCount level_to_sample_count(int level)
@@ -1452,6 +1488,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     }
     if (r->shadowTex)     SDL_ReleaseGPUTexture(r->device, r->shadowTex);
     if (r->offscreenTex)  SDL_ReleaseGPUTexture(r->device, r->offscreenTex);
+    if (r->secondaryColorTex) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex);
+    if (r->secondaryDepthTex) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex);
     if (r->depthTex)          SDL_ReleaseGPUTexture(r->device, r->depthTex);
     if (r->signDepthCopyTex)  SDL_ReleaseGPUTexture(r->device, r->signDepthCopyTex);
     if (r->msaaTex)           SDL_ReleaseGPUTexture(r->device, r->msaaTex);
@@ -1608,6 +1646,242 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
     r->texParticleRanges[ri].count       += 6;
     r->useParticleNdcZv = false;
     return true;
+}
+
+/* Render whatever has been queued (via the normal camera/projection/draw_car/
+ * quad_world API, called with a secondary camera already set) into a small
+ * dedicated offscreen target instead of the main swapchain, then reset the
+ * shared per-frame vertex/draw-command state so the NEXT queued scene (the
+ * main view, or another secondary view) starts clean.
+ *
+ * This is a trimmed-down copy of scene_render_gpu_end_frame's Pass 1: no
+ * MSAA, no letterbox present blit, no HUD, and signs always use the simple
+ * bias-based pipeline (no depth-copy split) -- acceptable simplifications
+ * for a small, lower-detail secondary view. Everything else (opaque/wall/
+ * building/tree/blend geometry, cars, car shadows, road shadows, sky) is
+ * drawn exactly as the main pass would. */
+SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int texW, int texH)
+{
+    if (!r || !r->cmdBuf) return NULL;
+    if (texW < 1) texW = 1;
+    if (texH < 1) texH = 1;
+
+    ensure_secondary_textures(r, texW, texH);
+    if (!r->secondaryColorTex || !r->secondaryDepthTex) {
+        r->vertexCount = 0; r->drawCmdCount = 0;
+        r->carDrawCount = 0; r->carShadowDrawCount = 0;
+        r->particleVertCount = 0; r->texParticleVertCount = 0; r->texParticleRangeCount = 0;
+        return NULL;
+    }
+
+    /* ---- Vertex upload (same pattern as the main scene flush) ---- */
+    if (r->vertexCount > 0) {
+        void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
+        if (mapped) {
+            memcpy(mapped, r->vertices, (size_t)r->vertexCount * sizeof(SceneGPUVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->vertexXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation srcl = {.transfer_buffer = r->vertexXfer};
+            SDL_GPUBufferRegion dstr = {.buffer = r->vertexBuf,
+                                        .size = (Uint32)((size_t)r->vertexCount * sizeof(SceneGPUVertex))};
+            SDL_UploadToGPUBuffer(cp, &srcl, &dstr, false);
+            SDL_EndGPUCopyPass(cp);
+        }
+    }
+
+    /* ---- Sky polygon vertex upload ---- */
+    bool drawSky = (r->groundColorIdx >= 0 && r->skyPolyN >= 3
+                       && r->skyPipeline && r->skyVertBuf);
+    int skyVertCount = 0;
+    if (drawSky) {
+        int n_tris = r->skyPolyN - 2;
+        SceneGPUVertex gv[9];
+        int gi = 0;
+        for (int t = 0; t < n_tris; t++) {
+            gv[gi++] = (SceneGPUVertex){r->skyPoly[0][0],   r->skyPoly[0][1],   0.f, 0.5f, 0.5f};
+            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
+            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
+        }
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        if (gvMapped) {
+            memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation gsrc = {.transfer_buffer = r->skyVertXfer};
+            SDL_GPUBufferRegion gdst = {.buffer = r->skyVertBuf,
+                                        .size = (Uint32)(gi * (int)sizeof(SceneGPUVertex))};
+            SDL_UploadToGPUBuffer(cp, &gsrc, &gdst, false);
+            SDL_EndGPUCopyPass(cp);
+            skyVertCount = gi;
+        } else {
+            drawSky = false;
+        }
+    }
+
+    /* ---- Clear colour (same logic as the main pass) ---- */
+    float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
+    if (skyFog < 0.0f) skyFog = 0.0f;
+    if (skyFog > 1.0f) skyFog = 1.0f;
+    SDL_FColor skyFColor = {
+        r->skyR + (r->fogColor[0] - r->skyR) * skyFog,
+        r->skyG + (r->fogColor[1] - r->skyG) * skyFog,
+        r->skyB + (r->fogColor[2] - r->skyB) * skyFog,
+        1.0f
+    };
+    SDL_FColor skyClear = skyFColor;
+    if (r->groundColorIdx >= 0 && r->skyAnyGround) {
+        const tColor *gc = &palette[r->groundColorIdx];
+        skyClear.r = gc->byR / 63.0f;
+        skyClear.g = gc->byG / 63.0f;
+        skyClear.b = gc->byB / 63.0f;
+    }
+
+    SDL_GPUColorTargetInfo colorInfo = {
+        .texture     = r->secondaryColorTex,
+        .load_op     = SDL_GPU_LOADOP_CLEAR,
+        .store_op    = SDL_GPU_STOREOP_STORE,
+        .clear_color = skyClear
+    };
+    SDL_GPUDepthStencilTargetInfo depthInfo = {
+        .texture     = r->secondaryDepthTex,
+        .load_op     = SDL_GPU_LOADOP_CLEAR,
+        .store_op    = SDL_GPU_STOREOP_DONT_CARE,
+        .clear_depth = 1.0f
+    };
+    SDL_GPURenderPass *rp = SDL_BeginGPURenderPass(r->cmdBuf, &colorInfo, 1, &depthInfo);
+    SDL_GPUViewport vp = { .x = 0, .y = 0, .w = (float)texW, .h = (float)texH,
+                           .min_depth = 0.0f, .max_depth = 1.0f };
+    SDL_SetGPUViewport(rp, &vp);
+
+    if (drawSky) {
+        SDL_GPUTexture *gTex = get_flat_color_texture(r, r->groundColorIdx);
+        if (gTex) {
+            SDL_BindGPUGraphicsPipeline(rp, r->skyPipeline);
+            float identMVP[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, identMVP, sizeof(identMVP));
+            struct { float fogDensity, gamma, fogStart, saturation;
+                     float fogColor[4]; float contrast, brightness; float _pad[2]; } skyU = {
+                1e9f, 1.0f, 0.0f, 1.0f,
+                {skyFColor.r, skyFColor.g, skyFColor.b, 1.0f},
+                1.0f, 0.0f, {0, 0}
+            };
+            SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &skyU, sizeof(skyU));
+            SDL_GPUBufferBinding gvbb = {.buffer = r->skyVertBuf};
+            SDL_BindGPUVertexBuffers(rp, 0, &gvbb, 1);
+            SDL_GPUTextureSamplerBinding gtsb = {.texture = gTex, .sampler = r->samplerNearest};
+            SDL_BindGPUFragmentSamplers(rp, 0, &gtsb, 1);
+            SDL_DrawGPUPrimitives(rp, skyVertCount, 1, 0, 0);
+        }
+    }
+
+    SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
+    SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
+    SDL_GPUTextureSamplerBinding tsb = {0};
+
+    struct {
+        float fogDensity, gamma, fogStart, saturation;
+        float fogColor[4];
+        float contrast, brightness;
+        float _pad[2];
+    } pfu = {
+        r->fogDensity,
+        (r->gamma > 0.0f)       ? r->gamma       : 1.0f,
+        (r->fogStart > 0.0f)    ? r->fogStart     : 0.0f,
+        (r->saturation > 0.0f)  ? r->saturation   : 1.0f,
+        {r->fogColor[0], r->fogColor[1], r->fogColor[2], r->fogColor[3]},
+        (r->contrast > 0.0f)    ? r->contrast     : 1.0f,
+        r->brightness,
+        {0}
+    };
+    SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+
+#define SEC_DRAW_CMD(kind_filter) \
+    for (int i = 0; i < r->drawCmdCount; i++) { \
+        SceneGPUDrawCmd *cmd = &r->drawCmds[i]; \
+        if (cmd->kind != (kind_filter)) continue; \
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp)); \
+        tsb.texture = cmd->texture; \
+        tsb.sampler = cmd->forceNearest ? r->samplerNearest : r->sampler; \
+        SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1); \
+        SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0); \
+    }
+
+    if (r->opaquePipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);     SEC_DRAW_CMD(SCENE_GPU_DRAW_OPAQUE) }
+    if (r->wallPipeline)       { SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);       SEC_DRAW_CMD(SCENE_GPU_DRAW_WALL) }
+    if (r->bfWallPipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);     SEC_DRAW_CMD(SCENE_GPU_DRAW_BF_WALL) }
+    if (r->buildingPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_BUILDING) }
+    if (r->bfBuildingPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline); SEC_DRAW_CMD(SCENE_GPU_DRAW_BF_BUILDING) }
+    /* Signs: always the simple bias-based pipeline here (no depth-copy split) --
+     * an acceptable simplification for this secondary, lower-detail view. */
+    if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_SIGN) }
+    if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); SEC_DRAW_CMD(SCENE_GPU_DRAW_SIGN_BK) }
+    if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_TREE) }
+    if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  SEC_DRAW_CMD(SCENE_GPU_DRAW_BLEND) }
+#undef SEC_DRAW_CMD
+
+    if (r->carDrawCount > 0 && r->carPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->carPipeline);
+        SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        for (int i = 0; i < r->carDrawCount; i++) {
+            SceneGPUCarDrawCmd *cmd = &r->carDraws[i];
+            if (!cmd->texture) continue;
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
+            SDL_GPUBufferBinding cvbb = {.buffer = cmd->vertBuf};
+            SDL_BindGPUVertexBuffers(rp, 0, &cvbb, 1);
+            SDL_GPUBufferBinding cibb = {.buffer = cmd->idxBuf};
+            SDL_BindGPUIndexBuffer(rp, &cibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            tsb.texture = cmd->texture;
+            tsb.sampler = r->sampler;
+            SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
+            SDL_DrawGPUIndexedPrimitives(rp, (Uint32)cmd->idxCount, 1, (Uint32)cmd->firstIndex, 0, 0);
+        }
+    }
+
+    if (r->carShadowDrawCount > 0 && r->carShadowPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->carShadowPipeline);
+        SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        for (int i = 0; i < r->carShadowDrawCount; i++) {
+            SceneGPUCarDrawCmd *cmd = &r->carShadowDraws[i];
+            if (!cmd->texture) continue;
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
+            SDL_GPUBufferBinding cvbb = {.buffer = cmd->vertBuf};
+            SDL_BindGPUVertexBuffers(rp, 0, &cvbb, 1);
+            SDL_GPUBufferBinding cibb = {.buffer = cmd->idxBuf};
+            SDL_BindGPUIndexBuffer(rp, &cibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            tsb.texture = cmd->texture;
+            tsb.sampler = r->sampler;
+            SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
+            SDL_DrawGPUIndexedPrimitives(rp, (Uint32)cmd->idxCount, 1, (Uint32)cmd->firstIndex, 0, 0);
+        }
+    }
+
+    if (r->shadowPipeline && r->drawCmdCount > 0) {
+        SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
+        SDL_BindGPUGraphicsPipeline(rp, r->shadowPipeline);
+        SDL_GPUTextureSamplerBinding stsb = {.texture = NULL, .sampler = r->sampler};
+        for (int i = 0; i < r->drawCmdCount; i++) {
+            SceneGPUDrawCmd *cmd = &r->drawCmds[i];
+            if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
+            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
+            stsb.texture = cmd->texture;
+            SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
+            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
+        }
+    }
+
+    SDL_EndGPURenderPass(rp);
+
+    /* Reset shared per-frame draw state so the next queued scene (main view,
+     * or another secondary view) starts clean. */
+    r->vertexCount           = 0;
+    r->drawCmdCount          = 0;
+    r->carDrawCount           = 0;
+    r->carShadowDrawCount     = 0;
+    r->particleVertCount     = 0;
+    r->texParticleVertCount  = 0;
+    r->texParticleRangeCount = 0;
+
+    return r->secondaryColorTex;
 }
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r)

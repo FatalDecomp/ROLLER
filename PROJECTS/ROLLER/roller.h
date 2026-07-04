@@ -37,6 +37,7 @@ extern float g_fContrast;        /* contrast; 1.0 = neutral */
 extern float g_fVigStrength;     /* vignette strength; 0.0 = off */
 extern float g_fBrightness;      /* additive brightness; 0.0 = neutral */
 extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
+extern float g_fMirrorFov;       /* rearview/side mirror FOV multiplier; 0.75 = default (matches SW), <1 = zoom in, >1 = zoom out */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */

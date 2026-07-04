@@ -2342,9 +2342,12 @@ void updatescreen()
         goto LABEL_20;
     }
     iShowRearView = -1;
-    game_render_begin_mirror_pass(g_pGameRenderer);
+    game_render_begin_mirror_pass(g_pGameRenderer, 0.25f); /* scr_size /= 4 above */
     draw_road(mirbuf, iViewTypeIndex, 2u, 0, 0);// Draw rear view road to mirror buffer
-    game_render_end_mirror_pass(g_pGameRenderer);
+    /* GPU mode: offscreen render target is supersampled (x4) relative to the
+     * small SW logical window size for a less blocky result once composited. */
+    game_render_end_mirror_pass(g_pGameRenderer,
+                                 iRearViewWinWidth * 4, iRearViewWinHeight * 4);
   LABEL_20:
     time_shown = 0;
     shown_panel = 0;
@@ -2365,6 +2368,16 @@ void updatescreen()
     }
     if (iShowRearView)                        // Copy rear view mirror data to main screen with border (color 119)
     {
+      if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+        /* Straight (non-flipped) copy, matching the SW pixel loop below which
+         * increments (not decrements) its source pointer -- the rear-view
+         * mirror shows the backward camera view directly, unlike the
+         * left-right-reversed side-view mirror below. */
+        game_render_composite_mirror_pass(g_pGameRenderer,
+            (winw - iRearViewWinWidth - 1) / 2, 0,
+            iRearViewWinWidth, iRearViewWinHeight,
+            false, 0x77);
+      } else {
       // Position rear view mirror horizontally centered
       pRearViewDestPtr = &scrbuf[(winw - iRearViewWinWidth - 1) / 2];
       //pRearViewDestPtr = &scrbuf[(winw - iRearViewWinWidth - 1) / 2 + winw * ((11 * scr_size - (__CFSHL__((11 * scr_size) >> 31, 6) + ((11 * scr_size) >> 31 << 6))) >> 6)];
@@ -2386,6 +2399,7 @@ void updatescreen()
         ++iRearViewRowCounter;
       }
       memset(pRearViewRowPtr, 0x77, iRearViewWinWidth + 2);
+      }
     }
     if (screenready)
       goto LABEL_14;
@@ -2403,9 +2417,10 @@ void updatescreen()
     winy = 0;
     winh = (200 * scr_size) >> 7;
     iMirrorWinHeight = (200 * scr_size) >> 7;
-    game_render_begin_mirror_pass(g_pGameRenderer);
+    game_render_begin_mirror_pass(g_pGameRenderer, 0.5f); /* scr_size /= 2 above */
     draw_road(mirbuf, ViewType[0], -DriveView[0] - 1, 0, 0);// Draw mirrored view (negative DriveView for reverse perspective)
-    game_render_end_mirror_pass(g_pGameRenderer);
+    game_render_end_mirror_pass(g_pGameRenderer,
+                                 iMirrorWinWidth * 4, iMirrorWinHeight * 4);
     xbase = 159;
     winw = (320 * iOriginalScrSize + 32) >> 6;
     winh = (200 * iOriginalScrSize + 32) >> 6;
@@ -2426,6 +2441,14 @@ void updatescreen()
       clear_border(winx + winw, winy, winx, winh);
       clear_border(0, winh + winy, XMAX, YMAX - (winh + winy));
     }
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      /* Flipped (mirrored) copy, matching the SW pixel loop below which
+       * decrements its source pointer -- this is a true left-right mirror. */
+      game_render_composite_mirror_pass(g_pGameRenderer,
+          iMirrorXOffset, iMirrorYOffset,
+          iMirrorWinWidth, iMirrorWinHeight,
+          true, 0x70);
+    } else {
     pDestPtr = &scrbuf[iMirrorXOffset + iMirrorYOffset * winw];// Copy side mirror view with border (color 112/0x70)
     pMirrorSrcPtr = &mirbuf[iMirrorWinWidth - 1];
     memset(pDestPtr, 0x70, iMirrorWinWidth + 2);
@@ -2444,6 +2467,7 @@ void updatescreen()
       pMirrorSrcPtr += 2 * iMirrorWinWidth;
     }
     memset(pCurrentRowPtr, 0x70, iMirrorWinWidth + 2);
+    }
     if (screenready) {
     LABEL_14:
       game_copypic(scrbuf, screen, ViewType[0]);// Copy screen buffer to final display and initialize animated elements
