@@ -737,7 +737,6 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
 
     int carDesignIndex = pCar->byCarDesignIdx;
     float fHitboxZ = CarBox.hitboxAy[carDesignIndex][4].fZ;
-    float fZLowTag  = CarBox.hitboxAy[carDesignIndex][0].fZ;
 
     int iCurrChunk = pCar->nCurrChunk;
     const float *p = (iCurrChunk >= 0 && iCurrChunk < MAX_TRACK_CHUNKS)
@@ -745,9 +744,23 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
 
     /* scrX: project bounding-box centre-top so the label stays centred over
      * the car regardless of yaw (no wobble as the car rotates).
-     * fZLowTag offset matches the M[14]-=fZLow correction in game_render_hw_draw_car
-     * so the tag tracks the top of the lifted body mesh. */
-    float fCX = pose->position.fX, fCY = pose->position.fY, fCZ_tag = fHitboxZ - fZLowTag + pose->position.fZ;
+     *
+     * Matches car.c:2068-2072 (SW's own name-tag placement): offset from the
+     * car's actual position by fHitboxZ along the car's own LOCAL Z axis,
+     * rotated into the same frame by the car's full orientation matrix --
+     * NOT a flat "add hitbox height" like the old `fHitboxZ - fZLowTag +
+     * pose->position.fZ` formula used, which double-counted when the car
+     * rests on its roof: pose->position.fZ is already referenced from
+     * whichever hitbox point is touching down (see [[project_car_shadow]]),
+     * so adding the full hitbox height again on top sent the tag way above
+     * the car. Rotating by the car's own matrix instead means an inverted
+     * car's local +Z point naturally maps close to world-down, landing the
+     * tag right back near the visible (now-flipped) car -- exactly like SW. */
+    float Mrot[16];
+    car_model_matrix(Mrot, pose);
+    float fCX = pose->position.fX + fHitboxZ * Mrot[8];
+    float fCY = pose->position.fY + fHitboxZ * Mrot[9];
+    float fCZ_tag = pose->position.fZ + fHitboxZ * Mrot[10];
     float wX0, wY0, wZ0;
     if (!p) { wX0 = fCX; wY0 = fCY; wZ0 = fCZ_tag; }
     else {
