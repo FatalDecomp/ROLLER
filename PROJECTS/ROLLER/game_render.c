@@ -8,6 +8,7 @@
 #include "drawtrk3.h"
 #include "sound.h"
 #include "car.h"
+#include "roller.h"    /* g_fMirrorFov */
 
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +25,8 @@ struct GameRenderer {
     SDL_Window *window;
     GameRendererHardware *hw;
     int hudW, hudH;
-    bool mirrorPass;    /* true during mirror buffer render — routes scene to SW */
+    bool mirrorPass;    /* true between begin/end_mirror_pass */
+    SDL_GPUTexture *pendingMirrorTex; /* set by end_mirror_pass, consumed by composite_mirror_pass */
     bool splitScreen;   /* GPU mode only: SW quads also run, HUD pass covers left half */
     bool forceGpuLoad;  /* always upload textures to GPU even in SW mode (set for intro) */
 };
@@ -153,19 +155,89 @@ void game_render_end_frame(GameRenderer *renderer) {
     }
 }
 
-void game_render_begin_mirror_pass(GameRenderer *renderer) {
+void game_render_begin_mirror_pass(GameRenderer *renderer, float scrSizeRatio) {
     if (!renderer || renderer->mode != GAME_RENDER_GPU) return;
     renderer->mirrorPass = true;
-    scene_render_set_use_gpu(renderer->scene, false);
+    if (renderer->gpu) {
+        /* See header comment: build_mvp's FOV/aspect is normalized by the
+         * current GPU viewport size (defaults to 640x400 when never set,
+         * which is the case throughout normal gameplay). The mirror's
+         * queued draws need that same baseline scaled down by the same
+         * fraction scr_size was just divided by. g_fMirrorFov is a user
+         * debug-overlay tuning knob on top of that: since a LARGER viewport
+         * value here means smaller per-pixel FOV (more of the world fits in
+         * the same NDC range), increasing g_fMirrorFov widens the mirror's
+         * effective FOV (more zoomed out); lowering it narrows/zooms in. */
+        int vpW = (int)(640.0f * scrSizeRatio * g_fMirrorFov + 0.5f);
+        int vpH = (int)(400.0f * scrSizeRatio * g_fMirrorFov + 0.5f);
+        if (vpW < 1) vpW = 1;
+        if (vpH < 1) vpH = 1;
+        scene_render_gpu_set_viewport(renderer->gpu, 0, 0, vpW, vpH);
+    }
 }
 
-void game_render_end_mirror_pass(GameRenderer *renderer) {
+void game_render_end_mirror_pass(GameRenderer *renderer, int texW, int texH) {
     if (!renderer) return;
     renderer->mirrorPass = false;
-    if (renderer->mode == GAME_RENDER_GPU) {
-        scene_render_set_use_gpu(renderer->scene, true);
-        if (renderer->gpu) scene_render_gpu_discard_queued(renderer->gpu);
+    renderer->pendingMirrorTex = NULL;
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu) {
+        renderer->pendingMirrorTex = scene_render_gpu_flush_secondary_view(renderer->gpu, texW, texH);
+        /* Restore the default (main-window) viewport for the main scene's
+         * own queued draws that follow. */
+        scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 0, 0);
     }
+}
+
+/* Composite the texture captured by end_mirror_pass onto the current frame
+ * as a screen-space quad, once the real on-screen destination rect is known.
+ * Queued at NDC z=0 (always passes depth test, no depth write) so it draws
+ * over the main scene like a HUD element. flipH reverses which screen-space
+ * corner samples which UV corner, producing a true left-right mirror image
+ * without needing a separate flipped draw path. */
+void game_render_composite_mirror_pass(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH,
+                                       bool flipH, int borderColorIdx) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    SDL_GPUTexture *tex = renderer->pendingMirrorTex;
+    renderer->pendingMirrorTex = NULL;
+    if (!tex) return;
+
+    float ww = (float)winw, wh = (float)winh;
+    if (ww <= 0.0f || wh <= 0.0f) return;
+
+    scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
+
+    /* Border: flat quad slightly larger than the picture, drawn first so the
+     * picture (drawn second, same z) paints over its middle. */
+    const int kBorder = 2;
+    float bl = (float)(screenX - kBorder), br = (float)(screenX + screenW + kBorder);
+    float bt = (float)(screenY - kBorder), bb = (float)(screenY + screenH + kBorder);
+    float bx[4] = { br/ww*2.0f-1.0f, bl/ww*2.0f-1.0f, bl/ww*2.0f-1.0f, br/ww*2.0f-1.0f };
+    float by[4] = { 1.0f-bt/wh*2.0f, 1.0f-bt/wh*2.0f, 1.0f-bb/wh*2.0f, 1.0f-bb/wh*2.0f };
+    const tColor *bc = &palette[borderColorIdx & 0xFF];
+    scene_render_gpu_screen_quad_flat(renderer->gpu, bx, by,
+        bc->byR / 63.0f, bc->byG / 63.0f, bc->byB / 63.0f, 1.0f);
+
+    /* Picture: v0/v1/v2/v3 = top-right/top-left/bottom-left/bottom-right
+     * screen positions normally; swapping v0<->v1 and v2<->v3 flips which
+     * screen corner samples which UV corner, i.e. mirrors the image. */
+    float l = (float)screenX, r = (float)(screenX + screenW);
+    float t = (float)screenY, b = (float)(screenY + screenH);
+    float px[4], py[4];
+    if (flipH) {
+        px[0]=l; py[0]=t;  px[1]=r; py[1]=t;
+        px[2]=r; py[2]=b;  px[3]=l; py[3]=b;
+    } else {
+        px[0]=r; py[0]=t;  px[1]=l; py[1]=t;
+        px[2]=l; py[2]=b;  px[3]=r; py[3]=b;
+    }
+    float ndcX[4], ndcY[4];
+    for (int i = 0; i < 4; i++) {
+        ndcX[i] = px[i]/ww*2.0f - 1.0f;
+        ndcY[i] = 1.0f - py[i]/wh*2.0f;
+    }
+    scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 // Viewport
@@ -285,8 +357,7 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
 
     /* GPU mode: route particles through the dedicated depth-tested pipeline so they
      * are occluded by solid geometry instead of blitting over everything via SW overlay. */
-    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->mirrorPass
-        && !renderer->splitScreen) {
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->splitScreen) {
         int colorIdx = poly->iSurfaceType & 0xFF;
         if (palette_remap)
             colorIdx = palette_remap[colorIdx] & 0xFF;
@@ -377,7 +448,7 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
                           const GameRenderCarOptions *options) {
     if (!renderer || !pose)
         return;
-    if (renderer->mode == GAME_RENDER_SOFTWARE || renderer->mirrorPass)
+    if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
     else if (renderer->mode == GAME_RENDER_GPU) {
         if (renderer->splitScreen)
@@ -420,7 +491,7 @@ void game_render_draw_sky(GameRenderer *renderer,
                           const GameRenderProjection *projection) {
     if (!renderer || !camera || !projection)
         return;
-    if (renderer->mode == GAME_RENDER_SOFTWARE || renderer->mirrorPass) {
+    if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_draw_sky(renderer->sw, camera, projection);
         return;
     }

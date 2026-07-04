@@ -1148,6 +1148,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
       }
 
+      { char buf[20]; snprintf(buf, sizeof(buf), "Mirror FOV %.2f", g_fMirrorFov);
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, buf, NK_TEXT_LEFT);
+        float fNewMirrorFov = nk_slide_float(pCtx, 0.25f, g_fMirrorFov, 3.0f, 0.05f);
+        if (fNewMirrorFov != g_fMirrorFov) {
+          g_fMirrorFov = fNewMirrorFov;
+          InputSaveConfig();
+        }
+      }
+
       static const char *apszFps[] = { "FPS off", "Top left", "Top right", "Bottom left", "Bottom right" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "FPS counter", NK_TEXT_LEFT);
@@ -1266,6 +1276,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fFogStart       = 0.0f;  g_fFogDensity     = 0.0f;
         g_uFogColor       = 0xB3BFCCu;
         g_fFovMultiplier  = 1.0f;  g_fVigStrength    = 0.0f;
+        g_fMirrorFov      = 0.75f;
         g_fBrightness     = 0.0f;  g_fContrast       = 1.0f;
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;

@@ -11,6 +11,8 @@
 #include "func2.h"       /* mini_prt_string, language_buffer, screen_pointer */
 #include "frontend.h"    /* human_control, racers */
 #include "moving.h"      /* replaytype */
+#include "control.h"     /* getgroundz(), calculateseparatedcoordinatesystem() — real terrain queries, chunk-local coords */
+#include "function.h"    /* getbankz() */
 
 #include <SDL3/SDL.h>
 #include <stdlib.h>
@@ -589,11 +591,46 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             0, mesh->bodyIndexCount, mvp);
 
         /* Shadow: use physical pose (no camera lean offsets) so shadow corners
-         * stay exactly on the road surface (chunk-local Z=0).  adjPose tilts the
-         * quad slightly off-road, letting it pass depth-test through barriers. */
+         * stay exactly on the road surface.  adjPose tilts the quad slightly
+         * off-road, letting it pass depth-test through barriers.
+         *
+         * Rotation: rebuilt using YAW ONLY (pitch/roll dropped) so the quad's
+         * footprint doesn't rotate/mirror with the car's own roll (corkscrew
+         * sections, cars resting flipped) -- car_model_matrix's full rotation
+         * would otherwise flip the quad's in-plane spread at roll=180.
+         *
+         * Translation: pose->position.fZ is not a world height -- it is
+         * height above whichever point of the car is currently touching the
+         * ground, referenced from the car's hitbox origin.  For an upright
+         * car that's the hitbox BOTTOM (fZLow, index 0) and pose.fZ sits near
+         * 0.  For a car resting on its roof, physics keeps the same
+         * reference point but the touching surface is now the hitbox TOP
+         * (fHitboxTop, index 4) -- pose.fZ then reads ~ the car's full
+         * height (confirmed via logging: ~410 units while resting flipped,
+         * ~0 while grounded normally), which used to leak straight into the
+         * shadow's height and made it float up around wheel-level instead of
+         * sitting on the ground.  Selecting the offset by orientation cancels
+         * that out in both cases. */
         float M_phys[16];
         car_model_matrix(M_phys, pose);
-        M_phys[14] -= fZLow;
+        /* physInverted must come from Car[].iStunned (roll-only test, matches
+         * control.c's own upside-down detection) rather than M_phys[10]
+         * (cos(pitch)*cos(roll)): on a very steep decline pitch alone can
+         * exceed 90 deg and flip that product negative even though the car
+         * is right-side-up, which picked the wrong hitbox reference and,
+         * since the chunk's local "up" axis is nearly horizontal on such a
+         * steep slope, showed up as the shadow sliding far down-slope rather
+         * than a small height error. */
+        bool physInverted = (Car[carIdx].iStunned != 0);
+        {
+            static const float kToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
+            float CY = cosf((float)pose->yaw * kToRad), SY = sinf((float)pose->yaw * kToRad);
+            M_phys[0] =  CY; M_phys[1] = SY; M_phys[2] = 0.0f;
+            M_phys[4] = -SY; M_phys[5] = CY; M_phys[6] = 0.0f;
+            M_phys[8] = 0.0f; M_phys[9] = 0.0f; M_phys[10] = 1.0f;
+        }
+        float fHitboxTop = CarBox.hitboxAy[designIdx][4].fZ;
+        M_phys[14] -= physInverted ? fHitboxTop : fZLow;
         float Mcar_chunk_phys[16], shadowMvp[16];
         mat4_mul(Mcar_chunk_phys, Mc, M_phys);
         mat4_mul(shadowMvp, vp, Mcar_chunk_phys);
@@ -608,24 +645,59 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: project down to last valid chunk's road surface.
-         * Direction from M col-0 XY projected flat (world-space when airborne). */
+        /* Shadow: replicate car.c:1396-1430's branch choice for this car's
+         * own airborne shadow. SW only switches to the flattened, de-banked
+         * calculateseparatedcoordinatesystem() frame when GroundColour[][2]
+         * >= 2 AND the car isn't AI-controlled (iControlType == 3) -- that
+         * specific condition was confirmed via live breakpoint debugging on
+         * the "insane ramp" case. Using the separated-system frame
+         * unconditionally (an earlier version of this fix) matched that one
+         * ramp but caused visible wobble on ordinary jumps: those take
+         * car.c's OTHER branch (plain getbankz/plane-eq against the chunk's
+         * own regular frame), which is smooth chunk-to-chunk, unlike the
+         * separated frame's chunk-pair-derived tangent. */
         int shadowChunk = Car[carIdx].iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
-            const tData *sd = &localdata[shadowChunk];
-            float wx = M[12], wy = M[13];
-            float p3x = sd->pointAy[3].fX, p3y = sd->pointAy[3].fY;
-            float lx = sd->pointAy[0].fX*(wx+p3x) + sd->pointAy[1].fX*(wy+p3y);
-            float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y);
-            float groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - sd->pointAy[3].fZ;
+            float wx = M[12], wy = M[13], wz = M[14];
+            bool useSeparated = !(GroundColour[shadowChunk][2] < 2 || Car[carIdx].iControlType == 3);
+            float groundZ, sxA, syA;
 
-            float sxA = sd->pointAy[2].fX * sd->pointAy[0].fX
-                      + sd->pointAy[2].fY * sd->pointAy[0].fY;
-            float syA = sd->pointAy[2].fX * sd->pointAy[1].fX
-                      + sd->pointAy[2].fY * sd->pointAy[1].fY;
-            float fx = M[0], fy = M[1];
-            float flen = sqrtf(fx*fx + fy*fy);
-            if (flen > 1e-6f) { fx /= flen; fy /= flen; }
+            if (useSeparated) {
+                tData tempData;
+                calculateseparatedcoordinatesystem(shadowChunk, &tempData);
+                const tData *sd = &tempData;
+                float p3x = sd->pointAy[3].fX, p3y = sd->pointAy[3].fY, p3z = sd->pointAy[3].fZ;
+                float lx = sd->pointAy[0].fX*(wx+p3x) + sd->pointAy[1].fX*(wy+p3y) + sd->pointAy[2].fX*(wz+p3z);
+                float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y) + sd->pointAy[2].fY*(wz+p3z);
+                float lz = (float)getbankz(ly, shadowChunk, &tempData);
+                groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly + sd->pointAy[2].fZ*lz - p3z;
+                /* pointAy[2] is forced to (0,0,1) by calculateseparatedcoordinatesystem,
+                 * so this plane has no XY tilt and the skew below is always zero. */
+                sxA = 0.0f; syA = 0.0f;
+            } else {
+                /* Plain plane equation against the chunk's own regular frame --
+                 * the formula that already worked for every normal jump before
+                 * this session's changes. */
+                const tData *sd = &localdata[shadowChunk];
+                float p3x = sd->pointAy[3].fX, p3y = sd->pointAy[3].fY, p3z = sd->pointAy[3].fZ;
+                float lx = sd->pointAy[0].fX*(wx+p3x) + sd->pointAy[1].fX*(wy+p3y);
+                float ly = sd->pointAy[0].fY*(wx+p3x) + sd->pointAy[1].fY*(wy+p3y);
+                groundZ = sd->pointAy[2].fX*lx + sd->pointAy[2].fY*ly - p3z;
+                sxA = sd->pointAy[2].fX * sd->pointAy[0].fX + sd->pointAy[2].fY * sd->pointAy[0].fY;
+                syA = sd->pointAy[2].fX * sd->pointAy[1].fX + sd->pointAy[2].fY * sd->pointAy[1].fY;
+            }
+
+            /* Direction from pose->yaw directly, NOT M[0]/M[1]: those equal
+             * (cos(yaw)*cos(pitch), sin(yaw)*cos(pitch)), so their combined
+             * length is |cos(pitch)| -- exactly zero when the car points
+             * straight up/down. On a shallow ramp pitch never gets that
+             * steep, but an extreme near-vertical launch collapses fx/fy to
+             * ~0, degenerating the shadow quad's rotation basis to near-zero
+             * size for as long as pitch stays near +-90 deg. Yaw alone is
+             * always well-defined regardless of pitch. */
+            static const float kToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
+            float fx = cosf((float)pose->yaw * kToRad);
+            float fy = sinf((float)pose->yaw * kToRad);
             float Mshadow[16] = {0};
             Mshadow[ 0]= fx;            Mshadow[ 1]= fy;
             Mshadow[ 2]= sxA*fx + syA*fy;
@@ -665,7 +737,6 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
 
     int carDesignIndex = pCar->byCarDesignIdx;
     float fHitboxZ = CarBox.hitboxAy[carDesignIndex][4].fZ;
-    float fZLowTag  = CarBox.hitboxAy[carDesignIndex][0].fZ;
 
     int iCurrChunk = pCar->nCurrChunk;
     const float *p = (iCurrChunk >= 0 && iCurrChunk < MAX_TRACK_CHUNKS)
@@ -673,9 +744,23 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
 
     /* scrX: project bounding-box centre-top so the label stays centred over
      * the car regardless of yaw (no wobble as the car rotates).
-     * fZLowTag offset matches the M[14]-=fZLow correction in game_render_hw_draw_car
-     * so the tag tracks the top of the lifted body mesh. */
-    float fCX = pose->position.fX, fCY = pose->position.fY, fCZ_tag = fHitboxZ - fZLowTag + pose->position.fZ;
+     *
+     * Matches car.c:2068-2072 (SW's own name-tag placement): offset from the
+     * car's actual position by fHitboxZ along the car's own LOCAL Z axis,
+     * rotated into the same frame by the car's full orientation matrix --
+     * NOT a flat "add hitbox height" like the old `fHitboxZ - fZLowTag +
+     * pose->position.fZ` formula used, which double-counted when the car
+     * rests on its roof: pose->position.fZ is already referenced from
+     * whichever hitbox point is touching down (see [[project_car_shadow]]),
+     * so adding the full hitbox height again on top sent the tag way above
+     * the car. Rotating by the car's own matrix instead means an inverted
+     * car's local +Z point naturally maps close to world-down, landing the
+     * tag right back near the visible (now-flipped) car -- exactly like SW. */
+    float Mrot[16];
+    car_model_matrix(Mrot, pose);
+    float fCX = pose->position.fX + fHitboxZ * Mrot[8];
+    float fCY = pose->position.fY + fHitboxZ * Mrot[9];
+    float fCZ_tag = pose->position.fZ + fHitboxZ * Mrot[10];
     float wX0, wY0, wZ0;
     if (!p) { wX0 = fCX; wY0 = fCY; wZ0 = fCZ_tag; }
     else {
