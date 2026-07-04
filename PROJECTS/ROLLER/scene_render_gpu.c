@@ -1028,7 +1028,7 @@ static SDL_GPUGraphicsPipeline *make_car_shadow_pipeline(SceneRendererGPU *r,
             .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
             .cull_mode  = SDL_GPU_CULLMODE_NONE,
             .enable_depth_bias          = true,
-            .depth_bias_constant_factor = -50.0f,
+            .depth_bias_constant_factor = -200.0f,
             .depth_bias_slope_factor    = -5.0f,
         },
         .target_info = {

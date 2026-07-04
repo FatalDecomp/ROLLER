@@ -589,11 +589,38 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             0, mesh->bodyIndexCount, mvp);
 
         /* Shadow: use physical pose (no camera lean offsets) so shadow corners
-         * stay exactly on the road surface (chunk-local Z=0).  adjPose tilts the
-         * quad slightly off-road, letting it pass depth-test through barriers. */
+         * stay exactly on the road surface.  adjPose tilts the quad slightly
+         * off-road, letting it pass depth-test through barriers.
+         *
+         * Rotation: rebuilt using YAW ONLY (pitch/roll dropped) so the quad's
+         * footprint doesn't rotate/mirror with the car's own roll (corkscrew
+         * sections, cars resting flipped) -- car_model_matrix's full rotation
+         * would otherwise flip the quad's in-plane spread at roll=180.
+         *
+         * Translation: pose->position.fZ is not a world height -- it is
+         * height above whichever point of the car is currently touching the
+         * ground, referenced from the car's hitbox origin.  For an upright
+         * car that's the hitbox BOTTOM (fZLow, index 0) and pose.fZ sits near
+         * 0.  For a car resting on its roof, physics keeps the same
+         * reference point but the touching surface is now the hitbox TOP
+         * (fHitboxTop, index 4) -- pose.fZ then reads ~ the car's full
+         * height (confirmed via logging: ~410 units while resting flipped,
+         * ~0 while grounded normally), which used to leak straight into the
+         * shadow's height and made it float up around wheel-level instead of
+         * sitting on the ground.  Selecting the offset by orientation cancels
+         * that out in both cases. */
         float M_phys[16];
         car_model_matrix(M_phys, pose);
-        M_phys[14] -= fZLow;
+        bool physInverted = (M_phys[10] < -0.1f);
+        {
+            static const float kToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
+            float CY = cosf((float)pose->yaw * kToRad), SY = sinf((float)pose->yaw * kToRad);
+            M_phys[0] =  CY; M_phys[1] = SY; M_phys[2] = 0.0f;
+            M_phys[4] = -SY; M_phys[5] = CY; M_phys[6] = 0.0f;
+            M_phys[8] = 0.0f; M_phys[9] = 0.0f; M_phys[10] = 1.0f;
+        }
+        float fHitboxTop = CarBox.hitboxAy[designIdx][4].fZ;
+        M_phys[14] -= physInverted ? fHitboxTop : fZLow;
         float Mcar_chunk_phys[16], shadowMvp[16];
         mat4_mul(Mcar_chunk_phys, Mc, M_phys);
         mat4_mul(shadowMvp, vp, Mcar_chunk_phys);
