@@ -816,11 +816,14 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
-    int bForceMaxDraw = (int)g_bForceMaxDraw;
-    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw)) {
-      g_bForceMaxDraw = (bool)bForceMaxDraw;
-      InputSaveConfig();
+    { char buf[16]; snprintf(buf, sizeof(buf), "Draw dist. %.0f%%", g_fDrawDistanceFraction * 100.0f);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+      nk_label(pCtx, buf, NK_TEXT_LEFT);
+      float fNewDrawDist = nk_slide_float(pCtx, 0.0f, g_fDrawDistanceFraction, 1.0f, 0.01f);
+      if (fNewDrawDist != g_fDrawDistanceFraction) {
+        g_fDrawDistanceFraction = fNewDrawDist;
+        InputSaveConfig();
+      }
     }
 
     int bNoCollisionLimit = (int)g_bNoCollisionLimit;

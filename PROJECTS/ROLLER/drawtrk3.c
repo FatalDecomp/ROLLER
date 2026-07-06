@@ -453,16 +453,27 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
     iHasExtraView = byExtraChunks;
   }
 
-  if (g_bForceMaxDraw && TRAK_LEN > 0) {
-    TrackSize = TRAK_LEN - 1;
-    iHasExtraView = 0;
-    iExtraViewStart = -1;
-    byExtraChunks = 0;
-    alltrackflag = -1;
+  // g_fDrawDistanceFraction: 0.0 = today's normal draw distance (below, unchanged),
+  // 1.0 = whole track (old "Infinite draw distance" checkbox, exact same effect
+  // as before). In between, linearly interpolate TrackSize toward the whole
+  // track without touching the extra-view/alltrackflag fields, which only
+  // make sense to force at the exact top of the range (matches SW: this is a
+  // shared draw-distance concept, not a GPU-only cull).
+  if (g_fDrawDistanceFraction > 0.0f && TRAK_LEN > 0) {
+    int maxTrackSize = TRAK_LEN - 1;
+    if (g_fDrawDistanceFraction >= 1.0f) {
+      TrackSize = maxTrackSize;
+      iHasExtraView = 0;
+      iExtraViewStart = -1;
+      byExtraChunks = 0;
+      alltrackflag = -1;
+    } else if (maxTrackSize > TrackSize) {
+      TrackSize += (int)(g_fDrawDistanceFraction * (float)(maxTrackSize - TrackSize));
+    }
   }
 
   // Apply view distance limits for certain game modes
-  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode && !g_bForceMaxDraw) {
+  if ((view_limit || player_type == 2) && replaytype != 2 && !winner_mode && g_fDrawDistanceFraction <= 0.0f) {
     iHasExtraView = 0;
     iExtraViewStart = -1;
     if (player_type == 2) {
@@ -2606,7 +2617,7 @@ LABEL_393:
               pCarPose = &pose;
               pCarOptions = &options;
             }
-            if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_bForceMaxDraw)
+            if (CarsLeft < 7 && CarsLeft > -3 || winner_mode || replaytype == 2 || g_fDrawDistanceFraction >= 1.0f)
               game_render_draw_car(g_pGameRenderer, iCarRenderIdx, pCarPose, pCarOptions);
             --CarsLeft;
             if (names_on && (names_on == 1 || human_control[iCarRenderIdx]))

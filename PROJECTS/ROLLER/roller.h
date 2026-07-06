@@ -11,7 +11,7 @@
 
 extern SDL_Mutex *g_pDigiMutex;
 extern bool g_bPaletteSet;
-extern bool g_bForceMaxDraw;
+extern float g_fDrawDistanceFraction; /* 0.0 = normal draw distance, 1.0 = whole track (old "Infinite draw distance" checkbox) */
 extern bool g_bNoCollisionLimit;
 extern bool g_bAirborneCollisions;
 extern bool g_bAINoCheatStart;

@@ -3518,13 +3518,14 @@ static void surface_uv_log(const char *type, int texId, int surfIdx, int surface
 /* Cheap frustum cull: true if all 4 vertices are behind the camera, or all 4
  * fall outside the same side of the horizontal/vertical view cone.
  *
- * DrawTrack3 (drawtrk3.c, shared SW/GPU code, not modified here) decides
- * which track chunks to queue based on a CPU-side chunk-count window -- with
- * "Infinite draw distance" (g_bForceMaxDraw) that window becomes the ENTIRE
- * track (TrackSize = TRAK_LEN-1) instead of the normal ~24-48 local chunks.
- * Every polygon DrawTrack3 decides to queue reaches this function and, until
- * now, got the full GPU treatment (texture resolution, UV setup, vertex
- * generation, draw-command creation) regardless of whether it was actually
+ * DrawTrack3 (drawtrk3.c, shared SW/GPU code) decides which track chunks to
+ * queue based on a CPU-side chunk-count window -- with "Draw distance"
+ * (g_fDrawDistanceFraction, a 0.0-1.0 slider; 1.0 = old "Infinite draw
+ * distance" checkbox) turned up, that window grows toward the ENTIRE track
+ * (TrackSize approaching TRAK_LEN-1) instead of the normal ~24-48 local
+ * chunks. Every polygon DrawTrack3 decides to queue reaches this function
+ * and, until now, got the full GPU treatment (texture resolution, UV setup,
+ * vertex generation, draw-command creation) regardless of whether it was actually
  * on screen. On a curving/looping track most of those extra chunks are
  * geometrically behind the camera or off to the side, not visible -- so
  * culling them here, before any of that downstream work, recovers most of
