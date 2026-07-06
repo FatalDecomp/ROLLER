@@ -6,6 +6,7 @@
 #include "3d.h"
 #include "roller.h"
 #include "debug_overlay.h"
+#include "scene_render_gpu.h" /* scene_render_gpu_upload_rgba/_buffer */
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -383,92 +384,6 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
     }
 }
 
-//---------------------------------------------------------------------------
-// Asset upload helper
-//---------------------------------------------------------------------------
-
-static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, int h)
-{
-    if (!dev || !rgba || w <= 0 || h <= 0)
-        return NULL;
-
-    SDL_GPUTextureCreateInfo ti = {0};
-    ti.type = SDL_GPU_TEXTURETYPE_2D;
-    ti.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ti.width = w; ti.height = h;
-    ti.layer_count_or_depth = 1; ti.num_levels = 1;
-    ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    SDL_GPUTexture *tex = SDL_CreateGPUTexture(dev, &ti);
-    if (!tex) return NULL;
-
-    SDL_GPUTransferBufferCreateInfo tbi = {0};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size = w * h * 4;
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    memcpy(m, rgba, w * h * 4);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    SDL_GPUTextureTransferInfo src = { .transfer_buffer = tb };
-    SDL_GPUTextureRegion dst = { .texture = tex, .w = w, .h = h, .d = 1 };
-    SDL_UploadToGPUTexture(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
-        SDL_ReleaseGPUTexture(dev, tex);
-        return NULL;
-    }
-
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return tex;
-}
-
-static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
-                                       const void *data, Uint32 size)
-{
-    if (!dev || !data || size == 0)
-        return NULL;
-
-    SDL_GPUBufferCreateInfo bi = {0};
-    bi.usage = usage;
-    bi.size = size;
-    SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(dev, &bi);
-    if (!buf) return NULL;
-
-    SDL_GPUTransferBufferCreateInfo tbi = {0};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size = size;
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    memcpy(m, data, size);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    SDL_GPUTransferBufferLocation src = { .transfer_buffer = tb };
-    SDL_GPUBufferRegion dst = { .buffer = buf, .size = size };
-    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
-        SDL_ReleaseGPUBuffer(dev, buf);
-        return NULL;
-    }
-
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return buf;
-}
-
 // tColor field order: byR, byB, byG — read byG for green, byB for blue
 static void IndexedToRGBA(const uint8 *indexed, const tColor *pal, uint8 *rgba, int count)
 {
@@ -650,11 +565,11 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
 
     // 1x1 black texture for fade overlay
     uint8 blackPixel[4] = {0, 0, 0, 255};
-    r->blackTexture = UploadRGBA(device, blackPixel, 1, 1);
+    r->blackTexture = scene_render_gpu_upload_rgba(device, blackPixel, 1, 1, false);
 
     // 1x1 white texture for flat-colored meshes (track map)
     uint8 whitePixel[4] = {255, 255, 255, 255};
-    r->whiteTexture = UploadRGBA(device, whitePixel, 1, 1);
+    r->whiteTexture = scene_render_gpu_upload_rgba(device, whitePixel, 1, 1, false);
 
     r->loadedCarIdx = -1;
 
@@ -816,7 +731,7 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         uint8 *rgba = calloc(MENU_WIDTH * MENU_HEIGHT, 4);
         if (!rgba) return 0;
         IndexedToRGBA((uint8 *)blocks, pal, rgba, pixCount);
-        r->backgroundTextures[slot] = UploadRGBA(r->device, rgba, MENU_WIDTH, MENU_HEIGHT);
+        r->backgroundTextures[slot] = scene_render_gpu_upload_rgba(r->device, rgba, MENU_WIDTH, MENU_HEIGHT, false);
         free(rgba);
         return r->backgroundTextures[slot] != NULL;
     }
@@ -843,7 +758,7 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         }
         if (pixCount > 0)
             IndexedToRGBA(src, pal, rgba, pixCount);
-        r->slotTextures[slot][i].texture = UploadRGBA(r->device, rgba, w, h);
+        r->slotTextures[slot][i].texture = scene_render_gpu_upload_rgba(r->device, rgba, w, h, false);
         r->slotTextures[slot][i].width = w;
         r->slotTextures[slot][i].height = h;
         free(rgba);
@@ -1185,7 +1100,7 @@ static SDL_GPUTexture *BuildCarTextureAtlas(MenuRendererGPU *r, int carIdx,
         rgba[off] = rgba[off + 1] = rgba[off + 2] = rgba[off + 3] = 255;
     }
 
-    SDL_GPUTexture *tex = UploadRGBA(r->device, rgba, atlasW, atlasH);
+    SDL_GPUTexture *tex = scene_render_gpu_upload_rgba(r->device, rgba, atlasW, atlasH, false);
     free(rgba);
 
     *outNumTiles = nTiles;
@@ -1503,9 +1418,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
     }
 
     if (idxCount > 0) {
-        r->carMesh.vertexBuffer = UploadGPUBuffer(r->device,
+        r->carMesh.vertexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
-        r->carMesh.indexBuffer = UploadGPUBuffer(r->device,
+        r->carMesh.indexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
         r->carMesh.texture = atlas ? atlas : r->whiteTexture;
         r->carMesh.indexCount = idxCount;
@@ -1719,9 +1634,9 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
     }
 
     if (idxCount > 0) {
-        r->trackMesh.vertexBuffer = UploadGPUBuffer(r->device,
+        r->trackMesh.vertexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
-        r->trackMesh.indexBuffer = UploadGPUBuffer(r->device,
+        r->trackMesh.indexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
         r->trackMesh.texture = r->whiteTexture;
         r->trackMesh.indexCount = idxCount;

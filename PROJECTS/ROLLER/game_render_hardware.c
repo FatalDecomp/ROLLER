@@ -74,77 +74,6 @@ static int s_tagScrY[GAME_RENDER_HW_MAX_VIEW_SLOTS][GAME_RENDER_HW_NUM_CARS] = {
 };
 
 /* ==========================================================================
- * Internal helpers (copies of upload_rgba / upload_gpu_buffer /
- * indexed_to_rgba from scene_render_gpu.c — kept static here).
- * ========================================================================== */
-
-static SDL_GPUTexture *hw_upload_rgba(SDL_GPUDevice *dev,
-                                      const uint8 *rgba, int w, int h)
-{
-    SDL_GPUTextureCreateInfo ti = {0};
-    ti.type        = SDL_GPU_TEXTURETYPE_2D;
-    ti.format      = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ti.width       = (Uint32)w;
-    ti.height      = (Uint32)h;
-    ti.layer_count_or_depth = 1;
-    ti.num_levels  = 1;
-    ti.usage       = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    SDL_GPUTexture *tex = SDL_CreateGPUTexture(dev, &ti);
-    if (!tex) return NULL;
-
-    Uint32 sz = (Uint32)(w * h * 4);
-    SDL_GPUTransferBufferCreateInfo tbi = {0};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size  = sz;
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    memcpy(m, rgba, sz);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTextureTransferInfo src = {.transfer_buffer = tb};
-    SDL_GPUTextureRegion dst = {.texture = tex, .w = (Uint32)w, .h = (Uint32)h, .d = 1};
-    SDL_UploadToGPUTexture(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return tex;
-}
-
-static SDL_GPUBuffer *hw_upload_gpu_buffer(SDL_GPUDevice *dev,
-                                            SDL_GPUBufferUsageFlags usage,
-                                            const void *data, Uint32 size)
-{
-    SDL_GPUBufferCreateInfo bi = {.usage = usage, .size = size};
-    SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(dev, &bi);
-    if (!buf) return NULL;
-
-    SDL_GPUTransferBufferCreateInfo tbi = {.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = size};
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    memcpy(m, data, size);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTransferBufferLocation srcloc = {.transfer_buffer = tb};
-    SDL_GPUBufferRegion dstreg = {.buffer = buf, .size = size};
-    SDL_UploadToGPUBuffer(cp, &srcloc, &dstreg, false);
-    SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return buf;
-}
-
-/* ==========================================================================
  * Car texture atlas
  * ========================================================================== */
 static SDL_GPUTexture *build_car_atlas(SDL_GPUDevice *dev, int carIdx,
@@ -185,7 +114,7 @@ static SDL_GPUTexture *build_car_atlas(SDL_GPUDevice *dev, int carIdx,
         rgba[off] = rgba[off+1] = rgba[off+2] = rgba[off+3] = 255;
     }
 
-    SDL_GPUTexture *tex = hw_upload_rgba(dev, rgba, atlasW, atlasH);
+    SDL_GPUTexture *tex = scene_render_gpu_upload_rgba(dev, rgba, atlasW, atlasH, false);
     free(rgba);
     if (outNumTiles) *outNumTiles = nTiles;
     if (outAtlasH)   *outAtlasH  = atlasH;
@@ -222,7 +151,7 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
 
     if (!out->atlas) {
         uint8 white[4] = {255, 255, 255, 255};
-        out->atlas = hw_upload_rgba(dev, white, 1, 1);
+        out->atlas = scene_render_gpu_upload_rgba(dev, white, 1, 1, false);
     }
     float whiteU = hasAtlas ? 0.5f / 256.0f : 0.5f;
     float whiteV = hasAtlas ? (atlasH - 0.5f) / fAtlasH : 0.5f;
@@ -428,11 +357,11 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
         indices[idxCount++] = (uint32)(shadowBase + 3);
     }
 
-    out->vertexBufs[animFrame] = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_VERTEX,
+    out->vertexBufs[animFrame] = scene_render_gpu_upload_buffer(dev, SDL_GPU_BUFFERUSAGE_VERTEX,
                                             vertices,
                                             (Uint32)(vertCount * (int)sizeof(GRHWMeshVertex)));
     if (animFrame == 0) {
-        out->indexBuf   = hw_upload_gpu_buffer(dev, SDL_GPU_BUFFERUSAGE_INDEX,
+        out->indexBuf   = scene_render_gpu_upload_buffer(dev, SDL_GPU_BUFFERUSAGE_INDEX,
                                             indices,
                                             (Uint32)(idxCount * (int)sizeof(uint32)));
         out->indexCount = idxCount;

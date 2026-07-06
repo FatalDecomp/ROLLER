@@ -20,6 +20,16 @@ SceneRendererGPU *scene_render_get_gpu(struct SceneRenderer *renderer);
 SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window);
 void              scene_render_gpu_destroy(SceneRendererGPU *r);
 
+/* Generic one-off GPU upload helpers -- not tied to any SceneRendererGPU
+ * instance (just take the device directly), shared by scene_render_gpu.c,
+ * game_render_hardware.c, and menu_render_gpu.c. Each acquires and submits
+ * its own dedicated command buffer synchronously, so they're for textures/
+ * buffers created once at init or on demand, NOT per-frame streaming data. */
+SDL_GPUTexture *scene_render_gpu_upload_rgba(SDL_GPUDevice *dev, const uint8 *rgba,
+                                              int w, int h, bool generateMipmaps);
+SDL_GPUBuffer  *scene_render_gpu_upload_buffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
+                                                const void *data, Uint32 size);
+
 void scene_render_gpu_begin_frame(SceneRendererGPU *r);
 void scene_render_gpu_end_frame(SceneRendererGPU *r);
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r);
