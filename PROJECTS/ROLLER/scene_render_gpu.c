@@ -109,7 +109,6 @@ typedef struct {
     int              vertexCount;
     SceneGPUDrawKind kind;
     bool             forceNearest;
-    float            mvp[16];
 } SceneGPUDrawCmd;
 
 typedef struct {
@@ -1878,6 +1877,11 @@ static int compare_draw_order(const void *pa, const void *pb)
     if (!draw_kind_is_order_sensitive(a->kind)) {
         uintptr_t ta = (uintptr_t)a->texture, tb = (uintptr_t)b->texture;
         if (ta != tb) return (ta < tb) ? -1 : 1;
+        /* draw_cmd_kind also rebinds when forceNearest changes (different
+         * sampler), so group by it too -- otherwise same-texture commands
+         * with mixed forceNearest can still alternate instead of grouping,
+         * causing avoidable rebinds within a texture run. */
+        if (a->forceNearest != b->forceNearest) return a->forceNearest ? 1 : -1;
     }
     return ia - ib; /* stable fallback: preserve original queue order */
 }
@@ -1899,8 +1903,15 @@ static void build_draw_order(SceneRendererGPU *r, int *order)
     qsort(order, (size_t)r->drawCmdCount, sizeof(int), compare_draw_order);
 }
 
+/* tsb2: optional second fragment sampler slot (e.g. the sign depth-copy
+ * pass's depth-copy texture, bound at slot 1) -- pass NULL for the common
+ * single-texture case. When non-NULL, tsb2's contents are assumed constant
+ * across the whole call (the caller sets it once beforehand) since only
+ * slot 0 (tsb) varies per draw command; this matches how the sign
+ * depth-copy pass already used a fixed slot-1 binding. */
 static void draw_cmd_kind(SceneRendererGPU *r, SDL_GPURenderPass *rp,
                           SDL_GPUTextureSamplerBinding *tsb,
+                          SDL_GPUTextureSamplerBinding *tsb2,
                           const int *order,
                           SceneGPUDrawKind kind_filter)
 {
@@ -1910,11 +1921,15 @@ static void draw_cmd_kind(SceneRendererGPU *r, SDL_GPURenderPass *rp,
     for (int oi = 0; oi < r->drawCmdCount; oi++) {
         SceneGPUDrawCmd *cmd = &r->drawCmds[order[oi]];
         if (cmd->kind != kind_filter) continue;
-        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
         if (!haveLast || cmd->texture != lastTex || cmd->forceNearest != lastForceNearest) {
             tsb->texture = cmd->texture;
             tsb->sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
-            SDL_BindGPUFragmentSamplers(rp, 0, tsb, 1);
+            if (tsb2) {
+                SDL_GPUTextureSamplerBinding combined[2] = { *tsb, *tsb2 };
+                SDL_BindGPUFragmentSamplers(rp, 0, combined, 2);
+            } else {
+                SDL_BindGPUFragmentSamplers(rp, 0, tsb, 1);
+            }
             lastTex = cmd->texture;
             lastForceNearest = cmd->forceNearest;
             haveLast = true;
@@ -2099,17 +2114,24 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     };
     SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
 
-    if (r->opaquePipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);     draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_OPAQUE); }
-    if (r->wallPipeline)       { SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);       draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_WALL); }
-    if (r->bfWallPipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);     draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BF_WALL); }
-    if (r->buildingPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);   draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BUILDING); }
-    if (r->bfBuildingPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline); draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BF_BUILDING); }
+    /* World-space quads (SceneGPUDrawCmd) share one VP (no per-object model
+     * matrix) for the whole view -- push it once instead of once per quad.
+     * Cars/car-shadows below push their own per-object MVP and are unaffected. */
+    float viewVP[16];
+    scene_render_gpu_build_vp(r, viewVP);
+    SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
+
+    if (r->opaquePipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);     draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_OPAQUE); }
+    if (r->wallPipeline)       { SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);       draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_WALL); }
+    if (r->bfWallPipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);     draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_WALL); }
+    if (r->buildingPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BUILDING); }
+    if (r->bfBuildingPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING); }
     /* Signs: always the simple bias-based pipeline here (no depth-copy split) --
      * an acceptable simplification for this secondary, lower-detail view. */
-    if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_SIGN); }
-    if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_SIGN_BK); }
-    if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_TREE); }
-    if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BLEND); }
+    if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN); }
+    if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK); }
+    if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE); }
+    if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND); }
 
     if (r->carDrawCount > 0 && r->carPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->carPipeline);
@@ -2150,11 +2172,14 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     if (r->shadowPipeline && r->drawCmdCount > 0) {
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
         SDL_BindGPUGraphicsPipeline(rp, r->shadowPipeline);
+        /* Cars/car-shadows above pushed their own per-object MVP into the same
+         * uniform slot -- re-push the shared view VP before resuming
+         * SceneGPUDrawCmd (no per-object matrix) draws. */
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
         SDL_GPUTextureSamplerBinding stsb = {.texture = NULL, .sampler = r->sampler};
         for (int i = 0; i < r->drawCmdCount; i++) {
             SceneGPUDrawCmd *cmd = &r->drawCmds[i];
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
@@ -2529,6 +2554,13 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     };
     SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
 
+    /* World-space quads (SceneGPUDrawCmd) share one VP (no per-object model
+     * matrix) for the whole view -- push it once instead of once per quad.
+     * Cars/car-shadows below push their own per-object MVP and are unaffected. */
+    float viewVP[16];
+    scene_render_gpu_build_vp(r, viewVP);
+    SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
+
     /* Draw order: OPAQUE → WALL → BUILDING → SIGN
      * Opaque and wall establish the depth buffer for solid track geometry.
      * Building polygons follow (LESS_OR_EQUAL + small bias for coplanar decals).
@@ -2537,23 +2569,23 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
      * still pass, while signs behind opaque geometry are correctly rejected. */
     if (r->opaquePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_OPAQUE);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_OPAQUE);
     }
     if (r->wallPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_WALL);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_WALL);
     }
     if (r->bfWallPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BF_WALL);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_WALL);
     }
     if (r->buildingPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BUILDING);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BUILDING);
     }
     if (r->bfBuildingPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BF_BUILDING);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING);
     }
     /* Sign rendering: non-MSAA uses depth-copy pass split so signs behind canyon walls
      * are correctly hidden; MSAA falls back to the old bias-based pipeline. */
@@ -2581,49 +2613,41 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_SetGPUViewport(rp, &vp);
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
         SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
 
-        /* Each sign draw binds slot 0 (scene tex) + slot 1 (depth copy). */
-        SDL_GPUTextureSamplerBinding signTsb[2];
-        signTsb[1].texture = r->signDepthCopyTex;
-        signTsb[1].sampler = r->samplerNearest;
+        /* Each sign draw binds slot 0 (scene tex, varies per command) + slot 1
+         * (depth copy, constant for the whole pass). Slot 1 is set once here;
+         * draw_cmd_kind takes care of slot 0 (including skipping redundant
+         * rebinds) and now also benefits from the same sorted draw order as
+         * every other kind, instead of the raw unsorted queue order this
+         * used before. */
+        SDL_GPUTextureSamplerBinding signTsbSlot0 = {0};
+        SDL_GPUTextureSamplerBinding signTsbSlot1 = {
+            .texture = r->signDepthCopyTex,
+            .sampler = r->samplerNearest
+        };
 
         SDL_BindGPUGraphicsPipeline(rp, r->signDepthPipeline);
-        for (int i = 0; i < r->drawCmdCount; i++) {
-            SceneGPUDrawCmd *cmd = &r->drawCmds[i];
-            if (cmd->kind != SCENE_GPU_DRAW_SIGN) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
-            signTsb[0].texture = cmd->texture;
-            signTsb[0].sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
-            SDL_BindGPUFragmentSamplers(rp, 0, signTsb, 2);
-            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
-        }
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN);
         SDL_BindGPUGraphicsPipeline(rp, r->signBkDepthPipeline);
-        for (int i = 0; i < r->drawCmdCount; i++) {
-            SceneGPUDrawCmd *cmd = &r->drawCmds[i];
-            if (cmd->kind != SCENE_GPU_DRAW_SIGN_BK) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
-            signTsb[0].texture = cmd->texture;
-            signTsb[0].sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
-            SDL_BindGPUFragmentSamplers(rp, 0, signTsb, 2);
-            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
-        }
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
     } else {
         if (r->signPipeline) {
             SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
-            draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_SIGN);
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN);
         }
         if (r->signBkPipeline) {
             SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline);
-            draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
         }
     }
     if (r->treePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_TREE);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE);
     }
     if (r->blendPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
-        draw_cmd_kind(r, rp, &tsb, drawOrder, SCENE_GPU_DRAW_BLEND);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND);
     }
 
     if (r->carDrawCount > 0 && r->carPipeline) {
@@ -2669,11 +2693,14 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     if (r->shadowPipeline && r->drawCmdCount > 0) {
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
         SDL_BindGPUGraphicsPipeline(rp, r->shadowPipeline);
+        /* Cars/car-shadows above pushed their own per-object MVP into the same
+         * uniform slot -- re-push the shared view VP before resuming
+         * SceneGPUDrawCmd (no per-object matrix) draws. */
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
         SDL_GPUTextureSamplerBinding stsb = {.texture = NULL, .sampler = r->sampler};
         for (int i = 0; i < r->drawCmdCount; i++) {
             SceneGPUDrawCmd *cmd = &r->drawCmds[i];
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
@@ -4346,15 +4373,17 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         };
     }
 
-    float mvp[16];
-    int vpW = r->viewportW > 0 ? r->viewportW : 640;
-    int vpH = r->viewportH > 0 ? r->viewportH : 400;
-    build_mvp(mvp, &r->camera, &r->proj, vpW, vpH, r->fovMultiplier);
-
+    /* No per-quad MVP here: world-space quads use view+projection only (no
+     * per-object model matrix, vertices are already absolute world-space),
+     * which is identical for every quad in one view/frame -- it's pushed
+     * once per view instead (see scene_render_gpu_end_frame/
+     * scene_render_gpu_flush_secondary_view). This used to rebuild the full
+     * matrix and memcmp it against the last draw command on every single
+     * quad; both were redundant CPU work at typical (let alone unlimited)
+     * draw distances. */
     SceneGPUDrawCmd *last = r->drawCmdCount > 0 ? &r->drawCmds[r->drawCmdCount-1] : NULL;
     bool batch = last && last->texture == gpuTex && last->kind == kind
-              && last->forceNearest == isCloud
-              && memcmp(last->mvp, mvp, sizeof(mvp)) == 0;
+              && last->forceNearest == isCloud;
     if (batch) {
         last->vertexCount += 6;
     } else {
@@ -4366,7 +4395,6 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             .kind         = kind,
             .forceNearest = isCloud,
         };
-        memcpy(cmd->mvp, mvp, sizeof(mvp));
     }
     r->vertexCount += 6;
 }
