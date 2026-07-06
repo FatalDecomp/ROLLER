@@ -3515,6 +3515,69 @@ static void surface_uv_log(const char *type, int texId, int surfIdx, int surface
     }
 }
 
+/* Cheap frustum cull: true if all 4 vertices are behind the camera, or all 4
+ * fall outside the same side of the horizontal/vertical view cone.
+ *
+ * DrawTrack3 (drawtrk3.c, shared SW/GPU code, not modified here) decides
+ * which track chunks to queue based on a CPU-side chunk-count window -- with
+ * "Infinite draw distance" (g_bForceMaxDraw) that window becomes the ENTIRE
+ * track (TrackSize = TRAK_LEN-1) instead of the normal ~24-48 local chunks.
+ * Every polygon DrawTrack3 decides to queue reaches this function and, until
+ * now, got the full GPU treatment (texture resolution, UV setup, vertex
+ * generation, draw-command creation) regardless of whether it was actually
+ * on screen. On a curving/looping track most of those extra chunks are
+ * geometrically behind the camera or off to the side, not visible -- so
+ * culling them here, before any of that downstream work, recovers most of
+ * the lost performance from turning on unlimited draw distance (SW never
+ * needed this: its scanline rasterizer implicitly discards off-screen spans
+ * as part of drawing).
+ *
+ * Uses a generous NDC margin (actual clip range is +-1) so nothing visible,
+ * or close to the screen edge, is ever culled -- under-culling is safe,
+ * over-culling causes visible pop-in. Mixed quads (straddling the camera
+ * plane) skip the side/FOV test entirely and are let through: they're close
+ * to the camera and cheap regardless, and dividing by a near-zero/negative
+ * depth for a behind-camera vertex would give a meaningless projection. */
+static bool scene_render_gpu_quad_frustum_culled(const SceneRendererGPU *r,
+                                                  const SceneRenderVertex verts[4])
+{
+    float fwd_x = r->proj.view[0][2], fwd_y = r->proj.view[1][2], fwd_z = r->proj.view[2][2];
+    float cx = r->camera.viewX, cy = r->camera.viewY, cz = r->camera.viewZ;
+
+    float depth[4];
+    bool anyInFront = false;
+    for (int k = 0; k < 4; k++) {
+        depth[k] = fwd_x*(verts[k].x-cx) + fwd_y*(verts[k].y-cy) + fwd_z*(verts[k].z-cz);
+        if (depth[k] > 0.0f) anyInFront = true;
+    }
+    if (!anyInFront) return true;  /* entirely behind camera */
+    for (int k = 0; k < 4; k++)
+        if (depth[k] <= 0.0f) return false;  /* straddles camera plane -- let through */
+
+    float right_x = r->proj.view[0][0], right_y = r->proj.view[1][0], right_z = r->proj.view[2][0];
+    float up_x    = r->proj.view[0][1], up_y    = r->proj.view[1][1], up_z    = r->proj.view[2][1];
+    int   vpW = r->viewportW > 0 ? r->viewportW : 640;
+    int   vpH = r->viewportH > 0 ? r->viewportH : 400;
+    float ss   = (float)r->proj.screenScale / 64.0f;
+    float fovX = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpW;
+    float fovY = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpH;
+
+    const float kNdcMargin = 3.0f;
+    bool allLeft = true, allRight = true, allAbove = true, allBelow = true;
+    for (int k = 0; k < 4; k++) {
+        float dx = verts[k].x-cx, dy = verts[k].y-cy, dz = verts[k].z-cz;
+        float viewX = right_x*dx + right_y*dy + right_z*dz;
+        float viewY = up_x*dx    + up_y*dy    + up_z*dz;
+        float ndcX = fovX * viewX / depth[k];
+        float ndcY = fovY * viewY / depth[k];
+        if (ndcX > -kNdcMargin) allLeft  = false;
+        if (ndcX <  kNdcMargin) allRight = false;
+        if (ndcY > -kNdcMargin) allAbove = false;
+        if (ndcY <  kNdcMargin) allBelow = false;
+    }
+    return allLeft || allRight || allAbove || allBelow;
+}
+
 /* --------------------------------------------------------------------------
  * World quad drawing
  *
@@ -3531,6 +3594,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     if (surfaceFlags & SURFACE_FLAG_SKIP_RENDER) return;
     if (r->vertexCount + 6 > SCENE_GPU_MAX_VERTICES) return;
     if (r->drawCmdCount >= SCENE_GPU_MAX_DRAW_CMDS)  return;
+    if (scene_render_gpu_quad_frustum_culled(r, verts)) return;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
