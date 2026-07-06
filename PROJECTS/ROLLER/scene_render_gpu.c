@@ -1754,7 +1754,15 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
         }
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        /* cycle=true: this transfer buffer is reused for every secondary view
+         * flushed within the same frame (2-player: once per player, both
+         * sharing one not-yet-submitted command buffer). cycle=false let a
+         * later view's write clobber an earlier view's source bytes before
+         * the GPU had actually consumed the earlier copy, so the earlier
+         * view's sky quad rendered with the later view's polygon data --
+         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
+         * which already cycles correctly. */
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
         if (gvMapped) {
             memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
@@ -2144,7 +2152,15 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
         }
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        /* cycle=true: this transfer buffer is reused for every secondary view
+         * flushed within the same frame (2-player: once per player, both
+         * sharing one not-yet-submitted command buffer). cycle=false let a
+         * later view's write clobber an earlier view's source bytes before
+         * the GPU had actually consumed the earlier copy, so the earlier
+         * view's sky quad rendered with the later view's polygon data --
+         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
+         * which already cycles correctly. */
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
         if (gvMapped) {
             memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
