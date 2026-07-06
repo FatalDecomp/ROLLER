@@ -1778,6 +1778,44 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
         }
     }
 
+    /* ---- Real smoke/spray/firework particles: draw THIS view's own delta ----
+     * game_render_quad_screen queues real smoke (DisplayCarSmoke) and spray/
+     * firework particles (func2.c draw_smoke) into the same texParticle arrays
+     * used for the composite quad (see the comment above savedTexParticleVertCount).
+     * They're NOT drawn by the trimmed SEC_DRAW_CMD pass above, and were
+     * previously never drawn at all in a secondary view -- they'd survive the
+     * discard/restore below and get deferred all the way to the shared main
+     * end_frame pass, which targets the FULL screen, so their NDC coordinates
+     * (computed against THIS view's own half-height winw/winh at queue time)
+     * ended up wildly mis-scaled/positioned there. Fix: draw this view's own
+     * newly-queued ranges (from the saved snapshot to the current count) here,
+     * inside this view's own render pass -- same viewport (texW/texH) the NDC
+     * coordinates were actually computed against, and the same depth buffer
+     * the rest of this view's 3D geometry uses, so smoke correctly occludes
+     * behind scene geometry like it does in single-player. Do NOT touch
+     * anything before the snapshot (an earlier secondary view's still-pending
+     * composite quad) -- see [[project_gpu_backlog]]. */
+    int secOwnTexRangeStart  = savedTexParticleRangeCount;
+    bool drawSecTexParticles = (r->texParticleRangeCount > secOwnTexRangeStart
+                                && r->texParticlePipeline && r->texParticleVerts
+                                && r->texParticleVertBuf);
+    if (drawSecTexParticles) {
+        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, true);
+        if (tpm) {
+            memcpy(tpm, r->texParticleVerts,
+                   (size_t)r->texParticleVertCount * sizeof(SceneGPUTexParticleVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->texParticleVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation tpsrc = {.transfer_buffer = r->texParticleVertXfer};
+            SDL_GPUBufferRegion tpdst = {.buffer = r->texParticleVertBuf,
+                                         .size = (Uint32)(r->texParticleVertCount * (int)sizeof(SceneGPUTexParticleVertex))};
+            SDL_UploadToGPUBuffer(cp, &tpsrc, &tpdst, true);
+            SDL_EndGPUCopyPass(cp);
+        } else {
+            drawSecTexParticles = false;
+        }
+    }
+
     /* Flat particles (car name-tag triangle markers, car.c's own legacy SW
      * shadow screen-quad, and possibly other sources not yet identified --
      * game_render_quad_screen's TEXTURE_HANDLE_INVALID -> scene_render_gpu_
@@ -1792,7 +1830,9 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
      *      produces a full-width bar, still un-identified.
      * Needs a live-debugger investigation (dump each quad's screen-space
      * source/coordinates before assuming a fix) rather than another blind
-     * attempt; see [[project_gpu_mirror]]. Discarding both for now. */
+     * attempt; see [[project_gpu_mirror]]. Discarding both for now
+     * (unlike texParticles above, flat particles have no known-safe path
+     * drawn already, so there's no working precedent to extend). */
     r->particleVertCount = 0;
 
     /* ---- Clear colour (same logic as the main pass) ---- */
@@ -1943,6 +1983,27 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
+        }
+    }
+
+    /* Real smoke/spray/firework particles queued by THIS view's own draw_road()
+     * (see drawSecTexParticles above) -- draw only the new ranges, leaving an
+     * earlier secondary view's still-pending composite quad range untouched. */
+    if (drawSecTexParticles) {
+        SDL_BindGPUGraphicsPipeline(rp, r->texParticlePipeline);
+        SDL_GPUBufferBinding tpvbb = {.buffer = r->texParticleVertBuf};
+        SDL_BindGPUVertexBuffers(rp, 0, &tpvbb, 1);
+        for (int ri = secOwnTexRangeStart; ri < r->texParticleRangeCount; ri++) {
+            SDL_GPUTextureSamplerBinding tptsb = {
+                .texture = r->texParticleRanges[ri].tex,
+                .sampler = r->sampler
+            };
+            SDL_BindGPUFragmentSamplers(rp, 0, &tptsb, 1);
+            SDL_DrawGPUPrimitives(rp,
+                (Uint32)r->texParticleRanges[ri].count,
+                1,
+                (Uint32)r->texParticleRanges[ri].start,
+                0);
         }
     }
 
@@ -2195,12 +2256,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    /* ---- Textured particle vertex upload ---- */
+    /* ---- Textured particle vertex upload ----
+     * cycle=true: in 2-player mode, scene_render_gpu_flush_secondary_view()
+     * already wrote this same transfer buffer once per player earlier in this
+     * frame's still-unsubmitted command buffer (to draw each view's own real
+     * smoke) -- see the cycle=true comment on the sky vertex buffer above for
+     * why reusing the same memory without cycling corrupts an earlier,
+     * not-yet-GPU-consumed write. */
     bool drawTexParticles = (r->texParticleRangeCount > 0
                              && r->texParticlePipeline && r->texParticleVerts
                              && r->texParticleVertBuf);
     if (drawTexParticles) {
-        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, false);
+        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, true);
         if (tpm) {
             memcpy(tpm, r->texParticleVerts,
                    (size_t)r->texParticleVertCount * sizeof(SceneGPUTexParticleVertex));
