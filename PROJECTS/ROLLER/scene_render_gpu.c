@@ -2242,11 +2242,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    /* ---- Particle vertex upload ---- */
+    /* ---- Particle vertex upload ----
+     * cycle=true: not currently written more than once per frame (flat
+     * particles aren't drawn inside secondary-view render passes yet, see
+     * [[project_gpu_backlog]]), but matches every other shared per-frame
+     * transfer buffer in this file so this doesn't become a latent trap the
+     * moment that changes -- see the cycle=true comment on the sky vertex
+     * buffer for why an un-cycled shared buffer written more than once per
+     * frame corrupts an earlier, not-yet-GPU-consumed write. */
     bool drawParticles = (r->particleVertCount > 0
                           && r->particlePipeline && r->particleVerts && r->particleVertBuf);
     if (drawParticles) {
-        SceneGPUParticleVertex *pm = SDL_MapGPUTransferBuffer(r->device, r->particleVertXfer, false);
+        SceneGPUParticleVertex *pm = SDL_MapGPUTransferBuffer(r->device, r->particleVertXfer, true);
         if (pm) {
             memcpy(pm, r->particleVerts, (size_t)r->particleVertCount * sizeof(SceneGPUParticleVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->particleVertXfer);
