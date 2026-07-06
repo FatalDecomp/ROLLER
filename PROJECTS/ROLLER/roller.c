@@ -106,7 +106,7 @@ static int s_iGPUPresentSkipFrames = 0;
  * destroyed-mutex abort on the HWUI RenderThread). */
 static bool s_bGpuPresentDisabled = false;
 bool g_bPaletteSet = false;
-bool g_bForceMaxDraw = true;
+float g_fDrawDistanceFraction = 1.0f;
 bool g_bNoCollisionLimit = true;
 bool g_bAirborneCollisions = false;
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start

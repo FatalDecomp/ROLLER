@@ -2912,9 +2912,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
 
   if (InputStringEqualsNoCase(szName, "InfiniteDrawDistance") ||
       InputStringEqualsNoCase(szName, "ForceMaxDraw")) {
-    if (!InputParseBoolSetting(szValue, &bValue))
-      return 0;
-    g_bForceMaxDraw = bValue;
+    /* Was a bool (0/1) before this became a 0.0-1.0 fraction slider; atof
+     * parses old "0"/"1" values correctly as the new range's exact endpoints
+     * (0.0 = today's normal draw distance, 1.0 = today's whole-track/old
+     * "checked" behaviour), so old config files still load correctly. */
+    g_fDrawDistanceFraction = (float)atof(szValue);
+    if (g_fDrawDistanceFraction < 0.0f) g_fDrawDistanceFraction = 0.0f;
+    if (g_fDrawDistanceFraction > 1.0f) g_fDrawDistanceFraction = 1.0f;
     return 1;
   }
 
@@ -3415,7 +3419,7 @@ void InputSaveConfig(void)
   fprintf(fp, "InputVersion=2\n");
   fprintf(fp, "[Settings]\n");
   fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : MusicOPL ? "MIDI_OPL" : MusicOS ? "MIDI_OS" : "MIDI");
-  fprintf(fp, "InfiniteDrawDistance=%d\n", g_bForceMaxDraw ? 1 : 0);
+  fprintf(fp, "InfiniteDrawDistance=%.2f\n", g_fDrawDistanceFraction);
   fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
   fprintf(fp, "AirborneCollisions=%d\n", g_bAirborneCollisions ? 1 : 0);
   fprintf(fp, "AIAutomaticGears=%d\n", g_bAINoCheatStart ? 1 : 0);

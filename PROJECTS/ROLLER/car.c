@@ -638,7 +638,7 @@ void DrawCars(int iCarIdx, int iViewMode)
       fZ = pCar->pos.fZ;
       if (iCurrChunk_1 == -1)                 // Use last valid chunk if current chunk is invalid (-1)
         iCurrChunk = pCar->iLastValidChunk;
-      if (g_bForceMaxDraw) {
+      if (g_fDrawDistanceFraction >= 1.0f) {
         iVisibilityFlag = -1;
         goto LABEL_42;
       }
@@ -1135,7 +1135,7 @@ void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCa
   uiColorFrom = color_remap ? color_remap[0] : car_flat_remap[carDesignIndex].uiColorFrom;
   uiColorTo = color_remap ? color_remap[1] : car_flat_remap[carDesignIndex].uiColorTo;
   pAnms = CarDesigns[carDesignIndex].pAnms;
-  if ((!g_bForceMaxDraw && fDistanceToCar >= 8000.0 && VisibleCars >= 4) || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
+  if ((g_fDrawDistanceFraction < 1.0f && fDistanceToCar >= 8000.0 && VisibleCars >= 4) || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
     goto LABEL_117;                             // Early exit if car is too far, invisible, or textures disabled
   iChunk = pCar->nCurrChunk;
   if (iChunk == -1)
