@@ -146,6 +146,15 @@ void game_render_draw_2p_divider(GameRenderer *renderer,
                                  int frameW, int frameH,
                                  int dividerY, int dividerH);
 
+// Darkens the 3D scene behind the in-race pause/options menu, matching SW's
+// blankwindow()+shade-level-3 effect in func2.c's display_paused(). Call once
+// per frame while the pause overlay is active (game_req != 0), before or
+// after display_paused() -- ordering doesn't matter since this draws into the
+// 3D scene at NDC z=0 (always wins depth test) while the menu text still
+// goes through the separate HUD/scrbuf compositing pass drawn last.
+// In SW mode this is a no-op (SW already handles it).
+void game_render_draw_pause_darken(GameRenderer *renderer);
+
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,
                               int x, int y, int w, int h);

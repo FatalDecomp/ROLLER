@@ -335,6 +335,26 @@ void game_render_draw_2p_divider(GameRenderer *renderer,
     scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, 0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+// Full-screen translucent black quad, matching SW's in-race pause-menu darken
+// effect (blankwindow() + shade-level-3 palette remap in func2.c's
+// display_paused()) -- SW's mechanism remaps whatever's already in scrbuf in
+// place, which works there because scrbuf IS the rendered frame; in GPU mode
+// scrbuf is just a throwaway HUD-overlay canvas (memset every frame, real 3D
+// frame lives only on the GPU render target), so that trick is a no-op here.
+// This draws an explicit darken quad into the GPU scene instead. NDC z=0
+// always wins depth test (same trick as the 2P divider above), so it renders
+// over the whole 3D scene regardless of when in the frame it's queued, and
+// the HUD text pass (menu strings, drawn into scrbuf as usual) still
+// composites on top of this afterward. Call once per frame while the pause
+// overlay is active.
+void game_render_draw_pause_darken(GameRenderer *renderer) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    float ndcX[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    float ndcY[4] = { 1.0f,  1.0f, -1.0f, -1.0f };
+    scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
+    scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, 0.0f, 0.0f, 0.0f, 0.8f);
+}
+
 // Viewport
 
 void game_render_set_viewport(GameRenderer *renderer,
