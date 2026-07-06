@@ -3372,7 +3372,13 @@ int InputLoadConfig(void)
                                        uiCommunityTrackCRC != 0))
       CommunityRecordLoadForCurrentTrack();
   }
-#if defined(_WIN32)
+  /* Was Windows-only (paired with the SDL_WINDOW_HIDDEN flash-avoidance
+   * dance in roller.c's window creation, which relies on the early
+   * InputLoadStartupConfig() pre-parse) -- on other platforms the window
+   * is never hidden, so it's already visible, but the saved size still
+   * needs to be applied here or "Keep window size" silently does nothing
+   * on startup outside Windows. SDL_ShowWindow on an already-visible
+   * window is a harmless no-op. */
   {
     SDL_Window *pWin = ROLLERGetWindow();
     if (pWin) {
@@ -3383,7 +3389,6 @@ int InputLoadConfig(void)
       SDL_ShowWindow(pWin);
     }
   }
-#endif
   InputResolveAllBindings();
   return 1;
 }
