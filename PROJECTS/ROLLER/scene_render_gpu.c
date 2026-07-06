@@ -211,6 +211,7 @@ struct SceneRendererGPU {
     SDL_GPUTexture *flatColorCache[256];
     uint32_t        paletteCacheHash;
     SDL_GPUTexture *shadowTex;       /* 50%-transparent black for car shadow quads */
+    SDL_GPUTexture *darkenTex;       /* fully-opaque black for the pause-menu darken quad */
 
     /* Offscreen colour target rendered at native resolution, blitted to the
      * swapchain with letterbox/pillarbox scaling to fill the window. */
@@ -1360,6 +1361,18 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         r->shadowTex = upload_rgba(device, shadowRgba, 4, 4);
     }
 
+    {
+        /* Fully opaque (unlike shadowTex's baked-in 50%) so the tint alpha
+         * passed to scene_render_gpu_screen_quad_darken() is the actual
+         * final alpha, not multiplied against a second baked-in value. */
+        uint8 darkenRgba[4 * 4 * 4];
+        for (int i = 0; i < 16; i++) {
+            darkenRgba[i*4+0] = 0; darkenRgba[i*4+1] = 0;
+            darkenRgba[i*4+2] = 0; darkenRgba[i*4+3] = 255;
+        }
+        r->darkenTex = upload_rgba(device, darkenRgba, 4, 4);
+    }
+
     /* ---- Scene shaders + pipelines ---- */
     rebuild_scene_pipelines(r, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
     if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->bfBuildingPipeline || !r->signPipeline || !r->signBkPipeline || !r->signDepthPipeline || !r->signBkDepthPipeline || !r->treePipeline || !r->wallPipeline || !r->bfWallPipeline || !r->shadowPipeline || !r->skyPipeline) goto fail;
@@ -1507,6 +1520,7 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
             SDL_ReleaseGPUTexture(r->device, r->flatColorCache[i]);
     }
     if (r->shadowTex)     SDL_ReleaseGPUTexture(r->device, r->shadowTex);
+    if (r->darkenTex)     SDL_ReleaseGPUTexture(r->device, r->darkenTex);
     if (r->offscreenTex)  SDL_ReleaseGPUTexture(r->device, r->offscreenTex);
     for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
         if (r->secondaryColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[i]);
@@ -1668,6 +1682,27 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
     r->texParticleRanges[ri].count       += 6;
     r->useParticleNdcZv = false;
     return true;
+}
+
+/* Full-screen translucent black quad for the in-race pause-menu darken
+ * effect (see [[project_gpu_backlog]]). Uses the textured-particle path
+ * (not scene_render_gpu_screen_quad_flat) deliberately: in 2-player mode,
+ * flat-particle quads draw as a whole batch BEFORE textured-particle quads
+ * in the same final render pass, regardless of queue order -- and each
+ * player's composited view (game_render_flush_player_view) is itself an
+ * OPAQUE textured-particle quad. A flat darken quad queued after both
+ * composites would still get drawn first and be completely painted over by
+ * them. Routing through the textured path instead means this quad's
+ * position in texParticleRanges (and therefore its draw order) matches
+ * when it was actually queued, so calling this after both players' views
+ * have been composited correctly draws it on top of both halves. */
+bool scene_render_gpu_screen_quad_darken(SceneRendererGPU *r, float alpha)
+{
+    if (!r || !r->darkenTex) return false;
+    float ndcX[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    float ndcY[4] = { 1.0f,  1.0f, -1.0f, -1.0f };
+    return scene_render_gpu_screen_quad_textured(r, ndcX, ndcY, r->darkenTex,
+                                                  1.0f, 1.0f, 1.0f, alpha);
 }
 
 /* Call before a secondary view's own draw_road() runs (i.e. before any of

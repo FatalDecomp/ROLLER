@@ -161,6 +161,12 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
                                            SDL_GPUTexture *tex,
                                            float cr, float cg, float cb, float ca);
 
+/* Full-screen translucent black quad for the in-race pause-menu darken
+ * effect. Deliberately routed through the textured-particle path rather
+ * than screen_quad_flat -- see the definition for why (2-player composite
+ * ordering). */
+bool scene_render_gpu_screen_quad_darken(SceneRendererGPU *r, float alpha);
+
 /* Queue a car mesh draw into the current frame (called by game_render_hardware.c). */
 void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
                                       SDL_GPUBuffer    *vertBuf,
