@@ -29,6 +29,8 @@ struct GameRenderer {
     SDL_GPUTexture *pendingMirrorTex; /* set by end_mirror_pass, consumed by composite_mirror_pass */
     bool splitScreen;   /* GPU mode only: SW quads also run, HUD pass covers left half */
     bool forceGpuLoad;  /* always upload textures to GPU even in SW mode (set for intro) */
+    int  activeViewSlot; /* which secondary-view slot (0=P1, 1=P2) is currently being
+                          * queued in 2-player mode -- see game_render_set_active_view_slot */
 };
 
 static TextureHandle game_render_texture_handle_from_index(int tex_idx) {
@@ -159,6 +161,10 @@ void game_render_begin_mirror_pass(GameRenderer *renderer, float scrSizeRatio) {
     if (!renderer || renderer->mode != GAME_RENDER_GPU) return;
     renderer->mirrorPass = true;
     if (renderer->gpu) {
+        /* Snapshot texParticle counts NOW, before the mirror's draw_road()
+         * queues anything (including real smoke/particles) -- see
+         * scene_render_gpu_secondary_view_will_queue's comment. */
+        scene_render_gpu_secondary_view_will_queue(renderer->gpu);
         /* See header comment: build_mvp's FOV/aspect is normalized by the
          * current GPU viewport size (defaults to 640x400 when never set,
          * which is the case throughout normal gameplay). The mirror's
@@ -181,7 +187,7 @@ void game_render_end_mirror_pass(GameRenderer *renderer, int texW, int texH) {
     renderer->mirrorPass = false;
     renderer->pendingMirrorTex = NULL;
     if (renderer->mode == GAME_RENDER_GPU && renderer->gpu) {
-        renderer->pendingMirrorTex = scene_render_gpu_flush_secondary_view(renderer->gpu, texW, texH);
+        renderer->pendingMirrorTex = scene_render_gpu_flush_secondary_view(renderer->gpu, 0, texW, texH);
         /* Restore the default (main-window) viewport for the main scene's
          * own queued draws that follow. */
         scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 0, 0);
@@ -238,6 +244,95 @@ void game_render_composite_mirror_pass(GameRenderer *renderer,
         ndcY[i] = 1.0f - py[i]/wh*2.0f;
     }
     scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+void game_render_flush_player_view(GameRenderer *renderer, int slot,
+                                   int texW, int texH,
+                                   int frameW, int frameH,
+                                   int screenX, int screenY,
+                                   int screenW, int screenH) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    SDL_GPUTexture *tex = scene_render_gpu_flush_secondary_view(renderer->gpu, slot, texW, texH);
+    if (!tex) return;
+    if (frameW <= 0 || frameH <= 0) return;
+
+    float ww = (float)frameW, wh = (float)frameH;
+    float l = (float)screenX, r = (float)(screenX + screenW);
+    float t = (float)screenY, b = (float)(screenY + screenH);
+    /* v0=top-right, v1=top-left, v2=bottom-left, v3=bottom-right (no flip,
+     * no border -- just a plain half-screen picture). */
+    float px[4] = { r, l, l, r };
+    float py[4] = { t, t, b, b };
+    float ndcX[4], ndcY[4];
+    for (int i = 0; i < 4; i++) {
+        ndcX[i] = px[i]/ww*2.0f - 1.0f;
+        ndcY[i] = 1.0f - py[i]/wh*2.0f;
+    }
+    scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
+    scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+void game_render_begin_2p_pass(GameRenderer *renderer) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    /* Unlike the mirror (where winw AND winh shrink together, preserving
+     * aspect -- see game_render_begin_mirror_pass), 2-player mode keeps winw
+     * at the FULL window width (XMAX) and only halves winh. scr_size is also
+     * halved (128->64 SVGA, 64->32 non-SVGA).
+     *
+     * build_mvp's fovX/fovY = 2*fovScale*ss/vpW(or H), where ss tracks the
+     * (already-halved) scr_size. Deriving the vpW/vpH that make this match
+     * SW's own screenX/Y = K*scr_size/winw(or h) ratio:
+     *   - height: winh AND scr_size both halve, so their ratio (and thus the
+     *     needed vpH) is exactly half the 640x400 baseline -> vpH = 200.
+     *   - width: winw is UNCHANGED but scr_size still halves, so the ratio
+     *     needed is HALF of single-player's own baseline ratio -> vpW must
+     *     stay at the FULL 640 baseline (not halved) so that dividing by the
+     *     halved ss produces half the single-player fovX (wider effective
+     *     horizontal FOV, matching the unchanged width).
+     * Halving both (320x200, an earlier attempt) made fovX 2x too large,
+     * visibly squishing/zooming the picture relative to SW. */
+    scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 640, 200);
+}
+
+void game_render_end_2p_pass(GameRenderer *renderer) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 0, 0);
+}
+
+/* Call right before EACH player's own draw_road() in 2-player mode (not just
+ * once for both, unlike begin_2p_pass's viewport setup) -- see
+ * scene_render_gpu_secondary_view_will_queue's comment for why the timing
+ * must be this precise: each player's own scene (including real smoke/
+ * particles) needs its own "before" snapshot. */
+void game_render_secondary_view_will_queue(GameRenderer *renderer) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    scene_render_gpu_secondary_view_will_queue(renderer->gpu);
+}
+
+/* Call right before EACH player's own draw_road() in 2-player mode, alongside
+ * game_render_secondary_view_will_queue(). Lets per-car GPU state that's keyed
+ * only by carIdx (e.g. the name-tag scrY EMA) also key on which player's view
+ * is currently being queued, so drawing car X's tag in P1's view doesn't feed
+ * its smoothing off a value P2's view (a different camera entirely) wrote for
+ * the same carIdx moments earlier -- see [[project_car_name_tags]]. */
+void game_render_set_active_view_slot(GameRenderer *renderer, int slot) {
+    if (!renderer) return;
+    renderer->activeViewSlot = slot;
+}
+
+void game_render_draw_2p_divider(GameRenderer *renderer,
+                                 int frameW, int frameH,
+                                 int dividerY, int dividerH) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    if (frameW <= 0 || frameH <= 0) return;
+
+    float ww = (float)frameW, wh = (float)frameH;
+    float l = 0.0f, r = ww;
+    float t = (float)dividerY, b = (float)(dividerY + dividerH);
+    float ndcX[4] = { r/ww*2.0f-1.0f, l/ww*2.0f-1.0f, l/ww*2.0f-1.0f, r/ww*2.0f-1.0f };
+    float ndcY[4] = { 1.0f-t/wh*2.0f, 1.0f-t/wh*2.0f, 1.0f-b/wh*2.0f, 1.0f-b/wh*2.0f };
+    scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
+    scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, 0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 // Viewport
@@ -401,6 +496,29 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
     game_render_sw_quad_screen(renderer->sw, poly, swHandle, palette_remap);
 }
 
+/* Always routes through the SW rasterizer into screen_pointer (scrbuf),
+ * regardless of render mode -- for HUD-style screen overlays that don't need
+ * GPU depth-testing/occlusion (unlike real particles/smoke) and should
+ * composite via the HUD overlay buffer the same way car-name-tag text
+ * already does via mini_prt_string. Unlike game_render_quad_screen's GPU
+ * particle path (which needs to be captured inside each secondary view's own
+ * isolated render pass in split-screen modes -- see game_render_flush_player_
+ * view/game_render_composite_mirror_pass), a plain pixel write into scrbuf
+ * at the position screen_pointer already points to (set per-view by
+ * draw_road()) just works, since the whole buffer composites in one shared
+ * HUD pass regardless of how many 3D views share the frame. */
+void game_render_quad_screen_hud(GameRenderer *renderer, tPolyParams *poly,
+                                 TextureHandle handle,
+                                 const uint8 *palette_remap) {
+    if (!renderer)
+        return;
+    int tex_idx = game_render_texture_index_from_handle(handle);
+    TextureHandle swHandle = tex_idx >= 0
+        ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
+        : TEXTURE_HANDLE_INVALID;
+    game_render_sw_quad_screen(renderer->sw, poly, swHandle, palette_remap);
+}
+
 void game_render_quad_world(GameRenderer *renderer,
                             const GameRenderVertex *verts,
                             TextureHandle handle,
@@ -455,7 +573,7 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
             game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
         if (renderer->hw && renderer->gpu) {
             game_render_hw_draw_car(renderer->hw, renderer->gpu, carIdx, pose, options);
-            game_render_hw_draw_car_name_tag(carIdx, pose);
+            game_render_hw_draw_car_name_tag(carIdx, pose, renderer->activeViewSlot);
         }
         CarRenderPose sw_pose = { pose->position, pose->yaw, pose->pitch, pose->roll };
         DisplayCarSmoke(carIdx, &sw_pose);
@@ -575,6 +693,7 @@ void game_render_draw_sky(GameRenderer *renderer,
                 skyPoly[i][0] = skyPolyX[i];
                 skyPoly[i][1] = skyPolyY[i];
             }
+
             scene_render_gpu_set_horizon(renderer->gpu, groundColor, skyAnyGround,
                                          (const float (*)[2])skyPoly, skyPolyN);
         }

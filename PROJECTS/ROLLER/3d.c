@@ -2492,9 +2492,23 @@ LABEL_30:
     winh = YMAX / 2 - 2;
     if (clear_borders)
       memset(&scrbuf[winh * winw], 0, 4 * winw);
+    game_render_begin_2p_pass(g_pGameRenderer);
+    game_render_set_active_view_slot(g_pGameRenderer, 0);
+    game_render_secondary_view_will_queue(g_pGameRenderer);
     draw_road(scrbuf, ViewType[0], DriveView[0], -1, 0);// Draw player 1 view (top half)
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU)
+      game_render_flush_player_view(g_pGameRenderer, 0, winw, winh, XMAX, YMAX,
+                                     0, 0, winw, winh);
     shown_panel = 0;
+    game_render_set_active_view_slot(g_pGameRenderer, 1);
+    game_render_secondary_view_will_queue(g_pGameRenderer);
     draw_road(&scrbuf[winw * (winh + 4)], ViewType[1], DriveView[1], -1, 1);// Draw player 2 view (bottom half)
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      game_render_flush_player_view(g_pGameRenderer, 1, winw, winh, XMAX, YMAX,
+                                     0, winh + 4, winw, winh);
+      game_render_draw_2p_divider(g_pGameRenderer, XMAX, YMAX, winh, 4);
+    }
+    game_render_end_2p_pass(g_pGameRenderer);
     time_shown = -1;
     if (SVGA_ON)
       scr_size = 128;
