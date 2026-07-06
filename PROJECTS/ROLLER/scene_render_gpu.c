@@ -77,6 +77,11 @@ typedef struct {
  * -------------------------------------------------------------------------- */
 #define SCENE_GPU_MAX_TILES_PER_SLOT 256
 
+/* Cap on SDL_GenerateMipmapsForGPUTexture calls per command buffer submit
+ * during texture load -- see the comment above the mipmap generation loop
+ * in scene_render_gpu_load_texture for why. */
+#define SCENE_GPU_MIPMAP_BATCH_SIZE 16
+
 typedef struct {
     SDL_GPUTexture *tileTextures[SCENE_GPU_MAX_TILES_PER_SLOT];
     /* pairTextures[n] = [tile n | tile n+1]; NULL when n is the last tile. */
@@ -3290,23 +3295,44 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     SDL_EndGPUCopyPass(cp);
-
-    /* Generate mipmaps for all uploaded textures (outside copy pass, same cmd). */
-    if (uploadOk && mip_level_count(tileSize, tileSize) > 1) {
-        for (int t = 0; t < numTiles; t++) {
-            if (s->tileTextures[t])         SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->tileTextures[t]);
-            if (s->particleTileTextures[t]) SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->particleTileTextures[t]);
-        }
-        for (int n = 0; n + 1 < numTiles; n++)
-            if (s->pairTextures[n]) SDL_GenerateMipmapsForGPUTexture(uploadCmd, s->pairTextures[n]);
-    }
-
     SDL_SubmitGPUCommandBuffer(uploadCmd);
     SDL_Log("tex_idx=%d tiles=%d uploadOk=%d err=%s",
         tex_idx, numTiles, uploadOk, uploadOk ? "ok" : SDL_GetError());
 
     for (int i = 0; i < nTbs; i++)
         SDL_ReleaseGPUTransferBuffer(r->device, tbs[i]);
+
+    /* Generate mipmaps in small batches, each its own command buffer submit,
+     * instead of every texture in the slot crammed into one submit. A single
+     * slot can have up to ~3*256 textures (tiles + particle tiles + pairs)
+     * needing mipmaps; before uploads were batched into one submit (commit
+     * 56287cd, "fix gpu overloading"), too many separate command buffer
+     * submits caused a blackout on Android. Cramming hundreds of
+     * SDL_GenerateMipmapsForGPUTexture calls into a SINGLE submit risks the
+     * same overload from the other direction -- see [[project_android_corruption]].
+     * Safe to submit these after uploadCmd above: GPU submits on one device
+     * queue execute in submission order, so the base-level pixel data is
+     * already resident by the time these run. */
+    if (uploadOk && mip_level_count(tileSize, tileSize) > 1) {
+        SDL_GPUTexture *mipTexs[SCENE_GPU_MAX_TILES_PER_SLOT * 3];
+        int nMipTexs = 0;
+        for (int t = 0; t < numTiles; t++) {
+            if (s->tileTextures[t])         mipTexs[nMipTexs++] = s->tileTextures[t];
+            if (s->particleTileTextures[t]) mipTexs[nMipTexs++] = s->particleTileTextures[t];
+        }
+        for (int n = 0; n + 1 < numTiles; n++)
+            if (s->pairTextures[n]) mipTexs[nMipTexs++] = s->pairTextures[n];
+
+        for (int i = 0; i < nMipTexs; i += SCENE_GPU_MIPMAP_BATCH_SIZE) {
+            SDL_GPUCommandBuffer *mipCmd = SDL_AcquireGPUCommandBuffer(r->device);
+            if (!mipCmd) break;
+            int batchEnd = i + SCENE_GPU_MIPMAP_BATCH_SIZE;
+            if (batchEnd > nMipTexs) batchEnd = nMipTexs;
+            for (int j = i; j < batchEnd; j++)
+                SDL_GenerateMipmapsForGPUTexture(mipCmd, mipTexs[j]);
+            SDL_SubmitGPUCommandBuffer(mipCmd);
+        }
+    }
 
     free(atlasRgba);
 
