@@ -179,17 +179,27 @@ void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
                                              int               idxCount,
                                              const float       mvp[16]);
 
+/* Call before a secondary view's own draw_road() runs -- see the struct-field
+ * comment in scene_render_gpu.c for why the timing matters (must be before
+ * that view's scene, including real smoke/particles, gets queued). */
+void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r);
+
 /* Render the queued scene draws (produced by calling the normal camera/
  * projection/draw_car/quad_world/etc. API with a secondary camera already
  * set) into a small dedicated offscreen colour target instead of the main
  * swapchain, then reset the shared per-frame draw-command/vertex state so
  * the NEXT queued scene (e.g. the main view, or another secondary view)
- * starts clean. Used by the rearview/side mirror; the same primitive is the
- * intended path for 2-player split-screen (one secondary view per extra
- * player) later.
+ * starts clean. Used by the rearview/side mirror (slot 0) and 2-player
+ * split screen (slot 0 = player 1, slot 1 = player 2).
+ * slot: which persistent offscreen texture to render into (0..
+ * SCENE_GPU_MAX_SECONDARY_VIEWS-1) -- each slot keeps its own texture so
+ * multiple secondary views can be composited later in the same frame
+ * without one flush overwriting another's not-yet-consumed texture.
  * texW/texH: desired render-target pixel size. Returns the resulting
- * texture (owned by the renderer, valid until the next call or destroy),
- * or NULL on failure. */
-SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int texW, int texH);
+ * texture (owned by the renderer, valid until the next call with this slot
+ * or destroy), or NULL on failure.
+ * Must be called after scene_render_gpu_secondary_view_will_queue() and
+ * that view's draw_road() have both already run. */
+SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int slot, int texW, int texH);
 
 #endif /* SCENE_RENDER_GPU_H */

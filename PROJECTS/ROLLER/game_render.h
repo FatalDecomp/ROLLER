@@ -92,6 +92,60 @@ void game_render_composite_mirror_pass(GameRenderer *renderer,
                                        int screenW, int screenH,
                                        bool flipH, int borderColorIdx);
 
+// 2-player split screen: each player's queued draws (game_render_draw_car/
+// quad_world/etc, called with that player's own camera/projection already
+// set via draw_road) render into their own offscreen slot instead of sharing
+// the single main draw queue -- which used to make both players' geometry
+// accumulate together and render overlapping -- then get composited into
+// their half of the frame as a plain (non-flipped, borderless) screen quad.
+// slot: 0 for player 1, 1 for player 2 (each keeps its own persistent
+// texture so flushing player 2 doesn't overwrite player 1's not-yet-
+// composited picture).
+// texW/texH: offscreen render-target pixel size (pass that player's own
+// winw/winh at the point their draw_road call ran).
+// frameW/frameH: the FULL output frame size (XMAX/YMAX), used to convert
+// screenX/Y/W/H into NDC -- NOT winw/winh, which in 2P mode are sized to a
+// single player's half rather than the full frame.
+// In SW mode this is a no-op (the existing SW path already handles 2P).
+void game_render_flush_player_view(GameRenderer *renderer, int slot,
+                                   int texW, int texH,
+                                   int frameW, int frameH,
+                                   int screenX, int screenY,
+                                   int screenW, int screenH);
+
+// Call once before both players' draw_road() calls and once after both
+// flush_player_view calls. Scales the GPU viewport the same way
+// begin/end_mirror_pass do (see that comment): 2-player mode halves scr_size
+// relative to single-player's default, so the FOV needs the same 640x400
+// baseline scaled by that same ratio while queuing each player's draws,
+// restored to the default afterward.
+void game_render_begin_2p_pass(GameRenderer *renderer);
+void game_render_end_2p_pass(GameRenderer *renderer);
+
+// Call right before EACH player's own draw_road() (not just once for both):
+// snapshots textured-particle state so the following flush_player_view call
+// can tell "this player's own scene" (including real smoke/explosions, which
+// must NOT leak into the final composited frame with wrong per-view screen
+// coordinates) apart from an earlier player's still-pending composite quad.
+void game_render_secondary_view_will_queue(GameRenderer *renderer);
+
+// Call right before EACH player's own draw_road(), alongside
+// game_render_secondary_view_will_queue(). slot: 0=P1, 1=P2. Lets per-car GPU
+// state keyed only by carIdx (e.g. the car name-tag scrY smoothing) also key
+// on which player's view is currently being queued.
+void game_render_set_active_view_slot(GameRenderer *renderer, int slot);
+
+// SW draws the divider between the two player views by clearing a few rows
+// of scrbuf directly; GPU mode's 3D content no longer comes from scrbuf (it's
+// composited from each player's own offscreen render), so that clear isn't
+// visible there -- draw an explicit flat black bar instead. Call after both
+// game_render_flush_player_view calls. frameW/frameH: XMAX/YMAX. dividerY/
+// dividerH: same rect SW clears (winh, 4).
+// In SW mode this is a no-op.
+void game_render_draw_2p_divider(GameRenderer *renderer,
+                                 int frameW, int frameH,
+                                 int dividerY, int dividerH);
+
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,
                               int x, int y, int w, int h);
@@ -134,6 +188,19 @@ void game_render_quad_screen(GameRenderer *renderer,
                       tPolyParams *poly,
                       TextureHandle handle,
                       const uint8 *palette_remap);
+
+// Always routes through the SW rasterizer into scrbuf (via screen_pointer),
+// regardless of render mode -- for HUD-style screen overlays that don't need
+// GPU depth-testing/occlusion (unlike game_render_quad_screen's particle
+// path) and should composite via the shared HUD overlay buffer the same way
+// car-name-tag text already does. Correctly handles split-screen modes with
+// no extra work, since it just writes pixels wherever screen_pointer already
+// points (set per-view by draw_road()) instead of needing to be captured
+// inside an isolated per-view GPU render pass.
+void game_render_quad_screen_hud(GameRenderer *renderer,
+                                 tPolyParams *poly,
+                                 TextureHandle handle,
+                                 const uint8 *palette_remap);
 
 // Set the clip-space depth (NDC Z in [0,1]) for the next game_render_quad_screen
 // call so GPU particles are depth-tested against scene geometry.

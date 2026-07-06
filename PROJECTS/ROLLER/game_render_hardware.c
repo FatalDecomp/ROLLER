@@ -62,9 +62,15 @@ struct GameRendererHardware {
     GRHWCarMesh    meshes[GAME_RENDER_HW_NUM_CARS];
 };
 
-/* Smoothed scrY for each car's name tag (EMA filter, -1 = uninitialised). */
-static int s_tagScrY[GAME_RENDER_HW_NUM_CARS] = {
-    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+/* Smoothed scrY for each car's name tag (EMA filter, -1 = uninitialised).
+ * Keyed by [viewSlot][carIdx]: in 2-player mode the same car's tag is drawn
+ * once per player's view (from that player's own camera), so a single
+ * carIdx-only array would blend two unrelated camera-relative computations
+ * together via the EMA -- see [[project_car_name_tags]]. */
+#define GAME_RENDER_HW_MAX_VIEW_SLOTS 2
+static int s_tagScrY[GAME_RENDER_HW_MAX_VIEW_SLOTS][GAME_RENDER_HW_NUM_CARS] = {
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 },
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }
 };
 
 /* ==========================================================================
@@ -723,16 +729,17 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
  * globals and projection formula. Must be called AFTER game_render_hw_draw_car
  * and BEFORE NamesLeft is decremented for this car.
  * ========================================================================== */
-void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
+void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose, int viewSlot)
 {
     if (!names_on) return;
     if (NamesLeft >= 5 || NamesLeft < -2) return;
     if (replaytype == 2) return;
     if (winner_mode) return;
     if (intro) return;
+    if (viewSlot < 0 || viewSlot >= GAME_RENDER_HW_MAX_VIEW_SLOTS) viewSlot = 0;
 
     tCar *pCar = &Car[carIdx];
-    if (pCar->byStatusFlags & 2) { s_tagScrY[carIdx] = -1; return; }
+    if (pCar->byStatusFlags & 2) { s_tagScrY[viewSlot][carIdx] = -1; return; }
     if (!(names_on == 1 || (names_on == 2 && human_control[pCar->iDriverIdx]))) return;
 
     int carDesignIndex = pCar->byCarDesignIdx;
@@ -756,8 +763,27 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
      * the car. Rotating by the car's own matrix instead means an inverted
      * car's local +Z point naturally maps close to world-down, landing the
      * tag right back near the visible (now-flipped) car -- exactly like SW. */
+    /* Same camera-lean/motion offsets game_render_hw_draw_car applies to the
+     * car body mesh (car.c:1111-1113) -- omitting them barely matters for a
+     * car far away, but the resulting rotation error scales with proximity,
+     * so a nearby car's tag visibly drifts from its actual position without
+     * this (confirmed: only noticeable for cars close to the camera, in
+     * either player's view in 2-player mode -- AI-only single-player rarely
+     * puts another car's tag this close in frame). */
+    GameRenderCarPose adjPose = *pose;
+    adjPose.yaw   = (pose->yaw
+                     + (int)(int16)Car[carIdx].iYawMotion) & 0x3FFF;
+    adjPose.pitch = (pose->pitch
+                     + Car[carIdx].iPitchCameraOffset
+                     + Car[carIdx].iPitchMotion
+                     + Car[carIdx].iPitchDynamicOffset) & 0x3FFF;
+    adjPose.roll  = (pose->roll
+                     + Car[carIdx].iRollCameraOffset
+                     + Car[carIdx].iRollMotion
+                     + Car[carIdx].iRollDynamicOffset) & 0x3FFF;
+
     float Mrot[16];
-    car_model_matrix(Mrot, pose);
+    car_model_matrix(Mrot, &adjPose);
     float fCX = pose->position.fX + fHitboxZ * Mrot[8];
     float fCY = pose->position.fY + fHitboxZ * Mrot[9];
     float fCZ_tag = pose->position.fZ + fHitboxZ * Mrot[10];
@@ -786,14 +812,14 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
     /* Smooth scrY with an EMA (K=4) to suppress residual 1/z noise.  Reset
      * instantly on large deltas (car first appearing, large jump). */
     {
-        int prev = s_tagScrY[carIdx];
+        int prev = s_tagScrY[viewSlot][carIdx];
         int delta = (prev < 0) ? (winh + 1) : (scrY - prev);
         if (delta < 0) delta = -delta;
         if (prev < 0 || delta > winh / 4)
-            s_tagScrY[carIdx] = scrY;
+            s_tagScrY[viewSlot][carIdx] = scrY;
         else
-            s_tagScrY[carIdx] = (3 * prev + scrY + 2) / 4;
-        scrY = s_tagScrY[carIdx];
+            s_tagScrY[viewSlot][carIdx] = (3 * prev + scrY + 2) / 4;
+        scrY = s_tagScrY[viewSlot][carIdx];
     }
 
     /* Build label string: "NAME (POS)". */
@@ -823,14 +849,19 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose)
         mini_prt_string(rev_vga[0], tagLabel, iDisplayX, iDisplayY);
     scr_size = iPrevScrSize;
 
-    /* Coloured downward-pointing triangle above car. */
+    /* Coloured downward-pointing triangle above car.
+     * Uses the HUD-overlay path (SW rasterizer into scrbuf), not the regular
+     * GPU particle path: this is a HUD-style marker, not a real depth-tested
+     * particle, and drawing it as a scrbuf pixel write lets it composite
+     * correctly in split-screen modes (2-player) the same way the text above
+     * already does, with no per-view GPU render pass capture needed. */
     CarPol.vertices[0].x = scrX + 6;  CarPol.vertices[0].y = scrY - 7;
     CarPol.vertices[1].x = scrX - 5;  CarPol.vertices[1].y = scrY - 7;
     CarPol.vertices[2].x = scrX;      CarPol.vertices[2].y = scrY - 1;
     CarPol.vertices[3].x = scrX + 6;  CarPol.vertices[3].y = scrY - 7;
     CarPol.iSurfaceType = team_col[carDesignIndex];
     CarPol.uiNumVerts = 4;
-    game_render_quad_screen(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+    game_render_quad_screen_hud(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
 }
 
 void game_render_hw_draw_fps_overlay(void)
@@ -867,6 +898,16 @@ void game_render_hw_draw_fps_overlay(void)
         case 3: x = margin;               y = winh - textH - margin;     break;
         case 4: x = winw - textW - margin; y = winh - textH - margin;    break;
     }
+
+    /* In 2-player split screen this runs after winw/winh are restored to the
+     * FULL window size, so all four corners land inside one player's own
+     * half at exactly the corner their own per-half HUD (lap list/current
+     * lap top corners, minimap/speed-gear bottom corners) already occupies.
+     * Every corner collides with something, so keep the requested top/bottom
+     * choice but force horizontal centering, which every per-half HUD
+     * element leaves clear. */
+    if (player_type == 2)
+        x = (winw - textW) / 2;
 
     if (x < 0 || y < 0 || x + textW > winw || y + textH > winh) return;
 

@@ -31,6 +31,7 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
+#define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1 */
 /* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
 /* --------------------------------------------------------------------------
@@ -211,15 +212,29 @@ struct SceneRendererGPU {
     SDL_GPUTexture *offscreenTex;
     int             offscreenW, offscreenH;
 
-    /* Secondary offscreen view: lets a second camera's queued draws (produced
+    /* Secondary offscreen views: let another camera's queued draws (produced
      * via the normal camera/projection/draw_car/quad_world API) render to
      * their own small target instead of the main swapchain, then get reset
-     * so the next queued scene starts clean. Used by the rearview/side
-     * mirror; the same primitive is the intended path for 2-player split
-     * screen (one secondary view per extra player) later. */
-    SDL_GPUTexture *secondaryColorTex;
-    SDL_GPUTexture *secondaryDepthTex;
-    int             secondaryTexW, secondaryTexH;
+     * so the next queued scene starts clean. Indexed by slot so multiple
+     * secondary views can coexist within one frame without one flush's
+     * render pass overwriting another's texture before it's composited --
+     * used by the rearview/side mirror (slot 0 only) and 2-player split
+     * screen (slot 0 = player 1, slot 1 = player 2). */
+    SDL_GPUTexture *secondaryColorTex[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    SDL_GPUTexture *secondaryDepthTex[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    int             secondaryTexW[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    int             secondaryTexH[SCENE_GPU_MAX_SECONDARY_VIEWS];
+
+    /* texParticle (textured particle / smoke) counts snapshotted BEFORE a
+     * secondary view's draw_road() call queues anything, via
+     * scene_render_gpu_secondary_view_will_queue() -- consumed by the next
+     * scene_render_gpu_flush_secondary_view() call to discard exactly what
+     * that view's own scene contributed (real smoke, which isn't drawn by
+     * the trimmed secondary pass) while preserving whatever an EARLIER
+     * view's composite quad already added. Taking this snapshot INSIDE the
+     * flush itself is too late -- draw_road() has already run by then. */
+    int secPreTexParticleVertCount;
+    int secPreTexParticleRangeCount;
 
     /* MSAA: separate multisample colour + depth targets.  The resolved result
      * lands in offscreenTex (or swapchainTex when offscreen isn't available). */
@@ -426,12 +441,12 @@ static void ensure_offscreen_texture(SceneRendererGPU *r, int w, int h)
     r->offscreenH   = h;
 }
 
-static void ensure_secondary_textures(SceneRendererGPU *r, int w, int h)
+static void ensure_secondary_textures(SceneRendererGPU *r, int slot, int w, int h)
 {
-    if (r->secondaryColorTex && r->secondaryTexW == w && r->secondaryTexH == h)
+    if (r->secondaryColorTex[slot] && r->secondaryTexW[slot] == w && r->secondaryTexH[slot] == h)
         return;
-    if (r->secondaryColorTex) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex);
-    if (r->secondaryDepthTex) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex);
+    if (r->secondaryColorTex[slot]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[slot]);
+    if (r->secondaryDepthTex[slot]) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex[slot]);
     SDL_GPUTextureCreateInfo ci = {
         .type   = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
@@ -439,7 +454,7 @@ static void ensure_secondary_textures(SceneRendererGPU *r, int w, int h)
         .layer_count_or_depth = 1, .num_levels = 1,
         .usage  = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
     };
-    r->secondaryColorTex = SDL_CreateGPUTexture(r->device, &ci);
+    r->secondaryColorTex[slot] = SDL_CreateGPUTexture(r->device, &ci);
     SDL_GPUTextureCreateInfo di = {
         .type   = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
@@ -447,9 +462,9 @@ static void ensure_secondary_textures(SceneRendererGPU *r, int w, int h)
         .layer_count_or_depth = 1, .num_levels = 1,
         .usage  = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
     };
-    r->secondaryDepthTex = SDL_CreateGPUTexture(r->device, &di);
-    r->secondaryTexW = w;
-    r->secondaryTexH = h;
+    r->secondaryDepthTex[slot] = SDL_CreateGPUTexture(r->device, &di);
+    r->secondaryTexW[slot] = w;
+    r->secondaryTexH[slot] = h;
 }
 
 static SDL_GPUSampleCount level_to_sample_count(int level)
@@ -1488,8 +1503,10 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     }
     if (r->shadowTex)     SDL_ReleaseGPUTexture(r->device, r->shadowTex);
     if (r->offscreenTex)  SDL_ReleaseGPUTexture(r->device, r->offscreenTex);
-    if (r->secondaryColorTex) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex);
-    if (r->secondaryDepthTex) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex);
+    for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
+        if (r->secondaryColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[i]);
+        if (r->secondaryDepthTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex[i]);
+    }
     if (r->depthTex)          SDL_ReleaseGPUTexture(r->device, r->depthTex);
     if (r->signDepthCopyTex)  SDL_ReleaseGPUTexture(r->device, r->signDepthCopyTex);
     if (r->msaaTex)           SDL_ReleaseGPUTexture(r->device, r->msaaTex);
@@ -1648,6 +1665,20 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
     return true;
 }
 
+/* Call before a secondary view's own draw_road() runs (i.e. before any of
+ * its scene content -- including real smoke/explosion particles, which use
+ * this same texParticle path -- gets queued). Snapshots the current
+ * texParticle counts so the next scene_render_gpu_flush_secondary_view()
+ * call can correctly discard only what THIS view's own draw_road()
+ * contributed, while still preserving an earlier secondary view's own
+ * composite quad (added by its caller after ITS flush already ran). */
+void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r)
+{
+    if (!r) return;
+    r->secPreTexParticleVertCount  = r->texParticleVertCount;
+    r->secPreTexParticleRangeCount = r->texParticleRangeCount;
+}
+
 /* Render whatever has been queued (via the normal camera/projection/draw_car/
  * quad_world API, called with a secondary camera already set) into a small
  * dedicated offscreen target instead of the main swapchain, then reset the
@@ -1660,17 +1691,38 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
  * for a small, lower-detail secondary view. Everything else (opaque/wall/
  * building/tree/blend geometry, cars, car shadows, road shadows, sky) is
  * drawn exactly as the main pass would. */
-SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int texW, int texH)
+SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int slot, int texW, int texH)
 {
-    if (!r || !r->cmdBuf) return NULL;
+      if (!r || !r->cmdBuf) return NULL;
+    if (slot < 0 || slot >= SCENE_GPU_MAX_SECONDARY_VIEWS) return NULL;
     if (texW < 1) texW = 1;
     if (texH < 1) texH = 1;
 
-    ensure_secondary_textures(r, texW, texH);
-    if (!r->secondaryColorTex || !r->secondaryDepthTex) {
+    /* texParticleVertCount/RangeCount are shared with the composite quad a
+     * caller queues right after THIS call returns (game_render_flush_player_
+     * view / game_render_composite_mirror_pass) -- and, when there are
+     * multiple secondary views in one frame (2-player split screen), an
+     * EARLIER view's caller may have already queued its own composite quad
+     * into these same arrays. This flush must only discard whatever ITS OWN
+     * scene (this slot's draw_road call) contributed -- e.g. real smoke/
+     * explosion particles, which use this same texParticle path and aren't
+     * drawn by the trimmed pass below -- not an earlier view's still-pending
+     * composite. The snapshot MUST be taken before draw_road() ran (via
+     * scene_render_gpu_secondary_view_will_queue(), called by the game_render
+     * begin_2p_pass/begin_mirror_pass callers) -- taking it here, now, would
+     * be too late: draw_road() has already queued this view's own smoke by
+     * the time this function runs. */
+    int savedTexParticleVertCount  = r->secPreTexParticleVertCount;
+    int savedTexParticleRangeCount = r->secPreTexParticleRangeCount;
+
+    ensure_secondary_textures(r, slot, texW, texH);
+    if (!r->secondaryColorTex[slot] || !r->secondaryDepthTex[slot]) {
         r->vertexCount = 0; r->drawCmdCount = 0;
         r->carDrawCount = 0; r->carShadowDrawCount = 0;
-        r->particleVertCount = 0; r->texParticleVertCount = 0; r->texParticleRangeCount = 0;
+        r->particleVertCount = 0;
+        r->texParticleVertCount = savedTexParticleVertCount;
+        r->texParticleRangeCount = savedTexParticleRangeCount;
+        r->groundColorIdx = -1;
         return NULL;
     }
 
@@ -1702,7 +1754,15 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int t
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
         }
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        /* cycle=true: this transfer buffer is reused for every secondary view
+         * flushed within the same frame (2-player: once per player, both
+         * sharing one not-yet-submitted command buffer). cycle=false let a
+         * later view's write clobber an earlier view's source bytes before
+         * the GPU had actually consumed the earlier copy, so the earlier
+         * view's sky quad rendered with the later view's polygon data --
+         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
+         * which already cycles correctly. */
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
         if (gvMapped) {
             memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
@@ -1717,6 +1777,63 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int t
             drawSky = false;
         }
     }
+
+    /* ---- Real smoke/spray/firework particles: draw THIS view's own delta ----
+     * game_render_quad_screen queues real smoke (DisplayCarSmoke) and spray/
+     * firework particles (func2.c draw_smoke) into the same texParticle arrays
+     * used for the composite quad (see the comment above savedTexParticleVertCount).
+     * They're NOT drawn by the trimmed SEC_DRAW_CMD pass above, and were
+     * previously never drawn at all in a secondary view -- they'd survive the
+     * discard/restore below and get deferred all the way to the shared main
+     * end_frame pass, which targets the FULL screen, so their NDC coordinates
+     * (computed against THIS view's own half-height winw/winh at queue time)
+     * ended up wildly mis-scaled/positioned there. Fix: draw this view's own
+     * newly-queued ranges (from the saved snapshot to the current count) here,
+     * inside this view's own render pass -- same viewport (texW/texH) the NDC
+     * coordinates were actually computed against, and the same depth buffer
+     * the rest of this view's 3D geometry uses, so smoke correctly occludes
+     * behind scene geometry like it does in single-player. Do NOT touch
+     * anything before the snapshot (an earlier secondary view's still-pending
+     * composite quad) -- see [[project_gpu_backlog]]. */
+    int secOwnTexRangeStart  = savedTexParticleRangeCount;
+    bool drawSecTexParticles = (r->texParticleRangeCount > secOwnTexRangeStart
+                                && r->texParticlePipeline && r->texParticleVerts
+                                && r->texParticleVertBuf);
+    if (drawSecTexParticles) {
+        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, true);
+        if (tpm) {
+            memcpy(tpm, r->texParticleVerts,
+                   (size_t)r->texParticleVertCount * sizeof(SceneGPUTexParticleVertex));
+            SDL_UnmapGPUTransferBuffer(r->device, r->texParticleVertXfer);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+            SDL_GPUTransferBufferLocation tpsrc = {.transfer_buffer = r->texParticleVertXfer};
+            SDL_GPUBufferRegion tpdst = {.buffer = r->texParticleVertBuf,
+                                         .size = (Uint32)(r->texParticleVertCount * (int)sizeof(SceneGPUTexParticleVertex))};
+            SDL_UploadToGPUBuffer(cp, &tpsrc, &tpdst, true);
+            SDL_EndGPUCopyPass(cp);
+        } else {
+            drawSecTexParticles = false;
+        }
+    }
+
+    /* Flat particles (car name-tag triangle markers, car.c's own legacy SW
+     * shadow screen-quad, and possibly other sources not yet identified --
+     * game_render_quad_screen's TEXTURE_HANDLE_INVALID -> scene_render_gpu_
+     * screen_quad_flat path has no per-source tag to filter on) are
+     * intentionally NOT drawn in this secondary-view pass. Two attempts so
+     * far both produced a stray black bar artifact:
+     *   1. Drawing all flat particles unconditionally.
+     *   2. Filtering to opaque-only (alpha>=0.99), assuming the bar was
+     *      car.c's transparent (alpha=0.5) legacy shadow quad -- it wasn't
+     *      only that; something else opaque (visible only for certain cars,
+     *      e.g. present for "Snake" but not "Player 2" in one test) also
+     *      produces a full-width bar, still un-identified.
+     * Needs a live-debugger investigation (dump each quad's screen-space
+     * source/coordinates before assuming a fix) rather than another blind
+     * attempt; see [[project_gpu_mirror]]. Discarding both for now
+     * (unlike texParticles above, flat particles have no known-safe path
+     * drawn already, so there's no working precedent to extend). */
+    r->particleVertCount = 0;
 
     /* ---- Clear colour (same logic as the main pass) ---- */
     float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
@@ -1737,13 +1854,13 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int t
     }
 
     SDL_GPUColorTargetInfo colorInfo = {
-        .texture     = r->secondaryColorTex,
+        .texture     = r->secondaryColorTex[slot],
         .load_op     = SDL_GPU_LOADOP_CLEAR,
         .store_op    = SDL_GPU_STOREOP_STORE,
         .clear_color = skyClear
     };
     SDL_GPUDepthStencilTargetInfo depthInfo = {
-        .texture     = r->secondaryDepthTex,
+        .texture     = r->secondaryDepthTex[slot],
         .load_op     = SDL_GPU_LOADOP_CLEAR,
         .store_op    = SDL_GPU_STOREOP_DONT_CARE,
         .clear_depth = 1.0f
@@ -1869,19 +1986,55 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int t
         }
     }
 
+    /* Real smoke/spray/firework particles queued by THIS view's own draw_road()
+     * (see drawSecTexParticles above) -- draw only the new ranges, leaving an
+     * earlier secondary view's still-pending composite quad range untouched. */
+    if (drawSecTexParticles) {
+        SDL_BindGPUGraphicsPipeline(rp, r->texParticlePipeline);
+        SDL_GPUBufferBinding tpvbb = {.buffer = r->texParticleVertBuf};
+        SDL_BindGPUVertexBuffers(rp, 0, &tpvbb, 1);
+        for (int ri = secOwnTexRangeStart; ri < r->texParticleRangeCount; ri++) {
+            SDL_GPUTextureSamplerBinding tptsb = {
+                .texture = r->texParticleRanges[ri].tex,
+                .sampler = r->sampler
+            };
+            SDL_BindGPUFragmentSamplers(rp, 0, &tptsb, 1);
+            SDL_DrawGPUPrimitives(rp,
+                (Uint32)r->texParticleRanges[ri].count,
+                1,
+                (Uint32)r->texParticleRanges[ri].start,
+                0);
+        }
+    }
+
     SDL_EndGPURenderPass(rp);
 
     /* Reset shared per-frame draw state so the next queued scene (main view,
-     * or another secondary view) starts clean. */
+     * or another secondary view) starts clean. Scene-input fields (vertex/
+     * draw-cmd/car arrays) are fully consumed by the render pass above, so
+     * they always reset to 0 -- flat particles too, discarded rather than
+     * drawn (see the comment above where particleVertCount is zeroed).
+     * texParticle fields restore to the snapshot taken at entry -- see the
+     * comment above it -- so an earlier secondary view's still-pending
+     * composite quad survives this flush. */
     r->vertexCount           = 0;
     r->drawCmdCount          = 0;
     r->carDrawCount           = 0;
     r->carShadowDrawCount     = 0;
     r->particleVertCount     = 0;
-    r->texParticleVertCount  = 0;
-    r->texParticleRangeCount = 0;
+    r->texParticleVertCount  = savedTexParticleVertCount;
+    r->texParticleRangeCount = savedTexParticleRangeCount;
+    /* Sky/horizon state is set once per draw_road() call via
+     * game_render_draw_sky() and otherwise never reset -- if left alone,
+     * the NEXT consumer of it (another secondary view, or -- worse -- the
+     * final main pass, which draws a sky quad/clear regardless of whether
+     * it has any of its own geometry queued) would draw this view's own
+     * horizon geometry again, in the wrong place. Disabling it here is
+     * enough: the main pass's `drawSky` check short-circuits on
+     * groundColorIdx < 0. */
+    r->groundColorIdx = -1;
 
-    return r->secondaryColorTex;
+    return r->secondaryColorTex[slot];
 }
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r)
@@ -2060,7 +2213,15 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
             gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
         }
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, false);
+        /* cycle=true: this transfer buffer is reused for every secondary view
+         * flushed within the same frame (2-player: once per player, both
+         * sharing one not-yet-submitted command buffer). cycle=false let a
+         * later view's write clobber an earlier view's source bytes before
+         * the GPU had actually consumed the earlier copy, so the earlier
+         * view's sky quad rendered with the later view's polygon data --
+         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
+         * which already cycles correctly. */
+        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
         if (gvMapped) {
             memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
@@ -2095,12 +2256,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    /* ---- Textured particle vertex upload ---- */
+    /* ---- Textured particle vertex upload ----
+     * cycle=true: in 2-player mode, scene_render_gpu_flush_secondary_view()
+     * already wrote this same transfer buffer once per player earlier in this
+     * frame's still-unsubmitted command buffer (to draw each view's own real
+     * smoke) -- see the cycle=true comment on the sky vertex buffer above for
+     * why reusing the same memory without cycling corrupts an earlier,
+     * not-yet-GPU-consumed write. */
     bool drawTexParticles = (r->texParticleRangeCount > 0
                              && r->texParticlePipeline && r->texParticleVerts
                              && r->texParticleVertBuf);
     if (drawTexParticles) {
-        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, false);
+        SceneGPUTexParticleVertex *tpm = SDL_MapGPUTransferBuffer(r->device, r->texParticleVertXfer, true);
         if (tpm) {
             memcpy(tpm, r->texParticleVerts,
                    (size_t)r->texParticleVertCount * sizeof(SceneGPUTexParticleVertex));
@@ -2445,6 +2612,7 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_GPUBufferBinding hvbb = {.buffer = r->hudVertBuf};
         SDL_BindGPUVertexBuffers(hrp, 0, &hvbb, 1);
         tsb.texture = r->hudOverlayTex;
+        tsb.sampler = r->sampler;
         SDL_BindGPUFragmentSamplers(hrp, 0, &tsb, 1);
         SDL_DrawGPUPrimitives(hrp, 6, 1, 0, 0);
         SDL_EndGPURenderPass(hrp);
