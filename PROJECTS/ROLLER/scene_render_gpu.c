@@ -1888,9 +1888,16 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     SDL_FColor skyClear = skyFColor;
     if (r->groundColorIdx >= 0 && r->skyAnyGround) {
         const tColor *gc = &palette[r->groundColorIdx];
-        skyClear.r = gc->byR / 63.0f;
-        skyClear.g = gc->byG / 63.0f;
-        skyClear.b = gc->byB / 63.0f;
+        /* Blend toward fogColor the same way skyFColor does above -- this
+         * clear was previously the raw, un-fogged palette ground colour, so
+         * distant ground visibly failed to fog while the sky (and all real
+         * 3D geometry) did. */
+        float groundR = gc->byR / 63.0f;
+        float groundG = gc->byG / 63.0f;
+        float groundB = gc->byB / 63.0f;
+        skyClear.r = groundR + (r->fogColor[0] - groundR) * skyFog;
+        skyClear.g = groundG + (r->fogColor[1] - groundG) * skyFog;
+        skyClear.b = groundB + (r->fogColor[2] - groundB) * skyFog;
     }
 
     SDL_GPUColorTargetInfo colorInfo = {
@@ -2362,9 +2369,16 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         bool anyGround = r->skyAnyGround;
         if (anyGround) {
             const tColor *gc = &palette[r->groundColorIdx];
-            skyClear.r = gc->byR / 63.0f;
-            skyClear.g = gc->byG / 63.0f;
-            skyClear.b = gc->byB / 63.0f;
+            /* Blend toward fogColor the same way skyFColor does above -- this
+             * clear was previously the raw, un-fogged palette ground colour,
+             * so distant ground visibly failed to fog while the sky (and all
+             * real 3D geometry) did. */
+            float groundR = gc->byR / 63.0f;
+            float groundG = gc->byG / 63.0f;
+            float groundB = gc->byB / 63.0f;
+            skyClear.r = groundR + (r->fogColor[0] - groundR) * skyFog;
+            skyClear.g = groundG + (r->fogColor[1] - groundG) * skyFog;
+            skyClear.b = groundB + (r->fogColor[2] - groundB) * skyFog;
         }
     }
 
