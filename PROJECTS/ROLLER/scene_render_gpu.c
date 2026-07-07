@@ -188,7 +188,29 @@ struct SceneRendererGPU {
     Uint64           frameStartNs;
     Uint64           queueNs;
     Uint64           sortRepackNs;
-    Uint64           uploadNs;
+    Uint64           uploadNs;         /* sum of the 5 sub-phases below */
+    Uint64           vertexMapWaitNs;  /* subset of vertexUploadNs: time inside the
+                                        * vertex transfer buffer's SDL_MapGPUTransferBuffer
+                                        * call alone (cycle=true can block until the
+                                        * GPU is done with a previous use of the
+                                        * buffer) -- isolates a GPU-availability
+                                        * stall from the actual memcpy/copy-pass cost. */
+    Uint64           vertexUploadNs;
+    Uint64           hudUploadNs;      /* indexed_to_rgba (full hudW*hudH CPU convert,
+                                        * same cost every frame regardless of scene
+                                        * complexity) + HUD texture upload -- prime
+                                        * suspect for uploadNs staying ~flat regardless
+                                        * of vertex count. */
+    Uint64           hudMapWaitNs;     /* subset of hudUploadNs: HUD transfer buffer's
+                                        * own SDL_MapGPUTransferBuffer call alone. */
+    Uint64           hudConvertNs;     /* subset of hudUploadNs: indexed_to_rgba call
+                                        * alone (CPU palette lookup, hudPixelCount
+                                        * iterations) -- isolates the CPU conversion
+                                        * cost from the surrounding GPU upload calls. */
+    int              hudPixelCount;    /* hudSrcW*hudSrcH last frame HUD was uploaded. */
+    Uint64           skyUploadNs;
+    Uint64           particleUploadNs;
+    Uint64           texParticleUploadNs;
     Uint64           drawNs;
     Uint64           hudPostNs;
     Uint64           submitNs;
@@ -364,18 +386,36 @@ struct SceneRendererGPU {
 static void indexed_to_rgba(const uint8 *src, const tColor *pal,
                              uint8 *dst, int count)
 {
+    /* dst is typically SDL_MapGPUTransferBuffer-mapped memory (upload-heap,
+     * often write-combined/uncached on the CPU side) -- four separate 1-byte
+     * stores per pixel there is dramatically slower than one combined 4-byte
+     * store, since WC write-combining buffers need a full aligned burst to
+     * combine efficiently. Confirmed via CPU frame-time instrumentation: a
+     * first attempt at this fix (precomputed LUT, but still 4 byte stores
+     * per pixel) barely moved the ~4.8-5.4ms/frame HUD-convert cost, which
+     * only dropping the (byR*255)/63 divisions should NOT have left
+     * unchanged if division were the real bottleneck -- the byte-store
+     * pattern is. Fixed by packing dst as uint32_t and writing one store per
+     * pixel; the LUT is also now a pure uint32 pack (R,G,B,A memory order,
+     * matching SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, native byte order on
+     * this little-endian target), so per-pixel work is one table read + one
+     * store, no division either way. */
+    uint32_t lut[256];
     if (!pal) {
-        for (int i = 0; i < count; i++) {
-            dst[i*4+0] = 255; dst[i*4+1] = 0; dst[i*4+2] = 255; dst[i*4+3] = 255;
+        for (int i = 0; i < 256; i++) lut[i] = 0xFFFF00FFu; /* magenta, opaque: R=FF G=00 B=FF A=FF (memory order R,G,B,A) */
+    } else {
+        for (int i = 0; i < 256; i++) {
+            const tColor *c = &pal[i];
+            uint32_t r = (uint32_t)((c->byR * 255) / 63);
+            uint32_t g = (uint32_t)((c->byG * 255) / 63);
+            uint32_t b = (uint32_t)((c->byB * 255) / 63);
+            uint32_t a = (i == 0) ? 0u : 255u;
+            lut[i] = r | (g << 8) | (b << 16) | (a << 24);
         }
-        return;
     }
+    uint32_t *dst32 = (uint32_t *)dst;
     for (int i = 0; i < count; i++) {
-        const tColor *c = &pal[src[i]];
-        dst[i * 4 + 0] = (uint8)((c->byR * 255) / 63);
-        dst[i * 4 + 1] = (uint8)((c->byG * 255) / 63);
-        dst[i * 4 + 2] = (uint8)((c->byB * 255) / 63);
-        dst[i * 4 + 3] = (src[i] == 0) ? 0 : 255;
+        dst32[i] = lut[src[i]];
     }
 }
 
@@ -2583,8 +2623,11 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     Uint64 tSortRepack = SDL_GetTicksNS();
     r->sortRepackNs = tSortRepack - tQueueEnd;
 
+    r->vertexMapWaitNs = 0;
     if (r->vertexCount > 0) {
+        Uint64 tMapStart = SDL_GetTicksNS();
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
+        r->vertexMapWaitNs = SDL_GetTicksNS() - tMapStart;
         if (mapped) {
             memcpy(mapped, r->vertices, (size_t)r->vertexCount * sizeof(SceneGPUVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->vertexXfer);
@@ -2598,7 +2641,13 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
+    Uint64 tVertexUpload = SDL_GetTicksNS();
+    r->vertexUploadNs = tVertexUpload - tSortRepack;
+
     bool drawHUD = false;
+    r->hudMapWaitNs = 0;
+    r->hudConvertNs = 0;
+    r->hudPixelCount = 0;
     if (r->hudSrcBuf && r->hudSrcW > 0 && r->hudSrcH > 0) {
         int hw = r->hudSrcW, hh = r->hudSrcH;
         Uint32 sz = (Uint32)(hw * hh * 4);
@@ -2629,9 +2678,14 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
 
         if (r->hudOverlayTex && r->hudXfer) {
+            Uint64 tHudMapStart = SDL_GetTicksNS();
             uint8 *mapped = SDL_MapGPUTransferBuffer(r->device, r->hudXfer, true);
+            r->hudMapWaitNs = SDL_GetTicksNS() - tHudMapStart;
             if (mapped) {
+                Uint64 tHudConvertStart = SDL_GetTicksNS();
                 indexed_to_rgba(r->hudSrcBuf, palette, mapped, hw * hh);
+                r->hudConvertNs = SDL_GetTicksNS() - tHudConvertStart;
+
                 SDL_UnmapGPUTransferBuffer(r->device, r->hudXfer);
 
                 SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
@@ -2645,11 +2699,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                 drawHUD = true;
             }
         }
+        r->hudPixelCount = hw * hh;
     }
+
+    Uint64 tHudUpload = SDL_GetTicksNS();
+    r->hudUploadNs = tHudUpload - tVertexUpload;
 
     /* ---- Sky polygon vertex upload ---- */
     int skyVertCount = 0;
     bool drawSky = upload_sky_polygon(r, &skyVertCount);
+
+    Uint64 tSkyUpload = SDL_GetTicksNS();
+    r->skyUploadNs = tSkyUpload - tHudUpload;
 
     /* ---- Particle vertex upload ----
      * cycle=true: not currently written more than once per frame (flat
@@ -2676,6 +2737,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             drawParticles = false;
         }
     }
+
+    Uint64 tParticleUpload = SDL_GetTicksNS();
+    r->particleUploadNs = tParticleUpload - tSkyUpload;
 
     /* ---- Textured particle vertex upload ----
      * cycle=true: in 2-player mode, scene_render_gpu_flush_secondary_view()
@@ -2705,6 +2769,7 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     }
 
     Uint64 tUpload = SDL_GetTicksNS();
+    r->texParticleUploadNs = tUpload - tParticleUpload;
     r->uploadNs = tUpload - tSortRepack;
 
     if (!r->swapchainTex) {
@@ -3092,13 +3157,25 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                      r->peakDrawCmdCount, r->peakVertexCount,
                      r->gpuDrawCallsThisFrame, r->gpuBindsThisFrame);
             SDL_Log("RENDER CPU TIME (ms): queue=%.3f sort/repack=%.3f "
-                     "upload=%.3f draw=%.3f hud/post=%.3f submit=%.3f total=%.3f",
-                     r->queueNs      / 1000000.0,
-                     r->sortRepackNs / 1000000.0,
-                     r->uploadNs     / 1000000.0,
-                     r->drawNs       / 1000000.0,
-                     r->hudPostNs    / 1000000.0,
-                     r->submitNs     / 1000000.0,
+                     "upload=%.3f [vtx=%.3f(map-wait=%.3f) "
+                     "hud=%.3f(px=%d map-wait=%.3f convert=%.3f) sky=%.3f "
+                     "particle=%.3f texParticle=%.3f] draw=%.3f hud/post=%.3f "
+                     "submit=%.3f total=%.3f",
+                     r->queueNs             / 1000000.0,
+                     r->sortRepackNs        / 1000000.0,
+                     r->uploadNs            / 1000000.0,
+                     r->vertexUploadNs      / 1000000.0,
+                     r->vertexMapWaitNs     / 1000000.0,
+                     r->hudUploadNs         / 1000000.0,
+                     r->hudPixelCount,
+                     r->hudMapWaitNs        / 1000000.0,
+                     r->hudConvertNs        / 1000000.0,
+                     r->skyUploadNs         / 1000000.0,
+                     r->particleUploadNs    / 1000000.0,
+                     r->texParticleUploadNs / 1000000.0,
+                     r->drawNs              / 1000000.0,
+                     r->hudPostNs           / 1000000.0,
+                     r->submitNs            / 1000000.0,
                      (r->queueNs + r->sortRepackNs + r->uploadNs
                       + r->drawNs + r->hudPostNs + r->submitNs) / 1000000.0);
         }
