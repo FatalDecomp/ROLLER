@@ -1212,6 +1212,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bChunkCache = (int)g_bChunkCacheEnabled;
+      if (nk_checkbox_label(pCtx, "Chunk cache (perf)", &bChunkCache)) {
+        g_bChunkCacheEnabled = (bool)bChunkCache;
+        game_render_set_chunk_cache_enabled(g_pGameRenderer, g_bChunkCacheEnabled);
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bSurfDbg = (int)g_bSurfaceDebugViz;
       if (nk_checkbox_label(pCtx, "Surface debug labels", &bSurfDbg))
         g_bSurfaceDebugViz = (bool)bSurfDbg;
@@ -1284,6 +1291,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
+        g_bChunkCacheEnabled = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
         game_render_set_anisotropy_level(g_pGameRenderer,g_iAnisotropyLevel);
@@ -1305,6 +1313,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
         game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
+        game_render_set_chunk_cache_enabled(g_pGameRenderer, g_bChunkCacheEnabled);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);
         InputSaveConfig();
       }

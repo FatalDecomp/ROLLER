@@ -135,6 +135,7 @@ float g_fFovMultiplier   = 1.0f;
 float g_fMirrorFov       = 0.75f;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
+bool  g_bChunkCacheEnabled = false;
 bool  g_bCRTFilter       = false;
 bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;

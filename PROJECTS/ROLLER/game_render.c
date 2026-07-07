@@ -114,6 +114,11 @@ bool game_render_is_split_screen(const GameRenderer *renderer) {
 
 void game_render_begin_frame(GameRenderer *renderer) {
     if (renderer->pendingModeSet) {
+        /* scene_render_gpu_begin_frame/end_frame (and all of the per-chunk
+         * cache's own bookkeeping) simply don't run while SW mode is active,
+         * so drop every cached chunk on the transition in EITHER direction --
+         * see scene_render_gpu_invalidate_chunk_cache's own comment. */
+        scene_render_gpu_invalidate_chunk_cache(renderer->gpu);
         /* When switching GPU→SW, cancel any open command buffer before the
          * GPU path is abandoned.  This guards against the edge case where a
          * begin_frame acquired a cmdBuf but end_frame was never reached. */
@@ -821,6 +826,10 @@ void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
 
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_wireframe(renderer->gpu, enabled);
+}
+
+void game_render_set_chunk_cache_enabled(GameRenderer *renderer, bool enabled) {
+    if (renderer) scene_render_gpu_set_chunk_cache_enabled(renderer->gpu, enabled);
 }
 
 void game_render_set_cull_mode(GameRenderer *renderer, int mode) {

@@ -40,6 +40,7 @@ extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern float g_fMirrorFov;       /* rearview/side mirror FOV multiplier; 0.75 = default (matches SW), <1 = zoom in, >1 = zoom out */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
+extern bool  g_bChunkCacheEnabled; /* GPU per-chunk static geometry cache kill-switch — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
 extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top); false = depth-tested */
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
