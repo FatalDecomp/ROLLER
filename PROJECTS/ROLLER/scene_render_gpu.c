@@ -34,6 +34,19 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1 */
 /* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
+/* Mirrors polyf.c's SHADE_PALETTE_LEVELS (5) -- shadow_poly()'s per-pixel
+ * palette-darken remap for TRANSPARENT non-textured track quads (glass/
+ * divider walls). Levels 0-3 are a straight brightness ramp (see
+ * func2.c's shade_palette builder: each level subtracts ~1/5 of the
+ * ORIGINAL colour per level, so level k keeps roughly (4-k)/5 brightness);
+ * level 4 is a special blend-toward-teal(0xDB) shade that this
+ * approximation doesn't replicate exactly -- just uses a similarly dark
+ * flat value for it. */
+#define SCENE_GPU_SHADE_LEVELS 5
+static const float g_sceneGpuShadeFactor[SCENE_GPU_SHADE_LEVELS] = {
+    0.8f, 0.6f, 0.4f, 0.2f, 0.3f
+};
+
 /* --------------------------------------------------------------------------
  * Vertex layouts
  * -------------------------------------------------------------------------- */
@@ -101,7 +114,7 @@ typedef struct {
 /* --------------------------------------------------------------------------
  * Deferred draw commands
  * -------------------------------------------------------------------------- */
-typedef enum { SCENE_GPU_DRAW_OPAQUE = 0, SCENE_GPU_DRAW_BLEND, SCENE_GPU_DRAW_BUILDING, SCENE_GPU_DRAW_BF_BUILDING, SCENE_GPU_DRAW_SIGN, SCENE_GPU_DRAW_SIGN_BK, SCENE_GPU_DRAW_TREE, SCENE_GPU_DRAW_WALL, SCENE_GPU_DRAW_BF_WALL, SCENE_GPU_DRAW_SHADOW } SceneGPUDrawKind;
+typedef enum { SCENE_GPU_DRAW_OPAQUE = 0, SCENE_GPU_DRAW_BLEND, SCENE_GPU_DRAW_BUILDING, SCENE_GPU_DRAW_BF_BUILDING, SCENE_GPU_DRAW_SIGN, SCENE_GPU_DRAW_SIGN_BK, SCENE_GPU_DRAW_TREE, SCENE_GPU_DRAW_WALL, SCENE_GPU_DRAW_BF_WALL, SCENE_GPU_DRAW_SHADOW, SCENE_GPU_DRAW_TRACK_DARKEN } SceneGPUDrawKind;
 
 typedef struct {
     SDL_GPUTexture  *texture;
@@ -140,6 +153,14 @@ struct SceneRendererGPU {
     SDL_GPUGraphicsPipeline *wallPipeline;     /* sfBl + LESS_OR_EQUAL; for TEXTURE_PAIR surfaces */
     SDL_GPUGraphicsPipeline *bfWallPipeline;  /* like wallPipeline + small depth bias; for TEXTURE_PAIR|FLIP_BACKFACE surfaces coplanar with adjacent walls */
     SDL_GPUGraphicsPipeline *shadowPipeline;   /* blend + LESS_OR_EQUAL + no depth write + large bias; for car shadow quads coplanar with road */
+    SDL_GPUGraphicsPipeline *trackDarkenPipeline; /* multiply blend (DST_COLOR*ZERO) + LESS_OR_EQUAL, no depth write;
+                                                    * for TRANSPARENT non-textured TRACK world quads (drawtrk3.c glass/
+                                                    * divider walls) -- SW renders these via shadow_poly()'s per-pixel
+                                                    * palette-darken remap (polyf.c), not a fixed-alpha blend toward
+                                                    * black. This was previously misrouted through shadowTex/SHADOW
+                                                    * (a genuine car-shadow-only path that real car shadows never
+                                                    * actually reach -- they use carShadowDraws[]/screen quads
+                                                    * instead), which under-darkened these track surfaces. */
     SDL_GPUSampler          *sampler;
     SDL_GPUSampler          *samplerNearest; /* always-nearest, used for cloud quads */
 
@@ -271,6 +292,12 @@ struct SceneRendererGPU {
     uint32_t        paletteCacheHash;
     SDL_GPUTexture *shadowTex;       /* 50%-transparent black for car shadow quads */
     SDL_GPUTexture *darkenTex;       /* fully-opaque black for the pause-menu darken quad */
+    SDL_GPUTexture *shadeLevelTex[SCENE_GPU_SHADE_LEVELS]; /* solid gray, one per shade_palette
+                                                             * darkening level (see trackDarkenPipeline) --
+                                                             * bound as an opaque source texture for the
+                                                             * multiply-blend track-darken pass; RGB =
+                                                             * shadeFactor*255 approximating shade_palette's
+                                                             * per-level brightness (~80/60/40/20/30%). */
 
     /* Offscreen colour target rendered at native resolution, blitted to the
      * swapchain with letterbox/pillarbox scaling to fill the window. */
@@ -892,6 +919,67 @@ static SDL_GPUGraphicsPipeline *make_shadow_pipeline(SceneRendererGPU *r,
          * car pass) blocks the shadow where the car body is; only road pixels
          * (D_road ≈ D_shadow) get darkened.  A small bias overcomes fp noise
          * on the coplanar road surface without punching through kerbs. */
+        .depth_stencil_state = { .enable_depth_test  = true,
+                                 .enable_depth_write = false,
+                                 .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL },
+        .rasterizer_state = { .fill_mode  = fillMode,
+                              .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+                              .enable_depth_bias          = true,
+                              .depth_bias_constant_factor = -50.0f,
+                              .depth_bias_slope_factor    = -1.0f }
+    };
+    return SDL_CreateGPUGraphicsPipeline(r->device, &pi);
+}
+
+/* Multiply blend (result = srcColor * dstColor): approximates shadow_poly()'s
+ * per-pixel palette-darken remap for TRANSPARENT non-textured track quads
+ * (see trackDarkenPipeline / shadeLevelTex comments). LESS_OR_EQUAL depth
+ * test against the opaque geometry already drawn beneath it, no depth write
+ * -- lets two adjacent/overlapping track-darken quads (e.g. at a chunk
+ * boundary) both composite rather than the second one losing a depth tie,
+ * matching SW's no-depth-buffer painter-style double-darkening at seams. */
+static SDL_GPUGraphicsPipeline *make_track_darken_pipeline(SceneRendererGPU *r,
+                                                            SDL_GPUShader *vert,
+                                                            SDL_GPUShader *frag,
+                                                            SDL_GPUSampleCount sc,
+                                                            SDL_GPUFillMode fillMode)
+{
+    SDL_GPUVertexAttribute attrs[2] = {
+        {.location=0, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+         .offset=(Uint32)offsetof(SceneGPUVertex, x)},
+        {.location=1, .format=SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .offset=(Uint32)offsetof(SceneGPUVertex, u)},
+    };
+    SDL_GPUVertexBufferDescription binding = { .pitch = sizeof(SceneGPUVertex),
+                                               .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX };
+    SDL_GPUColorTargetDescription ct = {
+        .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+        .blend_state = {
+            .enable_blend          = true,
+            .src_color_blendfactor = SDL_GPU_BLENDFACTOR_DST_COLOR,
+            .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ZERO,
+            .color_blend_op        = SDL_GPU_BLENDOP_ADD,
+            .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO,
+            .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+            .alpha_blend_op        = SDL_GPU_BLENDOP_ADD
+        }
+    };
+    SDL_GPUGraphicsPipelineCreateInfo pi = {
+        .vertex_shader   = vert,
+        .fragment_shader = frag,
+        .primitive_type  = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+        .vertex_input_state = { .vertex_attributes = attrs, .num_vertex_attributes = 2,
+                                .vertex_buffer_descriptions = &binding, .num_vertex_buffers = 1 },
+        .target_info = { .color_target_descriptions = &ct, .num_color_targets = 1,
+                         .has_depth_stencil_target = true,
+                         .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT },
+        .multisample_state = { .sample_count = sc },
+        /* Same fp-noise concern as make_shadow_pipeline's bias comment: these
+         * quads are ordinary track geometry (walls/floors), and are very
+         * plausibly coincident (or a hair further) than an adjacent already-
+         * drawn opaque quad at the exact same screen position -- LESS_OR_EQUAL
+         * alone can lose that tie to floating-point rounding and silently
+         * never draw despite being correctly queued. */
         .depth_stencil_state = { .enable_depth_test  = true,
                                  .enable_depth_write = false,
                                  .compare_op         = SDL_GPU_COMPAREOP_LESS_OR_EQUAL },
@@ -1535,9 +1623,23 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         r->darkenTex = scene_render_gpu_upload_rgba(device, darkenRgba, 4, 4, true);
     }
 
+    /* Solid gray textures approximating each shade_palette darkening level
+     * (see g_sceneGpuShadeFactor / trackDarkenPipeline comments). Sampled as
+     * the multiply-blend pass's source colour for TRANSPARENT non-textured
+     * track quads. */
+    for (int i = 0; i < SCENE_GPU_SHADE_LEVELS; i++) {
+        uint8 shadeRgba[4 * 4 * 4];
+        uint8 v = (uint8)(g_sceneGpuShadeFactor[i] * 255.0f);
+        for (int p = 0; p < 16; p++) {
+            shadeRgba[p*4+0] = v; shadeRgba[p*4+1] = v;
+            shadeRgba[p*4+2] = v; shadeRgba[p*4+3] = 255;
+        }
+        r->shadeLevelTex[i] = scene_render_gpu_upload_rgba(device, shadeRgba, 4, 4, true);
+    }
+
     /* ---- Scene shaders + pipelines ---- */
     rebuild_scene_pipelines(r, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_FILLMODE_FILL);
-    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->bfBuildingPipeline || !r->signPipeline || !r->signBkPipeline || !r->signDepthPipeline || !r->signBkDepthPipeline || !r->treePipeline || !r->wallPipeline || !r->bfWallPipeline || !r->shadowPipeline || !r->skyPipeline) goto fail;
+    if (!r->opaquePipeline || !r->blendPipeline || !r->buildingPipeline || !r->bfBuildingPipeline || !r->signPipeline || !r->signBkPipeline || !r->signDepthPipeline || !r->signBkDepthPipeline || !r->treePipeline || !r->wallPipeline || !r->bfWallPipeline || !r->shadowPipeline || !r->trackDarkenPipeline || !r->skyPipeline) goto fail;
 
     /* ---- Car shaders (game_car_* add fog+gamma; menu_mesh_* kept for menu) ---- */
     SDL_GPUShader *cv = load_shader(device, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -1685,6 +1787,9 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     }
     if (r->shadowTex)     SDL_ReleaseGPUTexture(r->device, r->shadowTex);
     if (r->darkenTex)     SDL_ReleaseGPUTexture(r->device, r->darkenTex);
+    for (int i = 0; i < SCENE_GPU_SHADE_LEVELS; i++) {
+        if (r->shadeLevelTex[i]) SDL_ReleaseGPUTexture(r->device, r->shadeLevelTex[i]);
+    }
     if (r->offscreenTex)  SDL_ReleaseGPUTexture(r->device, r->offscreenTex);
     for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
         if (r->secondaryColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[i]);
@@ -1719,6 +1824,7 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->wallPipeline)     SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);
     if (r->bfWallPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);
     if (r->shadowPipeline)      SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);
+    if (r->trackDarkenPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->trackDarkenPipeline);
     if (r->carPipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);
     if (r->carShadowPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);
     if (r->skyPipeline)         SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);
@@ -2401,6 +2507,10 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN); }
     if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK); }
     if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE); }
+    /* Multiply-blend darken pass for TRANSPARENT non-textured track quads (glass/
+     * divider walls) -- must run after opaque/wall/building/sign/tree so there's
+     * real colour underneath to darken; see trackDarkenPipeline comment. */
+    if (r->trackDarkenPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->trackDarkenPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TRACK_DARKEN); }
     if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND); }
 
     if (r->carDrawCount > 0 && r->carPipeline) {
@@ -2965,6 +3075,13 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE);
     }
+    /* Multiply-blend darken pass for TRANSPARENT non-textured track quads (glass/
+     * divider walls) -- must run after opaque/wall/building/sign/tree so there's
+     * real colour underneath to darken; see trackDarkenPipeline comment. */
+    if (r->trackDarkenPipeline) {
+        SDL_BindGPUGraphicsPipeline(rp, r->trackDarkenPipeline);
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TRACK_DARKEN);
+    }
     if (r->blendPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND);
@@ -3402,6 +3519,7 @@ static void rebuild_scene_pipelines(SceneRendererGPU *r, SDL_GPUSampleCount sc, 
         r->wallPipeline          = make_scene_pipeline  (r, sv, sfBl, false, true,  0.0f,   0.0f, sc, fm);
         r->bfWallPipeline        = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
         r->shadowPipeline        = make_shadow_pipeline (r, sv, sfBl,               sc, fm);
+        r->trackDarkenPipeline   = make_track_darken_pipeline(r, sv, sfOp,          sc, fm);
         r->skyPipeline           = make_sky_pipeline    (r, sv, sfOp, sc);
         r->treePipeline          = make_tree_pipeline   (r, sv, sfOp,               sc, fm);
     }
@@ -3434,6 +3552,7 @@ void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
     if (r->wallPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);         r->wallPipeline         = NULL; }
     if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
     if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
+    if (r->trackDarkenPipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->trackDarkenPipeline);  r->trackDarkenPipeline  = NULL; }
     if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
     if (r->carShadowPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);    r->carShadowPipeline    = NULL; }
     if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
@@ -3475,6 +3594,7 @@ void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode)
     if (r->wallPipeline)        { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);        r->wallPipeline        = NULL; }
     if (r->bfWallPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);      r->bfWallPipeline      = NULL; }
     if (r->shadowPipeline)      { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);      r->shadowPipeline      = NULL; }
+    if (r->trackDarkenPipeline) { SDL_ReleaseGPUGraphicsPipeline(r->device, r->trackDarkenPipeline); r->trackDarkenPipeline = NULL; }
     if (r->skyPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);         r->skyPipeline         = NULL; }
 
     SDL_GPUFillMode fm = r->wireframe ? SDL_GPU_FILLMODE_LINE : SDL_GPU_FILLMODE_FILL;
@@ -3504,6 +3624,7 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (r->wallPipeline)         { SDL_ReleaseGPUGraphicsPipeline(r->device, r->wallPipeline);         r->wallPipeline         = NULL; }
     if (r->bfWallPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->bfWallPipeline);       r->bfWallPipeline       = NULL; }
     if (r->shadowPipeline)       { SDL_ReleaseGPUGraphicsPipeline(r->device, r->shadowPipeline);       r->shadowPipeline       = NULL; }
+    if (r->trackDarkenPipeline)  { SDL_ReleaseGPUGraphicsPipeline(r->device, r->trackDarkenPipeline);  r->trackDarkenPipeline  = NULL; }
     if (r->carPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carPipeline);          r->carPipeline          = NULL; }
     if (r->carShadowPipeline)    { SDL_ReleaseGPUGraphicsPipeline(r->device, r->carShadowPipeline);    r->carShadowPipeline    = NULL; }
     if (r->skyPipeline)          { SDL_ReleaseGPUGraphicsPipeline(r->device, r->skyPipeline);          r->skyPipeline          = NULL; }
@@ -3549,6 +3670,7 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
         r->wallPipeline     = make_scene_pipeline  (r, sv, sfBl, false, true,   0.0f, 0.0f, sc, fm);
         r->bfWallPipeline   = make_scene_pipeline  (r, sv, sfBl, false, true,  -20.0f, 0.0f, sc, fm);
         r->shadowPipeline   = make_shadow_pipeline(r, sv, sfBl,       sc,    fm);
+        r->trackDarkenPipeline = make_track_darken_pipeline(r, sv, sfOp, sc, fm);
         r->skyPipeline      = make_sky_pipeline(r, sv, sfOp, sc);
     }
     if (sv && sfSign) {
@@ -4137,6 +4259,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     }
 
     bool isFlatColor = false;
+    bool isTrackDarken = false;
     int  surfIdx     = surfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
 
     /* SW applies texture_back[] substitution when SURFACE_FLAG_BACK (0x800) is set
@@ -4264,9 +4387,23 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             }
         }
         if (surfaceFlags & SURFACE_FLAG_TRANSPARENT) {
-            /* Car shadow polygon: route through blend pass (LESS_OR_EQUAL depth,
-             * no depth write) as a 50%-transparent black quad. */
-            gpuTex = r->shadowTex;
+            /* NOT a car shadow -- real car shadows never reach this function
+             * (they use carShadowDraws[]/carShadowPipeline, a separate mesh-
+             * based system, or the legacy 2D screen-quad path via
+             * game_render_quad_screen). A TRANSPARENT world quad with no
+             * texture reaching here is drawtrk3.c/building.c track geometry
+             * (glass walls, loop-section divider walls) that SW renders via
+             * shadow_poly() (polyf.c) -- a per-pixel palette-darken remap of
+             * whatever's already on screen, NOT a blend toward a fixed colour.
+             * Approximate it with a multiply-blend pass instead of the old
+             * shadowTex/SHADOW routing (see [[project_gpu_backlog]] "black
+             * lines in loop" -- that fixed-alpha blend under-darkened these
+             * surfaces badly enough that they were effectively invisible). */
+            int shadeLevel = surfIdx;
+            if (shadeLevel < 0) shadeLevel = 0;
+            if (shadeLevel >= SCENE_GPU_SHADE_LEVELS) shadeLevel = SCENE_GPU_SHADE_LEVELS - 1;
+            gpuTex = r->shadeLevelTex[shadeLevel];
+            isTrackDarken = true;
             if (!gpuTex) return;
         } else {
             int colorIdx = surfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
@@ -4297,6 +4434,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         kind = SCENE_GPU_DRAW_SIGN_BK;
     else if (gpuTex == r->shadowTex)
         kind = SCENE_GPU_DRAW_SHADOW;
+    else if (isTrackDarken)
+        kind = SCENE_GPU_DRAW_TRACK_DARKEN;
     else if (surfaceFlags & SURFACE_FLAG_TRANSPARENT)
         kind = SCENE_GPU_DRAW_BLEND;
     else if ((surfaceFlags & SURFACE_FLAG_PARTIAL_TRANS) && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE))
@@ -4311,7 +4450,6 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         kind = SCENE_GPU_DRAW_BUILDING;
     else
         kind = SCENE_GPU_DRAW_OPAQUE;
-
 
     float cu[4], cv[4];
     if (isFlatColor) {

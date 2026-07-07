@@ -1212,6 +1212,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bRenderStatsLog = (int)g_bRenderStatsLog;
+      if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
+        g_bRenderStatsLog = (bool)bRenderStatsLog;
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bSurfDbg = (int)g_bSurfaceDebugViz;
       if (nk_checkbox_label(pCtx, "Surface debug labels", &bSurfDbg))
         g_bSurfaceDebugViz = (bool)bSurfDbg;
@@ -1220,11 +1225,6 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       int bSurfLog = (int)g_bSurfaceLog;
       if (nk_checkbox_label(pCtx, "Surface Log", &bSurfLog))
         g_bSurfaceLog = (bool)bSurfLog;
-
-      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-      int bRenderStatsLog = (int)g_bRenderStatsLog;
-      if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
-        g_bRenderStatsLog = (bool)bRenderStatsLog;
 
       {
         static char s_surfLogIdBuf[8] = "";
