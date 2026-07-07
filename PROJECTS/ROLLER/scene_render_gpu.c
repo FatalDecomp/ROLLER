@@ -21,9 +21,6 @@
  * relative to the raw R,G,B file order). */
 extern tColor palette[256];
 extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along track */
-extern int g_iGPUQueueChunk;   /* drawtrk3.c: current track-chunk index for GPU chunk
-                                 * caching, or -1 when the render command being queued
-                                 * isn't a real track-chunk surface (car/building/light). */
 
 /* --------------------------------------------------------------------------
  * Limits
@@ -35,8 +32,6 @@ extern int g_iGPUQueueChunk;   /* drawtrk3.c: current track-chunk index for GPU 
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
 #define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1 */
-#define SCENE_GPU_CHUNK_CACHE_MAX_BUILDS_PER_FRAME 4 /* throttle -- see chunkBuildingThisFrame */
-#define SCENE_GPU_CHUNK_CACHE_WARMUP_FRAMES 30 /* settle window after a mode-switch invalidation -- see chunkCacheWarmupFrames */
 /* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
 /* --------------------------------------------------------------------------
@@ -114,48 +109,7 @@ typedef struct {
     int              vertexCount;
     SceneGPUDrawKind kind;
     bool             forceNearest;
-    int              chunkIdx;   /* track-chunk index this quad belongs to, or -1
-                                   * (car/building/sign/light draws never cacheable).
-                                   * Used only for per-chunk cache bucketing. */
-    bool             cacheEligible; /* true if safe to fold into chunkCache -- see
-                                      * chunk_cache_quad_is_eligible(). A command
-                                      * replayed FROM the cache always sets this false
-                                      * (chunkIdx also reset to -1) so the build pass
-                                      * never re-scans already-cached data. */
 } SceneGPUDrawCmd;
-
-/* ---- Per-track-chunk static geometry cache ----
- * Track geometry never moves, so once a cache-eligible chunk's quads have
- * been queued and computed in full (texture selection + UV), the resulting
- * vertices/draw-commands can be replayed on later frames instead of re-doing
- * that work. Only "plain" AUTO-subdivided track quads are ever cached --
- * see chunk_cache_quad_is_eligible() for the exact camera-position-dependent
- * exclusions (front/back sign textures, paired wall textures, BF+FH general
- * surfaces) that must always take the live path. Primary view only;
- * secondary views (mirror/2P, different camera) never read or write this
- * cache -- see r->queueingSecondaryView. */
-typedef struct {
-    SDL_GPUTexture  *texture;
-    int              vertexStart; /* offset into this entry's own vertices[] */
-    int              vertexCount;
-    SceneGPUDrawKind kind;
-    bool             forceNearest;
-} SceneGPUCachedDrawCmd;
-
-typedef struct {
-    bool                   valid;
-    SceneGPUVertex        *vertices;     /* heap-allocated, this chunk's own vertex data */
-    int                    vertexCount;
-    SceneGPUCachedDrawCmd *drawCmds;     /* heap-allocated */
-    int                    drawCmdCount;
-    /* World-space bounding box, used to frustum-cull the whole chunk before
-     * replay (per-quad culling doesn't run for a cache-hit chunk). */
-    float                  minX, minY, minZ, maxX, maxY, maxZ;
-} SceneGPUChunkCache;
-
-/* Defined near scene_render_gpu_quad_world_legacy below; forward-declared
- * here so scene_render_gpu_end_frame (earlier in this file) can call it. */
-static void chunk_cache_build_pending(SceneRendererGPU *r);
 
 typedef struct {
     SDL_GPUBuffer  *vertBuf;
@@ -197,47 +151,16 @@ struct SceneRendererGPU {
     SDL_GPUTransferBuffer *vertexXfer;
     SceneGPUVertex       *vertices;      /* heap-allocated, SCENE_GPU_MAX_VERTICES */
     int                   vertexCount;
-    /* Shadow copy of vertices[], same indices, storing PRE-near-plane-push
-     * positions (see the "Near-plane fix" comment in quad_world_legacy) --
-     * only written for chunk-cache-eligible quads. The chunk cache stores
-     * raw world positions (camera-independent) and re-applies the push live
-     * at replay time using whatever camera is current then; vertices[]
-     * itself can't be reused for that since it already has THIS frame's push
-     * baked in. */
-    SceneGPUVertex       *rawVertices;   /* heap-allocated, SCENE_GPU_MAX_VERTICES */
 
     SceneGPUDrawCmd *drawCmds;           /* heap-allocated, SCENE_GPU_MAX_DRAW_CMDS */
     int              drawCmdCount;
 
-    /* ---- Per-track-chunk static geometry cache (see SceneGPUChunkCache) ---- */
-    bool                chunkCacheEnabled;      /* runtime kill-switch; false = always miss, never build */
-    bool                queueingSecondaryView;  /* true while a secondary view's own draw_road() is queueing -- cache is primary-view only */
-    SceneGPUChunkCache *chunkCache;             /* heap-allocated, MAX_TRACK_CHUNKS entries */
-    bool               *chunkFlushedThisFrame;  /* heap-allocated, MAX_TRACK_CHUNKS entries; reset every begin_frame */
-    /* Building a not-yet-cached chunk bypasses the per-quad frustum cull (see
-     * quad_world_legacy) so the cache captures the WHOLE chunk instead of
-     * just whatever was on-screen that one frame. Doing that for every
-     * uncached chunk in view at once (e.g. the first frame after enabling
-     * the cache, or right after an invalidation, with a large/unlimited draw
-     * distance) can re-introduce the exact quad volume the frustum cull
-     * exists to avoid and overflow the frame's shared vertex/draw-cmd
-     * budget -- silently truncating whichever chunks queue last, which then
-     * get cached incomplete (missing walls). chunkBuildingThisFrame +
-     * chunkBuildsStartedThisFrame throttle how many NEW chunks may start a
-     * full-capture pass per frame; the cache simply warms up over several
-     * frames instead of trying to do the whole track at once. */
-    bool               *chunkBuildingThisFrame; /* heap-allocated, MAX_TRACK_CHUNKS entries; reset every begin_frame */
-    int                 chunkBuildsStartedThisFrame;
-    uint32_t            chunkCacheSettingsHash; /* fingerprint of textures_off/g_bSignsOnTop/wide_on; mismatch invalidates the whole cache */
-    /* Counts down after scene_render_gpu_invalidate_chunk_cache() (an SW<->GPU
-     * mode switch); while > 0 the cache is fully bypassed (every quad live,
-     * exactly as if disabled) -- decremented once per begin_frame. Small
-     * holes still appeared right at a mode-switch transition even with the
-     * cache dropped, presumably from some other state (camera/viewport?)
-     * still settling for the first frame or two back in GPU mode; giving
-     * everything a brief settle window before letting new chunks get cached
-     * again avoids baking in whatever's transient right at that instant. */
-    int                 chunkCacheWarmupFrames;
+    /* ---- Perf-investigation counters (see g_bRenderStatsLog) ----
+     * Running peaks, never reset -- highest drawCmdCount/vertexCount seen
+     * since the renderer was created, to gauge real headroom against
+     * SCENE_GPU_MAX_DRAW_CMDS/SCENE_GPU_MAX_VERTICES over a full lap. */
+    int              peakDrawCmdCount;
+    int              peakVertexCount;
 
     /* ---- Car mesh pipeline (SceneGPUMeshVertex: pos[3]+uv[2]+col[4]) ---- */
     SDL_GPUGraphicsPipeline *carPipeline;
@@ -1569,18 +1492,7 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     /* ---- CPU-side vertex + draw-cmd arrays ---- */
     r->vertices  = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
     r->drawCmds  = malloc(SCENE_GPU_MAX_DRAW_CMDS * sizeof(SceneGPUDrawCmd));
-    r->rawVertices = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
-    if (!r->vertices || !r->drawCmds || !r->rawVertices) goto fail;
-
-    /* ---- Per-track-chunk static geometry cache ----
-     * calloc so every entry starts { .valid = false } and every
-     * chunkFlushedThisFrame slot starts false; kill-switch defaults off until
-     * Phase 4's staged rollout explicitly enables it. */
-    r->chunkCache             = calloc(MAX_TRACK_CHUNKS, sizeof(SceneGPUChunkCache));
-    r->chunkFlushedThisFrame  = calloc(MAX_TRACK_CHUNKS, sizeof(bool));
-    r->chunkBuildingThisFrame = calloc(MAX_TRACK_CHUNKS, sizeof(bool));
-    if (!r->chunkCache || !r->chunkFlushedThisFrame || !r->chunkBuildingThisFrame) goto fail;
-    r->chunkCacheEnabled = false;
+    if (!r->vertices || !r->drawCmds) goto fail;
 
     /* ---- Scene vertex buffer ---- */
     Uint32 vbufSize = (Uint32)(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
@@ -1672,16 +1584,6 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->vertexXfer)    SDL_ReleaseGPUTransferBuffer(r->device, r->vertexXfer);
     free(r->vertices);
     free(r->drawCmds);
-    free(r->rawVertices);
-    if (r->chunkCache) {
-        for (int i = 0; i < MAX_TRACK_CHUNKS; i++) {
-            free(r->chunkCache[i].vertices);
-            free(r->chunkCache[i].drawCmds);
-        }
-        free(r->chunkCache);
-    }
-    free(r->chunkFlushedThisFrame);
-    free(r->chunkBuildingThisFrame);
     if (r->opaquePipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);
     if (r->blendPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);
     if (r->buildingPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);
@@ -1860,10 +1762,6 @@ void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r)
     if (!r) return;
     r->secPreTexParticleVertCount  = r->texParticleVertCount;
     r->secPreTexParticleRangeCount = r->texParticleRangeCount;
-    /* Chunk cache is primary-view-only: a secondary view's camera differs
-     * from the main view's, so its quads must always take the live path.
-     * Reset back to false at the top of scene_render_gpu_flush_secondary_view. */
-    r->queueingSecondaryView = true;
 }
 
 /* Render whatever has been queued (via the normal camera/projection/draw_car/
@@ -2053,7 +1951,6 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     if (slot < 0 || slot >= SCENE_GPU_MAX_SECONDARY_VIEWS) return NULL;
     if (texW < 1) texW = 1;
     if (texH < 1) texH = 1;
-    r->queueingSecondaryView = false; /* this view's queueing is done as of this call */
 
     /* texParticleVertCount/RangeCount are shared with the composite quad a
      * caller queues right after THIS call returns (game_render_flush_player_
@@ -2394,28 +2291,6 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
                     SDL_GetError());
         r->pendingVsyncSet = false;
     }
-    /* Per-chunk cache invalidation: textures_off/g_bSignsOnTop/wide_on can each
-     * change which kind/texture/UV a given chunk's surfaces resolve to, so a
-     * cached chunk built under different settings would replay stale data.
-     * Cheap fingerprint, checked once per frame; mismatch drops every entry. */
-    if (r->chunkCache) {
-        uint32_t settingsHash = (uint32_t)textures_off * 2654435761u
-                              ^ (uint32_t)(g_bSignsOnTop ? 1 : 0) * 40503u
-                              ^ (uint32_t)(wide_on ? 1 : 0) * 2246822519u;
-        if (settingsHash != r->chunkCacheSettingsHash) {
-            r->chunkCacheSettingsHash = settingsHash;
-            for (int i = 0; i < MAX_TRACK_CHUNKS; i++)
-                r->chunkCache[i].valid = false;
-        }
-    }
-    if (r->chunkFlushedThisFrame)
-        memset(r->chunkFlushedThisFrame, 0, MAX_TRACK_CHUNKS * sizeof(bool));
-    if (r->chunkBuildingThisFrame)
-        memset(r->chunkBuildingThisFrame, 0, MAX_TRACK_CHUNKS * sizeof(bool));
-    r->chunkBuildsStartedThisFrame = 0;
-    if (r->chunkCacheWarmupFrames > 0) r->chunkCacheWarmupFrames--;
-    r->queueingSecondaryView = false;
-
     r->vertexCount       = 0;
     r->drawCmdCount      = 0;
     r->carDrawCount      = 0;
@@ -2442,10 +2317,21 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
     if (!r || !r->cmdBuf) return;
 
-    /* Build any not-yet-cached chunks from this frame's just-queued draw
-     * commands, now that every quad for the primary view has been queued
-     * (drawtrk3.c's whole render-queue traversal ran before this call). */
-    chunk_cache_build_pending(r);
+    /* Perf-investigation instrumentation (see g_bRenderStatsLog): draw-
+     * command/vertex counts per frame, plus running peaks since the
+     * renderer was created. Logged roughly once a second (not every frame)
+     * to stay readable while driving. */
+    if (r->drawCmdCount > r->peakDrawCmdCount) r->peakDrawCmdCount = r->drawCmdCount;
+    if (r->vertexCount  > r->peakVertexCount)  r->peakVertexCount  = r->vertexCount;
+    if (g_bRenderStatsLog) {
+        static int s_logCounter = 0;
+        if (++s_logCounter >= 60) {
+            s_logCounter = 0;
+            SDL_Log("RENDER STATS: drawcmds=%d verts=%d (peak dc=%d v=%d)",
+                     r->drawCmdCount, r->vertexCount,
+                     r->peakDrawCmdCount, r->peakVertexCount);
+        }
+    }
 
     if (s_clickWasPending) {
         if (s_clickHit.active)
@@ -3181,37 +3067,6 @@ static void rebuild_scene_pipelines(SceneRendererGPU *r, SDL_GPUSampleCount sc, 
     if (sfSign) SDL_ReleaseGPUShader(r->device, sfSign);
 }
 
-/* Drop every cached chunk. Called whenever the renderer switches between
- * software and GPU mode (in either direction) -- scene_render_gpu_begin_frame/
- * end_frame (and therefore all of this cache's own bookkeeping) simply don't
- * run at all while SW mode is active, so any state change that happens
- * during that gap (or right at the transition) can't be caught by the
- * per-frame settings-fingerprint/texture-free invalidation hooks. Dropping
- * the cache on every transition sidesteps needing to pin down exactly what
- * changes -- it's cheap (a few dozen chunks' worth of rebuild spread over
- * the throttled warm-up) and always safe. */
-void scene_render_gpu_invalidate_chunk_cache(SceneRendererGPU *r)
-{
-    if (!r || !r->chunkCache) return;
-    for (int i = 0; i < MAX_TRACK_CHUNKS; i++)
-        r->chunkCache[i].valid = false;
-    r->chunkCacheWarmupFrames = SCENE_GPU_CHUNK_CACHE_WARMUP_FRAMES;
-}
-
-/* Runtime kill-switch for the per-chunk static geometry cache (see
- * SceneGPUChunkCache). Disabling drops every cached entry so re-enabling
- * later always starts from a clean rebuild rather than replaying whatever
- * happened to be cached before the toggle. */
-void scene_render_gpu_set_chunk_cache_enabled(SceneRendererGPU *r, bool enabled)
-{
-    if (!r || r->chunkCacheEnabled == enabled) return;
-    r->chunkCacheEnabled = enabled;
-    if (r->chunkCache) {
-        for (int i = 0; i < MAX_TRACK_CHUNKS; i++)
-            r->chunkCache[i].valid = false;
-    }
-}
-
 void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled)
 {
     if (!r || r->wireframe == enabled) return;
@@ -3664,15 +3519,6 @@ void scene_render_gpu_free_texture(SceneRendererGPU *r, SceneTextureHandle handl
     if (!r || handle <= 0 || handle >= SCENE_GPU_MAX_TEXTURE_SLOTS) return;
     SceneGPUTextureSlot *s = &r->texSlots[handle];
     if (!s->in_use) return;
-
-    /* Cached chunk draw-commands hold raw SDL_GPUTexture* pointers into this
-     * slot's tileTextures[] -- about to be released below. Drop the whole
-     * cache first rather than tracking which chunks reference this handle. */
-    if (r->chunkCache) {
-        for (int i = 0; i < MAX_TRACK_CHUNKS; i++)
-            r->chunkCache[i].valid = false;
-    }
-
     for (int t = 0; t < s->numTiles; t++) {
         if (s->tileTextures[t]) {
             SDL_ReleaseGPUTexture(r->device, s->tileTextures[t]);
@@ -3896,205 +3742,6 @@ static bool scene_render_gpu_quad_frustum_culled(const SceneRendererGPU *r,
 }
 
 /* --------------------------------------------------------------------------
- * Per-track-chunk static geometry cache
- * -------------------------------------------------------------------------- */
-
-/* A quad is cache-safe only when its texture/kind/UV are fully determined by
- * static data (surface flags, tile index) -- never by camera position. Four
- * branches in the UV/texture logic below ARE camera-dependent and must always
- * take the live path:
- *   - SURFACE_FLAG_BACK (isBackTexSign): front/back texture substitution
- *     picked by which side of the polygon the camera is on.
- *   - SURFACE_FLAG_TEXTURE_PAIR + wide_on (isWall): wallFrontFacing texture
- *     selection AND the pair-UV row/col detection both read camera position.
- *   - SURFACE_FLAG_FLIP_BACKFACE + SURFACE_FLAG_FLIP_HORIZ together (general
- *     track surfaces' bfCross/g03Left branch): UV picked by which face of a
- *     two-sided surface the camera sees.
- * subdivideType != AUTO (buildings/signs/clouds/trees) is excluded too --
- * those already reach here with chunkIdx forced to -1 in drawtrk3.c for
- * BUILDING/START_LIGHT priorities, but signs/trees embedded in an ordinary
- * wall/ground priority (subdivideType SIGN/BUILDING with a real chunkIdx)
- * need this explicit check. */
-static bool chunk_cache_quad_is_eligible(int chunkIdx, int surfaceFlags,
-                                          SceneRenderLegacyQuadOptions options)
-{
-    if (chunkIdx < 0 || chunkIdx >= MAX_TRACK_CHUNKS) return false;
-    if (options.subdivideType != SCENE_RENDER_SUBDIVIDE_TYPE_AUTO) return false;
-    if (surfaceFlags & SURFACE_FLAG_BACK) return false;
-    if ((surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) && wide_on) return false;
-    if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) && (surfaceFlags & SURFACE_FLAG_FLIP_HORIZ)) return false;
-    return true;
-}
-
-/* Same test as scene_render_gpu_quad_frustum_culled but for an axis-aligned
- * world-space box (a cached chunk's precomputed bounds) instead of one
- * quad's 4 verts -- lets a cache-hit chunk be culled as a whole without
- * touching its individual cached quads. */
-static bool chunk_cache_bbox_frustum_culled(const SceneRendererGPU *r,
-                                             float minX, float minY, float minZ,
-                                             float maxX, float maxY, float maxZ)
-{
-    float fwd_x = r->proj.view[0][2], fwd_y = r->proj.view[1][2], fwd_z = r->proj.view[2][2];
-    float cx = r->camera.viewX, cy = r->camera.viewY, cz = r->camera.viewZ;
-    float bx[2] = {minX, maxX}, by[2] = {minY, maxY}, bz[2] = {minZ, maxZ};
-
-    float depth[8];
-    bool anyInFront = false, anyBehind = false;
-    int idx = 0;
-    for (int xi = 0; xi < 2; xi++)
-        for (int yi = 0; yi < 2; yi++)
-            for (int zi = 0; zi < 2; zi++, idx++) {
-                float dx = bx[xi]-cx, dy = by[yi]-cy, dz = bz[zi]-cz;
-                depth[idx] = fwd_x*dx + fwd_y*dy + fwd_z*dz;
-                if (depth[idx] > 0.0f) anyInFront = true; else anyBehind = true;
-            }
-    if (!anyInFront) return true;   /* entirely behind camera */
-    if (anyBehind)   return false;  /* straddles camera plane -- let through */
-
-    float right_x = r->proj.view[0][0], right_y = r->proj.view[1][0], right_z = r->proj.view[2][0];
-    float up_x    = r->proj.view[0][1], up_y    = r->proj.view[1][1], up_z    = r->proj.view[2][1];
-    int   vpW = r->viewportW > 0 ? r->viewportW : 640;
-    int   vpH = r->viewportH > 0 ? r->viewportH : 400;
-    float ss  = (float)r->proj.screenScale / 64.0f;
-    float fovX = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpW;
-    float fovY = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpH;
-
-    const float kNdcMargin = 3.0f;
-    bool allLeft = true, allRight = true, allAbove = true, allBelow = true;
-    idx = 0;
-    for (int xi = 0; xi < 2; xi++)
-        for (int yi = 0; yi < 2; yi++)
-            for (int zi = 0; zi < 2; zi++, idx++) {
-                float dx = bx[xi]-cx, dy = by[yi]-cy, dz = bz[zi]-cz;
-                float viewX = right_x*dx + right_y*dy + right_z*dz;
-                float viewY = up_x*dx    + up_y*dy    + up_z*dz;
-                float ndcX = fovX * viewX / depth[idx];
-                float ndcY = fovY * viewY / depth[idx];
-                if (ndcX > -kNdcMargin) allLeft  = false;
-                if (ndcX <  kNdcMargin) allRight = false;
-                if (ndcY > -kNdcMargin) allAbove = false;
-                if (ndcY <  kNdcMargin) allBelow = false;
-            }
-    return allLeft || allRight || allAbove || allBelow;
-}
-
-/* Bulk-copies a cached chunk's vertices/draw-commands into the live frame
- * arrays, re-applying the near-plane push with the CURRENT camera (the cache
- * stores raw, camera-independent positions -- see rawVertices). Mirrors the
- * "Near-plane fix" logic in scene_render_gpu_quad_world_legacy exactly. */
-static void chunk_cache_replay(SceneRendererGPU *r, const SceneGPUChunkCache *cc)
-{
-    if (cc->vertexCount <= 0 || cc->drawCmdCount <= 0) return;
-    if (r->vertexCount + cc->vertexCount > SCENE_GPU_MAX_VERTICES) return;
-    if (r->drawCmdCount + cc->drawCmdCount > SCENE_GPU_MAX_DRAW_CMDS) return;
-
-    float fwd_x = r->proj.view[0][2], fwd_y = r->proj.view[1][2], fwd_z = r->proj.view[2][2];
-    float cx = r->camera.viewX, cy = r->camera.viewY, cz = r->camera.viewZ;
-
-    int vertBase = r->vertexCount;
-    for (int i = 0; i < cc->vertexCount; i++) {
-        SceneGPUVertex v = cc->vertices[i];
-        float fVz = fwd_x*(v.x-cx) + fwd_y*(v.y-cy) + fwd_z*(v.z-cz);
-        if (fVz > 0.0f && fVz < SCENE_GPU_NEAR) {
-            float delta = SCENE_GPU_NEAR - fVz;
-            v.x += delta * fwd_x;
-            v.y += delta * fwd_y;
-            v.z += delta * fwd_z;
-        }
-        r->vertices[vertBase + i] = v;
-    }
-    r->vertexCount += cc->vertexCount;
-
-    for (int i = 0; i < cc->drawCmdCount; i++) {
-        SceneGPUCachedDrawCmd *src = &cc->drawCmds[i];
-        SceneGPUDrawCmd *dst = &r->drawCmds[r->drawCmdCount++];
-        *dst = (SceneGPUDrawCmd){
-            .texture       = src->texture,
-            .vertexStart   = vertBase + src->vertexStart,
-            .vertexCount   = src->vertexCount,
-            .kind          = src->kind,
-            .forceNearest  = src->forceNearest,
-            .chunkIdx      = -1,     /* already replayed -- build pass must ignore it */
-            .cacheEligible = false,
-        };
-    }
-}
-
-/* Post-queueing build pass: scans this frame's just-queued draw commands for
- * cache-eligible chunks that aren't cached yet, and populates their cache
- * entry from rawVertices (pre-near-plane-push positions). Called once per
- * frame from scene_render_gpu_end_frame, after every quad for the frame has
- * been queued but before the sorted draw phase reads r->drawCmds. Primary
- * view only -- see r->queueingSecondaryView. */
-static void chunk_cache_build_pending(SceneRendererGPU *r)
-{
-    if (!r->chunkCacheEnabled || !r->chunkCache) return;
-
-    for (int ci = 0; ci < r->drawCmdCount; ci++) {
-        SceneGPUDrawCmd *cmd = &r->drawCmds[ci];
-        if (!cmd->cacheEligible) continue;
-        int chunkIdx = cmd->chunkIdx;
-        if (chunkIdx < 0 || chunkIdx >= MAX_TRACK_CHUNKS) continue;
-        if (r->chunkCache[chunkIdx].valid) continue; /* already built earlier this frame or a prior frame */
-
-        /* Count + bound this chunk's eligible commands (there may be several,
-         * queued non-adjacently across different render priorities). */
-        int cmdCount = 0, vertCount = 0;
-        float minX = 1e30f, minY = 1e30f, minZ = 1e30f;
-        float maxX = -1e30f, maxY = -1e30f, maxZ = -1e30f;
-        for (int cj = ci; cj < r->drawCmdCount; cj++) {
-            SceneGPUDrawCmd *c = &r->drawCmds[cj];
-            if (!c->cacheEligible || c->chunkIdx != chunkIdx) continue;
-            cmdCount++;
-            vertCount += c->vertexCount;
-            for (int vi = 0; vi < c->vertexCount; vi++) {
-                SceneGPUVertex *rv = &r->rawVertices[c->vertexStart + vi];
-                if (rv->x < minX) minX = rv->x; if (rv->x > maxX) maxX = rv->x;
-                if (rv->y < minY) minY = rv->y; if (rv->y > maxY) maxY = rv->y;
-                if (rv->z < minZ) minZ = rv->z; if (rv->z > maxZ) maxZ = rv->z;
-            }
-        }
-        if (cmdCount == 0 || vertCount == 0) continue;
-
-        SceneGPUCachedDrawCmd *cachedCmds = malloc((size_t)cmdCount * sizeof(SceneGPUCachedDrawCmd));
-        SceneGPUVertex *cachedVerts = malloc((size_t)vertCount * sizeof(SceneGPUVertex));
-        if (!cachedCmds || !cachedVerts) {
-            free(cachedCmds);
-            free(cachedVerts);
-            continue; /* out of memory -- this chunk just stays uncached */
-        }
-
-        int outCmd = 0, outVert = 0;
-        for (int cj = ci; cj < r->drawCmdCount; cj++) {
-            SceneGPUDrawCmd *c = &r->drawCmds[cj];
-            if (!c->cacheEligible || c->chunkIdx != chunkIdx) continue;
-            memcpy(&cachedVerts[outVert], &r->rawVertices[c->vertexStart],
-                   (size_t)c->vertexCount * sizeof(SceneGPUVertex));
-            cachedCmds[outCmd] = (SceneGPUCachedDrawCmd){
-                .texture      = c->texture,
-                .vertexStart  = outVert,
-                .vertexCount  = c->vertexCount,
-                .kind         = c->kind,
-                .forceNearest = c->forceNearest,
-            };
-            outVert += c->vertexCount;
-            outCmd++;
-        }
-
-        SceneGPUChunkCache *cc = &r->chunkCache[chunkIdx];
-        free(cc->vertices);
-        free(cc->drawCmds);
-        cc->vertices     = cachedVerts;
-        cc->vertexCount  = outVert;
-        cc->drawCmds     = cachedCmds;
-        cc->drawCmdCount = outCmd;
-        cc->minX = minX; cc->minY = minY; cc->minZ = minZ;
-        cc->maxX = maxX; cc->maxY = maxY; cc->maxZ = maxZ;
-        cc->valid = true;
-    }
-}
-
-/* --------------------------------------------------------------------------
  * World quad drawing
  *
  * Callers always set verts[i].u = verts[i].v = 0 (confirmed in drawtrk3.c).
@@ -4107,58 +3754,10 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                          SceneRenderLegacyQuadOptions options)
 {
     if (!r || !r->cmdBuf) return;
-
-    /* Chunk-cache fast path: this chunk's eligible geometry was already
-     * replayed earlier this frame (by an earlier priority's call for the
-     * same chunk) -- every other call for it this frame is a pure no-op.
-     * Only ever applies to the primary view (queueingSecondaryView guards
-     * mirror/2P, which use a different camera and always take the live
-     * path). Deliberately runs before ANY other work below, including the
-     * per-quad frustum cull -- a cache hit is decided and culled at the
-     * whole-chunk level instead (see chunk_cache_bbox_frustum_culled). */
-    int chunkIdx = g_iGPUQueueChunk;
-    bool cacheEligible = chunk_cache_quad_is_eligible(chunkIdx, surfaceFlags, options);
-    bool buildingCacheNow = false;
-    if (r->chunkCacheEnabled && r->chunkCacheWarmupFrames <= 0 && !r->queueingSecondaryView && cacheEligible) {
-        if (r->chunkFlushedThisFrame[chunkIdx]) return;
-        SceneGPUChunkCache *cc = &r->chunkCache[chunkIdx];
-        if (cc->valid) {
-            r->chunkFlushedThisFrame[chunkIdx] = true;
-            if (!chunk_cache_bbox_frustum_culled(r, cc->minX, cc->minY, cc->minZ,
-                                                     cc->maxX, cc->maxY, cc->maxZ))
-                chunk_cache_replay(r, cc);
-            return;
-        }
-        /* Not cached yet: this quad must still be fully processed and queued
-         * so chunk_cache_build_pending() captures ALL of this chunk's
-         * eligible geometry once every quad for the frame has been queued --
-         * bypass the per-quad frustum cull below for it (a quad merely
-         * off-screen on THIS specific frame must not become permanently
-         * missing from every future replay of this chunk once cached: that
-         * produced literal holes in walls at the angle the chunk first got
-         * cached from).
-         * Throttled: only start a NEW chunk's full-capture pass if under the
-         * per-frame cap (see SCENE_GPU_CHUNK_CACHE_MAX_BUILDS_PER_FRAME) --
-         * bypassing the frustum cull for every uncached chunk in view at
-         * once (e.g. the whole track, right after enabling the cache) can
-         * overflow the frame's shared vertex/draw-cmd budget and silently
-         * truncate whichever chunks queue last, caching THEM incomplete
-         * instead. A chunk already mid-build this frame always continues
-         * regardless of the cap; chunks that don't get a turn this frame
-         * just render live (frustum-culled as normal) and try again later. */
-        if (r->chunkBuildingThisFrame[chunkIdx]) {
-            buildingCacheNow = true;
-        } else if (r->chunkBuildsStartedThisFrame < SCENE_GPU_CHUNK_CACHE_MAX_BUILDS_PER_FRAME) {
-            r->chunkBuildingThisFrame[chunkIdx] = true;
-            r->chunkBuildsStartedThisFrame++;
-            buildingCacheNow = true;
-        }
-    }
-
     if (surfaceFlags & SURFACE_FLAG_SKIP_RENDER) return;
     if (r->vertexCount + 6 > SCENE_GPU_MAX_VERTICES) return;
     if (r->drawCmdCount >= SCENE_GPU_MAX_DRAW_CMDS)  return;
-    if (!buildingCacheNow && scene_render_gpu_quad_frustum_culled(r, verts)) return;
+    if (scene_render_gpu_quad_frustum_culled(r, verts)) return;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -4795,14 +4394,6 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             px[k], py[k], pz[k],
             cu[k], cv[k]
         };
-        /* Raw (pre-near-plane-push) shadow copy for the chunk cache -- see
-         * rawVertices. Only meaningful for cache-eligible quads, but writing
-         * it unconditionally is cheap and keeps this loop branch-free; the
-         * build pass only ever reads it for commands tagged cacheEligible. */
-        r->rawVertices[base+i] = (SceneGPUVertex){
-            verts[k].x, verts[k].y, verts[k].z,
-            cu[k], cv[k]
-        };
     }
 
     /* No per-quad MVP here: world-space quads use view+projection only (no
@@ -4813,30 +4404,19 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * matrix and memcmp it against the last draw command on every single
      * quad; both were redundant CPU work at typical (let alone unlimited)
      * draw distances. */
-    /* Never merge quads from different chunks, or eligible with ineligible
-     * quads, into one draw command: the render queue is Z-sorted (not
-     * chunk-grouped), so consecutively-queued same-texture/same-kind quads
-     * can come from two different chunks, or one can be a camera-dependent
-     * surface (e.g. general BF+FH) sharing a kind/texture with an eligible
-     * neighbour. Per-chunk caching (see chunkCache) needs each command's
-     * vertex range to belong to exactly one chunk and one eligibility class
-     * to bucket -- and to never let excluded data leak into the cache. */
     SceneGPUDrawCmd *last = r->drawCmdCount > 0 ? &r->drawCmds[r->drawCmdCount-1] : NULL;
     bool batch = last && last->texture == gpuTex && last->kind == kind
-              && last->forceNearest == isCloud && last->chunkIdx == chunkIdx
-              && last->cacheEligible == cacheEligible;
+              && last->forceNearest == isCloud;
     if (batch) {
         last->vertexCount += 6;
     } else {
         SceneGPUDrawCmd *cmd = &r->drawCmds[r->drawCmdCount++];
         *cmd = (SceneGPUDrawCmd){
-            .texture       = gpuTex,
-            .vertexStart   = base,
-            .vertexCount   = 6,
-            .kind          = kind,
-            .forceNearest  = isCloud,
-            .chunkIdx      = chunkIdx,
-            .cacheEligible = cacheEligible,
+            .texture      = gpuTex,
+            .vertexStart  = base,
+            .vertexCount  = 6,
+            .kind         = kind,
+            .forceNearest = isCloud,
         };
     }
     r->vertexCount += 6;

@@ -119,14 +119,6 @@ void scene_render_gpu_set_fov_multiplier(SceneRendererGPU *r, float mult);
 /* enabled: true = wireframe (line) fill mode, false = solid */
 void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled);
 
-/* Runtime kill-switch for the per-chunk static geometry cache; false = every
- * quad always takes the live path (equivalent to the cache not existing). */
-void scene_render_gpu_set_chunk_cache_enabled(SceneRendererGPU *r, bool enabled);
-
-/* Drops every cached chunk. Call on every SW<->GPU render-mode transition
- * (either direction) -- see the function's own comment in scene_render_gpu.c. */
-void scene_render_gpu_invalidate_chunk_cache(SceneRendererGPU *r);
-
 /* mode: 0=default(none), 1=none, 2=back-face cull, 3=front-face cull (debug only) */
 void scene_render_gpu_set_cull_mode(SceneRendererGPU *r, int mode);
 

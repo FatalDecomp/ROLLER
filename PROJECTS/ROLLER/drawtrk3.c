@@ -19,9 +19,6 @@ int showsub = 0;    //000A34A0
 int view_limit = 0; //000A41B8
 int divtype = 0;    //000A41BC
 int NextSect[MAX_TRACK_CHUNKS];  //00143BF4
-int g_iGPUQueueChunk = -1;  /* GPU-only cache key mirroring the current track-chunk
-                             * render command; -1 whenever nChunkIdx isn't a real chunk
-                             * index (car/building/light priorities). SW never reads this. */
 int tex_hgt;        //00144464
 int polyysize;      //00144468
 int polyxsize;      //0014446C
@@ -2245,8 +2242,6 @@ LABEL_393:
       pTypedRenderCommand = render_queue_3d_command_at(pRenderQueue3D, iRenderQueueCount - 1 - iRenderObjectIndex);
       fRenderDepth = pRenderCommand->fZDepth;
       iSectionNum = pRenderCommand->nChunkIdx;
-      g_iGPUQueueChunk = (pRenderCommand->nRenderPriority <= RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY)
-                       ? iSectionNum : -1;
       pScreenCoord_1 = NULL;
       pScreenCoord = NULL;
       pCurrentGroundScreen = NULL;

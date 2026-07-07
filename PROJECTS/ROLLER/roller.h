@@ -40,12 +40,12 @@ extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
 extern float g_fMirrorFov;       /* rearview/side mirror FOV multiplier; 0.75 = default (matches SW), <1 = zoom in, >1 = zoom out */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
-extern bool  g_bChunkCacheEnabled; /* GPU per-chunk static geometry cache kill-switch — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
 extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top); false = depth-tested */
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
 extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */
 extern int   g_iSurfaceLogId;    /* -2=disabled(empty), -1=all, >=0=specific surfIdx (not saved) */
+extern bool  g_bRenderStatsLog;  /* enable periodic drawcmd/vertex-count SDL_Log (not saved to INI) */
 extern bool  g_pendingClickQuery; /* right-click surface pick: set by event loop, cleared after render */
 extern float g_clickQueryNX;     /* normalised [0,1] click X within game viewport */
 extern float g_clickQueryNY;     /* normalised [0,1] click Y within game viewport */
