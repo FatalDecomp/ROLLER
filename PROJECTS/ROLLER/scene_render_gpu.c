@@ -179,6 +179,20 @@ struct SceneRendererGPU {
     int              gpuDrawCallsThisFrame;
     int              gpuBindsThisFrame;
 
+    /* CPU frame-time breakdown (SDL_GetTicksNS deltas, nanoseconds), reset/
+     * filled once per frame. queueNs covers everything between begin_frame
+     * and end_frame being called (per-quad geometry generation in the game's
+     * own render loop) -- captured by stamping frameStartNs in begin_frame
+     * and reading it back at the top of end_frame. The rest are phases
+     * within end_frame itself. */
+    Uint64           frameStartNs;
+    Uint64           queueNs;
+    Uint64           sortRepackNs;
+    Uint64           uploadNs;
+    Uint64           drawNs;
+    Uint64           hudPostNs;
+    Uint64           submitNs;
+
     /* ---- Car mesh pipeline (SceneGPUMeshVertex: pos[3]+uv[2]+col[4]) ---- */
     SDL_GPUGraphicsPipeline *carPipeline;
     SDL_GPUGraphicsPipeline *carShadowPipeline; /* LESS_OR_EQUAL + no depth write + bias */
@@ -253,6 +267,22 @@ struct SceneRendererGPU {
     SDL_GPUTexture *secondaryDepthTex[SCENE_GPU_MAX_SECONDARY_VIEWS];
     int             secondaryTexW[SCENE_GPU_MAX_SECONDARY_VIEWS];
     int             secondaryTexH[SCENE_GPU_MAX_SECONDARY_VIEWS];
+
+    /* MSAA render target for the secondary-view pass (only allocated when
+     * msaaSampleCount > 1), resolved into secondaryColorTex/DepthTex above --
+     * mirrors the main view's msaaTex->offscreenTex pattern (ensure_msaa_
+     * textures). Without this, flush_secondary_view was binding the shared
+     * scene pipelines (built with sample_count = msaaSampleCount) into a
+     * render pass targeting single-sample secondaryColorTex/DepthTex -- a
+     * pipeline/render-pass sample-count mismatch that's invalid on Vulkan/
+     * D3D12 and can hang the driver instead of erroring cleanly. Tracked with
+     * its own W/H (not secondaryTexW/H) so an MSAA level change alone (no
+     * resize) still forces a rebuild -- scene_render_gpu_set_msaa resets
+     * these to 0 for exactly that reason. */
+    SDL_GPUTexture *secondaryMsaaColorTex[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    SDL_GPUTexture *secondaryMsaaDepthTex[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    int             secondaryMsaaW[SCENE_GPU_MAX_SECONDARY_VIEWS];
+    int             secondaryMsaaH[SCENE_GPU_MAX_SECONDARY_VIEWS];
 
     /* texParticle (textured particle / smoke) counts snapshotted BEFORE a
      * secondary view's draw_road() call queues anything, via
@@ -511,6 +541,36 @@ static void ensure_offscreen_texture(SceneRendererGPU *r, int w, int h)
 
 static void ensure_secondary_textures(SceneRendererGPU *r, int slot, int w, int h)
 {
+    /* MSAA intermediate target, checked/rebuilt independently of the resolve
+     * target below (its own w/h tracking) since an MSAA level change with no
+     * resize must still trigger a rebuild -- see the struct comment. */
+    SDL_GPUSampleCount sc = r->msaaSampleCount;
+    if (!(r->secondaryMsaaColorTex[slot] && r->secondaryMsaaW[slot] == w && r->secondaryMsaaH[slot] == h)) {
+        if (r->secondaryMsaaColorTex[slot]) { SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaColorTex[slot]); r->secondaryMsaaColorTex[slot] = NULL; }
+        if (r->secondaryMsaaDepthTex[slot]) { SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaDepthTex[slot]); r->secondaryMsaaDepthTex[slot] = NULL; }
+        r->secondaryMsaaW[slot] = w; r->secondaryMsaaH[slot] = h;
+        if (sc > SDL_GPU_SAMPLECOUNT_1) {
+            SDL_GPUTextureCreateInfo mci = {
+                .type = SDL_GPU_TEXTURETYPE_2D,
+                .format = SDL_GetGPUSwapchainTextureFormat(r->device, r->window),
+                .width = (Uint32)w, .height = (Uint32)h,
+                .layer_count_or_depth = 1, .num_levels = 1,
+                .sample_count = sc,
+                .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET
+            };
+            r->secondaryMsaaColorTex[slot] = SDL_CreateGPUTexture(r->device, &mci);
+            SDL_GPUTextureCreateInfo mdi = {
+                .type = SDL_GPU_TEXTURETYPE_2D,
+                .format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+                .width = (Uint32)w, .height = (Uint32)h,
+                .layer_count_or_depth = 1, .num_levels = 1,
+                .sample_count = sc,
+                .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+            };
+            r->secondaryMsaaDepthTex[slot] = SDL_CreateGPUTexture(r->device, &mdi);
+        }
+    }
+
     if (r->secondaryColorTex[slot] && r->secondaryTexW[slot] == w && r->secondaryTexH[slot] == h)
         return;
     if (r->secondaryColorTex[slot]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[slot]);
@@ -1589,6 +1649,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
         if (r->secondaryColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[i]);
         if (r->secondaryDepthTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryDepthTex[i]);
+        if (r->secondaryMsaaColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaColorTex[i]);
+        if (r->secondaryMsaaDepthTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaDepthTex[i]);
     }
     if (r->depthTex)          SDL_ReleaseGPUTexture(r->device, r->depthTex);
     if (r->signDepthCopyTex)  SDL_ReleaseGPUTexture(r->device, r->signDepthCopyTex);
@@ -2198,14 +2260,35 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     SDL_FColor skyClear, skyFColor;
     compute_sky_colors(r, &skyClear, &skyFColor);
 
-    SDL_GPUColorTargetInfo colorInfo = {
-        .texture     = r->secondaryColorTex[slot],
-        .load_op     = SDL_GPU_LOADOP_CLEAR,
-        .store_op    = SDL_GPU_STOREOP_STORE,
-        .clear_color = skyClear
-    };
+    /* MSAA: render into secondaryMsaaColorTex/DepthTex (sample count matching
+     * the shared pipelines, which are always built at r->msaaSampleCount) and
+     * resolve into secondaryColorTex[slot] -- the texture everything else
+     * (compositing) already expects. Without this, the shared pipelines
+     * (sample_count = msaaSampleCount) would be bound into a render pass
+     * targeting single-sample textures whenever MSAA is on -- an invalid
+     * pipeline/render-pass sample-count combination that can hang the GPU
+     * driver. See the secondaryMsaaColorTex struct comment. */
+    bool useSecMSAA = r->msaaSampleCount > SDL_GPU_SAMPLECOUNT_1
+                      && r->secondaryMsaaColorTex[slot] && r->secondaryMsaaDepthTex[slot];
+    SDL_GPUColorTargetInfo colorInfo;
+    if (useSecMSAA) {
+        colorInfo = (SDL_GPUColorTargetInfo){
+            .texture         = r->secondaryMsaaColorTex[slot],
+            .load_op         = SDL_GPU_LOADOP_CLEAR,
+            .store_op        = SDL_GPU_STOREOP_RESOLVE,
+            .resolve_texture = r->secondaryColorTex[slot],
+            .clear_color     = skyClear
+        };
+    } else {
+        colorInfo = (SDL_GPUColorTargetInfo){
+            .texture     = r->secondaryColorTex[slot],
+            .load_op     = SDL_GPU_LOADOP_CLEAR,
+            .store_op    = SDL_GPU_STOREOP_STORE,
+            .clear_color = skyClear
+        };
+    }
     SDL_GPUDepthStencilTargetInfo depthInfo = {
-        .texture     = r->secondaryDepthTex[slot],
+        .texture     = useSecMSAA ? r->secondaryMsaaDepthTex[slot] : r->secondaryDepthTex[slot],
         .load_op     = SDL_GPU_LOADOP_CLEAR,
         .store_op    = SDL_GPU_STOREOP_DONT_CARE,
         .clear_depth = 1.0f
@@ -2390,6 +2473,8 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
 {
     if (!r) return;
 
+    r->frameStartNs = SDL_GetTicksNS();
+
     /* Detect palette changes (setpal() writes palette[] directly; no GPU callback).
      * If the fingerprint changed since last frame, wait for GPU idle then purge
      * all cached flat-colour textures so they're recreated with the new palette. */
@@ -2461,6 +2546,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
     if (!r || !r->cmdBuf) return;
 
+    Uint64 tQueueEnd = SDL_GetTicksNS();
+    r->queueNs = tQueueEnd - r->frameStartNs;
+
     if (s_clickWasPending) {
         if (s_clickHit.active)
             SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f",
@@ -2491,6 +2579,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
     build_draw_order(r, drawOrder);
     repack_draw_order(r, drawOrder);
+
+    Uint64 tSortRepack = SDL_GetTicksNS();
+    r->sortRepackNs = tSortRepack - tQueueEnd;
 
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
@@ -2612,6 +2703,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             drawTexParticles = false;
         }
     }
+
+    Uint64 tUpload = SDL_GetTicksNS();
+    r->uploadNs = tUpload - tSortRepack;
 
     if (!r->swapchainTex) {
         SDL_SubmitGPUCommandBuffer(r->cmdBuf);
@@ -2898,6 +2992,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 
     SDL_EndGPURenderPass(rp);
 
+    Uint64 tDraw = SDL_GetTicksNS();
+    r->drawNs = tDraw - tUpload;
+
     /* ====================================================================
      * Pass 2: HUD overlay → offscreen (no depth)
      * ==================================================================== */
@@ -2970,6 +3067,13 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                              (Uint32)winW, (Uint32)winH);
     }
 
+    Uint64 tHudPost = SDL_GetTicksNS();
+    r->hudPostNs = tHudPost - tDraw;
+
+    SDL_SubmitGPUCommandBuffer(r->cmdBuf);
+    r->cmdBuf = NULL;
+    r->submitNs = SDL_GetTicksNS() - tHudPost;
+
     /* Perf-investigation instrumentation (see g_bRenderStatsLog): draw-
      * command/vertex counts per frame, running peaks since the renderer was
      * created, and the ACTUAL GPU draw-call/bind counts after merging
@@ -2987,11 +3091,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                      r->drawCmdCount, r->vertexCount,
                      r->peakDrawCmdCount, r->peakVertexCount,
                      r->gpuDrawCallsThisFrame, r->gpuBindsThisFrame);
+            SDL_Log("RENDER CPU TIME (ms): queue=%.3f sort/repack=%.3f "
+                     "upload=%.3f draw=%.3f hud/post=%.3f submit=%.3f total=%.3f",
+                     r->queueNs      / 1000000.0,
+                     r->sortRepackNs / 1000000.0,
+                     r->uploadNs     / 1000000.0,
+                     r->drawNs       / 1000000.0,
+                     r->hudPostNs    / 1000000.0,
+                     r->submitNs     / 1000000.0,
+                     (r->queueNs + r->sortRepackNs + r->uploadNs
+                      + r->drawNs + r->hudPostNs + r->submitNs) / 1000000.0);
         }
     }
-
-    SDL_SubmitGPUCommandBuffer(r->cmdBuf);
-    r->cmdBuf = NULL;
 }
 
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r)
@@ -3326,6 +3437,16 @@ void scene_render_gpu_set_msaa(SceneRendererGPU *r, int level)
     if (r->msaaTex)      { SDL_ReleaseGPUTexture(r->device, r->msaaTex);      r->msaaTex      = NULL; }
     if (r->msaaDepthTex) { SDL_ReleaseGPUTexture(r->device, r->msaaDepthTex); r->msaaDepthTex = NULL; }
     r->msaaW = 0; r->msaaH = 0;
+
+    /* Same for the secondary-view (mirror/2P) MSAA intermediates -- recreated
+     * (or left absent, if the new level is off) in the next
+     * ensure_secondary_textures call at the right sample count. */
+    for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
+        if (r->secondaryMsaaColorTex[i]) { SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaColorTex[i]); r->secondaryMsaaColorTex[i] = NULL; }
+        if (r->secondaryMsaaDepthTex[i]) { SDL_ReleaseGPUTexture(r->device, r->secondaryMsaaDepthTex[i]); r->secondaryMsaaDepthTex[i] = NULL; }
+        r->secondaryMsaaW[i] = 0; r->secondaryMsaaH[i] = 0;
+    }
+
     r->msaaSampleCount = sc;
 
     SDL_GPUShader *sv = load_shader(r->device, SDL_GPU_SHADERSTAGE_VERTEX,
