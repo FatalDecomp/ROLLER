@@ -4303,9 +4303,11 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * both sides — SW's polyt() never culls them.
      * CONCAVE = SW's facing_ok check is bypassed for concave outer-wall sections
      * (LLOWALL/LUOWALL/RLOWALL/RUOWALL in drawtrk3.c), so these surfaces always
-     * render in SW regardless of winding. Loop sections rely on this: the outer
-     * walls at section boundaries are back-facing from outside the loop but must
-     * render to produce the dark dividing lines between sections. */
+     * render in SW regardless of winding; bypass here too so GPU doesn't cull
+     * them either. (NOT the source of the black divider lines seen in the
+     * looping road in SW -- investigated 2026-07-08, see [[project_gpu_backlog]]:
+     * a click-to-pick diagnostic found no separate quad at those positions at
+     * all, in either renderer; concluded to be a SW rasterizer artifact.) */
     /* CPU backface cull removed for track surfaces.
      * The screen-space cross-product check was unreliable near the near-plane
      * (clamping artefacts flipped the sign for valley/slope surfaces) and it
@@ -4367,9 +4369,14 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
 
     if (!gpuTex) {
         if (surfaceFlags & SURFACE_FLAG_APPLY_TEXTURE) {
-            /* PARTIAL_TRANS and CONCAVE surfaces are rendered as flat-color in SW
-             * (poly()/twpoly() with palette[surfIdx]).  Fall through to the
-             * flat-color path below to replicate that appearance. */
+            /* We only reach here because the real atlas texture lookup above
+             * failed (gpuTex is still NULL) -- this is NOT how SW normally
+             * renders PARTIAL_TRANS+APPLY_TEXTURE surfaces (that's polyt() in
+             * polytex.c, a real textured/colorkey-transparent render). This is
+             * just a graceful degradation for the "texture not loaded" case:
+             * fall through to the flat-color path below instead of skipping
+             * the surface entirely, which is a reasonable approximation but
+             * won't exactly match polyt()'s appearance. */
             if (surfaceFlags & SURFACE_FLAG_PARTIAL_TRANS) {
                 /* fall through — use flat-color path below */
             } else {
