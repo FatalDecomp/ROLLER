@@ -140,6 +140,7 @@ bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;
+bool  g_bRenderStatsLog  = false;
 bool  g_pendingClickQuery = false;
 float g_clickQueryNX      = 0.0f;
 float g_clickQueryNY      = 0.0f;

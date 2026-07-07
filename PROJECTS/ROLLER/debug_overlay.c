@@ -1221,6 +1221,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Surface Log", &bSurfLog))
         g_bSurfaceLog = (bool)bSurfLog;
 
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bRenderStatsLog = (int)g_bRenderStatsLog;
+      if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
+        g_bRenderStatsLog = (bool)bRenderStatsLog;
+
       {
         static char s_surfLogIdBuf[8] = "";
         static int  s_surfLogIdLen    = 0;

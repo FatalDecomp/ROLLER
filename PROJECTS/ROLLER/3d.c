@@ -4753,6 +4753,7 @@ HANDLE_SPECIAL_MODES:
   if (game_req)                               // Handle game menu requests and exit confirmation
   {
     if (draw_type != 2) {
+      game_render_draw_pause_darken(g_pGameRenderer); // GPU-only: SW darkens via blankwindow() inside display_paused()
       display_paused();
       if (trying_to_exit) {
         int iPromptY = (scr_size * 96) >> 6;

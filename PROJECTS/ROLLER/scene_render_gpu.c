@@ -109,7 +109,6 @@ typedef struct {
     int              vertexCount;
     SceneGPUDrawKind kind;
     bool             forceNearest;
-    float            mvp[16];
 } SceneGPUDrawCmd;
 
 typedef struct {
@@ -155,6 +154,30 @@ struct SceneRendererGPU {
 
     SceneGPUDrawCmd *drawCmds;           /* heap-allocated, SCENE_GPU_MAX_DRAW_CMDS */
     int              drawCmdCount;
+
+    /* Scratch buffers for repack_draw_order(): physically reorders
+     * r->vertices into sorted (kind,texture,forceNearest) order so
+     * same-texture runs become vertex-contiguous and can be merged into one
+     * draw call, instead of just reducing sampler rebinds. Sized the same as
+     * vertices/drawCmds since a repack can never produce more of either. */
+    SceneGPUVertex  *repackVertices;     /* heap-allocated, SCENE_GPU_MAX_VERTICES */
+    SceneGPUDrawCmd *repackDrawCmds;     /* heap-allocated, SCENE_GPU_MAX_DRAW_CMDS */
+
+    /* ---- Perf-investigation counters (see g_bRenderStatsLog) ----
+     * Running peaks, never reset -- highest drawCmdCount/vertexCount seen
+     * since the renderer was created, to gauge real headroom against
+     * SCENE_GPU_MAX_DRAW_CMDS/SCENE_GPU_MAX_VERTICES over a full lap. */
+    int              peakDrawCmdCount;
+    int              peakVertexCount;
+    /* Actual GPU-level SDL_DrawGPUPrimitives/BindGPUFragmentSamplers calls
+     * this frame (world-quad geometry only: draw_cmd_kind + the road-shadow
+     * pass), reset every begin_frame. drawCmdCount above is just the queued
+     * METADATA count -- sorting by texture (compare_draw_order) cut rebinds
+     * but not draw-call count, since each metadata entry still got its own
+     * draw call regardless. gpuDrawCallsThisFrame is the real number after
+     * merging vertex-contiguous same-texture commands in draw_cmd_kind. */
+    int              gpuDrawCallsThisFrame;
+    int              gpuBindsThisFrame;
 
     /* ---- Car mesh pipeline (SceneGPUMeshVertex: pos[3]+uv[2]+col[4]) ---- */
     SDL_GPUGraphicsPipeline *carPipeline;
@@ -211,6 +234,7 @@ struct SceneRendererGPU {
     SDL_GPUTexture *flatColorCache[256];
     uint32_t        paletteCacheHash;
     SDL_GPUTexture *shadowTex;       /* 50%-transparent black for car shadow quads */
+    SDL_GPUTexture *darkenTex;       /* fully-opaque black for the pause-menu darken quad */
 
     /* Offscreen colour target rendered at native resolution, blitted to the
      * swapchain with letterbox/pillarbox scaling to fill the window. */
@@ -333,10 +357,31 @@ static Uint32 mip_level_count(int w, int h)
     return n;
 }
 
-static SDL_GPUTexture *upload_rgba(SDL_GPUDevice *dev,
-                                   const uint8 *rgba, int w, int h)
+/* Uploads a fully-populated RGBA8 buffer as a new 2D texture, acquiring and
+ * submitting its own dedicated command buffer synchronously (safe to call
+ * any time -- unlike the batched per-tile uploads in
+ * scene_render_gpu_load_texture, this does NOT touch r->cmdBuf, so it's for
+ * one-off/small textures created once at init or on demand: flat-color
+ * cache entries, car/menu atlases, HUD fallback textures. Not for per-frame
+ * streaming data, which needs a cycled transfer buffer instead -- see the
+ * cycle=true comments elsewhere in this file).
+ *
+ * generateMipmaps: true for textures sampled at a range of distances (track
+ * tiles, flat-color fills that can appear far away); false for textures
+ * always shown at native/fixed size (menu UI, car body atlases), where mip
+ * levels would be wasted generation work for no visual benefit.
+ *
+ * Consolidated 2026-07-06 from three near-identical copies (this function,
+ * game_render_hardware.c's hw_upload_rgba, menu_render_gpu.c's UploadRGBA)
+ * that had silently drifted apart: the menu copy had grown extra input/cp
+ * validation the other two lacked (adopted here for all callers), and only
+ * this copy generated mipmaps (now a parameter instead of hidden behavior). */
+SDL_GPUTexture *scene_render_gpu_upload_rgba(SDL_GPUDevice *dev, const uint8 *rgba,
+                                              int w, int h, bool generateMipmaps)
 {
-    Uint32 levels = mip_level_count(w, h);
+    if (!dev || !rgba || w <= 0 || h <= 0) return NULL;
+
+    Uint32 levels = generateMipmaps ? mip_level_count(w, h) : 1;
     SDL_GPUTextureCreateInfo ti = {0};
     ti.type        = SDL_GPU_TEXTURETYPE_2D;
     ti.format      = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -344,7 +389,8 @@ static SDL_GPUTexture *upload_rgba(SDL_GPUDevice *dev,
     ti.height      = (Uint32)h;
     ti.layer_count_or_depth = 1;
     ti.num_levels  = levels;
-    ti.usage       = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+    ti.usage       = SDL_GPU_TEXTUREUSAGE_SAMPLER
+                    | (generateMipmaps ? SDL_GPU_TEXTUREUSAGE_COLOR_TARGET : 0);
     SDL_GPUTexture *tex = SDL_CreateGPUTexture(dev, &ti);
     if (!tex) return NULL;
 
@@ -362,21 +408,33 @@ static SDL_GPUTexture *upload_rgba(SDL_GPUDevice *dev,
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
     SDL_GPUTextureTransferInfo src = {.transfer_buffer = tb};
     SDL_GPUTextureRegion dst = {.texture = tex, .w = (Uint32)w, .h = (Uint32)h, .d = 1};
     SDL_UploadToGPUTexture(cp, &src, &dst, false);
     SDL_EndGPUCopyPass(cp);
-    if (levels > 1)
+    if (generateMipmaps && levels > 1)
         SDL_GenerateMipmapsForGPUTexture(cmd, tex);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+        SDL_ReleaseGPUTexture(dev, tex);
+        return NULL;
+    }
     SDL_ReleaseGPUTransferBuffer(dev, tb);
     return tex;
 }
 
-static SDL_GPUBuffer *upload_gpu_buffer(SDL_GPUDevice *dev,
-                                         SDL_GPUBufferUsageFlags usage,
-                                         const void *data, Uint32 size)
+/* Uploads a data buffer as a new GPU buffer (vertex/index/etc.), acquiring
+ * and submitting its own dedicated command buffer synchronously -- see
+ * scene_render_gpu_upload_rgba for why (one-off buffers, not per-frame
+ * streaming data). Consolidated 2026-07-06 from three near-identical copies
+ * (this function, game_render_hardware.c's hw_upload_gpu_buffer,
+ * menu_render_gpu.c's UploadGPUBuffer). */
+SDL_GPUBuffer *scene_render_gpu_upload_buffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
+                                               const void *data, Uint32 size)
 {
+    if (!dev || !data || size == 0) return NULL;
+
     SDL_GPUBufferCreateInfo bi = {.usage = usage, .size = size};
     SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(dev, &bi);
     if (!buf) return NULL;
@@ -393,11 +451,16 @@ static SDL_GPUBuffer *upload_gpu_buffer(SDL_GPUDevice *dev,
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
     if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
     SDL_GPUTransferBufferLocation srcloc = {.transfer_buffer = tb};
     SDL_GPUBufferRegion dstreg = {.buffer = buf, .size = size};
     SDL_UploadToGPUBuffer(cp, &srcloc, &dstreg, false);
     SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
+        SDL_ReleaseGPUTransferBuffer(dev, tb);
+        SDL_ReleaseGPUBuffer(dev, buf);
+        return NULL;
+    }
     SDL_ReleaseGPUTransferBuffer(dev, tb);
     return buf;
 }
@@ -520,7 +583,7 @@ static SDL_GPUTexture *get_flat_color_texture(SceneRendererGPU *r, int colorIdx)
     for (int i = 0; i < 16; i++) {
         rgba[i*4+0] = R; rgba[i*4+1] = G; rgba[i*4+2] = B; rgba[i*4+3] = 255;
     }
-    r->flatColorCache[colorIdx] = upload_rgba(r->device, rgba, 4, 4);
+    r->flatColorCache[colorIdx] = scene_render_gpu_upload_rgba(r->device, rgba, 4, 4, true);
     return r->flatColorCache[colorIdx];
 }
 
@@ -1357,7 +1420,19 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
             shadowRgba[i*4+0] = 0; shadowRgba[i*4+1] = 0;
             shadowRgba[i*4+2] = 0; shadowRgba[i*4+3] = 128;
         }
-        r->shadowTex = upload_rgba(device, shadowRgba, 4, 4);
+        r->shadowTex = scene_render_gpu_upload_rgba(device, shadowRgba, 4, 4, true);
+    }
+
+    {
+        /* Fully opaque (unlike shadowTex's baked-in 50%) so the tint alpha
+         * passed to scene_render_gpu_screen_quad_darken() is the actual
+         * final alpha, not multiplied against a second baked-in value. */
+        uint8 darkenRgba[4 * 4 * 4];
+        for (int i = 0; i < 16; i++) {
+            darkenRgba[i*4+0] = 0; darkenRgba[i*4+1] = 0;
+            darkenRgba[i*4+2] = 0; darkenRgba[i*4+3] = 255;
+        }
+        r->darkenTex = scene_render_gpu_upload_rgba(device, darkenRgba, 4, 4, true);
     }
 
     /* ---- Scene shaders + pipelines ---- */
@@ -1427,14 +1502,16 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
         {-1,  1, 0, 0}, { 1,  1, 1, 0}, { 1, -1, 1, 1},
         {-1,  1, 0, 0}, { 1, -1, 1, 1}, {-1, -1, 0, 1}
     };
-    r->hudVertBuf = upload_gpu_buffer(device, SDL_GPU_BUFFERUSAGE_VERTEX,
+    r->hudVertBuf = scene_render_gpu_upload_buffer(device, SDL_GPU_BUFFERUSAGE_VERTEX,
                                       hudVerts, sizeof(hudVerts));
     if (!r->hudVertBuf) goto fail;
 
     /* ---- CPU-side vertex + draw-cmd arrays ---- */
     r->vertices  = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
     r->drawCmds  = malloc(SCENE_GPU_MAX_DRAW_CMDS * sizeof(SceneGPUDrawCmd));
-    if (!r->vertices || !r->drawCmds) goto fail;
+    r->repackVertices = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
+    r->repackDrawCmds = malloc(SCENE_GPU_MAX_DRAW_CMDS * sizeof(SceneGPUDrawCmd));
+    if (!r->vertices || !r->drawCmds || !r->repackVertices || !r->repackDrawCmds) goto fail;
 
     /* ---- Scene vertex buffer ---- */
     Uint32 vbufSize = (Uint32)(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
@@ -1507,6 +1584,7 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
             SDL_ReleaseGPUTexture(r->device, r->flatColorCache[i]);
     }
     if (r->shadowTex)     SDL_ReleaseGPUTexture(r->device, r->shadowTex);
+    if (r->darkenTex)     SDL_ReleaseGPUTexture(r->device, r->darkenTex);
     if (r->offscreenTex)  SDL_ReleaseGPUTexture(r->device, r->offscreenTex);
     for (int i = 0; i < SCENE_GPU_MAX_SECONDARY_VIEWS; i++) {
         if (r->secondaryColorTex[i]) SDL_ReleaseGPUTexture(r->device, r->secondaryColorTex[i]);
@@ -1525,6 +1603,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->vertexXfer)    SDL_ReleaseGPUTransferBuffer(r->device, r->vertexXfer);
     free(r->vertices);
     free(r->drawCmds);
+    free(r->repackVertices);
+    free(r->repackDrawCmds);
     if (r->opaquePipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);
     if (r->blendPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);
     if (r->buildingPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);
@@ -1670,6 +1750,27 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
     return true;
 }
 
+/* Full-screen translucent black quad for the in-race pause-menu darken
+ * effect (see [[project_gpu_backlog]]). Uses the textured-particle path
+ * (not scene_render_gpu_screen_quad_flat) deliberately: in 2-player mode,
+ * flat-particle quads draw as a whole batch BEFORE textured-particle quads
+ * in the same final render pass, regardless of queue order -- and each
+ * player's composited view (game_render_flush_player_view) is itself an
+ * OPAQUE textured-particle quad. A flat darken quad queued after both
+ * composites would still get drawn first and be completely painted over by
+ * them. Routing through the textured path instead means this quad's
+ * position in texParticleRanges (and therefore its draw order) matches
+ * when it was actually queued, so calling this after both players' views
+ * have been composited correctly draws it on top of both halves. */
+bool scene_render_gpu_screen_quad_darken(SceneRendererGPU *r, float alpha)
+{
+    if (!r || !r->darkenTex) return false;
+    float ndcX[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    float ndcY[4] = { 1.0f,  1.0f, -1.0f, -1.0f };
+    return scene_render_gpu_screen_quad_textured(r, ndcX, ndcY, r->darkenTex,
+                                                  1.0f, 1.0f, 1.0f, alpha);
+}
+
 /* Call before a secondary view's own draw_road() runs (i.e. before any of
  * its scene content -- including real smoke/explosion particles, which use
  * this same texParticle path -- gets queued). Snapshots the current
@@ -1696,6 +1797,285 @@ void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r)
  * for a small, lower-detail secondary view. Everything else (opaque/wall/
  * building/tree/blend geometry, cars, car shadows, road shadows, sky) is
  * drawn exactly as the main pass would. */
+
+/* Computes the fog-blended sky/ground clear colour (skyClear, the render
+ * target's clear colour) and the sky fragment-uniform colour (skyFColor,
+ * passed to the sky pipeline's fogColor uniform) for this frame. Identical
+ * logic shared between scene_render_gpu_flush_secondary_view() and
+ * scene_render_gpu_end_frame() -- previously duplicated in both, which is
+ * exactly how the ground/ "green background" fog bug (see
+ * [[project_fog_color]]) ended up needing the same fix applied twice. Both
+ * the sky-side and ground-side clear colours blend toward r->fogColor by the
+ * same skyFog factor so distant background fades correctly with fog density. */
+static void compute_sky_colors(SceneRendererGPU *r, SDL_FColor *outSkyClear, SDL_FColor *outSkyFColor)
+{
+    float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
+    if (skyFog < 0.0f) skyFog = 0.0f;
+    if (skyFog > 1.0f) skyFog = 1.0f;
+    SDL_FColor skyFColor = {
+        r->skyR + (r->fogColor[0] - r->skyR) * skyFog,
+        r->skyG + (r->fogColor[1] - r->skyG) * skyFog,
+        r->skyB + (r->fogColor[2] - r->skyB) * skyFog,
+        1.0f
+    };
+    SDL_FColor skyClear = skyFColor;
+    if (r->groundColorIdx >= 0 && r->skyAnyGround) {
+        const tColor *gc = &palette[r->groundColorIdx];
+        float groundR = gc->byR / 63.0f;
+        float groundG = gc->byG / 63.0f;
+        float groundB = gc->byB / 63.0f;
+        skyClear.r = groundR + (r->fogColor[0] - groundR) * skyFog;
+        skyClear.g = groundG + (r->fogColor[1] - groundG) * skyFog;
+        skyClear.b = groundB + (r->fogColor[2] - groundB) * skyFog;
+    }
+    *outSkyClear  = skyClear;
+    *outSkyFColor = skyFColor;
+}
+
+/* Fans the S-H clipped sky polygon (r->skyPoly, 3-5 verts, set by
+ * game_render_draw_sky()) into triangles and uploads them to r->skyVertBuf.
+ * Returns false (with *outVertCount left at 0) if there's nothing to draw or
+ * the upload failed -- caller should then skip the sky draw for this pass.
+ * Identical logic shared between scene_render_gpu_flush_secondary_view() and
+ * scene_render_gpu_end_frame(). */
+static bool upload_sky_polygon(SceneRendererGPU *r, int *outVertCount)
+{
+    *outVertCount = 0;
+    if (!(r->groundColorIdx >= 0 && r->skyPolyN >= 3 && r->skyPipeline && r->skyVertBuf))
+        return false;
+
+    int n_tris = r->skyPolyN - 2;
+    SceneGPUVertex gv[9];
+    int gi = 0;
+    for (int t = 0; t < n_tris; t++) {
+        gv[gi++] = (SceneGPUVertex){r->skyPoly[0][0],   r->skyPoly[0][1],   0.f, 0.5f, 0.5f};
+        gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
+        gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
+    }
+    /* cycle=true: this transfer buffer is reused for every secondary view
+     * flushed within the same frame (2-player: once per player, both
+     * sharing one not-yet-submitted command buffer). cycle=false let a
+     * later view's write clobber an earlier view's source bytes before
+     * the GPU had actually consumed the earlier copy, so the earlier
+     * view's sky quad rendered with the later view's polygon data --
+     * see [[project_gpu_mirror]]. Matches the scene vertex upload, which
+     * already cycles correctly. */
+    SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
+    if (!gvMapped) return false;
+    memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
+    SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
+    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
+    SDL_GPUTransferBufferLocation gsrc = {.transfer_buffer = r->skyVertXfer};
+    SDL_GPUBufferRegion gdst = {.buffer = r->skyVertBuf,
+                                .size = (Uint32)(gi * (int)sizeof(SceneGPUVertex))};
+    SDL_UploadToGPUBuffer(cp, &gsrc, &gdst, false);
+    SDL_EndGPUCopyPass(cp);
+    *outVertCount = gi;
+    return true;
+}
+
+/* Draws every queued command of the given kind from r->drawCmds. Identical
+ * logic previously duplicated as the SEC_DRAW_CMD macro (in
+ * scene_render_gpu_flush_secondary_view) and the DRAW_CMD macro (in
+ * scene_render_gpu_end_frame) -- both bodies were byte-identical, just
+ * renamed to avoid a redefinition conflict since both were #define'd at
+ * file scope. tsb is reused/mutated by the caller between calls (its
+ * .sampler/.texture fields get overwritten here), matching how both
+ * original macros used it. */
+/* BLEND relies on its queued order for correct back-to-front alpha
+ * compositing; SHADOW is drawn through its own dedicated loop already (not
+ * draw_cmd_kind), included here defensively in case that ever changes. Every
+ * other kind is opaque-with-proper-depth-test, so any draw order inside the
+ * kind produces the same correct result -- safe to reorder by texture. */
+static bool draw_kind_is_order_sensitive(SceneGPUDrawKind kind)
+{
+    return kind == SCENE_GPU_DRAW_BLEND || kind == SCENE_GPU_DRAW_SHADOW;
+}
+
+/* qsort has no user-data parameter in portable C; single-threaded renderer,
+ * so a scratch static pointer for the duration of one sort call is safe. */
+static const SceneRendererGPU *s_drawOrderSortCtx;
+
+static int compare_draw_order(const void *pa, const void *pb)
+{
+    int ia = *(const int *)pa, ib = *(const int *)pb;
+    const SceneGPUDrawCmd *a = &s_drawOrderSortCtx->drawCmds[ia];
+    const SceneGPUDrawCmd *b = &s_drawOrderSortCtx->drawCmds[ib];
+    if (a->kind != b->kind) return (int)a->kind - (int)b->kind;
+    if (!draw_kind_is_order_sensitive(a->kind)) {
+        uintptr_t ta = (uintptr_t)a->texture, tb = (uintptr_t)b->texture;
+        if (ta != tb) return (ta < tb) ? -1 : 1;
+        /* draw_cmd_kind also rebinds when forceNearest changes (different
+         * sampler), so group by it too -- otherwise same-texture commands
+         * with mixed forceNearest can still alternate instead of grouping,
+         * causing avoidable rebinds within a texture run. */
+        if (a->forceNearest != b->forceNearest) return a->forceNearest ? 1 : -1;
+    }
+    return ia - ib; /* stable fallback: preserve original queue order */
+}
+
+/* Fills and sorts a draw-command index array (grouped by kind, then by
+ * texture within reorderable kinds) so that draw_cmd_kind's per-kind scan
+ * encounters same-texture commands adjacently far more often -- track tiles
+ * vary constantly chunk-to-chunk in queue order, which is what limited the
+ * existing same-texture/mvp queue-time batching in
+ * scene_render_gpu_quad_world_legacy to only ever merging consecutively-
+ * queued polygons. Sorts metadata only (lightweight indices into
+ * r->drawCmds), never touches the underlying vertex data, so this is safe
+ * regardless of how large r->drawCmds is. order must have room for at least
+ * r->drawCmdCount ints. */
+static void build_draw_order(SceneRendererGPU *r, int *order)
+{
+    for (int i = 0; i < r->drawCmdCount; i++) order[i] = i;
+    s_drawOrderSortCtx = r;
+    qsort(order, (size_t)r->drawCmdCount, sizeof(int), compare_draw_order);
+}
+
+/* Physically reorders r->vertices into the order given by `order` (from
+ * build_draw_order), so that runs of same-(kind,texture,forceNearest)
+ * commands -- already grouped in `order` for reduced sampler rebinds -- also
+ * become vertex-CONTIGUOUS, and merges them into one draw command each while
+ * repacking. Sorting alone only reduced rebinds (draw_cmd_kind still gave
+ * every command its own SDL_DrawGPUPrimitives call, since two commands that
+ * happen to share a texture are essentially never vertex-adjacent already:
+ * the render queue is Z-sorted, not texture-grouped, so anything not merged
+ * at queue time by scene_render_gpu_quad_world_legacy stays scattered
+ * throughout the buffer). This closes that gap by actually moving the data.
+ *
+ * MUST run before the vertex buffer is uploaded to the GPU this frame (the
+ * upload just copies r->vertices as-is) -- callers call this immediately
+ * after build_draw_order, both before the upload step.
+ *
+ * Order-sensitive kinds (BLEND; SHADOW never reaches here) are copied
+ * through unmerged, in their original relative order (build_draw_order's own
+ * stable fallback for those kinds already preserves it) -- reordering their
+ * vertex data doesn't apply since they're never merged.
+ *
+ * Overwrites r->vertices/r->drawCmds/r->vertexCount/r->drawCmdCount in
+ * place via the repackVertices/repackDrawCmds scratch buffers. Resets
+ * `order` to the identity afterward, since r->drawCmds is now already in
+ * final sorted+merged order and needs no further indirection. */
+static void repack_draw_order(SceneRendererGPU *r, int *order)
+{
+    if (r->drawCmdCount <= 0) return;
+
+    int outVert = 0, outCmd = 0;
+    for (int oi = 0; oi < r->drawCmdCount; oi++) {
+        SceneGPUDrawCmd *cmd = &r->drawCmds[order[oi]];
+
+        memcpy(&r->repackVertices[outVert], &r->vertices[cmd->vertexStart],
+               (size_t)cmd->vertexCount * sizeof(SceneGPUVertex));
+
+        bool mergeable = !draw_kind_is_order_sensitive(cmd->kind);
+        bool sameBatch = mergeable && outCmd > 0
+                       && r->repackDrawCmds[outCmd-1].kind         == cmd->kind
+                       && r->repackDrawCmds[outCmd-1].texture      == cmd->texture
+                       && r->repackDrawCmds[outCmd-1].forceNearest == cmd->forceNearest;
+        if (sameBatch) {
+            r->repackDrawCmds[outCmd-1].vertexCount += cmd->vertexCount;
+        } else {
+            r->repackDrawCmds[outCmd] = (SceneGPUDrawCmd){
+                .texture      = cmd->texture,
+                .vertexStart  = outVert,
+                .vertexCount  = cmd->vertexCount,
+                .kind         = cmd->kind,
+                .forceNearest = cmd->forceNearest,
+            };
+            outCmd++;
+        }
+        outVert += cmd->vertexCount;
+    }
+
+    memcpy(r->vertices,  r->repackVertices,  (size_t)outVert * sizeof(SceneGPUVertex));
+    memcpy(r->drawCmds,  r->repackDrawCmds,  (size_t)outCmd  * sizeof(SceneGPUDrawCmd));
+    r->vertexCount  = outVert;
+    r->drawCmdCount = outCmd;
+
+    for (int i = 0; i < outCmd; i++) order[i] = i;
+}
+
+/* tsb2: optional second fragment sampler slot (e.g. the sign depth-copy
+ * pass's depth-copy texture, bound at slot 1) -- pass NULL for the common
+ * single-texture case. When non-NULL, tsb2's contents are assumed constant
+ * across the whole call (the caller sets it once beforehand) since only
+ * slot 0 (tsb) varies per draw command; this matches how the sign
+ * depth-copy pass already used a fixed slot-1 binding. */
+static void draw_cmd_kind(SceneRendererGPU *r, SDL_GPURenderPass *rp,
+                          SDL_GPUTextureSamplerBinding *tsb,
+                          SDL_GPUTextureSamplerBinding *tsb2,
+                          const int *order,
+                          SceneGPUDrawKind kind_filter)
+{
+    SDL_GPUTexture *lastTex = NULL;
+    bool lastForceNearest = false;
+    bool haveLast = false;
+
+    /* Real draw-call merging: two commands sharing the CURRENT texture/
+     * sampler binding whose vertex ranges are physically CONTIGUOUS in the
+     * vertex buffer (this command starts exactly where the accumulated
+     * batch ends) get issued as ONE SDL_DrawGPUPrimitives call instead of
+     * two. Sorting by texture (compare_draw_order) only reduced sampler
+     * rebinds before this -- it didn't by itself reduce draw-call count,
+     * since every command still kept its own draw call regardless of order.
+     * Contiguity is common here because scene_render_gpu_quad_world_legacy
+     * already merges same-texture quads queued back-to-back into one
+     * command; sorting can then place several of THOSE already-merged,
+     * texture-grouped commands next to each other too when they happen to
+     * have been queued in a run.
+     * Never applied to BLEND (order-sensitive -- see
+     * draw_kind_is_order_sensitive); SHADOW never reaches this function at
+     * all (drawn via its own dedicated loop, also excluded there). */
+    bool mergeable = (kind_filter != SCENE_GPU_DRAW_BLEND);
+    int  mergedStart = -1, mergedCount = 0;
+
+    for (int oi = 0; oi < r->drawCmdCount; oi++) {
+        SceneGPUDrawCmd *cmd = &r->drawCmds[order[oi]];
+        if (cmd->kind != kind_filter) continue;
+
+        if (!haveLast || cmd->texture != lastTex || cmd->forceNearest != lastForceNearest) {
+            if (mergedStart >= 0) {
+                r->gpuDrawCallsThisFrame++;
+                SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
+                mergedStart = -1; mergedCount = 0;
+            }
+            tsb->texture = cmd->texture;
+            tsb->sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
+            if (tsb2) {
+                SDL_GPUTextureSamplerBinding combined[2] = { *tsb, *tsb2 };
+                SDL_BindGPUFragmentSamplers(rp, 0, combined, 2);
+            } else {
+                SDL_BindGPUFragmentSamplers(rp, 0, tsb, 1);
+            }
+            r->gpuBindsThisFrame++;
+            lastTex = cmd->texture;
+            lastForceNearest = cmd->forceNearest;
+            haveLast = true;
+        }
+
+        if (!mergeable) {
+            r->gpuDrawCallsThisFrame++;
+            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
+            continue;
+        }
+
+        if (mergedStart >= 0 && cmd->vertexStart == mergedStart + mergedCount) {
+            mergedCount += cmd->vertexCount;
+        } else {
+            if (mergedStart >= 0) {
+                r->gpuDrawCallsThisFrame++;
+                SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
+            }
+            mergedStart = cmd->vertexStart;
+            mergedCount = cmd->vertexCount;
+        }
+    }
+
+    if (mergedStart >= 0) {
+        r->gpuDrawCallsThisFrame++;
+        SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
+    }
+}
+
 SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int slot, int texW, int texH)
 {
       if (!r || !r->cmdBuf) return NULL;
@@ -1731,6 +2111,13 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
         return NULL;
     }
 
+    /* Sort + physically repack BEFORE uploading -- see repack_draw_order's
+     * own comment for why sorting alone (build_draw_order) doesn't reduce
+     * draw-call count by itself. */
+    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
+    build_draw_order(r, drawOrder);
+    repack_draw_order(r, drawOrder);
+
     /* ---- Vertex upload (same pattern as the main scene flush) ---- */
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
@@ -1747,41 +2134,8 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     }
 
     /* ---- Sky polygon vertex upload ---- */
-    bool drawSky = (r->groundColorIdx >= 0 && r->skyPolyN >= 3
-                       && r->skyPipeline && r->skyVertBuf);
     int skyVertCount = 0;
-    if (drawSky) {
-        int n_tris = r->skyPolyN - 2;
-        SceneGPUVertex gv[9];
-        int gi = 0;
-        for (int t = 0; t < n_tris; t++) {
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[0][0],   r->skyPoly[0][1],   0.f, 0.5f, 0.5f};
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
-        }
-        /* cycle=true: this transfer buffer is reused for every secondary view
-         * flushed within the same frame (2-player: once per player, both
-         * sharing one not-yet-submitted command buffer). cycle=false let a
-         * later view's write clobber an earlier view's source bytes before
-         * the GPU had actually consumed the earlier copy, so the earlier
-         * view's sky quad rendered with the later view's polygon data --
-         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
-         * which already cycles correctly. */
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
-        if (gvMapped) {
-            memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
-            SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
-            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
-            SDL_GPUTransferBufferLocation gsrc = {.transfer_buffer = r->skyVertXfer};
-            SDL_GPUBufferRegion gdst = {.buffer = r->skyVertBuf,
-                                        .size = (Uint32)(gi * (int)sizeof(SceneGPUVertex))};
-            SDL_UploadToGPUBuffer(cp, &gsrc, &gdst, false);
-            SDL_EndGPUCopyPass(cp);
-            skyVertCount = gi;
-        } else {
-            drawSky = false;
-        }
-    }
+    bool drawSky = upload_sky_polygon(r, &skyVertCount);
 
     /* ---- Real smoke/spray/firework particles: draw THIS view's own delta ----
      * game_render_quad_screen queues real smoke (DisplayCarSmoke) and spray/
@@ -1841,22 +2195,8 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     r->particleVertCount = 0;
 
     /* ---- Clear colour (same logic as the main pass) ---- */
-    float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
-    if (skyFog < 0.0f) skyFog = 0.0f;
-    if (skyFog > 1.0f) skyFog = 1.0f;
-    SDL_FColor skyFColor = {
-        r->skyR + (r->fogColor[0] - r->skyR) * skyFog,
-        r->skyG + (r->fogColor[1] - r->skyG) * skyFog,
-        r->skyB + (r->fogColor[2] - r->skyB) * skyFog,
-        1.0f
-    };
-    SDL_FColor skyClear = skyFColor;
-    if (r->groundColorIdx >= 0 && r->skyAnyGround) {
-        const tColor *gc = &palette[r->groundColorIdx];
-        skyClear.r = gc->byR / 63.0f;
-        skyClear.g = gc->byG / 63.0f;
-        skyClear.b = gc->byB / 63.0f;
-    }
+    SDL_FColor skyClear, skyFColor;
+    compute_sky_colors(r, &skyClear, &skyFColor);
 
     SDL_GPUColorTargetInfo colorInfo = {
         .texture     = r->secondaryColorTex[slot],
@@ -1899,6 +2239,10 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
     SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
     SDL_GPUTextureSamplerBinding tsb = {0};
+    /* drawOrder was already sorted + physically repacked before the vertex
+     * upload above (see repack_draw_order) -- r->drawCmds is now itself in
+     * final sorted+merged order, and drawOrder was reset to the identity to
+     * match. */
 
     struct {
         float fogDensity, gamma, fogStart, saturation;
@@ -1917,29 +2261,24 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     };
     SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
 
-#define SEC_DRAW_CMD(kind_filter) \
-    for (int i = 0; i < r->drawCmdCount; i++) { \
-        SceneGPUDrawCmd *cmd = &r->drawCmds[i]; \
-        if (cmd->kind != (kind_filter)) continue; \
-        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp)); \
-        tsb.texture = cmd->texture; \
-        tsb.sampler = cmd->forceNearest ? r->samplerNearest : r->sampler; \
-        SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1); \
-        SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0); \
-    }
+    /* World-space quads (SceneGPUDrawCmd) share one VP (no per-object model
+     * matrix) for the whole view -- push it once instead of once per quad.
+     * Cars/car-shadows below push their own per-object MVP and are unaffected. */
+    float viewVP[16];
+    scene_render_gpu_build_vp(r, viewVP);
+    SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
 
-    if (r->opaquePipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);     SEC_DRAW_CMD(SCENE_GPU_DRAW_OPAQUE) }
-    if (r->wallPipeline)       { SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);       SEC_DRAW_CMD(SCENE_GPU_DRAW_WALL) }
-    if (r->bfWallPipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);     SEC_DRAW_CMD(SCENE_GPU_DRAW_BF_WALL) }
-    if (r->buildingPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_BUILDING) }
-    if (r->bfBuildingPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline); SEC_DRAW_CMD(SCENE_GPU_DRAW_BF_BUILDING) }
+    if (r->opaquePipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);     draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_OPAQUE); }
+    if (r->wallPipeline)       { SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);       draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_WALL); }
+    if (r->bfWallPipeline)     { SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);     draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_WALL); }
+    if (r->buildingPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BUILDING); }
+    if (r->bfBuildingPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING); }
     /* Signs: always the simple bias-based pipeline here (no depth-copy split) --
      * an acceptable simplification for this secondary, lower-detail view. */
-    if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_SIGN) }
-    if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); SEC_DRAW_CMD(SCENE_GPU_DRAW_SIGN_BK) }
-    if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   SEC_DRAW_CMD(SCENE_GPU_DRAW_TREE) }
-    if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  SEC_DRAW_CMD(SCENE_GPU_DRAW_BLEND) }
-#undef SEC_DRAW_CMD
+    if (r->signPipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN); }
+    if (r->signBkPipeline) { SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline); draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK); }
+    if (r->treePipeline)   { SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);   draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE); }
+    if (r->blendPipeline)  { SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);  draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND); }
 
     if (r->carDrawCount > 0 && r->carPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->carPipeline);
@@ -1980,13 +2319,18 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     if (r->shadowPipeline && r->drawCmdCount > 0) {
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
         SDL_BindGPUGraphicsPipeline(rp, r->shadowPipeline);
+        /* Cars/car-shadows above pushed their own per-object MVP into the same
+         * uniform slot -- re-push the shared view VP before resuming
+         * SceneGPUDrawCmd (no per-object matrix) draws. */
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
         SDL_GPUTextureSamplerBinding stsb = {.texture = NULL, .sampler = r->sampler};
         for (int i = 0; i < r->drawCmdCount; i++) {
             SceneGPUDrawCmd *cmd = &r->drawCmds[i];
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
+            r->gpuBindsThisFrame++;
+            r->gpuDrawCallsThisFrame++;
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
         }
     }
@@ -2091,6 +2435,8 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     }
     r->vertexCount       = 0;
     r->drawCmdCount      = 0;
+    r->gpuDrawCallsThisFrame = 0;
+    r->gpuBindsThisFrame     = 0;
     r->carDrawCount      = 0;
     r->carShadowDrawCount = 0;
     r->particleVertCount    = 0;
@@ -2137,6 +2483,14 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     bool useMSAA = r->msaaSampleCount > SDL_GPU_SAMPLECOUNT_1;
     if (useMSAA) ensure_msaa_textures(r, renderW, renderH);
     if (useMSAA && (!r->msaaTex || !r->msaaDepthTex)) useMSAA = false;
+
+    /* Sort + physically repack BEFORE uploading -- the upload below just
+     * copies r->vertices as-is, so reordering it afterward would be too
+     * late. See repack_draw_order's own comment for why sorting alone
+     * (build_draw_order) doesn't reduce draw-call count by itself. */
+    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
+    build_draw_order(r, drawOrder);
+    repack_draw_order(r, drawOrder);
 
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
@@ -2202,51 +2556,22 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         }
     }
 
-    /* ---- Sky polygon vertex upload ----
-     * Sky polygon is the screen region on the sky side of the (possibly tilted) horizon,
-     * pre-clipped to the NDC rectangle by Sutherland-Hodgman in game_render.c.
-     * Fan the polygon (3-5 verts) into triangles and upload to skyVertBuf. */
-    bool drawSky = (r->groundColorIdx >= 0 && r->skyPolyN >= 3
-                       && r->skyPipeline && r->skyVertBuf);
+    /* ---- Sky polygon vertex upload ---- */
     int skyVertCount = 0;
-    if (drawSky) {
-        int n_tris = r->skyPolyN - 2;
-        SceneGPUVertex gv[9];
-        int gi = 0;
-        for (int t = 0; t < n_tris; t++) {
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[0][0],   r->skyPoly[0][1],   0.f, 0.5f, 0.5f};
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+1][0], r->skyPoly[t+1][1], 0.f, 0.5f, 0.5f};
-            gv[gi++] = (SceneGPUVertex){r->skyPoly[t+2][0], r->skyPoly[t+2][1], 0.f, 0.5f, 0.5f};
-        }
-        /* cycle=true: this transfer buffer is reused for every secondary view
-         * flushed within the same frame (2-player: once per player, both
-         * sharing one not-yet-submitted command buffer). cycle=false let a
-         * later view's write clobber an earlier view's source bytes before
-         * the GPU had actually consumed the earlier copy, so the earlier
-         * view's sky quad rendered with the later view's polygon data --
-         * see [[project_gpu_mirror]]. Matches the scene vertex upload above,
-         * which already cycles correctly. */
-        SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
-        if (gvMapped) {
-            memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
-            SDL_UnmapGPUTransferBuffer(r->device, r->skyVertXfer);
-            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(r->cmdBuf);
-            SDL_GPUTransferBufferLocation gsrc = {.transfer_buffer = r->skyVertXfer};
-            SDL_GPUBufferRegion gdst = {.buffer = r->skyVertBuf,
-                                        .size = (Uint32)(gi * (int)sizeof(SceneGPUVertex))};
-            SDL_UploadToGPUBuffer(cp, &gsrc, &gdst, false);
-            SDL_EndGPUCopyPass(cp);
-            skyVertCount = gi;
-        } else {
-            drawSky = false;
-        }
-    }
+    bool drawSky = upload_sky_polygon(r, &skyVertCount);
 
-    /* ---- Particle vertex upload ---- */
+    /* ---- Particle vertex upload ----
+     * cycle=true: not currently written more than once per frame (flat
+     * particles aren't drawn inside secondary-view render passes yet, see
+     * [[project_gpu_backlog]]), but matches every other shared per-frame
+     * transfer buffer in this file so this doesn't become a latent trap the
+     * moment that changes -- see the cycle=true comment on the sky vertex
+     * buffer for why an un-cycled shared buffer written more than once per
+     * frame corrupts an earlier, not-yet-GPU-consumed write. */
     bool drawParticles = (r->particleVertCount > 0
                           && r->particlePipeline && r->particleVerts && r->particleVertBuf);
     if (drawParticles) {
-        SceneGPUParticleVertex *pm = SDL_MapGPUTransferBuffer(r->device, r->particleVertXfer, false);
+        SceneGPUParticleVertex *pm = SDL_MapGPUTransferBuffer(r->device, r->particleVertXfer, true);
         if (pm) {
             memcpy(pm, r->particleVerts, (size_t)r->particleVertCount * sizeof(SceneGPUParticleVertex));
             SDL_UnmapGPUTransferBuffer(r->device, r->particleVertXfer);
@@ -2301,30 +2626,11 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     /* ====================================================================
      * Pass 1: 3D scene + car meshes → offscreen (with optional MSAA resolve)
      * ==================================================================== */
-    /* Fog-blended sky colour (sky is at infinity, so fog factor → 1 as density rises). */
-    float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
-    if (skyFog < 0.0f) skyFog = 0.0f;
-    if (skyFog > 1.0f) skyFog = 1.0f;
-    SDL_FColor skyFColor = {
-        r->skyR + (r->fogColor[0] - r->skyR) * skyFog,
-        r->skyG + (r->fogColor[1] - r->skyG) * skyFog,
-        r->skyB + (r->fogColor[2] - r->skyB) * skyFog,
-        1.0f
-    };
-    /* Clear colour selection mirrors SW DrawHorizon logic:
-     *   groundOnTop=false (normal):  ground visible when skyFrac < 0.999  → clear=ground
-     *   groundOnTop=true (inverted): ground visible when skyFrac > 0.001  → clear=ground
-     * When no ground is visible (all sky), fall back to skyFColor. */
-    SDL_FColor skyClear = skyFColor;
-    if (r->groundColorIdx >= 0) {
-        bool anyGround = r->skyAnyGround;
-        if (anyGround) {
-            const tColor *gc = &palette[r->groundColorIdx];
-            skyClear.r = gc->byR / 63.0f;
-            skyClear.g = gc->byG / 63.0f;
-            skyClear.b = gc->byB / 63.0f;
-        }
-    }
+    /* Fog-blended sky/ground clear colour (sky is at infinity, so fog factor
+     * → 1 as density rises); clear colour selection mirrors SW DrawHorizon
+     * logic (ground visible → clear=ground, else clear=sky). */
+    SDL_FColor skyClear, skyFColor;
+    compute_sky_colors(r, &skyClear, &skyFColor);
 
     SDL_GPUColorTargetInfo colorInfo;
     if (useMSAA) {
@@ -2386,6 +2692,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
     SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
     SDL_GPUTextureSamplerBinding tsb = {0};
+    /* drawOrder was already sorted + physically repacked before the vertex
+     * upload above (see repack_draw_order) -- r->drawCmds is now itself in
+     * final sorted+merged order, and drawOrder was reset to the identity to
+     * match. */
 
     /* Push scene pixel uniforms (fog, gamma, saturation, contrast, brightness) once for all draws. */
     struct {
@@ -2405,16 +2715,12 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     };
     SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
 
-#define DRAW_CMD(kind_filter) \
-    for (int i = 0; i < r->drawCmdCount; i++) { \
-        SceneGPUDrawCmd *cmd = &r->drawCmds[i]; \
-        if (cmd->kind != (kind_filter)) continue; \
-        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp)); \
-        tsb.texture = cmd->texture; \
-        tsb.sampler = cmd->forceNearest ? r->samplerNearest : r->sampler; \
-        SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1); \
-        SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0); \
-    }
+    /* World-space quads (SceneGPUDrawCmd) share one VP (no per-object model
+     * matrix) for the whole view -- push it once instead of once per quad.
+     * Cars/car-shadows below push their own per-object MVP and are unaffected. */
+    float viewVP[16];
+    scene_render_gpu_build_vp(r, viewVP);
+    SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
 
     /* Draw order: OPAQUE → WALL → BUILDING → SIGN
      * Opaque and wall establish the depth buffer for solid track geometry.
@@ -2424,23 +2730,23 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
      * still pass, while signs behind opaque geometry are correctly rejected. */
     if (r->opaquePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_OPAQUE)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_OPAQUE);
     }
     if (r->wallPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->wallPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_WALL)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_WALL);
     }
     if (r->bfWallPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->bfWallPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_BF_WALL)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_WALL);
     }
     if (r->buildingPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->buildingPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_BUILDING)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BUILDING);
     }
     if (r->bfBuildingPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_BF_BUILDING)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING);
     }
     /* Sign rendering: non-MSAA uses depth-copy pass split so signs behind canyon walls
      * are correctly hidden; MSAA falls back to the old bias-based pipeline. */
@@ -2468,51 +2774,42 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_SetGPUViewport(rp, &vp);
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
         SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
 
-        /* Each sign draw binds slot 0 (scene tex) + slot 1 (depth copy). */
-        SDL_GPUTextureSamplerBinding signTsb[2];
-        signTsb[1].texture = r->signDepthCopyTex;
-        signTsb[1].sampler = r->samplerNearest;
+        /* Each sign draw binds slot 0 (scene tex, varies per command) + slot 1
+         * (depth copy, constant for the whole pass). Slot 1 is set once here;
+         * draw_cmd_kind takes care of slot 0 (including skipping redundant
+         * rebinds) and now also benefits from the same sorted draw order as
+         * every other kind, instead of the raw unsorted queue order this
+         * used before. */
+        SDL_GPUTextureSamplerBinding signTsbSlot0 = {0};
+        SDL_GPUTextureSamplerBinding signTsbSlot1 = {
+            .texture = r->signDepthCopyTex,
+            .sampler = r->samplerNearest
+        };
 
         SDL_BindGPUGraphicsPipeline(rp, r->signDepthPipeline);
-        for (int i = 0; i < r->drawCmdCount; i++) {
-            SceneGPUDrawCmd *cmd = &r->drawCmds[i];
-            if (cmd->kind != SCENE_GPU_DRAW_SIGN) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
-            signTsb[0].texture = cmd->texture;
-            signTsb[0].sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
-            SDL_BindGPUFragmentSamplers(rp, 0, signTsb, 2);
-            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
-        }
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN);
         SDL_BindGPUGraphicsPipeline(rp, r->signBkDepthPipeline);
-        for (int i = 0; i < r->drawCmdCount; i++) {
-            SceneGPUDrawCmd *cmd = &r->drawCmds[i];
-            if (cmd->kind != SCENE_GPU_DRAW_SIGN_BK) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
-            signTsb[0].texture = cmd->texture;
-            signTsb[0].sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
-            SDL_BindGPUFragmentSamplers(rp, 0, signTsb, 2);
-            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
-        }
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
     } else {
         if (r->signPipeline) {
             SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
-            DRAW_CMD(SCENE_GPU_DRAW_SIGN)
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN);
         }
         if (r->signBkPipeline) {
             SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline);
-            DRAW_CMD(SCENE_GPU_DRAW_SIGN_BK)
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
         }
     }
     if (r->treePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_TREE)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE);
     }
     if (r->blendPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->blendPipeline);
-        DRAW_CMD(SCENE_GPU_DRAW_BLEND)
+        draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BLEND);
     }
-#undef DRAW_CMD
 
     if (r->carDrawCount > 0 && r->carPipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->carPipeline);
@@ -2557,13 +2854,18 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     if (r->shadowPipeline && r->drawCmdCount > 0) {
         SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);  /* restore scene vertex buffer */
         SDL_BindGPUGraphicsPipeline(rp, r->shadowPipeline);
+        /* Cars/car-shadows above pushed their own per-object MVP into the same
+         * uniform slot -- re-push the shared view VP before resuming
+         * SceneGPUDrawCmd (no per-object matrix) draws. */
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
         SDL_GPUTextureSamplerBinding stsb = {.texture = NULL, .sampler = r->sampler};
         for (int i = 0; i < r->drawCmdCount; i++) {
             SceneGPUDrawCmd *cmd = &r->drawCmds[i];
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
-            SDL_PushGPUVertexUniformData(r->cmdBuf, 0, cmd->mvp, sizeof(cmd->mvp));
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
+            r->gpuBindsThisFrame++;
+            r->gpuDrawCallsThisFrame++;
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
         }
     }
@@ -2666,6 +2968,26 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_GetWindowSizeInPixels(r->window, &winW, &winH);
         debug_overlay_render(r->debugOverlay, r->cmdBuf, r->swapchainTex,
                              (Uint32)winW, (Uint32)winH);
+    }
+
+    /* Perf-investigation instrumentation (see g_bRenderStatsLog): draw-
+     * command/vertex counts per frame, running peaks since the renderer was
+     * created, and the ACTUAL GPU draw-call/bind counts after merging
+     * vertex-contiguous same-texture commands in draw_cmd_kind (drawcmds is
+     * just the queued metadata count, not the real GPU call count). Logged
+     * roughly once a second (not every frame) to stay readable while driving. */
+    if (r->drawCmdCount > r->peakDrawCmdCount) r->peakDrawCmdCount = r->drawCmdCount;
+    if (r->vertexCount  > r->peakVertexCount)  r->peakVertexCount  = r->vertexCount;
+    if (g_bRenderStatsLog) {
+        static int s_logCounter = 0;
+        if (++s_logCounter >= 60) {
+            s_logCounter = 0;
+            SDL_Log("RENDER STATS: drawcmds=%d verts=%d (peak dc=%d v=%d) "
+                     "gpu-draws=%d gpu-binds=%d",
+                     r->drawCmdCount, r->vertexCount,
+                     r->peakDrawCmdCount, r->peakVertexCount,
+                     r->gpuDrawCallsThisFrame, r->gpuBindsThisFrame);
+        }
     }
 
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);
@@ -4234,15 +4556,17 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         };
     }
 
-    float mvp[16];
-    int vpW = r->viewportW > 0 ? r->viewportW : 640;
-    int vpH = r->viewportH > 0 ? r->viewportH : 400;
-    build_mvp(mvp, &r->camera, &r->proj, vpW, vpH, r->fovMultiplier);
-
+    /* No per-quad MVP here: world-space quads use view+projection only (no
+     * per-object model matrix, vertices are already absolute world-space),
+     * which is identical for every quad in one view/frame -- it's pushed
+     * once per view instead (see scene_render_gpu_end_frame/
+     * scene_render_gpu_flush_secondary_view). This used to rebuild the full
+     * matrix and memcmp it against the last draw command on every single
+     * quad; both were redundant CPU work at typical (let alone unlimited)
+     * draw distances. */
     SceneGPUDrawCmd *last = r->drawCmdCount > 0 ? &r->drawCmds[r->drawCmdCount-1] : NULL;
     bool batch = last && last->texture == gpuTex && last->kind == kind
-              && last->forceNearest == isCloud
-              && memcmp(last->mvp, mvp, sizeof(mvp)) == 0;
+              && last->forceNearest == isCloud;
     if (batch) {
         last->vertexCount += 6;
     } else {
@@ -4254,7 +4578,6 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             .kind         = kind,
             .forceNearest = isCloud,
         };
-        memcpy(cmd->mvp, mvp, sizeof(mvp));
     }
     r->vertexCount += 6;
 }
