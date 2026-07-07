@@ -72,10 +72,12 @@ void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
     if (!renderer)
         return;
     /* GPU textures are only uploaded when the race/session starts in GPU mode.
-     * If they were skipped (started in SW), switching to GPU mid-session would
-     * render with an empty atlas — block it. */
+     * If they were skipped (started in SW), switching to GPU mid-session used
+     * to just be blocked outright (would've rendered with an empty atlas).
+     * Instead, lazily upload every already-loaded texture's still-live pixel
+     * data to the GPU atlas now, so the switch can proceed safely. */
     if (mode == GAME_RENDER_GPU && !scene_render_get_gpu_load_enabled(renderer->scene))
-        return;
+        scene_render_reload_gpu_textures(renderer->scene);
     /* Defer the actual switch to the next begin_frame so it never fires
      * mid-frame while a GPU command buffer is open. */
     renderer->pendingMode    = mode;
