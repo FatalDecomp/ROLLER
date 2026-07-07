@@ -155,12 +155,29 @@ struct SceneRendererGPU {
     SceneGPUDrawCmd *drawCmds;           /* heap-allocated, SCENE_GPU_MAX_DRAW_CMDS */
     int              drawCmdCount;
 
+    /* Scratch buffers for repack_draw_order(): physically reorders
+     * r->vertices into sorted (kind,texture,forceNearest) order so
+     * same-texture runs become vertex-contiguous and can be merged into one
+     * draw call, instead of just reducing sampler rebinds. Sized the same as
+     * vertices/drawCmds since a repack can never produce more of either. */
+    SceneGPUVertex  *repackVertices;     /* heap-allocated, SCENE_GPU_MAX_VERTICES */
+    SceneGPUDrawCmd *repackDrawCmds;     /* heap-allocated, SCENE_GPU_MAX_DRAW_CMDS */
+
     /* ---- Perf-investigation counters (see g_bRenderStatsLog) ----
      * Running peaks, never reset -- highest drawCmdCount/vertexCount seen
      * since the renderer was created, to gauge real headroom against
      * SCENE_GPU_MAX_DRAW_CMDS/SCENE_GPU_MAX_VERTICES over a full lap. */
     int              peakDrawCmdCount;
     int              peakVertexCount;
+    /* Actual GPU-level SDL_DrawGPUPrimitives/BindGPUFragmentSamplers calls
+     * this frame (world-quad geometry only: draw_cmd_kind + the road-shadow
+     * pass), reset every begin_frame. drawCmdCount above is just the queued
+     * METADATA count -- sorting by texture (compare_draw_order) cut rebinds
+     * but not draw-call count, since each metadata entry still got its own
+     * draw call regardless. gpuDrawCallsThisFrame is the real number after
+     * merging vertex-contiguous same-texture commands in draw_cmd_kind. */
+    int              gpuDrawCallsThisFrame;
+    int              gpuBindsThisFrame;
 
     /* ---- Car mesh pipeline (SceneGPUMeshVertex: pos[3]+uv[2]+col[4]) ---- */
     SDL_GPUGraphicsPipeline *carPipeline;
@@ -1492,7 +1509,9 @@ SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *win
     /* ---- CPU-side vertex + draw-cmd arrays ---- */
     r->vertices  = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
     r->drawCmds  = malloc(SCENE_GPU_MAX_DRAW_CMDS * sizeof(SceneGPUDrawCmd));
-    if (!r->vertices || !r->drawCmds) goto fail;
+    r->repackVertices = malloc(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
+    r->repackDrawCmds = malloc(SCENE_GPU_MAX_DRAW_CMDS * sizeof(SceneGPUDrawCmd));
+    if (!r->vertices || !r->drawCmds || !r->repackVertices || !r->repackDrawCmds) goto fail;
 
     /* ---- Scene vertex buffer ---- */
     Uint32 vbufSize = (Uint32)(SCENE_GPU_MAX_VERTICES * sizeof(SceneGPUVertex));
@@ -1584,6 +1603,8 @@ void scene_render_gpu_destroy(SceneRendererGPU *r)
     if (r->vertexXfer)    SDL_ReleaseGPUTransferBuffer(r->device, r->vertexXfer);
     free(r->vertices);
     free(r->drawCmds);
+    free(r->repackVertices);
+    free(r->repackDrawCmds);
     if (r->opaquePipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->opaquePipeline);
     if (r->blendPipeline)    SDL_ReleaseGPUGraphicsPipeline(r->device, r->blendPipeline);
     if (r->buildingPipeline)   SDL_ReleaseGPUGraphicsPipeline(r->device, r->buildingPipeline);
@@ -1910,6 +1931,69 @@ static void build_draw_order(SceneRendererGPU *r, int *order)
     qsort(order, (size_t)r->drawCmdCount, sizeof(int), compare_draw_order);
 }
 
+/* Physically reorders r->vertices into the order given by `order` (from
+ * build_draw_order), so that runs of same-(kind,texture,forceNearest)
+ * commands -- already grouped in `order` for reduced sampler rebinds -- also
+ * become vertex-CONTIGUOUS, and merges them into one draw command each while
+ * repacking. Sorting alone only reduced rebinds (draw_cmd_kind still gave
+ * every command its own SDL_DrawGPUPrimitives call, since two commands that
+ * happen to share a texture are essentially never vertex-adjacent already:
+ * the render queue is Z-sorted, not texture-grouped, so anything not merged
+ * at queue time by scene_render_gpu_quad_world_legacy stays scattered
+ * throughout the buffer). This closes that gap by actually moving the data.
+ *
+ * MUST run before the vertex buffer is uploaded to the GPU this frame (the
+ * upload just copies r->vertices as-is) -- callers call this immediately
+ * after build_draw_order, both before the upload step.
+ *
+ * Order-sensitive kinds (BLEND; SHADOW never reaches here) are copied
+ * through unmerged, in their original relative order (build_draw_order's own
+ * stable fallback for those kinds already preserves it) -- reordering their
+ * vertex data doesn't apply since they're never merged.
+ *
+ * Overwrites r->vertices/r->drawCmds/r->vertexCount/r->drawCmdCount in
+ * place via the repackVertices/repackDrawCmds scratch buffers. Resets
+ * `order` to the identity afterward, since r->drawCmds is now already in
+ * final sorted+merged order and needs no further indirection. */
+static void repack_draw_order(SceneRendererGPU *r, int *order)
+{
+    if (r->drawCmdCount <= 0) return;
+
+    int outVert = 0, outCmd = 0;
+    for (int oi = 0; oi < r->drawCmdCount; oi++) {
+        SceneGPUDrawCmd *cmd = &r->drawCmds[order[oi]];
+
+        memcpy(&r->repackVertices[outVert], &r->vertices[cmd->vertexStart],
+               (size_t)cmd->vertexCount * sizeof(SceneGPUVertex));
+
+        bool mergeable = !draw_kind_is_order_sensitive(cmd->kind);
+        bool sameBatch = mergeable && outCmd > 0
+                       && r->repackDrawCmds[outCmd-1].kind         == cmd->kind
+                       && r->repackDrawCmds[outCmd-1].texture      == cmd->texture
+                       && r->repackDrawCmds[outCmd-1].forceNearest == cmd->forceNearest;
+        if (sameBatch) {
+            r->repackDrawCmds[outCmd-1].vertexCount += cmd->vertexCount;
+        } else {
+            r->repackDrawCmds[outCmd] = (SceneGPUDrawCmd){
+                .texture      = cmd->texture,
+                .vertexStart  = outVert,
+                .vertexCount  = cmd->vertexCount,
+                .kind         = cmd->kind,
+                .forceNearest = cmd->forceNearest,
+            };
+            outCmd++;
+        }
+        outVert += cmd->vertexCount;
+    }
+
+    memcpy(r->vertices,  r->repackVertices,  (size_t)outVert * sizeof(SceneGPUVertex));
+    memcpy(r->drawCmds,  r->repackDrawCmds,  (size_t)outCmd  * sizeof(SceneGPUDrawCmd));
+    r->vertexCount  = outVert;
+    r->drawCmdCount = outCmd;
+
+    for (int i = 0; i < outCmd; i++) order[i] = i;
+}
+
 /* tsb2: optional second fragment sampler slot (e.g. the sign depth-copy
  * pass's depth-copy texture, bound at slot 1) -- pass NULL for the common
  * single-texture case. When non-NULL, tsb2's contents are assumed constant
@@ -1925,10 +2009,35 @@ static void draw_cmd_kind(SceneRendererGPU *r, SDL_GPURenderPass *rp,
     SDL_GPUTexture *lastTex = NULL;
     bool lastForceNearest = false;
     bool haveLast = false;
+
+    /* Real draw-call merging: two commands sharing the CURRENT texture/
+     * sampler binding whose vertex ranges are physically CONTIGUOUS in the
+     * vertex buffer (this command starts exactly where the accumulated
+     * batch ends) get issued as ONE SDL_DrawGPUPrimitives call instead of
+     * two. Sorting by texture (compare_draw_order) only reduced sampler
+     * rebinds before this -- it didn't by itself reduce draw-call count,
+     * since every command still kept its own draw call regardless of order.
+     * Contiguity is common here because scene_render_gpu_quad_world_legacy
+     * already merges same-texture quads queued back-to-back into one
+     * command; sorting can then place several of THOSE already-merged,
+     * texture-grouped commands next to each other too when they happen to
+     * have been queued in a run.
+     * Never applied to BLEND (order-sensitive -- see
+     * draw_kind_is_order_sensitive); SHADOW never reaches this function at
+     * all (drawn via its own dedicated loop, also excluded there). */
+    bool mergeable = (kind_filter != SCENE_GPU_DRAW_BLEND);
+    int  mergedStart = -1, mergedCount = 0;
+
     for (int oi = 0; oi < r->drawCmdCount; oi++) {
         SceneGPUDrawCmd *cmd = &r->drawCmds[order[oi]];
         if (cmd->kind != kind_filter) continue;
+
         if (!haveLast || cmd->texture != lastTex || cmd->forceNearest != lastForceNearest) {
+            if (mergedStart >= 0) {
+                r->gpuDrawCallsThisFrame++;
+                SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
+                mergedStart = -1; mergedCount = 0;
+            }
             tsb->texture = cmd->texture;
             tsb->sampler = cmd->forceNearest ? r->samplerNearest : r->sampler;
             if (tsb2) {
@@ -1937,11 +2046,33 @@ static void draw_cmd_kind(SceneRendererGPU *r, SDL_GPURenderPass *rp,
             } else {
                 SDL_BindGPUFragmentSamplers(rp, 0, tsb, 1);
             }
+            r->gpuBindsThisFrame++;
             lastTex = cmd->texture;
             lastForceNearest = cmd->forceNearest;
             haveLast = true;
         }
-        SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
+
+        if (!mergeable) {
+            r->gpuDrawCallsThisFrame++;
+            SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
+            continue;
+        }
+
+        if (mergedStart >= 0 && cmd->vertexStart == mergedStart + mergedCount) {
+            mergedCount += cmd->vertexCount;
+        } else {
+            if (mergedStart >= 0) {
+                r->gpuDrawCallsThisFrame++;
+                SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
+            }
+            mergedStart = cmd->vertexStart;
+            mergedCount = cmd->vertexCount;
+        }
+    }
+
+    if (mergedStart >= 0) {
+        r->gpuDrawCallsThisFrame++;
+        SDL_DrawGPUPrimitives(rp, (Uint32)mergedCount, 1, (Uint32)mergedStart, 0);
     }
 }
 
@@ -1979,6 +2110,13 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
         r->groundColorIdx = -1;
         return NULL;
     }
+
+    /* Sort + physically repack BEFORE uploading -- see repack_draw_order's
+     * own comment for why sorting alone (build_draw_order) doesn't reduce
+     * draw-call count by itself. */
+    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
+    build_draw_order(r, drawOrder);
+    repack_draw_order(r, drawOrder);
 
     /* ---- Vertex upload (same pattern as the main scene flush) ---- */
     if (r->vertexCount > 0) {
@@ -2101,8 +2239,10 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
     SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
     SDL_GPUTextureSamplerBinding tsb = {0};
-    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
-    build_draw_order(r, drawOrder);
+    /* drawOrder was already sorted + physically repacked before the vertex
+     * upload above (see repack_draw_order) -- r->drawCmds is now itself in
+     * final sorted+merged order, and drawOrder was reset to the identity to
+     * match. */
 
     struct {
         float fogDensity, gamma, fogStart, saturation;
@@ -2189,6 +2329,8 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
+            r->gpuBindsThisFrame++;
+            r->gpuDrawCallsThisFrame++;
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
         }
     }
@@ -2293,6 +2435,8 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     }
     r->vertexCount       = 0;
     r->drawCmdCount      = 0;
+    r->gpuDrawCallsThisFrame = 0;
+    r->gpuBindsThisFrame     = 0;
     r->carDrawCount      = 0;
     r->carShadowDrawCount = 0;
     r->particleVertCount    = 0;
@@ -2317,22 +2461,6 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
     if (!r || !r->cmdBuf) return;
 
-    /* Perf-investigation instrumentation (see g_bRenderStatsLog): draw-
-     * command/vertex counts per frame, plus running peaks since the
-     * renderer was created. Logged roughly once a second (not every frame)
-     * to stay readable while driving. */
-    if (r->drawCmdCount > r->peakDrawCmdCount) r->peakDrawCmdCount = r->drawCmdCount;
-    if (r->vertexCount  > r->peakVertexCount)  r->peakVertexCount  = r->vertexCount;
-    if (g_bRenderStatsLog) {
-        static int s_logCounter = 0;
-        if (++s_logCounter >= 60) {
-            s_logCounter = 0;
-            SDL_Log("RENDER STATS: drawcmds=%d verts=%d (peak dc=%d v=%d)",
-                     r->drawCmdCount, r->vertexCount,
-                     r->peakDrawCmdCount, r->peakVertexCount);
-        }
-    }
-
     if (s_clickWasPending) {
         if (s_clickHit.active)
             SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f",
@@ -2355,6 +2483,14 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     bool useMSAA = r->msaaSampleCount > SDL_GPU_SAMPLECOUNT_1;
     if (useMSAA) ensure_msaa_textures(r, renderW, renderH);
     if (useMSAA && (!r->msaaTex || !r->msaaDepthTex)) useMSAA = false;
+
+    /* Sort + physically repack BEFORE uploading -- the upload below just
+     * copies r->vertices as-is, so reordering it afterward would be too
+     * late. See repack_draw_order's own comment for why sorting alone
+     * (build_draw_order) doesn't reduce draw-call count by itself. */
+    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
+    build_draw_order(r, drawOrder);
+    repack_draw_order(r, drawOrder);
 
     if (r->vertexCount > 0) {
         void *mapped = SDL_MapGPUTransferBuffer(r->device, r->vertexXfer, true);
@@ -2556,8 +2692,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     SDL_GPUBufferBinding vbb = {.buffer = r->vertexBuf};
     SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
     SDL_GPUTextureSamplerBinding tsb = {0};
-    int drawOrder[SCENE_GPU_MAX_DRAW_CMDS];
-    build_draw_order(r, drawOrder);
+    /* drawOrder was already sorted + physically repacked before the vertex
+     * upload above (see repack_draw_order) -- r->drawCmds is now itself in
+     * final sorted+merged order, and drawOrder was reset to the identity to
+     * match. */
 
     /* Push scene pixel uniforms (fog, gamma, saturation, contrast, brightness) once for all draws. */
     struct {
@@ -2726,6 +2864,8 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             if (cmd->kind != SCENE_GPU_DRAW_SHADOW) continue;
             stsb.texture = cmd->texture;
             SDL_BindGPUFragmentSamplers(rp, 0, &stsb, 1);
+            r->gpuBindsThisFrame++;
+            r->gpuDrawCallsThisFrame++;
             SDL_DrawGPUPrimitives(rp, (Uint32)cmd->vertexCount, 1, (Uint32)cmd->vertexStart, 0);
         }
     }
@@ -2828,6 +2968,26 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_GetWindowSizeInPixels(r->window, &winW, &winH);
         debug_overlay_render(r->debugOverlay, r->cmdBuf, r->swapchainTex,
                              (Uint32)winW, (Uint32)winH);
+    }
+
+    /* Perf-investigation instrumentation (see g_bRenderStatsLog): draw-
+     * command/vertex counts per frame, running peaks since the renderer was
+     * created, and the ACTUAL GPU draw-call/bind counts after merging
+     * vertex-contiguous same-texture commands in draw_cmd_kind (drawcmds is
+     * just the queued metadata count, not the real GPU call count). Logged
+     * roughly once a second (not every frame) to stay readable while driving. */
+    if (r->drawCmdCount > r->peakDrawCmdCount) r->peakDrawCmdCount = r->drawCmdCount;
+    if (r->vertexCount  > r->peakVertexCount)  r->peakVertexCount  = r->vertexCount;
+    if (g_bRenderStatsLog) {
+        static int s_logCounter = 0;
+        if (++s_logCounter >= 60) {
+            s_logCounter = 0;
+            SDL_Log("RENDER STATS: drawcmds=%d verts=%d (peak dc=%d v=%d) "
+                     "gpu-draws=%d gpu-binds=%d",
+                     r->drawCmdCount, r->vertexCount,
+                     r->peakDrawCmdCount, r->peakVertexCount,
+                     r->gpuDrawCallsThisFrame, r->gpuBindsThisFrame);
+        }
     }
 
     SDL_SubmitGPUCommandBuffer(r->cmdBuf);
