@@ -1854,7 +1854,8 @@ static bool s_pt_in_tri(float qx, float qy,
     float d3 = (qx-ax)*(cy-ay) - (cx-ax)*(qy-ay);
     return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
 }
-static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float vZ; } s_clickHit;
+static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float vZ;
+                float v0x, v0y, v0z, v2x, v2y, v2z; } s_clickHit;
 static bool s_clickWasPending;
 
 void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
@@ -2701,9 +2702,11 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 
     if (s_clickWasPending) {
         if (s_clickHit.active)
-            SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f",
+            SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f v0xyz=(%.1f,%.1f,%.1f) v2xyz=(%.1f,%.1f,%.1f)",
                     s_clickHit.path, s_clickHit.surfIdx,
-                    (unsigned)s_clickHit.surfaceFlags, (double)s_clickHit.vZ);
+                    (unsigned)s_clickHit.surfaceFlags, (double)s_clickHit.vZ,
+                    (double)s_clickHit.v0x, (double)s_clickHit.v0y, (double)s_clickHit.v0z,
+                    (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z);
         else
             SDL_Log("PICK: no surface hit");
         g_pendingClickQuery = false;
@@ -4098,8 +4101,16 @@ static void texture_uv_log(const char *type, int surfIdx, int surfaceFlags,
     if (!g_bSurfaceLog) return;
     if (g_iSurfaceLogId < -1) return;
     if (g_iSurfaceLogId >= 0 && surfIdx != g_iSurfaceLogId) return;
-    static uint32 s_n = 0;
-    if ((s_n++ & 0xFF) != 0) return;
+    /* Only throttle when logging every surface (id == -1) -- that can be
+     * thousands of calls/frame. Once narrowed to one specific id, the
+     * throttle actively hides the exact instance being investigated: it's a
+     * fixed periodic sample, so a tile that's consistently queued in the
+     * same relative order every frame can permanently miss every boundary
+     * and never get logged at all. */
+    if (g_iSurfaceLogId < 0) {
+        static uint32 s_n = 0;
+        if ((s_n++ & 0xFF) != 0) return;
+    }
     SDL_Log("%s idx=%d sf=0x%X flipV=%d efV=%d efH=%d%s",
             type, surfIdx, surfaceFlags, (int)flipV, (int)efV, (int)efH, extra);
 }
@@ -4587,6 +4598,17 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 if (effectiveFlipH) {
                     float tmp = u03; u03 = u12; u12 = tmp;
                 }
+                /* Gated to FLIP_BACKFACE surfaces only (this branch's existing
+                 * backface-aware signal, see effectiveFlipV/s_bcross above).
+                 * No `backwards` term: forward already needed this swap (confirmed
+                 * on idx=14), and once the row01IsBottom V-fix below also flips V in
+                 * the backward direction, backward needs the matching U swap too --
+                 * so for FLIP_BACKFACE surfaces this is a constant swap, not
+                 * direction-gated. Tunnel lights are unaffected either way (their
+                 * paired tile content is visually symmetric across this swap). */
+                if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
+                    float tmp = u03; u03 = u12; u12 = tmp;
+                }
                 cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
                 /* Determine screen-bottom row from projected Y rather than fixed vertex index.
                  * For walls v0,v1=top(high sY) so row01IsBottom=false→isBottom=(k==2||k==3).
@@ -4599,6 +4621,11 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 for (int vi = 0; vi < 4; vi++)
                     adjSY[vi] = (vZ[vi] > 0.0f) ? sY[vi] : -1e9f;
                 bool row01IsBottom = (adjSY[0]+adjSY[1]) < (adjSY[2]+adjSY[3]);
+                /* Reverse drive (backwards!=0) flips which screen row is "bottom"
+                 * for this branch's row01IsBottom detection; confirmed by live
+                 * testing across multiple TEXTURE_PAIR|FLIP_BACKFACE surfaces
+                 * (tunnel lights idx=120/124, wall idx=14) in both directions. */
+                if (backwards != 0) row01IsBottom = !row01IsBottom;
                 /* Use row01IsBottom when BF non-CONCAVE (effectiveFlipV): the BF vertex
                  * swap changes which screen-row v0 occupies without changing SW's startsy[0],
                  * so screen-row detection is required to keep sign content visible.
@@ -4857,6 +4884,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                         s_clickHit.surfaceFlags = surfaceFlags;
                         SDL_snprintf(s_clickHit.path, sizeof(s_clickHit.path), "%s", pPath);
                         s_clickHit.vZ          = vZsum;
+                        s_clickHit.v0x = verts[0].x; s_clickHit.v0y = verts[0].y; s_clickHit.v0z = verts[0].z;
+                        s_clickHit.v2x = verts[2].x; s_clickHit.v2y = verts[2].y; s_clickHit.v2z = verts[2].z;
                     }
                 }
             }
