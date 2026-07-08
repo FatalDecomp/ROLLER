@@ -876,6 +876,12 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bFreeCamera = (int)g_bFreeCamera;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Free Camera", &bFreeCamera)) {
+      g_bFreeCamera = (bool)bFreeCamera;
+    }
+
 #if defined(_WIN32)
     {
       static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
@@ -1210,6 +1216,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_bWireframe = (bool)bWireframe;
         game_render_set_wireframe(g_pGameRenderer, g_bWireframe);
       }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bPickTextures = (int)g_bPickTextures;
+      if (nk_checkbox_label(pCtx, "Pick Textures", &bPickTextures))
+        g_bPickTextures = (bool)bPickTextures;
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bRenderStatsLog = (int)g_bRenderStatsLog;

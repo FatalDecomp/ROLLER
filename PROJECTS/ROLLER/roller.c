@@ -114,6 +114,7 @@ bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
 bool g_bShowCarOnExplosion = false;
+bool g_bFreeCamera = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
 bool  g_bTrilinear       = false;
@@ -141,9 +142,13 @@ bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;
 bool  g_bRenderStatsLog  = false;
+bool  g_bPickTextures     = false;
 bool  g_pendingClickQuery = false;
 float g_clickQueryNX      = 0.0f;
 float g_clickQueryNY      = 0.0f;
+bool  g_bChaseLookRightDown = false;
+float g_fChaseLookAccumX    = 0.0f;
+float g_fChaseLookAccumY    = 0.0f;
 bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
@@ -1633,8 +1638,9 @@ void UpdateSDL()
     }
 
     /* Right-click surface pick: record normalised game-viewport coords before
-     * the overlay consumes the event. Works whether the overlay is open or not. */
-    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+     * the overlay consumes the event. Works whether the overlay is open or not.
+     * Gated behind the "Pick Textures" debug checkbox. */
+    if (g_bPickTextures && e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
       int wpx = 0, wpy = 0;
       if (SDL_GetWindowSizeInPixels(s_pWindow, &wpx, &wpy) && wpx > 0 && wpy > 0) {
         SDL_GPUViewport vp;
@@ -1645,6 +1651,20 @@ void UpdateSDL()
           g_pendingClickQuery = true;
         }
       }
+    }
+
+    /* Debug free-look (view.c chase_look_apply): track RMB hold + accumulate
+     * raw motion deltas directly off events instead of SDL's relative-mouse-
+     * mode grab -- that grab has a confirmed quirk here where it doesn't
+     * actually start delivering motion until the window loses and regains
+     * focus, so we read xrel/yrel straight from SDL_EVENT_MOUSE_MOTION. */
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+      g_bChaseLookRightDown = true;
+    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_RIGHT) {
+      g_bChaseLookRightDown = false;
+    } else if (e.type == SDL_EVENT_MOUSE_MOTION && g_bChaseLookRightDown) {
+      g_fChaseLookAccumX += e.motion.xrel;
+      g_fChaseLookAccumY += e.motion.yrel;
     }
 
     if (debug_overlay_handle_event(s_pDebugOverlay, &e))

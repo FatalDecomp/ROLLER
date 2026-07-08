@@ -2627,6 +2627,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
   noclip_camera_apply();
+  chase_look_apply(); // Debug "Free Camera": hold RMB + move mouse to free-look, gated on the debug-overlay checkbox
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
   GameRenderCamera cam = {

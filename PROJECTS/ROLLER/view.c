@@ -59,6 +59,12 @@ static bool s_bNoclipFastWasDown = false;
 static bool s_bNoclipSlowWasDown = false;
 static uint64 s_ullNoclipLastUpdateNs = 0;
 
+/* Set by chase_look_apply() below. Deliberately does not touch SDL's
+ * relative-mouse-mode grab (that grab has a confirmed quirk here where it
+ * doesn't start delivering motion until the window loses and regains focus)
+ * -- motion is instead read from raw event deltas accumulated in roller.c. */
+static bool s_bChaseLookActive = false;
+
 static int noclip_angle14(int iAngle)
 {
   return iAngle & 0x3FFF;
@@ -110,6 +116,57 @@ void noclip_camera_reset(void)
   s_bNoclipSlowWasDown = false;
   s_ullNoclipLastUpdateNs = 0;
   noclip_sync_mouse_mode();
+}
+
+/* Debug free-look: hold the right mouse button and move the mouse to orbit
+ * the look direction in any view except cockpit and the rearview mirror.
+ * Applied as a rotate-only post-process after calculateview() has already
+ * produced viewx/viewy/viewz (the final camera position for whichever view
+ * branch ran) -- re-running calculatetransform with the same position and a
+ * rotated direction/elevation leaves that view's own position/smoothing
+ * logic completely untouched. */
+#define CHASE_LOOK_MOUSE_SENSITIVITY 8.0f
+
+static int  s_iChaseLookYaw = 0;
+static int  s_iChaseLookPitch = 0;
+
+extern bool  g_bChaseLookRightDown;
+extern float g_fChaseLookAccumX;
+extern float g_fChaseLookAccumY;
+extern bool  g_bFreeCamera;
+
+static void chase_look_deactivate(void)
+{
+  s_bChaseLookActive = false;
+  s_iChaseLookYaw = 0;
+  s_iChaseLookPitch = 0;
+}
+
+void chase_look_apply(void)
+{
+  /* Gated purely on the "Free Camera" debug checkbox -- user preference is
+   * for this to work unconditionally in every view (including cockpit and
+   * the mirror pass) once enabled, no per-view exclusions. */
+  if (!g_bFreeCamera || !g_bChaseLookRightDown) {
+    chase_look_deactivate();
+    g_fChaseLookAccumX = 0.0f;
+    g_fChaseLookAccumY = 0.0f;
+    return;
+  }
+
+  s_bChaseLookActive = true;
+  float fMouseX = g_fChaseLookAccumX;
+  float fMouseY = g_fChaseLookAccumY;
+  g_fChaseLookAccumX = 0.0f;
+  g_fChaseLookAccumY = 0.0f;
+  s_iChaseLookYaw = noclip_angle14(s_iChaseLookYaw - (int)(fMouseX * CHASE_LOOK_MOUSE_SENSITIVITY));
+  s_iChaseLookPitch = noclip_clamp_pitch(s_iChaseLookPitch - (int)(fMouseY * CHASE_LOOK_MOUSE_SENSITIVITY));
+
+  int iRenderDirection = noclip_angle14(worlddirn + s_iChaseLookYaw);
+  int iRenderElevation = noclip_angle14(noclip_clamp_pitch(noclip_signed_angle(worldelev) + s_iChaseLookPitch));
+  calculatetransform(-1, iRenderDirection, iRenderElevation, worldtilt, viewx, viewy, viewz, 0.0f, 0.0f, 0.0f);
+  worlddirn = iRenderDirection;
+  worldelev = iRenderElevation;
 }
 
 void noclip_camera_set_input_enabled(bool bEnabled)
