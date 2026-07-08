@@ -4581,10 +4581,24 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool effectiveFlipV = flipV || ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0
                                                && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0);
                 bool pair03Left = (verts[0].x + verts[3].x) < (verts[1].x + verts[2].x);
+                /* Clamp vZ to a minimum of 80 before the perspective divide here
+                 * (mirrors GEN-BFHF and SW's fProjectedZ clamp) -- the plain sX/sY
+                 * computed earlier only guards exact division-by-zero, so as a
+                 * vertex's vZ approaches a small value, gsx/gsy (and s_bcross's
+                 * sign) blow up and flip -- confirmed live on idx=14: bcross grew
+                 * from 0.002 to 497.5 then flipped sign as the camera moved along
+                 * a straight wall run, with no genuine backface change happening. */
                 float s_bcross = 0.0f;
                 if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
-                    s_bcross = (sX[1]-sX[0])*(sY[3]-sY[0])
-                             - (sY[1]-sY[0])*(sX[3]-sX[0]);
+                    float gsx[4], gsy[4];
+                    for (int vi = 0; vi < 4; vi++) {
+                        float vZc = (vZ[vi] < 80.0f) ? 80.0f : vZ[vi];
+                        float giz = 1.0f / vZc;
+                        gsx[vi] = vX[vi] * giz;
+                        gsy[vi] = vY[vi] * giz;
+                    }
+                    s_bcross = (gsx[1]-gsx[0])*(gsy[3]-gsy[0])
+                             - (gsy[1]-gsy[0])*(gsx[3]-gsx[0]);
                 }
                 /* SW set_starts(1): startsx[0]=startsx[3]=max, startsx[1]=startsx[2]=0.
                  * polyt assigns U=max to the v0/v3 edge and U=0 to the v1/v2 edge
@@ -4593,25 +4607,17 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * pair03Left is used only by the BF screen-check above, not for U. */
                 float u03 = uMaxN;
                 float u12 = 0.0f;
-                /* FH: swap u03/u12 — matches SW which reverses the U scan so the
-                 * tile-N/N+1 world assignment is preserved. Skipped when
-                 * FLIP_BACKFACE is also set: the constant BF swap below is meant
-                 * to be the sole driver of U for FLIP_BACKFACE surfaces, and
-                 * applying both swaps cancels them out (confirmed wrong on
-                 * idx=180, sf=0x131B4: FLIP_HORIZ+FLIP_BACKFACE together produced
-                 * zero net swaps, wrong in the forward direction). */
-                if (effectiveFlipH && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
-                    float tmp = u03; u03 = u12; u12 = tmp;
-                }
-                /* Gated to FLIP_BACKFACE surfaces only (this branch's existing
-                 * backface-aware signal, see effectiveFlipV/s_bcross above).
-                 * No `backwards` term: forward already needed this swap (confirmed
-                 * on idx=14), and once the row01IsBottom V-fix below also flips V in
-                 * the backward direction, backward needs the matching U swap too --
-                 * so for FLIP_BACKFACE surfaces this is a constant swap, not
-                 * direction-gated. Tunnel lights are unaffected either way (their
-                 * paired tile content is visually symmetric across this swap). */
-                if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
+                /* Real per-frame backface state (mirrors SW's POLYTEX cross-product
+                 * test and this file's own GEN-BFHF branch): start from the static
+                 * FLIP_HORIZ flip, then toggle it once if the polygon is currently
+                 * back-facing on screen. This replaces two earlier, flag-only
+                 * approximations (a plain FLIP_HORIZ swap, and an unconditional
+                 * "always swap for FLIP_BACKFACE" constant) that each worked for
+                 * some FLIP_BACKFACE surfaces and broke others (idx=180 needed the
+                 * swap, idx=158's exit wall did not) because neither was actually
+                 * checking the surface's real orientation -- only its flags. */
+                bool bfBack = (s_bcross < 0.0f);
+                if (effectiveFlipH != bfBack) {
                     float tmp = u03; u03 = u12; u12 = tmp;
                 }
                 cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
