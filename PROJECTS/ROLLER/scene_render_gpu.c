@@ -4594,8 +4594,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 float u03 = uMaxN;
                 float u12 = 0.0f;
                 /* FH: swap u03/u12 — matches SW which reverses the U scan so the
-                 * tile-N/N+1 world assignment is preserved. */
-                if (effectiveFlipH) {
+                 * tile-N/N+1 world assignment is preserved. Skipped when
+                 * FLIP_BACKFACE is also set: the constant BF swap below is meant
+                 * to be the sole driver of U for FLIP_BACKFACE surfaces, and
+                 * applying both swaps cancels them out (confirmed wrong on
+                 * idx=180, sf=0x131B4: FLIP_HORIZ+FLIP_BACKFACE together produced
+                 * zero net swaps, wrong in the forward direction). */
+                if (effectiveFlipH && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
                     float tmp = u03; u03 = u12; u12 = tmp;
                 }
                 /* Gated to FLIP_BACKFACE surfaces only (this branch's existing
@@ -4744,7 +4749,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                     float ddy = verts[vi].y - r->camera.viewY;
                     float ddz = verts[vi].z - r->camera.viewZ;
                     float vZ2 = ddx*Mv[0][2] + ddy*Mv[1][2] + ddz*Mv[2][2];
-                    /* gvZ[vi] = vZ2; */
+                    gvZ[vi] = vZ2;
                     /* SW clamps fProjectedZ at 80 before perspective division so
                      * behind-camera vertices (vZ<0) don't invert gsx/gsy and corrupt
                      * the bfCross sign or g03Left ordering. Match that here. */
@@ -4756,26 +4761,25 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bfCross = (gsx[0]-gsx[1])*(gsy[0]-gsy[2])
                         - (gsy[0]-gsy[1])*(gsx[0]-gsx[2]);
                 bool bfBack = (bfCross < 0.0f);
-                /* if (g_bSurfaceLog && (g_iSurfaceLogId < 0 || g_iSurfaceLogId == surfIdx)) {
-                    float cx = (verts[0].x+verts[1].x+verts[2].x+verts[3].x)*0.25f - r->camera.viewX;
-                    float cy = (verts[0].y+verts[1].y+verts[2].y+verts[3].y)*0.25f - r->camera.viewY;
-                    float cz = (verts[0].z+verts[1].z+verts[2].z+verts[3].z)*0.25f - r->camera.viewZ;
-                    float dist = sqrtf(cx*cx + cy*cy + cz*cz);
-                    SDL_Log("GEN-BFHF idx=%d sf=0x%X bfCross=%.4f bfBack=%d backwards=%d match=%d vZ=%.1f/%.1f/%.1f/%.1f dist=%.1f",
-                            surfIdx, surfaceFlags, (double)bfCross,
-                            (int)bfBack, backwards, (int)(bfBack == (backwards != 0)),
-                            (double)gvZ[0], (double)gvZ[1], (double)gvZ[2], (double)gvZ[3],
-                            (double)dist);
-                } */
                 /* Screen-space g03Left: tracks which screen side v0/v3 land on.
                  * For surfaces seen from both sides (BF wall, loop), bfCross and
                  * gsx flip together, so (g03Left != bfBack) stays constant — correct.
-                 * Exception: reverse drive (backwards!=0) front-facing floor surface
-                 * (bfBack=false). Camera rotates 180° → gsx flips without a matching
-                 * bfCross flip, so g03Left_screen incorrectly inverts. In that case
-                 * only, use world-space X, which is stable across drive direction. */
+                 * Exception: reverse drive (backwards!=0) front-facing FLOOR surface
+                 * (bfBack=false). Camera rotates 180 deg -> gsx flips without a
+                 * matching bfCross flip, so g03Left_screen incorrectly inverts. In
+                 * that case only, use world-space X, which is stable across drive
+                 * direction. Gated on isFloorLike (face-normal orientation) because
+                 * live testing found the identical flag combination (BF|FH, no
+                 * CONCAVE/TEXTURE_PAIR) on a WALL (idx=147/148) needs the opposite
+                 * behavior -- flags alone can't distinguish floor from wall here. */
+                float ex1x = verts[1].x - verts[0].x, ex1y = verts[1].y - verts[0].y, ex1z = verts[1].z - verts[0].z;
+                float ex2x = verts[3].x - verts[0].x, ex2y = verts[3].y - verts[0].y, ex2z = verts[3].z - verts[0].z;
+                float nrmX = ex1y*ex2z - ex1z*ex2y;
+                float nrmY = ex1z*ex2x - ex1x*ex2z;
+                float nrmZ = ex1x*ex2y - ex1y*ex2x;
+                bool isFloorLike = fabsf(nrmZ) > sqrtf(nrmX*nrmX + nrmY*nrmY);
                 bool g03Left;
-                if (backwards != 0 && !bfBack)
+                if (backwards != 0 && !bfBack && isFloorLike)
                     g03Left = (verts[0].x + verts[3].x) < (verts[1].x + verts[2].x);
                 else
                     g03Left = (gsx[0]+gsx[3]) < (gsx[1]+gsx[2]);
@@ -4783,6 +4787,19 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool uLeftHi = (g03Left != bfBack) != flipV;
                 cu[0] = cu[3] = uLeftHi ? uMaxN : 0.0f;
                 cu[1] = cu[2] = uLeftHi ? 0.0f  : uMaxN;
+                if (g_bSurfaceLog && (g_iSurfaceLogId < 0 || g_iSurfaceLogId == surfIdx)) {
+                    float cx = (verts[0].x+verts[1].x+verts[2].x+verts[3].x)*0.25f - r->camera.viewX;
+                    float cy = (verts[0].y+verts[1].y+verts[2].y+verts[3].y)*0.25f - r->camera.viewY;
+                    float cz = (verts[0].z+verts[1].z+verts[2].z+verts[3].z)*0.25f - r->camera.viewZ;
+                    float dist = sqrtf(cx*cx + cy*cy + cz*cz);
+                    SDL_Log("GEN-BFHF idx=%d sf=0x%X bfCross=%.4f bfBack=%d backwards=%d match=%d "
+                            "isFloorLike=%d g03Left=%d uLeftHi=%d cu0=%.3f vZ=%.1f/%.1f/%.1f/%.1f dist=%.1f",
+                            surfIdx, surfaceFlags, (double)bfCross,
+                            (int)bfBack, backwards, (int)(bfBack == (backwards != 0)),
+                            (int)isFloorLike, (int)g03Left, (int)uLeftHi, (double)cu[0],
+                            (double)gvZ[0], (double)gvZ[1], (double)gvZ[2], (double)gvZ[3],
+                            (double)dist);
+                }
             } else {
                 /* Non-FH (or non-BF) gen surfaces: SW polytex's backface swap +
                  * flipH toggle cancel out in UV space for non-FH surfaces — the
