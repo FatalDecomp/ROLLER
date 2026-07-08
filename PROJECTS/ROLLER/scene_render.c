@@ -40,6 +40,27 @@ bool scene_render_get_gpu_load_enabled(SceneRenderer *renderer) {
     return renderer && renderer->gpu_load_enabled;
 }
 
+static void scene_render_reload_gpu_textures_cb(void *ctx, uint8 *pixels,
+                                                int width, int height,
+                                                int tex_idx, int texHalfRes) {
+    SceneRenderer *renderer = (SceneRenderer *)ctx;
+    scene_render_gpu_load_texture(renderer->gpu, pixels, width, height, tex_idx, texHalfRes);
+}
+
+/* Lazily populates the GPU atlas from textures that were only ever registered
+ * with the SW renderer -- e.g. a race that started in SW mode, where
+ * scene_render_load_texture's gpu_load_enabled check skipped the GPU upload
+ * for every texture. Re-feeds each texture's still-live pixel data (kept
+ * around in the SW renderer's texSlots[] for as long as it's loaded) through
+ * scene_render_gpu_load_texture. Lets game_render_set_mode allow a mid-race
+ * switch to GPU instead of just blocking it outright. */
+void scene_render_reload_gpu_textures(SceneRenderer *renderer) {
+    if (!renderer || !renderer->gpu)
+        return;
+    renderer->gpu_load_enabled = true;
+    scene_render_sw_for_each_texture(renderer->sw, scene_render_reload_gpu_textures_cb, renderer);
+}
+
 void scene_render_destroy(SceneRenderer *renderer) {
     if (!renderer)
         return;

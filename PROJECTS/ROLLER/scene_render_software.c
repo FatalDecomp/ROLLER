@@ -1519,6 +1519,24 @@ SceneTextureHandle scene_render_sw_get_texture_handle(SceneRendererSoftware *sw,
     return SCENE_TEXTURE_HANDLE_INVALID;
 }
 
+/* Re-feeds every currently-loaded texture's still-live pixel data (kept
+ * around in texSlots[] for as long as it's loaded, never discarded) through
+ * cb. Lets a caller lazily populate the GPU atlas for textures that were
+ * only ever registered with the SW renderer (e.g. a race that started in
+ * SW mode, where scene_render_load_texture skips the GPU upload) -- see
+ * scene_render_reload_gpu_textures. */
+void scene_render_sw_for_each_texture(SceneRendererSoftware *sw,
+                                      SceneRenderSwTextureCallback cb,
+                                      void *ctx) {
+    if (!sw || !cb)
+        return;
+    for (int i = 1; i < SCENE_RENDER_MAX_TEXTURE_SLOTS; i++) {
+        SceneTextureSlot *slot = &sw->texSlots[i];
+        if (slot->in_use && slot->pixels)
+            cb(ctx, slot->pixels, slot->width, slot->height, slot->tex_idx, slot->texHalfRes);
+    }
+}
+
 void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
                                        const SceneRenderVertex *verts,
                                        SceneTextureHandle handle,
