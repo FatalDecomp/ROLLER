@@ -4355,31 +4355,25 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     int  surfIdx     = surfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
 
     /* SW applies texture_back[] substitution when SURFACE_FLAG_BACK (0x800) is set and the
-     * quad is back-facing.  The substituted type gives a completely different tile (e.g. the
-     * advertisement face of a sign board).
+     * quad is back-facing, swapping in a completely different tile (e.g. the advertisement
+     * face of a sign board).
      *
-     * SW's REAL trigger (polytex.c:536-554, verified directly against the decompiled source) is
-     * a 2D SCREEN-SPACE cross-product winding test on the projected vertices
-     * ((v0-v1) x (v0-v2), falling back to v3 if v1==v2 is degenerate) -- NOT a 3D world-space
-     * face-normal dot product. A fixed-vertex-order world-space normal doesn't track the
-     * CURRENT screen-space winding the way this test does, so it can misfire whenever a quad's
-     * face normal doesn't happen to point "the expected way" for its winding -- exactly what
-     * happens on twisted/rotated tunnel or corkscrew geometry (confirmed live: a road floor
-     * inside a rolling tunnel section showed the wrong, substituted texture -- backDot strongly
-     * negative -- while SW showed the correct one). Ported directly from the decompiled source,
-     * with the same Y-flip (GPU view-space Y-up vs SW screen-space Y-down -- see the GEN-BFHF
-     * backface cross-product comment elsewhere in this file) and the same 80-unit near-camera
-     * clamp used throughout this file for screen-space tests. */
+     * SW's real trigger (polytex.c:536-554) is a 2D screen-space cross-product winding test on
+     * the projected vertices ((v0-v1) x (v0-v2), falling back to v3 if v1==v2 is degenerate) --
+     * not a 3D world-space face-normal dot product. A fixed-vertex-order world-space normal
+     * doesn't track the current screen-space winding, so it misfires on twisted/rotated
+     * geometry whose face normal doesn't point "the expected way" for its winding. Ported
+     * directly from the decompiled source, with the Y-flip (GPU view-space Y-up vs SW
+     * screen-space Y-down) and the 80-unit near-camera clamp used throughout this file for
+     * screen-space tests. */
     bool isBackTexSign = false;
     if ((surfaceFlags & SURFACE_FLAG_BACK) && slot) {
-        /* Gate the screen-space fix to isFloorLike (2026-07-09): confirmed live that applying it
-         * unconditionally regressed genuinely-vertical wall surfaces elsewhere on the track. Same
-         * geometric face-normal test already proven for the GEN-BFHF floor/wall split -- flags
-         * alone can't distinguish these cases reliably (established earlier this session), and
-         * some twisted/rotated CONCAVE quads have a face normal that's "floor-like" (nrmZ-
-         * dominant) despite looking like a vertical wall to the player. Non-floor-like quads keep
-         * the ORIGINAL world-space face-normal dot product (pre-2026-07-09 behavior), which was
-         * never reported broken for actual walls. */
+        /* Gated to isFloorLike: applying the screen-space test unconditionally regressed
+         * genuinely-vertical walls. Some twisted/rotated CONCAVE quads have a face normal
+         * that's "floor-like" (nrmZ-dominant) despite looking like a vertical wall, and flags
+         * alone can't distinguish the two cases. Non-floor-like quads keep the original
+         * world-space face-normal dot product, which has never been reported broken for
+         * actual walls. */
         float ex1x = verts[1].x - verts[0].x, ex1y = verts[1].y - verts[0].y, ex1z = verts[1].z - verts[0].z;
         float ex2x = verts[3].x - verts[0].x, ex2y = verts[3].y - verts[0].y, ex2z = verts[3].z - verts[0].z;
         float bnrmX = ex1y*ex2z - ex1z*ex2y;
@@ -4406,24 +4400,21 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             int refIdx = v1eqv2 ? 3 : 2;
             cross = (gsx[0]-gsx[1])*(gsy[0]-gsy[refIdx]) - (gsy[0]-gsy[1])*(gsx[0]-gsx[refIdx]);
         } else {
-            /* Original world-space face-normal dot product (restored for non-floor-like quads). */
+            /* Original world-space face-normal dot product (kept for non-floor-like quads). */
             cross = bnrmX*(r->camera.viewX - verts[0].x)
                   + bnrmY*(r->camera.viewY - verts[0].y)
                   + bnrmZ*(r->camera.viewZ - verts[0].z);
         }
         s_lastUV.backDot = cross;
         s_lastUV.backOrigIdx = surfIdx;
-        /* Deadzone around zero (2026-07-09, live): SW computes this test on actual integer
-         * screen pixels at its native low resolution, which stabilizes borderline cases that our
-         * continuous-float screen-space proxy doesn't reproduce -- confirmed live on a road floor
-         * inside a rolling tunnel section, where this exact quad's cross value was ~+0.13 driving
-         * forward (correct, no substitution) and ~-0.11 driving backward (wrong, substituted),
-         * despite SW showing the correct texture in both directions. Treating small-magnitude
-         * crossings as "not clearly back-facing" avoids flip-flopping on razor-thin cases; the
-         * threshold is a judgment call (chosen well above this case's ~0.1-0.13 magnitude) rather
-         * than derived, since we don't have a clearly-triggering case's magnitude to calibrate
-         * against. Only applied for the floor-like/screen-space path -- the restored world-space
-         * path for walls never had (or needed) a deadzone before. */
+        /* Deadzone around zero: SW computes this test on actual integer screen pixels at its
+         * native low resolution, which stabilizes borderline cases our continuous-float
+         * screen-space proxy doesn't reproduce -- the same quad's cross value can land on
+         * opposite sides of zero at a razor-thin magnitude (~0.1) between drive directions,
+         * flip-flopping the substitution even though SW shows the same texture both ways.
+         * Treating small-magnitude crossings as "not clearly back-facing" avoids that; the
+         * threshold is a judgment call, not derived. Only needed for the floor-like/screen-space
+         * path -- the world-space path for walls never needed one. */
         if (backIsFloorLike ? (cross < -1.0f) : (cross < 0.0f)) {
             int newType = texture_back[256 * slot->tex_idx + surfIdx];
             int newIdx  = newType & SURFACE_MASK_TEXTURE_INDEX;
@@ -4439,53 +4430,33 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     /* Wall pair textures only apply to non-building track surfaces. */
     bool isWall = !isBuilding && (surfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) && wide_on;
 
-    /* Back-face cull for non-two-sided track surfaces.
-     * SW's scan-line renderer implicitly culls back-facing polygons because
-     * reversed vertex winding produces empty scan-line spans.  The GPU renders
-     * all triangles regardless, so we replicate the cull using a screen-space
-     * cross product that matches SW polytex exactly.
-     * SW backface: cross_SW = (v0-v1)×(v0-v2) > 0.  cross_GPU = -cross_SW
-     * (Y-flip between Y-DOWN SW and Y-UP GPU), so GPU backface: cross_GPU < 0.
-     * FLIP_BACKFACE/BACK = explicitly two-sided; bypass.
-     * TEXTURE_PAIR = wall/road surfaces that can appear back-facing on hills
-     * or from the pit lane but must still render; bypass.
-     * Building/sign quads are already culled by building.c.
-     * TRANSPARENT surfaces (glass road, pit-lane ceiling) must render from
-     * both sides — SW's polyt() never culls them.
-     * CONCAVE = SW's facing_ok check is bypassed for concave outer-wall sections
-     * (LLOWALL/LUOWALL/RLOWALL/RUOWALL in drawtrk3.c), so these surfaces always
-     * render in SW regardless of winding; bypass here too so GPU doesn't cull
-     * them either. (NOT the source of the black divider lines seen in the
-     * looping road in SW -- investigated 2026-07-08, see [[project_gpu_backlog]]:
-     * a click-to-pick diagnostic found no separate quad at those positions at
-     * all, in either renderer; concluded to be a SW rasterizer artifact.) */
-    /* CPU backface cull removed for track surfaces.
-     * The screen-space cross-product check was unreliable near the near-plane
-     * (clamping artefacts flipped the sign for valley/slope surfaces) and it
-     * incorrectly hid roads above the camera (e.g. elevated sections seen from
-     * below).  Track surfaces are thin single-face quads so rendering both
-     * sides is harmless; the depth buffer handles ordering correctly.
-     * Buildings and signs are still culled earlier by building.c. */
+    /* No CPU backface cull for track surfaces. SW's scan-line renderer implicitly
+     * culls back-facing polygons (reversed winding -> empty scanline spans); a GPU
+     * screen-space cross-product equivalent was tried but was unreliable near the
+     * near-plane (clamping artefacts flipped the sign on valley/slope surfaces) and
+     * incorrectly hid roads seen from below. Track surfaces are thin single-face
+     * quads, so rendering both sides is harmless -- the depth buffer handles
+     * ordering. Buildings/signs are still culled earlier by building.c. SW itself
+     * also bypasses its own facing_ok check for CONCAVE outer-wall sections
+     * (LLOWALL/LUOWALL/RLOWALL/RUOWALL in drawtrk3.c), rendering them regardless of
+     * winding, consistent with not culling them here either. (This is not the source
+     * of the black divider lines seen in the looping road in SW -- a click-to-pick
+     * diagnostic found no separate quad at those positions in either renderer;
+     * concluded to be a SW rasterizer artifact, see [[project_gpu_backlog]].) */
 
-    /* wallFrontFacing front/back suppression REMOVED (2026-07-10).
-     * This used to check the camera's side of a face normal built from just 3
-     * of the quad's 4 vertices (v0,v1,v2) before allowing the pair texture,
-     * suppressing it (falling back to a single plain tile) when the camera
-     * read as "behind" the wall plane. First gated to non-floor-like quads,
-     * then widened to also exempt all CONCAVE quads (see project_gpu_backlog
-     * memory, idx=8/sf=0x48894108 corkscrew fix), but a second confirmed
-     * instance (idx=24, sf=0x1050118, a DIFFERENT track's corkscrew, CONCAVE
-     * NOT set, isFloorLike also false by this same test) showed neither
-     * exemption is sufficient -- this 3-vertex face-normal test is simply
-     * unreliable for any twisted/rolled track structure, CONCAVE-flagged or
-     * not, for exactly the same reason the sibling CPU backface-cull test
-     * (comment above) was removed entirely rather than further narrowed:
-     * "clamping artefacts flipped the sign for valley/slope surfaces...
-     * incorrectly hid roads above the camera." Track surfaces are thin
-     * single-face quads; rendering the pair texture from both sides is
-     * harmless (same as the backface-cull removal reasoning) unless a real
-     * single-sided sign-wall is found to depend on the plain-color fallback,
-     * which hasn't been confirmed to exist in this codebase. */
+    /* wallFrontFacing (front/back suppression of the pair texture) was removed.
+     * It used to check which side of a face normal -- built from just 3 of the
+     * quad's 4 vertices (v0,v1,v2) -- the camera was on, falling back to a single
+     * plain tile when it read as "behind" the wall plane. That 3-vertex normal is
+     * unreliable for any twisted/rolled track structure: gating it off for
+     * isFloorLike quads fixed one corkscrew instance (idx=8), gating it off for all
+     * CONCAVE quads fixed a residual instance of the same tile, but a THIRD instance
+     * on a different track (idx=24, not CONCAVE, also not isFloorLike by this test)
+     * proved neither exemption was enough. Removed the suppression entirely instead
+     * of adding a fourth exemption -- same reasoning as the CPU backface-cull
+     * removal above (thin single-face quads render fine from both sides) -- unless
+     * a real single-sided sign-wall is ever found to depend on the plain-color
+     * fallback, which hasn't been confirmed to exist in this codebase. */
     bool wallFrontFacing = true;
 
     if (slot) {
@@ -4675,33 +4646,22 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool effectiveFlipV = flipV || ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0
                                                && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0);
                 bool col01Left = (sX[0]+sX[1]) < (sX[2]+sX[3]);
-                /* LIVE TEST v2 (2026-07-09): for non-FLIP_BACKFACE quads, U (cu[]) was previously
-                 * 100% static (effectiveFlipH alone). A first attempt used a screen-space
-                 * signed-area/winding test (mirroring polyt()'s own winding computation) -- fixed
-                 * the reported arrow-sign panels driving forward, but confirmed live to be
-                 * fragile: turning around dropped the same quad's computed area from a stable
-                 * positive value to ~0.02 (essentially zero, not a stable opposite-sign value),
-                 * proving the test carries no reliable signal from that angle -- the same
-                 * camera-ORIENTATION fragility class already found and fixed via world-space
-                 * alternatives earlier tonight (idx=14/tunnel-lights, pair03Left).
+                /* For non-FLIP_BACKFACE quads, U used to be 100% static (effectiveFlipH alone).
+                 * A screen-space signed-area/winding test (mirroring polyt()'s own winding calc)
+                 * fixed one reported case driving forward but was fragile turning around -- the
+                 * same quad's computed area collapsed to ~0 instead of flipping sign, meaning the
+                 * test carries no reliable signal from that angle. Same camera-orientation
+                 * fragility class as everywhere else in this file; fixed the same way -- compare
+                 * pure world-space coordinates between the two vertex columns ({v0,v3} vs
+                 * {v1,v2}) instead, with no camera involvement at all, matching the principle
+                 * behind pair03Left ("the camera can look from either end of the polygon... the
+                 * world tile assignment must remain stable").
                  *
-                 * This version instead compares pure WORLD-SPACE coordinates between the two
-                 * vertex columns ({v0,v3} vs {v1,v2}), with no camera involvement at all -- not
-                 * camera-position-dependent, not camera-orientation-dependent, just a fixed fact
-                 * about this quad's own geometry, matching the same principle that fixed
-                 * pair03Left ("the camera can look from either end of the polygon... the world
-                 * tile assignment must remain stable"). Sign convention is an unverified guess
-                 * pending live testing. Gated to non-FLIP_BACKFACE only, to keep this scoped to
-                 * the reported bug and not touch the BF sign-wall logic.
-                 *
-                 * FURTHER GATED to isFloorLike (2026-07-09): confirmed live that applying this
-                 * unconditionally regressed genuinely-vertical wall surfaces elsewhere. Same
-                 * geometric face-normal test proven for the GEN-BFHF floor/wall split and just
-                 * reused for the texture_back[] fix above -- some twisted/rotated CONCAVE quads
-                 * (like the arrow-sign panel this was built for) have a face normal that's
-                 * "floor-like" (nrmZ-dominant) despite looking like a vertical wall. Non-floor-
-                 * like quads keep the ORIGINAL fully-static effectiveFlipH-only U assignment
-                 * (pre-2026-07-09 behavior), never reported broken for actual walls. */
+                 * Gated to non-FLIP_BACKFACE (keeps this scoped away from the BF sign-wall logic)
+                 * and to isFloorLike: applying it unconditionally regressed genuinely-vertical
+                 * walls, since some twisted/rotated CONCAVE quads have a face normal that reads
+                 * "floor-like" (nrmZ-dominant) despite looking like a wall. Non-floor-like quads
+                 * keep the original static effectiveFlipH-only U assignment. */
                 float uex1x = verts[1].x-verts[0].x, uex1y = verts[1].y-verts[0].y, uex1z = verts[1].z-verts[0].z;
                 float uex2x = verts[3].x-verts[0].x, uex2y = verts[3].y-verts[0].y, uex2z = verts[3].z-verts[0].z;
                 float unrmX = uex1y*uex2z - uex1z*uex2y;
@@ -4727,15 +4687,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                      * Assign V directly from vertex index to match SW startsy default.
                      * flipH only affects U (startsx) in SW, never startsy — no V swap.
                      *
-                     * A live test tried swapping vL/vR based on the world-space face-normal
-                     * Y-component's sign (2026-07-09) after finding two physical placements of
-                     * the same tile (idx=8, sf=0x48894108) with opposite vertex winding and
-                     * opposite nrmY sign. REVERTED -- confirmed live that swapping did not fix
-                     * the reported "wrong" instance (the opposite winding is a real, verified
-                     * geometric fact about these quads, but not the actual cause of the vanishing
-                     * yellow line symptom). Do not re-attempt a V-swap fix here without new
-                     * diagnostic data distinguishing what IS actually different between a
-                     * confirmed-correct and confirmed-wrong instance beyond vertex winding. */
+                     * Vertex winding (vnrmY sign) genuinely differs between two physical
+                     * placements of the same tile (idx=8), but swapping vL/vR based on its sign
+                     * was tried and did NOT fix a confirmed-wrong instance -- the winding
+                     * difference is real but not the cause of the actual bug (a separate
+                     * texture-selection issue, since fixed -- see wallFrontFacing above). Kept
+                     * as a diagnostic only; do not re-attempt a V-swap fix here without new data
+                     * showing what's actually different beyond vertex winding. */
                     float vex1x = verts[1].x-verts[0].x, vex1z = verts[1].z-verts[0].z;
                     float vex2x = verts[3].x-verts[0].x, vex2z = verts[3].z-verts[0].z;
                     float vnrmY = vex1z*vex2x - vex1x*vex2z;
@@ -4744,19 +4702,20 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                     vL = flipV ? vMaxN : 0.0f;
                     vR = flipV ? 0.0f  : vMaxN;
 
-                    /* Diagonal choice is screen-space (camera-angle) dependent for a twisted
-                     * quad even though world verts are static (2026-07-09: confirmed live --
-                     * identical v0..v3, identical computed UVs, only camera state differed
-                     * between a correct and a "yellow line vanished" render of idx=8). Pick
-                     * whichever diagonal (0-2 or 1-3) gives two triangles with matching
-                     * signed-area sign, i.e. a simple non-self-intersecting split -- the
-                     * standard convex-quad-diagonal test. Deliberately NOT the full twpolym
-                     * port (reverted twice already, see project_gpu_backlog memory): this
-                     * only changes which triangles get formed, never UV values.
-                     * GATED to uIsFloorLike only, per the same reasoning as uWindingFlip
-                     * above -- applying unconditionally to every CONCAVE quad would risk
-                     * ceiling lights / tunnel ends (non-floor-like CONCAVE) that are not
-                     * reported broken. */
+                    /* The diagonal split for a twisted CONCAVE quad can be screen-space
+                     * (camera-angle) dependent even though world verts are static: the same
+                     * quad's identical UVs can render correctly from one camera state and not
+                     * another (see wallFrontFacing above for the confirmed root cause of that
+                     * specific bug). This picks whichever diagonal (0-2 or 1-3) gives two
+                     * triangles with matching signed-area sign, i.e. a simple
+                     * non-self-intersecting split -- the standard convex-quad-diagonal test.
+                     * Deliberately not the full twpolym port (tried twice, reverted both times,
+                     * see project_gpu_backlog memory): this only changes which triangles get
+                     * formed, never UV values. Gated to uIsFloorLike, same reasoning as
+                     * uWindingFlip above, so ceiling lights/tunnel ends (non-floor-like CONCAVE)
+                     * aren't affected. In practice this diagnostic has not yet found a case
+                     * where the split actually needed to change -- kept for future
+                     * investigation, not a confirmed-necessary fix. */
                     if (uIsFloorLike) {
                         const float (*SM)[3] = r->proj.view;
                         float sgsx[4], sgsy[4];
@@ -4842,9 +4801,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * (mirrors GEN-BFHF and SW's fProjectedZ clamp) -- the plain sX/sY
                  * computed earlier only guards exact division-by-zero, so as a
                  * vertex's vZ approaches a small value, gsx/gsy (and s_bcross's
-                 * sign) blow up and flip -- confirmed live on idx=14: bcross grew
-                 * from 0.002 to 497.5 then flipped sign as the camera moved along
-                 * a straight wall run, with no genuine backface change happening. */
+                 * sign) blow up and flip with no genuine backface change happening. */
                 float s_bcross = 0.0f;
                 if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
                     float gsx[4], gsy[4];
@@ -4869,10 +4826,10 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * FLIP_HORIZ flip, then toggle it once if the polygon is currently
                  * back-facing on screen. This replaces two earlier, flag-only
                  * approximations (a plain FLIP_HORIZ swap, and an unconditional
-                 * "always swap for FLIP_BACKFACE" constant) that each worked for
-                 * some FLIP_BACKFACE surfaces and broke others (idx=180 needed the
-                 * swap, idx=158's exit wall did not) because neither was actually
-                 * checking the surface's real orientation -- only its flags. */
+                 * "always swap for FLIP_BACKFACE" constant) that each worked for some
+                 * FLIP_BACKFACE surfaces and broke others (idx=180 needed the swap,
+                 * idx=158's exit wall did not), because neither was actually checking
+                 * the surface's real orientation -- only its flags. */
                 bool bfBack = (s_bcross < 0.0f);
                 if (effectiveFlipH != bfBack) {
                     float tmp = u03; u03 = u12; u12 = tmp;
@@ -4901,22 +4858,22 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * true top/bottom pair -- both must give top=vMaxN so sign content stays visible
                  * regardless of which surface wins the depth sort. The deciding question is
                  * which edge faces the camera, i.e. which is nearer -- squared world-space
-                 * distance from camera to each edge's midpoint, with the sign and `backwards`
-                 * flip below both confirmed by live testing (2026-07-09) rather than derived.
+                 * distance from camera to each edge's midpoint. The sign and the `backwards`
+                 * flip below were both fit to live test data, not derived analytically.
                  *
                  * Plain TEXTURE_PAIR walls without FLIP_BACKFACE (e.g. background buildings,
                  * idx=96/72) only reach row-detection via spansCameraCenter, and ARE a genuine
                  * top/bottom pair -- "nearer to camera" has no meaningful connection to world
                  * top/bottom there (it just means "nearer to ground"), so these keep the
                  * original screen-space `adjSY` formula. The `backwards` flip applied to it,
-                 * however, was itself the bug: PICK-UV logging (2026-07-09) showed every
-                 * reverse-direction sample had adjSum01>0/adjSum23<0 (raw test = false, the
-                 * correct answer), with `backwards=-1` forcing a flip to the wrong value --
-                 * i.e. the flip was never a valid direction correction for this branch, it was
-                 * copied over from the FLIP_BACKFACE case without independent verification.
-                 * Dropping it (below) was user-confirmed correct in both directions. A pure
-                 * world-Z comparison (no `backwards` correction) was tried first and falsified
-                 * -- kept the raw `adjSY` formula instead, just without the flip. */
+                 * however, was itself the bug: every reverse-direction sample had
+                 * adjSum01>0/adjSum23<0 (the raw, unflipped test already gives the correct
+                 * answer), with `backwards=-1` forcing a flip to the wrong value -- i.e. this
+                 * flip was never a valid direction correction for this branch, it was copied
+                 * over from the FLIP_BACKFACE case without independent verification. Dropping it
+                 * (below) is correct in both directions. A pure world-Z comparison (no
+                 * `backwards` correction) was tried first and falsified -- kept the raw `adjSY`
+                 * formula instead, just without the flip. */
                 float mx01 = (verts[0].x + verts[1].x) * 0.5f;
                 float my01 = (verts[0].y + verts[1].y) * 0.5f;
                 float mz01 = (verts[0].z + verts[1].z) * 0.5f;
@@ -5159,10 +5116,9 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             /* Vertical center correction, matching build_mvp's shift_y exactly:
              * SW's horizon sits at ss*(199-centerY) screen rows from the top, not
              * necessarily at vpH/2. The simplified (1 - fovY*vY/vZ)*0.5 formula
-             * below implicitly assumes the horizon IS at vpH/2, so it's missing
-             * this constant offset -- confirmed live via a wireframe overlay
-             * showing the true geometry well above where labels/pick outlines
-             * were drawn, "off by a specific amount" everywhere as reported. */
+             * below implicitly assumes the horizon IS at vpH/2, so without this
+             * offset labels and pick outlines land consistently above the true
+             * geometry. */
             float horizon_y = ss * (199.0f - (float)r->proj.centerY);
             float shiftY     = ((float)vpH * 0.5f - horizon_y) / ((float)vpH * 0.5f);
 
@@ -5219,11 +5175,9 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                         /* Clamp to a minimum of 80 before the divide (mirrors the
                          * same fix applied to s_bcross elsewhere in this file) --
                          * a vertex close to the camera but not technically behind
-                         * it can still blow up 1/vZi, badly distorting just that
-                         * one corner's screen position. Confirmed live: a wall
-                         * right next to the camera showed a correctly-shaped top
-                         * edge but a collapsed, disconnected bottom edge in the
-                         * pick outline, from exactly this instability. */
+                         * it can still blow up 1/vZi, distorting just that one
+                         * corner's screen position (visible as a collapsed edge in
+                         * the pick outline for a wall near the camera). */
                         float vZic = (vZi < 80.0f) ? 80.0f : vZi;
                         float izi  = 1.0f / vZic;
                         pnx[vi] = (1.0f + fovX * vXi * izi) * 0.5f;
