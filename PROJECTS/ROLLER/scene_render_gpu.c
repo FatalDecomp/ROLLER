@@ -1858,6 +1858,8 @@ static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float 
                 float v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z;
                 bool uvValid; char uvType[16]; int uvTexId; bool flipV, efV, efH, p03L, row01Bot;
                 float cu0, cv0, cv2, bcross; bool isFloorLike; bool wzRowBot, wzSpans; bool useRowDetect;
+                int backwardsVal; float adjSum01, adjSum23; bool spansCC;
+                float camX, camY, camZ;
                 float onx[4], ony[4]; bool ovalid[4]; } s_clickHit;
 static bool s_clickWasPending;
 
@@ -2713,14 +2715,17 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                     (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z,
                     (double)s_clickHit.v3x, (double)s_clickHit.v3y, (double)s_clickHit.v3z);
             if (s_clickHit.uvValid)
-                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d",
+                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f)",
                         s_clickHit.uvType, s_clickHit.uvTexId,
                         (int)s_clickHit.flipV, (int)s_clickHit.efV, (int)s_clickHit.efH,
                         (int)s_clickHit.p03L, (int)s_clickHit.row01Bot,
                         (double)s_clickHit.cu0, (double)s_clickHit.cv0, (double)s_clickHit.cv2,
                         (double)s_clickHit.bcross, (int)s_clickHit.isFloorLike,
                         (int)s_clickHit.wzRowBot, (int)s_clickHit.wzSpans,
-                        (int)s_clickHit.useRowDetect);
+                        (int)s_clickHit.useRowDetect, s_clickHit.backwardsVal,
+                        (double)s_clickHit.adjSum01, (double)s_clickHit.adjSum23,
+                        (int)s_clickHit.spansCC,
+                        (double)s_clickHit.camX, (double)s_clickHit.camY, (double)s_clickHit.camZ);
         } else
             SDL_Log("PICK: no surface hit");
         debug_overlay_pick_outline_set(s_clickHit.active, s_clickHit.onx, s_clickHit.ony, s_clickHit.ovalid);
@@ -4137,7 +4142,9 @@ static void texture_uv_log(const char *type, int surfIdx, int surfaceFlags,
  * from a previous quad into its PICK line. */
 static struct { bool valid; char type[16]; int texId; bool flipV, efV, efH, p03L, row01Bot;
                 float cu0, cv0, cv2, bcross; bool isFloorLike;
-                bool wzRowBot, wzSpans; bool useRowDetect; } s_lastUV;
+                bool wzRowBot, wzSpans; bool useRowDetect;
+                int backwardsVal; float adjSum01, adjSum23; bool spansCC;
+                float camX, camY, camZ; } s_lastUV;
 
 static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
                                   bool flipV, bool efV, bool efH,
@@ -4292,6 +4299,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     s_lastUV.wzRowBot = false;
     s_lastUV.wzSpans = false;
     s_lastUV.useRowDetect = false;
+    s_lastUV.backwardsVal = 0;
+    s_lastUV.adjSum01 = 0.0f;
+    s_lastUV.adjSum23 = 0.0f;
+    s_lastUV.spansCC = false;
+    s_lastUV.camX = 0.0f;
+    s_lastUV.camY = 0.0f;
+    s_lastUV.camZ = 0.0f;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -4719,11 +4733,18 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * flip below both confirmed by live testing (2026-07-09) rather than derived.
                  *
                  * Plain TEXTURE_PAIR walls without FLIP_BACKFACE (e.g. background buildings,
-                 * idx=96) only reach row-detection via spansCameraCenter, and ARE a genuine
+                 * idx=96/72) only reach row-detection via spansCameraCenter, and ARE a genuine
                  * top/bottom pair -- "nearer to camera" has no meaningful connection to world
                  * top/bottom there (it just means "nearer to ground"), so these keep the
-                 * original screen-space formula (`adjSY`, camera-orientation-based), which was
-                 * never reported broken for this case. */
+                 * original screen-space `adjSY` formula. The `backwards` flip applied to it,
+                 * however, was itself the bug: PICK-UV logging (2026-07-09) showed every
+                 * reverse-direction sample had adjSum01>0/adjSum23<0 (raw test = false, the
+                 * correct answer), with `backwards=-1` forcing a flip to the wrong value --
+                 * i.e. the flip was never a valid direction correction for this branch, it was
+                 * copied over from the FLIP_BACKFACE case without independent verification.
+                 * Dropping it (below) was user-confirmed correct in both directions. A pure
+                 * world-Z comparison (no `backwards` correction) was tried first and falsified
+                 * -- kept the raw `adjSY` formula instead, just without the flip. */
                 float mx01 = (verts[0].x + verts[1].x) * 0.5f;
                 float my01 = (verts[0].y + verts[1].y) * 0.5f;
                 float mz01 = (verts[0].z + verts[1].z) * 0.5f;
@@ -4737,10 +4758,17 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool row01IsBottom;
                 if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
                     row01IsBottom = (d01sq > d23sq);
+                    if (backwards != 0) row01IsBottom = !row01IsBottom;
                 } else {
+                    /* No `backwards` flip here -- see comment above. */
                     row01IsBottom = (adjSY[0]+adjSY[1]) < (adjSY[2]+adjSY[3]);
                 }
-                if (backwards != 0) row01IsBottom = !row01IsBottom;
+                s_lastUV.backwardsVal = backwards;
+                s_lastUV.adjSum01 = adjSY[0]+adjSY[1];
+                s_lastUV.adjSum23 = adjSY[2]+adjSY[3];
+                s_lastUV.camX = r->camera.viewX;
+                s_lastUV.camY = r->camera.viewY;
+                s_lastUV.camZ = r->camera.viewZ;
                 /* Use row01IsBottom when BF non-CONCAVE (effectiveFlipV): the BF vertex
                  * swap changes which screen-row v0 occupies without changing SW's startsy[0],
                  * so screen-row detection is required to keep sign content visible.
@@ -4754,6 +4782,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                     && !flipV
                                     && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0;
                 s_lastUV.useRowDetect = useRowDetect;
+                s_lastUV.spansCC = spansCameraCenter;
                 for (int k = 0; k < 4; k++) {
                     bool isBottom = useRowDetect
                                         ? (row01IsBottom ? (k==0||k==1) : (k==2||k==3))
@@ -5074,6 +5103,13 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                             s_clickHit.wzRowBot = s_lastUV.wzRowBot;
                             s_clickHit.wzSpans  = s_lastUV.wzSpans;
                             s_clickHit.useRowDetect = s_lastUV.useRowDetect;
+                            s_clickHit.backwardsVal = s_lastUV.backwardsVal;
+                            s_clickHit.adjSum01 = s_lastUV.adjSum01;
+                            s_clickHit.adjSum23 = s_lastUV.adjSum23;
+                            s_clickHit.spansCC  = s_lastUV.spansCC;
+                            s_clickHit.camX = s_lastUV.camX;
+                            s_clickHit.camY = s_lastUV.camY;
+                            s_clickHit.camZ = s_lastUV.camZ;
                         }
                     }
                 }
