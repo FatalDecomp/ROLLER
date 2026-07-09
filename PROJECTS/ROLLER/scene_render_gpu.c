@@ -4467,56 +4467,26 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * sides is harmless; the depth buffer handles ordering correctly.
      * Buildings and signs are still culled earlier by building.c. */
 
-    /* For single-sided TEXTURE_PAIR walls (no FLIP_BACKFACE/BACK) check the
-     * camera is on the front side of the wall plane before applying the pair
-     * texture.  The screen-space cross product can flip sign at grazing angles
-     * (near-zero cross near the pit lane), so use the world-space face normal
-     * dot product which is purely positional and not affected by perspective.
-     * If the camera is on the back side (dot < 0), suppress the pair texture
-     * so the plain wall colour shows instead of the sign graphic.
-     *
-     * GATED to non-floor-like quads (2026-07-09): this is the same class of
-     * unreliability the comment above already documents for the removed CPU
-     * backface cull ("clamping artefacts flipped the sign for valley/slope
-     * surfaces... incorrectly hid roads above the camera") -- a heavily
-     * twisted/rolled corkscrew road quad (idx=8, sf=0x48894108, PAIR-X
-     * CONCAVE) is geometrically floor-like (nrmZ-dominant face normal)
-     * despite being classified isWall/TEXTURE_PAIR. Confirmed live: this dot
-     * product flips sign between the two travel directions for that exact
-     * quad, silently falling back to slot->tileTextures[surfIdx] (a single
-     * plain tile, no yellow line) below -- same UV, same vertices, visibly
-     * different content, matching the reported "yellow line replaced by
-     * plain road" symptom exactly. Floor-like quads have no meaningful
-     * "back side" the way a vertical sign-wall does, so always treat them
-     * as front-facing. */
+    /* wallFrontFacing front/back suppression REMOVED (2026-07-10).
+     * This used to check the camera's side of a face normal built from just 3
+     * of the quad's 4 vertices (v0,v1,v2) before allowing the pair texture,
+     * suppressing it (falling back to a single plain tile) when the camera
+     * read as "behind" the wall plane. First gated to non-floor-like quads,
+     * then widened to also exempt all CONCAVE quads (see project_gpu_backlog
+     * memory, idx=8/sf=0x48894108 corkscrew fix), but a second confirmed
+     * instance (idx=24, sf=0x1050118, a DIFFERENT track's corkscrew, CONCAVE
+     * NOT set, isFloorLike also false by this same test) showed neither
+     * exemption is sufficient -- this 3-vertex face-normal test is simply
+     * unreliable for any twisted/rolled track structure, CONCAVE-flagged or
+     * not, for exactly the same reason the sibling CPU backface-cull test
+     * (comment above) was removed entirely rather than further narrowed:
+     * "clamping artefacts flipped the sign for valley/slope surfaces...
+     * incorrectly hid roads above the camera." Track surfaces are thin
+     * single-face quads; rendering the pair texture from both sides is
+     * harmless (same as the backface-cull removal reasoning) unless a real
+     * single-sided sign-wall is found to depend on the plain-color fallback,
+     * which hasn't been confirmed to exist in this codebase. */
     bool wallFrontFacing = true;
-    if (isWall && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_BACK))) {
-        float e1x = verts[1].x - verts[0].x;
-        float e1y = verts[1].y - verts[0].y;
-        float e1z = verts[1].z - verts[0].z;
-        float e2x = verts[2].x - verts[0].x;
-        float e2y = verts[2].y - verts[0].y;
-        float e2z = verts[2].z - verts[0].z;
-        float nx = e1y*e2z - e1z*e2y;
-        float ny = e1z*e2x - e1x*e2z;
-        float nz = e1x*e2y - e1y*e2x;
-        bool wfIsFloorLike = fabsf(nz) > sqrtf(nx*nx + ny*ny);
-        /* WIDENED (2026-07-10): a live residual case at a different corkscrew
-         * location (same idx=8/sf=0x48894108, different vertices) still showed
-         * the plain-tile fallback despite reading isFloorLike=false here. A
-         * genuinely non-planar CONCAVE quad doesn't have one well-defined face
-         * normal to begin with -- v0,v1,v2's normal can legitimately differ
-         * from v0,v2,v3's for a twisted panel -- so this 3-vertex normal test
-         * is unreliable for any CONCAVE quad, not just the isFloorLike subset.
-         * Exempt CONCAVE outright rather than narrowing further on the same
-         * unreliable test. */
-        if (!wfIsFloorLike && !(surfaceFlags & SURFACE_FLAG_CONCAVE)) {
-            float dot = nx*(r->camera.viewX - verts[0].x)
-                      + ny*(r->camera.viewY - verts[0].y)
-                      + nz*(r->camera.viewZ - verts[0].z);
-            if (dot < 0.0f) wallFrontFacing = false;
-        }
-    }
 
     if (slot) {
         /* Wall surfaces use the pair texture (tile N + tile N+1 side by side).
