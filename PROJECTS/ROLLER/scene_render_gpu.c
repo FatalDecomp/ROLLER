@@ -1860,6 +1860,8 @@ static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float 
                 float cu0, cv0, cv2, bcross; bool isFloorLike; bool wzRowBot, wzSpans; bool useRowDetect;
                 int backwardsVal; float adjSum01, adjSum23; bool spansCC;
                 float camX, camY, camZ;
+                bool backTexApplied; float backDot; int backOrigIdx, backNewIdx;
+                bool uWindingFlip; float uWindingArea;
                 float onx[4], ony[4]; bool ovalid[4]; } s_clickHit;
 static bool s_clickWasPending;
 
@@ -2715,7 +2717,7 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                     (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z,
                     (double)s_clickHit.v3x, (double)s_clickHit.v3y, (double)s_clickHit.v3z);
             if (s_clickHit.uvValid)
-                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f)",
+                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f) backTexApplied=%d backDot=%.2f backOrigIdx=%d backNewIdx=%d uWindingFlip=%d uWindingArea=%.2f",
                         s_clickHit.uvType, s_clickHit.uvTexId,
                         (int)s_clickHit.flipV, (int)s_clickHit.efV, (int)s_clickHit.efH,
                         (int)s_clickHit.p03L, (int)s_clickHit.row01Bot,
@@ -2725,7 +2727,10 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                         (int)s_clickHit.useRowDetect, s_clickHit.backwardsVal,
                         (double)s_clickHit.adjSum01, (double)s_clickHit.adjSum23,
                         (int)s_clickHit.spansCC,
-                        (double)s_clickHit.camX, (double)s_clickHit.camY, (double)s_clickHit.camZ);
+                        (double)s_clickHit.camX, (double)s_clickHit.camY, (double)s_clickHit.camZ,
+                        (int)s_clickHit.backTexApplied, (double)s_clickHit.backDot,
+                        s_clickHit.backOrigIdx, s_clickHit.backNewIdx,
+                        (int)s_clickHit.uWindingFlip, (double)s_clickHit.uWindingArea);
         } else
             SDL_Log("PICK: no surface hit");
         debug_overlay_pick_outline_set(s_clickHit.active, s_clickHit.onx, s_clickHit.ony, s_clickHit.ovalid);
@@ -4144,7 +4149,9 @@ static struct { bool valid; char type[16]; int texId; bool flipV, efV, efH, p03L
                 float cu0, cv0, cv2, bcross; bool isFloorLike;
                 bool wzRowBot, wzSpans; bool useRowDetect;
                 int backwardsVal; float adjSum01, adjSum23; bool spansCC;
-                float camX, camY, camZ; } s_lastUV;
+                float camX, camY, camZ;
+                bool backTexApplied; float backDot; int backOrigIdx, backNewIdx;
+                bool uWindingFlip; float uWindingArea; } s_lastUV;
 
 static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
                                   bool flipV, bool efV, bool efH,
@@ -4306,6 +4313,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     s_lastUV.camX = 0.0f;
     s_lastUV.camY = 0.0f;
     s_lastUV.camZ = 0.0f;
+    s_lastUV.backTexApplied = false;
+    s_lastUV.backDot = 0.0f;
+    s_lastUV.backOrigIdx = -1;
+    s_lastUV.backNewIdx = -1;
+    s_lastUV.uWindingFlip = false;
+    s_lastUV.uWindingArea = 0.0f;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -4330,20 +4343,77 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     bool isTrackDarken = false;
     int  surfIdx     = surfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
 
-    /* SW applies texture_back[] substitution when SURFACE_FLAG_BACK (0x800) is set
-     * and the camera is on the back side of the polygon.  The substituted type gives
-     * a completely different tile (e.g. the advertisement face of a sign board).
-     * GPU must replicate this so "gen BK BF" surfaces show the back tile when the
-     * camera approaches from behind, instead of always showing the front tile. */
+    /* SW applies texture_back[] substitution when SURFACE_FLAG_BACK (0x800) is set and the
+     * quad is back-facing.  The substituted type gives a completely different tile (e.g. the
+     * advertisement face of a sign board).
+     *
+     * SW's REAL trigger (polytex.c:536-554, verified directly against the decompiled source) is
+     * a 2D SCREEN-SPACE cross-product winding test on the projected vertices
+     * ((v0-v1) x (v0-v2), falling back to v3 if v1==v2 is degenerate) -- NOT a 3D world-space
+     * face-normal dot product. A fixed-vertex-order world-space normal doesn't track the
+     * CURRENT screen-space winding the way this test does, so it can misfire whenever a quad's
+     * face normal doesn't happen to point "the expected way" for its winding -- exactly what
+     * happens on twisted/rotated tunnel or corkscrew geometry (confirmed live: a road floor
+     * inside a rolling tunnel section showed the wrong, substituted texture -- backDot strongly
+     * negative -- while SW showed the correct one). Ported directly from the decompiled source,
+     * with the same Y-flip (GPU view-space Y-up vs SW screen-space Y-down -- see the GEN-BFHF
+     * backface cross-product comment elsewhere in this file) and the same 80-unit near-camera
+     * clamp used throughout this file for screen-space tests. */
     bool isBackTexSign = false;
     if ((surfaceFlags & SURFACE_FLAG_BACK) && slot) {
-        float e1x = verts[1].x - verts[0].x, e1y = verts[1].y - verts[0].y, e1z = verts[1].z - verts[0].z;
-        float e2x = verts[2].x - verts[0].x, e2y = verts[2].y - verts[0].y, e2z = verts[2].z - verts[0].z;
-        float nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
-        float dot = nx*(r->camera.viewX - verts[0].x)
-                  + ny*(r->camera.viewY - verts[0].y)
-                  + nz*(r->camera.viewZ - verts[0].z);
-        if (dot < 0.0f) {
+        /* Gate the screen-space fix to isFloorLike (2026-07-09): confirmed live that applying it
+         * unconditionally regressed genuinely-vertical wall surfaces elsewhere on the track. Same
+         * geometric face-normal test already proven for the GEN-BFHF floor/wall split -- flags
+         * alone can't distinguish these cases reliably (established earlier this session), and
+         * some twisted/rotated CONCAVE quads have a face normal that's "floor-like" (nrmZ-
+         * dominant) despite looking like a vertical wall to the player. Non-floor-like quads keep
+         * the ORIGINAL world-space face-normal dot product (pre-2026-07-09 behavior), which was
+         * never reported broken for actual walls. */
+        float ex1x = verts[1].x - verts[0].x, ex1y = verts[1].y - verts[0].y, ex1z = verts[1].z - verts[0].z;
+        float ex2x = verts[3].x - verts[0].x, ex2y = verts[3].y - verts[0].y, ex2z = verts[3].z - verts[0].z;
+        float bnrmX = ex1y*ex2z - ex1z*ex2y;
+        float bnrmY = ex1z*ex2x - ex1x*ex2z;
+        float bnrmZ = ex1x*ex2y - ex1y*ex2x;
+        bool backIsFloorLike = fabsf(bnrmZ) > sqrtf(bnrmX*bnrmX + bnrmY*bnrmY);
+
+        float cross;
+        if (backIsFloorLike) {
+            const float (*M)[3] = r->proj.view;
+            float gsx[4], gsy[4];
+            for (int vi = 0; vi < 4; vi++) {
+                float ddx = verts[vi].x - r->camera.viewX;
+                float ddy = verts[vi].y - r->camera.viewY;
+                float ddz = verts[vi].z - r->camera.viewZ;
+                float vx = ddx*M[0][0] + ddy*M[1][0] + ddz*M[2][0];
+                float vy = ddx*M[0][1] + ddy*M[1][1] + ddz*M[2][1];
+                float vz = ddx*M[0][2] + ddy*M[1][2] + ddz*M[2][2];
+                float vzc = (vz < 80.0f) ? 80.0f : vz;
+                gsx[vi] = vx / vzc;
+                gsy[vi] = -(vy / vzc);
+            }
+            bool v1eqv2 = (gsx[1] == gsx[2] && gsy[1] == gsy[2]);
+            int refIdx = v1eqv2 ? 3 : 2;
+            cross = (gsx[0]-gsx[1])*(gsy[0]-gsy[refIdx]) - (gsy[0]-gsy[1])*(gsx[0]-gsx[refIdx]);
+        } else {
+            /* Original world-space face-normal dot product (restored for non-floor-like quads). */
+            cross = bnrmX*(r->camera.viewX - verts[0].x)
+                  + bnrmY*(r->camera.viewY - verts[0].y)
+                  + bnrmZ*(r->camera.viewZ - verts[0].z);
+        }
+        s_lastUV.backDot = cross;
+        s_lastUV.backOrigIdx = surfIdx;
+        /* Deadzone around zero (2026-07-09, live): SW computes this test on actual integer
+         * screen pixels at its native low resolution, which stabilizes borderline cases that our
+         * continuous-float screen-space proxy doesn't reproduce -- confirmed live on a road floor
+         * inside a rolling tunnel section, where this exact quad's cross value was ~+0.13 driving
+         * forward (correct, no substitution) and ~-0.11 driving backward (wrong, substituted),
+         * despite SW showing the correct texture in both directions. Treating small-magnitude
+         * crossings as "not clearly back-facing" avoids flip-flopping on razor-thin cases; the
+         * threshold is a judgment call (chosen well above this case's ~0.1-0.13 magnitude) rather
+         * than derived, since we don't have a clearly-triggering case's magnitude to calibrate
+         * against. Only applied for the floor-like/screen-space path -- the restored world-space
+         * path for walls never had (or needed) a deadzone before. */
+        if (backIsFloorLike ? (cross < -1.0f) : (cross < 0.0f)) {
             int newType = texture_back[256 * slot->tex_idx + surfIdx];
             int newIdx  = newType & SURFACE_MASK_TEXTURE_INDEX;
             if (newIdx >= 0 && newIdx < slot->numTiles) {
@@ -4351,6 +4421,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 isBackTexSign = true;
             }
         }
+        s_lastUV.backTexApplied = isBackTexSign;
+        s_lastUV.backNewIdx = surfIdx;
     }
 
     /* Wall pair textures only apply to non-building track surfaces. */
@@ -4595,8 +4667,49 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool effectiveFlipV = flipV || ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0
                                                && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0);
                 bool col01Left = (sX[0]+sX[1]) < (sX[2]+sX[3]);
-                float uT = effectiveFlipH ? 0.0f  : uMaxN;
-                float uB = effectiveFlipH ? uMaxN : 0.0f;
+                /* LIVE TEST v2 (2026-07-09): for non-FLIP_BACKFACE quads, U (cu[]) was previously
+                 * 100% static (effectiveFlipH alone). A first attempt used a screen-space
+                 * signed-area/winding test (mirroring polyt()'s own winding computation) -- fixed
+                 * the reported arrow-sign panels driving forward, but confirmed live to be
+                 * fragile: turning around dropped the same quad's computed area from a stable
+                 * positive value to ~0.02 (essentially zero, not a stable opposite-sign value),
+                 * proving the test carries no reliable signal from that angle -- the same
+                 * camera-ORIENTATION fragility class already found and fixed via world-space
+                 * alternatives earlier tonight (idx=14/tunnel-lights, pair03Left).
+                 *
+                 * This version instead compares pure WORLD-SPACE coordinates between the two
+                 * vertex columns ({v0,v3} vs {v1,v2}), with no camera involvement at all -- not
+                 * camera-position-dependent, not camera-orientation-dependent, just a fixed fact
+                 * about this quad's own geometry, matching the same principle that fixed
+                 * pair03Left ("the camera can look from either end of the polygon... the world
+                 * tile assignment must remain stable"). Sign convention is an unverified guess
+                 * pending live testing. Gated to non-FLIP_BACKFACE only, to keep this scoped to
+                 * the reported bug and not touch the BF sign-wall logic.
+                 *
+                 * FURTHER GATED to isFloorLike (2026-07-09): confirmed live that applying this
+                 * unconditionally regressed genuinely-vertical wall surfaces elsewhere. Same
+                 * geometric face-normal test proven for the GEN-BFHF floor/wall split and just
+                 * reused for the texture_back[] fix above -- some twisted/rotated CONCAVE quads
+                 * (like the arrow-sign panel this was built for) have a face normal that's
+                 * "floor-like" (nrmZ-dominant) despite looking like a vertical wall. Non-floor-
+                 * like quads keep the ORIGINAL fully-static effectiveFlipH-only U assignment
+                 * (pre-2026-07-09 behavior), never reported broken for actual walls. */
+                float uex1x = verts[1].x-verts[0].x, uex1y = verts[1].y-verts[0].y, uex1z = verts[1].z-verts[0].z;
+                float uex2x = verts[3].x-verts[0].x, uex2y = verts[3].y-verts[0].y, uex2z = verts[3].z-verts[0].z;
+                float unrmX = uex1y*uex2z - uex1z*uex2y;
+                float unrmY = uex1z*uex2x - uex1x*uex2z;
+                float unrmZ = uex1x*uex2y - uex1y*uex2x;
+                bool uIsFloorLike = fabsf(unrmZ) > sqrtf(unrmX*unrmX + unrmY*unrmY);
+                bool uWindingFlip = false;
+                float uWindingArea = 0.0f;
+                if (uIsFloorLike && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
+                    uWindingArea = (verts[0].x + verts[3].x) - (verts[1].x + verts[2].x);
+                    if (uWindingArea < 0.0f) uWindingFlip = true;
+                }
+                s_lastUV.uWindingArea = uWindingArea;
+                s_lastUV.uWindingFlip = uWindingFlip;
+                float uT = (effectiveFlipH != uWindingFlip) ? 0.0f  : uMaxN;
+                float uB = (effectiveFlipH != uWindingFlip) ? uMaxN : 0.0f;
                 cu[0] = uT; cu[3] = uT;
                 cu[1] = uB; cu[2] = uB;
                 float vL, vR;
@@ -5110,6 +5223,12 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                             s_clickHit.camX = s_lastUV.camX;
                             s_clickHit.camY = s_lastUV.camY;
                             s_clickHit.camZ = s_lastUV.camZ;
+                            s_clickHit.backTexApplied = s_lastUV.backTexApplied;
+                            s_clickHit.backDot = s_lastUV.backDot;
+                            s_clickHit.backOrigIdx = s_lastUV.backOrigIdx;
+                            s_clickHit.backNewIdx = s_lastUV.backNewIdx;
+                            s_clickHit.uWindingFlip = s_lastUV.uWindingFlip;
+                            s_clickHit.uWindingArea = s_lastUV.uWindingArea;
                         }
                     }
                 }
