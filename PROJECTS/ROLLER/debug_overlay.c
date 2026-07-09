@@ -126,6 +126,30 @@ void debug_overlay_surface_label_push(float nx, float ny, const char *text) {
 }
 
 // ---------------------------------------------------------------------------
+// Pick outline: highlights the last surface picked via click-to-pick
+// ---------------------------------------------------------------------------
+
+static struct { bool active; float nx[4], ny[4]; bool valid[4]; } s_pickOutline;
+/* True if the outline was active as of the last debug_overlay_render() call.
+ * Needed so the lazy-rasterize cache below forces one extra redraw on the
+ * exact frame the outline goes inactive -- otherwise, if nothing else in the
+ * overlay changed that frame, the Nuklear command hash matches the previous
+ * frame's and the cached pixel buffer (which still has the outline baked
+ * into it) gets reused forever instead of being redrawn without it. */
+static bool s_pickOutlineWasActive;
+
+void debug_overlay_pick_outline_set(bool active, const float nx[4], const float ny[4], const bool valid[4]) {
+  s_pickOutline.active = active;
+  if (active) {
+    for (int i = 0; i < 4; i++) {
+      s_pickOutline.nx[i]    = nx[i];
+      s_pickOutline.ny[i]    = ny[i];
+      s_pickOutline.valid[i] = valid[i];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Log callback
 // ---------------------------------------------------------------------------
 
@@ -281,6 +305,24 @@ static void DrawSurfaceLabels(DebugOverlay *pOverlay) {
     int tw  = (int)(len * fh * 0.52f);  /* approximate text width */
     OverlayFillRect(pOverlay->pPixels, ox - 1, oy - 1, tw + 4, (int)fh + 2, bg);
     OverlayDrawString(pOverlay, ox + 1, oy, p->text, fg);
+  }
+}
+
+static void DrawSurfaceOutline(DebugOverlay *pOverlay) {
+  if (!s_pickOutline.active) return;
+  struct nk_color col = nk_rgba(255, 40, 40, 255);
+  int px[4], py[4];
+  for (int i = 0; i < 4; i++) {
+    px[i] = (int)(s_pickOutline.nx[i] * OVERLAY_W);
+    py[i] = (int)(s_pickOutline.ny[i] * OVERLAY_H);
+  }
+  /* Quad perimeter is 0-1-2-3-0; skip an edge if either endpoint was behind
+   * the camera (that vertex has no valid screen position). */
+  static const int edges[4][2] = { {0,1}, {1,2}, {2,3}, {3,0} };
+  for (int e = 0; e < 4; e++) {
+    int a = edges[e][0], b = edges[e][1];
+    if (!s_pickOutline.valid[a] || !s_pickOutline.valid[b]) continue;
+    OverlayStrokeLine(pOverlay->pPixels, px[a], py[a], px[b], py[b], col);
   }
 }
 
@@ -1366,7 +1408,15 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   bool bShiftLabel = _kb[SDL_SCANCODE_LSHIFT] || _kb[SDL_SCANCODE_RSHIFT];
   bool bShowLabels = g_bSurfaceDebugViz || bShiftLabel;
 
-  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels)) return;
+  /* Releasing SHIFT (or turning off surface debug viz) dismisses the pick
+   * outline entirely rather than letting it reappear -- showing labels acts
+   * as a "clear the outline" gesture, not just a temporary hide. */
+  static bool s_showLabelsWasActive;
+  if (s_showLabelsWasActive && !bShowLabels)
+    s_pickOutline.active = false;
+  s_showLabelsWasActive = bShowLabels;
+
+  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels && !s_pickOutline.active && !s_pickOutlineWasActive)) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
   // Close input bracket (open it first if no events arrived this frame)
@@ -1386,8 +1436,10 @@ void debug_overlay_render(DebugOverlay *pOverlay,
    * Skip the expensive software raster + GPU upload when nothing changed;
    * the GPU texture still holds the previous frame's correct content.
    * Surface debug labels change every frame, so bypass the cache while active. */
-  if (bShowLabels)
-    pOverlay->uLastCmdHash = 0;  /* force dirty every frame */
+  if (bShowLabels || s_pickOutline.active || s_pickOutlineWasActive)
+    pOverlay->uLastCmdHash = 0;  /* force dirty every frame, plus one extra
+                                    frame on the active->inactive transition */
+  s_pickOutlineWasActive = s_pickOutline.active;
 
   uint32_t uHash = 2166136261u;
   const uint8_t *pCmdBytes = (const uint8_t *)pCtx->memory.memory.ptr;
@@ -1402,6 +1454,7 @@ void debug_overlay_render(DebugOverlay *pOverlay,
     memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
     RenderCommands(pOverlay);
     if (bShowLabels) DrawSurfaceLabels(pOverlay);
+    else             DrawSurfaceOutline(pOverlay);
     UploadAndBlit(pOverlay, pCmdBuf);
   } else {
     nk_clear(pCtx);

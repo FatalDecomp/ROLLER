@@ -1854,7 +1854,13 @@ static bool s_pt_in_tri(float qx, float qy,
     float d3 = (qx-ax)*(cy-ay) - (cx-ax)*(qy-ay);
     return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
 }
-static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float vZ; } s_clickHit;
+static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float vZ;
+                float v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z;
+                bool uvValid; char uvType[16]; int uvTexId; bool flipV, efV, efH, p03L, row01Bot;
+                float cu0, cv0, cv2, bcross; bool isFloorLike; bool wzRowBot, wzSpans; bool useRowDetect;
+                int backwardsVal; float adjSum01, adjSum23; bool spansCC;
+                float camX, camY, camZ;
+                float onx[4], ony[4]; bool ovalid[4]; } s_clickHit;
 static bool s_clickWasPending;
 
 void scene_render_gpu_screen_quad_flat(SceneRendererGPU *r,
@@ -2700,12 +2706,29 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     r->queueNs = tQueueEnd - r->frameStartNs;
 
     if (s_clickWasPending) {
-        if (s_clickHit.active)
-            SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f",
+        if (s_clickHit.active) {
+            SDL_Log("PICK: %s idx=%d sf=0x%X vZ=%.1f v0xyz=(%.1f,%.1f,%.1f) v1xyz=(%.1f,%.1f,%.1f) v2xyz=(%.1f,%.1f,%.1f) v3xyz=(%.1f,%.1f,%.1f)",
                     s_clickHit.path, s_clickHit.surfIdx,
-                    (unsigned)s_clickHit.surfaceFlags, (double)s_clickHit.vZ);
-        else
+                    (unsigned)s_clickHit.surfaceFlags, (double)s_clickHit.vZ,
+                    (double)s_clickHit.v0x, (double)s_clickHit.v0y, (double)s_clickHit.v0z,
+                    (double)s_clickHit.v1x, (double)s_clickHit.v1y, (double)s_clickHit.v1z,
+                    (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z,
+                    (double)s_clickHit.v3x, (double)s_clickHit.v3y, (double)s_clickHit.v3z);
+            if (s_clickHit.uvValid)
+                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f)",
+                        s_clickHit.uvType, s_clickHit.uvTexId,
+                        (int)s_clickHit.flipV, (int)s_clickHit.efV, (int)s_clickHit.efH,
+                        (int)s_clickHit.p03L, (int)s_clickHit.row01Bot,
+                        (double)s_clickHit.cu0, (double)s_clickHit.cv0, (double)s_clickHit.cv2,
+                        (double)s_clickHit.bcross, (int)s_clickHit.isFloorLike,
+                        (int)s_clickHit.wzRowBot, (int)s_clickHit.wzSpans,
+                        (int)s_clickHit.useRowDetect, s_clickHit.backwardsVal,
+                        (double)s_clickHit.adjSum01, (double)s_clickHit.adjSum23,
+                        (int)s_clickHit.spansCC,
+                        (double)s_clickHit.camX, (double)s_clickHit.camY, (double)s_clickHit.camZ);
+        } else
             SDL_Log("PICK: no surface hit");
+        debug_overlay_pick_outline_set(s_clickHit.active, s_clickHit.onx, s_clickHit.ony, s_clickHit.ovalid);
         g_pendingClickQuery = false;
     }
 
@@ -4098,11 +4121,31 @@ static void texture_uv_log(const char *type, int surfIdx, int surfaceFlags,
     if (!g_bSurfaceLog) return;
     if (g_iSurfaceLogId < -1) return;
     if (g_iSurfaceLogId >= 0 && surfIdx != g_iSurfaceLogId) return;
-    static uint32 s_n = 0;
-    if ((s_n++ & 0xFF) != 0) return;
+    /* Only throttle when logging every surface (id == -1) -- that can be
+     * thousands of calls/frame. Once narrowed to one specific id, the
+     * throttle actively hides the exact instance being investigated: it's a
+     * fixed periodic sample, so a tile that's consistently queued in the
+     * same relative order every frame can permanently miss every boundary
+     * and never get logged at all. */
+    if (g_iSurfaceLogId < 0) {
+        static uint32 s_n = 0;
+        if ((s_n++ & 0xFF) != 0) return;
+    }
     SDL_Log("%s idx=%d sf=0x%X flipV=%d efV=%d efH=%d%s",
             type, surfIdx, surfaceFlags, (int)flipV, (int)efV, (int)efH, extra);
 }
+/* Staged copy of the most recent surface_uv_log() call within the current
+ * quad, so the click-hit code (later in scene_render_gpu_quad_world_legacy,
+ * after cu[]/cv[] are finalized) can attach it to the PICK log regardless of
+ * whether g_bSurfaceLog is enabled. Reset per-quad by the caller so a quad
+ * type that never calls surface_uv_log (e.g. cloud) doesn't leak stale data
+ * from a previous quad into its PICK line. */
+static struct { bool valid; char type[16]; int texId; bool flipV, efV, efH, p03L, row01Bot;
+                float cu0, cv0, cv2, bcross; bool isFloorLike;
+                bool wzRowBot, wzSpans; bool useRowDetect;
+                int backwardsVal; float adjSum01, adjSum23; bool spansCC;
+                float camX, camY, camZ; } s_lastUV;
+
 static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
                                   bool flipV, bool efV, bool efH,
                                   bool pair03Left, bool row01Bot,
@@ -4111,6 +4154,19 @@ static void surface_uv_log(const char *type, int texId, int surfIdx, int surface
                                   float v2x, float v2y, float v2z,
                                   float sY0, float sY1, float sY2, float sY3)
 {
+    s_lastUV.valid    = true;
+    SDL_strlcpy(s_lastUV.type, type, sizeof(s_lastUV.type));
+    s_lastUV.texId    = texId;
+    s_lastUV.flipV    = flipV;
+    s_lastUV.efV      = efV;
+    s_lastUV.efH      = efH;
+    s_lastUV.p03L     = pair03Left;
+    s_lastUV.row01Bot = row01Bot;
+    s_lastUV.cu0      = cu0;
+    s_lastUV.cv0      = cv0;
+    s_lastUV.cv2      = cv2;
+    s_lastUV.bcross   = bcross;
+
     char extra[192];
     SDL_snprintf(extra, sizeof(extra),
                  " tex=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f"
@@ -4238,6 +4294,18 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     if (r->vertexCount + 6 > SCENE_GPU_MAX_VERTICES) return;
     if (r->drawCmdCount >= SCENE_GPU_MAX_DRAW_CMDS)  return;
     if (scene_render_gpu_quad_frustum_culled(r, verts)) return;
+    s_lastUV.valid = false;
+    s_lastUV.isFloorLike = false;
+    s_lastUV.wzRowBot = false;
+    s_lastUV.wzSpans = false;
+    s_lastUV.useRowDetect = false;
+    s_lastUV.backwardsVal = 0;
+    s_lastUV.adjSum01 = 0.0f;
+    s_lastUV.adjSum23 = 0.0f;
+    s_lastUV.spansCC = false;
+    s_lastUV.camX = 0.0f;
+    s_lastUV.camY = 0.0f;
+    s_lastUV.camZ = 0.0f;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -4570,10 +4638,52 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool effectiveFlipV = flipV || ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0
                                                && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0);
                 bool pair03Left = (verts[0].x + verts[3].x) < (verts[1].x + verts[2].x);
+                /* Diagnostic only (not yet used to change behavior): same face-normal
+                 * floor/wall classification already proven in GEN-BFHF (isFloorLike), to check
+                 * whether idx=14's row01IsBottom failures correlate with geometrically flat
+                 * (floor/ceiling-like) instances of this tile rather than true sloped walls. */
+                {
+                    float dex1x = verts[1].x - verts[0].x, dex1y = verts[1].y - verts[0].y, dex1z = verts[1].z - verts[0].z;
+                    float dex2x = verts[3].x - verts[0].x, dex2y = verts[3].y - verts[0].y, dex2z = verts[3].z - verts[0].z;
+                    float dnrmX = dex1y*dex2z - dex1z*dex2y;
+                    float dnrmY = dex1z*dex2x - dex1x*dex2z;
+                    float dnrmZ = dex1x*dex2y - dex1y*dex2x;
+                    s_lastUV.isFloorLike = fabsf(dnrmZ) > sqrtf(dnrmX*dnrmX + dnrmY*dnrmY);
+                }
+                /* Diagnostic only (not yet used to change behavior): candidate world-space,
+                 * camera-orientation-invariant replacement for row01IsBottom/spansCameraCenter.
+                 * adjSY (below) is built from vY/vZ, i.e. the camera's CURRENT basis -- it rotates
+                 * with yaw/pitch, which is exactly why idx=14 flips from pure camera rotation with
+                 * no position change. World Z is a fixed axis regardless of camera orientation, so
+                 * wzRowBot should stay stable under rotation where row01IsBottom does not. Logged
+                 * alongside row01Bot to compare across every already-confirmed-working pair surface
+                 * before considering a switch. */
+                {
+                    float rowZ01 = (verts[0].z + verts[1].z) * 0.5f;
+                    float rowZ23 = (verts[2].z + verts[3].z) * 0.5f;
+                    s_lastUV.wzRowBot = rowZ01 < rowZ23;
+                    bool camBelow01 = (r->camera.viewZ - rowZ01) < 0.0f;
+                    bool camBelow23 = (r->camera.viewZ - rowZ23) < 0.0f;
+                    s_lastUV.wzSpans = camBelow01 != camBelow23;
+                }
+                /* Clamp vZ to a minimum of 80 before the perspective divide here
+                 * (mirrors GEN-BFHF and SW's fProjectedZ clamp) -- the plain sX/sY
+                 * computed earlier only guards exact division-by-zero, so as a
+                 * vertex's vZ approaches a small value, gsx/gsy (and s_bcross's
+                 * sign) blow up and flip -- confirmed live on idx=14: bcross grew
+                 * from 0.002 to 497.5 then flipped sign as the camera moved along
+                 * a straight wall run, with no genuine backface change happening. */
                 float s_bcross = 0.0f;
                 if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
-                    s_bcross = (sX[1]-sX[0])*(sY[3]-sY[0])
-                             - (sY[1]-sY[0])*(sX[3]-sX[0]);
+                    float gsx[4], gsy[4];
+                    for (int vi = 0; vi < 4; vi++) {
+                        float vZc = (vZ[vi] < 80.0f) ? 80.0f : vZ[vi];
+                        float giz = 1.0f / vZc;
+                        gsx[vi] = vX[vi] * giz;
+                        gsy[vi] = vY[vi] * giz;
+                    }
+                    s_bcross = (gsx[1]-gsx[0])*(gsy[3]-gsy[0])
+                             - (gsy[1]-gsy[0])*(gsx[3]-gsx[0]);
                 }
                 /* SW set_starts(1): startsx[0]=startsx[3]=max, startsx[1]=startsx[2]=0.
                  * polyt assigns U=max to the v0/v3 edge and U=0 to the v1/v2 edge
@@ -4582,23 +4692,83 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                  * pair03Left is used only by the BF screen-check above, not for U. */
                 float u03 = uMaxN;
                 float u12 = 0.0f;
-                /* FH: swap u03/u12 — matches SW which reverses the U scan so the
-                 * tile-N/N+1 world assignment is preserved. */
-                if (effectiveFlipH) {
+                /* Real per-frame backface state (mirrors SW's POLYTEX cross-product
+                 * test and this file's own GEN-BFHF branch): start from the static
+                 * FLIP_HORIZ flip, then toggle it once if the polygon is currently
+                 * back-facing on screen. This replaces two earlier, flag-only
+                 * approximations (a plain FLIP_HORIZ swap, and an unconditional
+                 * "always swap for FLIP_BACKFACE" constant) that each worked for
+                 * some FLIP_BACKFACE surfaces and broke others (idx=180 needed the
+                 * swap, idx=158's exit wall did not) because neither was actually
+                 * checking the surface's real orientation -- only its flags. */
+                bool bfBack = (s_bcross < 0.0f);
+                if (effectiveFlipH != bfBack) {
                     float tmp = u03; u03 = u12; u12 = tmp;
                 }
                 cu[0] = u03; cu[1] = u12; cu[2] = u12; cu[3] = u03;
-                /* Determine screen-bottom row from projected Y rather than fixed vertex index.
-                 * For walls v0,v1=top(high sY) so row01IsBottom=false→isBottom=(k==2||k==3).
-                 * For sloped/ceiling surfaces v0,v1 can be the lower screen row, flipping this.
-                 * Guard with vZ: when NEXT section (v0,v1) is behind the camera (vZ<0) in
+                /* Screen-projected Y per vertex, used below for spansCameraCenter (both surface
+                 * types) and as the row01IsBottom formula itself for non-FLIP_BACKFACE pair
+                 * walls. Guard with vZ: when NEXT section (v0,v1) is behind the camera (vZ<0) in
                  * reverse drive, sY = vY/vZ flips sign (floor verts below camera go positive).
-                 * Snapping behind-camera sY to -1e9 prevents row01IsBottom and spansCameraCenter
-                 * from inverting — they stay consistent with the forward-drive assignment. */
+                 * Snapping behind-camera sY to -1e9 keeps spansCameraCenter consistent with the
+                 * forward-drive assignment. Recompute (not reuse sY[]) with the same 80-unit
+                 * near-camera clamp used for s_bcross's gsx/gsy above: sY[] only guards exact
+                 * division-by-zero (1e-6), so for a long wall segment with one vertex close to
+                 * the camera, vY/vZ still blows up and can flip sign well before vZ reaches
+                 * zero. */
                 float adjSY[4];
-                for (int vi = 0; vi < 4; vi++)
-                    adjSY[vi] = (vZ[vi] > 0.0f) ? sY[vi] : -1e9f;
-                bool row01IsBottom = (adjSY[0]+adjSY[1]) < (adjSY[2]+adjSY[3]);
+                for (int vi = 0; vi < 4; vi++) {
+                    if (vZ[vi] <= 0.0f) { adjSY[vi] = -1e9f; continue; }
+                    float vZc = (vZ[vi] < 80.0f) ? 80.0f : vZ[vi];
+                    adjSY[vi] = vY[vi] / vZc;
+                }
+                /* row01IsBottom needs two different formulas depending on surface type:
+                 *
+                 * FLIP_BACKFACE pair walls (idx=14, tunnel lights, idx=180, idx=158): v0v1/v2v3
+                 * are a coincident FV/non-FV pair offset only by the wall's thickness, not a
+                 * true top/bottom pair -- both must give top=vMaxN so sign content stays visible
+                 * regardless of which surface wins the depth sort. The deciding question is
+                 * which edge faces the camera, i.e. which is nearer -- squared world-space
+                 * distance from camera to each edge's midpoint, with the sign and `backwards`
+                 * flip below both confirmed by live testing (2026-07-09) rather than derived.
+                 *
+                 * Plain TEXTURE_PAIR walls without FLIP_BACKFACE (e.g. background buildings,
+                 * idx=96/72) only reach row-detection via spansCameraCenter, and ARE a genuine
+                 * top/bottom pair -- "nearer to camera" has no meaningful connection to world
+                 * top/bottom there (it just means "nearer to ground"), so these keep the
+                 * original screen-space `adjSY` formula. The `backwards` flip applied to it,
+                 * however, was itself the bug: PICK-UV logging (2026-07-09) showed every
+                 * reverse-direction sample had adjSum01>0/adjSum23<0 (raw test = false, the
+                 * correct answer), with `backwards=-1` forcing a flip to the wrong value --
+                 * i.e. the flip was never a valid direction correction for this branch, it was
+                 * copied over from the FLIP_BACKFACE case without independent verification.
+                 * Dropping it (below) was user-confirmed correct in both directions. A pure
+                 * world-Z comparison (no `backwards` correction) was tried first and falsified
+                 * -- kept the raw `adjSY` formula instead, just without the flip. */
+                float mx01 = (verts[0].x + verts[1].x) * 0.5f;
+                float my01 = (verts[0].y + verts[1].y) * 0.5f;
+                float mz01 = (verts[0].z + verts[1].z) * 0.5f;
+                float mx23 = (verts[2].x + verts[3].x) * 0.5f;
+                float my23 = (verts[2].y + verts[3].y) * 0.5f;
+                float mz23 = (verts[2].z + verts[3].z) * 0.5f;
+                float dx01 = r->camera.viewX - mx01, dy01 = r->camera.viewY - my01, dz01 = r->camera.viewZ - mz01;
+                float dx23 = r->camera.viewX - mx23, dy23 = r->camera.viewY - my23, dz23 = r->camera.viewZ - mz23;
+                float d01sq = dx01*dx01 + dy01*dy01 + dz01*dz01;
+                float d23sq = dx23*dx23 + dy23*dy23 + dz23*dz23;
+                bool row01IsBottom;
+                if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0) {
+                    row01IsBottom = (d01sq > d23sq);
+                    if (backwards != 0) row01IsBottom = !row01IsBottom;
+                } else {
+                    /* No `backwards` flip here -- see comment above. */
+                    row01IsBottom = (adjSY[0]+adjSY[1]) < (adjSY[2]+adjSY[3]);
+                }
+                s_lastUV.backwardsVal = backwards;
+                s_lastUV.adjSum01 = adjSY[0]+adjSY[1];
+                s_lastUV.adjSum23 = adjSY[2]+adjSY[3];
+                s_lastUV.camX = r->camera.viewX;
+                s_lastUV.camY = r->camera.viewY;
+                s_lastUV.camZ = r->camera.viewZ;
                 /* Use row01IsBottom when BF non-CONCAVE (effectiveFlipV): the BF vertex
                  * swap changes which screen-row v0 occupies without changing SW's startsy[0],
                  * so screen-row detection is required to keep sign content visible.
@@ -4611,6 +4781,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool useRowDetect = (effectiveFlipV || spansCameraCenter)
                                     && !flipV
                                     && (surfaceFlags & SURFACE_FLAG_CONCAVE) == 0;
+                s_lastUV.useRowDetect = useRowDetect;
+                s_lastUV.spansCC = spansCameraCenter;
                 for (int k = 0; k < 4; k++) {
                     bool isBottom = useRowDetect
                                         ? (row01IsBottom ? (k==0||k==1) : (k==2||k==3))
@@ -4717,7 +4889,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                     float ddy = verts[vi].y - r->camera.viewY;
                     float ddz = verts[vi].z - r->camera.viewZ;
                     float vZ2 = ddx*Mv[0][2] + ddy*Mv[1][2] + ddz*Mv[2][2];
-                    /* gvZ[vi] = vZ2; */
+                    gvZ[vi] = vZ2;
                     /* SW clamps fProjectedZ at 80 before perspective division so
                      * behind-camera vertices (vZ<0) don't invert gsx/gsy and corrupt
                      * the bfCross sign or g03Left ordering. Match that here. */
@@ -4729,26 +4901,25 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bfCross = (gsx[0]-gsx[1])*(gsy[0]-gsy[2])
                         - (gsy[0]-gsy[1])*(gsx[0]-gsx[2]);
                 bool bfBack = (bfCross < 0.0f);
-                /* if (g_bSurfaceLog && (g_iSurfaceLogId < 0 || g_iSurfaceLogId == surfIdx)) {
-                    float cx = (verts[0].x+verts[1].x+verts[2].x+verts[3].x)*0.25f - r->camera.viewX;
-                    float cy = (verts[0].y+verts[1].y+verts[2].y+verts[3].y)*0.25f - r->camera.viewY;
-                    float cz = (verts[0].z+verts[1].z+verts[2].z+verts[3].z)*0.25f - r->camera.viewZ;
-                    float dist = sqrtf(cx*cx + cy*cy + cz*cz);
-                    SDL_Log("GEN-BFHF idx=%d sf=0x%X bfCross=%.4f bfBack=%d backwards=%d match=%d vZ=%.1f/%.1f/%.1f/%.1f dist=%.1f",
-                            surfIdx, surfaceFlags, (double)bfCross,
-                            (int)bfBack, backwards, (int)(bfBack == (backwards != 0)),
-                            (double)gvZ[0], (double)gvZ[1], (double)gvZ[2], (double)gvZ[3],
-                            (double)dist);
-                } */
                 /* Screen-space g03Left: tracks which screen side v0/v3 land on.
                  * For surfaces seen from both sides (BF wall, loop), bfCross and
                  * gsx flip together, so (g03Left != bfBack) stays constant — correct.
-                 * Exception: reverse drive (backwards!=0) front-facing floor surface
-                 * (bfBack=false). Camera rotates 180° → gsx flips without a matching
-                 * bfCross flip, so g03Left_screen incorrectly inverts. In that case
-                 * only, use world-space X, which is stable across drive direction. */
+                 * Exception: reverse drive (backwards!=0) front-facing FLOOR surface
+                 * (bfBack=false). Camera rotates 180 deg -> gsx flips without a
+                 * matching bfCross flip, so g03Left_screen incorrectly inverts. In
+                 * that case only, use world-space X, which is stable across drive
+                 * direction. Gated on isFloorLike (face-normal orientation) because
+                 * live testing found the identical flag combination (BF|FH, no
+                 * CONCAVE/TEXTURE_PAIR) on a WALL (idx=147/148) needs the opposite
+                 * behavior -- flags alone can't distinguish floor from wall here. */
+                float ex1x = verts[1].x - verts[0].x, ex1y = verts[1].y - verts[0].y, ex1z = verts[1].z - verts[0].z;
+                float ex2x = verts[3].x - verts[0].x, ex2y = verts[3].y - verts[0].y, ex2z = verts[3].z - verts[0].z;
+                float nrmX = ex1y*ex2z - ex1z*ex2y;
+                float nrmY = ex1z*ex2x - ex1x*ex2z;
+                float nrmZ = ex1x*ex2y - ex1y*ex2x;
+                bool isFloorLike = fabsf(nrmZ) > sqrtf(nrmX*nrmX + nrmY*nrmY);
                 bool g03Left;
-                if (backwards != 0 && !bfBack)
+                if (backwards != 0 && !bfBack && isFloorLike)
                     g03Left = (verts[0].x + verts[3].x) < (verts[1].x + verts[2].x);
                 else
                     g03Left = (gsx[0]+gsx[3]) < (gsx[1]+gsx[2]);
@@ -4756,6 +4927,19 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 bool uLeftHi = (g03Left != bfBack) != flipV;
                 cu[0] = cu[3] = uLeftHi ? uMaxN : 0.0f;
                 cu[1] = cu[2] = uLeftHi ? 0.0f  : uMaxN;
+                if (g_bSurfaceLog && (g_iSurfaceLogId < 0 || g_iSurfaceLogId == surfIdx)) {
+                    float cx = (verts[0].x+verts[1].x+verts[2].x+verts[3].x)*0.25f - r->camera.viewX;
+                    float cy = (verts[0].y+verts[1].y+verts[2].y+verts[3].y)*0.25f - r->camera.viewY;
+                    float cz = (verts[0].z+verts[1].z+verts[2].z+verts[3].z)*0.25f - r->camera.viewZ;
+                    float dist = sqrtf(cx*cx + cy*cy + cz*cz);
+                    SDL_Log("GEN-BFHF idx=%d sf=0x%X bfCross=%.4f bfBack=%d backwards=%d match=%d "
+                            "isFloorLike=%d g03Left=%d uLeftHi=%d cu0=%.3f vZ=%.1f/%.1f/%.1f/%.1f dist=%.1f",
+                            surfIdx, surfaceFlags, (double)bfCross,
+                            (int)bfBack, backwards, (int)(bfBack == (backwards != 0)),
+                            (int)isFloorLike, (int)g03Left, (int)uLeftHi, (double)cu[0],
+                            (double)gvZ[0], (double)gvZ[1], (double)gvZ[2], (double)gvZ[3],
+                            (double)dist);
+                }
             } else {
                 /* Non-FH (or non-BF) gen surfaces: SW polytex's backface swap +
                  * flipH toggle cancel out in UV space for non-FH surfaces — the
@@ -4800,6 +4984,15 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             float ss   = (float)r->proj.screenScale / 64.0f;
             float fovX = 2.0f * r->camera.fovScale * g_fFovMultiplier * ss / (float)vpW;
             float fovY = 2.0f * r->camera.fovScale * g_fFovMultiplier * ss / (float)vpH;
+            /* Vertical center correction, matching build_mvp's shift_y exactly:
+             * SW's horizon sits at ss*(199-centerY) screen rows from the top, not
+             * necessarily at vpH/2. The simplified (1 - fovY*vY/vZ)*0.5 formula
+             * below implicitly assumes the horizon IS at vpH/2, so it's missing
+             * this constant offset -- confirmed live via a wireframe overlay
+             * showing the true geometry well above where labels/pick outlines
+             * were drawn, "off by a specific amount" everywhere as reported. */
+            float horizon_y = ss * (199.0f - (float)r->proj.centerY);
+            float shiftY     = ((float)vpH * 0.5f - horizon_y) / ((float)vpH * 0.5f);
 
             if (_showLabels && !isCloud) {
                 /* Project quad centre to normalised viewport [0,1]. */
@@ -4813,7 +5006,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                 if (vZ > 0.5f && vZ < 10000.0f) {
                     float iz = 1.0f / vZ;
                     float nx = (1.0f + fovX * vX * iz) * 0.5f;
-                    float ny = (1.0f - fovY * vY * iz) * 0.5f;
+                    float ny = (1.0f - fovY * vY * iz) * 0.5f - shiftY * 0.5f;
                     if (nx >= -0.1f && nx <= 1.1f && ny >= -0.1f && ny <= 1.1f) {
                         char szLabel[128];
                         int n = snprintf(szLabel, sizeof(szLabel), "%s t:%d", pPath, surfIdx);
@@ -4829,34 +5022,95 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             }
 
             if (s_clickWasPending) {
-                /* Project all 4 vertices; reject if any are behind the camera. */
-                float pnx[4], pny[4];
-                float vZsum = 0.0f;
-                bool allFront = true;
+                /* Project each vertex individually and test the quad's two
+                 * triangles (0,1,2) and (0,2,3) independently, rather than
+                 * rejecting the whole quad if any one of the 4 vertices dips
+                 * behind the near plane. A large quad viewed at an oblique
+                 * angle (common during free-look testing) can easily have one
+                 * corner behind the camera while the rest -- and the point
+                 * actually being clicked -- are comfortably in front; the old
+                 * all-or-nothing reject silently excluded the whole quad from
+                 * ever being pickable in that case, even though its debug
+                 * label (which only projects the quad's center) kept showing. */
+                float pnx[4], pny[4], pvZ[4];
+                bool front[4];
                 for (int vi = 0; vi < 4; vi++) {
                     float ddxi = verts[vi].x - r->camera.viewX;
                     float ddyi = verts[vi].y - r->camera.viewY;
                     float ddzi = verts[vi].z - r->camera.viewZ;
                     float vZi  = ddxi*M[0][2] + ddyi*M[1][2] + ddzi*M[2][2];
-                    if (vZi < 0.5f) { allFront = false; break; }
-                    float vXi  = ddxi*M[0][0] + ddyi*M[1][0] + ddzi*M[2][0];
-                    float vYi  = ddxi*M[0][1] + ddyi*M[1][1] + ddzi*M[2][1];
-                    float izi  = 1.0f / vZi;
-                    pnx[vi] = (1.0f + fovX * vXi * izi) * 0.5f;
-                    pny[vi] = (1.0f - fovY * vYi * izi) * 0.5f;
-                    vZsum  += vZi;
+                    pvZ[vi]   = vZi;
+                    front[vi] = (vZi >= 0.5f);
+                    if (front[vi]) {
+                        float vXi  = ddxi*M[0][0] + ddyi*M[1][0] + ddzi*M[2][0];
+                        float vYi  = ddxi*M[0][1] + ddyi*M[1][1] + ddzi*M[2][1];
+                        /* Clamp to a minimum of 80 before the divide (mirrors the
+                         * same fix applied to s_bcross elsewhere in this file) --
+                         * a vertex close to the camera but not technically behind
+                         * it can still blow up 1/vZi, badly distorting just that
+                         * one corner's screen position. Confirmed live: a wall
+                         * right next to the camera showed a correctly-shaped top
+                         * edge but a collapsed, disconnected bottom edge in the
+                         * pick outline, from exactly this instability. */
+                        float vZic = (vZi < 80.0f) ? 80.0f : vZi;
+                        float izi  = 1.0f / vZic;
+                        pnx[vi] = (1.0f + fovX * vXi * izi) * 0.5f;
+                        pny[vi] = (1.0f - fovY * vYi * izi) * 0.5f - shiftY * 0.5f;
+                    }
                 }
-                if (allFront) {
+                bool tri1Ok = front[0] && front[1] && front[2];
+                bool tri2Ok = front[0] && front[2] && front[3];
+                if (tri1Ok || tri2Ok) {
                     float qx = g_clickQueryNX, qy = g_clickQueryNY;
                     bool hit =
-                        s_pt_in_tri(qx, qy, pnx[0], pny[0], pnx[1], pny[1], pnx[2], pny[2]) ||
-                        s_pt_in_tri(qx, qy, pnx[0], pny[0], pnx[2], pny[2], pnx[3], pny[3]);
-                    if (hit && (!s_clickHit.active || vZsum < s_clickHit.vZ)) {
+                        (tri1Ok && s_pt_in_tri(qx, qy, pnx[0], pny[0], pnx[1], pny[1], pnx[2], pny[2])) ||
+                        (tri2Ok && s_pt_in_tri(qx, qy, pnx[0], pny[0], pnx[2], pny[2], pnx[3], pny[3]));
+                    float vZsum = 0.0f;
+                    int   vZn   = 0;
+                    for (int vi = 0; vi < 4; vi++) {
+                        if (front[vi]) { vZsum += pvZ[vi]; vZn++; }
+                    }
+                    float vZavg = (vZn > 0) ? (vZsum / (float)vZn) : 0.0f;
+                    if (hit && (!s_clickHit.active || vZavg < s_clickHit.vZ)) {
                         s_clickHit.active      = true;
                         s_clickHit.surfIdx     = surfIdx;
                         s_clickHit.surfaceFlags = surfaceFlags;
                         SDL_snprintf(s_clickHit.path, sizeof(s_clickHit.path), "%s", pPath);
-                        s_clickHit.vZ          = vZsum;
+                        s_clickHit.vZ          = vZavg;
+                        s_clickHit.v0x = verts[0].x; s_clickHit.v0y = verts[0].y; s_clickHit.v0z = verts[0].z;
+                        s_clickHit.v1x = verts[1].x; s_clickHit.v1y = verts[1].y; s_clickHit.v1z = verts[1].z;
+                        s_clickHit.v2x = verts[2].x; s_clickHit.v2y = verts[2].y; s_clickHit.v2z = verts[2].z;
+                        s_clickHit.v3x = verts[3].x; s_clickHit.v3y = verts[3].y; s_clickHit.v3z = verts[3].z;
+                        for (int vi = 0; vi < 4; vi++) {
+                            s_clickHit.onx[vi]    = pnx[vi];
+                            s_clickHit.ony[vi]    = pny[vi];
+                            s_clickHit.ovalid[vi] = front[vi];
+                        }
+                        s_clickHit.uvValid = s_lastUV.valid;
+                        if (s_lastUV.valid) {
+                            SDL_strlcpy(s_clickHit.uvType, s_lastUV.type, sizeof(s_clickHit.uvType));
+                            s_clickHit.uvTexId  = s_lastUV.texId;
+                            s_clickHit.flipV    = s_lastUV.flipV;
+                            s_clickHit.efV      = s_lastUV.efV;
+                            s_clickHit.efH      = s_lastUV.efH;
+                            s_clickHit.p03L     = s_lastUV.p03L;
+                            s_clickHit.row01Bot = s_lastUV.row01Bot;
+                            s_clickHit.cu0      = s_lastUV.cu0;
+                            s_clickHit.cv0      = s_lastUV.cv0;
+                            s_clickHit.cv2      = s_lastUV.cv2;
+                            s_clickHit.bcross   = s_lastUV.bcross;
+                            s_clickHit.isFloorLike = s_lastUV.isFloorLike;
+                            s_clickHit.wzRowBot = s_lastUV.wzRowBot;
+                            s_clickHit.wzSpans  = s_lastUV.wzSpans;
+                            s_clickHit.useRowDetect = s_lastUV.useRowDetect;
+                            s_clickHit.backwardsVal = s_lastUV.backwardsVal;
+                            s_clickHit.adjSum01 = s_lastUV.adjSum01;
+                            s_clickHit.adjSum23 = s_lastUV.adjSum23;
+                            s_clickHit.spansCC  = s_lastUV.spansCC;
+                            s_clickHit.camX = s_lastUV.camX;
+                            s_clickHit.camY = s_lastUV.camY;
+                            s_clickHit.camZ = s_lastUV.camZ;
+                        }
                     }
                 }
             }

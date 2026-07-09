@@ -1653,14 +1653,17 @@ void UpdateSDL()
       }
     }
 
-    /* Debug free-look (view.c chase_look_apply): track RMB hold + accumulate
+    /* Debug free-look (view.c chase_look_apply): track hold + accumulate
      * raw motion deltas directly off events instead of SDL's relative-mouse-
      * mode grab -- that grab has a confirmed quirk here where it doesn't
      * actually start delivering motion until the window loses and regains
-     * focus, so we read xrel/yrel straight from SDL_EVENT_MOUSE_MOTION. */
-    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+     * focus, so we read xrel/yrel straight from SDL_EVENT_MOUSE_MOTION.
+     * TEMPORARILY rebound to LEFT mouse button (was RIGHT) so free-look can be
+     * held while right-clicking to pick a surface, without the release-RMB
+     * snap-back racing the pick click. Revert to SDL_BUTTON_RIGHT when done. */
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
       g_bChaseLookRightDown = true;
-    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_RIGHT) {
+    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT) {
       g_bChaseLookRightDown = false;
     } else if (e.type == SDL_EVENT_MOUSE_MOTION && g_bChaseLookRightDown) {
       g_fChaseLookAccumX += e.motion.xrel;
