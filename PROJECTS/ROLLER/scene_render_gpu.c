@@ -1862,6 +1862,8 @@ static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float 
                 float camX, camY, camZ;
                 bool backTexApplied; float backDot; int backOrigIdx, backNewIdx;
                 bool uWindingFlip; float uWindingArea;
+                bool vSwap; float vNrmY;
+                bool splitAValid; float splitArea012, splitArea023;
                 float onx[4], ony[4]; bool ovalid[4]; } s_clickHit;
 static bool s_clickWasPending;
 
@@ -2717,7 +2719,7 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                     (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z,
                     (double)s_clickHit.v3x, (double)s_clickHit.v3y, (double)s_clickHit.v3z);
             if (s_clickHit.uvValid)
-                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f) backTexApplied=%d backDot=%.2f backOrigIdx=%d backNewIdx=%d uWindingFlip=%d uWindingArea=%.2f",
+                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f) backTexApplied=%d backDot=%.2f backOrigIdx=%d backNewIdx=%d uWindingFlip=%d uWindingArea=%.2f vSwap=%d vNrmY=%.2f splitAValid=%d splitArea012=%.2f splitArea023=%.2f",
                         s_clickHit.uvType, s_clickHit.uvTexId,
                         (int)s_clickHit.flipV, (int)s_clickHit.efV, (int)s_clickHit.efH,
                         (int)s_clickHit.p03L, (int)s_clickHit.row01Bot,
@@ -2730,7 +2732,9 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                         (double)s_clickHit.camX, (double)s_clickHit.camY, (double)s_clickHit.camZ,
                         (int)s_clickHit.backTexApplied, (double)s_clickHit.backDot,
                         s_clickHit.backOrigIdx, s_clickHit.backNewIdx,
-                        (int)s_clickHit.uWindingFlip, (double)s_clickHit.uWindingArea);
+                        (int)s_clickHit.uWindingFlip, (double)s_clickHit.uWindingArea,
+                        (int)s_clickHit.vSwap, (double)s_clickHit.vNrmY,
+                        (int)s_clickHit.splitAValid, (double)s_clickHit.splitArea012, (double)s_clickHit.splitArea023);
         } else
             SDL_Log("PICK: no surface hit");
         debug_overlay_pick_outline_set(s_clickHit.active, s_clickHit.onx, s_clickHit.ony, s_clickHit.ovalid);
@@ -4151,7 +4155,9 @@ static struct { bool valid; char type[16]; int texId; bool flipV, efV, efH, p03L
                 int backwardsVal; float adjSum01, adjSum23; bool spansCC;
                 float camX, camY, camZ;
                 bool backTexApplied; float backDot; int backOrigIdx, backNewIdx;
-                bool uWindingFlip; float uWindingArea; } s_lastUV;
+                bool uWindingFlip; float uWindingArea;
+                bool vSwap; float vNrmY;
+                bool splitAValid; float splitArea012, splitArea023; } s_lastUV;
 
 static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
                                   bool flipV, bool efV, bool efH,
@@ -4319,6 +4325,11 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     s_lastUV.backNewIdx = -1;
     s_lastUV.uWindingFlip = false;
     s_lastUV.uWindingArea = 0.0f;
+    s_lastUV.vSwap = false;
+    s_lastUV.vNrmY = 0.0f;
+    s_lastUV.splitAValid = true;
+    s_lastUV.splitArea012 = 0.0f;
+    s_lastUV.splitArea023 = 0.0f;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -4462,7 +4473,22 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * (near-zero cross near the pit lane), so use the world-space face normal
      * dot product which is purely positional and not affected by perspective.
      * If the camera is on the back side (dot < 0), suppress the pair texture
-     * so the plain wall colour shows instead of the sign graphic. */
+     * so the plain wall colour shows instead of the sign graphic.
+     *
+     * GATED to non-floor-like quads (2026-07-09): this is the same class of
+     * unreliability the comment above already documents for the removed CPU
+     * backface cull ("clamping artefacts flipped the sign for valley/slope
+     * surfaces... incorrectly hid roads above the camera") -- a heavily
+     * twisted/rolled corkscrew road quad (idx=8, sf=0x48894108, PAIR-X
+     * CONCAVE) is geometrically floor-like (nrmZ-dominant face normal)
+     * despite being classified isWall/TEXTURE_PAIR. Confirmed live: this dot
+     * product flips sign between the two travel directions for that exact
+     * quad, silently falling back to slot->tileTextures[surfIdx] (a single
+     * plain tile, no yellow line) below -- same UV, same vertices, visibly
+     * different content, matching the reported "yellow line replaced by
+     * plain road" symptom exactly. Floor-like quads have no meaningful
+     * "back side" the way a vertical sign-wall does, so always treat them
+     * as front-facing. */
     bool wallFrontFacing = true;
     if (isWall && !(surfaceFlags & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_BACK))) {
         float e1x = verts[1].x - verts[0].x;
@@ -4474,10 +4500,22 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
         float nx = e1y*e2z - e1z*e2y;
         float ny = e1z*e2x - e1x*e2z;
         float nz = e1x*e2y - e1y*e2x;
-        float dot = nx*(r->camera.viewX - verts[0].x)
-                  + ny*(r->camera.viewY - verts[0].y)
-                  + nz*(r->camera.viewZ - verts[0].z);
-        if (dot < 0.0f) wallFrontFacing = false;
+        bool wfIsFloorLike = fabsf(nz) > sqrtf(nx*nx + ny*ny);
+        /* WIDENED (2026-07-10): a live residual case at a different corkscrew
+         * location (same idx=8/sf=0x48894108, different vertices) still showed
+         * the plain-tile fallback despite reading isFloorLike=false here. A
+         * genuinely non-planar CONCAVE quad doesn't have one well-defined face
+         * normal to begin with -- v0,v1,v2's normal can legitimately differ
+         * from v0,v2,v3's for a twisted panel -- so this 3-vertex normal test
+         * is unreliable for any CONCAVE quad, not just the isFloorLike subset.
+         * Exempt CONCAVE outright rather than narrowing further on the same
+         * unreliable test. */
+        if (!wfIsFloorLike && !(surfaceFlags & SURFACE_FLAG_CONCAVE)) {
+            float dot = nx*(r->camera.viewX - verts[0].x)
+                      + ny*(r->camera.viewY - verts[0].y)
+                      + nz*(r->camera.viewZ - verts[0].z);
+            if (dot < 0.0f) wallFrontFacing = false;
+        }
     }
 
     if (slot) {
@@ -4717,9 +4755,60 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                     /* CONCAVE panels (ceiling lights, tunnel ends): col01Left is unstable
                      * for horizontal surfaces — bypass it like Z-face bypasses row01Bot.
                      * Assign V directly from vertex index to match SW startsy default.
-                     * flipH only affects U (startsx) in SW, never startsy — no V swap. */
+                     * flipH only affects U (startsx) in SW, never startsy — no V swap.
+                     *
+                     * A live test tried swapping vL/vR based on the world-space face-normal
+                     * Y-component's sign (2026-07-09) after finding two physical placements of
+                     * the same tile (idx=8, sf=0x48894108) with opposite vertex winding and
+                     * opposite nrmY sign. REVERTED -- confirmed live that swapping did not fix
+                     * the reported "wrong" instance (the opposite winding is a real, verified
+                     * geometric fact about these quads, but not the actual cause of the vanishing
+                     * yellow line symptom). Do not re-attempt a V-swap fix here without new
+                     * diagnostic data distinguishing what IS actually different between a
+                     * confirmed-correct and confirmed-wrong instance beyond vertex winding. */
+                    float vex1x = verts[1].x-verts[0].x, vex1z = verts[1].z-verts[0].z;
+                    float vex2x = verts[3].x-verts[0].x, vex2z = verts[3].z-verts[0].z;
+                    float vnrmY = vex1z*vex2x - vex1x*vex2z;
+                    s_lastUV.vSwap = false;
+                    s_lastUV.vNrmY = vnrmY;
                     vL = flipV ? vMaxN : 0.0f;
                     vR = flipV ? 0.0f  : vMaxN;
+
+                    /* Diagonal choice is screen-space (camera-angle) dependent for a twisted
+                     * quad even though world verts are static (2026-07-09: confirmed live --
+                     * identical v0..v3, identical computed UVs, only camera state differed
+                     * between a correct and a "yellow line vanished" render of idx=8). Pick
+                     * whichever diagonal (0-2 or 1-3) gives two triangles with matching
+                     * signed-area sign, i.e. a simple non-self-intersecting split -- the
+                     * standard convex-quad-diagonal test. Deliberately NOT the full twpolym
+                     * port (reverted twice already, see project_gpu_backlog memory): this
+                     * only changes which triangles get formed, never UV values.
+                     * GATED to uIsFloorLike only, per the same reasoning as uWindingFlip
+                     * above -- applying unconditionally to every CONCAVE quad would risk
+                     * ceiling lights / tunnel ends (non-floor-like CONCAVE) that are not
+                     * reported broken. */
+                    if (uIsFloorLike) {
+                        const float (*SM)[3] = r->proj.view;
+                        float sgsx[4], sgsy[4];
+                        for (int vi = 0; vi < 4; vi++) {
+                            float ddx = verts[vi].x - r->camera.viewX;
+                            float ddy = verts[vi].y - r->camera.viewY;
+                            float ddz = verts[vi].z - r->camera.viewZ;
+                            float vvx = ddx*SM[0][0] + ddy*SM[1][0] + ddz*SM[2][0];
+                            float vvy = ddx*SM[0][1] + ddy*SM[1][1] + ddz*SM[2][1];
+                            float vvz = ddx*SM[0][2] + ddy*SM[1][2] + ddz*SM[2][2];
+                            float vvzc = (vvz < 80.0f) ? 80.0f : vvz;
+                            sgsx[vi] = vvx / vvzc;
+                            sgsy[vi] = -(vvy / vvzc);
+                        }
+                        #define GPU_CROSS2(ax,ay,bx,by,cx2,cy2) (((bx)-(ax))*((cy2)-(ay)) - ((by)-(ay))*((cx2)-(ax)))
+                        float sArea012 = GPU_CROSS2(sgsx[0],sgsy[0], sgsx[1],sgsy[1], sgsx[2],sgsy[2]);
+                        float sArea023 = GPU_CROSS2(sgsx[0],sgsy[0], sgsx[2],sgsy[2], sgsx[3],sgsy[3]);
+                        #undef GPU_CROSS2
+                        s_lastUV.splitAValid  = (sArea012 >= 0.0f) == (sArea023 >= 0.0f);
+                        s_lastUV.splitArea012 = sArea012;
+                        s_lastUV.splitArea023 = sArea023;
+                    }
                 } else {
                     vL = (col01Left != effectiveFlipV) ? 0.0f  : vMaxN;
                     vR = (col01Left != effectiveFlipV) ? vMaxN : 0.0f;
@@ -5229,6 +5318,11 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                             s_clickHit.backNewIdx = s_lastUV.backNewIdx;
                             s_clickHit.uWindingFlip = s_lastUV.uWindingFlip;
                             s_clickHit.uWindingArea = s_lastUV.uWindingArea;
+                            s_clickHit.vSwap = s_lastUV.vSwap;
+                            s_clickHit.vNrmY = s_lastUV.vNrmY;
+                            s_clickHit.splitAValid  = s_lastUV.splitAValid;
+                            s_clickHit.splitArea012 = s_lastUV.splitArea012;
+                            s_clickHit.splitArea023 = s_lastUV.splitArea023;
                         }
                     }
                 }
@@ -5263,7 +5357,14 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     }
 
     int base = r->vertexCount;
-    static const int order[6] = {0,1,2, 0,2,3};
+    static const int orderA[6] = {0,1,2, 0,2,3};
+    static const int orderB[6] = {1,2,3, 1,3,0};
+    /* Diagonal decision computed earlier (isFloorLike-gated CONCAVE block above)
+     * so it lands in the same PICK-UV snapshot as the rest of this quad's
+     * diagnostics -- s_lastUV.splitAValid defaults to true (reset at top of
+     * function) for every quad that doesn't go through that gated computation,
+     * so this is a no-op for anything other than isFloorLike CONCAVE quads. */
+    const int *order = s_lastUV.splitAValid ? orderA : orderB;
     for (int i = 0; i < 6; i++) {
         int k = order[i];
         r->vertices[base+i] = (SceneGPUVertex){
