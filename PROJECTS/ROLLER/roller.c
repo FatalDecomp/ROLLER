@@ -1786,8 +1786,13 @@ void UpdateSDL()
       }
     }
 
-    if (g_bVsync && g_pGameRenderer) {
-      GameRenderMode eRenderMode = game_render_get_mode(g_pGameRenderer);
+    if (g_bVsync) {
+      /* No GameRenderer exists on frontend/menu pages. Treat that as its own
+       * refresh-paced mode so non-blocking menu presentation cannot spin the
+       * outer loop at an uncapped rate. */
+      GameRenderMode eRenderMode = g_pGameRenderer
+          ? game_render_get_mode(g_pGameRenderer)
+          : (GameRenderMode)-1;
       if (eRenderMode != s_eRenderModeWas) {
         s_eRenderModeWas = eRenderMode;
         s_targetFrameNs = 0;
