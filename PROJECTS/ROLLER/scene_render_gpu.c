@@ -1982,7 +1982,7 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
 }
 
 /* Full-screen translucent black quad for the in-race pause-menu darken
- * effect (see [[project_gpu_backlog]]). Uses the textured-particle path
+ * effect. Uses the textured-particle path
  * (not scene_render_gpu_screen_quad_flat) deliberately: in 2-player mode,
  * flat-particle quads draw as a whole batch BEFORE textured-particle quads
  * in the same final render pass, regardless of queue order -- and each
@@ -2033,11 +2033,11 @@ void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r)
  * target's clear colour) and the sky fragment-uniform colour (skyFColor,
  * passed to the sky pipeline's fogColor uniform) for this frame. Identical
  * logic shared between scene_render_gpu_flush_secondary_view() and
- * scene_render_gpu_end_frame() -- previously duplicated in both, which is
- * exactly how the ground/ "green background" fog bug (see
- * [[project_fog_color]]) ended up needing the same fix applied twice. Both
- * the sky-side and ground-side clear colours blend toward r->fogColor by the
- * same skyFog factor so distant background fades correctly with fog density. */
+ * scene_render_gpu_end_frame() -- kept as one function specifically so a
+ * future fog fix can't be applied to one call site and missed in the other.
+ * Both the sky-side and ground-side clear colours blend toward r->fogColor
+ * by the same skyFog factor so distant background fades correctly with fog
+ * density. */
 static void compute_sky_colors(SceneRendererGPU *r, SDL_FColor *outSkyClear, SDL_FColor *outSkyFColor)
 {
     float skyFog = 1.0f - expf(-r->fogDensity * 100000.0f);
@@ -2088,9 +2088,8 @@ static bool upload_sky_polygon(SceneRendererGPU *r, int *outVertCount)
      * sharing one not-yet-submitted command buffer). cycle=false let a
      * later view's write clobber an earlier view's source bytes before
      * the GPU had actually consumed the earlier copy, so the earlier
-     * view's sky quad rendered with the later view's polygon data --
-     * see [[project_gpu_mirror]]. Matches the scene vertex upload, which
-     * already cycles correctly. */
+     * view's sky quad rendered with the later view's polygon data.
+     * Matches the scene vertex upload, which already cycles correctly. */
     SceneGPUVertex *gvMapped = SDL_MapGPUTransferBuffer(r->device, r->skyVertXfer, true);
     if (!gvMapped) return false;
     memcpy(gvMapped, gv, (size_t)gi * sizeof(SceneGPUVertex));
@@ -2384,7 +2383,7 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
      * the rest of this view's 3D geometry uses, so smoke correctly occludes
      * behind scene geometry like it does in single-player. Do NOT touch
      * anything before the snapshot (an earlier secondary view's still-pending
-     * composite quad) -- see [[project_gpu_backlog]]. */
+     * composite quad). */
     int secOwnTexRangeStart  = savedTexParticleRangeCount;
     bool drawSecTexParticles = (r->texParticleRangeCount > secOwnTexRangeStart
                                 && r->texParticlePipeline && r->texParticleVerts
@@ -2420,9 +2419,9 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
      *      produces a full-width bar, still un-identified.
      * Needs a live-debugger investigation (dump each quad's screen-space
      * source/coordinates before assuming a fix) rather than another blind
-     * attempt; see [[project_gpu_mirror]]. Discarding both for now
-     * (unlike texParticles above, flat particles have no known-safe path
-     * drawn already, so there's no working precedent to extend). */
+     * attempt. Discarding both for now (unlike texParticles above, flat
+     * particles have no known-safe path drawn already, so there's no
+     * working precedent to extend). */
     r->particleVertCount = 0;
 
     /* ---- Clear colour (same logic as the main pass) ---- */
@@ -2879,12 +2878,12 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
 
     /* ---- Particle vertex upload ----
      * cycle=true: not currently written more than once per frame (flat
-     * particles aren't drawn inside secondary-view render passes yet, see
-     * [[project_gpu_backlog]]), but matches every other shared per-frame
-     * transfer buffer in this file so this doesn't become a latent trap the
-     * moment that changes -- see the cycle=true comment on the sky vertex
-     * buffer for why an un-cycled shared buffer written more than once per
-     * frame corrupts an earlier, not-yet-GPU-consumed write. */
+     * particles aren't drawn inside secondary-view render passes yet), but
+     * matches every other shared per-frame transfer buffer in this file so
+     * this doesn't become a latent trap the moment that changes -- see the
+     * cycle=true comment on the sky vertex buffer for why an un-cycled
+     * shared buffer written more than once per frame corrupts an earlier,
+     * not-yet-GPU-consumed write. */
     bool drawParticles = (r->particleVertCount > 0
                           && r->particlePipeline && r->particleVerts && r->particleVertBuf);
     if (drawParticles) {
@@ -4012,14 +4011,14 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     /* Generate mipmaps in small batches, each its own command buffer submit,
      * instead of every texture in the slot crammed into one submit. A single
      * slot can have up to ~3*256 textures (tiles + particle tiles + pairs)
-     * needing mipmaps; before uploads were batched into one submit (commit
-     * 56287cd, "fix gpu overloading"), too many separate command buffer
-     * submits caused a blackout on Android. Cramming hundreds of
+     * needing mipmaps -- too many separate command buffer submits overloads
+     * some Android GPU drivers, but cramming hundreds of
      * SDL_GenerateMipmapsForGPUTexture calls into a SINGLE submit risks the
-     * same overload from the other direction -- see [[project_android_corruption]].
-     * Safe to submit these after uploadCmd above: GPU submits on one device
-     * queue execute in submission order, so the base-level pixel data is
-     * already resident by the time these run. */
+     * same kind of overload from the other direction, so this batches into
+     * fixed-size chunks instead of picking either extreme. Safe to submit
+     * these after uploadCmd above: GPU submits on one device queue execute
+     * in submission order, so the base-level pixel data is already resident
+     * by the time these run. */
     if (uploadOk && mip_level_count(tileSize, tileSize) > 1) {
         SDL_GPUTexture *mipTexs[SCENE_GPU_MAX_TILES_PER_SLOT * 3];
         int nMipTexs = 0;
@@ -5120,7 +5119,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
      * winding, consistent with not culling them here either. (This is not the source
      * of the black divider lines seen in the looping road in SW -- a click-to-pick
      * diagnostic found no separate quad at those positions in either renderer;
-     * concluded to be a SW rasterizer artifact, see [[project_gpu_backlog]].) */
+     * concluded to be a SW rasterizer artifact.) */
 
     /* wallFrontFacing (front/back suppression of the pair texture) was removed.
      * It used to check which side of a face normal -- built from just 3 of the
@@ -5200,9 +5199,9 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
              * shadow_poly() (polyf.c) -- a per-pixel palette-darken remap of
              * whatever's already on screen, NOT a blend toward a fixed colour.
              * Approximate it with a multiply-blend pass instead of the old
-             * shadowTex/SHADOW routing (see [[project_gpu_backlog]] "black
-             * lines in loop" -- that fixed-alpha blend under-darkened these
-             * surfaces badly enough that they were effectively invisible). */
+             * shadowTex/SHADOW routing -- that fixed-alpha blend under-darkened
+             * these surfaces badly enough that they were effectively
+             * invisible. */
             int shadeLevel = surfIdx;
             if (shadeLevel < 0) shadeLevel = 0;
             if (shadeLevel >= SCENE_GPU_SHADE_LEVELS) shadeLevel = SCENE_GPU_SHADE_LEVELS - 1;
