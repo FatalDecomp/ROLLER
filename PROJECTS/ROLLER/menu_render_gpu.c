@@ -1707,7 +1707,14 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
     float fov = 2.0f * atanf(81.0f / (float)VIEWDIST);
-    MakePerspective(proj, fov, aspect, 1.0f, camDist * 8.0f);
+    // Track cameras are hundreds of thousands of world units away (and zoom
+    // out to ten million during transitions).  A 1-unit near plane collapses
+    // distinct overpasses into nearly identical depth-buffer values.  Keep a
+    // conservative 100:1 camera-to-near ratio, bounded by the legacy clip
+    // distance, to retain useful precision throughout the zoom animation.
+    float fNearPlane = camDist * 0.01f;
+    if (fNearPlane < 80.0f) fNearPlane = 80.0f;
+    MakePerspective(proj, fov, aspect, fNearPlane, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
 
     // Expand viewport to full width and bottom to avoid clipping, compensate in MVP
