@@ -3425,6 +3425,7 @@ void play_game_init()
   game_render_set_vignette(g_pGameRenderer, g_fVigStrength);
   game_render_set_brightness(g_pGameRenderer, g_fBrightness);
   game_render_set_fov_multiplier(g_pGameRenderer, g_fFovMultiplier);
+  game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
   game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
   game_render_set_vsync(g_pGameRenderer, g_bVsync);
 

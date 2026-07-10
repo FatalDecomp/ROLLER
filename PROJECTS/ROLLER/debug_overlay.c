@@ -48,6 +48,8 @@
 #define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
 #define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
 #define LOG_ROW_H        DEBUG_ROW_H
+#define TOUCH_GESTURE_THRESHOLD 24.0f
+#define TOUCH_SCROLL_PIXELS_PER_STEP 72.0f
 
 typedef struct {
   char szText[MAX_LOG_LEN];
@@ -85,6 +87,17 @@ struct DebugOverlay {
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
+  bool                   bTouchScrolling;
+  bool                   bTouchDragging;
+  bool                   bTouchButtonDown;
+  float                  fTouchStartX;
+  float                  fTouchStartY;
+  float                  fTouchLastX;
+  float                  fTouchLastY;
+  bool                   bTouchTapReleasePending;
+  int                    iTouchTapReleaseDelay;
+  int                    iTouchTapReleaseX;
+  int                    iTouchTapReleaseY;
   bool                   bDismissActive;
   bool                   bDismissTouch;
   SDL_FingerID           ullDismissFingerId;
@@ -451,6 +464,9 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
   pStyle->combo.content_padding        = nk_vec2(4, 0);
   pStyle->combo.border                 = 0;
+#if defined(IS_ANDROID)
+  pStyle->window.scrollbar_size        = nk_vec2(24, 24);
+#endif
 
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
@@ -561,6 +577,10 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   }
 #endif
   pOverlay->bTouchActive = false;
+  pOverlay->bTouchScrolling = false;
+  pOverlay->bTouchDragging = false;
+  pOverlay->bTouchButtonDown = false;
+  pOverlay->bTouchTapReleasePending = false;
   noclip_camera_set_input_enabled(!bVisible);
 }
 
@@ -709,6 +729,43 @@ static bool DebugOverlayHandlePendingDismiss(DebugOverlay *pOverlay,
   return false;
 }
 
+static float DebugOverlayAbsFloat(float fValue)
+{
+  return fValue < 0.0f ? -fValue : fValue;
+}
+
+static void DebugOverlayBeginInput(DebugOverlay *pOverlay)
+{
+  if (!pOverlay->bInputBegun) {
+    nk_input_begin(&pOverlay->nk);
+    pOverlay->bInputBegun = true;
+  }
+}
+
+static void DebugOverlayReleaseTouchButton(DebugOverlay *pOverlay, int iX, int iY)
+{
+  DebugOverlayBeginInput(pOverlay);
+  nk_input_motion(&pOverlay->nk, iX, iY);
+  nk_input_button(&pOverlay->nk, NK_BUTTON_LEFT, iX, iY, nk_false);
+  pOverlay->bTouchButtonDown = false;
+}
+
+static void DebugOverlayHandlePendingTapRelease(DebugOverlay *pOverlay)
+{
+  if (!pOverlay || !pOverlay->bTouchTapReleasePending)
+    return;
+
+  if (pOverlay->iTouchTapReleaseDelay > 0) {
+    --pOverlay->iTouchTapReleaseDelay;
+    return;
+  }
+
+  DebugOverlayReleaseTouchButton(pOverlay,
+                                 pOverlay->iTouchTapReleaseX,
+                                 pOverlay->iTouchTapReleaseY);
+  pOverlay->bTouchTapReleasePending = false;
+}
+
 bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   int iOverlayX = 0;
   int iOverlayY = 0;
@@ -747,10 +804,7 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   }
 
   // Open input bracket on first event of the frame
-  if (!pOverlay->bInputBegun) {
-    nk_input_begin(&pOverlay->nk);
-    pOverlay->bInputBegun = true;
-  }
+  DebugOverlayBeginInput(pOverlay);
 
   struct nk_context *pCtx = &pOverlay->nk;
   if (pEvent->type == SDL_EVENT_MOUSE_MOTION && bHasPoint) {
@@ -762,26 +816,86 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
     if (pEvent->button.button == SDL_BUTTON_LEFT)
       nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, iDown);
   } else if (pEvent->type == SDL_EVENT_MOUSE_WHEEL) {
-    nk_input_scroll(pCtx, nk_vec2(0.0f, pEvent->wheel.y * 20.0f));
+    nk_input_scroll(pCtx, nk_vec2(pEvent->wheel.x, pEvent->wheel.y));
   } else if (pEvent->type == SDL_EVENT_FINGER_DOWN && bHasPoint) {
     if (!pOverlay->bTouchActive) {
       pOverlay->bTouchActive = true;
       pOverlay->ullTouchFingerId = pEvent->tfinger.fingerID;
+      pOverlay->bTouchScrolling = false;
+      pOverlay->bTouchDragging = false;
+      pOverlay->bTouchButtonDown = false;
+      pOverlay->fTouchStartX = (float)iOverlayX;
+      pOverlay->fTouchStartY = (float)iOverlayY;
+      pOverlay->fTouchLastX = (float)iOverlayX;
+      pOverlay->fTouchLastY = (float)iOverlayY;
       nk_input_motion(pCtx, iOverlayX, iOverlayY);
-      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_true);
     }
   } else if (pEvent->type == SDL_EVENT_FINGER_MOTION && bHasPoint) {
     if (pOverlay->bTouchActive &&
-        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID)
+        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID) {
+      float fDeltaX = (float)iOverlayX - pOverlay->fTouchStartX;
+      float fDeltaY = (float)iOverlayY - pOverlay->fTouchStartY;
+      float fAbsDeltaX = DebugOverlayAbsFloat(fDeltaX);
+      float fAbsDeltaY = DebugOverlayAbsFloat(fDeltaY);
+
+      if (!pOverlay->bTouchScrolling && !pOverlay->bTouchDragging &&
+          (fAbsDeltaX > TOUCH_GESTURE_THRESHOLD ||
+           fAbsDeltaY > TOUCH_GESTURE_THRESHOLD)) {
+        if (fAbsDeltaY > fAbsDeltaX) {
+          pOverlay->bTouchScrolling = true;
+        } else {
+          pOverlay->bTouchDragging = true;
+          nk_input_motion(pCtx, (int)pOverlay->fTouchStartX,
+                          (int)pOverlay->fTouchStartY);
+          nk_input_button(pCtx, NK_BUTTON_LEFT,
+                          (int)pOverlay->fTouchStartX,
+                          (int)pOverlay->fTouchStartY, nk_true);
+          pOverlay->bTouchButtonDown = true;
+        }
+      }
+
       nk_input_motion(pCtx, iOverlayX, iOverlayY);
+      if (pOverlay->bTouchScrolling) {
+        float fFrameDeltaY = (float)iOverlayY - pOverlay->fTouchLastY;
+        nk_input_scroll(pCtx,
+                        nk_vec2(0.0f,
+                                fFrameDeltaY / TOUCH_SCROLL_PIXELS_PER_STEP));
+      }
+      pOverlay->fTouchLastX = (float)iOverlayX;
+      pOverlay->fTouchLastY = (float)iOverlayY;
+    }
   } else if ((pEvent->type == SDL_EVENT_FINGER_UP ||
-              pEvent->type == SDL_EVENT_FINGER_CANCELED) &&
-             bHasPoint) {
+              pEvent->type == SDL_EVENT_FINGER_CANCELED)) {
     if (pOverlay->bTouchActive &&
         pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID) {
-      nk_input_motion(pCtx, iOverlayX, iOverlayY);
-      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_false);
+      if (bHasPoint) {
+        float fDeltaX = (float)iOverlayX - pOverlay->fTouchStartX;
+        float fDeltaY = (float)iOverlayY - pOverlay->fTouchStartY;
+
+        nk_input_motion(pCtx, iOverlayX, iOverlayY);
+        if (pOverlay->bTouchButtonDown) {
+          nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY,
+                          nk_false);
+          pOverlay->bTouchButtonDown = false;
+        } else if (pEvent->type == SDL_EVENT_FINGER_UP &&
+                   !pOverlay->bTouchScrolling &&
+                   DebugOverlayAbsFloat(fDeltaX) <= TOUCH_GESTURE_THRESHOLD &&
+                   DebugOverlayAbsFloat(fDeltaY) <= TOUCH_GESTURE_THRESHOLD) {
+          nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_true);
+          pOverlay->bTouchButtonDown = true;
+          pOverlay->bTouchTapReleasePending = true;
+          pOverlay->iTouchTapReleaseDelay = 1;
+          pOverlay->iTouchTapReleaseX = iOverlayX;
+          pOverlay->iTouchTapReleaseY = iOverlayY;
+        }
+      } else if (pOverlay->bTouchButtonDown) {
+        DebugOverlayReleaseTouchButton(pOverlay,
+                                       (int)pOverlay->fTouchLastX,
+                                       (int)pOverlay->fTouchLastY);
+      }
       pOverlay->bTouchActive = false;
+      pOverlay->bTouchScrolling = false;
+      pOverlay->bTouchDragging = false;
     }
   } else if (pEvent->type == SDL_EVENT_KEY_DOWN || pEvent->type == SDL_EVENT_KEY_UP) {
     nk_bool bDown = (pEvent->type == SDL_EVENT_KEY_DOWN) ? nk_true : nk_false;
@@ -1258,6 +1372,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      {
+        int bTrackBorders = (int)g_bEmulateSoftwareTrackBorders;
+        if (nk_checkbox_label(pCtx, "Emulate transparent borders", &bTrackBorders)) {
+          g_bEmulateSoftwareTrackBorders = (bool)bTrackBorders;
+          game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
+          InputSaveConfig();
+        }
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bWireframe = (int)g_bWireframe;
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
         g_bWireframe = (bool)bWireframe;
@@ -1359,6 +1483,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
+        g_bEmulateSoftwareTrackBorders = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
         game_render_set_anisotropy_level(g_pGameRenderer,g_iAnisotropyLevel);
@@ -1378,6 +1503,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_gamma(g_pGameRenderer,           g_fGamma);
         game_render_set_saturation(g_pGameRenderer,      g_fSaturation);
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
+        game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
         game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);
@@ -1393,7 +1519,7 @@ static void DrawLogPanel(DebugOverlay *pOverlay) {
 
   if (nk_begin(pCtx, "Log",
                nk_rect(RIGHT_X, PANEL_Y, RIGHT_W, PANEL_H),
-               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+               NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR)) {
     nk_layout_row_dynamic(pCtx, PANEL_H - 50, 1);
     if (nk_group_begin(pCtx, "log_inner", NK_WINDOW_BORDER)) {
       nk_layout_row_dynamic(pCtx, LOG_ROW_H, 1);
@@ -1436,6 +1562,7 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   if (!pOverlay || (!pOverlay->bVisible && !bShowLabels && !s_pickOutline.active && !s_pickOutlineWasActive)) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
+  DebugOverlayHandlePendingTapRelease(pOverlay);
   // Close input bracket (open it first if no events arrived this frame)
   if (!pOverlay->bInputBegun)
     nk_input_begin(pCtx);

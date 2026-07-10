@@ -116,6 +116,9 @@ void scene_render_gpu_set_brightness(SceneRendererGPU *r, float brightness);
 /* mult: FOV multiplier on top of game camera; 1.0 = native, <1 = zoom in, >1 = zoom out */
 void scene_render_gpu_set_fov_multiplier(SceneRendererGPU *r, float mult);
 
+/* enabled: true = emulate SW rasterizer's extra-dark one-pixel track-darken quad border */
+void scene_render_gpu_set_emulate_software_track_darken_border(SceneRendererGPU *r, bool enabled);
+
 /* enabled: true = wireframe (line) fill mode, false = solid */
 void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled);
 

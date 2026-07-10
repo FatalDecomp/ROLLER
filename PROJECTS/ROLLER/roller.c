@@ -134,6 +134,7 @@ float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
 float g_fMirrorFov       = 0.75f;
+bool  g_bEmulateSoftwareTrackBorders = true;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
@@ -1760,13 +1761,16 @@ void UpdateSDL()
 
   /* SDL3 GPU's VSYNC present mode queues frames without blocking the CPU when
    * enough swapchain images are available, leaving the render loop spinning at
-   * uncapped rates.  Sleep the remaining frame budget so the render rate stays
-   * near the monitor refresh rate when vsync is on. */
+   * uncapped rates. This applies to both renderers: software frames are still
+   * uploaded and blitted through UpdateSDLWindow's SDL GPU command buffer.
+   * Sleep the remaining frame budget so the render rate stays near the monitor
+   * refresh rate when vsync is on. */
   {
     static uint64 s_targetFrameNs = 0;
     static uint64 s_nextFrameNs   = 0;
     static bool   s_vsyncWas      = true; /* init=true (vsync default) so first
                                              frame re-applies when config=off */
+    static GameRenderMode s_eRenderModeWas = (GameRenderMode)-1;
 
     if (g_bVsync != s_vsyncWas) {
       s_vsyncWas      = g_bVsync;
@@ -1784,13 +1788,40 @@ void UpdateSDL()
       }
     }
 
-    if (g_bVsync && g_pGameRenderer &&
-        game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
-      if (s_targetFrameNs == 0 && s_pWindow) {
-        SDL_DisplayID disp = SDL_GetDisplayForWindow(s_pWindow);
-        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
-        float hz = (mode && mode->refresh_rate > 0.0f) ? mode->refresh_rate : 60.0f;
-        s_targetFrameNs = (uint64)(1e9 / (double)hz);
+    if (g_bVsync) {
+      /* No GameRenderer exists on frontend/menu pages. Treat that as its own
+       * refresh-paced mode so non-blocking menu presentation cannot spin the
+       * outer loop at an uncapped rate. */
+      GameRenderMode eRenderMode = g_pGameRenderer
+          ? game_render_get_mode(g_pGameRenderer)
+          : (GameRenderMode)-1;
+      if (eRenderMode != s_eRenderModeWas) {
+        s_eRenderModeWas = eRenderMode;
+        s_targetFrameNs = 0;
+        s_nextFrameNs = 0;
+      }
+
+      if (eRenderMode == GAME_RENDER_SOFTWARE) {
+        /* Follow the active legacy tick timer rather than assuming its normal
+         * 36 Hz rate. SPEEDY and NUCLEAR reconfigure it to 50 and 100 Hz, and
+         * network setup can apply those rates as well. Rendering faster than
+         * the current tick interval only repeats the indexed framebuffer. */
+        uint64 ullTickFrameNs = ullTickIntervalNs;
+        if (ullTickFrameNs == 0)
+          ullTickFrameNs = HZ_TO_NS(36u);
+        if (s_targetFrameNs != ullTickFrameNs) {
+          s_targetFrameNs = ullTickFrameNs;
+          s_nextFrameNs = 0;
+        }
+      } else if (s_targetFrameNs == 0) {
+        float fRefreshHz = 60.0f;
+        if (s_pWindow) {
+          SDL_DisplayID uiDisplay = SDL_GetDisplayForWindow(s_pWindow);
+          const SDL_DisplayMode *pMode = SDL_GetCurrentDisplayMode(uiDisplay);
+          if (pMode && pMode->refresh_rate > 0.0f)
+            fRefreshHz = pMode->refresh_rate;
+        }
+        s_targetFrameNs = (uint64)(1e9 / (double)fRefreshHz);
       }
 
       uint64 now = SDL_GetTicksNS();

@@ -3027,6 +3027,14 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "EmulateSoftwareTrackBorders") ||
+      InputStringEqualsNoCase(szName, "EmulateSoftwareTrackDarkenBorder")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bEmulateSoftwareTrackBorders = bValue;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "ShiftFreeze")) {
     g_bShiftFreezeEnabled = InputStringEqualsNoCase(szValue, "On") ||
                             InputStringEqualsNoCase(szValue, "1")  ||
@@ -3444,6 +3452,7 @@ void InputSaveConfig(void)
           g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
+  fprintf(fp, "EmulateSoftwareTrackBorders=%s\n", g_bEmulateSoftwareTrackBorders ? "On" : "Off");
   fprintf(fp, "ShowCarOnExplosion=%s\n", g_bShowCarOnExplosion ? "On" : "Off");
   fprintf(fp, "CRTFilter=%s\n",   g_bCRTFilter   ? "On" : "Off");
   fprintf(fp, "SignsOnTop=%s\n",  g_bSignsOnTop  ? "On" : "Off");
