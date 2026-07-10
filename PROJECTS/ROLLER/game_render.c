@@ -136,10 +136,10 @@ void game_render_begin_frame(GameRenderer *renderer) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_begin_frame(renderer->sw);
     else if (renderer->mode == GAME_RENDER_GPU) {
-        int hudW = renderer->hudW > 0 ? renderer->hudW : 640;
-        int hudH = renderer->hudH > 0 ? renderer->hudH : 400;
+        int iHudW = renderer->hudW > 0 ? renderer->hudW : (XMAX > 0 ? XMAX : 640);
+        int iHudH = renderer->hudH > 0 ? renderer->hudH : (YMAX > 0 ? YMAX : 400);
         if (scrbuf)
-            memset(scrbuf, 0, (size_t)hudW * hudH);
+            memset(scrbuf, 0, (size_t)iHudW * iHudH);
         scene_render_gpu_begin_frame(renderer->gpu);
     }
 }
@@ -148,13 +148,15 @@ void game_render_end_frame(GameRenderer *renderer) {
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_end_frame(renderer->sw);
     } else if (renderer->mode == GAME_RENDER_GPU) {
+        int iHudW = renderer->hudW > 0 ? renderer->hudW : (XMAX > 0 ? XMAX : 640);
+        int iHudH = renderer->hudH > 0 ? renderer->hudH : (YMAX > 0 ? YMAX : 400);
         if (fade_palette_active())
             fade_palette_update();
         game_render_hw_draw_fps_overlay();
         scene_render_gpu_set_hud_buffer(renderer->gpu,
                                         scrbuf,
-                                        renderer->hudW > 0 ? renderer->hudW : 640,
-                                        renderer->hudH > 0 ? renderer->hudH : 400);
+                                        iHudW,
+                                        iHudH);
         scene_render_gpu_end_frame(renderer->gpu);
     }
 }
