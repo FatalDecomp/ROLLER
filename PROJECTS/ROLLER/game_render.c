@@ -823,6 +823,10 @@ void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
     if (renderer) scene_render_gpu_set_fov_multiplier(renderer->gpu, mult);
 }
 
+void game_render_set_emulate_software_track_borders(GameRenderer *renderer, bool enabled) {
+    if (renderer) scene_render_gpu_set_emulate_software_track_darken_border(renderer->gpu, enabled);
+}
+
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
     if (renderer) scene_render_gpu_set_wireframe(renderer->gpu, enabled);
 }
