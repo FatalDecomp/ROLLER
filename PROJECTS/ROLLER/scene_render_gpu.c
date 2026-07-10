@@ -4017,9 +4017,8 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     SDL_EndGPUCopyPass(cp);
-    SDL_SubmitGPUCommandBuffer(uploadCmd);
-    SDL_Log("tex_idx=%d tiles=%d uploadOk=%d err=%s",
-        tex_idx, numTiles, uploadOk, uploadOk ? "ok" : SDL_GetError());
+    if (!SDL_SubmitGPUCommandBuffer(uploadCmd))
+        uploadOk = false;
 
     for (int i = 0; i < nTbs; i++)
         SDL_ReleaseGPUTransferBuffer(r->device, tbs[i]);
@@ -4052,9 +4051,27 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
             if (batchEnd > nMipTexs) batchEnd = nMipTexs;
             for (int j = i; j < batchEnd; j++)
                 SDL_GenerateMipmapsForGPUTexture(mipCmd, mipTexs[j]);
-            SDL_SubmitGPUCommandBuffer(mipCmd);
+            if (!SDL_SubmitGPUCommandBuffer(mipCmd)) {
+                uploadOk = false;
+                break;
+            }
         }
     }
+
+    /* Loading a bank can enqueue dozens of command buffers.  In particular,
+     * the Vulkan backend associates a fence with every submit and only
+     * recycles those fences after completed work is retired.  Texture banks
+     * are loaded back-to-back, so without a reclamation point the pending
+     * fences can exhaust the backend's host allocations before the next bank
+     * is staged.  Loading is already synchronous from the game's point of
+     * view, making the end of a bank a safe and infrequent place to drain the
+     * queue.  This also guarantees that deferred transfer-buffer releases
+     * have completed before another bank allocates its staging resources. */
+    if (!SDL_WaitForGPUIdle(r->device))
+        uploadOk = false;
+
+    SDL_Log("tex_idx=%d tiles=%d uploadOk=%d err=%s",
+        tex_idx, numTiles, uploadOk, uploadOk ? "ok" : SDL_GetError());
 
     if (!uploadOk) {
         for (int t = 0; t < numTiles; t++) {
