@@ -41,7 +41,10 @@ float4 main(PixelInput input) : SV_Target
     float2 uvPerPixel = max(fwidth(input.uv), float2(1e-6, 1e-6));
     float edgeDistancePixels = min(uvEdge.x / uvPerPixel.x,
                                    uvEdge.y / uvPerPixel.y);
-    float borderMask = 1.0 - step(1.0, edgeDistancePixels);
+    // Pixel centers on the outermost covered row are approximately half a
+    // derivative from the geometric edge.  A half-pixel cutoff therefore
+    // produces the software renderer's single-pixel border.
+    float borderMask = 1.0 - step(0.5, edgeDistancePixels);
 
     float3 interiorFactor = color.rgb;
     float3 borderFactor = interiorFactor * interiorFactor;
