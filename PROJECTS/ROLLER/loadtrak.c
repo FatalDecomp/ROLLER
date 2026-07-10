@@ -97,6 +97,10 @@ int g_iCommunityTrackSel = -1;
 int g_iCommunityTrackTop = 0;
 int g_iCommunityTrackMissing = 0;
 uint32 g_uiCommunityTrackCRC = 0;
+// Bumped on every loadtrack() call so caches of track-derived data (e.g. the
+// GPU menu preview mesh) can detect reloads even when the track index is
+// unchanged -- all community tracks share TRACK_LOAD_COMMUNITY.
+int g_iTrackLoadGeneration = 0;
 static char g_szCommunityTrackDir[16] = "../TRACKS";
 static int g_iStockTrackAvailabilityScanned = 0;
 static uint32 g_uiStockTrackAvailabilityMask = 0;
@@ -577,6 +581,7 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   unsigned int uiGroundPtOffset; // [esp+274h] [ebp-18h]
   const char *szTrackFile; // [ROLLER]
 
+  ++g_iTrackLoadGeneration;
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
   bMinimalMode = iPreviewMode;
   p_iBuildingBase = BuildingBase[0];

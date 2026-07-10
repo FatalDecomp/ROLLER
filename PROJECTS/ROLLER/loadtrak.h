@@ -84,6 +84,7 @@ extern int g_iCommunityTrackSel;
 extern int g_iCommunityTrackTop;
 extern int g_iCommunityTrackMissing;
 extern uint32 g_uiCommunityTrackCRC;
+extern int g_iTrackLoadGeneration;
 
 //-------------------------------------------------------------------------------------------------
 

@@ -56,6 +56,7 @@
 #include <inttypes.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
@@ -610,8 +611,39 @@ void ToggleFullscreen()
 
 //-------------------------------------------------------------------------------------------------
 
+// The NVIDIA Vulkan driver opens a /dev/nvidia* file descriptor per GPU
+// allocation, so hardware rendering alone holds ~1000 fds -- just under the
+// common 1024 default soft limit. Championship mode's frontend (track mesh
+// preview + CD audio scan) pushes past it, at which point fence creation
+// fails with VK_ERROR_OUT_OF_HOST_MEMORY and unrelated file opens (e.g. the
+// CD audio folder scan) start failing too. Raise the soft limit to the hard
+// limit, as Vulkan-based games and translation layers commonly do.
+static void RaiseFileDescriptorLimit(void)
+{
+#if !defined(IS_WINDOWS)
+  struct rlimit limits;
+  if (getrlimit(RLIMIT_NOFILE, &limits) != 0)
+    return;
+  rlim_t newLimit = limits.rlim_max;
+#if defined(IS_MACOS)
+  // macOS reports rlim_max as RLIM_INFINITY but rejects setting rlim_cur
+  // above OPEN_MAX; clamp to the kernel's actual ceiling.
+  if (newLimit == RLIM_INFINITY || newLimit > OPEN_MAX)
+    newLimit = OPEN_MAX;
+#endif
+  if (limits.rlim_cur >= newLimit)
+    return;
+  limits.rlim_cur = newLimit;
+  if (setrlimit(RLIMIT_NOFILE, &limits) != 0)
+    SDL_Log("Failed to raise open file limit: %s", strerror(errno));
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
+  RaiseFileDescriptorLimit();
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
 #if defined(IS_ANDROID)
   SDL_SetHint(SDL_HINT_ORIENTATIONS,

@@ -4,6 +4,7 @@
 #include "car.h"
 #include "graphics.h"
 #include "3d.h"
+#include "loadtrak.h" /* g_iTrackLoadGeneration, TRAK_LEN */
 #include "roller.h"
 #include "debug_overlay.h"
 #include "scene_render_gpu.h" /* scene_render_gpu_upload_rgba/_buffer */
@@ -125,7 +126,7 @@ struct MenuRendererGPU {
     MeshPreview carMesh;
     int loadedCarIdx;       // -1 = no car loaded (avoids per-frame reload)
     bool loadedAdvancedCars; // TEX_OFF_ADVANCED_CARS state when car mesh was built
-    bool trackMeshLoaded;
+    int iLoadedTrackGen;    // g_iTrackLoadGeneration at build; -1 = no mesh (avoids per-frame reload)
     MeshPreview trackMesh;
 
     // Per-frame mesh draw commands
@@ -592,6 +593,7 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
     r->whiteTexture = scene_render_gpu_upload_rgba(device, whitePixel, 1, 1, false);
 
     r->loadedCarIdx = -1;
+    r->iLoadedTrackGen = -1;
 
     return r;
 }
@@ -1533,9 +1535,15 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
 
 void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
 {
+    // Called every frame by screens that show the preview; only rebuild when
+    // the track data has actually been reloaded. Keyed on the loadtrack()
+    // generation rather than TrackLoad because community tracks all share
+    // the TRACK_LOAD_COMMUNITY index.
+    if (r->iLoadedTrackGen == g_iTrackLoadGeneration)
+        return;
+
     menu_render_gpu_free_track_mesh(r);
 
-    extern int TRAK_LEN;
     if (TRAK_LEN <= 0) return;
 
     // Compute track center, bounding box, and height range (matching original show_3dmap)
@@ -1671,7 +1679,11 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
             SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
         r->trackMesh.texture = r->whiteTexture;
         r->trackMesh.indexCount = idxCount;
-        r->trackMesh.loaded = true;
+        // Only latch on full success so a failed upload retries next frame
+        // instead of drawing with a NULL buffer.
+        r->trackMesh.loaded = r->trackMesh.vertexBuffer && r->trackMesh.indexBuffer;
+        if (r->trackMesh.loaded)
+            r->iLoadedTrackGen = g_iTrackLoadGeneration;
     }
 
     free(vertices);
@@ -1681,6 +1693,7 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
 void menu_render_gpu_free_track_mesh(MenuRendererGPU *r)
 {
     FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
+    r->iLoadedTrackGen = -1;
 }
 
 void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
