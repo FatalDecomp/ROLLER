@@ -534,9 +534,11 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
         if (!r->meshPipeline)
             SDL_Log("Failed to create mesh pipeline: %s", SDL_GetError());
 
-        // No-depth variant for flat meshes (track map)
+        // No-depth, two-sided variant for the track map.  The software preview
+        // explicitly submits both windings so loops remain visible from below.
         meshPipeInfo.depth_stencil_state.enable_depth_test = false;
         meshPipeInfo.depth_stencil_state.enable_depth_write = false;
+        meshPipeInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
         r->meshPipelineNoDepth = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
         if (!r->meshPipelineNoDepth)
             SDL_Log("Failed to create no-depth mesh pipeline: %s", SDL_GetError());
@@ -1554,8 +1556,9 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
     if (bbZRange < 100.0f) bbZRange = 100.0f;
     float floorZ = bbMinZ - bbZRange * 0.4f;
 
-    // One quad per 2-chunk segment + 1 floor quad
-    int numSegments = TRAK_LEN / 2;
+    // One quad per 2-chunk segment + 1 floor quad.  show_3dmap() includes the
+    // final segment and joins it back to chunk zero.
+    int numSegments = (TRAK_LEN + 1) / 2;
     MeshVertex *vertices = calloc(numSegments * 4 + 4, sizeof(MeshVertex));
     uint32 *indices = calloc(numSegments * 6 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
@@ -1582,16 +1585,24 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
         indices[idxCount++] = 0; indices[idxCount++] = 3; indices[idxCount++] = 2;
     }
 
-    for (int seg = 0; seg < numSegments - 1; seg++) {
+    for (int seg = 0; seg < numSegments; seg++) {
         int chunk = seg * 2;
-        int nextChunk = (seg + 1) * 2;
-        if (nextChunk >= TRAK_LEN) break;
+        int nextChunk = chunk + 2;
+        if (nextChunk >= TRAK_LEN) nextChunk = 0;
+
+        // A map segment is omitted only when every drivable strip has the
+        // legacy skip-render flag (for example, the gap beneath a jump).
+        if ((TrakColour[chunk][TRAK_COLOUR_LEFT_LANE] & SURFACE_FLAG_SKIP_RENDER) != 0
+            && (TrakColour[chunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) != 0
+            && (TrakColour[chunk][TRAK_COLOUR_RIGHT_LANE] & SURFACE_FLAG_SKIP_RENDER) != 0)
+            continue;
 
         // Height-based color gradient (palette 128-139, matching original)
         float heightCalc = (maxZ - TrakPt[chunk].pointAy[2].fZ) * 15.0f / zRange;
         int colorIdx = 143 - (int)heightCalc;
         if (colorIdx > 139) colorIdx = 139;
         if (colorIdx < 128) colorIdx = 128;
+        if (chunk == 0) colorIdx = 143;
 
         const tColor *c = &pal[colorIdx];
         float cr = c->byR / 63.0f;
