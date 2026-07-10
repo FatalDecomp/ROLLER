@@ -58,15 +58,22 @@ typedef struct {
     bool loaded;
 } MeshPreview;
 
+typedef enum {
+    MESH_PIPELINE_CAR,
+    MESH_PIPELINE_TRACK_SHADOW,
+    MESH_PIPELINE_TRACK
+} eMeshPipeline;
+
 // Recorded mesh draw command (deferred -- replayed in end_frame)
 typedef struct {
     SDL_GPUBuffer *vertexBuffer;
     SDL_GPUBuffer *indexBuffer;
     SDL_GPUTexture *texture;
     int indexCount;
+    int iFirstIndex;
     float mvp[16];
     float vpX, vpY, vpW, vpH; // viewport in virtual 640x400 coords
-    bool bUseTrackPipeline;
+    eMeshPipeline ePipeline;
 } MeshDrawCommand;
 
 #define MAX_MESH_DRAWS 4
@@ -107,6 +114,7 @@ struct MenuRendererGPU {
 
     // Mesh pipelines (3D previews)
     SDL_GPUGraphicsPipeline *meshPipeline;
+    SDL_GPUGraphicsPipeline *meshPipelineTrackShadow;
     SDL_GPUGraphicsPipeline *meshPipelineTrack;
     SDL_GPUTexture *depthTexture;
     Uint32 depthWidth;
@@ -353,11 +361,14 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 
     for (int i = 0; i < r->meshDrawCount; i++) {
         MeshDrawCommand *cmd = &r->meshDraws[i];
-        SDL_GPUGraphicsPipeline *wanted = cmd->bUseTrackPipeline
-            ? r->meshPipelineTrack : r->meshPipeline;
-        if (wanted != curPipeline) {
-            SDL_BindGPUGraphicsPipeline(renderPass, wanted);
-            curPipeline = wanted;
+        SDL_GPUGraphicsPipeline *pWantedPipeline = r->meshPipeline;
+        if (cmd->ePipeline == MESH_PIPELINE_TRACK_SHADOW)
+            pWantedPipeline = r->meshPipelineTrackShadow;
+        else if (cmd->ePipeline == MESH_PIPELINE_TRACK)
+            pWantedPipeline = r->meshPipelineTrack;
+        if (pWantedPipeline != curPipeline) {
+            SDL_BindGPUGraphicsPipeline(renderPass, pWantedPipeline);
+            curPipeline = pWantedPipeline;
         }
 
         // Set sub-viewport for this mesh preview
@@ -381,7 +392,8 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
         SDL_GPUBufferBinding ibb = { .buffer = cmd->indexBuffer };
         SDL_BindGPUIndexBuffer(renderPass, &ibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-        SDL_DrawGPUIndexedPrimitives(renderPass, cmd->indexCount, 1, 0, 0, 0);
+        SDL_DrawGPUIndexedPrimitives(renderPass, cmd->indexCount, 1,
+                                     cmd->iFirstIndex, 0, 0);
     }
 }
 
@@ -541,6 +553,13 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
         r->meshPipelineTrack = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
         if (!r->meshPipelineTrack)
             SDL_Log("Failed to create track mesh pipeline: %s", SDL_GetError());
+
+        // The shadow is submitted before the road and must never populate the
+        // depth buffer, so even nearly coplanar low track sections win cleanly.
+        meshPipeInfo.depth_stencil_state.enable_depth_write = false;
+        r->meshPipelineTrackShadow = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipelineTrackShadow)
+            SDL_Log("Failed to create track shadow pipeline: %s", SDL_GetError());
     }
     if (meshVert) SDL_ReleaseGPUShader(device, meshVert);
     if (meshFrag) SDL_ReleaseGPUShader(device, meshFrag);
@@ -588,6 +607,7 @@ void menu_render_gpu_destroy(MenuRendererGPU *r)
     if (r->whiteTexture) SDL_ReleaseGPUTexture(r->device, r->whiteTexture);
     if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
     if (r->meshPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipeline);
+    if (r->meshPipelineTrackShadow) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineTrackShadow);
     if (r->meshPipelineTrack) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineTrack);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
@@ -1498,12 +1518,13 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     cmd->indexBuffer = r->carMesh.indexBuffer;
     cmd->texture = r->carMesh.texture;
     cmd->indexCount = r->carMesh.indexCount;
+    cmd->iFirstIndex = 0;
     memcpy(cmd->mvp, mvp, sizeof(mvp));
     cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
     cmd->vpH = (float)totalH;
-    cmd->bUseTrackPipeline = false;
+    cmd->ePipeline = MESH_PIPELINE_CAR;
 }
 
 //---------------------------------------------------------------------------
@@ -1666,7 +1687,7 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
                                     int elevation, int yaw,
                                     int destX, int destY, int destW, int destH)
 {
-    if (!r->trackMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
+    if (!r->trackMesh.loaded || r->meshDrawCount > MAX_MESH_DRAWS - 2) return;
 
     // Convert TRIG angles to radians
     float yawRad = (float)yaw * (2.0f * 3.14159265f / 16384.0f);
@@ -1705,15 +1726,22 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     for (int j = 0; j < 4; j++)
         mvp[j * 4 + 1] = Sy * mvp[j * 4 + 1] + Ty * mvp[j * 4 + 3];
 
-    MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
-    cmd->vertexBuffer = r->trackMesh.vertexBuffer;
-    cmd->indexBuffer = r->trackMesh.indexBuffer;
-    cmd->texture = r->trackMesh.texture;
-    cmd->indexCount = r->trackMesh.indexCount;
-    memcpy(cmd->mvp, mvp, sizeof(mvp));
-    cmd->vpX = (float)(destX - padLeft);
-    cmd->vpY = (float)destY;
-    cmd->vpW = (float)totalW;
-    cmd->vpH = (float)totalH;
-    cmd->bUseTrackPipeline = true;
+    MeshDrawCommand *pShadowCommand = &r->meshDraws[r->meshDrawCount++];
+    pShadowCommand->vertexBuffer = r->trackMesh.vertexBuffer;
+    pShadowCommand->indexBuffer = r->trackMesh.indexBuffer;
+    pShadowCommand->texture = r->trackMesh.texture;
+    pShadowCommand->indexCount = 6;
+    pShadowCommand->iFirstIndex = 0;
+    memcpy(pShadowCommand->mvp, mvp, sizeof(mvp));
+    pShadowCommand->vpX = (float)(destX - padLeft);
+    pShadowCommand->vpY = (float)destY;
+    pShadowCommand->vpW = (float)totalW;
+    pShadowCommand->vpH = (float)totalH;
+    pShadowCommand->ePipeline = MESH_PIPELINE_TRACK_SHADOW;
+
+    MeshDrawCommand *pTrackCommand = &r->meshDraws[r->meshDrawCount++];
+    *pTrackCommand = *pShadowCommand;
+    pTrackCommand->indexCount = r->trackMesh.indexCount - 6;
+    pTrackCommand->iFirstIndex = 6;
+    pTrackCommand->ePipeline = MESH_PIPELINE_TRACK;
 }
