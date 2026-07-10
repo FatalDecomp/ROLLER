@@ -1367,6 +1367,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      {
+        int bTrackBorders = (int)g_bEmulateSoftwareTrackBorders;
+        if (nk_checkbox_label(pCtx, "Emulate transparent borders", &bTrackBorders)) {
+          g_bEmulateSoftwareTrackBorders = (bool)bTrackBorders;
+          game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
+          InputSaveConfig();
+        }
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bWireframe = (int)g_bWireframe;
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
         g_bWireframe = (bool)bWireframe;
@@ -1468,6 +1478,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
+        g_bEmulateSoftwareTrackBorders = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
         game_render_set_anisotropy_level(g_pGameRenderer,g_iAnisotropyLevel);
@@ -1487,6 +1498,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_gamma(g_pGameRenderer,           g_fGamma);
         game_render_set_saturation(g_pGameRenderer,      g_fSaturation);
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
+        game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
         game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);

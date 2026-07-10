@@ -134,6 +134,7 @@ float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
 float g_fMirrorFov       = 0.75f;
+bool  g_bEmulateSoftwareTrackBorders = true;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;

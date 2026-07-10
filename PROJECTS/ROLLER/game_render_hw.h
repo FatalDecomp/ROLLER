@@ -41,6 +41,8 @@ void game_render_set_contrast(GameRenderer *renderer, float contrast);
 void game_render_set_vignette(GameRenderer *renderer, float strength);
 /* FOV multiplier on top of game camera: 1.0=native, <1=zoom in, >1=zoom out */
 void game_render_set_fov_multiplier(GameRenderer *renderer, float mult);
+/* Compatibility: emulate SW rasterizer's extra-dark one-pixel track-darken quad border */
+void game_render_set_emulate_software_track_borders(GameRenderer *renderer, bool enabled);
 /* Wireframe: true=line fill, false=solid */
 void game_render_set_wireframe(GameRenderer *renderer, bool enabled);
 /* Cull mode: 0=default, 1=none, 2=back, 3=front (debug only, not saved) */
