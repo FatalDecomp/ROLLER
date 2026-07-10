@@ -3961,11 +3961,9 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
      * layout, tile N+1 (col=0, row=row_n+1) IS precisely where that wrap
      * lands. So reading tile N+1's natural row-major position, unconditionally,
      * already reproduces SW's real read for every case, last-column included
-     * -- no special-casing needed. (A previous "mirror tile N onto itself for
-     * last-column tiles" special case was tried here to avoid what looked
-     * like a bleed artifact, but it was itself the bug: confirmed live it
-     * broke a real ceiling-light tile pair, idx=123/124, which needed the
-     * genuine tile-124 content -- see project_gpu_backlog memory.) */
+     * -- no special-casing needed. Mirroring tile N onto itself for last-column
+     * tiles instead (to avoid what looks like a bleed artifact) discards the
+     * genuine tile N+1 content those tiles are supposed to show. */
     int pairW = 2 * tileSize;
     uint8 *pairRgba = uploadOk ? malloc((size_t)(pairW * tileSize * 4)) : NULL;
     if (pairRgba) {
@@ -4400,11 +4398,12 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
      * behind pair03Left ("the camera can look from either end of the polygon... the
      * world tile assignment must remain stable").
      *
-     * Gated to non-FLIP_BACKFACE (keeps this scoped away from the BF sign-wall logic)
-     * and to isFloorLike: applying it unconditionally regressed genuinely-vertical
-     * walls, since some twisted/rotated CONCAVE quads have a face normal that reads
-     * "floor-like" (nrmZ-dominant) despite looking like a wall. Non-floor-like quads
-     * keep the original static effectiveFlipH-only U assignment. */
+     * Gated to non-FLIP_BACKFACE (keeps this scoped away from the BF sign-wall logic),
+     * isFloorLike (some twisted/rotated CONCAVE quads have a face normal that reads
+     * "floor-like" (nrmZ-dominant) despite looking like a wall), AND CONCAVE (see the
+     * gate comment right below for why plain non-CONCAVE floor quads, e.g. roads,
+     * must NOT go through this at all). Quads failing any of the three keep the
+     * original static effectiveFlipH-only U assignment. */
     float uex1x = verts[1].x-verts[0].x, uex1y = verts[1].y-verts[0].y, uex1z = verts[1].z-verts[0].z;
     float uex2x = verts[3].x-verts[0].x, uex2y = verts[3].y-verts[0].y, uex2z = verts[3].z-verts[0].z;
     float unrmX = uex1y*uex2z - uex1z*uex2y;
@@ -4415,25 +4414,14 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     float uWindingArea = 0.0f;
     if (uIsFloorLike && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0
                      && (surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
-        /* GATED to CONCAVE (2026-07-10): git-forensics confirmed uWindingFlip
-         * (introduced 2026-07-09, commit 203f3b0, to fix arrow-sign panels --
-         * a CONCAVE surface) never existed before that commit. A user
-         * comparison against a July 6 build (which predates this entirely)
-         * showed idx=26/66 (plain, non-CONCAVE road quads) render CORRECTLY
-         * there, using only the static effectiveFlipH-only assignment below --
-         * i.e. roads never needed a dynamic per-quad U test at all. This
-         * gate's isFloorLike condition was too broad: it also caught genuine
-         * road surfaces alongside the CONCAVE arrow-sign panels it was built
-         * for, "fixing" them into being wrong. Several replacement formulas
-         * were tried chasing the resulting idx=26 regression (a face-normal-
-         * derived "local right" projection, a hardcoded-true constant) --
-         * each fixed idx=26 but broke or failed to explain other cases
-         * (idx=92 CONCAVE pit wall, idx=66, idx=116's exactly-degenerate
-         * column sums) -- because the real fix was never a better formula,
-         * it was narrowing WHEN this runs at all. Non-CONCAVE quads now
-         * always fall through to the static assignment below, matching the
-         * confirmed-correct pre-203f3b0/July-6 behavior exactly. See
-         * project_gpu_backlog memory for the full multi-attempt history. */
+        /* This dynamic U test only matters for CONCAVE quads (e.g. arrow-sign
+         * panels), which can be authored with either winding direction, so a
+         * fixed effectiveFlipH-only assignment isn't reliable for them.
+         * Plain (non-CONCAVE) floor-like quads, like ordinary road surfaces,
+         * are always authored with consistent winding, so effectiveFlipH
+         * alone is already correct for them -- running this test on them too
+         * would "fix" quads that weren't broken, flipping some of them the
+         * wrong way depending on which way the track curves at that point. */
         uWindingArea = (verts[0].x + verts[3].x) - (verts[1].x + verts[2].x);
         if (uWindingArea < 0.0f) uWindingFlip = true;
     }
@@ -4445,19 +4433,13 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     cu[1] = uB; cu[2] = uB;
     if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0 || uIsFloorLike) {
         /* col01Left is unstable for horizontal surfaces — bypass it like
-         * Z-face bypasses row01Bot. Originally gated to CONCAVE only
-         * (ceiling lights, tunnel ends), but the instability is really about
-         * being floor-like (near-horizontal), not about CONCAVE specifically.
-         * Confirmed as a genuine, long-standing (pre-dating this session's
-         * uWindingFlip work entirely) bug on a non-CONCAVE pit-lane road
-         * quad (idx=126/128): user verified the same V-flip need is present
-         * even in a July 6 build, ruling out any of tonight's changes as the
-         * cause -- this is purely col01Left's own screen-space instability
-         * for floor-like quads, unrelated to the separate uWindingFlip/U-axis
-         * investigation. Widened to "CONCAVE || uIsFloorLike" so any
-         * near-horizontal quad gets the stable fixed-index+flipV assignment,
-         * regardless of the CONCAVE flag. flipH only affects U (startsx) in
-         * SW, never startsy. */
+         * Z-face bypasses row01Bot. The instability is about being floor-like
+         * (near-horizontal) -- for those quads, small camera-angle changes can
+         * flip which screen-X pair looks "left" without the quad's actual
+         * top/bottom having changed at all, so col01Left can't be trusted
+         * regardless of whether the quad happens to also be CONCAVE. Any
+         * near-horizontal quad instead gets the stable fixed-index+flipV
+         * assignment. flipH only affects U (startsx) in SW, never startsy. */
         if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
             /* Vertex winding (vnrmY sign) genuinely differs between two physical
              * placements of the same tile (idx=8), but swapping vL/vR based on its sign
@@ -4479,31 +4461,33 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
          * position), so this is correct by SW-parity regardless of the
          * quad's actual world-space shape or which side the camera is on.
          *
-         * A "nearer edge wins" camera-relative replacement (borrowed from
-         * compute_uv_pair_z's FLIP_BACKFACE branch) was tried for a reported
-         * ceiling-light tile (idx=123/sf=0x1717B vs its confirmed-correct
-         * neighbor idx=78) -- REVERTED: confirmed live it broke previously-
-         * working tunnel ceiling lights elsewhere (V-flipped again). The
-         * idx=123 case likely isn't a UV bug at all -- see project_gpu_backlog
-         * memory, texture-content investigation via "Pick Textures as PNG"
-         * suggested the raw atlas tile itself may be authored flipped for
-         * that specific tunnel, not something a UV formula can fix. Do not
-         * re-attempt a camera-relative V test here without new data. */
+         * A "nearer edge wins" camera-relative test (the kind compute_uv_pair_z
+         * uses for its FLIP_BACKFACE branch) would be wrong here: these quads
+         * don't have two coincident FV/non-FV surfaces offset by wall
+         * thickness, so there's no "nearer edge" that maps to a stable
+         * top/bottom the way it does there -- it would just make the V
+         * assignment depend on camera position instead of the fixed,
+         * position-independent convention SW actually uses. If a specific
+         * tile still looks flipped despite this, check whether the raw atlas
+         * tile itself is authored flipped before changing this formula --
+         * that's a texture-content problem, not something a UV formula can
+         * fix. */
         float vL = flipV ? vMaxN : 0.0f;
         float vR = flipV ? 0.0f  : vMaxN;
         cv[0] = vL; cv[1] = vL;
         cv[2] = vR; cv[3] = vR;
 
-        /* The diagonal split for a twisted CONCAVE quad can be screen-space
-         * (camera-angle) dependent even though world verts are static: the same
-         * quad's identical UVs can render correctly from one camera state and not
-         * another (see wallFrontFacing in the main function for the confirmed root
-         * cause of that specific bug). This picks whichever diagonal (0-2 or 1-3)
-         * gives two triangles with matching signed-area sign, i.e. a simple
-         * non-self-intersecting split -- the standard convex-quad-diagonal test.
-         * Deliberately not the full twpolym port (tried twice, reverted both times,
-         * see project_gpu_backlog memory): this only changes which triangles get
-         * formed, never UV values. Scoped to actual CONCAVE quads only (not just
+        /* A twisted CONCAVE quad's 4 vertices aren't guaranteed coplanar, so
+         * whichever diagonal (0-2 or 1-3) splits it into triangles can matter:
+         * the wrong diagonal can produce a self-intersecting "bowtie" split
+         * for some camera angles even though the world vertices themselves
+         * haven't moved. This picks whichever diagonal gives two triangles
+         * with matching signed-area sign, i.e. a simple non-self-intersecting
+         * split -- the standard convex-quad-diagonal test. This only changes
+         * which triangles get formed, never UV values; it's deliberately not
+         * a full port of SW's twpolym (which also re-derives UVs per
+         * triangle) since that would duplicate and risk destabilizing the
+         * UV logic above. Scoped to actual CONCAVE quads only (not just
          * uIsFloorLike) -- genuinely convex quads (plain roads) don't have a
          * twisted-triangulation problem to begin with; either diagonal tiles
          * them correctly. */
@@ -4856,39 +4840,35 @@ static void compute_uv_gen(SceneRendererGPU *r, const SceneRenderVertex verts[4]
     bool flipV = (surfaceFlags & SURFACE_FLAG_FLIP_VERT) != 0;
     float bfCross = 0.0f;
     if ((surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) && flipH) {
-        /* FH+BF gen surfaces (e.g. idx=85/83/84, corkscrew outer guardrail):
-         * this used to compute a screen-space g03Left/bfCross test (mirroring
-         * SW's POLYTEX backface-swap-driven U toggle) to decide which face the
-         * camera was on. That test flips between drive directions on several
-         * confirmed instances even when bfCross itself doesn't (camera-
-         * orientation fragility, the same class of bug fixed for
-         * wallFrontFacing elsewhere in this file) -- first found on a CONCAVE
-         * instance (idx=85), then on two more non-CONCAVE neighbors on the
-         * same twisted structure (idx=83/84) once idx=85 was fixed, showing
-         * the CONCAVE flag itself doesn't reliably separate "needs the
-         * bypass" from "needs the real test" (sequential tile indices on the
-         * same continuous guardrail, some flagged CONCAVE and some not --
-         * likely a track-authoring inconsistency in the flag, not a
-         * geometric difference). A world-space single-axis replacement (raw
-         * Y between vertex pairs) was also tried and fixed one instance while
-         * breaking an immediate neighbor, so no single coordinate axis
-         * generalizes across different points along a twisted structure
-         * either.
+        /* FH+BF gen surfaces (e.g. corkscrew outer guardrail panels): a
+         * screen-space test mirroring SW's POLYTEX backface-swap-driven U
+         * toggle would decide which face the camera is on from the current
+         * projected geometry -- but on a twisted/rolled structure like this,
+         * that projection isn't a reliable proxy for "which face" the way it
+         * is for a flat wall, so it can flip between drive directions even
+         * when the underlying quad hasn't changed sides at all (the same
+         * fragility class as wallFrontFacing elsewhere in this file). Nor is
+         * the CONCAVE flag a reliable stand-in for "needs the camera-relative
+         * test": adjacent panels of the same physical guardrail can carry
+         * different CONCAVE flags despite being geometrically the same kind
+         * of surface, since track authoring doesn't guarantee the flag is
+         * set consistently along a continuous twisted structure. And no
+         * single world-space coordinate axis works either -- which axis
+         * reads as "left/right" rotates with the structure's twist, so a
+         * fixed axis is only ever valid at one point along it.
          *
          * Bypass the whole camera-relative test instead, the same way the
-         * PAIR-X CONCAVE branch already bypasses col01Left for horizontal
-         * surfaces, and the same way wallFrontFacing was ultimately removed
-         * entirely rather than re-gated a third time: assign U purely from
-         * vertex index + the static flipH flag, identical to the plain
-         * non-FH/non-BF case below. This is fully position- and orientation-
-         * independent (no vertex coordinate is read at all), so it can't be
-         * "wrong from one direction" the way every camera-relative test tried
-         * here has been. A previously-confirmed non-CONCAVE wall (idx=147/148,
-         * from an earlier session) was said to need the old g03Left behavior,
-         * but that was only verified at the camera angles tested at the time,
-         * not exhaustively -- if a real single-sided sign-wall is ever found
-         * to depend on the old behavior, re-check this comment before
-         * re-adding any version of the camera-relative test. */
+         * PAIR-X branch already bypasses col01Left for horizontal/CONCAVE
+         * surfaces: assign U purely from vertex index + the static flipH
+         * flag, identical to the plain non-FH/non-BF case below. This is
+         * fully position- and orientation-independent (no vertex coordinate
+         * is read at all), so it can't be "wrong from one direction" the way
+         * any camera-relative or world-space-axis test can be for a twisted
+         * surface. Note: a genuinely flat, single-sided sign-wall (as opposed
+         * to a twisted structure) can still need the real camera-relative
+         * test to show its content from both sides -- if one is ever found
+         * broken under this fixed assignment, that's a real case for
+         * re-introducing a camera-relative test, gated to flat walls only. */
         for (int k = 0; k < 4; k++) {
             int sk = k;
             static const int hm[4] = {1,0,3,2};
