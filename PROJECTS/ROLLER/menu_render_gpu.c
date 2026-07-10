@@ -66,7 +66,7 @@ typedef struct {
     int indexCount;
     float mvp[16];
     float vpX, vpY, vpW, vpH; // viewport in virtual 640x400 coords
-    bool useDepth;
+    bool bUseTrackPipeline;
 } MeshDrawCommand;
 
 #define MAX_MESH_DRAWS 4
@@ -107,7 +107,7 @@ struct MenuRendererGPU {
 
     // Mesh pipelines (3D previews)
     SDL_GPUGraphicsPipeline *meshPipeline;
-    SDL_GPUGraphicsPipeline *meshPipelineNoDepth;
+    SDL_GPUGraphicsPipeline *meshPipelineTrack;
     SDL_GPUTexture *depthTexture;
     Uint32 depthWidth;
     Uint32 depthHeight;
@@ -353,7 +353,8 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 
     for (int i = 0; i < r->meshDrawCount; i++) {
         MeshDrawCommand *cmd = &r->meshDraws[i];
-        SDL_GPUGraphicsPipeline *wanted = cmd->useDepth ? r->meshPipeline : r->meshPipelineNoDepth;
+        SDL_GPUGraphicsPipeline *wanted = cmd->bUseTrackPipeline
+            ? r->meshPipelineTrack : r->meshPipeline;
         if (wanted != curPipeline) {
             SDL_BindGPUGraphicsPipeline(renderPass, wanted);
             curPipeline = wanted;
@@ -534,14 +535,12 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
         if (!r->meshPipeline)
             SDL_Log("Failed to create mesh pipeline: %s", SDL_GetError());
 
-        // No-depth, two-sided variant for the track map.  The software preview
-        // explicitly submits both windings so loops remain visible from below.
-        meshPipeInfo.depth_stencil_state.enable_depth_test = false;
-        meshPipeInfo.depth_stencil_state.enable_depth_write = false;
+        // Two-sided, depth-tested variant for the track map.  Depth testing is
+        // required because track segments can overlap in screen space at loops.
         meshPipeInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
-        r->meshPipelineNoDepth = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
-        if (!r->meshPipelineNoDepth)
-            SDL_Log("Failed to create no-depth mesh pipeline: %s", SDL_GetError());
+        r->meshPipelineTrack = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipelineTrack)
+            SDL_Log("Failed to create track mesh pipeline: %s", SDL_GetError());
     }
     if (meshVert) SDL_ReleaseGPUShader(device, meshVert);
     if (meshFrag) SDL_ReleaseGPUShader(device, meshFrag);
@@ -589,7 +588,7 @@ void menu_render_gpu_destroy(MenuRendererGPU *r)
     if (r->whiteTexture) SDL_ReleaseGPUTexture(r->device, r->whiteTexture);
     if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
     if (r->meshPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipeline);
-    if (r->meshPipelineNoDepth) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineNoDepth);
+    if (r->meshPipelineTrack) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineTrack);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
     SDL_ReleaseGPUSampler(r->device, r->sampler);
@@ -1504,7 +1503,7 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
     cmd->vpH = (float)totalH;
-    cmd->useDepth = true;
+    cmd->bUseTrackPipeline = false;
 }
 
 //---------------------------------------------------------------------------
@@ -1716,5 +1715,5 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
     cmd->vpH = (float)totalH;
-    cmd->useDepth = false;
+    cmd->bUseTrackPipeline = true;
 }
