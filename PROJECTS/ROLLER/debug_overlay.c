@@ -1265,6 +1265,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_bPickTextures = (bool)bPickTextures;
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bPickTexturesPNG = (int)g_bPickTexturesPNG;
+      if (nk_checkbox_label(pCtx, "Pick Textures as PNG", &bPickTexturesPNG))
+        g_bPickTexturesPNG = (bool)bPickTexturesPNG;
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bRenderStatsLog = (int)g_bRenderStatsLog;
       if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
         g_bRenderStatsLog = (bool)bRenderStatsLog;

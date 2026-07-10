@@ -9,6 +9,7 @@
 #include "game_particle_shaders.h" /* particle vertex/pixel */
 #include "3d.h"                   /* wide_on */
 #include "roller.h"               /* ROLLERTryAcquireGPUSwapchainTexture */
+#include "png_writer.h"           /* RollerWriteRgbaPng -- "Pick Textures as PNG" debug export */
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,7 +110,18 @@ typedef struct {
     int             tex_idx;
     int             texHalfRes;
     int             in_use;
+    /* Persistent copy of the full converted atlas (RGBA, tightly packed,
+     * atlasWidth*atlasHeight*4 bytes) -- kept alive for on-demand PNG export
+     * of whatever tile/pair is currently picked (see g_bSaveTexOnPick).
+     * Owned by this slot; freed in scene_render_gpu_free_texture. */
+    uint8          *atlasRgbaCopy;
+    int             atlasWidth;
+    int             atlasHeight;
 } SceneGPUTextureSlot;
+
+/* Forward declaration: defined further down (near scene_render_gpu_quad_world_legacy),
+ * used by scene_render_gpu_end_frame's "Pick Textures as PNG" export. */
+static void save_picked_texture_png(const SceneGPUTextureSlot *slot, int surfIdx, bool isPair);
 
 /* --------------------------------------------------------------------------
  * Deferred draw commands
@@ -1864,6 +1876,7 @@ static struct { bool active; int surfIdx; int surfaceFlags; char path[8]; float 
                 bool uWindingFlip; float uWindingArea;
                 bool vSwap; float vNrmY;
                 bool splitAValid; float splitArea012, splitArea023;
+                float cv1, cv3;
                 float onx[4], ony[4]; bool ovalid[4]; } s_clickHit;
 static bool s_clickWasPending;
 
@@ -2719,11 +2732,12 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                     (double)s_clickHit.v2x, (double)s_clickHit.v2y, (double)s_clickHit.v2z,
                     (double)s_clickHit.v3x, (double)s_clickHit.v3y, (double)s_clickHit.v3z);
             if (s_clickHit.uvValid)
-                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv2=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f) backTexApplied=%d backDot=%.2f backOrigIdx=%d backNewIdx=%d uWindingFlip=%d uWindingArea=%.2f vSwap=%d vNrmY=%.2f splitAValid=%d splitArea012=%.2f splitArea023=%.2f",
+                SDL_Log("PICK-UV: %s tex=%d flipV=%d efV=%d efH=%d p03L=%d row01Bot=%d cu0=%.3f cv0=%.3f cv1=%.3f cv2=%.3f cv3=%.3f bcross=%.3f isFloorLike=%d wzRowBot=%d wzSpans=%d useRowDetect=%d backwards=%d adjSum01=%.4f adjSum23=%.4f spansCC=%d cam=(%.1f,%.1f,%.1f) backTexApplied=%d backDot=%.2f backOrigIdx=%d backNewIdx=%d uWindingFlip=%d uWindingArea=%.2f vSwap=%d vNrmY=%.2f splitAValid=%d splitArea012=%.2f splitArea023=%.2f",
                         s_clickHit.uvType, s_clickHit.uvTexId,
                         (int)s_clickHit.flipV, (int)s_clickHit.efV, (int)s_clickHit.efH,
                         (int)s_clickHit.p03L, (int)s_clickHit.row01Bot,
-                        (double)s_clickHit.cu0, (double)s_clickHit.cv0, (double)s_clickHit.cv2,
+                        (double)s_clickHit.cu0, (double)s_clickHit.cv0, (double)s_clickHit.cv1,
+                        (double)s_clickHit.cv2, (double)s_clickHit.cv3,
                         (double)s_clickHit.bcross, (int)s_clickHit.isFloorLike,
                         (int)s_clickHit.wzRowBot, (int)s_clickHit.wzSpans,
                         (int)s_clickHit.useRowDetect, s_clickHit.backwardsVal,
@@ -2735,6 +2749,15 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                         (int)s_clickHit.uWindingFlip, (double)s_clickHit.uWindingArea,
                         (int)s_clickHit.vSwap, (double)s_clickHit.vNrmY,
                         (int)s_clickHit.splitAValid, (double)s_clickHit.splitArea012, (double)s_clickHit.splitArea023);
+            if (g_bPickTexturesPNG && s_clickHit.uvValid
+                    && s_clickHit.uvTexId > 0 && s_clickHit.uvTexId < SCENE_GPU_MAX_TEXTURE_SLOTS) {
+                const SceneGPUTextureSlot *pickSlot = &r->texSlots[s_clickHit.uvTexId];
+                if (pickSlot->in_use) {
+                    bool isPair = s_clickHit.surfIdx >= 0 && s_clickHit.surfIdx < pickSlot->numTiles
+                               && pickSlot->pairTextures[s_clickHit.surfIdx] != NULL;
+                    save_picked_texture_png(pickSlot, s_clickHit.surfIdx, isPair);
+                }
+            }
         } else
             SDL_Log("PICK: no surface hit");
         debug_overlay_pick_outline_set(s_clickHit.active, s_clickHit.onx, s_clickHit.ony, s_clickHit.ovalid);
@@ -3852,12 +3875,18 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     s->tex_idx     = tex_idx;
     s->texHalfRes  = texHalfRes;
     s->in_use      = 1;
+    /* Ownership of atlasRgba transfers here (see the final `free(atlasRgba)`
+     * below being removed for the success path) -- kept alive for on-demand
+     * PNG export of a picked tile/pair. */
+    s->atlasRgbaCopy = atlasRgba;
+    s->atlasWidth    = width;
+    s->atlasHeight   = height;
 
     /* One command buffer for all tile + pair uploads for this slot.
      * Transfer buffers are collected and released after the single submit. */
     SDL_GPUCommandBuffer *uploadCmd = SDL_AcquireGPUCommandBuffer(r->device);
     if (!uploadCmd) {
-        s->in_use = 0; free(tileRgba); free(atlasRgba);
+        s->in_use = 0; free(tileRgba); free(atlasRgba); s->atlasRgbaCopy = NULL;
         return SCENE_TEXTURE_HANDLE_INVALID;
     }
     /* Max TBs: numTiles (tiles) + 2*(numTiles-1) (pairs + flipped) + numTiles (particle tiles) <= 4*numTiles */
@@ -3925,20 +3954,26 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     /* --- Pair textures: tile N (left) + tile N+1 (right), used for walls ---
-     * SW's polyt reads atlas UV 0..128 from tile N's base pointer.
-     * For in-row tiles (col < tilesPerRow-1), UV 64..127 reads tile N+1. ✓
-     * For last-column tiles (col == tilesPerRow-1), UV 64..127 wraps
-     * diagonally through the atlas memory — not a clean tile boundary.
-     * Mirror tile N as the right half so there is no bleed from tile N+1. */
+     * SW's polyt reads atlas UV 0..128 from tile N's base pointer, addressed
+     * as flat contiguous memory (pTex[y*width+x]), with no per-tile bounds
+     * checking. For last-column tiles this "wraps" past the row's right edge
+     * -- but since tiles are numbered row-major matching that exact memory
+     * layout, tile N+1 (col=0, row=row_n+1) IS precisely where that wrap
+     * lands. So reading tile N+1's natural row-major position, unconditionally,
+     * already reproduces SW's real read for every case, last-column included
+     * -- no special-casing needed. (A previous "mirror tile N onto itself for
+     * last-column tiles" special case was tried here to avoid what looked
+     * like a bleed artifact, but it was itself the bug: confirmed live it
+     * broke a real ceiling-light tile pair, idx=123/124, which needed the
+     * genuine tile-124 content -- see project_gpu_backlog memory.) */
     int pairW = 2 * tileSize;
     uint8 *pairRgba = uploadOk ? malloc((size_t)(pairW * tileSize * 4)) : NULL;
     if (pairRgba) {
         for (int n = 0; n + 1 < numTiles && uploadOk; n++) {
             int col_n  = n % tilesPerRow;
             int row_n  = n / tilesPerRow;
-            bool lastCol = (col_n == tilesPerRow - 1);
-            int col_r  = lastCol ? col_n : col_n + 1;
-            int row_r  = row_n;
+            int col_r  = (n + 1) % tilesPerRow;
+            int row_r  = (n + 1) / tilesPerRow;
 
             for (int y = 0; y < tileSize; y++) {
                 int srcRowL = row_n * tileSize + y;
@@ -4008,8 +4043,6 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
         }
     }
 
-    free(atlasRgba);
-
     if (!uploadOk) {
         for (int t = 0; t < numTiles; t++) {
             if (s->tileTextures[t])         { SDL_ReleaseGPUTexture(r->device, s->tileTextures[t]);         s->tileTextures[t]         = NULL; }
@@ -4017,8 +4050,12 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
             if (s->particleTileTextures[t]) { SDL_ReleaseGPUTexture(r->device, s->particleTileTextures[t]); s->particleTileTextures[t] = NULL; }
         }
         s->in_use = 0;
+        free(s->atlasRgbaCopy);
+        s->atlasRgbaCopy = NULL;
         return SCENE_TEXTURE_HANDLE_INVALID;
     }
+    /* atlasRgba's ownership now belongs to s->atlasRgbaCopy on the success
+     * path -- not freed here. */
 
     if (tex_idx >= 0 && tex_idx < 32)
         r->texIdxToHandle[tex_idx] = (SceneTextureHandle)slotIdx;
@@ -4043,6 +4080,7 @@ void scene_render_gpu_free_texture(SceneRendererGPU *r, SceneTextureHandle handl
     }
     if (s->tex_idx >= 0 && s->tex_idx < 32 && r->texIdxToHandle[s->tex_idx] == handle)
         r->texIdxToHandle[s->tex_idx] = SCENE_TEXTURE_HANDLE_INVALID;
+    free(s->atlasRgbaCopy);
     memset(s, 0, sizeof(*s));
 }
 
@@ -4157,7 +4195,8 @@ static struct { bool valid; char type[16]; int texId; bool flipV, efV, efH, p03L
                 bool backTexApplied; float backDot; int backOrigIdx, backNewIdx;
                 bool uWindingFlip; float uWindingArea;
                 bool vSwap; float vNrmY;
-                bool splitAValid; float splitArea012, splitArea023; } s_lastUV;
+                bool splitAValid; float splitArea012, splitArea023;
+                float cv1, cv3; } s_lastUV;
 
 static void surface_uv_log(const char *type, int texId, int surfIdx, int surfaceFlags,
                                   bool flipV, bool efV, bool efH,
@@ -4375,6 +4414,19 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     bool uWindingFlip = false;
     float uWindingArea = 0.0f;
     if (uIsFloorLike && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
+        /* Plain raw-X formula, matching the state right after the tunnel-
+         * ceiling (last-column pair-mirror) fix, before tonight's uWindingFlip
+         * experimentation (2026-07-10). Several replacement formulas were
+         * tried chasing a reported idx=26 regression (a face-normal-derived
+         * "local right" projection, a hardcoded-true constant) -- each fixed
+         * idx=26 but broke or failed to explain other confirmed cases
+         * (idx=92 CONCAVE pit wall, idx=66, idx=116's exactly-degenerate
+         * column sums), with no single formula satisfying all of them.
+         * Reverted per explicit user request rather than keep chasing
+         * variations -- see project_gpu_backlog memory for the full
+         * multi-attempt history. idx=26/66/116 remain known, unresolved,
+         * low-priority open issues; do not re-attempt a fix here without
+         * new data. */
         uWindingArea = (verts[0].x + verts[3].x) - (verts[1].x + verts[2].x);
         if (uWindingArea < 0.0f) uWindingFlip = true;
     }
@@ -4384,27 +4436,44 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     float uB = (effectiveFlipH != uWindingFlip) ? uMaxN : 0.0f;
     cu[0] = uT; cu[3] = uT;
     cu[1] = uB; cu[2] = uB;
-    float vL, vR;
     if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
         /* CONCAVE panels (ceiling lights, tunnel ends): col01Left is unstable
          * for horizontal surfaces — bypass it like Z-face bypasses row01Bot.
-         * Assign V directly from vertex index to match SW startsy default.
-         * flipH only affects U (startsx) in SW, never startsy — no V swap.
+         * flipH only affects U (startsx) in SW, never startsy.
          *
          * Vertex winding (vnrmY sign) genuinely differs between two physical
          * placements of the same tile (idx=8), but swapping vL/vR based on its sign
          * was tried and did NOT fix a confirmed-wrong instance -- the winding
-         * difference is real but not the cause of the actual bug (a separate
+         * difference is real but not the cause of that bug (a separate
          * texture-selection issue, since fixed -- see wallFrontFacing in the main
-         * function). Kept as a diagnostic only; do not re-attempt a V-swap fix here
-         * without new data showing what's actually different beyond vertex winding. */
+         * function). Kept as a diagnostic only. */
         float vex1x = verts[1].x-verts[0].x, vex1z = verts[1].z-verts[0].z;
         float vex2x = verts[3].x-verts[0].x, vex2z = verts[3].z-verts[0].z;
         float vnrmY = vex1z*vex2x - vex1x*vex2z;
         s_lastUV.vSwap = false;
         s_lastUV.vNrmY = vnrmY;
-        vL = flipV ? vMaxN : 0.0f;
-        vR = flipV ? 0.0f  : vMaxN;
+
+        /* V assigned by fixed vertex index (v0,v1=top; v2,v3=bottom) with
+         * flipV as the only swap, matching SW's startsy[] default -- this is
+         * SW's real, unconditional convention (set_starts() is a pure
+         * fixed-index assignment, never adapted to world geometry or camera
+         * position), so this is correct by SW-parity regardless of the
+         * quad's actual world-space shape or which side the camera is on.
+         *
+         * A "nearer edge wins" camera-relative replacement (borrowed from
+         * compute_uv_pair_z's FLIP_BACKFACE branch) was tried for a reported
+         * ceiling-light tile (idx=123/sf=0x1717B vs its confirmed-correct
+         * neighbor idx=78) -- REVERTED: confirmed live it broke previously-
+         * working tunnel ceiling lights elsewhere (V-flipped again). The
+         * idx=123 case likely isn't a UV bug at all -- see project_gpu_backlog
+         * memory, texture-content investigation via "Pick Textures as PNG"
+         * suggested the raw atlas tile itself may be authored flipped for
+         * that specific tunnel, not something a UV formula can fix. Do not
+         * re-attempt a camera-relative V test here without new data. */
+        float vL = flipV ? vMaxN : 0.0f;
+        float vR = flipV ? 0.0f  : vMaxN;
+        cv[0] = vL; cv[1] = vL;
+        cv[2] = vR; cv[3] = vR;
 
         /* The diagonal split for a twisted CONCAVE quad can be screen-space
          * (camera-angle) dependent even though world verts are static: the same
@@ -4443,12 +4512,14 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
             s_lastUV.splitArea023 = sArea023;
         }
     } else {
-        vL = (col01Left != effectiveFlipV) ? 0.0f  : vMaxN;
-        vR = (col01Left != effectiveFlipV) ? vMaxN : 0.0f;
+        float vL = (col01Left != effectiveFlipV) ? 0.0f  : vMaxN;
+        float vR = (col01Left != effectiveFlipV) ? vMaxN : 0.0f;
         if (flipH) { float tmp = vL; vL = vR; vR = tmp; }
+        cv[0] = vL; cv[1] = vL;
+        cv[2] = vR; cv[3] = vR;
     }
-    cv[0] = vL; cv[1] = vL;
-    cv[2] = vR; cv[3] = vR;
+    s_lastUV.cv1 = cv[1];
+    s_lastUV.cv3 = cv[3];
     surface_uv_log("PAIR-X", texture, surfIdx, surfaceFlags,
                    flipV, effectiveFlipV, effectiveFlipH,
                    col01Left, false,
@@ -4648,6 +4719,8 @@ static void compute_uv_pair_z(SceneRendererGPU *r, const SceneRenderVertex verts
                             : (k==2||k==3);
         cv[k] = (isBottom != effectiveFlipV) ? vMaxN : 0.0f;
     }
+    s_lastUV.cv1 = cv[1];
+    s_lastUV.cv3 = cv[3];
     surface_uv_log("PAIR-Z", texture, surfIdx, surfaceFlags,
                    flipV, effectiveFlipV, effectiveFlipH,
                    pair03Left, row01IsBottom,
@@ -4828,6 +4901,74 @@ static void compute_uv_gen(SceneRendererGPU *r, const SceneRenderVertex verts[4]
 }
 
 /* --------------------------------------------------------------------------
+ * "Pick Textures as PNG" debug export
+ *
+ * Writes the atlas region for a picked surface's tile (or tile pair) out as a
+ * PNG next to the exe, in a TEXTURES/ subfolder, prefixed "debug_" -- lets a
+ * picked surface's actual texture content be inspected directly instead of
+ * inferred from UV/behavior alone. Mirrors the exact pair-tile layout used
+ * when building pairTextures[] in scene_render_gpu_load_texture (tile N+1
+ * read at its natural row-major position, wrapping to the next row's first
+ * column when N is the last column in its row -- matches SW's real flat-
+ * memory read exactly).
+ * -------------------------------------------------------------------------- */
+static void save_picked_texture_png(const SceneGPUTextureSlot *slot, int surfIdx, bool isPair)
+{
+    if (!slot || !slot->atlasRgbaCopy) return;
+    if (surfIdx < 0 || surfIdx >= slot->numTiles) return;
+
+    int tileSize    = slot->tileSize;
+    int tilesPerRow = slot->tilesPerRow;
+    int atlasW      = slot->atlasWidth;
+    int col_n       = surfIdx % tilesPerRow;
+    int row_n       = surfIdx / tilesPerRow;
+    int outW        = isPair ? 2 * tileSize : tileSize;
+
+    uint8 *buf = malloc((size_t)outW * tileSize * 4);
+    if (!buf) return;
+
+    /* Tile N+1's natural row-major position -- matches SW's real flat-memory
+     * read exactly, last-column tiles included (see the comment above the
+     * real pairTextures[] build in scene_render_gpu_load_texture for why no
+     * special-casing is needed here). */
+    int col_r = (surfIdx + 1) % tilesPerRow;
+    int row_r = (surfIdx + 1) / tilesPerRow;
+    for (int y = 0; y < tileSize; y++) {
+        int srcRowL = row_n * tileSize + y;
+        int srcRowR = row_r * tileSize + y;
+        for (int x = 0; x < tileSize; x++) {
+            size_t srcOff = ((size_t)srcRowL * atlasW + col_n * tileSize + x) * 4;
+            size_t dstOff = ((size_t)y * outW + x) * 4;
+            memcpy(&buf[dstOff], &slot->atlasRgbaCopy[srcOff], 4);
+        }
+        if (isPair) {
+            for (int x = 0; x < tileSize; x++) {
+                size_t srcOff = ((size_t)srcRowR * atlasW + col_r * tileSize + x) * 4;
+                size_t dstOff = ((size_t)y * outW + tileSize + x) * 4;
+                memcpy(&buf[dstOff], &slot->atlasRgbaCopy[srcOff], 4);
+            }
+        }
+    }
+
+    const char *base = SDL_GetBasePath();
+    char dir[512];
+    SDL_snprintf(dir, sizeof(dir), "%sTEXTURES", base ? base : "");
+    SDL_CreateDirectory(dir);
+
+    char path[560];
+    SDL_snprintf(path, sizeof(path), "%s/debug_tile_%d%s.png", dir, surfIdx, isPair ? "_pair" : "");
+    int rc = RollerWriteRgbaPng(path, buf, outW, tileSize);
+    bool lastColLog = isPair && (col_n == tilesPerRow - 1);
+    if (rc == 0)
+        SDL_Log("PICK-PNG: wrote %s (%dx%d) col=%d row=%d tilesPerRow=%d lastCol=%d",
+                path, outW, tileSize, col_n, row_n, tilesPerRow, (int)lastColLog);
+    else
+        SDL_Log("PICK-PNG: FAILED to write %s (rc=%d)", path, rc);
+
+    free(buf);
+}
+
+/* --------------------------------------------------------------------------
  * World quad drawing
  *
  * Callers always set verts[i].u = verts[i].v = 0 (confirmed in drawtrk3.c).
@@ -4867,6 +5008,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
     s_lastUV.splitAValid = true;
     s_lastUV.splitArea012 = 0.0f;
     s_lastUV.splitArea023 = 0.0f;
+    s_lastUV.cv1 = 0.0f;
+    s_lastUV.cv3 = 0.0f;
 
     /* building.c always passes SCENE_RENDER_SUBDIVIDE_TYPE_SIGN for both real advert
      * signs and untextured background-city buildings.  It sets SURFACE_FLAG_GPU_IS_SIGN
@@ -5316,6 +5459,8 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                             s_clickHit.splitAValid  = s_lastUV.splitAValid;
                             s_clickHit.splitArea012 = s_lastUV.splitArea012;
                             s_clickHit.splitArea023 = s_lastUV.splitArea023;
+                            s_clickHit.cv1 = s_lastUV.cv1;
+                            s_clickHit.cv3 = s_lastUV.cv3;
                         }
                     }
                 }
