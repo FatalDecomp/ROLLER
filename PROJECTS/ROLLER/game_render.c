@@ -27,6 +27,11 @@ struct GameRenderer {
     int hudW, hudH;
     bool mirrorPass;    /* true between begin/end_mirror_pass */
     SDL_GPUTexture *pendingMirrorTex; /* set by end_mirror_pass, consumed by composite_mirror_pass */
+    SDL_GPUTexture *pendingCinemaTex; /* set by end_cinema_pass, consumed by composite_cinema_view --
+                                       * see game_render_begin_cinema_pass. Safe to share secondary-view
+                                       * slot 0 with the mirror pass: CINEMA, mirror, and 2-player are
+                                       * mutually exclusive per frame (3d.c's Play_View/player_type==2
+                                       * branches both exit before the CINEMA branch is ever reached). */
     bool splitScreen;   /* GPU mode only: SW quads also run, HUD pass covers left half */
     bool forceGpuLoad;  /* always upload textures to GPU even in SW mode (set for intro) */
     int  activeViewSlot; /* which secondary-view slot (0=P1, 1=P2) is currently being
@@ -136,10 +141,21 @@ void game_render_begin_frame(GameRenderer *renderer) {
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_begin_frame(renderer->sw);
     else if (renderer->mode == GAME_RENDER_GPU) {
-        int iHudW = renderer->hudW > 0 ? renderer->hudW : (XMAX > 0 ? XMAX : 640);
-        int iHudH = renderer->hudH > 0 ? renderer->hudH : (YMAX > 0 ? YMAX : 400);
+        /* Clear the FULL fixed-size scrbuf allocation (SCRBUF_MAX_PIXELS),
+         * not just this frame's iHudW*iHudH -- hudW/hudH (via "Cinema
+         * Native") can change from one frame to the next (toggling on/off,
+         * or the computed logical resolution shifting), and this clear runs
+         * BEFORE that decision is made for the current frame (see 3d.c's
+         * CINEMA branch, which calls game_render_begin_cinema_native/
+         * game_render_reset_cinema_native well after game_render_begin_
+         * frame). Clearing only iHudW*iHudH-worth of bytes using whichever
+         * frame's dimensions happened to be set last left stale rows from
+         * an earlier configuration behind, read back with a mismatched row
+         * stride -- visible as flickering/melted HUD text. The full clear
+         * is always safe (scrbuf is allocated at exactly this size, see
+         * SCRBUF_MAX_PIXELS) and cheap (a quarter-megabyte memset). */
         if (scrbuf)
-            memset(scrbuf, 0, (size_t)iHudW * iHudH);
+            memset(scrbuf, 0, SCRBUF_MAX_PIXELS);
         scene_render_gpu_begin_frame(renderer->gpu);
     }
 }
@@ -248,6 +264,131 @@ void game_render_composite_mirror_pass(GameRenderer *renderer,
         ndcY[i] = 1.0f - py[i]/wh*2.0f;
     }
     scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+/* CINEMA cheat letterbox (default behaviour): SW renders the shrunk 3D view
+ * directly into a sub-rect of scrbuf (the real framebuffer there), giving a
+ * true letterboxed look. GPU has no equivalent -- the primary 3D pass always
+ * renders full-size regardless of winw/winh, so the cheat's black bars never
+ * appear (scrbuf's memset(0) bars become transparent HUD pixels instead of
+ * opaque black -- see indexed_to_rgba). Fixed the same way the mirror/2P
+ * secondary views already are: render the shrunk content into its own
+ * texture via the existing secondary-view mechanism, then composite it as a
+ * black-bordered quad into the correct sub-rect of the main frame. */
+void game_render_begin_cinema_pass(GameRenderer *renderer, int winwCinema, int winhCinema) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU) return;
+    if (renderer->gpu) {
+        scene_render_gpu_secondary_view_will_queue(renderer->gpu);
+        scene_render_gpu_set_viewport(renderer->gpu, 0, 0, winwCinema, winhCinema);
+    }
+}
+
+void game_render_end_cinema_pass(GameRenderer *renderer, int texW, int texH) {
+    if (!renderer) return;
+    renderer->pendingCinemaTex = NULL;
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu) {
+        renderer->pendingCinemaTex = scene_render_gpu_flush_secondary_view(renderer->gpu, 0, texW, texH);
+        scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 0, 0);
+    }
+}
+
+/* Composite the texture captured by end_cinema_pass into the shrunk cinema
+ * sub-rect of the main frame. Unlike composite_mirror_pass (which runs after
+ * winw/winh have already been restored to the full frame, so dividing by
+ * them is equivalent to dividing by XMAX/YMAX), CINEMA's composite runs
+ * while winw/winh STILL describe the shrunk sub-rect itself -- dividing by
+ * them here would be circular and just fill the whole screen again (the
+ * exact bug being fixed). screenX/Y/W/H (= winx,winy,winw,winh) are pixel
+ * coordinates within the FIXED XMAX x YMAX reference frame instead, exactly
+ * like pMainScrPtr = &scrbuf[winw*winy] already treats scrbuf as a
+ * fixed-size canvas with a sub-rect inside it. */
+void game_render_composite_cinema_view(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    SDL_GPUTexture *tex = renderer->pendingCinemaTex;
+    renderer->pendingCinemaTex = NULL;
+    if (!tex) return;
+
+    float ww = (float)XMAX, wh = (float)YMAX;
+    if (ww <= 0.0f || wh <= 0.0f) return;
+
+    scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
+
+    /* Full-frame opaque black quad first: Pass 1's own clear colour is the
+     * sky colour, not black, so this is what actually produces the bars.
+     * The picture (drawn second, same NDC z) paints over its middle --
+     * same technique as the mirror pass's border+picture pair above. */
+    float fullX[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    float fullY[4] = { 1.0f, 1.0f, -1.0f, -1.0f };
+    scene_render_gpu_screen_quad_flat(renderer->gpu, fullX, fullY, 0.0f, 0.0f, 0.0f, 1.0f);
+
+    float l = (float)screenX, r = (float)(screenX + screenW);
+    float t = (float)screenY, b = (float)(screenY + screenH);
+    float px[4] = { r, l, l, r };
+    float py[4] = { t, t, b, b };
+    float ndcX[4], ndcY[4];
+    for (int i = 0; i < 4; i++) {
+        ndcX[i] = px[i]/ww*2.0f - 1.0f;
+        ndcY[i] = 1.0f - py[i]/wh*2.0f;
+    }
+    scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+/* "Cinema Native" debug option: fill the REAL window at its native aspect
+ * ratio -- no bars, full use of ultrawide/triple-monitor width -- WITHOUT
+ * touching the SW/HUD reference frame at all, so the HUD looks pixel-for-
+ * pixel identical to normal (non-cinema) single-player mode instead of
+ * blurry/stretched.
+ *
+ * An earlier version computed a budget-constrained logical winw/winh/
+ * scr_size for BOTH the 3D camera and the HUD canvas together (see git
+ * history if ever needed) -- HUD glyphs/sprites are rendered by the game's
+ * original sprite-scaling code into scrbuf at whatever that logical
+ * resolution was, and since scrbuf is a fixed ~256000-byte allocation (see
+ * SCRBUF_MAX_PIXELS), a wide aspect ratio forced the logical height well
+ * below the normal 400px baseline -- then upscaling that smaller canvas to
+ * fill a real window produced exactly the reported blur/zoom.
+ *
+ * The fix: build_mvp's vertical-centering correction (scene_render_gpu.c,
+ * `shift_y = (vpH*0.5 - horizon_y) / (vpH*0.5)`) is the ONLY
+ * place a SW-side reference value (winh, via ss/centerY) is coupled to the
+ * GPU's own viewport size -- there is no equivalent horizontal coupling
+ * (fovX is a pure multiplicative FOV term, no additive centering offset).
+ * So the GPU's viewport HEIGHT must still equal the SW-side winh exactly
+ * (as Part 1's letterbox pass already does), but its WIDTH can be freely
+ * widened to match the real aspect ratio without any SW-side counterpart --
+ * 3d.c's CINEMA branch now sets winw/winh/scr_size/xbase to the EXACT same
+ * values normal single-player mode uses (so scrbuf and the whole HUD/name-
+ * tag pipeline works exactly as it always has, budget concerns don't even
+ * arise since that's exactly SCRBUF_MAX_PIXELS), and this function only
+ * widens the GPU's OWN viewport width to the real aspect ratio at that same
+ * (unchanged) height. The full-window HUD texture then only stretches
+ * horizontally by the same mild ratio the 3D view widened by, not the
+ * severe uniform upscale the budget-constrained approach needed.
+ *
+ * This state persists across scene_render_gpu_end_frame (unlike the
+ * letterbox pass, which is consumed synchronously within begin/end_cinema_
+ * pass) -- callers MUST call game_render_reset_cinema_native() every frame,
+ * unconditionally, before deciding whether this frame is a Native frame, so
+ * a previous frame's override can never leak into a frame that shouldn't
+ * have it (normal windowed, mirror, 2P, letterbox-default, or Native-off). */
+void game_render_begin_cinema_native(GameRenderer *renderer, int refWinH) {
+    if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
+    if (!renderer->window || refWinH <= 0) return;
+    int realW = 0, realH = 0;
+    SDL_GetWindowSizeInPixels(renderer->window, &realW, &realH);
+    if (realW <= 0 || realH <= 0) return;
+    double ar = (double)realW / (double)realH;
+    int wideVpW = (int)((double)refWinH * ar + 0.5);
+    if (wideVpW < 1) wideVpW = 1;
+    scene_render_gpu_set_viewport(renderer->gpu, 0, 0, wideVpW, refWinH);
+}
+
+void game_render_reset_cinema_native(GameRenderer *renderer) {
+    if (!renderer) return;
+    if (renderer->mode == GAME_RENDER_GPU && renderer->gpu)
+        scene_render_gpu_set_viewport(renderer->gpu, 0, 0, 0, 0);
 }
 
 void game_render_flush_player_view(GameRenderer *renderer, int slot,

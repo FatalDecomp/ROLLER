@@ -389,6 +389,10 @@ extern int winw;
 extern int VIEWDIST;
 extern int YMAX;
 extern int XMAX;
+/* scrbuf's fixed allocation size (3d.c: scrbuf = getbuffer(SCRBUF_MAX_PIXELS)) -- exactly the
+ * max SVGA resolution (640*400) with zero headroom. Anything that sizes winw/winh-derived HUD
+ * buffers must keep winw*winh within this budget or every scrbuf write becomes a buffer overflow. */
+#define SCRBUF_MAX_PIXELS 256000
 extern int time_shown;
 extern int player2_car;
 extern int player1_car;

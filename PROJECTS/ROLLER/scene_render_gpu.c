@@ -32,7 +32,9 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_CAR_DRAWS      32   /* 16 cars × up to 2 draws each (body + shadow) */
 #define SCENE_GPU_MAX_PARTICLE_VERTS (576 * 6) /* 18 cars × 32 particles × 6 verts per quad */
 #define SCENE_GPU_MAX_TEX_RANGES     (SCENE_GPU_MAX_PARTICLE_VERTS / 6) /* one range per quad worst case */
-#define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1 */
+#define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1;
+                                          * CINEMA cheat letterbox also reuses slot 0 (mutually
+                                          * exclusive with mirror/2P per frame, see 3d.c control flow) */
 /* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
 /* Mirrors polyf.c's SHADE_PALETTE_LEVELS (5) -- shadow_poly()'s per-pixel
@@ -3241,7 +3243,28 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
             .store_op = SDL_GPU_STOREOP_STORE
         };
         SDL_GPURenderPass *hrp = SDL_BeginGPURenderPass(r->cmdBuf, &hudColor, 1, NULL);
-        SDL_SetGPUViewport(hrp, &vp);
+        /* hudVertBuf is a static full -1..1 NDC quad (no per-frame geometry
+         * update), so it always maps 1:1 onto whatever viewport it's drawn
+         * with -- if the render target is WIDER than the HUD source's own
+         * aspect ratio (hudSrcW:hudSrcH, e.g. when "Cinema Native" widens
+         * the 3D camera's FOV without touching the SW/HUD reference frame),
+         * drawing it into the full {0,0,renderW,renderH} viewport stretches
+         * the HUD horizontally. Give the HUD pass its own narrower,
+         * centered viewport matching its true aspect ratio instead -- pixels
+         * outside it are simply never touched by this pass, so the wide 3D
+         * scene from Pass 1 shows through unstretched on both sides, with
+         * an undistorted HUD in the middle (same look normal single-player
+         * mode already has, just not spanning the full wide window). */
+        SDL_GPUViewport hudVp = vp;
+        if (r->hudSrcW > 0 && r->hudSrcH > 0 && renderH > 0) {
+            float hudAspect    = (float)r->hudSrcW / (float)r->hudSrcH;
+            float targetAspect = (float)renderW / (float)renderH;
+            if (targetAspect > hudAspect) {
+                hudVp.w = (float)renderH * hudAspect;
+                hudVp.x = ((float)renderW - hudVp.w) * 0.5f;
+            }
+        }
+        SDL_SetGPUViewport(hrp, &hudVp);
         if (r->splitScreen) {
             SDL_Rect scissor = { .x = 0, .y = 0, .w = renderW / 2, .h = renderH };
             SDL_SetGPUScissor(hrp, &scissor);
