@@ -1369,7 +1369,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       {
         int bTrackBorders = (int)g_bEmulateSoftwareTrackBorders;
-        if (nk_checkbox_label(pCtx, "Emulate software track borders", &bTrackBorders)) {
+        if (nk_checkbox_label(pCtx, "Emulate transparent borders", &bTrackBorders)) {
           g_bEmulateSoftwareTrackBorders = (bool)bTrackBorders;
           game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
           InputSaveConfig();
