@@ -1264,6 +1264,18 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Pick Textures", &bPickTextures))
         g_bPickTextures = (bool)bPickTextures;
 
+      /* Nuklear can't nest disable regions -- close the outer !bGPU one,
+       * apply a combined !bGPU||!g_bPickTextures pair just for this widget,
+       * then reopen the outer region for the widgets below. */
+      if (!bGPU) nk_widget_disable_end(pCtx);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (!bGPU || !g_bPickTextures) nk_widget_disable_begin(pCtx);
+      int bPickTexturesPNG = (int)g_bPickTexturesPNG;
+      if (nk_checkbox_label(pCtx, "Pick Textures as PNG", &bPickTexturesPNG))
+        g_bPickTexturesPNG = (bool)bPickTexturesPNG;
+      if (!bGPU || !g_bPickTextures) nk_widget_disable_end(pCtx);
+      if (!bGPU) nk_widget_disable_begin(pCtx);
+
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bRenderStatsLog = (int)g_bRenderStatsLog;
       if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
