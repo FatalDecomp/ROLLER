@@ -1794,23 +1794,27 @@ void UpdateSDL()
         s_nextFrameNs = 0;
       }
 
-      if (s_targetFrameNs == 0) {
-        if (eRenderMode == GAME_RENDER_SOFTWARE) {
-          /* The legacy simulation and software renderer are designed around
-           * the game's 36 Hz tick timer. Rendering the indexed framebuffer at
-           * the monitor refresh rate only repeats frames and can consume an
-           * entire CPU core at 640x400. */
-          s_targetFrameNs = (uint64)(1e9 / 36.0);
-        } else {
-          float fRefreshHz = 60.0f;
-          if (s_pWindow) {
-            SDL_DisplayID uiDisplay = SDL_GetDisplayForWindow(s_pWindow);
-            const SDL_DisplayMode *pMode = SDL_GetCurrentDisplayMode(uiDisplay);
-            if (pMode && pMode->refresh_rate > 0.0f)
-              fRefreshHz = pMode->refresh_rate;
-          }
-          s_targetFrameNs = (uint64)(1e9 / (double)fRefreshHz);
+      if (eRenderMode == GAME_RENDER_SOFTWARE) {
+        /* Follow the active legacy tick timer rather than assuming its normal
+         * 36 Hz rate. SPEEDY and NUCLEAR reconfigure it to 50 and 100 Hz, and
+         * network setup can apply those rates as well. Rendering faster than
+         * the current tick interval only repeats the indexed framebuffer. */
+        uint64 ullTickFrameNs = ullTickIntervalNs;
+        if (ullTickFrameNs == 0)
+          ullTickFrameNs = HZ_TO_NS(36u);
+        if (s_targetFrameNs != ullTickFrameNs) {
+          s_targetFrameNs = ullTickFrameNs;
+          s_nextFrameNs = 0;
         }
+      } else if (s_targetFrameNs == 0) {
+        float fRefreshHz = 60.0f;
+        if (s_pWindow) {
+          SDL_DisplayID uiDisplay = SDL_GetDisplayForWindow(s_pWindow);
+          const SDL_DisplayMode *pMode = SDL_GetCurrentDisplayMode(uiDisplay);
+          if (pMode && pMode->refresh_rate > 0.0f)
+            fRefreshHz = pMode->refresh_rate;
+        }
+        s_targetFrameNs = (uint64)(1e9 / (double)fRefreshHz);
       }
 
       uint64 now = SDL_GetTicksNS();
