@@ -2053,7 +2053,7 @@ void init()
     tatn[i] = (float)atan(dAngle);
   }
 
-  scrbuf = getbuffer(256000u);
+  scrbuf = getbuffer(SCRBUF_MAX_PIXELS);
   LoadRecords();
 }
 
@@ -2522,6 +2522,14 @@ LABEL_30:
     goto LABEL_59;
   }
   // CHEAT_MODE_WIDESCREEN
+  bool bCinemaActive = (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0 && !paused;
+  bool bCinemaNative = bCinemaActive && g_bCinemaNative
+                     && game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU;
+  /* Unconditional every frame -- Native mode's hudW/hudH/GPU-viewport override
+   * persists across scene_render_gpu_end_frame, so any frame that ISN'T a
+   * Native frame must positively undo a possible previous frame's override
+   * rather than assume it starts clean. See game_render_reset_cinema_native. */
+  game_render_reset_cinema_native(g_pGameRenderer);
   if ((cheat_mode & CHEAT_MODE_WIDESCREEN) == 0 || paused)     // Handle single player normal/widescreen mode
   {                                             // Standard windowed mode or paused state
     if ((cheat_mode & CHEAT_MODE_WIDESCREEN) != 0) {
@@ -2545,6 +2553,27 @@ LABEL_30:
       iXMaxCopy = XMAX;
       goto LABEL_44;
     }
+  } else if (bCinemaNative) {                          // "Cinema Native" debug option: widen the
+                                                        // GPU 3D camera to the real window's native
+                                                        // aspect ratio, no bars -- see
+                                                        // game_render_begin_cinema_native's comment
+                                                        // for why the HUD/SW reference frame below
+                                                        // is deliberately left at EXACTLY the same
+                                                        // values normal single-player mode uses
+                                                        // (this is what makes the HUD render
+                                                        // pixel-for-pixel identical to normal mode
+                                                        // instead of blurry/stretched).
+    if (SVGA_ON)
+      scr_size = 128;
+    else
+      scr_size = 64;
+    winh = (200 * scr_size + 32) >> 6;
+    winw = (320 * scr_size + 32) >> 6;
+    winx = 0;
+    winy = 0;
+    xbase = 159;
+    pMainScrPtr = scrbuf;  // no offset -- fills the whole canvas, no bars to hide
+    game_render_begin_cinema_native(g_pGameRenderer, winh);
   } else {                                             // Widescreen cheat mode (cheat_mode & 0x40) and not paused
     if (SVGA_ON)
       scr_size = 64;
@@ -2570,8 +2599,20 @@ LABEL_30:
     LABEL_44:
       clear_border(0, iWinHeightPlusY, iXMaxCopy, iYMaxCopy - iWinHeightPlusY);
     }
+    /* GPU letterbox parity fix: SW already gets a real letterbox for free
+     * (scrbuf IS the visible frame there); GPU needs the shrunk 3D content
+     * rendered into its own texture and composited into the (winx,winy,
+     * winw,winh) sub-rect with real opaque black bars -- see
+     * game_render_begin_cinema_pass's comment. */
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU)
+      game_render_begin_cinema_pass(g_pGameRenderer, winw, winh);
   }
   draw_road(pMainScrPtr, ViewType[0], DriveView[0], -1, 0);// Draw main road view
+  if (bCinemaActive && !bCinemaNative
+      && game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+    game_render_end_cinema_pass(g_pGameRenderer, winw * 2, winh * 2);
+    game_render_composite_cinema_view(g_pGameRenderer, winx, winy, winw, winh);
+  }
   // CHEAT_MODE_WIDESCREEN
   if ((cheat_mode & CHEAT_MODE_WIDESCREEN) == 0)               // Check for widescreen cheat mode to copy to final screen
   {

@@ -92,6 +92,33 @@ void game_render_composite_mirror_pass(GameRenderer *renderer,
                                        int screenW, int screenH,
                                        bool flipH, int borderColorIdx);
 
+// CINEMA cheat letterbox (default behaviour): same secondary-view-then-
+// composite pattern as the mirror pass above, giving GPU mode a real
+// letterboxed 3D view (with opaque black bars) matching SW's own cinema
+// mode instead of always rendering full-size. In SW mode these are no-ops
+// (the existing SW scrbuf-shrink path is used). screenX/Y/W/H should be
+// winx/winy/winw/winh (the cinema sub-rect within the fixed XMAX x YMAX
+// reference frame).
+void game_render_begin_cinema_pass(GameRenderer *renderer, int winwCinema, int winhCinema);
+void game_render_end_cinema_pass(GameRenderer *renderer, int texW, int texH);
+void game_render_composite_cinema_view(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH);
+
+// "Cinema Native" debug option: widens the GPU's own 3D camera viewport to
+// the real window's native aspect ratio (no bars) at a FIXED height
+// (refWinH -- pass the same winh normal single-player mode uses), without
+// touching the SW/HUD reference frame at all, so the HUD stays pixel-for-
+// pixel identical to normal mode instead of blurry/stretched (see
+// game_render_begin_cinema_native's comment for why this is safe: only
+// vertical centering is coupled to a SW-side reference in build_mvp, not
+// horizontal). game_render_reset_cinema_native() MUST be called
+// unconditionally every frame before deciding whether this frame is a
+// Native frame -- its state persists across scene_render_gpu_end_frame,
+// unlike the letterbox pass above.
+void game_render_begin_cinema_native(GameRenderer *renderer, int refWinH);
+void game_render_reset_cinema_native(GameRenderer *renderer);
+
 // 2-player split screen: each player's queued draws (game_render_draw_car/
 // quad_world/etc, called with that player's own camera/projection already
 // set via draw_road) render into their own offscreen slot instead of sharing

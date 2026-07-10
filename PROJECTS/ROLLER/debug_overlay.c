@@ -1101,6 +1101,11 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
 
       if (!bGPU) nk_widget_disable_begin(pCtx);
 
+      int bCinemaNative = (int)g_bCinemaNative;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Cinema Native", &bCinemaNative))
+        g_bCinemaNative = (bool)bCinemaNative;
+
       int bSplit = game_render_is_split_screen(g_pGameRenderer);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Split view (SW/HW)", &bSplit)) {
