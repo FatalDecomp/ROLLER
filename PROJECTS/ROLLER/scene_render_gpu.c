@@ -3953,16 +3953,24 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
     }
 
     /* --- Pair textures: tile N (left) + tile N+1 (right), used for walls ---
-     * SW's polyt reads atlas UV 0..128 from tile N's base pointer, addressed
-     * as flat contiguous memory (pTex[y*width+x]), with no per-tile bounds
-     * checking. For last-column tiles this "wraps" past the row's right edge
-     * -- but since tiles are numbered row-major matching that exact memory
-     * layout, tile N+1 (col=0, row=row_n+1) IS precisely where that wrap
-     * lands. So reading tile N+1's natural row-major position, unconditionally,
-     * already reproduces SW's real read for every case, last-column included
-     * -- no special-casing needed. Mirroring tile N onto itself for last-column
-     * tiles instead (to avoid what looks like a bleed artifact) discards the
-     * genuine tile N+1 content those tiles are supposed to show. */
+     * SW's polyt reads both tiles through a SINGLE base pointer (tile N's own
+     * address) with a 128-wide flat read (pTex[y*width+x], width fixed at
+     * 256 regardless of tile size) and no per-tile bounds checking -- it
+     * never actually looks up a second tile's address at all. For a
+     * non-last-column tile this flat read still lines up perfectly with
+     * tile N+1's own block (column offset col_n*tileSize+tileSize equals
+     * (col_n+1)*tileSize, i.e. tile N+1's left edge, unshifted). For a
+     * LAST-column tile, though, col_n*tileSize+tileSize lands exactly on
+     * width (256) -- one full atlas row-stride -- so every row of the
+     * "right" read actually comes from ONE ROW DOWN in tile (row_n, col=0)
+     * (the first tile of tile N's own row), not from tile N+1 at all, except
+     * for the tile's very last row, which spills past the row-stride
+     * boundary into tile (row_n+1, col=0)'s first row. Reproduced exactly
+     * below rather than approximated as a whole-tile substitution, since
+     * whichever whole tile is picked (tile N mirrored, or tile N+1 whole)
+     * only matches by coincidence when neighbouring tiles happen to look
+     * alike -- it visibly fails when they don't (e.g. a pit-lane floor tile
+     * whose row starts with an unrelated grass tile at column 0). */
     int pairW = 2 * tileSize;
     uint8 *pairRgba = uploadOk ? malloc((size_t)(pairW * tileSize * 4)) : NULL;
     if (pairRgba) {
@@ -3971,10 +3979,18 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
             int row_n  = n / tilesPerRow;
             int col_r  = (n + 1) % tilesPerRow;
             int row_r  = (n + 1) / tilesPerRow;
+            bool lastCol = (col_n == tilesPerRow - 1);
 
             for (int y = 0; y < tileSize; y++) {
                 int srcRowL = row_n * tileSize + y;
-                int srcRowR = row_r * tileSize + y;
+                int srcRowR, srcColR;
+                if (lastCol) {
+                    if (y < tileSize - 1) { srcRowR = row_n * tileSize + (y + 1); srcColR = 0; }
+                    else                  { srcRowR = (row_n + 1) * tileSize;    srcColR = 0; }
+                } else {
+                    srcRowR = row_r * tileSize + y;
+                    srcColR = col_r * tileSize;
+                }
                 for (int x = 0; x < tileSize; x++) {
                     int srcOff = (srcRowL * width + col_n * tileSize + x) * 4;
                     int dstOff = (y * pairW + x) * 4;
@@ -3982,7 +3998,7 @@ SceneTextureHandle scene_render_gpu_load_texture(SceneRendererGPU *r,
                     pairRgba[dstOff+1] = atlasRgba[srcOff+1];
                     pairRgba[dstOff+2] = atlasRgba[srcOff+2];
                     pairRgba[dstOff+3] = atlasRgba[srcOff+3];
-                    srcOff = (srcRowR * width + col_r * tileSize + x) * 4;
+                    srcOff = (srcRowR * width + srcColR + x) * 4;
                     dstOff = (y * pairW + tileSize + x) * 4;
                     pairRgba[dstOff+0] = atlasRgba[srcOff+0];
                     pairRgba[dstOff+1] = atlasRgba[srcOff+1];
@@ -4924,15 +4940,24 @@ static void save_picked_texture_png(const SceneGPUTextureSlot *slot, int surfIdx
     uint8 *buf = malloc((size_t)outW * tileSize * 4);
     if (!buf) return;
 
-    /* Tile N+1's natural row-major position -- matches SW's real flat-memory
-     * read exactly, last-column tiles included (see the comment above the
-     * real pairTextures[] build in scene_render_gpu_load_texture for why no
-     * special-casing is needed here). */
+    /* Matches SW's real flat-memory read exactly (see the comment above the
+     * pairTextures[] build in scene_render_gpu_load_texture): non-last-column
+     * tiles map cleanly onto tile N+1's own block, but a last-column tile's
+     * "right" read is actually tile (row_n, col=0) shifted down one row,
+     * with only the bottom row spilling into tile (row_n+1, col=0). */
     int col_r = (surfIdx + 1) % tilesPerRow;
     int row_r = (surfIdx + 1) / tilesPerRow;
+    bool lastCol = (col_n == tilesPerRow - 1);
     for (int y = 0; y < tileSize; y++) {
         int srcRowL = row_n * tileSize + y;
-        int srcRowR = row_r * tileSize + y;
+        int srcRowR, srcColR;
+        if (lastCol) {
+            if (y < tileSize - 1) { srcRowR = row_n * tileSize + (y + 1); srcColR = 0; }
+            else                  { srcRowR = (row_n + 1) * tileSize;    srcColR = 0; }
+        } else {
+            srcRowR = row_r * tileSize + y;
+            srcColR = col_r * tileSize;
+        }
         for (int x = 0; x < tileSize; x++) {
             size_t srcOff = ((size_t)srcRowL * atlasW + col_n * tileSize + x) * 4;
             size_t dstOff = ((size_t)y * outW + x) * 4;
@@ -4940,7 +4965,7 @@ static void save_picked_texture_png(const SceneGPUTextureSlot *slot, int surfIdx
         }
         if (isPair) {
             for (int x = 0; x < tileSize; x++) {
-                size_t srcOff = ((size_t)srcRowR * atlasW + col_r * tileSize + x) * 4;
+                size_t srcOff = ((size_t)srcRowR * atlasW + srcColR + x) * 4;
                 size_t dstOff = ((size_t)y * outW + tileSize + x) * 4;
                 memcpy(&buf[dstOff], &slot->atlasRgbaCopy[srcOff], 4);
             }
