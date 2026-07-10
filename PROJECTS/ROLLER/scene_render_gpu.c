@@ -4413,20 +4413,27 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     bool uIsFloorLike = fabsf(unrmZ) > sqrtf(unrmX*unrmX + unrmY*unrmY);
     bool uWindingFlip = false;
     float uWindingArea = 0.0f;
-    if (uIsFloorLike && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0) {
-        /* Plain raw-X formula, matching the state right after the tunnel-
-         * ceiling (last-column pair-mirror) fix, before tonight's uWindingFlip
-         * experimentation (2026-07-10). Several replacement formulas were
-         * tried chasing a reported idx=26 regression (a face-normal-derived
-         * "local right" projection, a hardcoded-true constant) -- each fixed
-         * idx=26 but broke or failed to explain other confirmed cases
+    if (uIsFloorLike && (surfaceFlags & SURFACE_FLAG_FLIP_BACKFACE) == 0
+                     && (surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
+        /* GATED to CONCAVE (2026-07-10): git-forensics confirmed uWindingFlip
+         * (introduced 2026-07-09, commit 203f3b0, to fix arrow-sign panels --
+         * a CONCAVE surface) never existed before that commit. A user
+         * comparison against a July 6 build (which predates this entirely)
+         * showed idx=26/66 (plain, non-CONCAVE road quads) render CORRECTLY
+         * there, using only the static effectiveFlipH-only assignment below --
+         * i.e. roads never needed a dynamic per-quad U test at all. This
+         * gate's isFloorLike condition was too broad: it also caught genuine
+         * road surfaces alongside the CONCAVE arrow-sign panels it was built
+         * for, "fixing" them into being wrong. Several replacement formulas
+         * were tried chasing the resulting idx=26 regression (a face-normal-
+         * derived "local right" projection, a hardcoded-true constant) --
+         * each fixed idx=26 but broke or failed to explain other cases
          * (idx=92 CONCAVE pit wall, idx=66, idx=116's exactly-degenerate
-         * column sums), with no single formula satisfying all of them.
-         * Reverted per explicit user request rather than keep chasing
-         * variations -- see project_gpu_backlog memory for the full
-         * multi-attempt history. idx=26/66/116 remain known, unresolved,
-         * low-priority open issues; do not re-attempt a fix here without
-         * new data. */
+         * column sums) -- because the real fix was never a better formula,
+         * it was narrowing WHEN this runs at all. Non-CONCAVE quads now
+         * always fall through to the static assignment below, matching the
+         * confirmed-correct pre-203f3b0/July-6 behavior exactly. See
+         * project_gpu_backlog memory for the full multi-attempt history. */
         uWindingArea = (verts[0].x + verts[3].x) - (verts[1].x + verts[2].x);
         if (uWindingArea < 0.0f) uWindingFlip = true;
     }
@@ -4436,22 +4443,34 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
     float uB = (effectiveFlipH != uWindingFlip) ? uMaxN : 0.0f;
     cu[0] = uT; cu[3] = uT;
     cu[1] = uB; cu[2] = uB;
-    if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
-        /* CONCAVE panels (ceiling lights, tunnel ends): col01Left is unstable
-         * for horizontal surfaces — bypass it like Z-face bypasses row01Bot.
-         * flipH only affects U (startsx) in SW, never startsy.
-         *
-         * Vertex winding (vnrmY sign) genuinely differs between two physical
-         * placements of the same tile (idx=8), but swapping vL/vR based on its sign
-         * was tried and did NOT fix a confirmed-wrong instance -- the winding
-         * difference is real but not the cause of that bug (a separate
-         * texture-selection issue, since fixed -- see wallFrontFacing in the main
-         * function). Kept as a diagnostic only. */
-        float vex1x = verts[1].x-verts[0].x, vex1z = verts[1].z-verts[0].z;
-        float vex2x = verts[3].x-verts[0].x, vex2z = verts[3].z-verts[0].z;
-        float vnrmY = vex1z*vex2x - vex1x*vex2z;
-        s_lastUV.vSwap = false;
-        s_lastUV.vNrmY = vnrmY;
+    if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0 || uIsFloorLike) {
+        /* col01Left is unstable for horizontal surfaces — bypass it like
+         * Z-face bypasses row01Bot. Originally gated to CONCAVE only
+         * (ceiling lights, tunnel ends), but the instability is really about
+         * being floor-like (near-horizontal), not about CONCAVE specifically.
+         * Confirmed as a genuine, long-standing (pre-dating this session's
+         * uWindingFlip work entirely) bug on a non-CONCAVE pit-lane road
+         * quad (idx=126/128): user verified the same V-flip need is present
+         * even in a July 6 build, ruling out any of tonight's changes as the
+         * cause -- this is purely col01Left's own screen-space instability
+         * for floor-like quads, unrelated to the separate uWindingFlip/U-axis
+         * investigation. Widened to "CONCAVE || uIsFloorLike" so any
+         * near-horizontal quad gets the stable fixed-index+flipV assignment,
+         * regardless of the CONCAVE flag. flipH only affects U (startsx) in
+         * SW, never startsy. */
+        if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0) {
+            /* Vertex winding (vnrmY sign) genuinely differs between two physical
+             * placements of the same tile (idx=8), but swapping vL/vR based on its sign
+             * was tried and did NOT fix a confirmed-wrong instance -- the winding
+             * difference is real but not the cause of that bug (a separate
+             * texture-selection issue, since fixed -- see wallFrontFacing in the main
+             * function). Kept as a diagnostic only. */
+            float vex1x = verts[1].x-verts[0].x, vex1z = verts[1].z-verts[0].z;
+            float vex2x = verts[3].x-verts[0].x, vex2z = verts[3].z-verts[0].z;
+            float vnrmY = vex1z*vex2x - vex1x*vex2z;
+            s_lastUV.vSwap = false;
+            s_lastUV.vNrmY = vnrmY;
+        }
 
         /* V assigned by fixed vertex index (v0,v1=top; v2,v3=bottom) with
          * flipV as the only swap, matching SW's startsy[] default -- this is
@@ -4484,12 +4503,11 @@ static void compute_uv_pair_x(SceneRendererGPU *r, const SceneRenderVertex verts
          * non-self-intersecting split -- the standard convex-quad-diagonal test.
          * Deliberately not the full twpolym port (tried twice, reverted both times,
          * see project_gpu_backlog memory): this only changes which triangles get
-         * formed, never UV values. Gated to uIsFloorLike, same reasoning as
-         * uWindingFlip above, so ceiling lights/tunnel ends (non-floor-like CONCAVE)
-         * aren't affected. In practice this diagnostic has not yet found a case
-         * where the split actually needed to change -- kept for future
-         * investigation, not a confirmed-necessary fix. */
-        if (uIsFloorLike) {
+         * formed, never UV values. Scoped to actual CONCAVE quads only (not just
+         * uIsFloorLike) -- genuinely convex quads (plain roads) don't have a
+         * twisted-triangulation problem to begin with; either diagonal tiles
+         * them correctly. */
+        if ((surfaceFlags & SURFACE_FLAG_CONCAVE) != 0 && uIsFloorLike) {
             const float (*SM)[3] = r->proj.view;
             float sgsx[4], sgsy[4];
             for (int vi = 0; vi < 4; vi++) {
