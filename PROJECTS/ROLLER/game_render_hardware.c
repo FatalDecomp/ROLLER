@@ -12,8 +12,9 @@
 #include "func3.h"       /* tBlockHeader */
 #include "frontend.h"    /* human_control, racers */
 #include "moving.h"      /* replaytype */
-#include "control.h"     /* getgroundz(), calculateseparatedcoordinatesystem() — real terrain queries, chunk-local coords */
+#include "control.h"     /* getgroundz(), getroadz(), calculateseparatedcoordinatesystem() — real terrain queries, chunk-local coords */
 #include "function.h"    /* getbankz() */
+#include "loadtrak.h"    /* TrackInfo[], tTrackInfo — shoulder widths, surface types, roof height */
 
 #include <SDL3/SDL.h>
 #include <stdlib.h>
@@ -670,24 +671,109 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             vertBuf, mesh->indexBuf, mesh->atlas,
             0, mesh->bodyIndexCount, mvp);
 
-        /* Shadow: replicate car.c:1396-1430's branch choice for this car's
-         * own airborne shadow. SW only switches to the flattened, de-banked
-         * calculateseparatedcoordinatesystem() frame when GroundColour[][2]
-         * >= 2 AND the car isn't AI-controlled (iControlType == 3) -- that
-         * specific condition was confirmed via live breakpoint debugging on
-         * the "insane ramp" case. Using the separated-system frame
-         * unconditionally (an earlier version of this fix) matched that one
-         * ramp but caused visible wobble on ordinary jumps: those take
-         * car.c's OTHER branch (plain getbankz/plane-eq against the chunk's
-         * own regular frame), which is smooth chunk-to-chunk, unlike the
-         * separated frame's chunk-pair-derived tangent. */
+        /* Shadow: replicate car.c:1339-1431's full branch choice for this
+         * car's own airborne shadow (3 cases, matching SW exactly):
+         *  1. GroundColour[][2] == -2: "underground check" -- direct height
+         *     lookup (getbankz/getgroundz/getroadz), no plane fit.
+         *  2. Otherwise, if the car is laterally within track+shoulder bounds
+         *     and close to the road surface (or GroundColour[][2] == -1):
+         *     direct road/ground height again -- this is what makes the
+         *     shadow reappear right at touchdown instead of relying on a
+         *     plane fit from the chunk the car launched from.
+         *  3. Otherwise, the plane-equation fallback: separated (de-banked)
+         *     frame if GroundColour[][2] >= 2 AND the car isn't AI-controlled
+         *     (iControlType == 3), else the plain frame. The separated
+         *     frame's chunk-pair-derived tangent is less smooth chunk-to-
+         *     chunk than the regular frame's own orientation, so it must
+         *     stay gated to this case only or ordinary jumps get visible
+         *     wobble. */
         int shadowChunk = Car[carIdx].iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
             float wx = M[12], wy = M[13], wz = M[14];
-            bool useSeparated = !(GroundColour[shadowChunk][2] < 2 || Car[carIdx].iControlType == 3);
+            const tData *sd0 = &localdata[shadowChunk];
+            const tTrackInfo *ti0 = &TrackInfo[shadowChunk];
+            float p3x0 = sd0->pointAy[3].fX, p3y0 = sd0->pointAy[3].fY, p3z0 = sd0->pointAy[3].fZ;
+            float relX0 = wx + p3x0, relY0 = wy + p3y0, relZ0 = wz + p3z0;
+            /* Full 3-term world->local transform (matches car.c's carlocal[]
+             * exactly, unlike the abbreviated 2-term version the plain branch
+             * below uses) -- needed for the bounds/tunnel tests that pick
+             * which of SW's 3 branches applies. */
+            float localX0 = sd0->pointAy[0].fX*relX0 + sd0->pointAy[1].fX*relY0 + sd0->pointAy[2].fX*relZ0;
+            float localY0 = sd0->pointAy[0].fY*relX0 + sd0->pointAy[1].fY*relY0 + sd0->pointAy[2].fY*relZ0;
+            float localZ0 = sd0->pointAy[0].fZ*relX0 + sd0->pointAy[1].fZ*relY0 + sd0->pointAy[2].fZ*relZ0;
+
+            /* Tunnel check (car.c:1317-1329): true only under a roofed
+             * section (surface type 5/6/9) below its roof height, on
+             * whichever side of centerline the car sits. */
+            bool tunnel = false;
+            if (localY0 <= 0.0f) {
+                if (-sd0->fTrackHalfWidth < localY0 &&
+                    (ti0->iRightSurfaceType == 5 || ti0->iRightSurfaceType == 6 || ti0->iRightSurfaceType == 9) &&
+                    localZ0 < ti0->fRoofHeight)
+                    tunnel = true;
+            } else if (localY0 < sd0->fTrackHalfWidth) {
+                if ((ti0->iLeftSurfaceType == 5 || ti0->iLeftSurfaceType == 6 || ti0->iLeftSurfaceType == 9) &&
+                    localZ0 < ti0->fRoofHeight)
+                    tunnel = true;
+            }
+
+            int iGroundColorType = GroundColour[shadowChunk][2];
+            bool havePointHeight = false;
+            float pointHeight = 0.0f;
+
+            if (iGroundColorType == -2) {
+                /* Underground check (car.c:1339-1363): SW clamps each shadow
+                 * corner independently against whichever height source
+                 * applies at that corner, with no plane fit at all. This
+                 * single-point stand-in evaluates the same branch choice
+                 * once, at the car's own position, consistent with how the
+                 * plain/separated branches below already treat the shadow as
+                 * one flat plane rather than 4 independently-clamped corners. */
+                bool outsideShoulder = (localY0 > sd0->fTrackHalfWidth + ti0->fLShoulderWidth) ||
+                                       (localY0 < -sd0->fTrackHalfWidth - ti0->fRShoulderWidth);
+                if (tunnel)
+                    pointHeight = (float)getroadz(localX0, localY0, shadowChunk);
+                else if (outsideShoulder)
+                    pointHeight = (float)getbankz(localY0, shadowChunk, NULL);
+                else
+                    pointHeight = (float)getgroundz(localX0, localY0, shadowChunk);
+                havePointHeight = true;
+            } else {
+                /* On-track check (car.c:1364-1385): true once GroundColour[][2]
+                 * == -1, or once the car sits laterally within track+shoulder
+                 * bounds AND close enough to the road surface (roadheight -
+                 * 400 <= carZ) -- i.e. right around touchdown. Using the
+                 * direct road/ground height here (no plane) is what actually
+                 * restores the shadow just before landing: the plain/
+                 * separated branches below fit a plane from the chunk the car
+                 * launched from, which can be far off the true height by the
+                 * time a long jump lands several chunks later. */
+                bool withinBounds = (localY0 <= sd0->fTrackHalfWidth + ti0->fLShoulderWidth) &&
+                                     (localY0 >= -sd0->fTrackHalfWidth - ti0->fRShoulderWidth);
+                float roadHeight = tunnel ? (float)getroadz(localX0, localY0, shadowChunk)
+                                          : (float)getgroundz(localX0, localY0, shadowChunk);
+                bool onTrack = (iGroundColorType == -1);
+                if (!onTrack && withinBounds &&
+                    (TrakColour[shadowChunk][Car[carIdx].iLaneType] & SURFACE_FLAG_SKIP_RENDER) == 0 &&
+                    roadHeight - 400.0f <= localZ0)
+                    onTrack = true;
+                if (onTrack) {
+                    pointHeight = roadHeight;
+                    havePointHeight = true;
+                }
+            }
+
+            bool useSeparated = !havePointHeight && !(GroundColour[shadowChunk][2] < 2 || Car[carIdx].iControlType == 3);
             float groundZ, sxA, syA;
 
-            if (useSeparated) {
+            if (havePointHeight) {
+                /* Convert the local-frame height back to world Z the same
+                 * way the separated branch does (dot with the local "up"
+                 * axis's world-space representation), just sourced from the
+                 * regular chunk frame instead of the debanked one. */
+                groundZ = sd0->pointAy[2].fX*localX0 + sd0->pointAy[2].fY*localY0 + sd0->pointAy[2].fZ*pointHeight - p3z0;
+                sxA = 0.0f; syA = 0.0f;
+            } else if (useSeparated) {
                 tData tempData;
                 calculateseparatedcoordinatesystem(shadowChunk, &tempData);
                 const tData *sd = &tempData;
@@ -732,6 +818,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
             Mshadow[12]=wx;             Mshadow[13]=wy;
             Mshadow[14]=groundZ - fZLow;
             Mshadow[15]=1.0f;
+
             float shadowMvp[16];
             mat4_mul(shadowMvp, vp, Mshadow);
             scene_render_gpu_queue_car_shadow_draw(scene,
