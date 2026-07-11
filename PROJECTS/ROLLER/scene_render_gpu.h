@@ -37,6 +37,7 @@ void scene_render_gpu_discard_queued(SceneRendererGPU *r);
 
 void scene_render_gpu_set_viewport(SceneRendererGPU *r,
                                    int x, int y, int w, int h);
+
 void scene_render_gpu_set_camera(SceneRendererGPU *r,
                                  const SceneRenderCamera *cam);
 void scene_render_gpu_set_projection(SceneRendererGPU *r,
@@ -141,6 +142,17 @@ void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filt
 void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16]);
 int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);
 
+/* Project an already-camera-space point (fvx,fvy,fvz -- the same R·(world-cam)
+ * coordinates the SW vk1-9 transform produces) to NDC, using the SAME FOV/
+ * viewport math as the real 3D scene (build_mvp), rather than a SW-pixel-space
+ * (scrX/scrY) intermediate -- see the definition for why that intermediate
+ * breaks in "Render Scale (native)" mode. Returns false (leaves outNdcX/Y
+ * untouched) if fvz <= 0 (point behind camera). */
+bool scene_render_gpu_project_to_ndc(const SceneRendererGPU *r,
+                                     double fvx, double fvy, double fvz,
+                                     float *outNdcX, float *outNdcY);
+
+
 /* Queue a flat-colour screen-space quad for the particle pass.
  * ndcX[4], ndcY[4]: NDC coordinates of the four corners (v0=top-right, v1=top-left,
  * v2=bottom-left, v3=bottom-right; same winding as tPolyParams SW quads).
@@ -161,6 +173,14 @@ void scene_render_gpu_set_particle_ndcz_pervertex(SceneRendererGPU *r, const flo
 
 /* Return the GPU texture for tile_idx within slot tex_idx, or NULL if out of range. */
 SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
+
+/* Cached flat-colour texture for a palette index (built once per index, reused
+ * after). Use via screen_quad_textured (NOT screen_quad_flat) for any UI
+ * element that must draw correctly in 2-player mode: flat-particle quads draw
+ * as a whole batch BEFORE textured-particle quads in the same render pass
+ * regardless of queue order, and each player's composited view is itself an
+ * opaque textured quad -- a flat quad queued earlier gets painted over. */
+SDL_GPUTexture *scene_render_gpu_get_flat_color_texture(SceneRendererGPU *r, int colorIdx);
 
 /* Return the particle-variant tile texture (palette index 0 = opaque white) for tile_idx.
  * Only cargen (tex_idx 18) has a particle variant; other slots fall back to the normal tile. */

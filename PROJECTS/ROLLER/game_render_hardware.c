@@ -8,7 +8,8 @@
 #include "3d.h"          /* cartex_vga[], Car[], localdata[], CarBox, g_pGameRenderer, names_on, winw/winh, viewx/y/z, xbase/ybase, scr_size, VIEWDIST, tcos/tsin, mirror, intro */
 #include "transfrm.h"    /* vk1-vk9 */
 #include "drawtrk3.h"    /* NamesLeft */
-#include "func2.h"       /* mini_prt_string, language_buffer, screen_pointer */
+#include "func2.h"       /* mini_prt_string, language_buffer, screen_pointer, ascii_conv3 */
+#include "func3.h"       /* tBlockHeader */
 #include "frontend.h"    /* human_control, racers */
 #include "moving.h"      /* replaytype */
 #include "control.h"     /* getgroundz(), calculateseparatedcoordinatesystem() — real terrain queries, chunk-local coords */
@@ -62,16 +63,101 @@ struct GameRendererHardware {
     GRHWCarMesh    meshes[GAME_RENDER_HW_NUM_CARS];
 };
 
-/* Smoothed scrY for each car's name tag (EMA filter, -1 = uninitialised).
+/* Smoothed scrX/scrY for each car's name tag (EMA filter, -1 = uninitialised).
  * Keyed by [viewSlot][carIdx]: in 2-player mode the same car's tag is drawn
  * once per player's view (from that player's own camera), so a single
  * carIdx-only array would blend two unrelated camera-relative computations
  * together via the EMA -- see [[project_car_name_tags]]. */
 #define GAME_RENDER_HW_MAX_VIEW_SLOTS 2
+static int s_tagScrX[GAME_RENDER_HW_MAX_VIEW_SLOTS][GAME_RENDER_HW_NUM_CARS] = {
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 },
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }
+};
 static int s_tagScrY[GAME_RENDER_HW_MAX_VIEW_SLOTS][GAME_RENDER_HW_NUM_CARS] = {
     { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 },
     { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }
 };
+
+void game_render_hw_reset_name_tags(void)
+{
+    for (int slot = 0; slot < GAME_RENDER_HW_MAX_VIEW_SLOTS; slot++) {
+        for (int car = 0; car < GAME_RENDER_HW_NUM_CARS; car++) {
+            s_tagScrX[slot][car] = -1;
+            s_tagScrY[slot][car] = -1;
+        }
+    }
+}
+
+/* Cached per-car name-tag label texture, so real GPU billboards (depth-tested
+ * against the actual scene, unlike the old flat scrbuf-HUD text draw) don't
+ * need to rasterise glyphs every frame -- only when the label string itself
+ * changes (name/position rarely change frame to frame). Composed from the
+ * exact same glyph data mini_prt_string used (ascii_conv3 + rev_vga[0]), so
+ * it looks pixel-identical to the old SW-drawn text. */
+#define GAME_RENDER_HW_TAG_LABEL_MAX 32
+typedef struct {
+    char            label[GAME_RENDER_HW_TAG_LABEL_MAX];
+    SDL_GPUTexture *tex;
+    int             texW, texH;
+} GRHWTagLabelCache;
+static GRHWTagLabelCache s_tagLabelCache[GAME_RENDER_HW_NUM_CARS];
+
+/* Composes `label` into cache->tex if it differs from what's already cached
+ * for this car. Returns false (cache left as-is) if the label is empty or
+ * the atlas glyph data can't produce a non-empty bitmap -- caller should
+ * skip drawing the tag text in that case. */
+static bool ensure_tag_label_texture(SDL_GPUDevice *device, const char *label,
+                                     GRHWTagLabelCache *cache)
+{
+    if (cache->tex && strncmp(cache->label, label, GAME_RENDER_HW_TAG_LABEL_MAX) == 0)
+        return true;
+
+    int totalW = 0, maxH = 0;
+    for (const char *s = label; *s; s++) {
+        uint8 ci = (uint8)ascii_conv3[(uint8)*s];
+        if (ci == 255) { totalW += 4; continue; }
+        const tBlockHeader *g = &rev_vga[0][ci];
+        totalW += g->iWidth;
+        if (g->iHeight > maxH) maxH = g->iHeight;
+    }
+    if (totalW <= 0 || maxH <= 0) return false;
+
+    uint8 *rgba = calloc((size_t)totalW * (size_t)maxH, 4);
+    if (!rgba) return false;
+
+    int penX = 0;
+    for (const char *s = label; *s; s++) {
+        uint8 ci = (uint8)ascii_conv3[(uint8)*s];
+        if (ci == 255) { penX += 4; continue; }
+        const tBlockHeader *g = &rev_vga[0][ci];
+        const uint8 *bitmap = (const uint8 *)rev_vga[0] + g->iDataOffset;
+        for (int row = 0; row < g->iHeight; row++) {
+            for (int col = 0; col < g->iWidth; col++) {
+                uint8 idx = bitmap[row * g->iWidth + col];
+                if (!idx) continue; /* transparent, matches SW's "0 = don't draw" */
+                const tColor *c = &palette[idx];
+                uint8 *px = &rgba[((size_t)row * totalW + (penX + col)) * 4];
+                px[0] = (uint8)(c->byR * 255 / 63);
+                px[1] = (uint8)(c->byG * 255 / 63);
+                px[2] = (uint8)(c->byB * 255 / 63);
+                px[3] = 255;
+            }
+        }
+        penX += g->iWidth;
+    }
+
+    SDL_GPUTexture *newTex = scene_render_gpu_upload_rgba(device, rgba, totalW, maxH, false);
+    free(rgba);
+    if (!newTex) return false;
+
+    if (cache->tex) SDL_ReleaseGPUTexture(device, cache->tex);
+    cache->tex  = newTex;
+    cache->texW = totalW;
+    cache->texH = maxH;
+    strncpy(cache->label, label, GAME_RENDER_HW_TAG_LABEL_MAX - 1);
+    cache->label[GAME_RENDER_HW_TAG_LABEL_MAX - 1] = 0;
+    return true;
+}
 
 /* ==========================================================================
  * Car texture atlas
@@ -451,6 +537,10 @@ void game_render_hw_destroy(GameRendererHardware *r)
         if (m->indexBuf)  SDL_ReleaseGPUBuffer(r->device, m->indexBuf);
         if (m->atlas)     SDL_ReleaseGPUTexture(r->device, m->atlas);
     }
+    for (int i = 0; i < GAME_RENDER_HW_NUM_CARS; i++) {
+        if (s_tagLabelCache[i].tex) SDL_ReleaseGPUTexture(r->device, s_tagLabelCache[i].tex);
+        s_tagLabelCache[i] = (GRHWTagLabelCache){0};
+    }
     free(r);
 }
 
@@ -668,7 +758,7 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
     if (viewSlot < 0 || viewSlot >= GAME_RENDER_HW_MAX_VIEW_SLOTS) viewSlot = 0;
 
     tCar *pCar = &Car[carIdx];
-    if (pCar->byStatusFlags & 2) { s_tagScrY[viewSlot][carIdx] = -1; return; }
+    if (pCar->byStatusFlags & 2) { s_tagScrX[viewSlot][carIdx] = -1; s_tagScrY[viewSlot][carIdx] = -1; return; }
     if (!(names_on == 1 || (names_on == 2 && human_control[pCar->iDriverIdx]))) return;
 
     int carDesignIndex = pCar->byCarDesignIdx;
@@ -727,14 +817,40 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
     double fVX0 = dX0*vk1 + dY0*vk4 + dZ0*vk7;
     double fVY0 = dX0*vk2 + dY0*vk5 + dZ0*vk8;
     double fCamZ0 = dX0*vk3 + dY0*vk6 + dZ0*vk9;
-    if (fCamZ0 <= 0.0) return;
+    if (fCamZ0 <= 0.0) {
+        /* Car behind camera -- not visible this frame. Reset the smoothing
+         * state instead of leaving it frozen at its last value: otherwise,
+         * when the car comes back into view, the EMA blends from that stale
+         * position toward the real one over several frames instead of
+         * popping in fresh, which reads as the tag "sliding in" from the
+         * edge of the screen. */
+        s_tagScrX[viewSlot][carIdx] = -1;
+        s_tagScrY[viewSlot][carIdx] = -1;
+        return;
+    }
     double fClZ0 = fCamZ0 < 80.0 ? 80.0 : fCamZ0;
     int scrX = hw_d2i((double)VIEWDIST * fVX0 / fClZ0 + xbase) * scr_size >> 6;
+
+    /* Smooth scrX with an EMA (K=4), same treatment as scrY below -- raw 1/z
+     * projection noise shows up on X too (most visibly for distant cars, where
+     * a small world-space wobble maps to a disproportionate screen-space swing),
+     * and unlike scrY this had no smoothing at all before, so it jumped frame to
+     * frame. Reset instantly on large deltas (car first appearing, large jump). */
+    {
+        int prev = s_tagScrX[viewSlot][carIdx];
+        int delta = (prev < 0) ? (winw + 1) : (scrX - prev);
+        if (delta < 0) delta = -delta;
+        if (prev < 0 || delta > winw / 4)
+            s_tagScrX[viewSlot][carIdx] = scrX;
+        else
+            s_tagScrX[viewSlot][carIdx] = (3 * prev + scrX + 2) / 4;
+        scrX = s_tagScrX[viewSlot][carIdx];
+    }
 
     /* scrY from same centre-top point as scrX.  The old approach scanned four
      * hitbox corners and took the highest-projecting one; as the car rotates
      * different corners win, producing visible Y jitter.  The centre point is
-     * yaw-independent so scrY is smooth without needing EMA. */
+     * yaw-independent, but residual 1/z noise still needs the EMA below. */
     double sY0 = (double)VIEWDIST * fVY0 / fClZ0 + ybase;
     int scrY = (scr_size * (199 - hw_d2i(sY0))) >> 6;
 
@@ -751,6 +867,20 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
         scrY = s_tagScrY[viewSlot][carIdx];
     }
 
+    /* Real GPU billboard from here on: a screen-space, depth-tested quad (the
+     * same mechanism smoke/particle quads already use -- scene_render_gpu_
+     * screen_quad_textured/flat + set_particle_ndcz), NOT the old flat
+     * scrbuf-HUD text draw. SW's own name tags have no depth/occlusion
+     * concept at all (matches DisplayCarWithPose, car.c ~2061-2147), so real
+     * occlusion behind walls is a GPU-only enhancement, not a SW-parity fix
+     * -- but unlike an earlier CPU depth-readback attempt at the same thing,
+     * this gets real hardware depth testing with no staleness/sync risk,
+     * since it's just another queued draw in the same per-view pass cars/
+     * signs/trees already use (so 2P/mirror "for free" too). */
+    SceneRendererGPU *gpu = game_render_get_gpu(g_pGameRenderer);
+    SDL_GPUDevice *device = game_render_get_device(g_pGameRenderer);
+    if (!gpu || !device) return;
+
     /* Build label string: "NAME (POS)". */
     char tagLabel[32];
     if (pCar->byRacePosition < racers - 1 || racers == 1)
@@ -759,38 +889,88 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
     else
         sprintf(tagLabel, "%s (%s)", driver_names[carIdx], &language_buffer[1344]);
 
-    int iNameWidth = 0;
-    for (int i = 0; tagLabel[i]; i++) iNameWidth += 5;
-    int iNameHalfWidth = iNameWidth / 2;
+    if (!ensure_tag_label_texture(device, tagLabel, &s_tagLabelCache[carIdx]))
+        return;
+    int texW = s_tagLabelCache[carIdx].texW;
+    int texH = s_tagLabelCache[carIdx].texH;
 
-    int iDisplayX = mirror ? scrX + iNameHalfWidth : scrX - iNameHalfWidth;
-    int iDisplayY = scrY - 16;
+    /* Text's TOP edge sits at a fixed scrY-16 offset (matches the old
+     * iDisplayY = scrY - 16 convention exactly -- that -16 is a fixed margin
+     * above the anchor, not "the text is 16px tall"), extending down by the
+     * label's own real height; the triangle marker below occupies scrY-7 to
+     * scrY-1, so this leaves the same gap between text and triangle the old
+     * SW-drawn text had. Centred horizontally on scrX -- no mirror-direction
+     * handling needed here (unlike the old mini_prt_string_rev asymmetric
+     * left/right-edge anchor) since a centred quad doesn't care which way
+     * text used to be drawn; mirror is instead handled below as a genuine
+     * horizontal flip of the quad itself, so the text still reads correctly
+     * in the rearview mirror's flipped camera. */
+    float leftOff = -(float)(texW / 2), rightOff = leftOff + (float)texW;
+    float topOff  = -16.0f,             bottomOff = topOff + (float)texH;
+    if (scrX + rightOff <= 0 || scrX + leftOff >= winw
+        || scrY + bottomOff <= 0 || scrY + topOff >= winh)
+        return;
 
-    if (iNameWidth <= 0) return;
-    if (iDisplayX < 0 || iDisplayX >= winw - iNameWidth) return;
-    if (iDisplayY <= 0 || iDisplayY >= winh - 16) return;
+    float zF = SCENE_GPU_FAR / (SCENE_GPU_FAR - SCENE_GPU_NEAR);
+    float zB = -(SCENE_GPU_FAR * SCENE_GPU_NEAR) / (SCENE_GPU_FAR - SCENE_GPU_NEAR);
+    float tagDepth = zF + zB / (float)fCamZ0;
 
-    int iPrevScrSize = scr_size;
-    scr_size = 64;
-    if (mirror)
-        mini_prt_string_rev(rev_vga[0], tagLabel, iDisplayX, iDisplayY);
-    else
-        mini_prt_string(rev_vga[0], tagLabel, iDisplayX, iDisplayY);
-    scr_size = iPrevScrSize;
+    /* Project each corner from an offset in the SAME camera-space coordinates
+     * (fVX0/fVY0/fClZ0) the anchor itself was derived from, inverting exactly
+     * the SW scrX/scrY pixel formulas above, then through scene_render_gpu_
+     * project_to_ndc -- NOT a scrX/winw-based NDC conversion (see that
+     * function's comment for why that breaks in "Render Scale (native)"
+     * mode: the pixel-space intermediate bakes in the SW-implied FOV, which
+     * only matches the GPU's actual FOV when the GPU viewport isn't
+     * independently widened). pixToFv converts a FINAL screen-pixel offset
+     * (texW/texH and the fixed triangle offsets below, all in real output-
+     * pixel units) into a camera-space X/Y offset at this point's depth; Y is
+     * negated since screen-down is -fV.y. The scrX/scrY formulas above have
+     * an extra "* scr_size >> 6" beyond the raw VIEWDIST*fV/fClZ0 term this
+     * inverts, so a FINAL-pixel delta needs an extra 64/scr_size factor to
+     * convert to the same "raw" units first (that factor happens to cancel
+     * back out against fovX/fovY's own scr_size dependence inside
+     * project_to_ndc, so the net result is correct at every scr_size). */
+    double pixToFv = (64.0 / (double)scr_size) * (fClZ0 / (double)VIEWDIST);
+    float ndcX[4], ndcY[4], tNdcX[4], tNdcY[4];
+    /* v0=top-right, v1=top-left, v2=bottom-left, v3=bottom-right normally;
+     * mirror swaps v0<->v1 and v2<->v3, same flip trick used elsewhere in
+     * this file's GPU code (game_render.c's picture-quad flipH). */
+    float dx4[4], dy4[4];
+    if (mirror) {
+        dx4[0]=leftOff;  dy4[0]=topOff;    dx4[1]=rightOff; dy4[1]=topOff;
+        dx4[2]=rightOff; dy4[2]=bottomOff; dx4[3]=leftOff;  dy4[3]=bottomOff;
+    } else {
+        dx4[0]=rightOff; dy4[0]=topOff;    dx4[1]=leftOff;  dy4[1]=topOff;
+        dx4[2]=leftOff;  dy4[2]=bottomOff; dx4[3]=rightOff; dy4[3]=bottomOff;
+    }
+    for (int i = 0; i < 4; i++) {
+        double cFVX = fVX0 + (double)dx4[i] * pixToFv;
+        double cFVY = fVY0 - (double)dy4[i] * pixToFv;
+        scene_render_gpu_project_to_ndc(gpu, cFVX, cFVY, fClZ0, &ndcX[i], &ndcY[i]);
+    }
+    scene_render_gpu_set_particle_ndcz(gpu, tagDepth);
+    scene_render_gpu_screen_quad_textured(gpu, ndcX, ndcY, s_tagLabelCache[carIdx].tex,
+                                          1.0f, 1.0f, 1.0f, 1.0f);
 
-    /* Coloured downward-pointing triangle above car.
-     * Uses the HUD-overlay path (SW rasterizer into scrbuf), not the regular
-     * GPU particle path: this is a HUD-style marker, not a real depth-tested
-     * particle, and drawing it as a scrbuf pixel write lets it composite
-     * correctly in split-screen modes (2-player) the same way the text above
-     * already does, with no per-view GPU render pass capture needed. */
-    CarPol.vertices[0].x = scrX + 6;  CarPol.vertices[0].y = scrY - 7;
-    CarPol.vertices[1].x = scrX - 5;  CarPol.vertices[1].y = scrY - 7;
-    CarPol.vertices[2].x = scrX;      CarPol.vertices[2].y = scrY - 1;
-    CarPol.vertices[3].x = scrX + 6;  CarPol.vertices[3].y = scrY - 7;
-    CarPol.iSurfaceType = team_col[carDesignIndex];
-    CarPol.uiNumVerts = 4;
-    game_render_quad_screen_hud(g_pGameRenderer, &CarPol, TEXTURE_HANDLE_INVALID, NULL);
+    /* Coloured downward-pointing triangle above car, same depth as the text. */
+    float ttx4[4] = { 6.0f, -5.0f, 0.0f, 6.0f };
+    float tty4[4] = { -7.0f, -7.0f, -1.0f, -7.0f };
+    for (int i = 0; i < 4; i++) {
+        double cFVX = fVX0 + (double)ttx4[i] * pixToFv;
+        double cFVY = fVY0 - (double)tty4[i] * pixToFv;
+        scene_render_gpu_project_to_ndc(gpu, cFVX, cFVY, fClZ0, &tNdcX[i], &tNdcY[i]);
+    }
+    /* Textured (not flat) so this survives 2-player mode -- see
+     * scene_render_gpu_get_flat_color_texture's comment: flat-particle quads
+     * draw as a whole batch before textured ones regardless of queue order,
+     * and each player's composited view is itself an opaque textured quad
+     * that would otherwise paint right over a flat triangle queued earlier. */
+    SDL_GPUTexture *teamTex = scene_render_gpu_get_flat_color_texture(gpu, (uint8)team_col[carDesignIndex]);
+    if (teamTex) {
+        scene_render_gpu_set_particle_ndcz(gpu, tagDepth);
+        scene_render_gpu_screen_quad_textured(gpu, tNdcX, tNdcY, teamTex, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
 }
 
 void game_render_hw_draw_fps_overlay(void)

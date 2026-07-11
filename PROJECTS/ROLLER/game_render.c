@@ -137,6 +137,11 @@ void game_render_begin_frame(GameRenderer *renderer) {
         renderer->mode           = renderer->pendingMode;
         renderer->pendingModeSet = false;
         scene_render_set_use_gpu(renderer->scene, renderer->mode == GAME_RENDER_GPU);
+        /* Name-tag EMA smoothing state goes stale whenever GPU mode isn't the
+         * one actually drawing tags -- reset on every switch (either
+         * direction) so resuming GPU mode never blends in from a stale
+         * position (see game_render_hw_reset_name_tags doc comment). */
+        game_render_hw_reset_name_tags();
     }
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_begin_frame(renderer->sw);
@@ -681,6 +686,14 @@ void game_render_quad_screen_hud(GameRenderer *renderer, tPolyParams *poly,
         ? game_render_sw_get_texture_handle(renderer->sw, tex_idx)
         : TEXTURE_HANDLE_INVALID;
     game_render_sw_quad_screen(renderer->sw, poly, swHandle, palette_remap);
+}
+
+SceneRendererGPU *game_render_get_gpu(GameRenderer *renderer) {
+    return renderer ? renderer->gpu : NULL;
+}
+
+SDL_GPUDevice *game_render_get_device(GameRenderer *renderer) {
+    return renderer ? renderer->device : NULL;
 }
 
 void game_render_quad_world(GameRenderer *renderer,
