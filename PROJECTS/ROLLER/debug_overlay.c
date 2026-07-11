@@ -1101,27 +1101,35 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
 
       if (!bGPU) nk_widget_disable_begin(pCtx);
 
-      int bCinemaNative = (int)g_bCinemaNative;
-      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-      if (nk_checkbox_label(pCtx, "Cinema Native", &bCinemaNative))
-        g_bCinemaNative = (bool)bCinemaNative;
-
       int bSplit = game_render_is_split_screen(g_pGameRenderer);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Split view (SW/HW)", &bSplit)) {
         game_render_set_split_screen(g_pGameRenderer, (bool)bSplit);
       }
 
-      static const char *apszScale[] = { "1x (native)", "1.5x", "2x", "3x" };
-      static const float k_scaleVals[] = { 1.0f, 1.5f, 2.0f, 3.0f };
-      int iCurScale = 0;
+      /* "(4:3)" entries match the game's original fixed aspect ratio (unchanged
+       * behaviour). "(native)" entries ADDITIONALLY widen the GPU's 3D camera
+       * to the real window's native aspect ratio (no bars) via g_bRenderNative
+       * -- see game_render_begin_cinema_native's comment in game_render.c.
+       * This works independently of the CINEMA cheat code (previously this
+       * was a separate "Cinema Native" checkbox gated behind the cheat; now
+       * it's always available here). */
+      static const char *apszScale[] = {
+          "1x (4:3)", "1.5x (4:3)", "2x (4:3)", "3x (4:3)",
+          "1x (native)", "1.5x (native)", "2x (native)", "3x (native)"
+      };
+      static const float k_scaleVals[]   = { 1.0f, 1.5f, 2.0f, 3.0f, 1.0f, 1.5f, 2.0f, 3.0f };
+      static const bool  k_scaleNative[] = { false, false, false, false, true, true, true, true };
+      int iBase = g_bRenderNative ? 4 : 0;
+      int iCurScale = iBase;
       for (int i = 1; i < 4; i++)
-        if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = i;
+        if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = iBase + i;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Render scale", NK_TEXT_LEFT);
       int iNewScale = nk_combo(pCtx, apszScale, NK_LEN(apszScale), iCurScale, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewScale != iCurScale) {
-        g_fRenderScale = k_scaleVals[iNewScale];
+        g_fRenderScale  = k_scaleVals[iNewScale];
+        g_bRenderNative = k_scaleNative[iNewScale];
         game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
         InputSaveConfig();
       }

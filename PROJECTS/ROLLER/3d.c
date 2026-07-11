@@ -2523,8 +2523,12 @@ LABEL_30:
   }
   // CHEAT_MODE_WIDESCREEN
   bool bCinemaActive = (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0 && !paused;
-  bool bCinemaNative = bCinemaActive && g_bCinemaNative
-                     && game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU;
+  bool bGPUMode = game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU;
+  /* Widens the GPU 3D camera to the real window's native aspect ratio (no
+   * bars) -- selected via the "(native)" Render Scale options, available
+   * independently of the CINEMA cheat code (previously this only worked
+   * while CINEMA was active, via a separate checkbox). */
+  bool bRenderNative = g_bRenderNative && bGPUMode;
   /* Unconditional every frame -- Native mode's hudW/hudH/GPU-viewport override
    * persists across scene_render_gpu_end_frame, so any frame that ISN'T a
    * Native frame must positively undo a possible previous frame's override
@@ -2553,16 +2557,22 @@ LABEL_30:
       iXMaxCopy = XMAX;
       goto LABEL_44;
     }
-  } else if (bCinemaNative) {                          // "Cinema Native" debug option: widen the
-                                                        // GPU 3D camera to the real window's native
-                                                        // aspect ratio, no bars -- see
-                                                        // game_render_begin_cinema_native's comment
-                                                        // for why the HUD/SW reference frame below
-                                                        // is deliberately left at EXACTLY the same
-                                                        // values normal single-player mode uses
-                                                        // (this is what makes the HUD render
-                                                        // pixel-for-pixel identical to normal mode
-                                                        // instead of blurry/stretched).
+    /* Widescreen support outside of the CINEMA cheat: same wide-camera
+     * mechanism as the CINEMA+native case below, layered onto otherwise
+     * completely normal single-player rendering -- see
+     * game_render_begin_cinema_native's comment (game_render.c). */
+    if (bRenderNative)
+      game_render_begin_cinema_native(g_pGameRenderer, winh);
+  } else if (bRenderNative) {                          // CINEMA active + "(native)" Render Scale:
+                                                        // widen the GPU 3D camera to the real
+                                                        // window's native aspect ratio, no bars --
+                                                        // see game_render_begin_cinema_native's
+                                                        // comment for why the HUD/SW reference
+                                                        // frame below is deliberately left at
+                                                        // EXACTLY the same values normal single-
+                                                        // player mode uses (this is what makes the
+                                                        // HUD render pixel-for-pixel identical to
+                                                        // normal mode instead of blurry/stretched).
     if (SVGA_ON)
       scr_size = 128;
     else
@@ -2604,12 +2614,11 @@ LABEL_30:
      * rendered into its own texture and composited into the (winx,winy,
      * winw,winh) sub-rect with real opaque black bars -- see
      * game_render_begin_cinema_pass's comment. */
-    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU)
+    if (bGPUMode)
       game_render_begin_cinema_pass(g_pGameRenderer, winw, winh);
   }
   draw_road(pMainScrPtr, ViewType[0], DriveView[0], -1, 0);// Draw main road view
-  if (bCinemaActive && !bCinemaNative
-      && game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+  if (bCinemaActive && !bRenderNative && bGPUMode) {
     game_render_end_cinema_pass(g_pGameRenderer, winw * 2, winh * 2);
     game_render_composite_cinema_view(g_pGameRenderer, winx, winy, winw, winh);
   }

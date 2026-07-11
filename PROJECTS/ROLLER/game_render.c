@@ -335,11 +335,13 @@ void game_render_composite_cinema_view(GameRenderer *renderer,
     scene_render_gpu_screen_quad_textured(renderer->gpu, ndcX, ndcY, tex, 1.0f, 1.0f, 1.0f, 1.0f);
 }
 
-/* "Cinema Native" debug option: fill the REAL window at its native aspect
- * ratio -- no bars, full use of ultrawide/triple-monitor width -- WITHOUT
- * touching the SW/HUD reference frame at all, so the HUD looks pixel-for-
- * pixel identical to normal (non-cinema) single-player mode instead of
- * blurry/stretched.
+/* Widescreen support: fill the REAL window at its native aspect ratio -- no
+ * bars, full use of ultrawide/triple-monitor width -- WITHOUT touching the
+ * SW/HUD reference frame at all, so the HUD looks pixel-for-pixel identical
+ * to normal single-player mode instead of blurry/stretched. Selected via the
+ * "(native)" Render Scale options (debug_overlay.c), available at any time,
+ * not just while the CINEMA cheat is active -- 3d.c calls this from BOTH the
+ * normal single-player path and the CINEMA-active path when native is on.
  *
  * An earlier version computed a budget-constrained logical winw/winh/
  * scr_size for BOTH the 3D camera and the HUD canvas together (see git

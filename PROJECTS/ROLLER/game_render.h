@@ -105,14 +105,16 @@ void game_render_composite_cinema_view(GameRenderer *renderer,
                                        int screenX, int screenY,
                                        int screenW, int screenH);
 
-// "Cinema Native" debug option: widens the GPU's own 3D camera viewport to
-// the real window's native aspect ratio (no bars) at a FIXED height
-// (refWinH -- pass the same winh normal single-player mode uses), without
-// touching the SW/HUD reference frame at all, so the HUD stays pixel-for-
-// pixel identical to normal mode instead of blurry/stretched (see
-// game_render_begin_cinema_native's comment for why this is safe: only
-// vertical centering is coupled to a SW-side reference in build_mvp, not
-// horizontal). game_render_reset_cinema_native() MUST be called
+// Widescreen support ("(native)" Render Scale options, debug_overlay.c):
+// widens the GPU's own 3D camera viewport to the real window's native aspect
+// ratio (no bars) at a FIXED height (refWinH -- pass the same winh normal
+// single-player mode uses), without touching the SW/HUD reference frame at
+// all, so the HUD stays pixel-for-pixel identical to normal mode instead of
+// blurry/stretched (see game_render_begin_cinema_native's comment for why
+// this is safe: only vertical centering is coupled to a SW-side reference in
+// build_mvp, not horizontal). Available independently of the CINEMA cheat --
+// 3d.c calls this from both the normal single-player path and the CINEMA-
+// active path. game_render_reset_cinema_native() MUST be called
 // unconditionally every frame before deciding whether this frame is a
 // Native frame -- its state persists across scene_render_gpu_end_frame,
 // unlike the letterbox pass above.
