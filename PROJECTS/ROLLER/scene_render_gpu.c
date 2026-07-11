@@ -3086,9 +3086,13 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING);
     }
-    /* Sign rendering: non-MSAA uses depth-copy pass split so signs behind canyon walls
-     * are correctly hidden; MSAA falls back to the old bias-based pipeline. */
-    if (!useMSAA && r->signDepthPipeline && r->signBkDepthPipeline && r->signDepthCopyTex) {
+    /* Sign rendering: the depth-copy split (End Pass A / snapshot depth / begin Pass B)
+     * caused issue #258 -- cars rendering through narrow walls carrying signs, primary
+     * single-player pass only (2P/mirror never used this split and never showed the bug).
+     * Disabled for now (`0 &&`) so every path uses the same bias-based pipeline that
+     * MSAA and 2P/mirror already use; kept in place, not deleted, in case the canyon-wall
+     * sign self-occlusion behavior below needs to be restored. */
+    if (0 && !useMSAA && r->signDepthPipeline && r->signBkDepthPipeline && r->signDepthCopyTex) {
         /* End Pass A, snapshot depth, begin Pass B. */
         SDL_EndGPURenderPass(rp);
         rp = NULL;
