@@ -184,6 +184,7 @@ struct SceneRendererGPU {
     SDL_GPUTexture *signDepthCopyTex; /* depth snapshot taken after BUILDING, before SIGN; sampled by sign depth-check shader */
     int             depthTexW, depthTexH;
 
+
     SDL_GPUBuffer        *vertexBuf;
     SDL_GPUTransferBuffer *vertexXfer;
     SceneGPUVertex       *vertices;      /* heap-allocated, SCENE_GPU_MAX_VERTICES */
@@ -731,6 +732,11 @@ static SDL_GPUTexture *get_flat_color_texture(SceneRendererGPU *r, int colorIdx)
     return r->flatColorCache[colorIdx];
 }
 
+SDL_GPUTexture *scene_render_gpu_get_flat_color_texture(SceneRendererGPU *r, int colorIdx)
+{
+    return r ? get_flat_color_texture(r, colorIdx) : NULL;
+}
+
 /* Build column-major 4×4 VP (= MVP for world-space geometry with identity model).
  *
  * Software renderer (drawtrk3.c) equations:
@@ -794,6 +800,40 @@ void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16])
     int vpW = r->viewportW > 0 ? r->viewportW : 640;
     int vpH = r->viewportH > 0 ? r->viewportH : 400;
     build_mvp(vp, &r->camera, &r->proj, vpW, vpH, r->fovMultiplier);
+}
+
+bool scene_render_gpu_project_to_ndc(const SceneRendererGPU *r,
+                                     double fvx, double fvy, double fvz,
+                                     float *outNdcX, float *outNdcY)
+{
+    if (!r || fvz <= 0.0) return false;
+    int vpW = r->viewportW > 0 ? r->viewportW : 640;
+    int vpH = r->viewportH > 0 ? r->viewportH : 400;
+    /* Exactly mirrors build_mvp's per-vertex math (see its comment for the
+     * derivation) for a single already-camera-space point (fvx,fvy,fvz --
+     * same R·(world-cam) coordinates the SW vk1-9 transform produces, see
+     * callers), instead of going through a SW-pixel-space (scrX/scrY)
+     * intermediate: that intermediate bakes in the SW-implied FOV, which
+     * only matches the GPU's own FOV when vpW/vpH equal winw/winh exactly --
+     * false in "Render Scale (native)" mode, which widens vpW independent of
+     * winw to show a genuinely wider FOV, not just more pixels for the same
+     * content. Projecting straight from camera-space is correct in every mode. */
+    float ss   = (float)r->proj.screenScale / 64.0f;
+    float fovX = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpW;
+    float fovY = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpH;
+    float horizon_y = ss * (199.0f - (float)r->proj.centerY);
+    float shift_y   = ((float)vpH * 0.5f - horizon_y) / ((float)vpH * 0.5f);
+    *outNdcX = (float)(fovX * fvx / fvz);
+    /* NOT negated here -- matches build_mvp exactly (see its own comment):
+     * the shader-compiler's automatic D3D-Y-up -> Vulkan-Y-down negation is
+     * applied uniformly to every vertex shader's output, including the
+     * particle/HUD shaders screen_quad_textured/flat use, so this function
+     * (like build_mvp, and like the working ndcY = 1 - y/wh*2 pattern used
+     * elsewhere for these same quads) must supply pre-negation "D3D-style" Y
+     * and let that one automatic negation do its job. Adding an explicit '-'
+     * here double-negates and flips the result upside-down. */
+    *outNdcY = (float)(fovY * fvy / fvz + (double)shift_y);
+    return true;
 }
 
 static SDL_GPUShader *load_shader(SDL_GPUDevice *dev, SDL_GPUShaderStage stage,
@@ -3060,12 +3100,16 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
     scene_render_gpu_build_vp(r, viewVP);
     SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
 
-    /* Draw order: OPAQUE → WALL → BUILDING → SIGN
+    /* Draw order: OPAQUE → WALL → BUILDING → TREE → TRACK_DARKEN → BLEND →
+     * CARS → shadows → PARTICLES → SIGN (last, in its own post-copy pass).
      * Opaque and wall establish the depth buffer for solid track geometry.
      * Building polygons follow (LESS_OR_EQUAL + small bias for coplanar decals).
-     * Signs come last so the full depth buffer is owned before they test;
-     * LESS_OR_EQUAL + large negative bias lets signs coplanar with their wall
-     * still pass, while signs behind opaque geometry are correctly rejected. */
+     * Everything else that needs to test against real scene depth (trees,
+     * track-darken, translucent blend, cars, shadows, particles) draws next,
+     * all still inside this one continuous render pass -- see #258 below for
+     * why cars in particular must never cross the sign depth-copy's pass
+     * boundary. Signs come last of all, in their own pass, so the full depth
+     * buffer (now including cars/trees/everything) is owned before they test. */
     if (r->opaquePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->opaquePipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_OPAQUE);
@@ -3086,70 +3130,12 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
         SDL_BindGPUGraphicsPipeline(rp, r->bfBuildingPipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_BF_BUILDING);
     }
-    /* Sign rendering: the depth-copy split (End Pass A / snapshot depth / begin Pass B)
-     * caused issue #258 -- cars rendering through narrow walls carrying signs, primary
-     * single-player pass only (2P/mirror never used this split and never showed the bug).
-     * Disabled for now (`0 &&`) so every path uses the same bias-based pipeline that
-     * MSAA and 2P/mirror already use; kept in place, not deleted, in case the canyon-wall
-     * sign self-occlusion behavior below needs to be restored. */
-    if (0 && !useMSAA && r->signDepthPipeline && r->signBkDepthPipeline && r->signDepthCopyTex) {
-        /* End Pass A, snapshot depth, begin Pass B. */
-        SDL_EndGPURenderPass(rp);
-        rp = NULL;
-
-        SDL_GPUCopyPass *dcp = SDL_BeginGPUCopyPass(r->cmdBuf);
-        SDL_GPUTextureLocation dcSrc = { .texture = r->depthTex };
-        SDL_GPUTextureLocation dcDst = { .texture = r->signDepthCopyTex };
-        SDL_CopyGPUTextureToTexture(dcp, &dcSrc, &dcDst, (Uint32)renderW, (Uint32)renderH, 1, false);
-        SDL_EndGPUCopyPass(dcp);
-
-        SDL_GPUColorTargetInfo colorInfoB = colorInfo;
-        colorInfoB.load_op  = SDL_GPU_LOADOP_LOAD;
-        colorInfoB.store_op = SDL_GPU_STOREOP_STORE;
-        SDL_GPUDepthStencilTargetInfo depthInfoB = {
-            .texture     = r->depthTex,
-            .load_op     = SDL_GPU_LOADOP_LOAD,
-            .store_op    = SDL_GPU_STOREOP_DONT_CARE,
-            .clear_depth = 1.0f
-        };
-        rp = SDL_BeginGPURenderPass(r->cmdBuf, &colorInfoB, 1, &depthInfoB);
-        SDL_SetGPUViewport(rp, &vp);
-        SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
-        SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
-        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
-
-        /* Each sign draw binds slot 0 (scene tex, varies per command) + slot 1
-         * (depth copy, constant for the whole pass). Slot 1 is set once here;
-         * draw_cmd_kind takes care of slot 0 (including skipping redundant
-         * rebinds) and now also benefits from the same sorted draw order as
-         * every other kind, instead of the raw unsorted queue order this
-         * used before. */
-        SDL_GPUTextureSamplerBinding signTsbSlot0 = {0};
-        SDL_GPUTextureSamplerBinding signTsbSlot1 = {
-            .texture = r->signDepthCopyTex,
-            .sampler = r->samplerNearest
-        };
-
-        SDL_BindGPUGraphicsPipeline(rp, r->signDepthPipeline);
-        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN);
-        SDL_BindGPUGraphicsPipeline(rp, r->signBkDepthPipeline);
-        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
-    } else {
-        if (r->signPipeline) {
-            SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
-            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN);
-        }
-        if (r->signBkPipeline) {
-            SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline);
-            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
-        }
-    }
     if (r->treePipeline) {
         SDL_BindGPUGraphicsPipeline(rp, r->treePipeline);
         draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_TREE);
     }
     /* Multiply-blend darken pass for TRANSPARENT non-textured track quads (glass/
-     * divider walls) -- must run after opaque/wall/building/sign/tree so there's
+     * divider walls) -- must run after opaque/wall/building/tree so there's
      * real colour underneath to darken; see trackDarkenPipeline comment. */
     SDL_GPUGraphicsPipeline *trackDarkenPipeline = track_darken_pipeline_for_draw(r);
     if (trackDarkenPipeline) {
@@ -3243,6 +3229,73 @@ void scene_render_gpu_end_frame(SceneRendererGPU *r)
                 1,
                 (Uint32)r->texParticleRanges[ri].start,
                 0);
+        }
+    }
+
+    /* Sign rendering, last of all: non-MSAA uses a depth-copy pass split so signs
+     * behind canyon walls are correctly hidden without z-fighting their own host
+     * wall; MSAA falls back to the old bias-based pipeline. This used to run right
+     * after BUILDING, with cars/trees/blend/particles drawn afterward in the same
+     * post-copy pass -- that caused issue #258 (cars rendering through narrow
+     * walls, single-player only): something about resuming a render pass on the
+     * same depth-stencil texture across an End/Copy/Begin boundary didn't reliably
+     * preserve real depth values for whatever drew after it. Moving signs to be
+     * the LAST thing drawn means every other kind (including cars) now stays
+     * entirely within the one continuous Pass A render pass, never crossing that
+     * boundary at all -- only the sign draws themselves, which don't write depth
+     * and only ever read the snapshot, are downstream of it. As a bonus, the
+     * snapshot now also includes cars/trees/blend, so signs occlude correctly
+     * against them too, not just walls/buildings. */
+    if (!useMSAA && r->signDepthPipeline && r->signBkDepthPipeline && r->signDepthCopyTex) {
+        /* End Pass A, snapshot depth, begin Pass B. */
+        SDL_EndGPURenderPass(rp);
+        rp = NULL;
+
+        SDL_GPUCopyPass *dcp = SDL_BeginGPUCopyPass(r->cmdBuf);
+        SDL_GPUTextureLocation dcSrc = { .texture = r->depthTex };
+        SDL_GPUTextureLocation dcDst = { .texture = r->signDepthCopyTex };
+        SDL_CopyGPUTextureToTexture(dcp, &dcSrc, &dcDst, (Uint32)renderW, (Uint32)renderH, 1, false);
+        SDL_EndGPUCopyPass(dcp);
+
+        SDL_GPUColorTargetInfo colorInfoB = colorInfo;
+        colorInfoB.load_op  = SDL_GPU_LOADOP_LOAD;
+        colorInfoB.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_GPUDepthStencilTargetInfo depthInfoB = {
+            .texture     = r->depthTex,
+            .load_op     = SDL_GPU_LOADOP_LOAD,
+            .store_op    = SDL_GPU_STOREOP_DONT_CARE,
+            .clear_depth = 1.0f
+        };
+        rp = SDL_BeginGPURenderPass(r->cmdBuf, &colorInfoB, 1, &depthInfoB);
+        SDL_SetGPUViewport(rp, &vp);
+        SDL_BindGPUVertexBuffers(rp, 0, &vbb, 1);
+        SDL_PushGPUFragmentUniformData(r->cmdBuf, 0, &pfu, sizeof(pfu));
+        SDL_PushGPUVertexUniformData(r->cmdBuf, 0, viewVP, sizeof(viewVP));
+
+        /* Each sign draw binds slot 0 (scene tex, varies per command) + slot 1
+         * (depth copy, constant for the whole pass). Slot 1 is set once here;
+         * draw_cmd_kind takes care of slot 0 (including skipping redundant
+         * rebinds) and now also benefits from the same sorted draw order as
+         * every other kind, instead of the raw unsorted queue order this
+         * used before. */
+        SDL_GPUTextureSamplerBinding signTsbSlot0 = {0};
+        SDL_GPUTextureSamplerBinding signTsbSlot1 = {
+            .texture = r->signDepthCopyTex,
+            .sampler = r->samplerNearest
+        };
+
+        SDL_BindGPUGraphicsPipeline(rp, r->signDepthPipeline);
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN);
+        SDL_BindGPUGraphicsPipeline(rp, r->signBkDepthPipeline);
+        draw_cmd_kind(r, rp, &signTsbSlot0, &signTsbSlot1, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
+    } else {
+        if (r->signPipeline) {
+            SDL_BindGPUGraphicsPipeline(rp, r->signPipeline);
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN);
+        }
+        if (r->signBkPipeline) {
+            SDL_BindGPUGraphicsPipeline(rp, r->signBkPipeline);
+            draw_cmd_kind(r, rp, &tsb, NULL, drawOrder, SCENE_GPU_DRAW_SIGN_BK);
         }
     }
 

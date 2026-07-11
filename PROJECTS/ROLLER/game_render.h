@@ -8,6 +8,8 @@
 #include "scene_render.h"
 #include "crt_filter.h"
 
+typedef struct SceneRendererGPU SceneRendererGPU;
+
 typedef enum {
     GAME_RENDER_GPU,
     GAME_RENDER_SOFTWARE
@@ -239,6 +241,18 @@ void game_render_quad_screen_hud(GameRenderer *renderer,
                                  tPolyParams *poly,
                                  TextureHandle handle,
                                  const uint8 *palette_remap);
+
+// Direct access to the underlying GPU sub-renderer for GPU-only callers that
+// need scene_render_gpu.h functions not otherwise wrapped here (e.g. name-tag
+// billboards in game_render_hardware.c, which need scene_render_gpu_upload_rgba/
+// screen_quad_textured/set_particle_ndcz directly). Returns NULL in SW mode or
+// if the GPU device is unavailable.
+SceneRendererGPU *game_render_get_gpu(GameRenderer *renderer);
+
+// Direct access to the underlying GPU device, for GPU-only callers that need
+// to create/release their own textures directly (e.g. name-tag label texture
+// caching in game_render_hardware.c). Returns NULL in SW mode.
+SDL_GPUDevice *game_render_get_device(GameRenderer *renderer);
 
 // Set the clip-space depth (NDC Z in [0,1]) for the next game_render_quad_screen
 // call so GPU particles are depth-tested against scene geometry.
