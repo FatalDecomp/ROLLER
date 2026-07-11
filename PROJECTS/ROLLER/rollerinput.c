@@ -3020,6 +3020,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "RenderNative")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bRenderNative = bValue;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "Vsync")) {
     g_bVsync = !(InputStringEqualsNoCase(szValue, "Off") ||
                  InputStringEqualsNoCase(szValue, "0")   ||
@@ -3448,6 +3455,7 @@ void InputSaveConfig(void)
   fprintf(fp, "Trilinear=%s\n", g_bTrilinear ? "On" : "Off");
   fprintf(fp, "LodBias=%.2f\n", g_fLodBias);
   fprintf(fp, "RenderScale=%.2f\n", g_fRenderScale);
+  fprintf(fp, "RenderNative=%s\n", g_bRenderNative ? "On" : "Off");
   fprintf(fp, "AntiAliasing=%s\n",
           g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
           g_iAntiAliasing == 1 ? "2x" : "Off");
