@@ -309,26 +309,6 @@ void humancar(int iCarIdx)
       } else if (Car[iCarIdx_1].fRPMRatio < 1.0f) {
         mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
       }
-      // TEMPORARY DEBUG -- remove once the flame pile-size question is resolved.
-      {
-        static int dbgFrameCounter = 0;
-        if (++dbgFrameCounter % 30 == 0) {
-          int iDriverIdxDbg = Car[iCarIdx_1].iDriverIdx;
-          int iAliveCount = 0;
-          for (int dbgI = 0; dbgI < 32; ++dbgI) {
-            tCarSpray *pDbg = &CarSpray[iDriverIdxDbg][dbgI];
-            if (pDbg->iType == 1 && pDbg->iLifeTime > 0) {
-              SDL_Log("[MAYTE DEBUG] slot=%d life=%d timer=%d velX=%.1f velY=%.1f velZ=%.1f size=%.1f pos=(%.1f,%.1f,%.1f)",
-                      dbgI, pDbg->iLifeTime, pDbg->iTimer, pDbg->velocity.fX, pDbg->velocity.fY, pDbg->velocity.fZ,
-                      pDbg->fSize, pDbg->position.fX, pDbg->position.fY, pDbg->position.fZ);
-              ++iAliveCount;
-            }
-          }
-          SDL_Log("[MAYTE DEBUG] car=%d alive_type1=%d ammo=%d cooldown=%d overflow=%.1f rpm=%.2f",
-                  iDriverIdxDbg, iAliveCount, Car[iCarIdx_1].byCheatAmmo, Car[iCarIdx_1].byCheatCooldown,
-                  Car[iCarIdx_1].fSpeedOverflow, Car[iCarIdx_1].fRPMRatio);
-        }
-      }
       TRAK_LEN = iTrakLen;
       Car[iCarIdx_1].byCheatCooldown = 36;          // shared switch-tail behavior, matches SUICYCO
       goto PROCESS_VEHICLE_CONTROLS;
@@ -6892,11 +6872,20 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
               iRandomUnk5_2 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(200, iRandomUnk5_2) + 200;
               //iCalculatedUnk5 = ((200 * iRandomUnk5_2 - (__CFSHL__((200 * iRandomUnk5_2) >> 31, 15) + ((200 * iRandomUnk5_2) >> 31 << 15))) >> 15) + 200;
-            } else {
+            } else if (iTimer <= 3) {
               pCarSpray->velocity.fX = (float)(-105 - GetHighOrderRand(150, iRandomVelX3));
               //pCarSpray->velocity.fX = (float)(-105 - ((150 * iRandomVelX3 - (__CFSHL__((150 * iRandomVelX3) >> 31, 15) + ((150 * iRandomVelX3) >> 31 << 15))) >> 15));
               iRandomVelY8 = ROLLERrandRaw();
-              pCarSpray->velocity.fY = (float)GetHighOrderRand(400, iRandomVelY8);
+              pCarSpray->velocity.fY = (float)(GetHighOrderRand(400, iRandomVelY8) - 200);
+              //pCarSpray->velocity.fY = (float)(((400 * iRandomVelY8 - (__CFSHL__((400 * iRandomVelY8) >> 31, 15) + ((400 * iRandomVelY8) >> 31 << 15))) >> 15) - 200);
+              iRandomUnk5_3 = ROLLERrandRaw();
+              iCalculatedUnk5 = GetHighOrderRand(30, iRandomUnk5_3) - 20;
+              //iCalculatedUnk5 = ((30 * iRandomUnk5_3 - (__CFSHL__((30 * iRandomUnk5_3) >> 31, 15) + ((30 * iRandomUnk5_3) >> 31 << 15))) >> 15) - 20;
+            } else {                          // iTimer > 3: stronger kick, same signed lateral spread as the 2-3 tier
+              pCarSpray->velocity.fX = (float)(-200 - GetHighOrderRand(300, iRandomVelX3));
+              //pCarSpray->velocity.fX = (float)(-200 - ((300 * iRandomVelX3 - (__CFSHL__((300 * iRandomVelX3) >> 31, 15) + ((300 * iRandomVelX3) >> 31 << 15))) >> 15));
+              iRandomVelY8 = ROLLERrandRaw();
+              pCarSpray->velocity.fY = (float)(GetHighOrderRand(400, iRandomVelY8) - 200);
               //pCarSpray->velocity.fY = (float)(((400 * iRandomVelY8 - (__CFSHL__((400 * iRandomVelY8) >> 31, 15) + ((400 * iRandomVelY8) >> 31 << 15))) >> 15) - 200);
               iRandomUnk5_3 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(30, iRandomUnk5_3) - 20;
