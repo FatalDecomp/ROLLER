@@ -19,6 +19,7 @@ extern bool g_bFixCarMenuBug;
 extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
 extern bool g_bShowCarOnExplosion; /* true = keep car mesh visible during explosion animation */
+extern bool g_bBrazilianMayte; /* true = MAYTE cheat car uses the Brazilian FATAL.EXE's nitro-boost behavior instead of the original top-speed one, regardless of whether the boost is currently active */
 extern bool g_bFreeCamera; /* debug: hold RMB + move mouse to free-look in any view (see view.c chase_look_apply) */
 extern int   g_iTextureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
 extern int   g_iAnisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */

@@ -1032,6 +1032,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bBrazilianMayte = (int)g_bBrazilianMayte;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Brazilian MAYTE", &bBrazilianMayte)) {
+      g_bBrazilianMayte = (bool)bBrazilianMayte;
+      InputSaveConfig();
+    }
+
     int bFreeCamera = (int)g_bFreeCamera;
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Free Camera", &bFreeCamera)) {

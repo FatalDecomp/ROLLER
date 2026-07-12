@@ -89,10 +89,15 @@ static void mayte_spawn_boost_spray(tCar *pCar, int iDriverIdx)
   tCarSpray *pCarSpray = CarSpray[iDriverIdx];
   for (int i = 0; i < 32; ++i, ++pCarSpray) {
     if (pCarSpray->iLifeTime <= 0) {
-      int iPlacementIdx = (ROLLERrand() & 1) ? 3 : 2;   // rear exhaust points
-      tVec3 *pCoord = &CarDesigns[pCar->byCarDesignIdx].pCoords[pPlaces[iPlacementIdx]];
+      // RNG draw order matches sub_3A024 exactly: lifetime first, placement second --
+      // both come off the same shared PRNG stream, so which draw feeds which field matters.
       pCarSpray->iType = 1;
       pCarSpray->iLifeTime = GetHighOrderRand(24, ROLLERrandRaw()) + 24;
+      // GetHighOrderRand(2, raw) picks the exhaust point, matching sub_3A024: it checks the raw
+      // value's high bit (upper vs lower half of its range). This LCG's low bits are weak, so a
+      // plain bitmask on the raw value would bias the result toward one side.
+      int iPlacementIdx = GetHighOrderRand(2, ROLLERrandRaw()) + 2;   // rear exhaust points (2 or 3)
+      tVec3 *pCoord = &CarDesigns[pCar->byCarDesignIdx].pCoords[pPlaces[iPlacementIdx]];
       if ((cheat_mode & CHEAT_MODE_TINY_CARS) == 0) {
         pCarSpray->position = *pCoord;
       } else {
@@ -101,7 +106,8 @@ static void mayte_spawn_boost_spray(tCar *pCar, int iDriverIdx)
         pCarSpray->position.fZ = pCoord->fZ * 0.5f;
       }
       pCarSpray->iTimer = iPlacementIdx + 2;
-      break;
+      // No break: sub_3A024's loop has no early exit either -- it spawns into every
+      // eligible free slot in a single call, not just the first one it finds.
     }
   }
 }
@@ -255,10 +261,10 @@ void humancar(int iCarIdx)
       iTrakLen = TRAK_LEN;
       Car[iCarIdx_1].byCheatCooldown = 36;      // Set cheat power cooldown (36 frames) after use
       goto PROCESS_VEHICLE_CONTROLS;
-    case 9: {                                    // MAYTE (top speed); MAYTEB selects the Brazilian
-                                                   // nitro-boost variant below via CHEAT_MODE_MAYTE_BRAZILIAN
+    case 9: {                                    // MAYTE (top speed); debug-overlay "Brazilian MAYTE"
+                                                   // checkbox (g_bBrazilianMayte) selects the nitro-boost variant below
       iControlFlags = iControlFlags | 1;
-      if (!(cheat_mode & CHEAT_MODE_MAYTE_BRAZILIAN))
+      if (!g_bBrazilianMayte)
         goto PROCESS_VEHICLE_CONTROLS;
       // Nitro boost with fire, ported bit-for-bit from the Brazilian FATAL.EXE's humancar_ case 9
       // (English only ever had the auto-throttle line above). "Ready" is NOT a dedicated charge
@@ -284,20 +290,44 @@ void humancar(int iCarIdx)
               sfxsample(SOUND_SAMPLE_BLOP, 0x8000);
           } else {
             --Car[iCarIdx_1].byCheatAmmo;
-            // exact velocity impulse, traced through the Brazilian binary's x87 stack:
-            // fHorizontalSpeed += tcos[pitch]*300; direction.X/Y get the same term further
-            // scaled by tcos[yaw]/tsin[yaw]; direction.Z gets tsin[pitch]*300 directly.
-            float fBoostPitchTerm = tcos[Car[iCarIdx_1].nPitch] * 300.0f;
-            Car[iCarIdx_1].fHorizontalSpeed += fBoostPitchTerm;
-            Car[iCarIdx_1].direction.fX += fBoostPitchTerm * tcos[Car[iCarIdx_1].nYaw];
-            Car[iCarIdx_1].direction.fY += fBoostPitchTerm * tsin[Car[iCarIdx_1].nYaw];
-            Car[iCarIdx_1].direction.fZ += tsin[Car[iCarIdx_1].nPitch] * 300.0f;
+            // Direct velocity impulse only applies airborne -- traced through the Brazilian
+            // binary's x87 stack, the tcos/tsin push is inside its own "nCurrChunk == -1" check,
+            // separate from the unconditional fSpeedOverflow/spawn below. On the ground the speed
+            // gain alone (fSpeedOverflow -> fFinalSpeed) is the whole effect; airborne movement
+            // isn't driven by fFinalSpeed, so it needs the direct push to do anything at all.
+            if (Car[iCarIdx_1].nCurrChunk == -1) {
+              float fBoostPitchTerm = tcos[Car[iCarIdx_1].nPitch] * 300.0f;
+              Car[iCarIdx_1].fHorizontalSpeed += fBoostPitchTerm;
+              Car[iCarIdx_1].direction.fX += fBoostPitchTerm * tcos[Car[iCarIdx_1].nYaw];
+              Car[iCarIdx_1].direction.fY += fBoostPitchTerm * tsin[Car[iCarIdx_1].nYaw];
+              Car[iCarIdx_1].direction.fZ += tsin[Car[iCarIdx_1].nPitch] * 300.0f;
+            }
             Car[iCarIdx_1].fSpeedOverflow += 400.0f;
             mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
           }
         }
       } else if (Car[iCarIdx_1].fRPMRatio < 1.0f) {
         mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
+      }
+      // TEMPORARY DEBUG -- remove once the flame pile-size question is resolved.
+      {
+        static int dbgFrameCounter = 0;
+        if (++dbgFrameCounter % 30 == 0) {
+          int iDriverIdxDbg = Car[iCarIdx_1].iDriverIdx;
+          int iAliveCount = 0;
+          for (int dbgI = 0; dbgI < 32; ++dbgI) {
+            tCarSpray *pDbg = &CarSpray[iDriverIdxDbg][dbgI];
+            if (pDbg->iType == 1 && pDbg->iLifeTime > 0) {
+              SDL_Log("[MAYTE DEBUG] slot=%d life=%d timer=%d velX=%.1f velY=%.1f velZ=%.1f size=%.1f pos=(%.1f,%.1f,%.1f)",
+                      dbgI, pDbg->iLifeTime, pDbg->iTimer, pDbg->velocity.fX, pDbg->velocity.fY, pDbg->velocity.fZ,
+                      pDbg->fSize, pDbg->position.fX, pDbg->position.fY, pDbg->position.fZ);
+              ++iAliveCount;
+            }
+          }
+          SDL_Log("[MAYTE DEBUG] car=%d alive_type1=%d ammo=%d cooldown=%d overflow=%.1f rpm=%.2f",
+                  iDriverIdxDbg, iAliveCount, Car[iCarIdx_1].byCheatAmmo, Car[iCarIdx_1].byCheatCooldown,
+                  Car[iCarIdx_1].fSpeedOverflow, Car[iCarIdx_1].fRPMRatio);
+        }
       }
       TRAK_LEN = iTrakLen;
       Car[iCarIdx_1].byCheatCooldown = 36;          // shared switch-tail behavior, matches SUICYCO

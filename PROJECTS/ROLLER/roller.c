@@ -115,6 +115,7 @@ bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
 bool g_bShowCarOnExplosion = false;
+bool g_bBrazilianMayte = false;
 bool g_bFreeCamera = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
