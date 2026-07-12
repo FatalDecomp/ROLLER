@@ -66,6 +66,53 @@ int fudge_wait;                   //00149DC4
 char RecordNames[25][9];          //00149DC8
 
 //-------------------------------------------------------------------------------------------------
+/* MAYTE cheat nitro boost (Brazilian FATAL.EXE only): spawns one fire/smoke
+ * spray particle at a rear exhaust attachment point, reusing the same
+ * tCarSpray/CarDesigns infrastructure dospray() already uses for damage
+ * smoke. Ported from the Brazilian binary's own trigger function
+ * (sub_3A024), called as a standalone spawn rather than through the main
+ * per-frame health-based spawn loop.
+ *
+ * Skips spawning while SelectedView[0] is cockpit/in-car/behind-car (0/2/7)
+ * -- those views don't show this car's own exhaust. Scales the attachment
+ * point down for CHEAT_MODE_TINY_CARS, matching dospray()'s own 0.25/0.5
+ * scaling for the same case. iColor/velocity are deliberately left
+ * untouched, matching the original -- whatever a previous occupant of this
+ * CarSpray slot set them to carries over. */
+static void mayte_spawn_boost_spray(tCar *pCar, int iDriverIdx)
+{
+  if (!SelectedView[0] || SelectedView[0] == 2 || SelectedView[0] == 7)
+    return;
+  int *pPlaces = CarDesigns[pCar->byCarDesignIdx].pPlaces;
+  if (pPlaces == (int *)-1)
+    return;
+  tCarSpray *pCarSpray = CarSpray[iDriverIdx];
+  for (int i = 0; i < 32; ++i, ++pCarSpray) {
+    if (pCarSpray->iLifeTime <= 0) {
+      // RNG draw order matches sub_3A024 exactly: lifetime first, placement second --
+      // both come off the same shared PRNG stream, so which draw feeds which field matters.
+      pCarSpray->iType = 1;
+      pCarSpray->iLifeTime = GetHighOrderRand(24, ROLLERrandRaw()) + 24;
+      // GetHighOrderRand(2, raw) picks the exhaust point, matching sub_3A024: it checks the raw
+      // value's high bit (upper vs lower half of its range). This LCG's low bits are weak, so a
+      // plain bitmask on the raw value would bias the result toward one side.
+      int iPlacementIdx = GetHighOrderRand(2, ROLLERrandRaw()) + 2;   // rear exhaust points (2 or 3)
+      tVec3 *pCoord = &CarDesigns[pCar->byCarDesignIdx].pCoords[pPlaces[iPlacementIdx]];
+      if ((cheat_mode & CHEAT_MODE_TINY_CARS) == 0) {
+        pCarSpray->position = *pCoord;
+      } else {
+        pCarSpray->position.fX = pCoord->fX * 0.25f;
+        pCarSpray->position.fY = pCoord->fY * 0.25f;
+        pCarSpray->position.fZ = pCoord->fZ * 0.5f;
+      }
+      pCarSpray->iTimer = iPlacementIdx + 2;
+      // No break: sub_3A024's loop has no early exit either -- it spawns into every
+      // eligible free slot in a single call, not just the first one it finds.
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
 //00029640
 void humancar(int iCarIdx)
 {
@@ -214,10 +261,58 @@ void humancar(int iCarIdx)
       iTrakLen = TRAK_LEN;
       Car[iCarIdx_1].byCheatCooldown = 36;      // Set cheat power cooldown (36 frames) after use
       goto PROCESS_VEHICLE_CONTROLS;
-    case 9:                                     // MAYTE (top speed)
+    case 9: {                                    // MAYTE (top speed); debug-overlay "Brazilian MAYTE"
+                                                   // checkbox (g_bBrazilianMayte) selects the nitro-boost variant below
       iControlFlags = iControlFlags | 1;
-      //LOBYTE(unControlFlags) = unControlFlags | 1;
+      if (!g_bBrazilianMayte)
+        goto PROCESS_VEHICLE_CONTROLS;
+      // Nitro boost with fire, ported bit-for-bit from the Brazilian FATAL.EXE's humancar_ case 9
+      // (English only ever had the auto-throttle line above). "Ready" is NOT a dedicated charge
+      // meter -- it's the car's own existing engine state: fRPMRatio==1.0 (at redline) AND
+      // byGearAyMax==5 (already in top/6th gear, matching this cheat car's fixed gear count), i.e.
+      // genuinely flooring it with nothing left to shift into. fSpeedOverflow doubles as the
+      // one-shot gate: a trigger adds 300 (see below), and requires <10 to fire again -- this
+      // decays back down on its own via the *existing* shared deceleration physics (control.c's
+      // Decelerate()/per-frame speed update), not any MAYTE-specific timer, which is why repeated
+      // real-world use looks like "waiting a few seconds" rather than a fixed cooldown. Airborne
+      // cars bypass the ready check entirely (traced directly), so a MAYTE car can still boost
+      // while jumping even without being pinned at redline in top gear.
+      bool bReady = (Car[iCarIdx_1].fRPMRatio >= 1.0f && (char)Car[iCarIdx_1].byGearAyMax == 5)
+                    || (Car[iCarIdx_1].nCurrChunk == -1);
+      if (bReady) {
+        if (Car[iCarIdx_1].fSpeedOverflow >= 10.0f) {
+          if (Car[iCarIdx_1].fRPMRatio < 1.0f)
+            mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
+        } else if (!Car[iCarIdx_1].byCheatCooldown) {
+          if (!Car[iCarIdx_1].byCheatAmmo) {
+            TRAK_LEN = iTrakLen;
+            if (cheatsampleok(iCarIdx_1))
+              sfxsample(SOUND_SAMPLE_BLOP, 0x8000);
+          } else {
+            --Car[iCarIdx_1].byCheatAmmo;
+            // Direct velocity impulse only applies airborne -- traced through the Brazilian
+            // binary's x87 stack, the tcos/tsin push is inside its own "nCurrChunk == -1" check,
+            // separate from the unconditional fSpeedOverflow/spawn below. On the ground the speed
+            // gain alone (fSpeedOverflow -> fFinalSpeed) is the whole effect; airborne movement
+            // isn't driven by fFinalSpeed, so it needs the direct push to do anything at all.
+            if (Car[iCarIdx_1].nCurrChunk == -1) {
+              float fBoostPitchTerm = tcos[Car[iCarIdx_1].nPitch] * 300.0f;
+              Car[iCarIdx_1].fHorizontalSpeed += fBoostPitchTerm;
+              Car[iCarIdx_1].direction.fX += fBoostPitchTerm * tcos[Car[iCarIdx_1].nYaw];
+              Car[iCarIdx_1].direction.fY += fBoostPitchTerm * tsin[Car[iCarIdx_1].nYaw];
+              Car[iCarIdx_1].direction.fZ += tsin[Car[iCarIdx_1].nPitch] * 300.0f;
+            }
+            Car[iCarIdx_1].fSpeedOverflow += 400.0f;
+            mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
+          }
+        }
+      } else if (Car[iCarIdx_1].fRPMRatio < 1.0f) {
+        mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
+      }
+      TRAK_LEN = iTrakLen;
+      Car[iCarIdx_1].byCheatCooldown = 36;          // shared switch-tail behavior, matches SUICYCO
       goto PROCESS_VEHICLE_CONTROLS;
+    }
     case 10:                                    // 2X4B523P (flip opponent)
       if (Car[iCarIndex2].byCheatCooldown)
         goto PROCESS_VEHICLE_CONTROLS;
@@ -6777,11 +6872,20 @@ void dospray(tCar *pCar, int iCinematicMode, tCarSpray *pCarSpray)
               iRandomUnk5_2 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(200, iRandomUnk5_2) + 200;
               //iCalculatedUnk5 = ((200 * iRandomUnk5_2 - (__CFSHL__((200 * iRandomUnk5_2) >> 31, 15) + ((200 * iRandomUnk5_2) >> 31 << 15))) >> 15) + 200;
-            } else {
+            } else if (iTimer <= 3) {
               pCarSpray->velocity.fX = (float)(-105 - GetHighOrderRand(150, iRandomVelX3));
               //pCarSpray->velocity.fX = (float)(-105 - ((150 * iRandomVelX3 - (__CFSHL__((150 * iRandomVelX3) >> 31, 15) + ((150 * iRandomVelX3) >> 31 << 15))) >> 15));
               iRandomVelY8 = ROLLERrandRaw();
-              pCarSpray->velocity.fY = (float)GetHighOrderRand(400, iRandomVelY8);
+              pCarSpray->velocity.fY = (float)(GetHighOrderRand(400, iRandomVelY8) - 200);
+              //pCarSpray->velocity.fY = (float)(((400 * iRandomVelY8 - (__CFSHL__((400 * iRandomVelY8) >> 31, 15) + ((400 * iRandomVelY8) >> 31 << 15))) >> 15) - 200);
+              iRandomUnk5_3 = ROLLERrandRaw();
+              iCalculatedUnk5 = GetHighOrderRand(30, iRandomUnk5_3) - 20;
+              //iCalculatedUnk5 = ((30 * iRandomUnk5_3 - (__CFSHL__((30 * iRandomUnk5_3) >> 31, 15) + ((30 * iRandomUnk5_3) >> 31 << 15))) >> 15) - 20;
+            } else {                          // iTimer > 3: stronger kick, same signed lateral spread as the 2-3 tier
+              pCarSpray->velocity.fX = (float)(-200 - GetHighOrderRand(300, iRandomVelX3));
+              //pCarSpray->velocity.fX = (float)(-200 - ((300 * iRandomVelX3 - (__CFSHL__((300 * iRandomVelX3) >> 31, 15) + ((300 * iRandomVelX3) >> 31 << 15))) >> 15));
+              iRandomVelY8 = ROLLERrandRaw();
+              pCarSpray->velocity.fY = (float)(GetHighOrderRand(400, iRandomVelY8) - 200);
               //pCarSpray->velocity.fY = (float)(((400 * iRandomVelY8 - (__CFSHL__((400 * iRandomVelY8) >> 31, 15) + ((400 * iRandomVelY8) >> 31 << 15))) >> 15) - 200);
               iRandomUnk5_3 = ROLLERrandRaw();
               iCalculatedUnk5 = GetHighOrderRand(30, iRandomUnk5_3) - 20;

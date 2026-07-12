@@ -2989,6 +2989,8 @@ int main(int argc, const char **argv, const char **envp)
   tick_on = 0;
   ROLLERremove("../REPLAYS/REPLAY.TMP");
   readsoundconfig();
+  if (strcmp(languagename, "Brazilian") == 0)
+    g_bBrazilianMayte = true;
   InputLoadConfig();
   loadcheatnames();
   cdxinit();

@@ -5256,7 +5256,18 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             int newIdx  = newType & SURFACE_MASK_TEXTURE_INDEX;
             if (newIdx >= 0 && newIdx < slot->numTiles) {
                 surfIdx = newIdx;
-                isBackTexSign = true;
+                /* Route through the extreme-bias/COMPARE_ALWAYS sign pipeline only for
+                 * real advert signs (SURFACE_FLAG_GPU_IS_SIGN) -- that treatment exists
+                 * so a sign panel reliably wins against the coplanar wall it sits on, but
+                 * applied to an ordinary two-sided wall that merely uses texture_back[]
+                 * for a plain reverse-side texture (no coplanar partner to win against),
+                 * it instead makes the wall win against everything indiscriminately,
+                 * including the car and the pause-menu darken overlay. Non-sign back-tex
+                 * surfaces keep the texture substitution but fall through to their normal
+                 * (properly depth-tested) pipeline via the FLIP_BACKFACE/TEXTURE_PAIR/etc.
+                 * classification below. */
+                if (surfaceFlags & SURFACE_FLAG_GPU_IS_SIGN)
+                    isBackTexSign = true;
             }
         }
         s_lastUV.backTexApplied = isBackTexSign;

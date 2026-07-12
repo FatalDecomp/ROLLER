@@ -964,9 +964,9 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
       const char *pszSel = apszMusic[iNewMusicSel];
-      if (pszSel == "CD")          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
-      else if (pszSel == "MIDI (OPL3)") { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
-      else if (pszSel == "MIDI (OS)")   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
+      if (strcmp(pszSel, "CD") == 0)          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
+      else if (strcmp(pszSel, "MIDI (OPL3)") == 0) { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
+      else if (strcmp(pszSel, "MIDI (OS)") == 0)   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
       else                         { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
       startmusic(g_iCurrentSong);
       InputSaveConfig();
@@ -1029,6 +1029,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "Show car on explosion", &bShowCarOnExplosion)) {
       g_bShowCarOnExplosion = (bool)bShowCarOnExplosion;
+      InputSaveConfig();
+    }
+
+    int bBrazilianMayte = (int)g_bBrazilianMayte;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Brazilian MAYTE", &bBrazilianMayte)) {
+      g_bBrazilianMayte = (bool)bBrazilianMayte;
       InputSaveConfig();
     }
 
