@@ -91,6 +91,7 @@
 #define CHEAT_MODE_TINY_CARS            0x00008000
 #define CHEAT_MODE_WARP                 0x00010000
 #define CHEAT_MODE_FREAKY               0x00020000
+#define CHEAT_MODE_MAYTE_BRAZILIAN      0x00040000  // ROLLER-added: MAYTEB cheat name (see frontend_util.c)
 
 //-------------------------------------------------------------------------------------------------
 // textures_off flags

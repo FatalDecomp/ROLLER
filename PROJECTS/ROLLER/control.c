@@ -255,19 +255,22 @@ void humancar(int iCarIdx)
       iTrakLen = TRAK_LEN;
       Car[iCarIdx_1].byCheatCooldown = 36;      // Set cheat power cooldown (36 frames) after use
       goto PROCESS_VEHICLE_CONTROLS;
-    case 9: {                                    // MAYTE (nitro boost with fire), ported bit-for-bit
-      // from the Brazilian FATAL.EXE's humancar_ case 9 (English only ever had the auto-throttle
-      // line below). "Ready" is NOT a dedicated charge meter -- it's the car's own existing engine
-      // state: fRPMRatio==1.0 (at redline) AND byGearAyMax==5 (already in top/6th gear, matching
-      // this cheat car's fixed gear count), i.e. genuinely flooring it with nothing left to shift
-      // into. fSpeedOverflow doubles as the one-shot gate: a trigger adds 300 (see below), and
-      // requires <10 to fire again -- this decays back down on its own via the *existing* shared
-      // deceleration physics (control.c's Decelerate()/per-frame speed update), not any MAYTE-
-      // specific timer, which is why repeated real-world use looks like "waiting a few seconds"
-      // rather than a fixed cooldown. Airborne cars bypass the ready check entirely (traced
-      // directly), so a MAYTE car can still boost while jumping even without being pinned at
-      // redline in top gear.
+    case 9: {                                    // MAYTE (top speed); MAYTEB selects the Brazilian
+                                                   // nitro-boost variant below via CHEAT_MODE_MAYTE_BRAZILIAN
       iControlFlags = iControlFlags | 1;
+      if (!(cheat_mode & CHEAT_MODE_MAYTE_BRAZILIAN))
+        goto PROCESS_VEHICLE_CONTROLS;
+      // Nitro boost with fire, ported bit-for-bit from the Brazilian FATAL.EXE's humancar_ case 9
+      // (English only ever had the auto-throttle line above). "Ready" is NOT a dedicated charge
+      // meter -- it's the car's own existing engine state: fRPMRatio==1.0 (at redline) AND
+      // byGearAyMax==5 (already in top/6th gear, matching this cheat car's fixed gear count), i.e.
+      // genuinely flooring it with nothing left to shift into. fSpeedOverflow doubles as the
+      // one-shot gate: a trigger adds 300 (see below), and requires <10 to fire again -- this
+      // decays back down on its own via the *existing* shared deceleration physics (control.c's
+      // Decelerate()/per-frame speed update), not any MAYTE-specific timer, which is why repeated
+      // real-world use looks like "waiting a few seconds" rather than a fixed cooldown. Airborne
+      // cars bypass the ready check entirely (traced directly), so a MAYTE car can still boost
+      // while jumping even without being pinned at redline in top gear.
       bool bReady = (Car[iCarIdx_1].fRPMRatio >= 1.0f && (char)Car[iCarIdx_1].byGearAyMax == 5)
                     || (Car[iCarIdx_1].nCurrChunk == -1);
       if (bReady) {

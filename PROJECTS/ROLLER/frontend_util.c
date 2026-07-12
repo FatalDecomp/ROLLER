@@ -275,6 +275,14 @@ int CheckNames(char *szPlayerName, int iPlayerIdx)
       cheat_mode |= CHEAT_MODE_CHEAT_CAR;
       break;
     }
+    else if (name_cmp(szPlayerName, "MAYTEB")) {
+      // Same MAYTE cheat car; CHEAT_MODE_MAYTE_BRAZILIAN switches control.c's case 9 to the
+      // Brazilian FATAL.EXE's nitro-boost behavior instead of the original top-speed one.
+      Players_Cars[iPlayerIdx] = CAR_DESIGN_MAYTE;
+      name_copy(szPlayerName, "DAMON");
+      cheat_mode |= CHEAT_MODE_CHEAT_CAR | CHEAT_MODE_MAYTE_BRAZILIAN;
+      break;
+    }
 
     // Move to next cheat name
     szCurrCheat += 9;
