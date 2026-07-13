@@ -34,7 +34,8 @@ static inline int hw_d2i(double d) {
 
 #define GAME_RENDER_HW_NUM_CARS      16
 #define GAME_RENDER_HW_MAX_CAR_DRAWS 32  /* 16 cars × up to 2 draws each */
-#define GRHW_ANIM_FRAMES             4   /* wheel animation frames 0-3 */
+#define GRHW_ANIM_FRAMES             5   /* wheel animation frames: 0-3 rolling, 4 = high-speed
+                                            * (control.c sets byWheelAnimationFrame=4 at >=300 speed) */
 
 /* --------------------------------------------------------------------------
  * Vertex layout matching SceneGPUMeshVertex in menu_render_gpu.c (same
