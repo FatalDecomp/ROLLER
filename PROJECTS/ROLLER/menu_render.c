@@ -210,6 +210,17 @@ void menu_render_box(MenuRenderer *renderer, int x, int y, int width,
                            colorIndex, palette);
 }
 
+void menu_render_fill(MenuRenderer *renderer, int x, int y, int width,
+                      int height, uint8 colorIndex, const tColor *palette) {
+    if (!renderer) return;
+    if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
+        menu_render_gpu_fill(renderer->gpu, x, y, width, height,
+                             colorIndex, palette);
+    else
+        menu_render_sw_fill(renderer->sw, x, y, width, height,
+                            colorIndex, palette);
+}
+
 void menu_render_begin_fade(MenuRenderer *renderer, int direction,
                             int durationFrames) {
     if (!renderer) return;
