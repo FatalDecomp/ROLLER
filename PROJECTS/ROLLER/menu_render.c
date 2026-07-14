@@ -36,9 +36,16 @@ static int menu_render_wants_gpu_assets(MenuRenderer *renderer) {
 static MenuRenderMode menu_render_effective_mode(MenuRenderer *renderer) {
     if (!renderer)
         return MENU_RENDER_SOFTWARE;
-    if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
+    /* Fades must target whichever renderer is actually drawing THIS frame, i.e.
+     * "mode" -- not "pendingMode", which only takes effect at the next
+     * begin_frame. Routing on pendingMode let a fade begun on the same frame
+     * as a mode-switch request land on the renderer that wasn't drawing yet,
+     * permanently orphaning its fade state (e.g. stuck fully opaque black)
+     * since the switch's own end of the fade pair would then dispatch to the
+     * OTHER renderer once mode had caught up. */
+    if (renderer->mode == MENU_RENDER_GPU && !renderer->gpu)
         return MENU_RENDER_SOFTWARE;
-    return renderer->pendingMode;
+    return renderer->mode;
 }
 
 static int menu_render_upload_gpu_slot(MenuRenderer *renderer, int slot) {
