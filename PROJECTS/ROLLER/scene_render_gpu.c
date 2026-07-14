@@ -35,6 +35,7 @@ extern int backwards;          /* drawtrk3.c: -1 = camera looks backward along t
 #define SCENE_GPU_MAX_SECONDARY_VIEWS 2 /* rearview/side mirror uses slot 0; 2-player uses slots 0/1;
                                           * CINEMA cheat letterbox also reuses slot 0 (mutually
                                           * exclusive with mirror/2P per frame, see 3d.c control flow) */
+#define SCENE_GPU_MAX_SECONDARY_TARGET_DIMENSION 8192
 /* SCENE_GPU_NEAR / SCENE_GPU_FAR defined in scene_render_gpu.h */
 
 /* Mirrors polyf.c's SHADE_PALETTE_LEVELS (5) -- shadow_poly()'s per-pixel
@@ -2068,10 +2069,10 @@ void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r)
  * shared per-frame vertex/draw-command state so the NEXT queued scene (the
  * main view, or another secondary view) starts clean.
  *
- * This is a trimmed-down copy of scene_render_gpu_end_frame's Pass 1: no
- * MSAA, no letterbox present blit, no HUD, and signs always use the simple
- * bias-based pipeline (no depth-copy split) -- acceptable simplifications
- * for a small, lower-detail secondary view. Everything else (opaque/wall/
+ * This is a trimmed-down copy of scene_render_gpu_end_frame's Pass 1: it
+ * supports MSAA but has no letterbox present blit or HUD, and signs always
+ * use the simple bias-based pipeline (no depth-copy split) -- acceptable
+ * simplifications for a small secondary view. Everything else (opaque/wall/
  * building/tree/blend geometry, cars, car shadows, road shadows, sky) is
  * drawn exactly as the main pass would. */
 
@@ -2367,6 +2368,18 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     if (texW < 1) texW = 1;
     if (texH < 1) texH = 1;
 
+    /* Scale only the raster target. The logical viewport set by the caller
+     * remains unchanged so projection/FOV stays identical at every scale. */
+    float fScale = r->renderScale > 0.25f ? r->renderScale : 1.0f;
+    float fTargetW = (float)texW * fScale + 0.5f;
+    float fTargetH = (float)texH * fScale + 0.5f;
+    int iTargetW = fTargetW < (float)SCENE_GPU_MAX_SECONDARY_TARGET_DIMENSION
+        ? (int)fTargetW : SCENE_GPU_MAX_SECONDARY_TARGET_DIMENSION;
+    int iTargetH = fTargetH < (float)SCENE_GPU_MAX_SECONDARY_TARGET_DIMENSION
+        ? (int)fTargetH : SCENE_GPU_MAX_SECONDARY_TARGET_DIMENSION;
+    if (iTargetW < 1) iTargetW = 1;
+    if (iTargetH < 1) iTargetH = 1;
+
     /* texParticleVertCount/RangeCount are shared with the composite quad a
      * caller queues right after THIS call returns (game_render_flush_player_
      * view / game_render_composite_mirror_pass) -- and, when there are
@@ -2384,7 +2397,7 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
     int savedTexParticleVertCount  = r->secPreTexParticleVertCount;
     int savedTexParticleRangeCount = r->secPreTexParticleRangeCount;
 
-    ensure_secondary_textures(r, slot, texW, texH);
+    ensure_secondary_textures(r, slot, iTargetW, iTargetH);
     if (!r->secondaryColorTex[slot] || !r->secondaryDepthTex[slot]) {
         r->vertexCount = 0; r->drawCmdCount = 0;
         r->carDrawCount = 0; r->carShadowDrawCount = 0;
@@ -2432,10 +2445,10 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
      * (computed against THIS view's own half-height winw/winh at queue time)
      * ended up wildly mis-scaled/positioned there. Fix: draw this view's own
      * newly-queued ranges (from the saved snapshot to the current count) here,
-     * inside this view's own render pass -- same viewport (texW/texH) the NDC
-     * coordinates were actually computed against, and the same depth buffer
-     * the rest of this view's 3D geometry uses, so smoke correctly occludes
-     * behind scene geometry like it does in single-player. Do NOT touch
+     * inside this view's own render pass -- the scaled target still covers
+     * the same full NDC range, and the same depth buffer the rest of this
+     * view's 3D geometry uses, so smoke correctly occludes behind scene
+     * geometry like it does in single-player. Do NOT touch
      * anything before the snapshot (an earlier secondary view's still-pending
      * composite quad). */
     int secOwnTexRangeStart  = savedTexParticleRangeCount;
@@ -2516,7 +2529,7 @@ SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int s
         .clear_depth = 1.0f
     };
     SDL_GPURenderPass *rp = SDL_BeginGPURenderPass(r->cmdBuf, &colorInfo, 1, &depthInfo);
-    SDL_GPUViewport vp = { .x = 0, .y = 0, .w = (float)texW, .h = (float)texH,
+    SDL_GPUViewport vp = { .x = 0, .y = 0, .w = (float)iTargetW, .h = (float)iTargetH,
                            .min_depth = 0.0f, .max_depth = 1.0f };
     SDL_SetGPUViewport(rp, &vp);
 

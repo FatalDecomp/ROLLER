@@ -234,9 +234,10 @@ void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r);
  * SCENE_GPU_MAX_SECONDARY_VIEWS-1) -- each slot keeps its own texture so
  * multiple secondary views can be composited later in the same frame
  * without one flush overwriting another's not-yet-consumed texture.
- * texW/texH: desired render-target pixel size. Returns the resulting
- * texture (owned by the renderer, valid until the next call with this slot
- * or destroy), or NULL on failure.
+ * texW/texH: base render-target size; the renderer applies renderScale to the
+ * allocated target without changing the caller's logical viewport.
+ * Returns the resulting texture (owned by the renderer, valid until the next
+ * call with this slot or destroy), or NULL on failure.
  * Must be called after scene_render_gpu_secondary_view_will_queue() and
  * that view's draw_road() have both already run. */
 SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int slot, int texW, int texH);
