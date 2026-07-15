@@ -2689,13 +2689,21 @@ static void InputApplyMusicSource(int iUseCD)
   if (iUseCD) {
     MusicCD = -1; MusicCard = 0;  MusicOS = 0; MusicOPL = 0;
   } else {
+#if defined(IS_WASM)
+    MusicCD = 0;  MusicCard = 0;  MusicOS = 0; MusicOPL = -1;
+#else
     MusicCD = 0;  MusicCard = -1; MusicOS = 0; MusicOPL = 0;
+#endif
   }
 }
 
 static void InputApplyMusicSourceOS(void)
 {
+#if defined(IS_WASM)
+  InputApplyMusicSource(0);
+#else
   MusicCD = 0; MusicCard = 0; MusicOS = -1; MusicOPL = 0;
+#endif
 }
 
 static void InputApplyMusicSourceOPL(void)

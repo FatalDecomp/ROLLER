@@ -823,10 +823,7 @@ static void frontend_config_set_volume_value(int iItem, int iVolume)
       break;
     case 4:
       MusicVolume = iVolume;
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       break;
@@ -871,10 +868,7 @@ static int frontend_config_apply_volume_wheel(int iWheelY)
       break;
     case 4:
       MusicVolume = frontend_config_clamp_volume(MusicVolume + iDelta);
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       return 0;
@@ -1619,7 +1613,7 @@ void frontend_config_update(void)
             byColor_11 = 0x8F;
           // ON
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640, pal_addr);
-        } else if (MusicCard || MusicCD) {
+        } else if (MusicBackendAvailable()) {
           if (iFrontendConfigVolumeSelection == 7)
             byColor_12 = 0xAB;
           else
@@ -2408,11 +2402,7 @@ void frontend_config_update(void)
                             if (MusicVolume < 0)
                               MusicVolume = 0;
                             // Update hardware volume
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              goto SET_CD_VOLUME;// CONTINUE_AUDIO_INPUT: Continue processing audio menu input
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -2440,12 +2430,7 @@ void frontend_config_update(void)
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
                             // Update hardware volume
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              SET_CD_VOLUME:
-                            SetAudioVolume(MusicVolume);
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -2482,11 +2467,11 @@ void frontend_config_update(void)
                       }
                       break;
                     case 7:                     // Toggle music
-                      if (MusicCard || MusicCD) {
+                      if (MusicBackendAvailable()) {
                         musicon = musicon == 0;
                         reinitmusic();
                       } else {
-                        musicon = MusicCard;
+                        musicon = 0;
                       }
                       break;
                     default:

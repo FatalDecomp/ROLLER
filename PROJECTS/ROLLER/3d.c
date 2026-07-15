@@ -3790,11 +3790,7 @@ void game_keys()
                             MusicVolume -= pausewindow;// Left Arrow - Decrease Music Volume
                             if (MusicVolume < 0)
                               MusicVolume = 0;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              goto UPDATE_CD_VOLUME;
+                            MusicSetMasterVolume(MusicVolume);
                             continue;
                           default:
                             continue;
@@ -3828,12 +3824,7 @@ void game_keys()
                             MusicVolume += pausewindow;
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              UPDATE_CD_VOLUME:
-                            SetAudioVolume(MusicVolume);
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -4288,7 +4279,7 @@ void game_keys()
                 }
                 goto PROCESS_NEXT_KEY;
               case 7:
-                if (MusicCard || MusicCD) {
+                if (MusicBackendAvailable()) {
                   musicon = musicon == 0;
                   reinitmusic();
                 } else {

@@ -3662,7 +3662,7 @@ void display_paused()
         else
           byMusicStatus = 0x83;
         pszMusicStatus = &config_buffer[2624];
-      } else if (MusicCard || MusicCD) {
+      } else if (MusicBackendAvailable()) {
         if (sound_edit == 7)
           byMusicStatus = 0x8F;
         else

@@ -285,7 +285,7 @@ void WinnerScreenEnter(int carDesign, char byFlags)
   winh = YMAX;
 
   // longer display with music
-  if ( MusicVolume && MusicCard )
+  if (MusicVolume && MusicBackendAvailable())
     iWinnerScreenDisplayDuration = 720;
   else
     iWinnerScreenDisplayDuration = 180;
@@ -3372,7 +3372,7 @@ void ChampionshipWinnerEnter(void)
     front_vga[0] = (tBlockHeader *)load_picture("chump.bm");// Static fallback version has 1 frame
     iChampionshipWinnerNumAnimFrames = 1;
   }
-  if (iChampionshipWinnerNumAnimFrames != 1 && MusicVolume && MusicCard)// Set display duration: longer for animated with music, shorter otherwise
+  if (iChampionshipWinnerNumAnimFrames != 1 && MusicVolume && MusicBackendAvailable())// Set display duration: longer for animated with music, shorter otherwise
     iChampionshipWinnerDuration = 720;
   else
     iChampionshipWinnerDuration = 180;

@@ -173,6 +173,27 @@ int network_error;          //0017C97C
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 
+bool MusicBackendAvailable(void)
+{
+  return MusicCard || MusicCD || MusicOS || MusicOPL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void MusicSetMasterVolume(int iVolume)
+{
+  if (MusicCard)
+    MIDISetMasterVolume((int8)iVolume);
+  if (MusicOS)
+    MIDI_OS_SetMasterVolume((int8)iVolume);
+  if (MusicOPL)
+    MIDI_OPL_SetMasterVolume((int8)iVolume);
+  if (MusicCD)
+    SetAudioVolume(iVolume);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static int frontendspeech_current_handle()
 {
   int iGeneration;
@@ -665,10 +686,8 @@ static void fade_palette_apply_audio_step(int iStep)
   if (sPaletteFadeState.iTargetBrightness != 0 || holdmusic)
     return;
 
-  if (musicon) {
-    //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-  }
+  if (musicon || MusicCD)
+    MusicSetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 
   if (soundon) {
     int iVolumeStep = (iStep << 15) - iStep;
@@ -676,8 +695,6 @@ static void fade_palette_apply_audio_step(int iStep)
     DIGISetMasterVolume(iVolumeStep >> 5);
   }
 
-  if (MusicCD)
-    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -778,13 +795,7 @@ void fade_palette_finish()
     enable_keyboard();
 
   if (sPaletteFadeState.iTargetBrightness == 0 && !holdmusic) {
-    if (MusicCD && track_playing)
-      StopTrack();
-    else if (MusicCard && SongPtr) {
-      stop();
-      //sosMIDIUnInitSong(SongHandle);
-      SongPtr = 0;
-    }
+    stopmusic();
   }
 
   memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
@@ -818,8 +829,7 @@ int fade_palette_update()
 void fade_music_finish(int iTargetBrightness)
 {
     if (iTargetBrightness != 0 || holdmusic) return;
-    if (MusicCD && track_playing) StopTrack();
-    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
+    stopmusic();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1687,13 +1697,23 @@ void readsoundconfig(void)
     MusicCard = 0;
     MusicCD = -1;
   }
+
+#if defined(IS_WASM)
+  if (!MusicCD) {
+    // Classic CONFIG.INI files only know the legacy MusicCard field. Route
+    // every non-CD web configuration to the one initialized web backend.
+    MusicCard = 0;
+    MusicOS = 0;
+    MusicOPL = -1;
+  }
+#endif
   
   //hack the SoundCard to be available too
   if (!SoundCard)
     SoundCard = -1;
 
   // Set flags
-  if (MusicCard == 0 && MusicCD == 0)
+  if (!MusicBackendAvailable())
     musicon = 0;
 
   if (SoundCard == 0)
@@ -3121,15 +3141,8 @@ void startmusic(int iSong)
     MIDI_OPL_StopSong();
   }
 
-  if (MusicCard && musicon)
-    MIDISetMasterVolume(MusicVolume);
-  if (MusicOS && musicon)
-    MIDI_OS_SetMasterVolume(MusicVolume);
-  if (MusicOPL && musicon)
-    MIDI_OPL_SetMasterVolume(MusicVolume);
-
-  if (MusicCD)
-    SetAudioVolume(MusicVolume);
+  if (musicon || MusicCD)
+    MusicSetMasterVolume(MusicVolume);
 
   int iMusic; // Index of the music track to play
   if (iSong >= 0) {
@@ -3636,14 +3649,8 @@ void reinitmusic()
       iSong = TrackLoad;
     }
     startmusic(iSong);
-  } else if (MusicCD && track_playing) {
-    StopTrack();
-  } else if (MusicCard) {
-    if (SongPtr) {
-      stop();
-      //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
-      SongPtr = 0;
-    }
+  } else if (MusicBackendAvailable()) {
+    stopmusic();
   }
 }
 

@@ -922,6 +922,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 
   InputInit();
 
+#if !defined(IS_WASM)
   char localMidiPath[256];
   if (midi_root) {
     SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
@@ -952,6 +953,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (!MIDI_OS_Init()) {
     SDL_Log("Failed to initialize OS MIDI (rtmidi).");
   }
+#else
+  (void)midi_root;
+#endif
   if (!MIDI_OPL_Init()) {
     SDL_Log("Failed to initialize OPL3 MIDI (libADLMIDI).");
   }
@@ -1427,9 +1431,22 @@ void InitFATDATA(const char *szDataRoot)
   if (ROLLERAudioMusicAvailable()) {
     MusicCard = 0;
     MusicCD = -1;
+    MusicOS = 0;
+    MusicOPL = 0;
   } else {
+#if defined(IS_WASM)
+    // The browser bundle intentionally ships no WildMidi patch set and has no
+    // OS MIDI device. libADLMIDI is the self-contained web music backend.
+    MusicCard = 0;
+    MusicCD = 0;
+    MusicOS = 0;
+    MusicOPL = -1;
+#else
     MusicCard = -1;
     MusicCD = 0;
+    MusicOS = 0;
+    MusicOPL = 0;
+#endif
   }
 }
 
