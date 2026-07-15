@@ -18,6 +18,7 @@
 #include "platform_log.h"
 #if defined(IS_WASM)
 #include "present_sdlrenderer.h"
+#include <emscripten/emscripten.h>
 #endif
 #include <assert.h>
 #include <errno.h>
@@ -172,6 +173,74 @@ uint64 g_ullTimer150Ms = 0;
 #endif
 
 #define ROLLER_PRESENT_ASPECT ((float)640.0f / (float)400.0f)
+
+#if defined(IS_WASM)
+EM_JS(void, ROLLERPersistSyncDebounced, (), {
+  if (Module["rollerPersistSyncTimer"])
+    clearTimeout(Module["rollerPersistSyncTimer"]);
+
+  Module["rollerPersistSyncTimer"] = setTimeout(function persist() {
+    Module["rollerPersistSyncTimer"] = 0;
+    if (Module["rollerPersistSyncInFlight"]) {
+      Module["rollerPersistSyncPending"] = true;
+      return;
+    }
+
+    Module["rollerPersistSyncInFlight"] = true;
+    Module["rollerPersistSyncPending"] = false;
+    var restoreDemoLink = false;
+    try {
+      try {
+        var fatdata = FS.lstat("/persist/fatdata");
+        if (FS.isLink(fatdata.mode)) {
+          FS.unlink("/persist/fatdata");
+          restoreDemoLink = true;
+        }
+      } catch (error) {}
+
+      FS.syncfs(false, function(error) {
+        Module["rollerPersistSyncInFlight"] = false;
+        if (error)
+          console.error("ROLLER: failed to persist browser filesystem", error);
+
+        if (Module["rollerPersistSyncPending"]) {
+          Module["rollerPersistSyncPending"] = false;
+          if (!Module["rollerPersistSyncTimer"])
+            Module["rollerPersistSyncTimer"] = setTimeout(persist, 500);
+        }
+      });
+
+      // IDBFS captures its local file list synchronously. Restore the runtime
+      // link immediately so asset reads are never blocked on IndexedDB.
+      if (restoreDemoLink)
+        FS.symlink("/demo/fatdata", "/persist/fatdata");
+    } catch (error) {
+      Module["rollerPersistSyncInFlight"] = false;
+      console.error("ROLLER: failed to start browser filesystem sync", error);
+      if (restoreDemoLink) {
+        try {
+          try {
+            FS.lstat("/persist/fatdata");
+          } catch (linkMissingError) {
+            FS.symlink("/demo/fatdata", "/persist/fatdata");
+          }
+        } catch (linkError) {
+          console.error("ROLLER: failed to restore demo FATDATA link", linkError);
+        }
+      }
+      if (Module["rollerPersistSyncPending"] && !Module["rollerPersistSyncTimer"])
+        Module["rollerPersistSyncTimer"] = setTimeout(persist, 500);
+    }
+  }, 500);
+});
+#endif
+
+void ROLLERPersistSync(void)
+{
+#if defined(IS_WASM)
+  ROLLERPersistSyncDebounced();
+#endif
+}
 
 SDL_GPUDevice *ROLLERGetGPUDevice(void)
 {
@@ -704,6 +773,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
   ROLLERInstallPlatformLogSink();
+
+#if defined(IS_WASM)
+  SDL_strlcpy(whiplash_root, "/persist", 260);
+#endif
 
   if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
@@ -1434,14 +1507,18 @@ static void ROLLERCreateUserDataDir(const char *szDir)
 
 void InitREPLAYS(const char *szDataRoot)
 {
+  (void)szDataRoot;
   ROLLERCreateUserDataDir("./REPLAYS");
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void InitTRACKS(const char *szDataRoot)
 {
+  (void)szDataRoot;
   ROLLERCreateUserDataDir("./TRACKS");
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1996,12 +2073,48 @@ static int s_findpath_append(char *szPath, int iCurLen, int iMaxLen, const char 
 }
 #endif
 
+#if defined(IS_WASM)
+static bool ROLLERWasmPersistentFilePath(const char *szFile, char *szPath, size_t uiPathSize)
+{
+  char szCwd[ROLLER_MAX_PATH];
+  const char *szName = szFile;
+
+  if (!szFile || !szFile[0] || !getcwd(szCwd, sizeof(szCwd)) ||
+      strcmp(szCwd, "/demo/fatdata") != 0)
+    return false;
+
+  if (szName[0] == '.' && (szName[1] == '/' || szName[1] == '\\'))
+    szName += 2;
+
+  // Root files in the demo FATDATA tree are the game's mutable configs,
+  // records, and save slots. Keep persistent versions in /persist while
+  // allowing untouched files to fall back to the preloaded demo tree.
+  if (!szName[0] || strchr(szName, '/') || strchr(szName, '\\'))
+    return false;
+
+  int iLength = snprintf(szPath, uiPathSize, "/persist/%s", szName);
+  return iLength > 0 && (size_t)iLength < uiPathSize;
+}
+
+static bool ROLLERModeWrites(const char *szMode)
+{
+  return szMode && (strchr(szMode, 'w') || strchr(szMode, 'a') || strchr(szMode, '+'));
+}
+#endif
+
 const char *ROLLERfindpath(const char *szFile)
 {
 #ifdef IS_WINDOWS
   return szFile;
 #else
   static char szResolved[260];
+#if defined(IS_WASM)
+  if (ROLLERWasmPersistentFilePath(szFile, szResolved, sizeof(szResolved))) {
+    struct stat sb;
+    if (stat(szResolved, &sb) == 0)
+      return szResolved;
+  }
+#endif
   char szInput[260];
   strncpy(szInput, szFile, sizeof(szInput) - 1);
   szInput[sizeof(szInput) - 1] = '\0';
@@ -2068,6 +2181,16 @@ const char *ROLLERfindpath(const char *szFile)
 
 bool ROLLERfexists(const char *szFile)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    FILE *pPersistent = fopen(szPersistent, "r");
+    if (pPersistent) {
+      fclose(pPersistent);
+      return true;
+    }
+  }
+#endif
   FILE *pFile = fopen(szFile, "r");
   if (pFile) {
     fclose(pFile);
@@ -2146,6 +2269,14 @@ bool ROLLERdirexists(const char *szDir)
 
 FILE *ROLLERfopen(const char *szFile, const char *szMode)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    FILE *pPersistent = fopen(szPersistent, szMode);
+    if (pPersistent || ROLLERModeWrites(szMode))
+      return pPersistent;
+  }
+#endif
   FILE *pFile = fopen(szFile, szMode);
   if (pFile) return pFile;
 
@@ -2175,6 +2306,15 @@ FILE *ROLLERfopen(const char *szFile, const char *szMode)
 
 int ROLLERopen(const char *szFile, int iOpenFlags)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    int iPersistentHandle = open(szPersistent, iOpenFlags);
+    if (iPersistentHandle != -1 ||
+        (iOpenFlags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)))
+      return iPersistentHandle;
+  }
+#endif
   int iHandle = open(szFile, iOpenFlags);
   if (iHandle != -1) return iHandle;
 
@@ -2204,6 +2344,11 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
 
 int ROLLERremove(const char *szFile)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent)))
+    return remove(szPersistent);
+#endif
   int iSuccess = remove(szFile);
   if (iSuccess == 0) return 0;
 
@@ -2233,6 +2378,14 @@ int ROLLERremove(const char *szFile)
 
 int ROLLERrename(const char *szOldName, const char *szNewName)
 {
+#if defined(IS_WASM)
+  char szPersistentOld[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szOldName, szPersistentOld, sizeof(szPersistentOld))) {
+    char szPersistentNew[ROLLER_MAX_PATH];
+    if (ROLLERWasmPersistentFilePath(szNewName, szPersistentNew, sizeof(szPersistentNew)))
+      return rename(szPersistentOld, szPersistentNew);
+  }
+#endif
   int iSuccess = rename(szOldName, szNewName);
   if (iSuccess == 0) return 0;
 

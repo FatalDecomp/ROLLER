@@ -3822,6 +3822,7 @@ void save_fatal_config()
     }
   }
   InputSaveConfig();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4807,6 +4808,8 @@ void CommunityRecordSaveCurrent(void)
     if ((int)fwrite(pBuffer, 1, iNewLength, pFile) == iNewLength)
       s_iCommunityRecordDirty = 0;
     fclose(pFile);
+    if (!s_iCommunityRecordDirty)
+      ROLLERPersistSync();
   }
 
   fre((void **)&pBuffer);
@@ -5122,6 +5125,7 @@ void SaveRecords()
 
   fre((void**)&pBuffer); // Free the allocated buffer
   CommunityRecordSaveCurrent();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
