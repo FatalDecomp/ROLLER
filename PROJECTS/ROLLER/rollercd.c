@@ -1,3 +1,7 @@
+#if defined(__EMSCRIPTEN__) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "rollercd.h"
 #include "roller.h"
 #include "func2.h"
@@ -681,6 +685,85 @@ void ExtractDir(CdIo_t *p_cdio, const char *szIsoDir, const char *szOutDir)
 
 //-------------------------------------------------------------------------------------------------
 
+static void ExtractDirFromIso(iso9660_t *pIso, const char *szIsoDir, const char *szOutDir)
+{
+  ROLLERRefreshStartupOverlay();
+
+  SDL_CreateDirectory(szOutDir);
+
+  CdioList_t *pList = iso9660_ifs_readdir(pIso, szIsoDir);
+  if (!pList) {
+    SDL_Log("ExtractDirFromIso: iso9660_ifs_readdir failed for '%s'", szIsoDir);
+    return;
+  }
+
+  SDL_Log("ExtractDirFromIso: reading '%s' -> '%s'", szIsoDir, szOutDir);
+  ROLLERRefreshStartupOverlay();
+
+  CdioListNode_t *pNode;
+  _CDIO_LIST_FOREACH(pNode, pList)
+  {
+    iso9660_stat_t *pStat = (iso9660_stat_t *)_cdio_list_node_data(pNode);
+
+    char szFilename[ROLLER_MAX_PATH];
+    SDL_strlcpy(szFilename, pStat->filename, ROLLER_MAX_PATH);
+    char *szSemi = SDL_strchr(szFilename, ';');
+    if (szSemi) *szSemi = '\0';
+
+    if (SDL_strcmp(szFilename, ".") == 0 || SDL_strcmp(szFilename, "..") == 0) {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
+    if (szFilename[0] == '\0') {
+      iso9660_stat_free(pStat);
+      continue;
+    }
+
+    char szIsoPath[ROLLER_MAX_PATH];
+    char szOutPath[ROLLER_MAX_PATH];
+    SDL_snprintf(szIsoPath, ROLLER_MAX_PATH, "%s/%s", szIsoDir, szFilename);
+    SDL_snprintf(szOutPath, ROLLER_MAX_PATH, "%s/%s", szOutDir, szFilename);
+
+    if (pStat->type == _STAT_DIR) {
+      ExtractDirFromIso(pIso, szIsoPath, szOutPath);
+    } else {
+      FILE *pOut = fopen(szOutPath, "wb");
+      if (pOut) {
+        uint32 uiBytesLeft = pStat->size;
+        lsn_t lsn = pStat->lsn;
+        char szBuf[ISO_BLOCK_SIZE];
+
+        while (uiBytesLeft > 0) {
+          memset(szBuf, 0, ISO_BLOCK_SIZE);
+          if (iso9660_iso_seek_read(pIso, szBuf, lsn, 1) != ISO_BLOCK_SIZE) {
+            SDL_Log("ExtractDirFromIso: read error at LSN %d for '%s'", lsn, szIsoPath);
+            break;
+          }
+
+          uint32 uiToWrite = uiBytesLeft > ISO_BLOCK_SIZE
+            ? ISO_BLOCK_SIZE
+            : uiBytesLeft;
+          fwrite(szBuf, 1, uiToWrite, pOut);
+
+          uiBytesLeft -= uiToWrite;
+          lsn++;
+        }
+        fclose(pOut);
+        SDL_Log("  -> wrote '%s' (%u bytes)", szOutPath, pStat->size - uiBytesLeft);
+        ROLLERRefreshStartupOverlay();
+      } else {
+        SDL_Log("  -> FAILED to open '%s' for writing: %s", szOutPath, strerror(errno));
+        ROLLERRefreshStartupOverlay();
+      }
+    }
+    iso9660_stat_free(pStat);
+  }
+  _cdio_list_free(pList, false, NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static bool WriteSingleTrackCue(const char *szSourceCuePath, const tCueTrackInfo *pTrack, char *szCuePath, int nBufSize)
 {
   char szTempCueDir[ROLLER_MAX_PATH];
@@ -758,9 +841,9 @@ static bool ExtractFATDATAFromMultiFileCue(const char *szCuePath, const char *sz
 
 void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
 {
-  // Use cdio_open_am with DRIVER_UNKNOWN: auto-detects BIN/CUE, ISO, NRG, etc.
-  // Unlike iso9660_open_fuzzy (which reads raw bytes), the CdIo driver layer
-  // handles Mode 2 XA sectors (2352-byte, 24-byte header) correctly.
+  // Use cdio_open_am with DRIVER_UNKNOWN so CUE/BIN and NRG images use
+  // libcdio's portable image drivers. Bare 2048-byte ISO images use the
+  // matching portable ISO9660 reader because libcdio has no ISO CdIo driver.
   SDL_Log("ExtractFATDATA: opening '%s', output dir '%s'", szImagePath, szOutDir);
   ROLLERRefreshStartupOverlay();
 
@@ -772,6 +855,24 @@ void ExtractFATDATA(const char *szImagePath, const char *szOutDir)
       ExtractFATDATAFromMultiFileCue(szImagePath, szOutDir, &cueInfo);
       return;
     }
+  }
+
+  if (CueStringEndsWithIgnoreCase(szImagePath, ".iso")) {
+    char szNormIsoPath[ROLLER_MAX_PATH];
+    NormalizePathForCdio(szImagePath, szNormIsoPath, ROLLER_MAX_PATH);
+
+    iso9660_t *pIso = iso9660_open(szNormIsoPath);
+    if (!pIso) {
+      SDL_Log("ExtractFATDATA: iso9660_open failed for '%s'", szNormIsoPath);
+      ROLLERRefreshStartupOverlay();
+      return;
+    }
+
+    char szFatdataOut[ROLLER_MAX_PATH];
+    SDL_snprintf(szFatdataOut, ROLLER_MAX_PATH, "%s/FATDATA", szOutDir);
+    ExtractDirFromIso(pIso, "/FATDATA", szFatdataOut);
+    iso9660_close(pIso);
+    return;
   }
 
   // libcdio's cdio_dirname (abs_path.c) only recognises '/' as a directory
