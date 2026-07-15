@@ -1,8 +1,22 @@
+# Entry points and today's unhashed payload must always be revalidated.
 /index.html
   Cache-Control: no-cache
 
 /roller.js
   Cache-Control: no-cache
 
+/roller-shell.js
+  Cache-Control: no-cache
+
 /roller.wasm
   Cache-Control: no-cache
+
+# Hashed payloads use the roller-<content-hash> extension convention.
+/roller-*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+/roller-*.data
+  Cache-Control: public, max-age=31536000, immutable
+
+# COOP and COEP are intentionally absent. The build is single-threaded and
+# remains embeddable in a cross-origin iframe.

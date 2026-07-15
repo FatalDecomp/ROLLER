@@ -685,10 +685,12 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
     const install_html = b.addInstallFileWithDir(app_html, .{ .custom = "web" }, "index.html");
     const install_js = b.addInstallFileWithDir(output_dir.path(b, "roller.js"), .{ .custom = "web" }, "roller.js");
     const install_wasm = b.addInstallFileWithDir(output_dir.path(b, "roller.wasm"), .{ .custom = "web" }, "roller.wasm");
+    const install_shell_js = b.addInstallFileWithDir(b.path("web/roller-shell.js"), .{ .custom = "web" }, "roller-shell.js");
     const install_headers = b.addInstallFileWithDir(b.path("web/_headers"), .{ .custom = "web" }, "_headers");
     web_step.dependOn(&install_html.step);
     web_step.dependOn(&install_js.step);
     web_step.dependOn(&install_wasm.step);
+    web_step.dependOn(&install_shell_js.step);
     web_step.dependOn(&install_headers.step);
 }
 

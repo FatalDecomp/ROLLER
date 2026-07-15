@@ -649,6 +649,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
 {
   RaiseFileDescriptorLimit();
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+#if defined(IS_WASM)
+  SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, "#canvas");
+#endif
 #if defined(IS_ANDROID)
   SDL_SetHint(SDL_HINT_ORIENTATIONS,
               "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
