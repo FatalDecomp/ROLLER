@@ -21,6 +21,9 @@
 #include "transfrm.h"
 #include "snapshot.h"
 #include "touch_ui.h"
+#if defined(IS_WASM)
+#include "wasm_tick_clock.h"
+#endif
 #include <memory.h>
 #include <ctype.h>
 #include <SDL3/SDL.h>
@@ -59,6 +62,10 @@ SDL_AtomicInt iTicksPending;
 static SDL_AtomicInt iNetworkMasterInput;
 static SDL_AtomicInt iNetworkMasterInputValid;
 static int frontendspeechgeneration = -1;
+#if defined(IS_WASM)
+static tWasmTickClock sWasmTickClock;
+static bool s_bWasmTickClockClaimed = false;
+#endif
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -171,6 +178,27 @@ int network_error;          //0017C97C
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+
+bool MusicBackendAvailable(void)
+{
+  return MusicCard || MusicCD || MusicOS || MusicOPL;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void MusicSetMasterVolume(int iVolume)
+{
+  if (MusicCard)
+    MIDISetMasterVolume((int8)iVolume);
+  if (MusicOS)
+    MIDI_OS_SetMasterVolume((int8)iVolume);
+  if (MusicOPL)
+    MIDI_OPL_SetMasterVolume((int8)iVolume);
+  if (MusicCD)
+    SetAudioVolume(iVolume);
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static int frontendspeech_current_handle()
@@ -665,10 +693,8 @@ static void fade_palette_apply_audio_step(int iStep)
   if (sPaletteFadeState.iTargetBrightness != 0 || holdmusic)
     return;
 
-  if (musicon) {
-    //sosMIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-    MIDISetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
-  }
+  if (musicon || MusicCD)
+    MusicSetMasterVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 
   if (soundon) {
     int iVolumeStep = (iStep << 15) - iStep;
@@ -676,8 +702,6 @@ static void fade_palette_apply_audio_step(int iStep)
     DIGISetMasterVolume(iVolumeStep >> 5);
   }
 
-  if (MusicCD)
-    SetAudioVolume(((MusicVolume * iStep) >> 5) & 0xFF);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -778,13 +802,7 @@ void fade_palette_finish()
     enable_keyboard();
 
   if (sPaletteFadeState.iTargetBrightness == 0 && !holdmusic) {
-    if (MusicCD && track_playing)
-      StopTrack();
-    else if (MusicCard && SongPtr) {
-      stop();
-      //sosMIDIUnInitSong(SongHandle);
-      SongPtr = 0;
-    }
+    stopmusic();
   }
 
   memset(&sPaletteFadeState, 0, sizeof(sPaletteFadeState));
@@ -818,8 +836,7 @@ int fade_palette_update()
 void fade_music_finish(int iTargetBrightness)
 {
     if (iTargetBrightness != 0 || holdmusic) return;
-    if (MusicCD && track_playing) StopTrack();
-    else if (MusicCard && SongPtr) { stop(); SongPtr = 0; }
+    stopmusic();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1343,6 +1360,49 @@ LABEL_107:
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+void wasm_tick_clock_suspend(void)
+{
+  if (!s_bWasmTickClockClaimed)
+    return;
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  wasm_tick_clock_mark_suspended(&sWasmTickClock, ullNowNs);
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  ullLastTickTimeNs = ullNowNs;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void wasm_tick_clock_update(void)
+{
+  if (!s_bWasmTickClockClaimed)
+    return;
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  SDL_Window *pWindow = ROLLERGetWindow();
+  SDL_WindowFlags uiWindowFlags = pWindow ? SDL_GetWindowFlags(pWindow) : 0;
+  bool bSuspended = g_bShiftFrozen ||
+      (uiWindowFlags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) != 0;
+  uint64 ullSteps = wasm_tick_clock_advance(
+      &sWasmTickClock, ullNowNs, ullTickIntervalNs, bSuspended);
+
+  if (bSuspended) {
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    ullLastTickTimeNs = ullNowNs;
+    return;
+  }
+
+  for (uint64 i = 0; i < ullSteps; ++i)
+    tick_clock_step();
+
+  if (ullSteps > 0)
+    ullLastTickTimeNs = ullNowNs - sWasmTickClock.ullRemainderNs;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
 //0003B0E0
 void claim_ticktimer(unsigned int uiRateHz)
 {
@@ -1351,7 +1411,14 @@ void claim_ticktimer(unsigned int uiRateHz)
   ***/
   ullTickIntervalNs = HZ_TO_NS(uiRateHz);
   ullLastTickTimeNs = SDL_GetTicksNS();
+#if defined(IS_WASM)
+  tickhandle = 0;
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  wasm_tick_clock_reset(&sWasmTickClock, ullLastTickTimeNs);
+  s_bWasmTickClockClaimed = true;
+#else
   tickhandle = ROLLERAddTimer(uiRateHz, SDLTickTimerCallback, NULL); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/
@@ -1376,7 +1443,14 @@ void release_ticktimer()
   /***
   * ADDED BY ROLLER
   ***/
+#if defined(IS_WASM)
+  s_bWasmTickClockClaimed = false;
+  wasm_tick_clock_reset(&sWasmTickClock, SDL_GetTicksNS());
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  tickhandle = 0;
+#else
   ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/
@@ -1391,7 +1465,14 @@ void Uninitialise_SOS()
   /***
   * ADDED BY ROLLER
   ***/
+#if defined(IS_WASM)
+  s_bWasmTickClockClaimed = false;
+  wasm_tick_clock_reset(&sWasmTickClock, SDL_GetTicksNS());
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  tickhandle = 0;
+#else
   ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/
@@ -1687,13 +1768,23 @@ void readsoundconfig(void)
     MusicCard = 0;
     MusicCD = -1;
   }
+
+#if defined(IS_WASM)
+  if (!MusicCD) {
+    // Classic CONFIG.INI files only know the legacy MusicCard field. Route
+    // every non-CD web configuration to the one initialized web backend.
+    MusicCard = 0;
+    MusicOS = 0;
+    MusicOPL = -1;
+  }
+#endif
   
   //hack the SoundCard to be available too
   if (!SoundCard)
     SoundCard = -1;
 
   // Set flags
-  if (MusicCard == 0 && MusicCD == 0)
+  if (!MusicBackendAvailable())
     musicon = 0;
 
   if (SoundCard == 0)
@@ -3121,15 +3212,8 @@ void startmusic(int iSong)
     MIDI_OPL_StopSong();
   }
 
-  if (MusicCard && musicon)
-    MIDISetMasterVolume(MusicVolume);
-  if (MusicOS && musicon)
-    MIDI_OS_SetMasterVolume(MusicVolume);
-  if (MusicOPL && musicon)
-    MIDI_OPL_SetMasterVolume(MusicVolume);
-
-  if (MusicCD)
-    SetAudioVolume(MusicVolume);
+  if (musicon || MusicCD)
+    MusicSetMasterVolume(MusicVolume);
 
   int iMusic; // Index of the music track to play
   if (iSong >= 0) {
@@ -3636,14 +3720,8 @@ void reinitmusic()
       iSong = TrackLoad;
     }
     startmusic(iSong);
-  } else if (MusicCD && track_playing) {
-    StopTrack();
-  } else if (MusicCard) {
-    if (SongPtr) {
-      stop();
-      //sosMIDIUnInitSong(*(unsigned int *)&SongHandle);
-      SongPtr = 0;
-    }
+  } else if (MusicBackendAvailable()) {
+    stopmusic();
   }
 }
 

@@ -123,7 +123,17 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/view.c",
         },
     });
-    if (!bWasm) {
+    if (bWasm) {
+        exe_mod.addCSourceFiles(.{
+            .flags = c_flags,
+            .files = &.{
+                "PROJECTS/ROLLER/crashdump_stub.c",
+                "PROJECTS/ROLLER/debug_overlay_stub.c",
+                "PROJECTS/ROLLER/present_sdlrenderer.c",
+                "PROJECTS/ROLLER/rollercomms_stub.c",
+            },
+        });
+    } else {
         exe_mod.addCSourceFiles(.{
             .flags = c_flags,
             .files = &.{
@@ -249,8 +259,8 @@ pub fn build(b: *std.Build) void {
         configureWebBuild(b, optimize);
 
     // The recursive browser build produces the static archives consumed by the
-    // top-level `web` step. E2 adds the wasm presentation and subsystem stub
-    // translation units that resolve the deliberately omitted modules.
+    // top-level `web` step. Wasm-only presentation and subsystem stub translation
+    // units replace the deliberately omitted native modules.
     if (bWasm)
         return;
 
@@ -354,8 +364,30 @@ fn configureRenderQueue3DTests(
         render_queue_tests.dependOn(&seam_check.step);
     }
 
+    const tick_clock_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    tick_clock_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    tick_clock_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/wasm_tick_clock_test.c"},
+    });
+    const tick_clock_exe = b.addExecutable(.{
+        .name = "wasm_tick_clock_test",
+        .root_module = tick_clock_mod,
+    });
+    const run_tick_clock = b.addRunArtifact(tick_clock_exe);
+    const tick_clock_tests = b.step(
+        "test-wasm-tick-clock",
+        "Run wasm elapsed-time tick clock tests",
+    );
+    tick_clock_tests.dependOn(&run_tick_clock.step);
+
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
+    test_step.dependOn(tick_clock_tests);
 }
 
 const SnapshotReplay = struct {
@@ -669,9 +701,6 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sINVOKE_RUN=0",
         "-sEXPORTED_FUNCTIONS=_main",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
-        // E2.S2-E2.S4 replace the omitted presentation/subsystem modules.
-        // Keep this compile/link milestone runnable until those stubs land.
-        "-sERROR_ON_UNDEFINED_SYMBOLS=0",
         "-lc++",
         "--shell-file",
     });

@@ -26,6 +26,9 @@
 #include "touch_ui.h"
 #include "menu_render.h"
 #include <SDL3/SDL.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 #if defined(IS_ANDROID)
 #include <SDL3/SDL_main.h>
 #endif
@@ -948,6 +951,13 @@ int main_loop_iteration(void)
 
   UpdateSDL();
 
+#if defined(IS_WASM)
+  /* Browser timer callbacks lose cadence under main-thread load. Derive the
+   * game clock from elapsed monotonic time after pumping visibility/freeze
+   * state, then let the existing frontend path drain at most four ticks. */
+  wasm_tick_clock_update();
+#endif
+
   if (quit_game &&
       eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
       eFrontendCurrentState != eFRONTEND_STATE_QUIT)
@@ -959,13 +969,29 @@ int main_loop_iteration(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(__EMSCRIPTEN__)
+static void main_loop_iteration_wrapper(void)
+{
+  if (!main_loop_iteration())
+    emscripten_cancel_main_loop();
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_run_game_loop(eFrontendState eInitialState)
 {
   VIEWDIST = 270;
   frontend_set_state(eInitialState);
 
+#if defined(__EMSCRIPTEN__)
+  // The shutdown frontend state performs all cleanup, including ShutdownSDL. With
+  // simulated infinite-loop semantics, execution after this call is unreachable.
+  emscripten_set_main_loop(main_loop_iteration_wrapper, 0, 1);
+#else
   while (main_loop_iteration()) {
   }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3771,11 +3797,7 @@ void game_keys()
                             MusicVolume -= pausewindow;// Left Arrow - Decrease Music Volume
                             if (MusicVolume < 0)
                               MusicVolume = 0;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              goto UPDATE_CD_VOLUME;
+                            MusicSetMasterVolume(MusicVolume);
                             continue;
                           default:
                             continue;
@@ -3809,12 +3831,7 @@ void game_keys()
                             MusicVolume += pausewindow;
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              UPDATE_CD_VOLUME:
-                            SetAudioVolume(MusicVolume);
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -4269,7 +4286,7 @@ void game_keys()
                 }
                 goto PROCESS_NEXT_KEY;
               case 7:
-                if (MusicCard || MusicCD) {
+                if (MusicBackendAvailable()) {
                   musicon = musicon == 0;
                   reinitmusic();
                 } else {

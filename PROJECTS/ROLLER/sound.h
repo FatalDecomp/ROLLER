@@ -373,6 +373,10 @@ void blankpal();
 void Initialise_SOS();
 void readuserdata(int iPlayer);
 void tick_clock_step(void);
+#if defined(IS_WASM)
+void wasm_tick_clock_suspend(void);
+void wasm_tick_clock_update(void);
+#endif
 void game_tick_step(void);
 void DrainEngineDelay(void);
 void reset_tick_input_samples(void);
@@ -410,6 +414,8 @@ void loopsample(int iCarIdx, int iSampleIdx, int iVolume, int iPitch, int iPan);
 void enginesound(int iCarIdx, float fListenerDopplerVel, float fCarDopplerVel, float fDistance, int iStereoVolume);
 void startmusic(int iSong);
 void stopmusic();
+bool MusicBackendAvailable(void);
+void MusicSetMasterVolume(int iVolume);
 void load_language_map();
 void initmusic();
 void SOSTimerCallbackS7();

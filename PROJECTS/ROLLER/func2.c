@@ -3662,7 +3662,7 @@ void display_paused()
         else
           byMusicStatus = 0x83;
         pszMusicStatus = &config_buffer[2624];
-      } else if (MusicCard || MusicCD) {
+      } else if (MusicBackendAvailable()) {
         if (sound_edit == 7)
           byMusicStatus = 0x8F;
         else
@@ -3822,6 +3822,7 @@ void save_fatal_config()
     }
   }
   InputSaveConfig();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4807,6 +4808,8 @@ void CommunityRecordSaveCurrent(void)
     if ((int)fwrite(pBuffer, 1, iNewLength, pFile) == iNewLength)
       s_iCommunityRecordDirty = 0;
     fclose(pFile);
+    if (!s_iCommunityRecordDirty)
+      ROLLERPersistSync();
   }
 
   fre((void **)&pBuffer);
@@ -5122,6 +5125,7 @@ void SaveRecords()
 
   fre((void**)&pBuffer); // Free the allocated buffer
   CommunityRecordSaveCurrent();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------

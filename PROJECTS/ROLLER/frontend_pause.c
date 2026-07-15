@@ -182,10 +182,7 @@ static void frontend_pause_set_volume_value(int iItem, int iVolume)
       break;
     case 4:
       MusicVolume = iVolume;
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       break;
@@ -224,10 +221,7 @@ static int frontend_pause_apply_volume_wheel(int iWheelY)
       break;
     case 4:
       MusicVolume = frontend_pause_clamp_volume(MusicVolume + iDelta);
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       return 0;

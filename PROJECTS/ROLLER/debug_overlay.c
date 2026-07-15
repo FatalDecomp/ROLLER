@@ -1087,6 +1087,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
+#if !defined(IS_WASM)
     int bCRTFilter = (int)g_bCRTFilter;
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "CRT filter", &bCRTFilter)) {
@@ -1095,16 +1096,20 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
                                  g_bCRTFilter ? ROLLERGetCRTFilter() : NULL);
       InputSaveConfig();
     }
+#endif
 
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
-      int bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
+      int bGPU = 0;
+#if !defined(IS_WASM)
+      bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU)) {
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
         game_render_set_mode(g_pGameRenderer, bGPU ? GAME_RENDER_GPU : GAME_RENDER_SOFTWARE);
         InputSaveConfig();
       }
+#endif
 
       if (!bGPU) nk_widget_disable_begin(pCtx);
 

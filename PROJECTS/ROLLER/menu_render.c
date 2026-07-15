@@ -27,6 +27,7 @@ struct MenuRenderer {
     int gpuBlockDirty[MENU_RENDER_MAX_SLOTS];
 };
 
+#if !defined(IS_WASM)
 static int menu_render_wants_gpu_assets(MenuRenderer *renderer) {
     return renderer && renderer->gpu &&
            (renderer->mode == MENU_RENDER_GPU ||
@@ -74,15 +75,18 @@ static void menu_render_upload_dirty_gpu_blocks(MenuRenderer *renderer) {
             menu_render_upload_gpu_slot(renderer, i);
     }
 }
+#endif
 
 MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     MenuRenderer *r = calloc(1, sizeof(MenuRenderer));
     r->device = device;
     r->window = window;
     r->sw = menu_render_sw_create(device, window);
+#if !defined(IS_WASM)
     if (device && window) {
         r->gpu = menu_render_gpu_create(device, window);
     }
+#endif
     r->mode = MENU_RENDER_SOFTWARE;
     r->pendingMode = MENU_RENDER_SOFTWARE;
     return r;
@@ -90,8 +94,10 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window) {
 
 void menu_render_destroy(MenuRenderer *renderer) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->gpu)
         menu_render_gpu_destroy(renderer->gpu);
+#endif
     menu_render_sw_destroy(renderer->sw);
     for (int i = 0; i < MENU_RENDER_MAX_SLOTS; i++)
         free(renderer->cachedBlocksCopy[i]);
@@ -100,6 +106,13 @@ void menu_render_destroy(MenuRenderer *renderer) {
 
 void menu_render_set_mode(MenuRenderer *renderer, MenuRenderMode mode) {
     if (!renderer) return;
+#if defined(IS_WASM)
+    if (mode == MENU_RENDER_GPU)
+        SDL_Log("menu_render: GPU mode is unavailable on wasm; keeping software mode");
+    renderer->mode = MENU_RENDER_SOFTWARE;
+    renderer->pendingMode = MENU_RENDER_SOFTWARE;
+    return;
+#else
     if (mode == MENU_RENDER_GPU && !renderer->gpu)
         mode = MENU_RENDER_SOFTWARE;
     if (mode == MENU_RENDER_GPU && renderer->pendingMode != MENU_RENDER_GPU) {
@@ -109,6 +122,7 @@ void menu_render_set_mode(MenuRenderer *renderer, MenuRenderMode mode) {
         }
     }
     renderer->pendingMode = mode;
+#endif
 }
 
 MenuRenderMode menu_render_get_mode(MenuRenderer *renderer) {
@@ -139,14 +153,21 @@ int menu_render_load_blocks(MenuRenderer *renderer, int slot,
         }
     }
     menu_render_sw_load_blocks(renderer->sw, slot, blocks, palette);
+#if !defined(IS_WASM)
     if (menu_render_wants_gpu_assets(renderer) &&
         slot >= 0 && slot < MENU_RENDER_MAX_SLOTS)
         return menu_render_upload_gpu_slot(renderer, slot);
+#endif
     return 0;
 }
 
 void menu_render_begin_frame(MenuRenderer *renderer) {
     if (!renderer) return;
+#if defined(IS_WASM)
+    renderer->mode = MENU_RENDER_SOFTWARE;
+    renderer->pendingMode = MENU_RENDER_SOFTWARE;
+    menu_render_sw_begin_frame(renderer->sw);
+#else
     if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
         renderer->pendingMode = MENU_RENDER_SOFTWARE;
 
@@ -166,6 +187,7 @@ void menu_render_begin_frame(MenuRenderer *renderer) {
         menu_render_gpu_begin_frame(renderer->gpu);
     else
         menu_render_sw_begin_frame(renderer->sw);
+#endif
 }
 
 void menu_render_end_frame(MenuRenderer *renderer) {
@@ -174,23 +196,31 @@ void menu_render_end_frame(MenuRenderer *renderer) {
     touch_ui_handle_buttons();
     menu_render_set_layer(renderer, MENU_LAYER_FOREGROUND);
     touch_ui_render_menu(renderer, MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_end_frame(renderer->gpu);
     else
-        menu_render_sw_end_frame(renderer->sw);
+#endif
+    menu_render_sw_end_frame(renderer->sw);
 }
 
 void menu_render_set_layer(MenuRenderer *renderer, MenuDrawLayer layer) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_set_layer(renderer->gpu, layer);
+#else
+    (void)layer;
+#endif
 }
 
 void menu_render_background(MenuRenderer *renderer, int slot) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_background(renderer->gpu, slot);
     else
+#endif
         menu_render_sw_background(renderer->sw, slot);
 }
 
@@ -198,10 +228,12 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
                         int x, int y, int transparentColorIndex,
                         const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_sprite(renderer->gpu, slot, blockIdx, x, y,
                                transparentColorIndex, palette);
     else
+#endif
         menu_render_sw_sprite(renderer->sw, slot, blockIdx, x, y,
                               transparentColorIndex, palette);
 }
@@ -209,10 +241,12 @@ void menu_render_sprite(MenuRenderer *renderer, int slot, int blockIdx,
 void menu_render_box(MenuRenderer *renderer, int x, int y, int width,
                      int height, uint8 colorIndex, const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_box(renderer->gpu, x, y, width, height,
                             colorIndex, palette);
     else
+#endif
         menu_render_sw_box(renderer->sw, x, y, width, height,
                            colorIndex, palette);
 }
@@ -220,10 +254,12 @@ void menu_render_box(MenuRenderer *renderer, int x, int y, int width,
 void menu_render_fill(MenuRenderer *renderer, int x, int y, int width,
                       int height, uint8 colorIndex, const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_fill(renderer->gpu, x, y, width, height,
                              colorIndex, palette);
     else
+#endif
         menu_render_sw_fill(renderer->sw, x, y, width, height,
                             colorIndex, palette);
 }
@@ -231,20 +267,26 @@ void menu_render_fill(MenuRenderer *renderer, int x, int y, int width,
 void menu_render_begin_fade(MenuRenderer *renderer, int direction,
                             int durationFrames) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (menu_render_effective_mode(renderer) == MENU_RENDER_GPU) {
         if (direction)
             fade_audio_restore();
         menu_render_gpu_begin_fade(renderer->gpu, direction, durationFrames);
     } else {
+#endif
         menu_render_sw_begin_fade(renderer->sw, direction, durationFrames);
+#if !defined(IS_WASM)
     }
+#endif
 }
 
 int menu_render_fade_active(MenuRenderer *renderer) {
     if (!renderer) return 0;
+#if !defined(IS_WASM)
     if (menu_render_effective_mode(renderer) == MENU_RENDER_GPU)
         return menu_render_gpu_fade_active(renderer->gpu);
     else
+#endif
         return menu_render_sw_fade_active(renderer->sw);
 }
 
@@ -253,11 +295,13 @@ void menu_render_text(MenuRenderer *renderer, int fontSlot, const char *text,
                       int x, int y, uint8 colorReplace, int alignment,
                       const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_text(renderer->gpu, fontSlot, text, mappingTable,
                              charVOffsets, x, y, colorReplace, alignment,
                              palette);
     else
+#endif
         menu_render_sw_text(renderer->sw, fontSlot, text, mappingTable,
                             charVOffsets, x, y, colorReplace, alignment,
                             palette);
@@ -270,11 +314,13 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
                              int clipLeft, int clipRight,
                              const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_scaled_text(renderer->gpu, fontSlot, text, mappingTable,
                                     charVOffsets, x, y, colorReplace, alignment,
                                     clipLeft, clipRight, palette);
     else
+#endif
         menu_render_sw_scaled_text(renderer->sw, fontSlot, text, mappingTable,
                                    charVOffsets, x, y, colorReplace, alignment,
                                    clipLeft, clipRight, palette);
@@ -283,15 +329,19 @@ void menu_render_scaled_text(MenuRenderer *renderer, int fontSlot,
 void menu_render_load_car_mesh(MenuRenderer *renderer, int carIdx,
                                const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (menu_render_wants_gpu_assets(renderer))
         menu_render_gpu_load_car_mesh(renderer->gpu, carIdx, palette);
+#endif
     menu_render_sw_load_car_mesh(renderer->sw, carIdx, palette);
 }
 
 void menu_render_free_car_mesh(MenuRenderer *renderer) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->gpu)
         menu_render_gpu_free_car_mesh(renderer->gpu);
+#endif
     menu_render_sw_free_car_mesh(renderer->sw);
 }
 
@@ -299,18 +349,22 @@ void menu_render_draw_car_preview(MenuRenderer *renderer, float angle,
                                   float distance, int carYaw,
                                   int destX, int destY, int destW, int destH) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_draw_car_preview(renderer->gpu, angle, distance, carYaw,
                                          destX, destY, destW, destH);
     else
+#endif
         menu_render_sw_draw_car_preview(renderer->sw, angle, distance, carYaw,
                                         destX, destY, destW, destH);
 }
 
 void menu_render_load_track_mesh(MenuRenderer *renderer, const tColor *palette) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (menu_render_wants_gpu_assets(renderer))
         menu_render_gpu_load_track_mesh(renderer->gpu, palette);
+#endif
     menu_render_sw_load_track_mesh(renderer->sw, palette);
 }
 
@@ -318,10 +372,12 @@ void menu_render_draw_track_preview(MenuRenderer *renderer, float cameraZ,
                                     int elevation, int yaw,
                                     int destX, int destY, int destW, int destH) {
     if (!renderer) return;
+#if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_draw_track_preview(renderer->gpu, cameraZ, elevation, yaw,
                                            destX, destY, destW, destH);
     else
+#endif
         menu_render_sw_draw_track_preview(renderer->sw, cameraZ, elevation, yaw,
                                           destX, destY, destW, destH);
 }

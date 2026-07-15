@@ -58,16 +58,23 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->window = window;
     r->sw = game_render_sw_create(device, window);
     r->scene = scene_render_create(device, window);
+#if !defined(IS_WASM)
     r->gpu   = scene_render_get_gpu(r->scene);
+#endif
     r->mode = GAME_RENDER_SOFTWARE;
+    r->pendingMode = GAME_RENDER_SOFTWARE;
+#if !defined(IS_WASM)
     r->hw = game_render_hw_create(device);
+#endif
     return r;
 }
 
 void game_render_destroy(GameRenderer *renderer) {
     if (!renderer)
         return;
+#if !defined(IS_WASM)
     game_render_hw_destroy(renderer->hw);
+#endif
     scene_render_destroy(renderer->scene);
     game_render_sw_destroy(renderer->sw);
     free(renderer);
@@ -76,6 +83,16 @@ void game_render_destroy(GameRenderer *renderer) {
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
     if (!renderer)
         return;
+#if defined(IS_WASM)
+    if (mode == GAME_RENDER_GPU)
+        SDL_Log("game_render: GPU mode is unavailable on wasm; keeping software mode");
+    renderer->mode = GAME_RENDER_SOFTWARE;
+    renderer->pendingMode = GAME_RENDER_SOFTWARE;
+    renderer->pendingModeSet = false;
+    renderer->splitScreen = false;
+    scene_render_set_use_gpu(renderer->scene, false);
+    return;
+#else
     /* GPU textures are only uploaded when the race/session starts in GPU mode.
      * If they were skipped (started in SW), switching to GPU mid-session used
      * to just be blocked outright (would've rendered with an empty atlas).
@@ -90,11 +107,18 @@ void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode) {
     /* Split screen is GPU-only; turn it off when leaving GPU mode. */
     if (mode != GAME_RENDER_GPU && renderer->splitScreen)
         game_render_set_split_screen(renderer, false);
+#endif
 }
 
 void game_render_set_force_gpu_load(GameRenderer *renderer, bool force) {
-    if (renderer)
+    if (renderer) {
+#if defined(IS_WASM)
+        (void)force;
+        renderer->forceGpuLoad = false;
+#else
         renderer->forceGpuLoad = force;
+#endif
+    }
 }
 
 void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay) {
@@ -109,8 +133,15 @@ GameRenderMode game_render_get_mode(const GameRenderer *renderer) {
 
 void game_render_set_split_screen(GameRenderer *renderer, bool split) {
     if (!renderer) return;
+#if defined(IS_WASM)
+    if (split)
+        SDL_Log("game_render: split GPU rendering is unavailable on wasm");
+    renderer->splitScreen = false;
+    scene_render_set_split_screen(renderer->scene, false);
+#else
     renderer->splitScreen = split;
     scene_render_set_split_screen(renderer->scene, split);
+#endif
 }
 
 bool game_render_is_split_screen(const GameRenderer *renderer) {
@@ -120,6 +151,14 @@ bool game_render_is_split_screen(const GameRenderer *renderer) {
 // Frame lifecycle
 
 void game_render_begin_frame(GameRenderer *renderer) {
+#if defined(IS_WASM)
+    if (!renderer)
+        return;
+    renderer->mode = GAME_RENDER_SOFTWARE;
+    renderer->pendingMode = GAME_RENDER_SOFTWARE;
+    renderer->pendingModeSet = false;
+    game_render_sw_begin_frame(renderer->sw);
+#else
     if (renderer->pendingModeSet) {
         /* When switching GPU→SW, cancel any open command buffer before the
          * GPU path is abandoned.  This guards against the edge case where a
@@ -163,9 +202,14 @@ void game_render_begin_frame(GameRenderer *renderer) {
             memset(scrbuf, 0, SCRBUF_MAX_PIXELS);
         scene_render_gpu_begin_frame(renderer->gpu);
     }
+#endif
 }
 
 void game_render_end_frame(GameRenderer *renderer) {
+#if defined(IS_WASM)
+    if (renderer)
+        game_render_sw_end_frame(renderer->sw);
+#else
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_end_frame(renderer->sw);
     } else if (renderer->mode == GAME_RENDER_GPU) {
@@ -180,8 +224,10 @@ void game_render_end_frame(GameRenderer *renderer) {
                                         iHudH);
         scene_render_gpu_end_frame(renderer->gpu);
     }
+#endif
 }
 
+#if !defined(IS_WASM)
 void game_render_begin_mirror_pass(GameRenderer *renderer, float scrSizeRatio) {
     if (!renderer || renderer->mode != GAME_RENDER_GPU) return;
     renderer->mirrorPass = true;
@@ -460,6 +506,91 @@ void game_render_secondary_view_will_queue(GameRenderer *renderer) {
     if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
     scene_render_gpu_secondary_view_will_queue(renderer->gpu);
 }
+#else
+void game_render_begin_mirror_pass(GameRenderer *renderer, float scrSizeRatio) {
+    (void)renderer;
+    (void)scrSizeRatio;
+}
+
+void game_render_end_mirror_pass(GameRenderer *renderer, int texW, int texH) {
+    (void)renderer;
+    (void)texW;
+    (void)texH;
+}
+
+void game_render_composite_mirror_pass(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH,
+                                       bool flipH, int borderColorIdx) {
+    (void)renderer;
+    (void)screenX;
+    (void)screenY;
+    (void)screenW;
+    (void)screenH;
+    (void)flipH;
+    (void)borderColorIdx;
+}
+
+void game_render_begin_cinema_pass(GameRenderer *renderer, int winwCinema, int winhCinema) {
+    (void)renderer;
+    (void)winwCinema;
+    (void)winhCinema;
+}
+
+void game_render_end_cinema_pass(GameRenderer *renderer, int texW, int texH) {
+    (void)renderer;
+    (void)texW;
+    (void)texH;
+}
+
+void game_render_composite_cinema_view(GameRenderer *renderer,
+                                       int screenX, int screenY,
+                                       int screenW, int screenH) {
+    (void)renderer;
+    (void)screenX;
+    (void)screenY;
+    (void)screenW;
+    (void)screenH;
+}
+
+void game_render_begin_cinema_native(GameRenderer *renderer, int refWinH) {
+    (void)renderer;
+    (void)refWinH;
+}
+
+void game_render_reset_cinema_native(GameRenderer *renderer) {
+    (void)renderer;
+}
+
+void game_render_flush_player_view(GameRenderer *renderer, int slot,
+                                   int texW, int texH,
+                                   int frameW, int frameH,
+                                   int screenX, int screenY,
+                                   int screenW, int screenH) {
+    (void)renderer;
+    (void)slot;
+    (void)texW;
+    (void)texH;
+    (void)frameW;
+    (void)frameH;
+    (void)screenX;
+    (void)screenY;
+    (void)screenW;
+    (void)screenH;
+}
+
+void game_render_begin_2p_pass(GameRenderer *renderer) {
+    (void)renderer;
+}
+
+void game_render_end_2p_pass(GameRenderer *renderer) {
+    (void)renderer;
+}
+
+void game_render_secondary_view_will_queue(GameRenderer *renderer) {
+    (void)renderer;
+}
+#endif
 
 /* Call right before EACH player's own draw_road() in 2-player mode, alongside
  * game_render_secondary_view_will_queue(). Lets per-car GPU state that's keyed
@@ -475,6 +606,13 @@ void game_render_set_active_view_slot(GameRenderer *renderer, int slot) {
 void game_render_draw_2p_divider(GameRenderer *renderer,
                                  int frameW, int frameH,
                                  int dividerY, int dividerH) {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)frameW;
+    (void)frameH;
+    (void)dividerY;
+    (void)dividerH;
+#else
     if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
     if (frameW <= 0 || frameH <= 0) return;
 
@@ -485,6 +623,7 @@ void game_render_draw_2p_divider(GameRenderer *renderer,
     float ndcY[4] = { 1.0f-t/wh*2.0f, 1.0f-t/wh*2.0f, 1.0f-b/wh*2.0f, 1.0f-b/wh*2.0f };
     scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
     scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, 0.0f, 0.0f, 0.0f, 1.0f);
+#endif
 }
 
 // Full-screen translucent black quad, matching SW's in-race pause-menu darken
@@ -499,9 +638,13 @@ void game_render_draw_2p_divider(GameRenderer *renderer,
 // active, after any 2-player flush_player_view calls have already run (see
 // scene_render_gpu_screen_quad_darken for why the ordering matters in 2P mode).
 void game_render_draw_pause_darken(GameRenderer *renderer) {
+#if defined(IS_WASM)
+    (void)renderer;
+#else
     if (!renderer || renderer->mode != GAME_RENDER_GPU || !renderer->gpu) return;
     scene_render_gpu_set_particle_ndcz(renderer->gpu, 0.0f);
     scene_render_gpu_screen_quad_darken(renderer->gpu, 0.8f);
+#endif
 }
 
 // Viewport
@@ -619,6 +762,7 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
     if (!renderer)
         return;
 
+#if !defined(IS_WASM)
     /* GPU mode: route particles through the dedicated depth-tested pipeline so they
      * are occluded by solid geometry instead of blitting over everything via SW overlay. */
     if (renderer->mode == GAME_RENDER_GPU && renderer->gpu && !renderer->splitScreen) {
@@ -656,6 +800,7 @@ void game_render_quad_screen(GameRenderer *renderer, tPolyParams *poly,
         scene_render_gpu_screen_quad_flat(renderer->gpu, ndcX, ndcY, cr, cg, cb, ca);
         return;
     }
+#endif
 
     /* SW path: scrbuf overlay fallback. */
     int tex_idx = game_render_texture_index_from_handle(handle);
@@ -689,7 +834,12 @@ void game_render_quad_screen_hud(GameRenderer *renderer, tPolyParams *poly,
 }
 
 SceneRendererGPU *game_render_get_gpu(GameRenderer *renderer) {
+#if defined(IS_WASM)
+    (void)renderer;
+    return NULL;
+#else
     return renderer ? renderer->gpu : NULL;
+#endif
 }
 
 SDL_GPUDevice *game_render_get_device(GameRenderer *renderer) {
@@ -728,14 +878,24 @@ void game_render_quad_world_subdivide_type(GameRenderer *renderer,
 
 void game_render_set_particle_depth(GameRenderer *renderer, float ndcZ)
 {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)ndcZ;
+#else
     if (renderer && renderer->gpu)
         scene_render_gpu_set_particle_ndcz(renderer->gpu, ndcZ);
+#endif
 }
 
 void game_render_set_particle_depth_pervertex(GameRenderer *renderer, const float ndcZ[4])
 {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)ndcZ;
+#else
     if (renderer && renderer->gpu)
         scene_render_gpu_set_particle_ndcz_pervertex(renderer->gpu, ndcZ);
+#endif
 }
 
 void game_render_draw_car(GameRenderer *renderer, int carIdx,
@@ -745,6 +905,7 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
         return;
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
+#if !defined(IS_WASM)
     else if (renderer->mode == GAME_RENDER_GPU) {
         if (renderer->splitScreen)
             game_render_sw_draw_car(renderer->sw, carIdx, pose, options);
@@ -755,8 +916,10 @@ void game_render_draw_car(GameRenderer *renderer, int carIdx,
         CarRenderPose sw_pose = { pose->position, pose->yaw, pose->pitch, pose->roll };
         DisplayCarSmoke(carIdx, &sw_pose);
     }
+#endif
 }
 
+#if !defined(IS_WASM)
 /* Clip the NDC screen rectangle against the sky half-plane (S-H, 1 clip plane).
  * hx/hy: horizon point in NDC. nx/ny: sky-side normal (unnormalized, NDC-space).
  * Returns number of output vertices (0-5) in out_x/out_y. */
@@ -780,12 +943,16 @@ static int clip_sky_poly_ndc(float hx, float hy, float nx, float ny,
     }
     return n;
 }
+#endif
 
 void game_render_draw_sky(GameRenderer *renderer,
                           const GameRenderCamera *camera,
                           const GameRenderProjection *projection) {
     if (!renderer || !camera || !projection)
         return;
+#if defined(IS_WASM)
+    game_render_sw_draw_sky(renderer->sw, camera, projection);
+#else
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_draw_sky(renderer->sw, camera, projection);
         return;
@@ -878,6 +1045,7 @@ void game_render_draw_sky(GameRenderer *renderer,
         if ((textures_off & TEX_OFF_CLOUDS) == 0)
             displayclouds(NULL);
     }
+#endif
 }
 
 void game_render_sprite(GameRenderer *renderer, int slot, int blockIdx,
@@ -903,6 +1071,9 @@ void game_render_set_palette(GameRenderer *renderer, const tColor *pal) {
 
 void game_render_begin_fade(GameRenderer *renderer, int direction,
                             int durationFrames) {
+#if defined(IS_WASM)
+    game_render_sw_begin_fade(renderer->sw, direction, durationFrames);
+#else
     if (renderer->mode == GAME_RENDER_SOFTWARE) {
         game_render_sw_begin_fade(renderer->sw, direction, durationFrames);
     } else {
@@ -911,14 +1082,20 @@ void game_render_begin_fade(GameRenderer *renderer, int direction,
         else
             fade_palette_begin(0); /* locks keyboard; fade_active stays true until complete */
     }
+#endif
 }
 
 int game_render_fade_active(GameRenderer *renderer) {
+#if defined(IS_WASM)
+    return game_render_sw_fade_active(renderer->sw);
+#else
     if (renderer->mode == GAME_RENDER_SOFTWARE)
         return game_render_sw_fade_active(renderer->sw);
     return fade_palette_active();
+#endif
 }
 
+#if !defined(IS_WASM)
 void game_render_set_texture_filter(GameRenderer *renderer, int filter) {
     if (renderer) scene_render_gpu_set_texture_filter(renderer->gpu, filter);
 }
@@ -1002,3 +1179,68 @@ void game_render_set_vsync(GameRenderer *renderer, bool enabled) {
 void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter) {
     if (renderer) scene_render_gpu_set_crt_filter(renderer->gpu, filter);
 }
+#else
+void game_render_set_texture_filter(GameRenderer *renderer, int filter) {
+    (void)renderer; (void)filter;
+}
+void game_render_set_trilinear(GameRenderer *renderer, bool enabled) {
+    (void)renderer; (void)enabled;
+}
+void game_render_set_disable_mipmaps(GameRenderer *renderer, bool disabled) {
+    (void)renderer; (void)disabled;
+}
+void game_render_set_anisotropy_level(GameRenderer *renderer, int level) {
+    (void)renderer; (void)level;
+}
+void game_render_set_lod_bias(GameRenderer *renderer, float bias) {
+    (void)renderer; (void)bias;
+}
+void game_render_set_render_scale(GameRenderer *renderer, float scale) {
+    (void)renderer; (void)scale;
+}
+void game_render_set_fog_density(GameRenderer *renderer, float density) {
+    (void)renderer; (void)density;
+}
+void game_render_set_fog_color(GameRenderer *renderer, float fr, float fg, float fb) {
+    (void)renderer; (void)fr; (void)fg; (void)fb;
+}
+void game_render_set_gamma(GameRenderer *renderer, float gamma) {
+    (void)renderer; (void)gamma;
+}
+void game_render_set_antialiasing(GameRenderer *renderer, int level) {
+    (void)renderer; (void)level;
+}
+void game_render_set_fog_start(GameRenderer *renderer, float start) {
+    (void)renderer; (void)start;
+}
+void game_render_set_saturation(GameRenderer *renderer, float saturation) {
+    (void)renderer; (void)saturation;
+}
+void game_render_set_contrast(GameRenderer *renderer, float contrast) {
+    (void)renderer; (void)contrast;
+}
+void game_render_set_vignette(GameRenderer *renderer, float strength) {
+    (void)renderer; (void)strength;
+}
+void game_render_set_fov_multiplier(GameRenderer *renderer, float mult) {
+    (void)renderer; (void)mult;
+}
+void game_render_set_emulate_software_track_borders(GameRenderer *renderer, bool enabled) {
+    (void)renderer; (void)enabled;
+}
+void game_render_set_wireframe(GameRenderer *renderer, bool enabled) {
+    (void)renderer; (void)enabled;
+}
+void game_render_set_cull_mode(GameRenderer *renderer, int mode) {
+    (void)renderer; (void)mode;
+}
+void game_render_set_brightness(GameRenderer *renderer, float brightness) {
+    (void)renderer; (void)brightness;
+}
+void game_render_set_vsync(GameRenderer *renderer, bool enabled) {
+    (void)renderer; (void)enabled;
+}
+void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter) {
+    (void)renderer; (void)filter;
+}
+#endif

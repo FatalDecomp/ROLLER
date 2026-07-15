@@ -230,6 +230,7 @@ void SaveDefaultFatalIni(const char *szWhipRoot)
 
   if (ChangeWorkingDirectory(szPreviousDir) != 0)
     SDL_Log("ExtractFATDATA: failed to restore directory '%s': %s", szPreviousDir, strerror(errno));
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------

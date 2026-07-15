@@ -26,26 +26,40 @@ SceneRenderer *scene_render_create(SDL_GPUDevice *device, SDL_Window *window) {
         free(r);
         return NULL;
     }
+#if !defined(IS_WASM)
     r->gpu = scene_render_gpu_create(device, window);
     r->gpu_load_enabled = true;
+#else
+    r->gpu_load_enabled = false;
+#endif
+    r->use_gpu = false;
+    r->use_split = false;
     return r;
 }
 
 void scene_render_set_gpu_load_enabled(SceneRenderer *renderer, bool enabled) {
-    if (renderer)
+    if (renderer) {
+#if defined(IS_WASM)
+        (void)enabled;
+        renderer->gpu_load_enabled = false;
+#else
         renderer->gpu_load_enabled = enabled;
+#endif
+    }
 }
 
 bool scene_render_get_gpu_load_enabled(SceneRenderer *renderer) {
     return renderer && renderer->gpu_load_enabled;
 }
 
+#if !defined(IS_WASM)
 static void scene_render_reload_gpu_textures_cb(void *ctx, uint8 *pixels,
                                                 int width, int height,
                                                 int tex_idx, int texHalfRes) {
     SceneRenderer *renderer = (SceneRenderer *)ctx;
     scene_render_gpu_load_texture(renderer->gpu, pixels, width, height, tex_idx, texHalfRes);
 }
+#endif
 
 /* Lazily populates the GPU atlas from textures that were only ever registered
  * with the SW renderer -- e.g. a race that started in SW mode, where
@@ -55,18 +69,25 @@ static void scene_render_reload_gpu_textures_cb(void *ctx, uint8 *pixels,
  * scene_render_gpu_load_texture. Lets game_render_set_mode allow a mid-race
  * switch to GPU instead of just blocking it outright. */
 void scene_render_reload_gpu_textures(SceneRenderer *renderer) {
+#if defined(IS_WASM)
+    if (renderer)
+        renderer->gpu_load_enabled = false;
+#else
     if (!renderer || !renderer->gpu)
         return;
     renderer->gpu_load_enabled = true;
     scene_render_sw_for_each_texture(renderer->sw, scene_render_reload_gpu_textures_cb, renderer);
+#endif
 }
 
 void scene_render_destroy(SceneRenderer *renderer) {
     if (!renderer)
         return;
     scene_render_sw_destroy(renderer->sw);
+#if !defined(IS_WASM)
     if (renderer->gpu)
         scene_render_gpu_destroy(renderer->gpu);
+#endif
     free(renderer);
 }
 
@@ -82,8 +103,10 @@ void scene_render_set_viewport(SceneRenderer *renderer,
     if (!renderer)
         return;
     scene_render_sw_set_viewport(renderer->sw, x, y, w, h);
+#if !defined(IS_WASM)
     if (renderer->gpu)
         scene_render_gpu_set_viewport(renderer->gpu, x, y, w, h);
+#endif
 }
 
 void scene_render_set_camera(SceneRenderer *renderer,
@@ -91,8 +114,10 @@ void scene_render_set_camera(SceneRenderer *renderer,
     if (!renderer || !camera)
         return;
     scene_render_sw_set_camera(renderer->sw, camera);
+#if !defined(IS_WASM)
     if (renderer->gpu)
         scene_render_gpu_set_camera(renderer->gpu, camera);
+#endif
 }
 
 void scene_render_set_projection(SceneRenderer *renderer,
@@ -100,8 +125,10 @@ void scene_render_set_projection(SceneRenderer *renderer,
     if (!renderer || !projection)
         return;
     scene_render_sw_set_projection(renderer->sw, projection);
+#if !defined(IS_WASM)
     if (renderer->gpu)
         scene_render_gpu_set_projection(renderer->gpu, projection);
+#endif
 }
 
 SceneTextureHandle scene_render_load_texture(SceneRenderer *renderer,
@@ -114,9 +141,11 @@ SceneTextureHandle scene_render_load_texture(SceneRenderer *renderer,
     SceneTextureHandle swh = scene_render_sw_load_texture(renderer->sw, pixelData,
                                                           width, height,
                                                           tex_idx, texHalfRes);
+#if !defined(IS_WASM)
     if (renderer->gpu && renderer->gpu_load_enabled)
         scene_render_gpu_load_texture(renderer->gpu, pixelData, width, height,
                                       tex_idx, texHalfRes);
+#endif
     return swh;
 }
 
@@ -125,8 +154,10 @@ void scene_render_free_texture(SceneRenderer *renderer,
     if (!renderer)
         return;
     scene_render_sw_free_texture(renderer->sw, handle);
+#if !defined(IS_WASM)
     if (renderer->gpu)
         scene_render_gpu_free_texture(renderer->gpu, handle);
+#endif
 }
 
 SceneTextureHandle scene_render_get_texture_handle(SceneRenderer *renderer,
@@ -137,20 +168,38 @@ SceneTextureHandle scene_render_get_texture_handle(SceneRenderer *renderer,
 }
 
 void scene_render_set_use_gpu(SceneRenderer *renderer, bool use_gpu) {
-    if (renderer)
+    if (!renderer)
+        return;
+#if defined(IS_WASM)
+    if (use_gpu)
+        SDL_Log("scene_render: GPU mode is unavailable on wasm; keeping software mode");
+    renderer->use_gpu = false;
+#else
         renderer->use_gpu = use_gpu;
+#endif
 }
 
 void scene_render_set_split_screen(SceneRenderer *renderer, bool split) {
     if (!renderer) return;
+#if defined(IS_WASM)
+    if (split)
+        SDL_Log("scene_render: split GPU rendering is unavailable on wasm");
+    renderer->use_split = false;
+#else
     renderer->use_split = split;
     if (renderer->gpu)
         scene_render_gpu_set_split_screen(renderer->gpu, split);
+#endif
 }
 
 void scene_render_set_debug_overlay(SceneRenderer *renderer, DebugOverlay *overlay) {
+#if !defined(IS_WASM)
     if (renderer && renderer->gpu)
         scene_render_gpu_set_debug_overlay(renderer->gpu, overlay);
+#else
+    (void)renderer;
+    (void)overlay;
+#endif
 }
 
 void scene_render_quad_world_legacy(SceneRenderer *renderer,
@@ -160,14 +209,21 @@ void scene_render_quad_world_legacy(SceneRenderer *renderer,
                                     SceneRenderLegacyQuadOptions options) {
     if (!renderer || !verts)
         return;
+#if !defined(IS_WASM)
     if (renderer->gpu && renderer->use_gpu)
         scene_render_gpu_quad_world_legacy(renderer->gpu, verts, texture,
                                            surfaceFlags, options);
+#endif
     if (!renderer->use_gpu || renderer->use_split)
         scene_render_sw_quad_world_legacy(renderer->sw, verts, texture,
                                           surfaceFlags, options);
 }
 
 SceneRendererGPU *scene_render_get_gpu(SceneRenderer *renderer) {
+#if defined(IS_WASM)
+    (void)renderer;
+    return NULL;
+#else
     return renderer ? renderer->gpu : NULL;
+#endif
 }

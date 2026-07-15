@@ -100,6 +100,7 @@ void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
                               float fContentAspect,
                               SDL_GPUViewport *pViewport);
 void ROLLERRefreshStartupOverlay();
+void ROLLERPersistSync(void);
 
 bool ROLLERfexists(const char *szFile);
 const char *ROLLERfindpath(const char *szFile); // case-insensitive path resolution (no-op on Windows)

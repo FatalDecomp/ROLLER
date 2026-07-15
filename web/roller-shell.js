@@ -13,6 +13,13 @@ var Module = (() => {
   const progressPattern = /\((\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)/;
   let runtimeReady = false;
   let runtimeStarted = false;
+  const persistenceDependency = "roller-idbfs-restore";
+
+  function focusCanvas() {
+    if (document.visibilityState === "visible" && document.activeElement !== canvas) {
+      canvas.focus({ preventScroll: true });
+    }
+  }
 
   function setStatus(text) {
     const message = String(text ?? "");
@@ -42,8 +49,53 @@ var Module = (() => {
 
     runtimeStarted = true;
     startGate.hidden = true;
-    canvas.focus({ preventScroll: true });
+    focusCanvas();
     Module.callMain(["--no-crash-handler"]);
+  }
+
+  function filesystemNodeExists(path) {
+    try {
+      FS.lstat(path);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function ensureFilesystemLink(target, linkPath) {
+    if (!filesystemNodeExists(linkPath))
+      FS.symlink(target, linkPath);
+  }
+
+  function preparePersistentFilesystem() {
+    setStatus("Restoring saved data...");
+    FS.mkdirTree("/persist");
+    FS.mkdirTree("/demo/fatdata");
+    FS.mount(IDBFS, {}, "/persist");
+
+    addRunDependency(persistenceDependency);
+    FS.syncfs(true, (restoreError) => {
+      if (restoreError)
+        console.error("ROLLER: failed to restore browser filesystem", restoreError);
+
+      try {
+        // IDBFS cannot serialize symlinks. Recreate the demo layout after
+        // every restore and keep these links out of the persisted snapshot.
+        // A restored retail FATDATA directory takes precedence over the demo.
+        ensureFilesystemLink("/demo/fatdata", "/persist/fatdata");
+
+        // Emscripten resolves chdir through a symlink to its target. These
+        // links keep the game's ../REPLAYS and ../TRACKS paths in IDBFS while
+        // its effective cwd is /demo/fatdata.
+        ensureFilesystemLink("/persist/REPLAYS", "/demo/REPLAYS");
+        ensureFilesystemLink("/persist/TRACKS", "/demo/TRACKS");
+      } catch (error) {
+        console.error("ROLLER: failed to prepare browser filesystem layout", error);
+      }
+
+      Module["rollerPersistenceReady"] = true;
+      removeRunDependency(persistenceDependency);
+    });
   }
 
   startGate.addEventListener("click", startRuntime);
@@ -51,6 +103,29 @@ var Module = (() => {
     if (event.key === "Enter" || event.code === "Space") {
       event.preventDefault();
       startRuntime();
+    }
+  });
+
+  // SDL's Emscripten keyboard target is #canvas. Keep it focused when mouse
+  // input returns to the game or the browser tab/window becomes active again.
+  // pointerdown runs before SDL's mousedown callback, so the click still
+  // reaches the menu after focus is restored.
+  canvas.addEventListener("pointerdown", () => {
+    if (runtimeStarted) {
+      focusCanvas();
+    }
+  });
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
+  window.addEventListener("focus", () => {
+    if (runtimeStarted) {
+      focusCanvas();
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (runtimeStarted) {
+      focusCanvas();
     }
   });
 
@@ -62,6 +137,7 @@ var Module = (() => {
 
   return {
     canvas,
+    preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
       runtimeReady = true;
