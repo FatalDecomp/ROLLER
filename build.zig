@@ -364,8 +364,30 @@ fn configureRenderQueue3DTests(
         render_queue_tests.dependOn(&seam_check.step);
     }
 
+    const tick_clock_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    tick_clock_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    tick_clock_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/wasm_tick_clock_test.c"},
+    });
+    const tick_clock_exe = b.addExecutable(.{
+        .name = "wasm_tick_clock_test",
+        .root_module = tick_clock_mod,
+    });
+    const run_tick_clock = b.addRunArtifact(tick_clock_exe);
+    const tick_clock_tests = b.step(
+        "test-wasm-tick-clock",
+        "Run wasm elapsed-time tick clock tests",
+    );
+    tick_clock_tests.dependOn(&run_tick_clock.step);
+
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
+    test_step.dependOn(tick_clock_tests);
 }
 
 const SnapshotReplay = struct {

@@ -21,6 +21,9 @@
 #include "transfrm.h"
 #include "snapshot.h"
 #include "touch_ui.h"
+#if defined(IS_WASM)
+#include "wasm_tick_clock.h"
+#endif
 #include <memory.h>
 #include <ctype.h>
 #include <SDL3/SDL.h>
@@ -59,6 +62,10 @@ SDL_AtomicInt iTicksPending;
 static SDL_AtomicInt iNetworkMasterInput;
 static SDL_AtomicInt iNetworkMasterInputValid;
 static int frontendspeechgeneration = -1;
+#if defined(IS_WASM)
+static tWasmTickClock sWasmTickClock;
+static bool s_bWasmTickClockClaimed = false;
+#endif
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -1353,6 +1360,49 @@ LABEL_107:
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+void wasm_tick_clock_suspend(void)
+{
+  if (!s_bWasmTickClockClaimed)
+    return;
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  wasm_tick_clock_mark_suspended(&sWasmTickClock, ullNowNs);
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  ullLastTickTimeNs = ullNowNs;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void wasm_tick_clock_update(void)
+{
+  if (!s_bWasmTickClockClaimed)
+    return;
+
+  uint64 ullNowNs = SDL_GetTicksNS();
+  SDL_Window *pWindow = ROLLERGetWindow();
+  SDL_WindowFlags uiWindowFlags = pWindow ? SDL_GetWindowFlags(pWindow) : 0;
+  bool bSuspended = g_bShiftFrozen ||
+      (uiWindowFlags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) != 0;
+  uint64 ullSteps = wasm_tick_clock_advance(
+      &sWasmTickClock, ullNowNs, ullTickIntervalNs, bSuspended);
+
+  if (bSuspended) {
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    ullLastTickTimeNs = ullNowNs;
+    return;
+  }
+
+  for (uint64 i = 0; i < ullSteps; ++i)
+    tick_clock_step();
+
+  if (ullSteps > 0)
+    ullLastTickTimeNs = ullNowNs - sWasmTickClock.ullRemainderNs;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
 //0003B0E0
 void claim_ticktimer(unsigned int uiRateHz)
 {
@@ -1361,7 +1411,14 @@ void claim_ticktimer(unsigned int uiRateHz)
   ***/
   ullTickIntervalNs = HZ_TO_NS(uiRateHz);
   ullLastTickTimeNs = SDL_GetTicksNS();
+#if defined(IS_WASM)
+  tickhandle = 0;
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  wasm_tick_clock_reset(&sWasmTickClock, ullLastTickTimeNs);
+  s_bWasmTickClockClaimed = true;
+#else
   tickhandle = ROLLERAddTimer(uiRateHz, SDLTickTimerCallback, NULL); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/
@@ -1386,7 +1443,14 @@ void release_ticktimer()
   /***
   * ADDED BY ROLLER
   ***/
+#if defined(IS_WASM)
+  s_bWasmTickClockClaimed = false;
+  wasm_tick_clock_reset(&sWasmTickClock, SDL_GetTicksNS());
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  tickhandle = 0;
+#else
   ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/
@@ -1401,7 +1465,14 @@ void Uninitialise_SOS()
   /***
   * ADDED BY ROLLER
   ***/
+#if defined(IS_WASM)
+  s_bWasmTickClockClaimed = false;
+  wasm_tick_clock_reset(&sWasmTickClock, SDL_GetTicksNS());
+  SDL_SetAtomicInt(&iTicksPending, 0);
+  tickhandle = 0;
+#else
   ROLLERRemoveTimer(tickhandle); //may as well re-use tickhandle, it is also a uint32
+#endif
   /***
   * END ROLLER CODE
   ***/

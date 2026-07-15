@@ -951,6 +951,13 @@ int main_loop_iteration(void)
 
   UpdateSDL();
 
+#if defined(IS_WASM)
+  /* Browser timer callbacks lose cadence under main-thread load. Derive the
+   * game clock from elapsed monotonic time after pumping visibility/freeze
+   * state, then let the existing frontend path drain at most four ticks. */
+  wasm_tick_clock_update();
+#endif
+
   if (quit_game &&
       eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
       eFrontendCurrentState != eFRONTEND_STATE_QUIT)

@@ -1741,6 +1741,12 @@ void UpdateSDL()
       eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
       continue;
     }
+#if defined(IS_WASM)
+    /* rAF may stop completely in a background tab. Reset on the queued event
+     * itself so a hidden+shown pair processed together cannot cause catch-up. */
+    if (e.type == SDL_EVENT_WINDOW_HIDDEN || e.type == SDL_EVENT_WINDOW_MINIMIZED)
+      wasm_tick_clock_suspend();
+#endif
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
       switch (e.type) {
         case SDL_EVENT_WINDOW_RESIZED:
