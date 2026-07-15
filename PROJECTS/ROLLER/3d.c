@@ -26,6 +26,9 @@
 #include "touch_ui.h"
 #include "menu_render.h"
 #include <SDL3/SDL.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 #if defined(IS_ANDROID)
 #include <SDL3/SDL_main.h>
 #endif
@@ -959,13 +962,29 @@ int main_loop_iteration(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(__EMSCRIPTEN__)
+static void main_loop_iteration_wrapper(void)
+{
+  if (!main_loop_iteration())
+    emscripten_cancel_main_loop();
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_run_game_loop(eFrontendState eInitialState)
 {
   VIEWDIST = 270;
   frontend_set_state(eInitialState);
 
+#if defined(__EMSCRIPTEN__)
+  // The shutdown frontend state performs all cleanup, including ShutdownSDL. With
+  // simulated infinite-loop semantics, execution after this call is unreachable.
+  emscripten_set_main_loop(main_loop_iteration_wrapper, 0, 1);
+#else
   while (main_loop_iteration()) {
   }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
