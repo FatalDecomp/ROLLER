@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>ROLLER</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #000; color: #fff; }
+    body { display: grid; place-items: center; font: 16px monospace; }
+    main { text-align: center; }
+    canvas { display: block; width: min(100vw, 960px); height: auto; background: #000; }
+    button { margin: 1rem; padding: 0.75rem 2rem; font: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="canvas" width="640" height="400" tabindex="0"></canvas>
+    <button id="start" type="button" disabled>Start ROLLER</button>
+    <div id="status">Loading...</div>
+  </main>
+  <script>
+    const statusElement = document.getElementById("status");
+    const startButton = document.getElementById("start");
+    let runtimeReady = false;
+    var Module = {
+      canvas: document.getElementById("canvas"),
+      setStatus(text) {
+        if (text || !runtimeReady) {
+          statusElement.textContent = text;
+        }
+      },
+      onRuntimeInitialized() {
+        runtimeReady = true;
+        this.setStatus("Ready");
+        startButton.disabled = false;
+      }
+    };
+    startButton.addEventListener("click", () => {
+      startButton.disabled = true;
+      Module.canvas.focus();
+      Module.callMain(["--no-crash-handler"]);
+    }, { once: true });
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

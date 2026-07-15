@@ -1,0 +1,8 @@
+/index.html
+  Cache-Control: no-cache
+
+/roller.js
+  Cache-Control: no-cache
+
+/roller.wasm
+  Cache-Control: no-cache

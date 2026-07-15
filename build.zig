@@ -245,9 +245,12 @@ pub fn build(b: *std.Build) void {
 
     configureDependencies(b, exe, target, optimize, bAndroid, bWasm, android_libc_file, sdl_android_include, sdl_android_lib);
 
-    // The browser target is a compile-only static library at this stage. E1.S3
-    // adds the emcc link/web steps; E2 adds the wasm presentation and subsystem
-    // stub translation units that resolve the deliberately omitted modules.
+    if (!bWasm)
+        configureWebBuild(b, optimize);
+
+    // The recursive browser build produces the static archives consumed by the
+    // top-level `web` step. E2 adds the wasm presentation and subsystem stub
+    // translation units that resolve the deliberately omitted modules.
     if (bWasm)
         return;
 
@@ -543,11 +546,14 @@ fn configureDependencies(
             .sanitize_c = .off,
             .lto = .none,
         });
+        const sdl_lib = sdl.artifact("SDL3");
         exe_mod.addIncludePath(sdl.builder.path("include"));
         cflags.addIncludePath(sdl.builder.path("include"));
 
         if (!bAndroid)
-            exe_mod.linkLibrary(sdl.artifact("SDL3"));
+            exe_mod.linkLibrary(sdl_lib);
+        if (bWasm)
+            b.installArtifact(sdl_lib);
     }
 
     // libADLMIDI: OPL3 FM synthesis backend (pure PCM, works on all platforms)
@@ -563,6 +569,8 @@ fn configureDependencies(
         exe_mod.addIncludePath(adlmidi.builder.path("include"));
         exe_mod.linkLibrary(adlmidi_lib);
         cflags.addIncludePath(adlmidi.builder.path("include"));
+        if (bWasm)
+            b.installArtifact(adlmidi_lib);
     }
 
     if (!bAndroid and !bWasm) {
@@ -593,11 +601,104 @@ fn configureDependencies(
     exe_mod.addIncludePath(libcdio.builder.path("zig-config"));
     cflags.addIncludePath(libcdio.builder.path("include"));
     cflags.addIncludePath(libcdio.builder.path("zig-config"));
+    if (bWasm)
+        b.installArtifact(libcdio_lib);
 
     cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);
+}
+
+fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
+    const web_step = b.step("web", "Build the browser bundle");
+    const emsdk_option = b.option([]const u8, "emsdk", "Path to an emsdk checkout") orelse
+        std.process.getEnvVarOwned(b.allocator, "EMSDK") catch
+        b.pathJoin(&.{ b.build_root.path orelse ".", ".tools", "emsdk" });
+    // emcc may launch helper processes from the Emscripten source directory.
+    // Keep its environment absolute so those helpers can always find the SDK.
+    const emsdk_root = std.fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", emsdk_option }) catch
+        @panic("out of memory resolving the emsdk path");
+    const emcc_name = if (host_builtin.os.tag == .windows) "emcc.bat" else "emcc";
+    const emcc_path = b.pathJoin(&.{ emsdk_root, "upstream", "emscripten", emcc_name });
+    const em_config = b.pathJoin(&.{ emsdk_root, ".emscripten" });
+    const sysroot = b.pathJoin(&.{ emsdk_root, "upstream", "emscripten", "cache", "sysroot" });
+
+    std.fs.cwd().access(emcc_path, .{}) catch {
+        const missing_emsdk = b.addFail(b.fmt(
+            "Emscripten SDK not found at '{s}'. Run `mise install` or pass -Demsdk=/path/to/emsdk.",
+            .{emsdk_root},
+        ));
+        web_step.dependOn(&missing_emsdk.step);
+        return;
+    };
+
+    const web_optimize = b.option(
+        OptimizeMode,
+        "web-optimize",
+        "Override optimization mode for the browser bundle",
+    ) orelse if (optimize == .Debug) .ReleaseSafe else optimize;
+    const build_root = b.build_root.path orelse ".";
+    const stage_prefix = b.pathJoin(&.{ build_root, "zig-out", "wasm-stage" });
+
+    const compile_wasm = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
+    compile_wasm.addArgs(&.{
+        "-Dtarget=wasm32-emscripten",
+        b.fmt("-Doptimize={s}", .{@tagName(web_optimize)}),
+        "--sysroot",
+        sysroot,
+        "-p",
+        stage_prefix,
+    });
+
+    const run_emcc = b.addSystemCommand(&.{emcc_path});
+    run_emcc.step.dependOn(&compile_wasm.step);
+    run_emcc.setEnvironmentVariable("EMSDK", emsdk_root);
+    run_emcc.setEnvironmentVariable("EM_CONFIG", em_config);
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libroller.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libSDL3.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libcdio.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libadlmidi.a"));
+    run_emcc.addArgs(&.{
+        emccOptimizeFlag(web_optimize),
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sSTACK_SIZE=1048576",
+        "-sEXIT_RUNTIME=0",
+        "-sFORCE_FILESYSTEM",
+        "-lidbfs.js",
+        "-sINVOKE_RUN=0",
+        "-sEXPORTED_FUNCTIONS=_main",
+        "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
+        // E2.S2-E2.S4 replace the omitted presentation/subsystem modules.
+        // Keep this compile/link milestone runnable until those stubs land.
+        "-sERROR_ON_UNDEFINED_SYMBOLS=0",
+        "-lc++",
+        "--shell-file",
+    });
+    run_emcc.addFileArg(b.path("web/shell.html"));
+    if (web_optimize != .ReleaseFast and web_optimize != .ReleaseSmall)
+        run_emcc.addArg("-sASSERTIONS=1");
+    run_emcc.addArg("-o");
+    const app_html = run_emcc.addOutputFileArg("roller.html");
+    const output_dir = app_html.dirname();
+
+    const install_html = b.addInstallFileWithDir(app_html, .{ .custom = "web" }, "index.html");
+    const install_js = b.addInstallFileWithDir(output_dir.path(b, "roller.js"), .{ .custom = "web" }, "roller.js");
+    const install_wasm = b.addInstallFileWithDir(output_dir.path(b, "roller.wasm"), .{ .custom = "web" }, "roller.wasm");
+    const install_headers = b.addInstallFileWithDir(b.path("web/_headers"), .{ .custom = "web" }, "_headers");
+    web_step.dependOn(&install_html.step);
+    web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_wasm.step);
+    web_step.dependOn(&install_headers.step);
+}
+
+fn emccOptimizeFlag(optimize: OptimizeMode) []const u8 {
+    return switch (optimize) {
+        .Debug => "-O0",
+        .ReleaseSafe => "-O2",
+        .ReleaseFast => "-O3",
+        .ReleaseSmall => "-Oz",
+    };
 }
 
 fn androidNdkLibTriple(target: std.Target) ?[]const u8 {
