@@ -79,6 +79,8 @@ void ROLLERInstallPlatformLogSink(void)
   SDL_GetLogOutputFunction(&s_pPrevLogFn, &s_pPrevLogUserdata);
   SDL_SetLogOutputFunction(AndroidLogCallback, NULL);
   s_bInstalled = true;
+#elif defined(IS_WASM)
+  // SDL's default Emscripten log sink writes to the browser console.
 #endif
 }
 
@@ -100,6 +102,8 @@ void ROLLERRestorePlatformLogSink(void)
   s_pPrevLogFn = NULL;
   s_pPrevLogUserdata = NULL;
   s_bInstalled = false;
+#elif defined(IS_WASM)
+  // The default browser console sink does not need restoration.
 #endif
 }
 

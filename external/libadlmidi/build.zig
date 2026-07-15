@@ -13,6 +13,13 @@ pub fn build(b: *std.Build) void {
     lib_mod.sanitize_c = .off;
     lib_mod.addIncludePath(b.path("include"));
     lib_mod.addIncludePath(b.path("src"));
+    if (target.result.os.tag == .emscripten) {
+        const sysroot = b.sysroot orelse
+            @panic("the Emscripten target requires --sysroot <em-config CACHE>/sysroot");
+        lib_mod.addSystemIncludePath(.{
+            .cwd_relative = b.pathJoin(&.{ sysroot, "include" }),
+        });
+    }
 
     // DosBox OPL3 emulator only — disable all others
     const flags = &.{

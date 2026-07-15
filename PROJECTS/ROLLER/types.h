@@ -10,6 +10,8 @@
 #define IS_WINDOWS
 #elif defined(__ANDROID__)
 #define IS_ANDROID
+#elif defined(__EMSCRIPTEN__)
+#define IS_WASM
 #elif defined(__linux__) || defined(linux) || defined(__linux)
 #define IS_LINUX
 #elif defined(__APPLE__) || defined(__MACH__)

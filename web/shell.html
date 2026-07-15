@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>ROLLER</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: #000; color: #fff; }
+    body { display: grid; place-items: center; overflow: hidden; font: 16px monospace; }
+    main { width: min(100vw, 960px); }
+    .game-frame { position: relative; width: 100%; aspect-ratio: 8 / 5; background: #000; }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      image-rendering: pixelated;
+      outline: none;
+    }
+    .start-gate {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 1.5rem;
+      cursor: pointer;
+      background: rgb(0 0 0 / 72%);
+      text-align: center;
+      user-select: none;
+    }
+    .start-gate[aria-disabled="true"] { cursor: wait; }
+    .start-gate:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+    .gate-panel { width: min(28rem, 100%); }
+    .gate-title { display: block; margin-bottom: 0.75rem; font-size: 1.25rem; }
+    progress { width: 100%; margin-top: 0.75rem; accent-color: #fff; }
+    .start-instruction { margin-top: 0.75rem; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="game-frame">
+      <canvas id="canvas" width="640" height="400" tabindex="-1" aria-label="ROLLER game canvas"></canvas>
+      <div id="start-gate" class="start-gate" role="button" tabindex="0"
+           aria-disabled="true" aria-describedby="status">
+        <div class="gate-panel">
+          <strong id="gate-title" class="gate-title">Loading ROLLER</strong>
+          <div id="status" role="status" aria-live="polite">Preparing...</div>
+          <progress id="loading-progress" aria-label="Loading progress"></progress>
+          <div id="start-instruction" class="start-instruction" hidden>
+            Click or press Enter to start
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="roller-shell.js"></script>
+  {{{ SCRIPT }}}
+</body>
+</html>

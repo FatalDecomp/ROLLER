@@ -4,6 +4,18 @@ python = "3"
 usage = "latest"
 zig = "0.15.2"
 
+[env]
+EMSDK = "{{config_root}}/.tools/emsdk"
+EM_CONFIG = "{{config_root}}/.tools/emsdk/.emscripten"
+_.path = [
+  "{{config_root}}/.tools/emsdk",
+  "{{config_root}}/.tools/emsdk/upstream/emscripten",
+  "{{config_root}}/.tools/emsdk/upstream/bin",
+]
+
+[hooks]
+postinstall = { task = "install-emsdk" }
+
 [tasks.build]
 description = "Build for specific platform"
 run = "python scripts/build.py"
@@ -15,3 +27,7 @@ run = "rm -rf zig-out .zig-cache"
 [tasks.test]
 description = "Run tests"
 run = "zig build test"
+
+[tasks.install-emsdk]
+description = "Install the pinned Emscripten SDK"
+run = "python scripts/install_emsdk.py"

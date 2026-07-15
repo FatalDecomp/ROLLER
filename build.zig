@@ -10,7 +10,19 @@ pub fn build(b: *std.Build) void {
     const assets_path = b.option(std.Build.LazyPath, "assets-path", "Path to assets") orelse b.path("fatdata");
 
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const bWasm = target.result.os.tag == .emscripten;
+    const optimize = if (bWasm)
+        (b.option(
+            OptimizeMode,
+            "optimize",
+            "Prioritize performance, safety, or binary size",
+        ) orelse @as(OptimizeMode, switch (b.release_mode) {
+            .off, .any, .safe => .ReleaseSafe,
+            .fast => .ReleaseFast,
+            .small => .ReleaseSmall,
+        }))
+    else
+        b.standardOptimizeOption(.{});
     const bAndroid = target.result.abi.isAndroid();
     const android_ndk = b.option([]const u8, "android-ndk", "Path to Android NDK") orelse "";
     const android_api = b.option([]const u8, "android-api", "Android API level for NDK library path") orelse "26";
@@ -41,13 +53,18 @@ pub fn build(b: *std.Build) void {
 
     // Only sanitize C code when building in Debug mode
     // So that release builds are more "stable"
-    exe_mod.sanitize_c = if (optimize == .Debug) .full else .off;
+    exe_mod.sanitize_c = if (!bWasm and optimize == .Debug) .full else .off;
     exe_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    if (bWasm) {
+        const sysroot = b.sysroot orelse
+            @panic("the Emscripten target requires --sysroot <em-config CACHE>/sysroot");
+        exe_mod.addSystemIncludePath(.{
+            .cwd_relative = b.pathJoin(&.{ sysroot, "include" }),
+        });
+    }
     exe_mod.addCSourceFiles(.{
         .flags = c_flags,
         .files = &.{
-            "PROJECTS/ROLLER/debug_overlay.c",
-            "PROJECTS/ROLLER/crashdump.c",
             "PROJECTS/ROLLER/3d.c",
             "PROJECTS/ROLLER/building.c",
             "PROJECTS/ROLLER/car.c",
@@ -79,15 +96,11 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/horizon.c",
             "PROJECTS/ROLLER/loadtrak.c",
             "PROJECTS/ROLLER/menu_render.c",
-            "PROJECTS/ROLLER/menu_render_gpu.c",
             "PROJECTS/ROLLER/menu_render_software.c",
-            "PROJECTS/ROLLER/crt_filter.c",
             "PROJECTS/ROLLER/game_render.c",
             "PROJECTS/ROLLER/game_render_software.c",
-            "PROJECTS/ROLLER/game_render_hardware.c",
             "PROJECTS/ROLLER/scene_render.c",
             "PROJECTS/ROLLER/scene_render_software.c",
-            "PROJECTS/ROLLER/scene_render_gpu.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
@@ -99,7 +112,6 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/roller.c",
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollerinput.c",
-            "PROJECTS/ROLLER/rollercomms.c",
             "PROJECTS/ROLLER/rollersound.c",
             "PROJECTS/ROLLER/snapshot.c",
             "PROJECTS/ROLLER/snapshot_scenes.c",
@@ -111,15 +123,35 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/view.c",
         },
     });
+    if (!bWasm) {
+        exe_mod.addCSourceFiles(.{
+            .flags = c_flags,
+            .files = &.{
+                "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/crashdump.c",
+                "PROJECTS/ROLLER/menu_render_gpu.c",
+                "PROJECTS/ROLLER/crt_filter.c",
+                "PROJECTS/ROLLER/game_render_hardware.c",
+                "PROJECTS/ROLLER/scene_render_gpu.c",
+                "PROJECTS/ROLLER/rollercomms.c",
+            },
+        });
+    }
 
     const exe = if (bAndroid) b.addLibrary(.{
         .name = "main",
         .linkage = .dynamic,
         .root_module = exe_mod,
+    }) else if (bWasm) b.addLibrary(.{
+        .name = "roller",
+        .linkage = .static,
+        .root_module = exe_mod,
     }) else b.addExecutable(.{
         .name = "roller",
         .root_module = exe_mod,
     });
+    if (bWasm)
+        exe.lto = .none;
 
     var android_libc_file: ?LazyPath = null;
     if (bAndroid) {
@@ -185,13 +217,13 @@ pub fn build(b: *std.Build) void {
             exe_mod.link_libcpp = true;
             exe_mod.addIncludePath(b.path("external/rtmidi"));
             exe_mod.addCSourceFiles(.{
-                .root  = b.path("external/rtmidi"),
+                .root = b.path("external/rtmidi"),
                 .files = &.{ "RtMidi.cpp", "rtmidi_c.cpp" },
                 .flags = &.{"-D__WINDOWS_MM__"},
             });
             exe_mod.addCSourceFiles(.{
                 .flags = c_flags,
-                .files = &.{ "PROJECTS/ROLLER/midi_player.c" },
+                .files = &.{"PROJECTS/ROLLER/midi_player.c"},
             });
         },
         else => {
@@ -211,7 +243,16 @@ pub fn build(b: *std.Build) void {
         exe.step.dependOn(&scene_render_seam_check.step);
     }
 
-    configureDependencies(b, exe, target, optimize, bAndroid, android_libc_file, sdl_android_include, sdl_android_lib);
+    configureDependencies(b, exe, target, optimize, bAndroid, bWasm, android_libc_file, sdl_android_include, sdl_android_lib);
+
+    if (!bWasm)
+        configureWebBuild(b, optimize);
+
+    // The recursive browser build produces the static archives consumed by the
+    // top-level `web` step. E2 adds the wasm presentation and subsystem stub
+    // translation units that resolve the deliberately omitted modules.
+    if (bWasm)
+        return;
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -468,6 +509,7 @@ fn configureDependencies(
     target: ResolvedTarget,
     optimize: OptimizeMode,
     bAndroid: bool,
+    bWasm: bool,
     android_libc_file: ?LazyPath,
     sdl_android_include: []const u8,
     sdl_android_lib: []const u8,
@@ -476,16 +518,18 @@ fn configureDependencies(
 
     var cflags = compile_flagz.addCompileFlags(b);
 
-    const wildmidi = b.dependency("wildmidi", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const wildmidi_artifact = wildmidi.artifact("wildmidi");
-    if (android_libc_file) |libc_file|
-        wildmidi_artifact.setLibCFile(libc_file);
-    exe_mod.addIncludePath(wildmidi.builder.path("include"));
-    exe_mod.linkLibrary(wildmidi_artifact);
-    cflags.addIncludePath(wildmidi.builder.path("include"));
+    if (!bWasm) {
+        const wildmidi = b.dependency("wildmidi", .{
+            .target = target,
+            .optimize = optimize,
+        });
+        const wildmidi_artifact = wildmidi.artifact("wildmidi");
+        if (android_libc_file) |libc_file|
+            wildmidi_artifact.setLibCFile(libc_file);
+        exe_mod.addIncludePath(wildmidi.builder.path("include"));
+        exe_mod.linkLibrary(wildmidi_artifact);
+        cflags.addIncludePath(wildmidi.builder.path("include"));
+    }
 
     if (bAndroid and sdl_android_include.len > 0) {
         const sdl_include_path = LazyPath{ .cwd_relative = sdl_android_include };
@@ -502,11 +546,14 @@ fn configureDependencies(
             .sanitize_c = .off,
             .lto = .none,
         });
+        const sdl_lib = sdl.artifact("SDL3");
         exe_mod.addIncludePath(sdl.builder.path("include"));
         cflags.addIncludePath(sdl.builder.path("include"));
 
         if (!bAndroid)
-            exe_mod.linkLibrary(sdl.artifact("SDL3"));
+            exe_mod.linkLibrary(sdl_lib);
+        if (bWasm)
+            b.installArtifact(sdl_lib);
     }
 
     // libADLMIDI: OPL3 FM synthesis backend (pure PCM, works on all platforms)
@@ -522,9 +569,11 @@ fn configureDependencies(
         exe_mod.addIncludePath(adlmidi.builder.path("include"));
         exe_mod.linkLibrary(adlmidi_lib);
         cflags.addIncludePath(adlmidi.builder.path("include"));
+        if (bWasm)
+            b.installArtifact(adlmidi_lib);
     }
 
-    if (!bAndroid) {
+    if (!bAndroid and !bWasm) {
         const sdl_image = b.dependency("SDL_image", .{
             .target = target,
             .optimize = optimize,
@@ -552,11 +601,106 @@ fn configureDependencies(
     exe_mod.addIncludePath(libcdio.builder.path("zig-config"));
     cflags.addIncludePath(libcdio.builder.path("include"));
     cflags.addIncludePath(libcdio.builder.path("zig-config"));
+    if (bWasm)
+        b.installArtifact(libcdio_lib);
 
     cflags.addIncludePath(b.path("external/Nuklear-4.13.2"));
 
     const cflags_step = b.step("compile-flags", "Generate compile flags");
     cflags_step.dependOn(&cflags.step);
+}
+
+fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
+    const web_step = b.step("web", "Build the browser bundle");
+    const emsdk_option = b.option([]const u8, "emsdk", "Path to an emsdk checkout") orelse
+        std.process.getEnvVarOwned(b.allocator, "EMSDK") catch
+        b.pathJoin(&.{ b.build_root.path orelse ".", ".tools", "emsdk" });
+    // emcc may launch helper processes from the Emscripten source directory.
+    // Keep its environment absolute so those helpers can always find the SDK.
+    const emsdk_root = std.fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", emsdk_option }) catch
+        @panic("out of memory resolving the emsdk path");
+    const emcc_name = if (host_builtin.os.tag == .windows) "emcc.bat" else "emcc";
+    const emcc_path = b.pathJoin(&.{ emsdk_root, "upstream", "emscripten", emcc_name });
+    const em_config = b.pathJoin(&.{ emsdk_root, ".emscripten" });
+    const sysroot = b.pathJoin(&.{ emsdk_root, "upstream", "emscripten", "cache", "sysroot" });
+
+    std.fs.cwd().access(emcc_path, .{}) catch {
+        const missing_emsdk = b.addFail(b.fmt(
+            "Emscripten SDK not found at '{s}'. Run `mise install` or pass -Demsdk=/path/to/emsdk.",
+            .{emsdk_root},
+        ));
+        web_step.dependOn(&missing_emsdk.step);
+        return;
+    };
+
+    const web_optimize = b.option(
+        OptimizeMode,
+        "web-optimize",
+        "Override optimization mode for the browser bundle",
+    ) orelse if (optimize == .Debug) .ReleaseSafe else optimize;
+    const build_root = b.build_root.path orelse ".";
+    const stage_prefix = b.pathJoin(&.{ build_root, "zig-out", "wasm-stage" });
+
+    const compile_wasm = b.addSystemCommand(&.{ b.graph.zig_exe, "build" });
+    compile_wasm.addArgs(&.{
+        "-Dtarget=wasm32-emscripten",
+        b.fmt("-Doptimize={s}", .{@tagName(web_optimize)}),
+        "--sysroot",
+        sysroot,
+        "-p",
+        stage_prefix,
+    });
+
+    const run_emcc = b.addSystemCommand(&.{emcc_path});
+    run_emcc.step.dependOn(&compile_wasm.step);
+    run_emcc.setEnvironmentVariable("EMSDK", emsdk_root);
+    run_emcc.setEnvironmentVariable("EM_CONFIG", em_config);
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libroller.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libSDL3.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libcdio.a"));
+    run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libadlmidi.a"));
+    run_emcc.addArgs(&.{
+        emccOptimizeFlag(web_optimize),
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sSTACK_SIZE=1048576",
+        "-sEXIT_RUNTIME=0",
+        "-sFORCE_FILESYSTEM",
+        "-lidbfs.js",
+        "-sINVOKE_RUN=0",
+        "-sEXPORTED_FUNCTIONS=_main",
+        "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
+        // E2.S2-E2.S4 replace the omitted presentation/subsystem modules.
+        // Keep this compile/link milestone runnable until those stubs land.
+        "-sERROR_ON_UNDEFINED_SYMBOLS=0",
+        "-lc++",
+        "--shell-file",
+    });
+    run_emcc.addFileArg(b.path("web/shell.html"));
+    if (web_optimize != .ReleaseFast and web_optimize != .ReleaseSmall)
+        run_emcc.addArg("-sASSERTIONS=1");
+    run_emcc.addArg("-o");
+    const app_html = run_emcc.addOutputFileArg("roller.html");
+    const output_dir = app_html.dirname();
+
+    const install_html = b.addInstallFileWithDir(app_html, .{ .custom = "web" }, "index.html");
+    const install_js = b.addInstallFileWithDir(output_dir.path(b, "roller.js"), .{ .custom = "web" }, "roller.js");
+    const install_wasm = b.addInstallFileWithDir(output_dir.path(b, "roller.wasm"), .{ .custom = "web" }, "roller.wasm");
+    const install_shell_js = b.addInstallFileWithDir(b.path("web/roller-shell.js"), .{ .custom = "web" }, "roller-shell.js");
+    const install_headers = b.addInstallFileWithDir(b.path("web/_headers"), .{ .custom = "web" }, "_headers");
+    web_step.dependOn(&install_html.step);
+    web_step.dependOn(&install_js.step);
+    web_step.dependOn(&install_wasm.step);
+    web_step.dependOn(&install_shell_js.step);
+    web_step.dependOn(&install_headers.step);
+}
+
+fn emccOptimizeFlag(optimize: OptimizeMode) []const u8 {
+    return switch (optimize) {
+        .Debug => "-O0",
+        .ReleaseSafe => "-O2",
+        .ReleaseFast => "-O3",
+        .ReleaseSmall => "-Oz",
+    };
 }
 
 fn androidNdkLibTriple(target: std.Target) ?[]const u8 {
