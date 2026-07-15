@@ -2,7 +2,9 @@
 #include "roller.h"
 #include "snapshot.h"
 #include <limits.h>
+#if !defined(IS_WASM)
 #include <wildmidi_lib.h>
+#endif
 //-------------------------------------------------------------------------------------------------
 
 #pragma region MIDI
@@ -10,6 +12,54 @@
 #define MIDI_RATE 44100 // not sure if this is the correct rate
 SDL_AudioStream *midi_stream;
 float midi_volume;
+#if defined(IS_WASM)
+
+static int8 s_byMIDIMasterVolume = 127;
+
+bool MIDI_Init(const char *config_file)
+{
+  (void)config_file;
+  return false;
+}
+
+void MIDI_Shutdown(void)
+{
+}
+
+void MIDIInitStream(void)
+{
+}
+
+void MIDIClearStream(void)
+{
+}
+
+void MIDIInitSong(tInitSong *data)
+{
+  (void)data;
+}
+
+void MIDIStartSong(void)
+{
+}
+
+void MIDIStopSong(void)
+{
+}
+
+void MIDISetMasterVolume(int8 volume)
+{
+  if (volume > 127) volume = 127;
+  if (volume < 0) volume = 0;
+  s_byMIDIMasterVolume = volume;
+}
+
+int MIDIGetMasterVolume(void)
+{
+  return s_byMIDIMasterVolume;
+}
+
+#else
 midi *midi_music;
 
 static void MIDI_CloseMidiBufferUnlocked(void)
@@ -209,6 +259,8 @@ int MIDIGetMasterVolume()
 {
   return MIDIMasterVolume;
 }
+
+#endif
 
 #pragma endregion
 //-------------------------------------------------------------------------------------------------

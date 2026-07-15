@@ -22,14 +22,14 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <SDL3_image/SDL_image.h>
 #endif
 #if defined(IS_ANDROID)
 #include <jni.h>
 #include <SDL3/SDL_system.h>
 #endif
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <wildmidi_lib.h>
 #endif
 #include <fcntl.h>
@@ -787,7 +787,7 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
 #endif

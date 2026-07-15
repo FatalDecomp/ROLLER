@@ -1,6 +1,6 @@
 #include "png_writer.h"
 #include <SDL3/SDL.h>
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <SDL3_image/SDL_image.h>
 #endif
 
@@ -12,7 +12,7 @@ int RollerWriteIndexedPng(const char *szPath,
                           int iWidth,
                           int iHeight)
 {
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   (void)szPath;
   (void)pIndexedBuf;
   (void)pPalette;
@@ -64,7 +64,7 @@ int RollerWriteRgbaPng(const char *szPath,
                        int iWidth,
                        int iHeight)
 {
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   (void)szPath;
   (void)pRgbaBuf;
   (void)iWidth;
