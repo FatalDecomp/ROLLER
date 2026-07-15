@@ -63,6 +63,8 @@
 #endif
 #if defined(IS_ANDROID)
 #define CDROM_SUPPORT 0
+#elif defined(IS_WASM)
+#define CDROM_SUPPORT 0
 #elif defined(IS_LINUX)
 #include <linux/cdrom.h>
 #include <fcntl.h>
@@ -2506,6 +2508,8 @@ void ROLLERGetAudioInfo()
     }
   }
 
+#elif defined(IS_WASM)
+    // Browser builds deliberately fall through to the ripped-track scan below.
 #elif defined(IS_LINUX)
     // Linux: Try to open CD device
   const char *szCDDevices[] = {
@@ -2557,6 +2561,8 @@ void ROLLERStopTrack()
     if (g_wDeviceID) {
       mciSendCommand(g_wDeviceID, MCI_STOP, 0, 0);
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       ioctl(g_iCDHandle, CDROMSTOP);
@@ -2602,6 +2608,8 @@ void ROLLERPlayTrack(int iTrack)
                     (DWORD_PTR)&mciPlayParms);
       iStarted = -1;
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       struct cdrom_ti ti;
@@ -2702,6 +2710,8 @@ void ROLLERSetAudioVolume(int iVolume)
         }
       }
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
         // Linux CD-ROM volume control
@@ -2773,6 +2783,8 @@ void UpdateAudioTracks(void)
         }
       }
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       struct cdrom_subchnl subchnl;
@@ -2817,7 +2829,9 @@ void CleanupAudioCD(void)
 {
   ROLLERStopTrack();
 
-#if defined(IS_LINUX)
+#if defined(IS_WASM)
+  // Browser builds have no physical CD handle to close.
+#elif defined(IS_LINUX)
   if (g_iCDHandle >= 0) {
     close(g_iCDHandle);
     g_iCDHandle = -1;

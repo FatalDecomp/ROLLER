@@ -8,6 +8,8 @@
 #include <windows.h>
 #include <winioctl.h>
 #include <ntddcdrm.h>
+#elif defined(IS_WASM)
+// Browser builds intentionally omit physical CD-ROM device APIs.
 #elif defined(IS_LINUX)
 #include <dirent.h>
 #include <sys/stat.h>
@@ -234,6 +236,9 @@ void GetFirstCDDrive()
   }
 
   numCDdrives = iCount;
+#elif defined(IS_WASM)
+  // Browser builds cannot enumerate physical CD-ROM drives.
+  numCDdrives = 0;
 #elif defined(IS_LINUX)
   const char *szDevPrefix = "/dev/";
   const char *targets[] = { "cdrom", "sr0", "sr1", "sr2", "sr3", NULL };
