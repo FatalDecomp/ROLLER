@@ -106,6 +106,13 @@ static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
 static bool s_bDeviceRefreshPending = false;
 static uint64 s_ullDeviceRefreshMs = 0;
+#if defined(IS_WASM)
+/* A browser may not expose an attached gamepad until its first button press.
+ * Remember first-run players that still need defaults when that late
+ * GAMEPAD_ADDED event arrives. A loaded ROLLER.INI always takes precedence. */
+static uint8 s_byPendingDefaultGamepadPlayers = 0;
+static uint8 s_byBackupPendingDefaultGamepadPlayers = 0;
+#endif
 int g_iSavedWindowWidth  = 0;
 int g_iSavedWindowHeight = 0;
 #if defined(_WIN32)
@@ -151,6 +158,9 @@ static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton e
 static void InputMenuRememberAxisRests(void);
 static void InputMenuRememberButtonStates(void);
 static void InputMenuResetKeyStates(void);
+#if defined(IS_WASM)
+static void InputApplyPendingDefaultGamepadBindings(void);
+#endif
 #if defined(IS_ANDROID)
 static void InputPhoneResetTouches(void);
 static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent);
@@ -755,6 +765,13 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
   InputCopyString(pDevice->szPath, sizeof(pDevice->szPath), szPath);
 
   ++s_iNumDevices;
+#if defined(IS_WASM)
+  SDL_Log("ROLLER web input: opened %s \"%s\" (%d axes, %d buttons)",
+          pDevice->bGamepad ? "gamepad" : "joystick",
+          pDevice->szName[0] ? pDevice->szName : "Unknown",
+          pDevice->iNumAxes,
+          pDevice->iNumButtons);
+#endif
   return 1;
 }
 
@@ -1197,6 +1214,9 @@ void InputRefreshDevices(void)
 #endif
 
   InputResolveAllBindings();
+#if defined(IS_WASM)
+  InputApplyPendingDefaultGamepadBindings();
+#endif
   InputUpdate();
   InputMenuRememberAxisRests();
   InputMenuRememberButtonStates();
@@ -1320,6 +1340,9 @@ void InputShutdown(void)
   InputFreeCaptureSnapshot();
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = 0;
+#endif
   InputCancelPendingDeviceRefresh();
   InputCloseAllDevices();
 #if defined(IS_ANDROID)
@@ -1819,11 +1842,29 @@ static void InputCopyDeviceIdentity(tInputBinding *pBinding, const tInputDevice 
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static void InputCancelPendingDefaultGamepadBinding(int iAction)
+{
+  if ((iAction >= USERKEY_P1LEFT && iAction <= USERKEY_P1DOWNGEAR) ||
+      iAction == USERKEY_P1CHEAT) {
+    s_byPendingDefaultGamepadPlayers &= (uint8)~0x01u;
+  } else if ((iAction >= USERKEY_P2LEFT && iAction <= USERKEY_P2DOWNGEAR) ||
+             iAction == USERKEY_P2CHEAT) {
+    s_byPendingDefaultGamepadPlayers &= (uint8)~0x02u;
+  }
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
 void InputSetKeyboardBinding(int iAction, int iScancode)
 {
   if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
     return;
 
+#if defined(IS_WASM)
+  InputCancelPendingDefaultGamepadBinding(iAction);
+#endif
   InputClearBinding(&g_inputBindings[iAction]);
   if (iScancode >= 0 && iScancode < 0x80)
     userkey[iAction] = iScancode;
@@ -1858,6 +1899,9 @@ void InputSetControllerBinding(int iAction, const tInputBinding *pBinding)
   if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS || !pBinding)
     return;
 
+#if defined(IS_WASM)
+  InputCancelPendingDefaultGamepadBinding(iAction);
+#endif
   if (userkey[iAction] < 0 || userkey[iAction] >= 0x80)
     userkey[iAction] = s_actionInfo[iAction].iDefaultScancode;
   g_inputBindings[iAction] = *pBinding;
@@ -1882,6 +1926,9 @@ void InputSetControllerBinding(int iAction, const tInputBinding *pBinding)
 void InputBackupBindings(void)
 {
   memcpy(s_backupBindings, g_inputBindings, sizeof(s_backupBindings));
+#if defined(IS_WASM)
+  s_byBackupPendingDefaultGamepadPlayers = s_byPendingDefaultGamepadPlayers;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1889,6 +1936,9 @@ void InputBackupBindings(void)
 void InputRestoreBindings(void)
 {
   memcpy(g_inputBindings, s_backupBindings, sizeof(g_inputBindings));
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = s_byBackupPendingDefaultGamepadPlayers;
+#endif
   InputResolveAllBindings();
 }
 
@@ -2224,44 +2274,70 @@ static int InputFindNthGamepad(int iGamepadIndex)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputApplyDefaultGamepadBindingsForPlayer(int iPlayer)
+{
+  int iDeviceRef = InputFindNthGamepad(iPlayer);
+  int iActionBase = iPlayer == 0 ? USERKEY_P1LEFT : USERKEY_P2LEFT;
+  int iCheatAction = iPlayer == 0 ? USERKEY_P1CHEAT : USERKEY_P2CHEAT;
+  SDL_Gamepad *pGamepad;
+
+  if (iDeviceRef < 0)
+    return 0;
+
+  pGamepad = s_pDevices[iDeviceRef].pGamepad;
+  InputBindGamepadAxis(iActionBase, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, -1, INPUT_AXIS_CENTERED, 0);
+  InputBindGamepadAxis(iActionBase + 1, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, 1, INPUT_AXIS_CENTERED, 0);
+
+  if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
+    InputBindGamepadAxis(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
+  else
+    InputBindGamepadButton(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_BUTTON_SOUTH);
+
+  if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
+    InputBindGamepadAxis(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
+  else
+    InputBindGamepadButton(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_BUTTON_EAST);
+
+  if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER))
+    InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+  else
+    InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_NORTH);
+
+  if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER))
+    InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+  else
+    InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_WEST);
+
+  InputBindGamepadButton(iCheatAction, iDeviceRef, SDL_GAMEPAD_BUTTON_START);
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InputApplyDefaultGamepadBindings(void)
 {
-  for (int iPlayer = 0; iPlayer < 2; ++iPlayer) {
-    int iDeviceRef = InputFindNthGamepad(iPlayer);
-    int iActionBase = iPlayer == 0 ? USERKEY_P1LEFT : USERKEY_P2LEFT;
-    int iCheatAction = iPlayer == 0 ? USERKEY_P1CHEAT : USERKEY_P2CHEAT;
-    SDL_Gamepad *pGamepad;
+  for (int iPlayer = 0; iPlayer < 2; ++iPlayer)
+    InputApplyDefaultGamepadBindingsForPlayer(iPlayer);
+}
 
-    if (iDeviceRef < 0)
+//-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static void InputApplyPendingDefaultGamepadBindings(void)
+{
+  for (int iPlayer = 0; iPlayer < 2; ++iPlayer) {
+    uint8 byPlayerBit = (uint8)(1u << iPlayer);
+
+    if (!(s_byPendingDefaultGamepadPlayers & byPlayerBit))
       continue;
 
-    pGamepad = s_pDevices[iDeviceRef].pGamepad;
-    InputBindGamepadAxis(iActionBase, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, -1, INPUT_AXIS_CENTERED, 0);
-    InputBindGamepadAxis(iActionBase + 1, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, 1, INPUT_AXIS_CENTERED, 0);
-
-    if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
-      InputBindGamepadAxis(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
-    else
-      InputBindGamepadButton(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_BUTTON_SOUTH);
-
-    if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
-      InputBindGamepadAxis(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
-    else
-      InputBindGamepadButton(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_BUTTON_EAST);
-
-    if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER))
-      InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
-    else
-      InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_NORTH);
-
-    if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER))
-      InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
-    else
-      InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_WEST);
-
-    InputBindGamepadButton(iCheatAction, iDeviceRef, SDL_GAMEPAD_BUTTON_START);
+    if (InputApplyDefaultGamepadBindingsForPlayer(iPlayer)) {
+      s_byPendingDefaultGamepadPlayers &= (uint8)~byPlayerBit;
+      SDL_Log("ROLLER web input: applied first-run defaults for player %d", iPlayer + 1);
+    }
   }
 }
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -3355,6 +3431,9 @@ int InputLoadConfig(void)
   uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = 0;
+#endif
 #if defined(IS_ANDROID)
   g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
   g_bShowActiveTouchControls = false;
@@ -3367,7 +3446,12 @@ int InputLoadConfig(void)
       InputApplyMusicSource(1);
 #endif
     InputMigrateLegacyKeyboardBindings();
+#if defined(IS_WASM)
+    s_byPendingDefaultGamepadPlayers = 0x03;
+    InputApplyPendingDefaultGamepadBindings();
+#else
     InputApplyDefaultGamepadBindings();
+#endif
     InputApplyWindowConfig();
     InputResolveAllBindings();
     return 0;
