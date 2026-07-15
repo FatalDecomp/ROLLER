@@ -123,7 +123,12 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/view.c",
         },
     });
-    if (!bWasm) {
+    if (bWasm) {
+        exe_mod.addCSourceFiles(.{
+            .flags = c_flags,
+            .files = &.{"PROJECTS/ROLLER/present_sdlrenderer.c"},
+        });
+    } else {
         exe_mod.addCSourceFiles(.{
             .flags = c_flags,
             .files = &.{
@@ -249,8 +254,8 @@ pub fn build(b: *std.Build) void {
         configureWebBuild(b, optimize);
 
     // The recursive browser build produces the static archives consumed by the
-    // top-level `web` step. E2 adds the wasm presentation and subsystem stub
-    // translation units that resolve the deliberately omitted modules.
+    // top-level `web` step. Wasm-only presentation and subsystem stub translation
+    // units replace the deliberately omitted native modules.
     if (bWasm)
         return;
 
@@ -669,8 +674,8 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sINVOKE_RUN=0",
         "-sEXPORTED_FUNCTIONS=_main",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
-        // E2.S2-E2.S4 replace the omitted presentation/subsystem modules.
-        // Keep this compile/link milestone runnable until those stubs land.
+        // E2.S3-E2.S4 replace the remaining omitted subsystem modules. Keep the
+        // browser link runnable until those stubs land.
         "-sERROR_ON_UNDEFINED_SYMBOLS=0",
         "-lc++",
         "--shell-file",

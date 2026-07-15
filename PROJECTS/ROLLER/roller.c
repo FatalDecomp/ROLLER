@@ -16,6 +16,9 @@
 #include "rollercd.h"
 #include "view.h"
 #include "platform_log.h"
+#if defined(IS_WASM)
+#include "present_sdlrenderer.h"
+#endif
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -98,9 +101,11 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 static SDL_Window *s_pWindow = NULL;
+#if !defined(IS_WASM)
 static SDL_GPUDevice *s_pGPUDevice = NULL;
 static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
+#endif
 static int s_iGPUPresentSkipFrames = 0;
 /* Hard-disables GPU swapchain presentation while set. Used on Android during the
  * InitFATDATA import flow, where showing native dialogs (message box + SAF file
@@ -168,7 +173,14 @@ uint64 g_ullTimer150Ms = 0;
 
 #define ROLLER_PRESENT_ASPECT ((float)640.0f / (float)400.0f)
 
-SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
+SDL_GPUDevice *ROLLERGetGPUDevice(void)
+{
+#if defined(IS_WASM)
+  return NULL;
+#else
+  return s_pGPUDevice;
+#endif
+}
 SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 
 static MenuRenderer *s_pMenuRenderer = NULL;
@@ -397,6 +409,7 @@ uint8 sdl_to_set1[] = {
 
 //-------------------------------------------------------------------------------------------------
 
+#if !defined(IS_WASM)
 static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
                                   uint8 *pRGBA, int width, int height)
 {
@@ -410,6 +423,7 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
     pRGBA[i * 4 + 3] = 255;
   }
 }
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -422,8 +436,14 @@ bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Wind
   if (!pCmdBuf || !pWindow)
     return false;
 
+#if defined(IS_WASM)
+  (void)puiSwapchainW;
+  (void)puiSwapchainH;
+  return false;
+#else
   return SDL_AcquireGPUSwapchainTexture(pCmdBuf, pWindow, ppSwapchainTex,
                                         puiSwapchainW, puiSwapchainH);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -438,6 +458,9 @@ void UpdateSDLWindow()
   if (!g_bPaletteSet) return;
   if (ROLLERGpuPresentationSuspended()) return;
 
+#if defined(IS_WASM)
+  ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh);
+#else
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
@@ -511,12 +534,18 @@ void UpdateSDLWindow()
   }
   debug_overlay_render(s_pDebugOverlay, cmdBuf, swapchainTex, swW, swH);
   SDL_SubmitGPUCommandBuffer(cmdBuf);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
 static void PresentDebugOverlayOnly(void)
 {
+#if defined(IS_WASM)
+  if (!s_pWindow || ROLLERGpuPresentationSuspended())
+    return;
+  ROLLERPresentSDLRendererClear();
+#else
   if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
     return;
   if (ROLLERGpuPresentationSuspended())
@@ -545,6 +574,7 @@ static void PresentDebugOverlayOnly(void)
 
   debug_overlay_render(s_pDebugOverlay, pCmdBuf, pSwapchainTex, uiSwapchainW, uiSwapchainH);
   SDL_SubmitGPUCommandBuffer(pCmdBuf);
+#endif
 }
 
 void ROLLERRefreshStartupOverlay()
@@ -591,8 +621,10 @@ void ToggleFullscreen()
   }
 
   DeferGPUPresentation(3);
+#if !defined(IS_WASM)
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
+#endif
 
   if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
@@ -607,8 +639,10 @@ void ToggleFullscreen()
     }
   }
 
+#if !defined(IS_WASM)
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
+#endif
   DeferGPUPresentation(3);
   UpdateMouseCursorVisibility();
 }
@@ -723,6 +757,14 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+#if defined(IS_WASM)
+  if (!ROLLERPresentSDLRendererInit(s_pWindow, g_bVsync)) {
+    ErrorBoxExit("Couldn't create SDL_Renderer presentation: %s", SDL_GetError());
+    return 1;
+  }
+
+  s_pMenuRenderer = menu_render_create(NULL, s_pWindow);
+#else
   s_pGPUDevice = SDL_CreateGPUDevice(
     SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
     false, NULL);
@@ -789,18 +831,21 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU transfer buffer: %s", SDL_GetError());
     return 1;
   }
+#endif
 
 #if !defined(IS_ANDROID) && !defined(IS_WASM)
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
 #endif
 
+#if !defined(IS_WASM)
   // Move the window to the display where the mouse is currently located
   float mouseX, mouseY;
   SDL_GetGlobalMouseState(&mouseX, &mouseY);
   int displayIndex = SDL_GetDisplayForPoint(&(SDL_Point) { (int)mouseX, (int)mouseY });
   int sdl_window_centered = SDL_WINDOWPOS_CENTERED_DISPLAY(displayIndex);
   SDL_SetWindowPosition(s_pWindow, sdl_window_centered, sdl_window_centered);
+#endif
 
   InputInit();
 
@@ -1411,6 +1456,13 @@ void ShutdownSDL()
 
     InputShutdown();
 
+#if defined(IS_WASM)
+    menu_render_destroy(s_pMenuRenderer);
+    s_pMenuRenderer = NULL;
+    ROLLERPresentSDLRendererShutdown();
+    SDL_DestroyWindow(s_pWindow);
+    s_pWindow = NULL;
+#else
     debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
     crt_filter_destroy(s_pCRTFilter);
@@ -1421,6 +1473,7 @@ void ShutdownSDL()
     SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
     SDL_DestroyGPUDevice(s_pGPUDevice);
     SDL_DestroyWindow(s_pWindow);
+#endif
   }
 
   if (g_pDigiMutex) {
@@ -1797,6 +1850,18 @@ void UpdateSDL()
     UpdateAudioTracks();
   }
 
+#if defined(IS_WASM)
+  /* Emscripten schedules the outer loop on requestAnimationFrame. The renderer
+   * still receives runtime vsync changes, but browser builds must not add the
+   * native GPU path's blocking frame delay on top of rAF pacing. */
+  {
+    static bool s_bVsyncWas = true;
+    if (g_bVsync != s_bVsyncWas) {
+      s_bVsyncWas = g_bVsync;
+      ROLLERPresentSDLRendererSetVSync(g_bVsync);
+    }
+  }
+#else
   /* SDL3 GPU's VSYNC present mode queues frames without blocking the CPU when
    * enough swapchain images are available, leaving the render loop spinning at
    * uncapped rates. This applies to both renderers: software frames are still
@@ -1873,6 +1938,7 @@ void UpdateSDL()
         s_nextFrameNs += s_targetFrameNs;
     }
   }
+#endif
 
   /* Shift freeze: block all tick steps so the engine image holds still. */
   g_bShiftFrozen = g_bShiftFreezeEnabled && s_shiftPressedMs != 0;
