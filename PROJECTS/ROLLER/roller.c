@@ -1633,6 +1633,9 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+#if defined(IS_WASM)
+  g_bCRTFilter = false;
+#endif
   game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
   game_render_set_crt_filter(g_pGameRenderer, g_bCRTFilter ? s_pCRTFilter : NULL);
   SDL_PumpEvents();
@@ -1678,6 +1681,7 @@ void UpdateSDL()
         debug_overlay_toggle(s_pDebugOverlay);
         continue;
       }
+#if !defined(IS_WASM)
       if (e.key.scancode == SDL_SCANCODE_TAB && (e.key.mod & SDL_KMOD_SHIFT)) {
         s_pendingShiftDown.type = 0; /* consumed by SHIFT+TAB */
         if (g_pGameRenderer) {
@@ -1699,6 +1703,7 @@ void UpdateSDL()
         }
         continue;
       }
+#endif
       /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
         s_pendingShiftDown = e;
@@ -1772,6 +1777,7 @@ void UpdateSDL()
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
 
+#if !defined(IS_WASM)
       if (e.key.scancode == SDL_SCANCODE_TAB) {
         MenuRenderer *pTabRenderer = GetMenuRenderer();
         if (pTabRenderer) {
@@ -1782,6 +1788,7 @@ void UpdateSDL()
         }
         continue;
       }
+#endif
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER

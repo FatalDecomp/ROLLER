@@ -2758,6 +2758,12 @@ static int InputParseRendererSetting(const char *szValue)
     return 0;
   }
 
+#if defined(IS_WASM)
+  if (bHardware)
+    SDL_Log("input: hardware rendering setting ignored on wasm");
+  bHardware = false;
+#endif
+
   pRenderer = GetMenuRenderer();
   if (pRenderer)
     menu_render_set_mode(pRenderer, bHardware ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
@@ -3064,9 +3070,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
   }
 
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
+#if defined(IS_WASM)
+    g_bCRTFilter = false;
+#else
     g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
                    InputStringEqualsNoCase(szValue, "1")  ||
                    InputStringEqualsNoCase(szValue, "True");
+#endif
     return 1;
   }
 
