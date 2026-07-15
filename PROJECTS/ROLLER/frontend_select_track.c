@@ -122,6 +122,23 @@ static int frontend_track_select_stock_selection_disabled(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_track_select_show_stock_cup(int iFirstTrack)
+{
+  int iTrack = iFirstTrack;
+
+  for (int iTrackIdx = iFirstTrack; iTrackIdx < iFirstTrack + 8; ++iTrackIdx) {
+    if (stock_track_available(iTrackIdx)) {
+      iTrack = iTrackIdx;
+      break;
+    }
+  }
+
+  iFrontendTrackCurrentTrack = iTrack;
+  iFrontendTrackSelectedTrack = ((uint8)iTrack - 1) & 7;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_show_community_selection(void)
 {
   int iMaxTop = g_iCommunityTrackCount - FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS;
@@ -259,13 +276,16 @@ static void frontend_track_select_handle_cup_switch(void)
   sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
   iFrontendTrackSpeechPending = 0;
   if (frontend_track_select_stock_selection_disabled()) {
-    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
     scan_community_tracks();
-    frontend_track_select_show_community_selection();
+    if (g_iCommunityTrackCount > 0) {
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      frontend_track_select_show_community_selection();
+    } else {
+      frontend_track_select_show_stock_cup(1);
+    }
   } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
       TrackLoad == TRACK_LOAD_COMMUNITY) {
-    iFrontendTrackCurrentTrack = 1;
-    iFrontendTrackSelectedTrack = 0;
+    frontend_track_select_show_stock_cup(1);
   } else {
     iFrontendTrackCurrentTrack += 8;
     if (iFrontendTrackCurrentTrack > 8 &&
@@ -281,8 +301,7 @@ static void frontend_track_select_handle_cup_switch(void)
         frontend_track_select_show_community_selection();
       } else {
         /* no community tracks on disk -- skip the empty category, wrap to cup 1 */
-        iFrontendTrackCurrentTrack = 1;
-        iFrontendTrackSelectedTrack = 0;
+        frontend_track_select_show_stock_cup(1);
       }
     } else {
       iFrontendTrackSelectedTrack =
@@ -302,9 +321,13 @@ static void frontend_track_select_handle_cup_switch_back(void)
   sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
   iFrontendTrackSpeechPending = 0;
   if (frontend_track_select_stock_selection_disabled()) {
-    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
     scan_community_tracks();
-    frontend_track_select_show_community_selection();
+    if (g_iCommunityTrackCount > 0) {
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      frontend_track_select_show_community_selection();
+    } else {
+      frontend_track_select_show_stock_cup(1);
+    }
   } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
              TrackLoad == TRACK_LOAD_COMMUNITY) {
     /* community → last available cup going backwards */
@@ -314,7 +337,7 @@ static void frontend_track_select_handle_cup_switch_back(void)
       iFrontendTrackCurrentTrack = 9;
     else
       iFrontendTrackCurrentTrack = 1;
-    iFrontendTrackSelectedTrack = ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+    frontend_track_select_show_stock_cup(iFrontendTrackCurrentTrack);
   } else {
     iFrontendTrackCurrentTrack -= 8;
     /* skip locked premium cup when going back from bonus */
@@ -330,12 +353,11 @@ static void frontend_track_select_handle_cup_switch_back(void)
       } else {
         /* no community tracks on disk -- skip the empty category, wrap to last cup */
         if (cup_won & 2)
-          iFrontendTrackCurrentTrack = 17;
+          frontend_track_select_show_stock_cup(17);
         else if (cup_won & 1)
-          iFrontendTrackCurrentTrack = 9;
+          frontend_track_select_show_stock_cup(9);
         else
-          iFrontendTrackCurrentTrack = 1;
-        iFrontendTrackSelectedTrack = ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+          frontend_track_select_show_stock_cup(1);
       }
     } else {
       iFrontendTrackSelectedTrack =

@@ -3311,6 +3311,23 @@ static void InputMigrateLegacyKeyboardBindings(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void InputApplyWindowConfig(void)
+{
+  SDL_Window *pWin = ROLLERGetWindow();
+
+  if (!pWin)
+    return;
+
+  if (g_bKeepWindowSize &&
+      g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
+    SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
+    SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+  }
+  SDL_ShowWindow(pWin);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int InputLoadConfig(void)
 {
   FILE *fp;
@@ -3333,6 +3350,8 @@ int InputLoadConfig(void)
 #endif
     InputMigrateLegacyKeyboardBindings();
     InputApplyDefaultGamepadBindings();
+    InputApplyWindowConfig();
+    InputResolveAllBindings();
     return 0;
   }
 
@@ -3401,16 +3420,7 @@ int InputLoadConfig(void)
    * needs to be applied here or "Keep window size" silently does nothing
    * on startup outside Windows. SDL_ShowWindow on an already-visible
    * window is a harmless no-op. */
-  {
-    SDL_Window *pWin = ROLLERGetWindow();
-    if (pWin) {
-      if (g_bKeepWindowSize && g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
-        SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
-        SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-      }
-      SDL_ShowWindow(pWin);
-    }
-  }
+  InputApplyWindowConfig();
   InputResolveAllBindings();
   return 1;
 }
