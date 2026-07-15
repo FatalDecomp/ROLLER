@@ -876,6 +876,37 @@ void menu_render_gpu_box(MenuRendererGPU *r, int x, int y, int width,
     }
 }
 
+/* Solid filled rectangle (menu_render_gpu_box above is outline-only, matching
+ * SW's box_screen -- this is the separate primitive for a filled area, e.g.
+ * a volume bar's fill portion). */
+void menu_render_gpu_fill(MenuRendererGPU *r, int x, int y, int width,
+                          int height, uint8 colorIdx, const tColor *pal)
+{
+    int x2;
+    int y2;
+
+    if (!r || width <= 0 || height <= 0)
+        return;
+
+    x2 = x + width - 1;
+    y2 = y + height - 1;
+    if (x2 < 0 || y2 < 0 || x >= MENU_WIDTH || y >= MENU_HEIGHT)
+        return;
+
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x2 >= MENU_WIDTH)
+        x2 = MENU_WIDTH - 1;
+    if (y2 >= MENU_HEIGHT)
+        y2 = MENU_HEIGHT - 1;
+    if (x2 < x || y2 < y)
+        return;
+
+    menu_render_gpu_solid_quad(r, x, y, x2 - x + 1, y2 - y + 1, colorIdx, pal);
+}
+
 //---------------------------------------------------------------------------
 // Text rendering
 //---------------------------------------------------------------------------

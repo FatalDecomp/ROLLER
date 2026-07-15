@@ -1647,23 +1647,23 @@ void frontend_config_update(void)
           byColor_15 = 0xAB;
         else
           byColor_15 = 0xA5;
-        front_volumebar(80, EngineVolume, byColor_15);
+        front_volumebar(mr, 80, EngineVolume, byColor_15, pal_addr);
         if (iFrontendConfigVolumeSelection == 2)
           byColor_16 = 0xAB;
         else
           byColor_16 = 0xA5;
-        front_volumebar(104, SFXVolume, byColor_16);
+        front_volumebar(mr, 104, SFXVolume, byColor_16, pal_addr);
         if (iFrontendConfigVolumeSelection == 3)
           byColor_17 = 0xAB;
         else
           byColor_17 = 0xA5;
         iFrontendConfigVolumeSelection_1 = iFrontendConfigVolumeSelection;
-        front_volumebar(128, SpeechVolume, byColor_17);
+        front_volumebar(mr, 128, SpeechVolume, byColor_17, pal_addr);
         if (iFrontendConfigVolumeSelection_1 == 4)
           byColor_18 = 0xAB;
         else
           byColor_18 = 0xA5;
-        front_volumebar(152, MusicVolume, byColor_18);
+        front_volumebar(mr, 152, MusicVolume, byColor_18, pal_addr);
         goto RENDER_FRAME;
       case 2:
         iFrontendConfigMenuSelection = 3;
@@ -3448,11 +3448,26 @@ void front_displaycalibrationbar(int iY, int iX, int iValue)
 
 //-------------------------------------------------------------------------------------------------
 //00046F40
-void front_volumebar(int iY, int iVolumeLevel, int iFillColor)
+void front_volumebar(MenuRenderer *pRenderer, int iY, int iVolumeLevel, int iFillColor, const tColor *pal)
 {
   uint8 *pbyScreenPos; // ecx
   int iRow; // esi
   int iScreenWidth; // eax
+
+  /* GPU mode never composites the legacy scrbuf overlay in the main menu (unlike the
+   * in-race HUD/pause menu, which does) -- the raw writes below are then a silent
+   * no-op, which is why the volume bars were invisible in hardware mode (issue #266).
+   * Draw the same bar geometry via the mode-dispatching menu_render_box/_fill instead. */
+  if (menu_render_get_mode(pRenderer) == MENU_RENDER_GPU) {
+    int iFillWidth = 160 * iVolumeLevel / 127;
+    menu_render_fill(pRenderer, 430, iY,      162, 1,  0x8F, pal);   // top border
+    menu_render_fill(pRenderer, 430, iY + 16, 162, 1,  0x8F, pal);   // bottom border
+    menu_render_fill(pRenderer, 430, iY + 1,  1,   15, 0x8F, pal);   // left border
+    menu_render_fill(pRenderer, 591, iY + 1,  1,   15, 0x8F, pal);   // right border
+    if (iFillWidth > 0)
+      menu_render_fill(pRenderer, 431, iY + 1, iFillWidth, 15, iFillColor, pal);
+    return;
+  }
 
   pbyScreenPos = &scrbuf[winw * iY + 430];      // Calculate starting position in screen buffer (430 pixels from left edge)
   for (iRow = 0; iRow < 17; ++iRow)           // Draw 17 rows for the volume bar
