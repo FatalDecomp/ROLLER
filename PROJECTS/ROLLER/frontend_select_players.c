@@ -131,6 +131,10 @@ static void frontend_players_select_handle_mouse(void)
   }
 
   iHovered = frontend_mouse_take_hovered_id();
+#if defined(IS_WASM)
+  if (iHovered == 1)
+    iHovered = -1;
+#endif
   if (iHovered >= 0 && iHovered <= 2) {
     iFrontendPlayersSelectedPlayerType = iHovered;
     iFrontendPlayersNetworkStatus = 0;
@@ -225,10 +229,18 @@ static void frontend_players_select_black_palette(void)
 
 static void frontend_players_select_clamp_selection(void)
 {
+#if defined(IS_WASM)
+  /* Keep one-player (0) and local split-screen (2); network play (1) has no
+   * browser transport and is omitted from the menu below. */
+  if (iFrontendPlayersSelectedPlayerType == 1 ||
+      iFrontendPlayersSelectedPlayerType > 2)
+    iFrontendPlayersSelectedPlayerType = 0;
+#else
   if (iFrontendPlayersSelectedPlayerType != 0 &&
       iFrontendPlayersSelectedPlayerType != 1 &&
       iFrontendPlayersSelectedPlayerType != 2)
     iFrontendPlayersSelectedPlayerType = 1;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -646,7 +658,9 @@ void frontend_players_select_update(void)
   int iPlayerCarIndex;
   char byMenuColor1;
   char byMenuColor2;
+#if !defined(IS_WASM)
   char byMenuColor3;
+#endif
   uint8 byInputKey;
   uint8 byExtendedKey;
   int iPlayerIndex;
@@ -764,11 +778,13 @@ void frontend_players_select_update(void)
     else
       byMenuColor2 = 0x8F;
     menu_render_scaled_text(mr, 15, &language_buffer[2240], font1_ascii, font1_offsets, 400, 153, byMenuColor2, 1u, 200, 640, pal_addr);
+#if !defined(IS_WASM)
     if (iFrontendPlayersSelectedPlayerType == 1)
       byMenuColor3 = 0xAB;
     else
       byMenuColor3 = 0x8F;
     menu_render_scaled_text(mr, 15, &language_buffer[2176], font1_ascii, font1_offsets, 400, 171, byMenuColor3, 1u, 200, 640, pal_addr);
+#endif
     frontend_mouse_register_scaled_text(0, front_vga[15],
                                         &language_buffer[2112],
                                         font1_ascii, font1_offsets, 400, 135,
@@ -777,10 +793,12 @@ void frontend_players_select_update(void)
                                         &language_buffer[2240],
                                         font1_ascii, font1_offsets, 400, 153,
                                         1u, 200, 640);
+#if !defined(IS_WASM)
     frontend_mouse_register_scaled_text(1, front_vga[15],
                                         &language_buffer[2176],
                                         font1_ascii, font1_offsets, 400, 171,
                                         1u, 200, 640);
+#endif
   }
   show_received_mesage();
   menu_render_end_frame(mr);
@@ -832,11 +850,19 @@ void frontend_players_select_update(void)
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 case 1u:
+#if defined(IS_WASM)
+                  iFrontendPlayersSelectedPlayerType = 0;
+#else
                   iFrontendPlayersSelectedPlayerType = 1;
+#endif
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 case 2u:
+#if defined(IS_WASM)
+                  iFrontendPlayersSelectedPlayerType = 0;
+#else
                   iFrontendPlayersSelectedPlayerType = 1;
+#endif
                   iFrontendPlayersNetworkStatus = 0;
                   break;
                 default:
@@ -847,6 +873,18 @@ void frontend_players_select_update(void)
         }
       } else if (byInputKey <= 0xDu || byInputKey == 27) // Enter/Escape: Confirm selection or exit menu
       {
+#if defined(IS_WASM)
+        switch (iFrontendPlayersSelectedPlayerType) {
+          case 0u:
+          case 2u:
+            frontend_players_select_request_exit();
+            continue;
+          default:
+            iFrontendPlayersSelectedPlayerType = 0;
+            iFrontendPlayersNetworkStatus = 0;
+            continue;
+        }
+#else
         switch (iFrontendPlayersSelectedPlayerType) {
           case 0u:
           case 2u:
@@ -870,6 +908,7 @@ void frontend_players_select_update(void)
           default:
             continue;
         }
+#endif
       }
     } else if (byInputKey <= 0x4Du) {
     LABEL_119:
@@ -898,6 +937,10 @@ void frontend_players_select_update(void)
 
 void frontend_players_select_exit(void)
 {
+#if defined(IS_WASM)
+  if (iFrontendPlayersSelectedPlayerType == 1)
+    iFrontendPlayersSelectedPlayerType = 0;
+#endif
   if (iFrontendPlayersSelectedPlayerType == 1) { // CLEANUP: Set final player type and network settings based on selection
     player_type = 1;
     net_type = 0;

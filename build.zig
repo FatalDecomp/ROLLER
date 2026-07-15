@@ -126,7 +126,12 @@ pub fn build(b: *std.Build) void {
     if (bWasm) {
         exe_mod.addCSourceFiles(.{
             .flags = c_flags,
-            .files = &.{"PROJECTS/ROLLER/present_sdlrenderer.c"},
+            .files = &.{
+                "PROJECTS/ROLLER/crashdump_stub.c",
+                "PROJECTS/ROLLER/debug_overlay_stub.c",
+                "PROJECTS/ROLLER/present_sdlrenderer.c",
+                "PROJECTS/ROLLER/rollercomms_stub.c",
+            },
         });
     } else {
         exe_mod.addCSourceFiles(.{
@@ -674,9 +679,6 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sINVOKE_RUN=0",
         "-sEXPORTED_FUNCTIONS=_main",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
-        // E2.S3-E2.S4 replace the remaining omitted subsystem modules. Keep the
-        // browser link runnable until those stubs land.
-        "-sERROR_ON_UNDEFINED_SYMBOLS=0",
         "-lc++",
         "--shell-file",
     });
