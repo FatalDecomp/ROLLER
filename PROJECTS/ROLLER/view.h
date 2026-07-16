@@ -52,6 +52,7 @@ void noclip_camera_reset(void);
 void noclip_camera_set_input_enabled(bool bEnabled);
 void noclip_camera_update(void);
 void noclip_camera_apply(void);
+void chase_look_apply(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif

@@ -1,6 +1,6 @@
 #include "png_writer.h"
 #include <SDL3/SDL.h>
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <SDL3_image/SDL_image.h>
 #endif
 
@@ -12,7 +12,7 @@ int RollerWriteIndexedPng(const char *szPath,
                           int iWidth,
                           int iHeight)
 {
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   (void)szPath;
   (void)pIndexedBuf;
   (void)pPalette;
@@ -48,6 +48,41 @@ int RollerWriteIndexedPng(const char *szPath,
   for (int y = 0; y < iHeight; ++y) {
     SDL_memcpy(dst, src, (size_t)iWidth);
     src += iWidth;
+    dst += surface->pitch;
+  }
+
+  bool bOk = IMG_SavePNG(surface, szPath);
+  SDL_DestroySurface(surface);
+  return bOk ? 0 : 1;
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int RollerWriteRgbaPng(const char *szPath,
+                       const uint8 *pRgbaBuf,
+                       int iWidth,
+                       int iHeight)
+{
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  (void)szPath;
+  (void)pRgbaBuf;
+  (void)iWidth;
+  (void)iHeight;
+  return 1;
+#else
+  if (!szPath || !pRgbaBuf || iWidth <= 0 || iHeight <= 0)
+    return 1;
+
+  SDL_Surface *surface = SDL_CreateSurface(iWidth, iHeight, SDL_PIXELFORMAT_RGBA32);
+  if (!surface)
+    return 1;
+
+  const Uint8 *src = pRgbaBuf;
+  Uint8 *dst = (Uint8 *)surface->pixels;
+  for (int y = 0; y < iHeight; ++y) {
+    SDL_memcpy(dst, src, (size_t)iWidth * 4);
+    src += (size_t)iWidth * 4;
     dst += surface->pitch;
   }
 

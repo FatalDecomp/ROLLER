@@ -182,10 +182,7 @@ static void frontend_pause_set_volume_value(int iItem, int iVolume)
       break;
     case 4:
       MusicVolume = iVolume;
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       break;
@@ -224,10 +221,7 @@ static int frontend_pause_apply_volume_wheel(int iWheelY)
       break;
     case 4:
       MusicVolume = frontend_pause_clamp_volume(MusicVolume + iDelta);
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       return 0;
@@ -322,7 +316,7 @@ static void frontend_pause_handle_mouse(void)
     return;
   }
 
-  iHovered = frontend_pause_item_from_mouse_id(frontend_mouse_peek_hovered_id());
+  iHovered = frontend_pause_item_from_mouse_id(frontend_mouse_take_hovered_id());
   if (frontend_pause_item_valid(iHovered))
     frontend_pause_set_current_item(iHovered);
 
@@ -334,6 +328,9 @@ static void frontend_pause_handle_mouse(void)
   if (frontend_mouse_consume_click_anywhere()) {
     if (frontend_pause_apply_volume_click(iClicked))
       return;
+    iClicked = frontend_pause_item_from_mouse_id(iClicked);
+    if (frontend_pause_item_valid(iClicked))
+      frontend_pause_set_current_item(iClicked);
     if (frontend_pause_current_item_valid()) {
       if (pausewindow == 0 && req_edit == 1) {
         frontend_pause_give_up_race();

@@ -1086,10 +1086,26 @@ void test_panel(uint8 *pScrBuf, int iPlayerCarIdx)
         byAmmoBarPtr3 += 8;
       } while (iAmmoBarIdx2 < 8);
     }
-    if (player_type == 2 || (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0)// CHEAT_MODE_WIDESCREEN
+    if (player_type == 2 || (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0) {// CHEAT_MODE_WIDESCREEN
       iBaseXPos = (3 * winw / 16) + 157;  // Calculate speedometer X position (adjusted for widescreen)
       //iBaseXPos = ((winw - (__CFSHL__(winw >> 31, 2) + 4 * (winw >> 31))) >> 2) + 157;// Calculate base X position for speedometer (adjusted for widescreen)
-    else
+      /* This formula yields a final screen X (after prt_string's own
+       * (scr_size*iX)>>6 scaling) that's only "just iBaseXPos" when
+       * scr_size is exactly the fixed 64 (SVGA) / 32 (non-SVGA) that both
+       * 2-player and the default CINEMA letterbox always hardcode -- the
+       * >>6 divide cancels out exactly at that one value. "Cinema Native"
+       * picks a scr_size proportional to its own computed resolution
+       * instead (correct for glyph/icon SIZE, which SHOULD track the
+       * actual canvas), which breaks that coincidental cancellation and
+       * pins this specific block far to the right. Re-normalize so the
+       * final screen X stays the intended proportion of winw regardless
+       * of which scr_size ends up applied -- a no-op for the two existing
+       * fixed-scr_size cases (2P, default CINEMA), so this can't affect
+       * their already-tested behaviour. */
+      int iExpectedScrSize = SVGA_ON ? 64 : 32;
+      if (scr_size != iExpectedScrSize && scr_size > 0)
+        iBaseXPos = (iBaseXPos * iExpectedScrSize) / scr_size;
+    } else
       iBaseXPos = 157;
     pDigitBlockHdr = rev_vga[2];
     pSpeedDigitBlockHdr = rev_vga[2];
@@ -3654,7 +3670,7 @@ void display_paused()
         else
           byMusicStatus = 0x83;
         pszMusicStatus = &config_buffer[2624];
-      } else if (MusicCard || MusicCD) {
+      } else if (MusicBackendAvailable()) {
         if (sound_edit == 7)
           byMusicStatus = 0x8F;
         else
@@ -3814,6 +3830,7 @@ void save_fatal_config()
     }
   }
   InputSaveConfig();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4799,6 +4816,8 @@ void CommunityRecordSaveCurrent(void)
     if ((int)fwrite(pBuffer, 1, iNewLength, pFile) == iNewLength)
       s_iCommunityRecordDirty = 0;
     fclose(pFile);
+    if (!s_iCommunityRecordDirty)
+      ROLLERPersistSync();
   }
 
   fre((void **)&pBuffer);
@@ -5114,6 +5133,7 @@ void SaveRecords()
 
   fre((void**)&pBuffer); // Free the allocated buffer
   CommunityRecordSaveCurrent();
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------

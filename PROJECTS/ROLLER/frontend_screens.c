@@ -103,6 +103,7 @@ typedef enum {
 static eMainMenuNetworkWait eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
 static int iFrontendMainMenuQuitTickTarget = 0;
 static int iFrontendMainMenuNetworkFadeInWait = 0;
+static int iFrontendMainMenuDiscardFadeInput = 0;
 
 typedef enum {
   eMAIN_MENU_FADE_OUT_NONE = 0,
@@ -687,6 +688,7 @@ static void frontend_main_menu_resume_after_child(void)
   iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
   iFrontendMainMenuNetworkFadeInWait = 0;
+  iFrontendMainMenuDiscardFadeInput = 0;
   iFrontendMainMenuInitialized = -1;
 }
 
@@ -718,6 +720,7 @@ static void frontend_main_menu_setup(void)
   eFrontendMainMenuNetworkWait = eMAIN_MENU_NET_WAIT_NONE;
   iFrontendMainMenuQuitTickTarget = 0;
   iFrontendMainMenuNetworkFadeInWait = 0;
+  iFrontendMainMenuDiscardFadeInput = 0;
   iFrontendMainMenuFadeOutVisualGameType = -1;
   iFrontendMainMenuResumeFromChild = 0;
   player1_car = 0;
@@ -1512,6 +1515,16 @@ static void frontend_main_menu_handle_input(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_main_menu_discard_fade_input(void)
+{
+  while (fatkbhit())
+    fatgetch();
+  frontend_mouse_cancel_click();
+  (void)frontend_mouse_take_wheel_y();
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_main_menu_update_rotation(int nFrames)
 {
   int16 nNewYaw = Car[0].nYaw + 32 * nFrames;
@@ -1662,6 +1675,7 @@ void frontend_menu_update(void)
   mr = GetMenuRenderer();
   if (!front_fade) {
     front_fade = -1;
+    iFrontendMainMenuDiscardFadeInput = -1;
     menu_render_begin_fade(mr, 1, 32);
     frames = 0;
     if (network_on) {
@@ -1672,6 +1686,15 @@ void frontend_menu_update(void)
   frontend_main_menu_draw();
   if (SnapshotShouldStop())
     return;
+
+  // Input continues to be queued while renderer fades make the menu non-interactive.
+  // Discard it through the completion frame so an old confirm cannot start a race.
+  if (iFrontendMainMenuDiscardFadeInput) {
+    frontend_main_menu_discard_fade_input();
+    if (!menu_render_fade_active(mr))
+      iFrontendMainMenuDiscardFadeInput = 0;
+    return;
+  }
 
   if (frontend_main_menu_update_fade_out(mr))
     return;

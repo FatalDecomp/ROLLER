@@ -28,6 +28,13 @@ void scene_render_sw_free_texture(SceneRendererSoftware *sw,
 SceneTextureHandle scene_render_sw_get_texture_handle(SceneRendererSoftware *sw,
                                                       int tex_idx);
 
+typedef void (*SceneRenderSwTextureCallback)(void *ctx, uint8 *pixels,
+                                             int width, int height,
+                                             int tex_idx, int texHalfRes);
+void scene_render_sw_for_each_texture(SceneRendererSoftware *sw,
+                                      SceneRenderSwTextureCallback cb,
+                                      void *ctx);
+
 void scene_render_sw_quad_world_legacy(SceneRendererSoftware *sw,
                                        const SceneRenderVertex *verts,
                                        SceneTextureHandle handle,

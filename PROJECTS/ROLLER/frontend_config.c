@@ -823,10 +823,7 @@ static void frontend_config_set_volume_value(int iItem, int iVolume)
       break;
     case 4:
       MusicVolume = iVolume;
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       break;
@@ -871,10 +868,7 @@ static int frontend_config_apply_volume_wheel(int iWheelY)
       break;
     case 4:
       MusicVolume = frontend_config_clamp_volume(MusicVolume + iDelta);
-      if (MusicCard)
-        MIDISetMasterVolume(MusicVolume);
-      if (MusicCD)
-        SetAudioVolume(MusicVolume);
+      MusicSetMasterVolume(MusicVolume);
       break;
     default:
       return 0;
@@ -1619,7 +1613,7 @@ void frontend_config_update(void)
             byColor_11 = 0x8F;
           // ON
           menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 430, 224, byColor_11, 0, 200, 640, pal_addr);
-        } else if (MusicCard || MusicCD) {
+        } else if (MusicBackendAvailable()) {
           if (iFrontendConfigVolumeSelection == 7)
             byColor_12 = 0xAB;
           else
@@ -1647,23 +1641,23 @@ void frontend_config_update(void)
           byColor_15 = 0xAB;
         else
           byColor_15 = 0xA5;
-        front_volumebar(80, EngineVolume, byColor_15);
+        front_volumebar(mr, 80, EngineVolume, byColor_15, pal_addr);
         if (iFrontendConfigVolumeSelection == 2)
           byColor_16 = 0xAB;
         else
           byColor_16 = 0xA5;
-        front_volumebar(104, SFXVolume, byColor_16);
+        front_volumebar(mr, 104, SFXVolume, byColor_16, pal_addr);
         if (iFrontendConfigVolumeSelection == 3)
           byColor_17 = 0xAB;
         else
           byColor_17 = 0xA5;
         iFrontendConfigVolumeSelection_1 = iFrontendConfigVolumeSelection;
-        front_volumebar(128, SpeechVolume, byColor_17);
+        front_volumebar(mr, 128, SpeechVolume, byColor_17, pal_addr);
         if (iFrontendConfigVolumeSelection_1 == 4)
           byColor_18 = 0xAB;
         else
           byColor_18 = 0xA5;
-        front_volumebar(152, MusicVolume, byColor_18);
+        front_volumebar(mr, 152, MusicVolume, byColor_18, pal_addr);
         goto RENDER_FRAME;
       case 2:
         iFrontendConfigMenuSelection = 3;
@@ -2408,11 +2402,7 @@ void frontend_config_update(void)
                             if (MusicVolume < 0)
                               MusicVolume = 0;
                             // Update hardware volume
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              goto SET_CD_VOLUME;// CONTINUE_AUDIO_INPUT: Continue processing audio menu input
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -2440,12 +2430,7 @@ void frontend_config_update(void)
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
                             // Update hardware volume
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              SET_CD_VOLUME:
-                            SetAudioVolume(MusicVolume);
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -2482,11 +2467,11 @@ void frontend_config_update(void)
                       }
                       break;
                     case 7:                     // Toggle music
-                      if (MusicCard || MusicCD) {
+                      if (MusicBackendAvailable()) {
                         musicon = musicon == 0;
                         reinitmusic();
                       } else {
-                        musicon = MusicCard;
+                        musicon = 0;
                       }
                       break;
                     default:
@@ -3456,11 +3441,26 @@ void front_displaycalibrationbar(int iY, int iX, int iValue)
 
 //-------------------------------------------------------------------------------------------------
 //00046F40
-void front_volumebar(int iY, int iVolumeLevel, int iFillColor)
+void front_volumebar(MenuRenderer *pRenderer, int iY, int iVolumeLevel, int iFillColor, const tColor *pal)
 {
   uint8 *pbyScreenPos; // ecx
   int iRow; // esi
   int iScreenWidth; // eax
+
+  /* GPU mode never composites the legacy scrbuf overlay in the main menu (unlike the
+   * in-race HUD/pause menu, which does) -- the raw writes below are then a silent
+   * no-op, which is why the volume bars were invisible in hardware mode (issue #266).
+   * Draw the same bar geometry via the mode-dispatching menu_render_box/_fill instead. */
+  if (menu_render_get_mode(pRenderer) == MENU_RENDER_GPU) {
+    int iFillWidth = 160 * iVolumeLevel / 127;
+    menu_render_fill(pRenderer, 430, iY,      162, 1,  0x8F, pal);   // top border
+    menu_render_fill(pRenderer, 430, iY + 16, 162, 1,  0x8F, pal);   // bottom border
+    menu_render_fill(pRenderer, 430, iY + 1,  1,   15, 0x8F, pal);   // left border
+    menu_render_fill(pRenderer, 591, iY + 1,  1,   15, 0x8F, pal);   // right border
+    if (iFillWidth > 0)
+      menu_render_fill(pRenderer, 431, iY + 1, iFillWidth, 15, iFillColor, pal);
+    return;
+  }
 
   pbyScreenPos = &scrbuf[winw * iY + 430];      // Calculate starting position in screen buffer (430 pixels from left edge)
   for (iRow = 0; iRow < 17; ++iRow)           // Draw 17 rows for the volume bar

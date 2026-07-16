@@ -72,6 +72,28 @@ A custom data folder
 zig build -Dassets-path=/path/to/fatdata run
 ```
 
+### Prepare the playable demo assets
+
+The browser build uses the hash-pinned Whiplash demo selected by ADR 0002.
+`zig build web` automatically downloads, verifies, and extracts only its
+`FATDATA` tree before packaging it at `/demo/fatdata`:
+
+```bash
+zig build web
+```
+
+For an offline build, prepare the tree from a previously downloaded copy, then
+point the web build at it. The explicit tree is verified against the same E3.S2
+file count, size, and tree SHA-256 before `emcc` runs:
+
+```bash
+python scripts/fetch_demo_assets.py --source /path/to/whipdemo.zip
+zig build web -Ddemo-assets-path=zig-out/fatdata-demo
+```
+
+The bundle contains `roller-<sha256>.data` plus a deterministic
+`bundle-manifest.json` with raw byte sizes and SHA-256 hashes.
+
 ## Testing
 
 ### Rendering snapshot tests

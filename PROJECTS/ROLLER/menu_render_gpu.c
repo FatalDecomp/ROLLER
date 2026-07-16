@@ -4,8 +4,10 @@
 #include "car.h"
 #include "graphics.h"
 #include "3d.h"
+#include "loadtrak.h" /* g_iTrackLoadGeneration, TRAK_LEN */
 #include "roller.h"
 #include "debug_overlay.h"
+#include "scene_render_gpu.h" /* scene_render_gpu_upload_rgba/_buffer */
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -57,15 +59,22 @@ typedef struct {
     bool loaded;
 } MeshPreview;
 
+typedef enum {
+    MESH_PIPELINE_CAR,
+    MESH_PIPELINE_TRACK_SHADOW,
+    MESH_PIPELINE_TRACK
+} eMeshPipeline;
+
 // Recorded mesh draw command (deferred -- replayed in end_frame)
 typedef struct {
     SDL_GPUBuffer *vertexBuffer;
     SDL_GPUBuffer *indexBuffer;
     SDL_GPUTexture *texture;
     int indexCount;
+    int iFirstIndex;
     float mvp[16];
     float vpX, vpY, vpW, vpH; // viewport in virtual 640x400 coords
-    bool useDepth;
+    eMeshPipeline ePipeline;
 } MeshDrawCommand;
 
 #define MAX_MESH_DRAWS 4
@@ -106,7 +115,8 @@ struct MenuRendererGPU {
 
     // Mesh pipelines (3D previews)
     SDL_GPUGraphicsPipeline *meshPipeline;
-    SDL_GPUGraphicsPipeline *meshPipelineNoDepth;
+    SDL_GPUGraphicsPipeline *meshPipelineTrackShadow;
+    SDL_GPUGraphicsPipeline *meshPipelineTrack;
     SDL_GPUTexture *depthTexture;
     Uint32 depthWidth;
     Uint32 depthHeight;
@@ -116,7 +126,7 @@ struct MenuRendererGPU {
     MeshPreview carMesh;
     int loadedCarIdx;       // -1 = no car loaded (avoids per-frame reload)
     bool loadedAdvancedCars; // TEX_OFF_ADVANCED_CARS state when car mesh was built
-    bool trackMeshLoaded;
+    int iLoadedTrackGen;    // g_iTrackLoadGeneration at build; -1 = no mesh (avoids per-frame reload)
     MeshPreview trackMesh;
 
     // Per-frame mesh draw commands
@@ -352,10 +362,14 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
 
     for (int i = 0; i < r->meshDrawCount; i++) {
         MeshDrawCommand *cmd = &r->meshDraws[i];
-        SDL_GPUGraphicsPipeline *wanted = cmd->useDepth ? r->meshPipeline : r->meshPipelineNoDepth;
-        if (wanted != curPipeline) {
-            SDL_BindGPUGraphicsPipeline(renderPass, wanted);
-            curPipeline = wanted;
+        SDL_GPUGraphicsPipeline *pWantedPipeline = r->meshPipeline;
+        if (cmd->ePipeline == MESH_PIPELINE_TRACK_SHADOW)
+            pWantedPipeline = r->meshPipelineTrackShadow;
+        else if (cmd->ePipeline == MESH_PIPELINE_TRACK)
+            pWantedPipeline = r->meshPipelineTrack;
+        if (pWantedPipeline != curPipeline) {
+            SDL_BindGPUGraphicsPipeline(renderPass, pWantedPipeline);
+            curPipeline = pWantedPipeline;
         }
 
         // Set sub-viewport for this mesh preview
@@ -379,94 +393,9 @@ static void ReplayMeshDraws(MenuRendererGPU *r, SDL_GPURenderPass *renderPass)
         SDL_GPUBufferBinding ibb = { .buffer = cmd->indexBuffer };
         SDL_BindGPUIndexBuffer(renderPass, &ibb, SDL_GPU_INDEXELEMENTSIZE_32BIT);
 
-        SDL_DrawGPUIndexedPrimitives(renderPass, cmd->indexCount, 1, 0, 0, 0);
+        SDL_DrawGPUIndexedPrimitives(renderPass, cmd->indexCount, 1,
+                                     cmd->iFirstIndex, 0, 0);
     }
-}
-
-//---------------------------------------------------------------------------
-// Asset upload helper
-//---------------------------------------------------------------------------
-
-static SDL_GPUTexture *UploadRGBA(SDL_GPUDevice *dev, const uint8 *rgba, int w, int h)
-{
-    if (!dev || !rgba || w <= 0 || h <= 0)
-        return NULL;
-
-    SDL_GPUTextureCreateInfo ti = {0};
-    ti.type = SDL_GPU_TEXTURETYPE_2D;
-    ti.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ti.width = w; ti.height = h;
-    ti.layer_count_or_depth = 1; ti.num_levels = 1;
-    ti.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    SDL_GPUTexture *tex = SDL_CreateGPUTexture(dev, &ti);
-    if (!tex) return NULL;
-
-    SDL_GPUTransferBufferCreateInfo tbi = {0};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size = w * h * 4;
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    memcpy(m, rgba, w * h * 4);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUTexture(dev, tex); return NULL; }
-    SDL_GPUTextureTransferInfo src = { .transfer_buffer = tb };
-    SDL_GPUTextureRegion dst = { .texture = tex, .w = w, .h = h, .d = 1 };
-    SDL_UploadToGPUTexture(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
-        SDL_ReleaseGPUTexture(dev, tex);
-        return NULL;
-    }
-
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return tex;
-}
-
-static SDL_GPUBuffer *UploadGPUBuffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
-                                       const void *data, Uint32 size)
-{
-    if (!dev || !data || size == 0)
-        return NULL;
-
-    SDL_GPUBufferCreateInfo bi = {0};
-    bi.usage = usage;
-    bi.size = size;
-    SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(dev, &bi);
-    if (!buf) return NULL;
-
-    SDL_GPUTransferBufferCreateInfo tbi = {0};
-    tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    tbi.size = size;
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(dev, &tbi);
-    if (!tb) { SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    void *m = SDL_MapGPUTransferBuffer(dev, tb, false);
-    if (!m) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    memcpy(m, data, size);
-    SDL_UnmapGPUTransferBuffer(dev, tb);
-
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(dev);
-    if (!cmd) { SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    if (!cp) { SDL_CancelGPUCommandBuffer(cmd); SDL_ReleaseGPUTransferBuffer(dev, tb); SDL_ReleaseGPUBuffer(dev, buf); return NULL; }
-    SDL_GPUTransferBufferLocation src = { .transfer_buffer = tb };
-    SDL_GPUBufferRegion dst = { .buffer = buf, .size = size };
-    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
-    SDL_EndGPUCopyPass(cp);
-    if (!SDL_SubmitGPUCommandBuffer(cmd)) {
-        SDL_ReleaseGPUTransferBuffer(dev, tb);
-        SDL_ReleaseGPUBuffer(dev, buf);
-        return NULL;
-    }
-
-    SDL_ReleaseGPUTransferBuffer(dev, tb);
-    return buf;
 }
 
 // tColor field order: byR, byB, byG — read byG for green, byB for blue
@@ -619,12 +548,19 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
         if (!r->meshPipeline)
             SDL_Log("Failed to create mesh pipeline: %s", SDL_GetError());
 
-        // No-depth variant for flat meshes (track map)
-        meshPipeInfo.depth_stencil_state.enable_depth_test = false;
+        // Two-sided, depth-tested variant for the track map.  Depth testing is
+        // required because track segments can overlap in screen space at loops.
+        meshPipeInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        r->meshPipelineTrack = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipelineTrack)
+            SDL_Log("Failed to create track mesh pipeline: %s", SDL_GetError());
+
+        // The shadow is submitted before the road and must never populate the
+        // depth buffer, so even nearly coplanar low track sections win cleanly.
         meshPipeInfo.depth_stencil_state.enable_depth_write = false;
-        r->meshPipelineNoDepth = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
-        if (!r->meshPipelineNoDepth)
-            SDL_Log("Failed to create no-depth mesh pipeline: %s", SDL_GetError());
+        r->meshPipelineTrackShadow = SDL_CreateGPUGraphicsPipeline(device, &meshPipeInfo);
+        if (!r->meshPipelineTrackShadow)
+            SDL_Log("Failed to create track shadow pipeline: %s", SDL_GetError());
     }
     if (meshVert) SDL_ReleaseGPUShader(device, meshVert);
     if (meshFrag) SDL_ReleaseGPUShader(device, meshFrag);
@@ -650,13 +586,14 @@ MenuRendererGPU *menu_render_gpu_create(SDL_GPUDevice *device, SDL_Window *windo
 
     // 1x1 black texture for fade overlay
     uint8 blackPixel[4] = {0, 0, 0, 255};
-    r->blackTexture = UploadRGBA(device, blackPixel, 1, 1);
+    r->blackTexture = scene_render_gpu_upload_rgba(device, blackPixel, 1, 1, false);
 
     // 1x1 white texture for flat-colored meshes (track map)
     uint8 whitePixel[4] = {255, 255, 255, 255};
-    r->whiteTexture = UploadRGBA(device, whitePixel, 1, 1);
+    r->whiteTexture = scene_render_gpu_upload_rgba(device, whitePixel, 1, 1, false);
 
     r->loadedCarIdx = -1;
+    r->iLoadedTrackGen = -1;
 
     return r;
 }
@@ -672,7 +609,8 @@ void menu_render_gpu_destroy(MenuRendererGPU *r)
     if (r->whiteTexture) SDL_ReleaseGPUTexture(r->device, r->whiteTexture);
     if (r->depthTexture) SDL_ReleaseGPUTexture(r->device, r->depthTexture);
     if (r->meshPipeline) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipeline);
-    if (r->meshPipelineNoDepth) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineNoDepth);
+    if (r->meshPipelineTrackShadow) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineTrackShadow);
+    if (r->meshPipelineTrack) SDL_ReleaseGPUGraphicsPipeline(r->device, r->meshPipelineTrack);
     SDL_ReleaseGPUBuffer(r->device, r->vertexBuffer);
     SDL_ReleaseGPUTransferBuffer(r->device, r->vertexTransferBuffer);
     SDL_ReleaseGPUSampler(r->device, r->sampler);
@@ -816,7 +754,7 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         uint8 *rgba = calloc(MENU_WIDTH * MENU_HEIGHT, 4);
         if (!rgba) return 0;
         IndexedToRGBA((uint8 *)blocks, pal, rgba, pixCount);
-        r->backgroundTextures[slot] = UploadRGBA(r->device, rgba, MENU_WIDTH, MENU_HEIGHT);
+        r->backgroundTextures[slot] = scene_render_gpu_upload_rgba(r->device, rgba, MENU_WIDTH, MENU_HEIGHT, false);
         free(rgba);
         return r->backgroundTextures[slot] != NULL;
     }
@@ -843,7 +781,7 @@ int menu_render_gpu_load_blocks(MenuRendererGPU *r, int slot, tBlockHeader *bloc
         }
         if (pixCount > 0)
             IndexedToRGBA(src, pal, rgba, pixCount);
-        r->slotTextures[slot][i].texture = UploadRGBA(r->device, rgba, w, h);
+        r->slotTextures[slot][i].texture = scene_render_gpu_upload_rgba(r->device, rgba, w, h, false);
         r->slotTextures[slot][i].width = w;
         r->slotTextures[slot][i].height = h;
         free(rgba);
@@ -936,6 +874,37 @@ void menu_render_gpu_box(MenuRendererGPU *r, int x, int y, int width,
         menu_render_gpu_solid_quad(r, x, y + 1, 1, height - 2, colorIdx, pal);
         menu_render_gpu_solid_quad(r, x2, y + 1, 1, height - 2, colorIdx, pal);
     }
+}
+
+/* Solid filled rectangle (menu_render_gpu_box above is outline-only, matching
+ * SW's box_screen -- this is the separate primitive for a filled area, e.g.
+ * a volume bar's fill portion). */
+void menu_render_gpu_fill(MenuRendererGPU *r, int x, int y, int width,
+                          int height, uint8 colorIdx, const tColor *pal)
+{
+    int x2;
+    int y2;
+
+    if (!r || width <= 0 || height <= 0)
+        return;
+
+    x2 = x + width - 1;
+    y2 = y + height - 1;
+    if (x2 < 0 || y2 < 0 || x >= MENU_WIDTH || y >= MENU_HEIGHT)
+        return;
+
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x2 >= MENU_WIDTH)
+        x2 = MENU_WIDTH - 1;
+    if (y2 >= MENU_HEIGHT)
+        y2 = MENU_HEIGHT - 1;
+    if (x2 < x || y2 < y)
+        return;
+
+    menu_render_gpu_solid_quad(r, x, y, x2 - x + 1, y2 - y + 1, colorIdx, pal);
 }
 
 //---------------------------------------------------------------------------
@@ -1185,7 +1154,7 @@ static SDL_GPUTexture *BuildCarTextureAtlas(MenuRendererGPU *r, int carIdx,
         rgba[off] = rgba[off + 1] = rgba[off + 2] = rgba[off + 3] = 255;
     }
 
-    SDL_GPUTexture *tex = UploadRGBA(r->device, rgba, atlasW, atlasH);
+    SDL_GPUTexture *tex = scene_render_gpu_upload_rgba(r->device, rgba, atlasW, atlasH, false);
     free(rgba);
 
     *outNumTiles = nTiles;
@@ -1503,9 +1472,9 @@ void menu_render_gpu_load_car_mesh(MenuRendererGPU *r, int carIdx, const tColor 
     }
 
     if (idxCount > 0) {
-        r->carMesh.vertexBuffer = UploadGPUBuffer(r->device,
+        r->carMesh.vertexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
-        r->carMesh.indexBuffer = UploadGPUBuffer(r->device,
+        r->carMesh.indexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
         r->carMesh.texture = atlas ? atlas : r->whiteTexture;
         r->carMesh.indexCount = idxCount;
@@ -1582,12 +1551,13 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
     cmd->indexBuffer = r->carMesh.indexBuffer;
     cmd->texture = r->carMesh.texture;
     cmd->indexCount = r->carMesh.indexCount;
+    cmd->iFirstIndex = 0;
     memcpy(cmd->mvp, mvp, sizeof(mvp));
     cmd->vpX = (float)(destX - padLeft);
     cmd->vpY = (float)destY;
     cmd->vpW = (float)totalW;
     cmd->vpH = (float)totalH;
-    cmd->useDepth = true;
+    cmd->ePipeline = MESH_PIPELINE_CAR;
 }
 
 //---------------------------------------------------------------------------
@@ -1596,9 +1566,15 @@ void menu_render_gpu_draw_car_preview(MenuRendererGPU *r, float angle, float dis
 
 void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
 {
+    // Called every frame by screens that show the preview; only rebuild when
+    // the track data has actually been reloaded. Keyed on the loadtrack()
+    // generation rather than TrackLoad because community tracks all share
+    // the TRACK_LOAD_COMMUNITY index.
+    if (r->iLoadedTrackGen == g_iTrackLoadGeneration)
+        return;
+
     menu_render_gpu_free_track_mesh(r);
 
-    extern int TRAK_LEN;
     if (TRAK_LEN <= 0) return;
 
     // Compute track center, bounding box, and height range (matching original show_3dmap)
@@ -1639,8 +1615,9 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
     if (bbZRange < 100.0f) bbZRange = 100.0f;
     float floorZ = bbMinZ - bbZRange * 0.4f;
 
-    // One quad per 2-chunk segment + 1 floor quad
-    int numSegments = TRAK_LEN / 2;
+    // One quad per 2-chunk segment + 1 floor quad.  show_3dmap() includes the
+    // final segment and joins it back to chunk zero.
+    int numSegments = (TRAK_LEN + 1) / 2;
     MeshVertex *vertices = calloc(numSegments * 4 + 4, sizeof(MeshVertex));
     uint32 *indices = calloc(numSegments * 6 + 6, sizeof(uint32));
     int vertCount = 0, idxCount = 0;
@@ -1667,16 +1644,24 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
         indices[idxCount++] = 0; indices[idxCount++] = 3; indices[idxCount++] = 2;
     }
 
-    for (int seg = 0; seg < numSegments - 1; seg++) {
+    for (int seg = 0; seg < numSegments; seg++) {
         int chunk = seg * 2;
-        int nextChunk = (seg + 1) * 2;
-        if (nextChunk >= TRAK_LEN) break;
+        int nextChunk = chunk + 2;
+        if (nextChunk >= TRAK_LEN) nextChunk = 0;
+
+        // A map segment is omitted only when every drivable strip has the
+        // legacy skip-render flag (for example, the gap beneath a jump).
+        if ((TrakColour[chunk][TRAK_COLOUR_LEFT_LANE] & SURFACE_FLAG_SKIP_RENDER) != 0
+            && (TrakColour[chunk][TRAK_COLOUR_CENTER] & SURFACE_FLAG_SKIP_RENDER) != 0
+            && (TrakColour[chunk][TRAK_COLOUR_RIGHT_LANE] & SURFACE_FLAG_SKIP_RENDER) != 0)
+            continue;
 
         // Height-based color gradient (palette 128-139, matching original)
         float heightCalc = (maxZ - TrakPt[chunk].pointAy[2].fZ) * 15.0f / zRange;
         int colorIdx = 143 - (int)heightCalc;
         if (colorIdx > 139) colorIdx = 139;
         if (colorIdx < 128) colorIdx = 128;
+        if (chunk == 0) colorIdx = 143;
 
         const tColor *c = &pal[colorIdx];
         float cr = c->byR / 63.0f;
@@ -1719,13 +1704,17 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
     }
 
     if (idxCount > 0) {
-        r->trackMesh.vertexBuffer = UploadGPUBuffer(r->device,
+        r->trackMesh.vertexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_VERTEX, vertices, vertCount * sizeof(MeshVertex));
-        r->trackMesh.indexBuffer = UploadGPUBuffer(r->device,
+        r->trackMesh.indexBuffer = scene_render_gpu_upload_buffer(r->device,
             SDL_GPU_BUFFERUSAGE_INDEX, indices, idxCount * sizeof(uint32));
         r->trackMesh.texture = r->whiteTexture;
         r->trackMesh.indexCount = idxCount;
-        r->trackMesh.loaded = true;
+        // Only latch on full success so a failed upload retries next frame
+        // instead of drawing with a NULL buffer.
+        r->trackMesh.loaded = r->trackMesh.vertexBuffer && r->trackMesh.indexBuffer;
+        if (r->trackMesh.loaded)
+            r->iLoadedTrackGen = g_iTrackLoadGeneration;
     }
 
     free(vertices);
@@ -1735,13 +1724,14 @@ void menu_render_gpu_load_track_mesh(MenuRendererGPU *r, const tColor *pal)
 void menu_render_gpu_free_track_mesh(MenuRendererGPU *r)
 {
     FreeMeshPreview(r->device, &r->trackMesh, r->whiteTexture);
+    r->iLoadedTrackGen = -1;
 }
 
 void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
                                     int elevation, int yaw,
                                     int destX, int destY, int destW, int destH)
 {
-    if (!r->trackMesh.loaded || r->meshDrawCount >= MAX_MESH_DRAWS) return;
+    if (!r->trackMesh.loaded || r->meshDrawCount > MAX_MESH_DRAWS - 2) return;
 
     // Convert TRIG angles to radians
     float yawRad = (float)yaw * (2.0f * 3.14159265f / 16384.0f);
@@ -1761,7 +1751,14 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     MakeLookAt(view, eyeX, eyeY, eyeZ, 0.0f, 0.0f, 0.0f);
     float aspect = (float)destW / (float)destH;
     float fov = 2.0f * atanf(81.0f / (float)VIEWDIST);
-    MakePerspective(proj, fov, aspect, 1.0f, camDist * 8.0f);
+    // Track cameras are hundreds of thousands of world units away (and zoom
+    // out to ten million during transitions).  A 1-unit near plane collapses
+    // distinct overpasses into nearly identical depth-buffer values.  Keep a
+    // conservative 100:1 camera-to-near ratio, bounded by the legacy clip
+    // distance, to retain useful precision throughout the zoom animation.
+    float fNearPlane = camDist * 0.01f;
+    if (fNearPlane < 80.0f) fNearPlane = 80.0f;
+    MakePerspective(proj, fov, aspect, fNearPlane, camDist * 8.0f);
     Mat4Multiply(mvp, proj, view);
 
     // Expand viewport to full width and bottom to avoid clipping, compensate in MVP
@@ -1780,15 +1777,22 @@ void menu_render_gpu_draw_track_preview(MenuRendererGPU *r, float cameraZ,
     for (int j = 0; j < 4; j++)
         mvp[j * 4 + 1] = Sy * mvp[j * 4 + 1] + Ty * mvp[j * 4 + 3];
 
-    MeshDrawCommand *cmd = &r->meshDraws[r->meshDrawCount++];
-    cmd->vertexBuffer = r->trackMesh.vertexBuffer;
-    cmd->indexBuffer = r->trackMesh.indexBuffer;
-    cmd->texture = r->trackMesh.texture;
-    cmd->indexCount = r->trackMesh.indexCount;
-    memcpy(cmd->mvp, mvp, sizeof(mvp));
-    cmd->vpX = (float)(destX - padLeft);
-    cmd->vpY = (float)destY;
-    cmd->vpW = (float)totalW;
-    cmd->vpH = (float)totalH;
-    cmd->useDepth = false;
+    MeshDrawCommand *pShadowCommand = &r->meshDraws[r->meshDrawCount++];
+    pShadowCommand->vertexBuffer = r->trackMesh.vertexBuffer;
+    pShadowCommand->indexBuffer = r->trackMesh.indexBuffer;
+    pShadowCommand->texture = r->trackMesh.texture;
+    pShadowCommand->indexCount = 6;
+    pShadowCommand->iFirstIndex = 0;
+    memcpy(pShadowCommand->mvp, mvp, sizeof(mvp));
+    pShadowCommand->vpX = (float)(destX - padLeft);
+    pShadowCommand->vpY = (float)destY;
+    pShadowCommand->vpW = (float)totalW;
+    pShadowCommand->vpH = (float)totalH;
+    pShadowCommand->ePipeline = MESH_PIPELINE_TRACK_SHADOW;
+
+    MeshDrawCommand *pTrackCommand = &r->meshDraws[r->meshDrawCount++];
+    *pTrackCommand = *pShadowCommand;
+    pTrackCommand->indexCount = r->trackMesh.indexCount - 6;
+    pTrackCommand->iFirstIndex = 6;
+    pTrackCommand->ePipeline = MESH_PIPELINE_TRACK;
 }

@@ -47,6 +47,9 @@ typedef struct
   uint8 *pbyButtons;
   uint8 *pbyMenuPrevButtons;
   uint8 byMenuPrevGamepadButtons[SDL_GAMEPAD_BUTTON_COUNT];
+#if defined(IS_WASM)
+  bool abMenuGamepadAxisReady[SDL_GAMEPAD_AXIS_COUNT];
+#endif
   uint8 *pbyHats;
   char szName[128];
   char szPath[ROLLER_MAX_PATH];

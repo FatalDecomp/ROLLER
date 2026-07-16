@@ -48,6 +48,8 @@
 #define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
 #define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
 #define LOG_ROW_H        DEBUG_ROW_H
+#define TOUCH_GESTURE_THRESHOLD 24.0f
+#define TOUCH_SCROLL_PIXELS_PER_STEP 72.0f
 
 typedef struct {
   char szText[MAX_LOG_LEN];
@@ -85,6 +87,17 @@ struct DebugOverlay {
   bool                   bInputBegun;
   bool                   bTouchActive;
   SDL_FingerID           ullTouchFingerId;
+  bool                   bTouchScrolling;
+  bool                   bTouchDragging;
+  bool                   bTouchButtonDown;
+  float                  fTouchStartX;
+  float                  fTouchStartY;
+  float                  fTouchLastX;
+  float                  fTouchLastY;
+  bool                   bTouchTapReleasePending;
+  int                    iTouchTapReleaseDelay;
+  int                    iTouchTapReleaseX;
+  int                    iTouchTapReleaseY;
   bool                   bDismissActive;
   bool                   bDismissTouch;
   SDL_FingerID           ullDismissFingerId;
@@ -123,6 +136,30 @@ void debug_overlay_surface_label_push(float nx, float ny, const char *text) {
   SurfaceDebugLabel *p = &s_surfLabels[s_surfLabelCount++];
   p->nx = nx; p->ny = ny;
   snprintf(p->text, sizeof(p->text), "%s", text);
+}
+
+// ---------------------------------------------------------------------------
+// Pick outline: highlights the last surface picked via click-to-pick
+// ---------------------------------------------------------------------------
+
+static struct { bool active; float nx[4], ny[4]; bool valid[4]; } s_pickOutline;
+/* True if the outline was active as of the last debug_overlay_render() call.
+ * Needed so the lazy-rasterize cache below forces one extra redraw on the
+ * exact frame the outline goes inactive -- otherwise, if nothing else in the
+ * overlay changed that frame, the Nuklear command hash matches the previous
+ * frame's and the cached pixel buffer (which still has the outline baked
+ * into it) gets reused forever instead of being redrawn without it. */
+static bool s_pickOutlineWasActive;
+
+void debug_overlay_pick_outline_set(bool active, const float nx[4], const float ny[4], const bool valid[4]) {
+  s_pickOutline.active = active;
+  if (active) {
+    for (int i = 0; i < 4; i++) {
+      s_pickOutline.nx[i]    = nx[i];
+      s_pickOutline.ny[i]    = ny[i];
+      s_pickOutline.valid[i] = valid[i];
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +321,24 @@ static void DrawSurfaceLabels(DebugOverlay *pOverlay) {
   }
 }
 
+static void DrawSurfaceOutline(DebugOverlay *pOverlay) {
+  if (!s_pickOutline.active) return;
+  struct nk_color col = nk_rgba(255, 40, 40, 255);
+  int px[4], py[4];
+  for (int i = 0; i < 4; i++) {
+    px[i] = (int)(s_pickOutline.nx[i] * OVERLAY_W);
+    py[i] = (int)(s_pickOutline.ny[i] * OVERLAY_H);
+  }
+  /* Quad perimeter is 0-1-2-3-0; skip an edge if either endpoint was behind
+   * the camera (that vertex has no valid screen position). */
+  static const int edges[4][2] = { {0,1}, {1,2}, {2,3}, {3,0} };
+  for (int e = 0; e < 4; e++) {
+    int a = edges[e][0], b = edges[e][1];
+    if (!s_pickOutline.valid[a] || !s_pickOutline.valid[b]) continue;
+    OverlayStrokeLine(pOverlay->pPixels, px[a], py[a], px[b], py[b], col);
+  }
+}
+
 static void RenderCommands(DebugOverlay *pOverlay) {
   const struct nk_command *pCmd;
   nk_foreach(pCmd, &pOverlay->nk) {
@@ -409,6 +464,9 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
   pStyle->combo.content_padding        = nk_vec2(4, 0);
   pStyle->combo.border                 = 0;
+#if defined(IS_ANDROID)
+  pStyle->window.scrollbar_size        = nk_vec2(24, 24);
+#endif
 
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
@@ -519,6 +577,10 @@ void debug_overlay_set_visible(DebugOverlay *pOverlay, bool bVisible) {
   }
 #endif
   pOverlay->bTouchActive = false;
+  pOverlay->bTouchScrolling = false;
+  pOverlay->bTouchDragging = false;
+  pOverlay->bTouchButtonDown = false;
+  pOverlay->bTouchTapReleasePending = false;
   noclip_camera_set_input_enabled(!bVisible);
 }
 
@@ -667,6 +729,43 @@ static bool DebugOverlayHandlePendingDismiss(DebugOverlay *pOverlay,
   return false;
 }
 
+static float DebugOverlayAbsFloat(float fValue)
+{
+  return fValue < 0.0f ? -fValue : fValue;
+}
+
+static void DebugOverlayBeginInput(DebugOverlay *pOverlay)
+{
+  if (!pOverlay->bInputBegun) {
+    nk_input_begin(&pOverlay->nk);
+    pOverlay->bInputBegun = true;
+  }
+}
+
+static void DebugOverlayReleaseTouchButton(DebugOverlay *pOverlay, int iX, int iY)
+{
+  DebugOverlayBeginInput(pOverlay);
+  nk_input_motion(&pOverlay->nk, iX, iY);
+  nk_input_button(&pOverlay->nk, NK_BUTTON_LEFT, iX, iY, nk_false);
+  pOverlay->bTouchButtonDown = false;
+}
+
+static void DebugOverlayHandlePendingTapRelease(DebugOverlay *pOverlay)
+{
+  if (!pOverlay || !pOverlay->bTouchTapReleasePending)
+    return;
+
+  if (pOverlay->iTouchTapReleaseDelay > 0) {
+    --pOverlay->iTouchTapReleaseDelay;
+    return;
+  }
+
+  DebugOverlayReleaseTouchButton(pOverlay,
+                                 pOverlay->iTouchTapReleaseX,
+                                 pOverlay->iTouchTapReleaseY);
+  pOverlay->bTouchTapReleasePending = false;
+}
+
 bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   int iOverlayX = 0;
   int iOverlayY = 0;
@@ -705,10 +804,7 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
   }
 
   // Open input bracket on first event of the frame
-  if (!pOverlay->bInputBegun) {
-    nk_input_begin(&pOverlay->nk);
-    pOverlay->bInputBegun = true;
-  }
+  DebugOverlayBeginInput(pOverlay);
 
   struct nk_context *pCtx = &pOverlay->nk;
   if (pEvent->type == SDL_EVENT_MOUSE_MOTION && bHasPoint) {
@@ -720,26 +816,86 @@ bool debug_overlay_handle_event(DebugOverlay *pOverlay, SDL_Event *pEvent) {
     if (pEvent->button.button == SDL_BUTTON_LEFT)
       nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, iDown);
   } else if (pEvent->type == SDL_EVENT_MOUSE_WHEEL) {
-    nk_input_scroll(pCtx, nk_vec2(0.0f, pEvent->wheel.y * 20.0f));
+    nk_input_scroll(pCtx, nk_vec2(pEvent->wheel.x, pEvent->wheel.y));
   } else if (pEvent->type == SDL_EVENT_FINGER_DOWN && bHasPoint) {
     if (!pOverlay->bTouchActive) {
       pOverlay->bTouchActive = true;
       pOverlay->ullTouchFingerId = pEvent->tfinger.fingerID;
+      pOverlay->bTouchScrolling = false;
+      pOverlay->bTouchDragging = false;
+      pOverlay->bTouchButtonDown = false;
+      pOverlay->fTouchStartX = (float)iOverlayX;
+      pOverlay->fTouchStartY = (float)iOverlayY;
+      pOverlay->fTouchLastX = (float)iOverlayX;
+      pOverlay->fTouchLastY = (float)iOverlayY;
       nk_input_motion(pCtx, iOverlayX, iOverlayY);
-      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_true);
     }
   } else if (pEvent->type == SDL_EVENT_FINGER_MOTION && bHasPoint) {
     if (pOverlay->bTouchActive &&
-        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID)
+        pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID) {
+      float fDeltaX = (float)iOverlayX - pOverlay->fTouchStartX;
+      float fDeltaY = (float)iOverlayY - pOverlay->fTouchStartY;
+      float fAbsDeltaX = DebugOverlayAbsFloat(fDeltaX);
+      float fAbsDeltaY = DebugOverlayAbsFloat(fDeltaY);
+
+      if (!pOverlay->bTouchScrolling && !pOverlay->bTouchDragging &&
+          (fAbsDeltaX > TOUCH_GESTURE_THRESHOLD ||
+           fAbsDeltaY > TOUCH_GESTURE_THRESHOLD)) {
+        if (fAbsDeltaY > fAbsDeltaX) {
+          pOverlay->bTouchScrolling = true;
+        } else {
+          pOverlay->bTouchDragging = true;
+          nk_input_motion(pCtx, (int)pOverlay->fTouchStartX,
+                          (int)pOverlay->fTouchStartY);
+          nk_input_button(pCtx, NK_BUTTON_LEFT,
+                          (int)pOverlay->fTouchStartX,
+                          (int)pOverlay->fTouchStartY, nk_true);
+          pOverlay->bTouchButtonDown = true;
+        }
+      }
+
       nk_input_motion(pCtx, iOverlayX, iOverlayY);
+      if (pOverlay->bTouchScrolling) {
+        float fFrameDeltaY = (float)iOverlayY - pOverlay->fTouchLastY;
+        nk_input_scroll(pCtx,
+                        nk_vec2(0.0f,
+                                fFrameDeltaY / TOUCH_SCROLL_PIXELS_PER_STEP));
+      }
+      pOverlay->fTouchLastX = (float)iOverlayX;
+      pOverlay->fTouchLastY = (float)iOverlayY;
+    }
   } else if ((pEvent->type == SDL_EVENT_FINGER_UP ||
-              pEvent->type == SDL_EVENT_FINGER_CANCELED) &&
-             bHasPoint) {
+              pEvent->type == SDL_EVENT_FINGER_CANCELED)) {
     if (pOverlay->bTouchActive &&
         pOverlay->ullTouchFingerId == pEvent->tfinger.fingerID) {
-      nk_input_motion(pCtx, iOverlayX, iOverlayY);
-      nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_false);
+      if (bHasPoint) {
+        float fDeltaX = (float)iOverlayX - pOverlay->fTouchStartX;
+        float fDeltaY = (float)iOverlayY - pOverlay->fTouchStartY;
+
+        nk_input_motion(pCtx, iOverlayX, iOverlayY);
+        if (pOverlay->bTouchButtonDown) {
+          nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY,
+                          nk_false);
+          pOverlay->bTouchButtonDown = false;
+        } else if (pEvent->type == SDL_EVENT_FINGER_UP &&
+                   !pOverlay->bTouchScrolling &&
+                   DebugOverlayAbsFloat(fDeltaX) <= TOUCH_GESTURE_THRESHOLD &&
+                   DebugOverlayAbsFloat(fDeltaY) <= TOUCH_GESTURE_THRESHOLD) {
+          nk_input_button(pCtx, NK_BUTTON_LEFT, iOverlayX, iOverlayY, nk_true);
+          pOverlay->bTouchButtonDown = true;
+          pOverlay->bTouchTapReleasePending = true;
+          pOverlay->iTouchTapReleaseDelay = 1;
+          pOverlay->iTouchTapReleaseX = iOverlayX;
+          pOverlay->iTouchTapReleaseY = iOverlayY;
+        }
+      } else if (pOverlay->bTouchButtonDown) {
+        DebugOverlayReleaseTouchButton(pOverlay,
+                                       (int)pOverlay->fTouchLastX,
+                                       (int)pOverlay->fTouchLastY);
+      }
       pOverlay->bTouchActive = false;
+      pOverlay->bTouchScrolling = false;
+      pOverlay->bTouchDragging = false;
     }
   } else if (pEvent->type == SDL_EVENT_KEY_DOWN || pEvent->type == SDL_EVENT_KEY_UP) {
     nk_bool bDown = (pEvent->type == SDL_EVENT_KEY_DOWN) ? nk_true : nk_false;
@@ -808,19 +964,22 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     if (iNewMusicSel != iMusicSel) {
       stopmusic();
       const char *pszSel = apszMusic[iNewMusicSel];
-      if (pszSel == "CD")          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
-      else if (pszSel == "MIDI (OPL3)") { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
-      else if (pszSel == "MIDI (OS)")   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
+      if (strcmp(pszSel, "CD") == 0)          { MusicCD = -1; MusicCard = 0;  MusicOS = 0;  MusicOPL = 0; }
+      else if (strcmp(pszSel, "MIDI (OPL3)") == 0) { MusicCD = 0;  MusicCard = 0;  MusicOS = 0;  MusicOPL = -1; }
+      else if (strcmp(pszSel, "MIDI (OS)") == 0)   { MusicCD = 0;  MusicCard = 0;  MusicOS = -1; MusicOPL = 0; }
       else                         { MusicCD = 0;  MusicCard = -1; MusicOS = 0;  MusicOPL = 0; }
       startmusic(g_iCurrentSong);
       InputSaveConfig();
     }
 
-    int bForceMaxDraw = (int)g_bForceMaxDraw;
-    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-    if (nk_checkbox_label(pCtx, "Infinite draw distance", &bForceMaxDraw)) {
-      g_bForceMaxDraw = (bool)bForceMaxDraw;
-      InputSaveConfig();
+    { char buf[16]; snprintf(buf, sizeof(buf), "Draw dist. %.0f%%", g_fDrawDistanceFraction * 100.0f);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+      nk_label(pCtx, buf, NK_TEXT_LEFT);
+      float fNewDrawDist = nk_slide_float(pCtx, 0.0f, g_fDrawDistanceFraction, 1.0f, 0.01f);
+      if (fNewDrawDist != g_fDrawDistanceFraction) {
+        g_fDrawDistanceFraction = fNewDrawDist;
+        InputSaveConfig();
+      }
     }
 
     int bNoCollisionLimit = (int)g_bNoCollisionLimit;
@@ -873,6 +1032,19 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       InputSaveConfig();
     }
 
+    int bBrazilianMayte = (int)g_bBrazilianMayte;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Brazilian MAYTE", &bBrazilianMayte)) {
+      g_bBrazilianMayte = (bool)bBrazilianMayte;
+      InputSaveConfig();
+    }
+
+    int bFreeCamera = (int)g_bFreeCamera;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Free Camera", &bFreeCamera)) {
+      g_bFreeCamera = (bool)bFreeCamera;
+    }
+
 #if defined(_WIN32)
     {
       static const char *apszInputBackends[] = { "WinMM", "SDL DirectInput" };
@@ -915,6 +1087,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
+#if !defined(IS_WASM)
     int bCRTFilter = (int)g_bCRTFilter;
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
     if (nk_checkbox_label(pCtx, "CRT filter", &bCRTFilter)) {
@@ -923,16 +1096,20 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
                                  g_bCRTFilter ? ROLLERGetCRTFilter() : NULL);
       InputSaveConfig();
     }
+#endif
 
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
-      int bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
+      int bGPU = 0;
+#if !defined(IS_WASM)
+      bGPU = (menu_render_get_pending_mode(pRenderer) == MENU_RENDER_GPU);
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Hardware rendering", &bGPU)) {
         menu_render_set_mode(pRenderer, bGPU ? MENU_RENDER_GPU : MENU_RENDER_SOFTWARE);
         game_render_set_mode(g_pGameRenderer, bGPU ? GAME_RENDER_GPU : GAME_RENDER_SOFTWARE);
         InputSaveConfig();
       }
+#endif
 
       if (!bGPU) nk_widget_disable_begin(pCtx);
 
@@ -942,16 +1119,29 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_split_screen(g_pGameRenderer, (bool)bSplit);
       }
 
-      static const char *apszScale[] = { "1x (native)", "1.5x", "2x", "3x" };
-      static const float k_scaleVals[] = { 1.0f, 1.5f, 2.0f, 3.0f };
-      int iCurScale = 0;
+      /* "(4:3)" entries match the game's original fixed aspect ratio (unchanged
+       * behaviour). "(native)" entries ADDITIONALLY widen the GPU's 3D camera
+       * to the real window's native aspect ratio (no bars) via g_bRenderNative
+       * -- see game_render_begin_cinema_native's comment in game_render.c.
+       * This works independently of the CINEMA cheat code (previously this
+       * was a separate "Cinema Native" checkbox gated behind the cheat; now
+       * it's always available here). */
+      static const char *apszScale[] = {
+          "1x (4:3)", "1.5x (4:3)", "2x (4:3)", "3x (4:3)",
+          "1x (native)", "1.5x (native)", "2x (native)", "3x (native)"
+      };
+      static const float k_scaleVals[]   = { 1.0f, 1.5f, 2.0f, 3.0f, 1.0f, 1.5f, 2.0f, 3.0f };
+      static const bool  k_scaleNative[] = { false, false, false, false, true, true, true, true };
+      int iBase = g_bRenderNative ? 4 : 0;
+      int iCurScale = iBase;
       for (int i = 1; i < 4; i++)
-        if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = i;
+        if (g_fRenderScale >= k_scaleVals[i] - 0.01f) iCurScale = iBase + i;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Render scale", NK_TEXT_LEFT);
       int iNewScale = nk_combo(pCtx, apszScale, NK_LEN(apszScale), iCurScale, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
       if (iNewScale != iCurScale) {
-        g_fRenderScale = k_scaleVals[iNewScale];
+        g_fRenderScale  = k_scaleVals[iNewScale];
+        g_bRenderNative = k_scaleNative[iNewScale];
         game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
         InputSaveConfig();
       }
@@ -1148,6 +1338,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         }
       }
 
+      { char buf[20]; snprintf(buf, sizeof(buf), "Mirror FOV %.2f", g_fMirrorFov);
+        nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+        nk_label(pCtx, buf, NK_TEXT_LEFT);
+        float fNewMirrorFov = nk_slide_float(pCtx, 0.25f, g_fMirrorFov, 3.0f, 0.05f);
+        if (fNewMirrorFov != g_fMirrorFov) {
+          g_fMirrorFov = fNewMirrorFov;
+          InputSaveConfig();
+        }
+      }
+
       static const char *apszFps[] = { "FPS off", "Top left", "Top right", "Bottom left", "Bottom right" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "FPS counter", NK_TEXT_LEFT);
@@ -1192,11 +1392,43 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      {
+        int bTrackBorders = (int)g_bEmulateSoftwareTrackBorders;
+        if (nk_checkbox_label(pCtx, "Emulate transparent borders", &bTrackBorders)) {
+          g_bEmulateSoftwareTrackBorders = (bool)bTrackBorders;
+          game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
+          InputSaveConfig();
+        }
+      }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bWireframe = (int)g_bWireframe;
       if (nk_checkbox_label(pCtx, "Wireframe", &bWireframe)) {
         g_bWireframe = (bool)bWireframe;
         game_render_set_wireframe(g_pGameRenderer, g_bWireframe);
       }
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bPickTextures = (int)g_bPickTextures;
+      if (nk_checkbox_label(pCtx, "Pick Textures", &bPickTextures))
+        g_bPickTextures = (bool)bPickTextures;
+
+      /* Nuklear can't nest disable regions -- close the outer !bGPU one,
+       * apply a combined !bGPU||!g_bPickTextures pair just for this widget,
+       * then reopen the outer region for the widgets below. */
+      if (!bGPU) nk_widget_disable_end(pCtx);
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (!bGPU || !g_bPickTextures) nk_widget_disable_begin(pCtx);
+      int bPickTexturesPNG = (int)g_bPickTexturesPNG;
+      if (nk_checkbox_label(pCtx, "Pick Textures as PNG", &bPickTexturesPNG))
+        g_bPickTexturesPNG = (bool)bPickTexturesPNG;
+      if (!bGPU || !g_bPickTextures) nk_widget_disable_end(pCtx);
+      if (!bGPU) nk_widget_disable_begin(pCtx);
+
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      int bRenderStatsLog = (int)g_bRenderStatsLog;
+      if (nk_checkbox_label(pCtx, "Render Stats Log", &bRenderStatsLog))
+        g_bRenderStatsLog = (bool)bRenderStatsLog;
 
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       int bSurfDbg = (int)g_bSurfaceDebugViz;
@@ -1266,10 +1498,12 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fFogStart       = 0.0f;  g_fFogDensity     = 0.0f;
         g_uFogColor       = 0xB3BFCCu;
         g_fFovMultiplier  = 1.0f;  g_fVigStrength    = 0.0f;
+        g_fMirrorFov      = 0.75f;
         g_fBrightness     = 0.0f;  g_fContrast       = 1.0f;
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
         g_bVsync          = true;  g_bCRTFilter      = false;
+        g_bEmulateSoftwareTrackBorders = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);
         game_render_set_anisotropy_level(g_pGameRenderer,g_iAnisotropyLevel);
@@ -1289,6 +1523,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         game_render_set_gamma(g_pGameRenderer,           g_fGamma);
         game_render_set_saturation(g_pGameRenderer,      g_fSaturation);
         game_render_set_vsync(g_pGameRenderer,           g_bVsync);
+        game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
         game_render_set_wireframe(g_pGameRenderer,       g_bWireframe);
         game_render_set_cull_mode(g_pGameRenderer,       g_iCullMode);
         game_render_set_crt_filter(g_pGameRenderer,      NULL);
@@ -1304,7 +1539,7 @@ static void DrawLogPanel(DebugOverlay *pOverlay) {
 
   if (nk_begin(pCtx, "Log",
                nk_rect(RIGHT_X, PANEL_Y, RIGHT_W, PANEL_H),
-               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+               NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR)) {
     nk_layout_row_dynamic(pCtx, PANEL_H - 50, 1);
     if (nk_group_begin(pCtx, "log_inner", NK_WINDOW_BORDER)) {
       nk_layout_row_dynamic(pCtx, LOG_ROW_H, 1);
@@ -1336,9 +1571,18 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   bool bShiftLabel = _kb[SDL_SCANCODE_LSHIFT] || _kb[SDL_SCANCODE_RSHIFT];
   bool bShowLabels = g_bSurfaceDebugViz || bShiftLabel;
 
-  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels)) return;
+  /* Releasing SHIFT (or turning off surface debug viz) dismisses the pick
+   * outline entirely rather than letting it reappear -- showing labels acts
+   * as a "clear the outline" gesture, not just a temporary hide. */
+  static bool s_showLabelsWasActive;
+  if (s_showLabelsWasActive && !bShowLabels)
+    s_pickOutline.active = false;
+  s_showLabelsWasActive = bShowLabels;
+
+  if (!pOverlay || (!pOverlay->bVisible && !bShowLabels && !s_pickOutline.active && !s_pickOutlineWasActive)) return;
 
   struct nk_context *pCtx = &pOverlay->nk;
+  DebugOverlayHandlePendingTapRelease(pOverlay);
   // Close input bracket (open it first if no events arrived this frame)
   if (!pOverlay->bInputBegun)
     nk_input_begin(pCtx);
@@ -1356,8 +1600,10 @@ void debug_overlay_render(DebugOverlay *pOverlay,
    * Skip the expensive software raster + GPU upload when nothing changed;
    * the GPU texture still holds the previous frame's correct content.
    * Surface debug labels change every frame, so bypass the cache while active. */
-  if (bShowLabels)
-    pOverlay->uLastCmdHash = 0;  /* force dirty every frame */
+  if (bShowLabels || s_pickOutline.active || s_pickOutlineWasActive)
+    pOverlay->uLastCmdHash = 0;  /* force dirty every frame, plus one extra
+                                    frame on the active->inactive transition */
+  s_pickOutlineWasActive = s_pickOutline.active;
 
   uint32_t uHash = 2166136261u;
   const uint8_t *pCmdBytes = (const uint8_t *)pCtx->memory.memory.ptr;
@@ -1372,6 +1618,7 @@ void debug_overlay_render(DebugOverlay *pOverlay,
     memset(pOverlay->pPixels, 0, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
     RenderCommands(pOverlay);
     if (bShowLabels) DrawSurfaceLabels(pOverlay);
+    else             DrawSurfaceOutline(pOverlay);
     UploadAndBlit(pOverlay, pCmdBuf);
   } else {
     nk_clear(pCtx);

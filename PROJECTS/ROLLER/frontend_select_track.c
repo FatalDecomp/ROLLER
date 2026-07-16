@@ -122,6 +122,23 @@ static int frontend_track_select_stock_selection_disabled(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_track_select_show_stock_cup(int iFirstTrack)
+{
+  int iTrack = iFirstTrack;
+
+  for (int iTrackIdx = iFirstTrack; iTrackIdx < iFirstTrack + 8; ++iTrackIdx) {
+    if (stock_track_available(iTrackIdx)) {
+      iTrack = iTrackIdx;
+      break;
+    }
+  }
+
+  iFrontendTrackCurrentTrack = iTrack;
+  iFrontendTrackSelectedTrack = ((uint8)iTrack - 1) & 7;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_track_select_show_community_selection(void)
 {
   int iMaxTop = g_iCommunityTrackCount - FRONTEND_TRACK_VISIBLE_COMMUNITY_ROWS;
@@ -259,13 +276,16 @@ static void frontend_track_select_handle_cup_switch(void)
   sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
   iFrontendTrackSpeechPending = 0;
   if (frontend_track_select_stock_selection_disabled()) {
-    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
     scan_community_tracks();
-    frontend_track_select_show_community_selection();
+    if (g_iCommunityTrackCount > 0) {
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      frontend_track_select_show_community_selection();
+    } else {
+      frontend_track_select_show_stock_cup(1);
+    }
   } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
       TrackLoad == TRACK_LOAD_COMMUNITY) {
-    iFrontendTrackCurrentTrack = 1;
-    iFrontendTrackSelectedTrack = 0;
+    frontend_track_select_show_stock_cup(1);
   } else {
     iFrontendTrackCurrentTrack += 8;
     if (iFrontendTrackCurrentTrack > 8 &&
@@ -275,9 +295,14 @@ static void frontend_track_select_handle_cup_switch(void)
         iFrontendTrackCurrentTrack < 25 && (cup_won & 2) == 0)
       iFrontendTrackCurrentTrack += 8;
     if (iFrontendTrackCurrentTrack > 24) {
-      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
       scan_community_tracks();
-      frontend_track_select_show_community_selection();
+      if (g_iCommunityTrackCount > 0) {
+        iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+        frontend_track_select_show_community_selection();
+      } else {
+        /* no community tracks on disk -- skip the empty category, wrap to cup 1 */
+        frontend_track_select_show_stock_cup(1);
+      }
     } else {
       iFrontendTrackSelectedTrack =
           ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
@@ -296,9 +321,13 @@ static void frontend_track_select_handle_cup_switch_back(void)
   sfxsample(SOUND_SAMPLE_TRACK, 0x8000);
   iFrontendTrackSpeechPending = 0;
   if (frontend_track_select_stock_selection_disabled()) {
-    iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
     scan_community_tracks();
-    frontend_track_select_show_community_selection();
+    if (g_iCommunityTrackCount > 0) {
+      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      frontend_track_select_show_community_selection();
+    } else {
+      frontend_track_select_show_stock_cup(1);
+    }
   } else if (iFrontendTrackCurrentTrack == TRACK_LOAD_COMMUNITY ||
              TrackLoad == TRACK_LOAD_COMMUNITY) {
     /* community → last available cup going backwards */
@@ -308,7 +337,7 @@ static void frontend_track_select_handle_cup_switch_back(void)
       iFrontendTrackCurrentTrack = 9;
     else
       iFrontendTrackCurrentTrack = 1;
-    iFrontendTrackSelectedTrack = ((uint8)iFrontendTrackCurrentTrack - 1) & 7;
+    frontend_track_select_show_stock_cup(iFrontendTrackCurrentTrack);
   } else {
     iFrontendTrackCurrentTrack -= 8;
     /* skip locked premium cup when going back from bonus */
@@ -316,10 +345,20 @@ static void frontend_track_select_handle_cup_switch_back(void)
         iFrontendTrackCurrentTrack < 17 && (cup_won & 1) == 0)
       iFrontendTrackCurrentTrack -= 8;
     if (iFrontendTrackCurrentTrack <= 0) {
-      /* wrapped past gremlin → community */
-      iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+      /* wrapped past gremlin → community, if any tracks exist there */
       scan_community_tracks();
-      frontend_track_select_show_community_selection();
+      if (g_iCommunityTrackCount > 0) {
+        iFrontendTrackCurrentTrack = TRACK_LOAD_COMMUNITY;
+        frontend_track_select_show_community_selection();
+      } else {
+        /* no community tracks on disk -- skip the empty category, wrap to last cup */
+        if (cup_won & 2)
+          frontend_track_select_show_stock_cup(17);
+        else if (cup_won & 1)
+          frontend_track_select_show_stock_cup(9);
+        else
+          frontend_track_select_show_stock_cup(1);
+      }
     } else {
       iFrontendTrackSelectedTrack =
           ((uint8)iFrontendTrackCurrentTrack - 1) & 7;

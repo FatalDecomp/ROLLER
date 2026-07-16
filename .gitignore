@@ -373,6 +373,7 @@ fatdata
 # Zig build artifacts
 zig-out/
 .zig-cache/
+.tools/
 
 # Android build artifacts
 .idea/

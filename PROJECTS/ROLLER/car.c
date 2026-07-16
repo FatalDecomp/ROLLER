@@ -638,7 +638,7 @@ void DrawCars(int iCarIdx, int iViewMode)
       fZ = pCar->pos.fZ;
       if (iCurrChunk_1 == -1)                 // Use last valid chunk if current chunk is invalid (-1)
         iCurrChunk = pCar->iLastValidChunk;
-      if (g_bForceMaxDraw) {
+      if (g_fDrawDistanceFraction >= 1.0f) {
         iVisibilityFlag = -1;
         goto LABEL_42;
       }
@@ -1135,7 +1135,7 @@ void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCa
   uiColorFrom = color_remap ? color_remap[0] : car_flat_remap[carDesignIndex].uiColorFrom;
   uiColorTo = color_remap ? color_remap[1] : car_flat_remap[carDesignIndex].uiColorTo;
   pAnms = CarDesigns[carDesignIndex].pAnms;
-  if ((!g_bForceMaxDraw && fDistanceToCar >= 8000.0 && VisibleCars >= 4) || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
+  if ((g_fDrawDistanceFraction < 1.0f && fDistanceToCar >= 8000.0 && VisibleCars >= 4) || (textures_off & 0x100) != 0 || fDistanceToCar <= 0.0 || (pCar->byStatusFlags & 2) != 0)
     goto LABEL_117;                             // Early exit if car is too far, invisible, or textures disabled
   iChunk = pCar->nCurrChunk;
   if (iChunk == -1)
@@ -2147,6 +2147,11 @@ LABEL_117:
   }
 }
 
+/* Extra GPU depth bias for MAYTE's nitro flame specifically (on top of the
+ * general 0.000002f rounding bias below) -- tuned live via debug-overlay
+ * slider against the car body it sits closest to. */
+#define MAYTE_FLAME_DEPTH_BIAS 0.0001f
+
 /* Draw smoke/spray particles for a car using proper 3D perspective projection.
  * In the SW path this is handled inside DisplayCarWithPose (car.c ~1762).
  * In GPU mode DisplayCarWithPose does not run, so we call this separately. */
@@ -2219,6 +2224,11 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
          * Keep it minimal so crash-smoke at wall depth doesn't bleed through. */
         float gndcZ = (camZ - SCENE_GPU_NEAR) * (SCENE_GPU_FAR / (SCENE_GPU_FAR - SCENE_GPU_NEAR)) / camZ;
         gndcZ -= 0.000002f;
+        /* MAYTE's nitro flame sits low and close to the car body -- the tiny bias
+         * above isn't quite enough to keep it from being clipped by the car's own
+         * mesh on the GPU path (SW's own depth-sort doesn't have this issue). */
+        if (pCar->byCarDesignIdx == CAR_DESIGN_MAYTE)
+          gndcZ -= MAYTE_FLAME_DEPTH_BIAS;
         if (gndcZ < 0.0f) gndcZ = 0.0f;
         game_render_set_particle_depth(g_pGameRenderer, gndcZ);
 
@@ -2259,6 +2269,8 @@ void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
                 float tailNdcZ = (camZ2 - SCENE_GPU_NEAR) *
                                  (SCENE_GPU_FAR / (SCENE_GPU_FAR - SCENE_GPU_NEAR)) / camZ2;
                 tailNdcZ -= 0.000002f;
+                if (pCar->byCarDesignIdx == CAR_DESIGN_MAYTE)
+                  tailNdcZ -= MAYTE_FLAME_DEPTH_BIAS;
                 if (tailNdcZ < 0.0f) tailNdcZ = 0.0f;
                 const float ndcZv[4] = {tailNdcZ, tailNdcZ, gndcZ, gndcZ};
                 game_render_set_particle_depth_pervertex(g_pGameRenderer, ndcZv);

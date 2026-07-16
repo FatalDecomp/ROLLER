@@ -275,7 +275,6 @@ int CheckNames(char *szPlayerName, int iPlayerIdx)
       cheat_mode |= CHEAT_MODE_CHEAT_CAR;
       break;
     }
-
     // Move to next cheat name
     szCurrCheat += 9;
     iCheatIdx++;

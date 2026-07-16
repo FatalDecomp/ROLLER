@@ -143,6 +143,39 @@ void menu_render_sw_box(MenuRendererSoftware *sw, int x, int y, int width,
     winw = savedWinW;
 }
 
+/* Solid filled rectangle (menu_render_sw_box above is outline-only, matching
+ * box_screen -- this is the separate primitive for a filled area, e.g. a
+ * volume bar's fill portion). */
+void menu_render_sw_fill(MenuRendererSoftware *sw, int x, int y, int width,
+                         int height, uint8 colorIndex, const tColor *palette) {
+    int x2, y2, row;
+    uint8 *pRow;
+
+    (void)sw;
+    (void)palette;
+
+    if (!scrbuf || width <= 0 || height <= 0)
+        return;
+
+    x2 = x + width - 1;
+    y2 = y + height - 1;
+    if (x2 < 0 || y2 < 0 || x >= MENU_SW_WIDTH || y >= MENU_SW_HEIGHT)
+        return;
+
+    if (x < 0)  x = 0;
+    if (y < 0)  y = 0;
+    if (x2 >= MENU_SW_WIDTH)  x2 = MENU_SW_WIDTH - 1;
+    if (y2 >= MENU_SW_HEIGHT) y2 = MENU_SW_HEIGHT - 1;
+    if (x2 < x || y2 < y)
+        return;
+
+    pRow = &scrbuf[MENU_SW_WIDTH * y + x];
+    for (row = y; row <= y2; row++) {
+        memset(pRow, colorIndex, x2 - x + 1);
+        pRow += MENU_SW_WIDTH;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fade system
 // ---------------------------------------------------------------------------

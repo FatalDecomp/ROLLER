@@ -20,6 +20,16 @@ SceneRendererGPU *scene_render_get_gpu(struct SceneRenderer *renderer);
 SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window);
 void              scene_render_gpu_destroy(SceneRendererGPU *r);
 
+/* Generic one-off GPU upload helpers -- not tied to any SceneRendererGPU
+ * instance (just take the device directly), shared by scene_render_gpu.c,
+ * game_render_hardware.c, and menu_render_gpu.c. Each acquires and submits
+ * its own dedicated command buffer synchronously, so they're for textures/
+ * buffers created once at init or on demand, NOT per-frame streaming data. */
+SDL_GPUTexture *scene_render_gpu_upload_rgba(SDL_GPUDevice *dev, const uint8 *rgba,
+                                              int w, int h, bool generateMipmaps);
+SDL_GPUBuffer  *scene_render_gpu_upload_buffer(SDL_GPUDevice *dev, SDL_GPUBufferUsageFlags usage,
+                                                const void *data, Uint32 size);
+
 void scene_render_gpu_begin_frame(SceneRendererGPU *r);
 void scene_render_gpu_end_frame(SceneRendererGPU *r);
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r);
@@ -27,6 +37,7 @@ void scene_render_gpu_discard_queued(SceneRendererGPU *r);
 
 void scene_render_gpu_set_viewport(SceneRendererGPU *r,
                                    int x, int y, int w, int h);
+
 void scene_render_gpu_set_camera(SceneRendererGPU *r,
                                  const SceneRenderCamera *cam);
 void scene_render_gpu_set_projection(SceneRendererGPU *r,
@@ -106,6 +117,9 @@ void scene_render_gpu_set_brightness(SceneRendererGPU *r, float brightness);
 /* mult: FOV multiplier on top of game camera; 1.0 = native, <1 = zoom in, >1 = zoom out */
 void scene_render_gpu_set_fov_multiplier(SceneRendererGPU *r, float mult);
 
+/* enabled: true = emulate SW rasterizer's extra-dark one-pixel track-darken quad border */
+void scene_render_gpu_set_emulate_software_track_darken_border(SceneRendererGPU *r, bool enabled);
+
 /* enabled: true = wireframe (line) fill mode, false = solid */
 void scene_render_gpu_set_wireframe(SceneRendererGPU *r, bool enabled);
 
@@ -128,6 +142,17 @@ void scene_render_gpu_set_crt_filter(SceneRendererGPU *r, struct CRTFilter *filt
 void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16]);
 int  scene_render_gpu_get_render_chunk(const SceneRendererGPU *r);
 
+/* Project an already-camera-space point (fvx,fvy,fvz -- the same R·(world-cam)
+ * coordinates the SW vk1-9 transform produces) to NDC, using the SAME FOV/
+ * viewport math as the real 3D scene (build_mvp), rather than a SW-pixel-space
+ * (scrX/scrY) intermediate -- see the definition for why that intermediate
+ * breaks in "Render Scale (native)" mode. Returns false (leaves outNdcX/Y
+ * untouched) if fvz <= 0 (point behind camera). */
+bool scene_render_gpu_project_to_ndc(const SceneRendererGPU *r,
+                                     double fvx, double fvy, double fvz,
+                                     float *outNdcX, float *outNdcY);
+
+
 /* Queue a flat-colour screen-space quad for the particle pass.
  * ndcX[4], ndcY[4]: NDC coordinates of the four corners (v0=top-right, v1=top-left,
  * v2=bottom-left, v3=bottom-right; same winding as tPolyParams SW quads).
@@ -149,6 +174,14 @@ void scene_render_gpu_set_particle_ndcz_pervertex(SceneRendererGPU *r, const flo
 /* Return the GPU texture for tile_idx within slot tex_idx, or NULL if out of range. */
 SDL_GPUTexture *scene_render_gpu_get_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
 
+/* Cached flat-colour texture for a palette index (built once per index, reused
+ * after). Use via screen_quad_textured (NOT screen_quad_flat) for any UI
+ * element that must draw correctly in 2-player mode: flat-particle quads draw
+ * as a whole batch BEFORE textured-particle quads in the same render pass
+ * regardless of queue order, and each player's composited view is itself an
+ * opaque textured quad -- a flat quad queued earlier gets painted over. */
+SDL_GPUTexture *scene_render_gpu_get_flat_color_texture(SceneRendererGPU *r, int colorIdx);
+
 /* Return the particle-variant tile texture (palette index 0 = opaque white) for tile_idx.
  * Only cargen (tex_idx 18) has a particle variant; other slots fall back to the normal tile. */
 SDL_GPUTexture *scene_render_gpu_get_particle_tile_texture(SceneRendererGPU *r, int tex_idx, int tile_idx);
@@ -160,6 +193,12 @@ bool scene_render_gpu_screen_quad_textured(SceneRendererGPU *r,
                                            const float ndcX[4], const float ndcY[4],
                                            SDL_GPUTexture *tex,
                                            float cr, float cg, float cb, float ca);
+
+/* Full-screen translucent black quad for the in-race pause-menu darken
+ * effect. Deliberately routed through the textured-particle path rather
+ * than screen_quad_flat -- see the definition for why (2-player composite
+ * ordering). */
+bool scene_render_gpu_screen_quad_darken(SceneRendererGPU *r, float alpha);
 
 /* Queue a car mesh draw into the current frame (called by game_render_hardware.c). */
 void scene_render_gpu_queue_car_draw(SceneRendererGPU *r,
@@ -178,5 +217,29 @@ void scene_render_gpu_queue_car_shadow_draw(SceneRendererGPU *r,
                                              int               firstIndex,
                                              int               idxCount,
                                              const float       mvp[16]);
+
+/* Call before a secondary view's own draw_road() runs -- see the struct-field
+ * comment in scene_render_gpu.c for why the timing matters (must be before
+ * that view's scene, including real smoke/particles, gets queued). */
+void scene_render_gpu_secondary_view_will_queue(SceneRendererGPU *r);
+
+/* Render the queued scene draws (produced by calling the normal camera/
+ * projection/draw_car/quad_world/etc. API with a secondary camera already
+ * set) into a small dedicated offscreen colour target instead of the main
+ * swapchain, then reset the shared per-frame draw-command/vertex state so
+ * the NEXT queued scene (e.g. the main view, or another secondary view)
+ * starts clean. Used by the rearview/side mirror (slot 0) and 2-player
+ * split screen (slot 0 = player 1, slot 1 = player 2).
+ * slot: which persistent offscreen texture to render into (0..
+ * SCENE_GPU_MAX_SECONDARY_VIEWS-1) -- each slot keeps its own texture so
+ * multiple secondary views can be composited later in the same frame
+ * without one flush overwriting another's not-yet-consumed texture.
+ * texW/texH: base render-target size; the renderer applies renderScale to the
+ * allocated target without changing the caller's logical viewport.
+ * Returns the resulting texture (owned by the renderer, valid until the next
+ * call with this slot or destroy), or NULL on failure.
+ * Must be called after scene_render_gpu_secondary_view_will_queue() and
+ * that view's draw_road() have both already run. */
+SDL_GPUTexture *scene_render_gpu_flush_secondary_view(SceneRendererGPU *r, int slot, int texW, int texH);
 
 #endif /* SCENE_RENDER_GPU_H */

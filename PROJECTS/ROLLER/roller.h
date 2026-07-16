@@ -11,7 +11,7 @@
 
 extern SDL_Mutex *g_pDigiMutex;
 extern bool g_bPaletteSet;
-extern bool g_bForceMaxDraw;
+extern float g_fDrawDistanceFraction; /* 0.0 = normal draw distance, 1.0 = whole track (old "Infinite draw distance" checkbox) */
 extern bool g_bNoCollisionLimit;
 extern bool g_bAirborneCollisions;
 extern bool g_bAINoCheatStart;
@@ -19,6 +19,8 @@ extern bool g_bFixCarMenuBug;
 extern bool g_bImprovedJumpLanding;
 extern bool g_bNoclip;
 extern bool g_bShowCarOnExplosion; /* true = keep car mesh visible during explosion animation */
+extern bool g_bBrazilianMayte; /* true = MAYTE cheat car uses the Brazilian FATAL.EXE's nitro-boost behavior instead of the original top-speed one, regardless of whether the boost is currently active */
+extern bool g_bFreeCamera; /* debug: hold RMB + move mouse to free-look in any view (see view.c chase_look_apply) */
 extern int   g_iTextureFilter;   /* 0=nearest, 1=bilinear, 2=anisotropic */
 extern int   g_iAnisotropyLevel; /* 0=2x, 1=4x, 2=8x, 3=16x */
 extern bool  g_bTrilinear;       /* true = blend linearly between mip levels */
@@ -37,6 +39,8 @@ extern float g_fContrast;        /* contrast; 1.0 = neutral */
 extern float g_fVigStrength;     /* vignette strength; 0.0 = off */
 extern float g_fBrightness;      /* additive brightness; 0.0 = neutral */
 extern float g_fFovMultiplier;   /* FOV multiplier; 1.0 = native */
+extern float g_fMirrorFov;       /* rearview/side mirror FOV multiplier; 0.75 = default (matches SW), <1 = zoom in, >1 = zoom out */
+extern bool  g_bEmulateSoftwareTrackBorders; /* true = emulate SW extra-dark track-darken quad borders */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
 extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
@@ -44,9 +48,16 @@ extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
 extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */
 extern int   g_iSurfaceLogId;    /* -2=disabled(empty), -1=all, >=0=specific surfIdx (not saved) */
+extern bool  g_bRenderStatsLog;  /* enable periodic drawcmd/vertex-count SDL_Log (not saved to INI) */
+extern bool  g_bPickTextures;    /* debug: enable right-click surface pick (see "Pick Textures" checkbox) */
+extern bool  g_bPickTexturesPNG; /* debug: also save the picked tile/pair atlas region as a PNG next to the exe (see "Pick Textures as PNG" checkbox) */
+extern bool  g_bRenderNative;    /* widens the GPU's 3D camera to the real window's native aspect ratio (no bars), independent of the CINEMA cheat -- selected via the "(native)" Render Scale options rather than a separate checkbox (see debug_overlay.c) */
 extern bool  g_pendingClickQuery; /* right-click surface pick: set by event loop, cleared after render */
 extern float g_clickQueryNX;     /* normalised [0,1] click X within game viewport */
 extern float g_clickQueryNY;     /* normalised [0,1] click Y within game viewport */
+extern bool  g_bChaseLookRightDown; /* debug free-look (view.c): RMB currently held */
+extern float g_fChaseLookAccumX; /* debug free-look: accumulated raw xrel since last consumed */
+extern float g_fChaseLookAccumY; /* debug free-look: accumulated raw yrel since last consumed */
 extern bool  g_bKeepWindowSize; /* persist window size to ROLLER.INI */
 extern bool g_bRepeat;
 extern int g_iNumTracks;
@@ -89,6 +100,7 @@ void ROLLERGetPresentViewport(Uint32 uiTargetW, Uint32 uiTargetH,
                               float fContentAspect,
                               SDL_GPUViewport *pViewport);
 void ROLLERRefreshStartupOverlay();
+void ROLLERPersistSync(void);
 
 bool ROLLERfexists(const char *szFile);
 const char *ROLLERfindpath(const char *szFile); // case-insensitive path resolution (no-op on Windows)

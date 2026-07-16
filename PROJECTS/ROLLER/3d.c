@@ -26,6 +26,9 @@
 #include "touch_ui.h"
 #include "menu_render.h"
 #include <SDL3/SDL.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 #if defined(IS_ANDROID)
 #include <SDL3/SDL_main.h>
 #endif
@@ -948,6 +951,13 @@ int main_loop_iteration(void)
 
   UpdateSDL();
 
+#if defined(IS_WASM)
+  /* Browser timer callbacks lose cadence under main-thread load. Derive the
+   * game clock from elapsed monotonic time after pumping visibility/freeze
+   * state, then let the existing frontend path drain at most four ticks. */
+  wasm_tick_clock_update();
+#endif
+
   if (quit_game &&
       eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
       eFrontendCurrentState != eFRONTEND_STATE_QUIT)
@@ -959,13 +969,29 @@ int main_loop_iteration(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(__EMSCRIPTEN__)
+static void main_loop_iteration_wrapper(void)
+{
+  if (!main_loop_iteration())
+    emscripten_cancel_main_loop();
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 static void frontend_run_game_loop(eFrontendState eInitialState)
 {
   VIEWDIST = 270;
   frontend_set_state(eInitialState);
 
+#if defined(__EMSCRIPTEN__)
+  // The shutdown frontend state performs all cleanup, including ShutdownSDL. With
+  // simulated infinite-loop semantics, execution after this call is unreachable.
+  emscripten_set_main_loop(main_loop_iteration_wrapper, 0, 1);
+#else
   while (main_loop_iteration()) {
   }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2053,7 +2079,7 @@ void init()
     tatn[i] = (float)atan(dAngle);
   }
 
-  scrbuf = getbuffer(256000u);
+  scrbuf = getbuffer(SCRBUF_MAX_PIXELS);
   LoadRecords();
 }
 
@@ -2342,9 +2368,12 @@ void updatescreen()
         goto LABEL_20;
     }
     iShowRearView = -1;
-    game_render_begin_mirror_pass(g_pGameRenderer);
+    game_render_begin_mirror_pass(g_pGameRenderer, 0.25f); /* scr_size /= 4 above */
     draw_road(mirbuf, iViewTypeIndex, 2u, 0, 0);// Draw rear view road to mirror buffer
-    game_render_end_mirror_pass(g_pGameRenderer);
+    /* GPU mode: offscreen render target is supersampled (x4) relative to the
+     * small SW logical window size for a less blocky result once composited. */
+    game_render_end_mirror_pass(g_pGameRenderer,
+                                 iRearViewWinWidth * 4, iRearViewWinHeight * 4);
   LABEL_20:
     time_shown = 0;
     shown_panel = 0;
@@ -2365,6 +2394,16 @@ void updatescreen()
     }
     if (iShowRearView)                        // Copy rear view mirror data to main screen with border (color 119)
     {
+      if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+        /* Straight (non-flipped) copy, matching the SW pixel loop below which
+         * increments (not decrements) its source pointer -- the rear-view
+         * mirror shows the backward camera view directly, unlike the
+         * left-right-reversed side-view mirror below. */
+        game_render_composite_mirror_pass(g_pGameRenderer,
+            (winw - iRearViewWinWidth - 1) / 2, 0,
+            iRearViewWinWidth, iRearViewWinHeight,
+            false, 0x77);
+      } else {
       // Position rear view mirror horizontally centered
       pRearViewDestPtr = &scrbuf[(winw - iRearViewWinWidth - 1) / 2];
       //pRearViewDestPtr = &scrbuf[(winw - iRearViewWinWidth - 1) / 2 + winw * ((11 * scr_size - (__CFSHL__((11 * scr_size) >> 31, 6) + ((11 * scr_size) >> 31 << 6))) >> 6)];
@@ -2386,6 +2425,7 @@ void updatescreen()
         ++iRearViewRowCounter;
       }
       memset(pRearViewRowPtr, 0x77, iRearViewWinWidth + 2);
+      }
     }
     if (screenready)
       goto LABEL_14;
@@ -2403,9 +2443,10 @@ void updatescreen()
     winy = 0;
     winh = (200 * scr_size) >> 7;
     iMirrorWinHeight = (200 * scr_size) >> 7;
-    game_render_begin_mirror_pass(g_pGameRenderer);
+    game_render_begin_mirror_pass(g_pGameRenderer, 0.5f); /* scr_size /= 2 above */
     draw_road(mirbuf, ViewType[0], -DriveView[0] - 1, 0, 0);// Draw mirrored view (negative DriveView for reverse perspective)
-    game_render_end_mirror_pass(g_pGameRenderer);
+    game_render_end_mirror_pass(g_pGameRenderer,
+                                 iMirrorWinWidth * 4, iMirrorWinHeight * 4);
     xbase = 159;
     winw = (320 * iOriginalScrSize + 32) >> 6;
     winh = (200 * iOriginalScrSize + 32) >> 6;
@@ -2426,6 +2467,14 @@ void updatescreen()
       clear_border(winx + winw, winy, winx, winh);
       clear_border(0, winh + winy, XMAX, YMAX - (winh + winy));
     }
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      /* Flipped (mirrored) copy, matching the SW pixel loop below which
+       * decrements its source pointer -- this is a true left-right mirror. */
+      game_render_composite_mirror_pass(g_pGameRenderer,
+          iMirrorXOffset, iMirrorYOffset,
+          iMirrorWinWidth, iMirrorWinHeight,
+          true, 0x70);
+    } else {
     pDestPtr = &scrbuf[iMirrorXOffset + iMirrorYOffset * winw];// Copy side mirror view with border (color 112/0x70)
     pMirrorSrcPtr = &mirbuf[iMirrorWinWidth - 1];
     memset(pDestPtr, 0x70, iMirrorWinWidth + 2);
@@ -2444,6 +2493,7 @@ void updatescreen()
       pMirrorSrcPtr += 2 * iMirrorWinWidth;
     }
     memset(pCurrentRowPtr, 0x70, iMirrorWinWidth + 2);
+    }
     if (screenready) {
     LABEL_14:
       game_copypic(scrbuf, screen, ViewType[0]);// Copy screen buffer to final display and initialize animated elements
@@ -2468,9 +2518,23 @@ LABEL_30:
     winh = YMAX / 2 - 2;
     if (clear_borders)
       memset(&scrbuf[winh * winw], 0, 4 * winw);
+    game_render_begin_2p_pass(g_pGameRenderer);
+    game_render_set_active_view_slot(g_pGameRenderer, 0);
+    game_render_secondary_view_will_queue(g_pGameRenderer);
     draw_road(scrbuf, ViewType[0], DriveView[0], -1, 0);// Draw player 1 view (top half)
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU)
+      game_render_flush_player_view(g_pGameRenderer, 0, winw, winh, XMAX, YMAX,
+                                     0, 0, winw, winh);
     shown_panel = 0;
+    game_render_set_active_view_slot(g_pGameRenderer, 1);
+    game_render_secondary_view_will_queue(g_pGameRenderer);
     draw_road(&scrbuf[winw * (winh + 4)], ViewType[1], DriveView[1], -1, 1);// Draw player 2 view (bottom half)
+    if (game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
+      game_render_flush_player_view(g_pGameRenderer, 1, winw, winh, XMAX, YMAX,
+                                     0, winh + 4, winw, winh);
+      game_render_draw_2p_divider(g_pGameRenderer, XMAX, YMAX, winh, 4);
+    }
+    game_render_end_2p_pass(g_pGameRenderer);
     time_shown = -1;
     if (SVGA_ON)
       scr_size = 128;
@@ -2484,6 +2548,18 @@ LABEL_30:
     goto LABEL_59;
   }
   // CHEAT_MODE_WIDESCREEN
+  bool bCinemaActive = (cheat_mode & CHEAT_MODE_WIDESCREEN) != 0 && !paused;
+  bool bGPUMode = game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU;
+  /* Widens the GPU 3D camera to the real window's native aspect ratio (no
+   * bars) -- selected via the "(native)" Render Scale options, available
+   * independently of the CINEMA cheat code (previously this only worked
+   * while CINEMA was active, via a separate checkbox). */
+  bool bRenderNative = g_bRenderNative && bGPUMode;
+  /* Unconditional every frame -- Native mode's hudW/hudH/GPU-viewport override
+   * persists across scene_render_gpu_end_frame, so any frame that ISN'T a
+   * Native frame must positively undo a possible previous frame's override
+   * rather than assume it starts clean. See game_render_reset_cinema_native. */
+  game_render_reset_cinema_native(g_pGameRenderer);
   if ((cheat_mode & CHEAT_MODE_WIDESCREEN) == 0 || paused)     // Handle single player normal/widescreen mode
   {                                             // Standard windowed mode or paused state
     if ((cheat_mode & CHEAT_MODE_WIDESCREEN) != 0) {
@@ -2507,6 +2583,33 @@ LABEL_30:
       iXMaxCopy = XMAX;
       goto LABEL_44;
     }
+    /* Widescreen support outside of the CINEMA cheat: same wide-camera
+     * mechanism as the CINEMA+native case below, layered onto otherwise
+     * completely normal single-player rendering -- see
+     * game_render_begin_cinema_native's comment (game_render.c). */
+    if (bRenderNative)
+      game_render_begin_cinema_native(g_pGameRenderer, winh);
+  } else if (bRenderNative) {                          // CINEMA active + "(native)" Render Scale:
+                                                        // widen the GPU 3D camera to the real
+                                                        // window's native aspect ratio, no bars --
+                                                        // see game_render_begin_cinema_native's
+                                                        // comment for why the HUD/SW reference
+                                                        // frame below is deliberately left at
+                                                        // EXACTLY the same values normal single-
+                                                        // player mode uses (this is what makes the
+                                                        // HUD render pixel-for-pixel identical to
+                                                        // normal mode instead of blurry/stretched).
+    if (SVGA_ON)
+      scr_size = 128;
+    else
+      scr_size = 64;
+    winh = (200 * scr_size + 32) >> 6;
+    winw = (320 * scr_size + 32) >> 6;
+    winx = 0;
+    winy = 0;
+    xbase = 159;
+    pMainScrPtr = scrbuf;  // no offset -- fills the whole canvas, no bars to hide
+    game_render_begin_cinema_native(g_pGameRenderer, winh);
   } else {                                             // Widescreen cheat mode (cheat_mode & 0x40) and not paused
     if (SVGA_ON)
       scr_size = 64;
@@ -2532,8 +2635,19 @@ LABEL_30:
     LABEL_44:
       clear_border(0, iWinHeightPlusY, iXMaxCopy, iYMaxCopy - iWinHeightPlusY);
     }
+    /* GPU letterbox parity fix: SW already gets a real letterbox for free
+     * (scrbuf IS the visible frame there); GPU needs the shrunk 3D content
+     * rendered into its own texture and composited into the (winx,winy,
+     * winw,winh) sub-rect with real opaque black bars -- see
+     * game_render_begin_cinema_pass's comment. */
+    if (bGPUMode)
+      game_render_begin_cinema_pass(g_pGameRenderer, winw, winh);
   }
   draw_road(pMainScrPtr, ViewType[0], DriveView[0], -1, 0);// Draw main road view
+  if (bCinemaActive && !bRenderNative && bGPUMode) {
+    game_render_end_cinema_pass(g_pGameRenderer, winw * 2, winh * 2);
+    game_render_composite_cinema_view(g_pGameRenderer, winx, winy, winw, winh);
+  }
   // CHEAT_MODE_WIDESCREEN
   if ((cheat_mode & CHEAT_MODE_WIDESCREEN) == 0)               // Check for widescreen cheat mode to copy to final screen
   {
@@ -2589,6 +2703,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
   noclip_camera_apply();
+  chase_look_apply(); // Debug "Free Camera": hold RMB + move mouse to free-look, gated on the debug-overlay checkbox
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
   GameRenderCamera cam = {
@@ -2900,6 +3015,8 @@ int main(int argc, const char **argv, const char **envp)
   tick_on = 0;
   ROLLERremove("../REPLAYS/REPLAY.TMP");
   readsoundconfig();
+  if (strcmp(languagename, "Brazilian") == 0)
+    g_bBrazilianMayte = true;
   InputLoadConfig();
   loadcheatnames();
   cdxinit();
@@ -2914,9 +3031,14 @@ int main(int argc, const char **argv, const char **envp)
   // claim_ticktimer which sets up a callback to
   // increment ticks
   Initialise_SOS();
-  if (g_bSnapshotMode) {
-    // The SDL tick timer is not running in snapshot mode, so the busy-loop
-    // calibration in check_machine_speed would hang. Pick a sane default.
+  bool bUseFixedMachineSpeed = g_bSnapshotMode;
+#if defined(IS_WASM)
+  bUseFixedMachineSpeed = true;
+#endif
+  if (bUseFixedMachineSpeed) {
+    // Snapshot mode has no SDL tick timer. The WASM clock starts in the rAF
+    // main loop below, so it also cannot advance during this busy calibration.
+    // Pick a sane modern-machine value for both non-calibrating paths.
     machine_speed = 9000;
   } else {
     check_machine_speed();
@@ -3345,6 +3467,7 @@ void play_game_init()
   game_render_set_vignette(g_pGameRenderer, g_fVigStrength);
   game_render_set_brightness(g_pGameRenderer, g_fBrightness);
   game_render_set_fov_multiplier(g_pGameRenderer, g_fFovMultiplier);
+  game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
   game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
   game_render_set_vsync(g_pGameRenderer, g_bVsync);
 
@@ -3679,11 +3802,7 @@ void game_keys()
                             MusicVolume -= pausewindow;// Left Arrow - Decrease Music Volume
                             if (MusicVolume < 0)
                               MusicVolume = 0;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              goto UPDATE_CD_VOLUME;
+                            MusicSetMasterVolume(MusicVolume);
                             continue;
                           default:
                             continue;
@@ -3717,12 +3836,7 @@ void game_keys()
                             MusicVolume += pausewindow;
                             if (MusicVolume >= 128)
                               MusicVolume = 127;
-                            if (MusicCard)
-                              MIDISetMasterVolume(MusicVolume);
-                              //sosMIDISetMasterVolume(MusicVolume);
-                            if (MusicCD)
-                              UPDATE_CD_VOLUME:
-                            SetAudioVolume(MusicVolume);
+                            MusicSetMasterVolume(MusicVolume);
                             break;
                           default:
                             continue;
@@ -4177,7 +4291,7 @@ void game_keys()
                 }
                 goto PROCESS_NEXT_KEY;
               case 7:
-                if (MusicCard || MusicCD) {
+                if (MusicBackendAvailable()) {
                   musicon = musicon == 0;
                   reinitmusic();
                 } else {
@@ -4715,6 +4829,7 @@ HANDLE_SPECIAL_MODES:
   if (game_req)                               // Handle game menu requests and exit confirmation
   {
     if (draw_type != 2) {
+      game_render_draw_pause_darken(g_pGameRenderer); // GPU-only: SW darkens via blankwindow() inside display_paused()
       display_paused();
       if (trying_to_exit) {
         int iPromptY = (scr_size * 96) >> 6;

@@ -8,6 +8,9 @@
 #include "loadtrak.h"
 #include "menu_render.h"
 #include "roller.h"
+#if defined(IS_WASM)
+#include "web_gamepad_axis.h"
+#endif
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -106,6 +109,13 @@ static tInputMenuKeyState s_menuQuitCancelState;
 static bool s_bMenuWaitForRelease = false;
 static bool s_bDeviceRefreshPending = false;
 static uint64 s_ullDeviceRefreshMs = 0;
+#if defined(IS_WASM)
+/* A browser may not expose an attached gamepad until its first button press.
+ * Remember first-run players that still need defaults when that late
+ * GAMEPAD_ADDED event arrives. A loaded ROLLER.INI always takes precedence. */
+static uint8 s_byPendingDefaultGamepadPlayers = 0;
+static uint8 s_byBackupPendingDefaultGamepadPlayers = 0;
+#endif
 int g_iSavedWindowWidth  = 0;
 int g_iSavedWindowHeight = 0;
 #if defined(_WIN32)
@@ -148,9 +158,13 @@ static int InputMenuGamepadButtonIsAccept(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonIsBack(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonIsCupSwitch(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton eButton);
+static int InputMenuGamepadAxis(tInputDevice *pDevice, SDL_GamepadAxis eAxis);
 static void InputMenuRememberAxisRests(void);
 static void InputMenuRememberButtonStates(void);
 static void InputMenuResetKeyStates(void);
+#if defined(IS_WASM)
+static void InputApplyPendingDefaultGamepadBindings(void);
+#endif
 #if defined(IS_ANDROID)
 static void InputPhoneResetTouches(void);
 static void InputPhoneHandleTouchEvent(const SDL_Event *pEvent);
@@ -755,6 +769,13 @@ static int InputOpenDevice(SDL_JoystickID joyId, int iOrdinal)
   InputCopyString(pDevice->szPath, sizeof(pDevice->szPath), szPath);
 
   ++s_iNumDevices;
+#if defined(IS_WASM)
+  SDL_Log("ROLLER web input: opened %s \"%s\" (%d axes, %d buttons)",
+          pDevice->bGamepad ? "gamepad" : "joystick",
+          pDevice->szName[0] ? pDevice->szName : "Unknown",
+          pDevice->iNumAxes,
+          pDevice->iNumButtons);
+#endif
   return 1;
 }
 
@@ -1197,6 +1218,9 @@ void InputRefreshDevices(void)
 #endif
 
   InputResolveAllBindings();
+#if defined(IS_WASM)
+  InputApplyPendingDefaultGamepadBindings();
+#endif
   InputUpdate();
   InputMenuRememberAxisRests();
   InputMenuRememberButtonStates();
@@ -1320,6 +1344,9 @@ void InputShutdown(void)
   InputFreeCaptureSnapshot();
   s_bCaptureActive = false;
   s_bWaitingForRelease = false;
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = 0;
+#endif
   InputCancelPendingDeviceRefresh();
   InputCloseAllDevices();
 #if defined(IS_ANDROID)
@@ -1554,10 +1581,22 @@ static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton e
 
 static int InputMenuGamepadAxis(tInputDevice *pDevice, SDL_GamepadAxis eAxis)
 {
+  int iValue;
+
   if (!pDevice->pGamepad || !SDL_GamepadHasAxis(pDevice->pGamepad, eAxis))
     return 0;
 
-  return SDL_GetGamepadAxis(pDevice->pGamepad, eAxis);
+  iValue = SDL_GetGamepadAxis(pDevice->pGamepad, eAxis);
+#if defined(IS_WASM)
+  // Some browsers expose a newly discovered gamepad with a stale full-scale
+  // stick sample. Ignore that axis until it first reports its neutral range.
+  if (!ROLLERWebGamepadAxisAcceptSample(
+        iValue, INPUT_MENU_AXIS_DEADZONE,
+        &pDevice->abMenuGamepadAxisReady[eAxis])) {
+    return 0;
+  }
+#endif
+  return iValue;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1819,11 +1858,29 @@ static void InputCopyDeviceIdentity(tInputBinding *pBinding, const tInputDevice 
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static void InputCancelPendingDefaultGamepadBinding(int iAction)
+{
+  if ((iAction >= USERKEY_P1LEFT && iAction <= USERKEY_P1DOWNGEAR) ||
+      iAction == USERKEY_P1CHEAT) {
+    s_byPendingDefaultGamepadPlayers &= (uint8)~0x01u;
+  } else if ((iAction >= USERKEY_P2LEFT && iAction <= USERKEY_P2DOWNGEAR) ||
+             iAction == USERKEY_P2CHEAT) {
+    s_byPendingDefaultGamepadPlayers &= (uint8)~0x02u;
+  }
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
 void InputSetKeyboardBinding(int iAction, int iScancode)
 {
   if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS)
     return;
 
+#if defined(IS_WASM)
+  InputCancelPendingDefaultGamepadBinding(iAction);
+#endif
   InputClearBinding(&g_inputBindings[iAction]);
   if (iScancode >= 0 && iScancode < 0x80)
     userkey[iAction] = iScancode;
@@ -1858,6 +1915,9 @@ void InputSetControllerBinding(int iAction, const tInputBinding *pBinding)
   if (iAction < 0 || iAction >= INPUT_NUM_ACTIONS || !pBinding)
     return;
 
+#if defined(IS_WASM)
+  InputCancelPendingDefaultGamepadBinding(iAction);
+#endif
   if (userkey[iAction] < 0 || userkey[iAction] >= 0x80)
     userkey[iAction] = s_actionInfo[iAction].iDefaultScancode;
   g_inputBindings[iAction] = *pBinding;
@@ -1882,6 +1942,9 @@ void InputSetControllerBinding(int iAction, const tInputBinding *pBinding)
 void InputBackupBindings(void)
 {
   memcpy(s_backupBindings, g_inputBindings, sizeof(s_backupBindings));
+#if defined(IS_WASM)
+  s_byBackupPendingDefaultGamepadPlayers = s_byPendingDefaultGamepadPlayers;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1889,6 +1952,9 @@ void InputBackupBindings(void)
 void InputRestoreBindings(void)
 {
   memcpy(g_inputBindings, s_backupBindings, sizeof(g_inputBindings));
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = s_byBackupPendingDefaultGamepadPlayers;
+#endif
   InputResolveAllBindings();
 }
 
@@ -2224,44 +2290,70 @@ static int InputFindNthGamepad(int iGamepadIndex)
 
 //-------------------------------------------------------------------------------------------------
 
+static int InputApplyDefaultGamepadBindingsForPlayer(int iPlayer)
+{
+  int iDeviceRef = InputFindNthGamepad(iPlayer);
+  int iActionBase = iPlayer == 0 ? USERKEY_P1LEFT : USERKEY_P2LEFT;
+  int iCheatAction = iPlayer == 0 ? USERKEY_P1CHEAT : USERKEY_P2CHEAT;
+  SDL_Gamepad *pGamepad;
+
+  if (iDeviceRef < 0)
+    return 0;
+
+  pGamepad = s_pDevices[iDeviceRef].pGamepad;
+  InputBindGamepadAxis(iActionBase, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, -1, INPUT_AXIS_CENTERED, 0);
+  InputBindGamepadAxis(iActionBase + 1, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, 1, INPUT_AXIS_CENTERED, 0);
+
+  if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
+    InputBindGamepadAxis(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
+  else
+    InputBindGamepadButton(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_BUTTON_SOUTH);
+
+  if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
+    InputBindGamepadAxis(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
+  else
+    InputBindGamepadButton(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_BUTTON_EAST);
+
+  if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER))
+    InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+  else
+    InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_NORTH);
+
+  if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER))
+    InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+  else
+    InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_WEST);
+
+  InputBindGamepadButton(iCheatAction, iDeviceRef, SDL_GAMEPAD_BUTTON_START);
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InputApplyDefaultGamepadBindings(void)
 {
-  for (int iPlayer = 0; iPlayer < 2; ++iPlayer) {
-    int iDeviceRef = InputFindNthGamepad(iPlayer);
-    int iActionBase = iPlayer == 0 ? USERKEY_P1LEFT : USERKEY_P2LEFT;
-    int iCheatAction = iPlayer == 0 ? USERKEY_P1CHEAT : USERKEY_P2CHEAT;
-    SDL_Gamepad *pGamepad;
+  for (int iPlayer = 0; iPlayer < 2; ++iPlayer)
+    InputApplyDefaultGamepadBindingsForPlayer(iPlayer);
+}
 
-    if (iDeviceRef < 0)
+//-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static void InputApplyPendingDefaultGamepadBindings(void)
+{
+  for (int iPlayer = 0; iPlayer < 2; ++iPlayer) {
+    uint8 byPlayerBit = (uint8)(1u << iPlayer);
+
+    if (!(s_byPendingDefaultGamepadPlayers & byPlayerBit))
       continue;
 
-    pGamepad = s_pDevices[iDeviceRef].pGamepad;
-    InputBindGamepadAxis(iActionBase, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, -1, INPUT_AXIS_CENTERED, 0);
-    InputBindGamepadAxis(iActionBase + 1, iDeviceRef, SDL_GAMEPAD_AXIS_LEFTX, 1, INPUT_AXIS_CENTERED, 0);
-
-    if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
-      InputBindGamepadAxis(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
-    else
-      InputBindGamepadButton(iActionBase + 2, iDeviceRef, SDL_GAMEPAD_BUTTON_SOUTH);
-
-    if (SDL_GamepadHasAxis(pGamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER))
-      InputBindGamepadAxis(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1, INPUT_AXIS_PEDAL, 0);
-    else
-      InputBindGamepadButton(iActionBase + 3, iDeviceRef, SDL_GAMEPAD_BUTTON_EAST);
-
-    if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER))
-      InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
-    else
-      InputBindGamepadButton(iActionBase + 4, iDeviceRef, SDL_GAMEPAD_BUTTON_NORTH);
-
-    if (SDL_GamepadHasButton(pGamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER))
-      InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
-    else
-      InputBindGamepadButton(iActionBase + 5, iDeviceRef, SDL_GAMEPAD_BUTTON_WEST);
-
-    InputBindGamepadButton(iCheatAction, iDeviceRef, SDL_GAMEPAD_BUTTON_START);
+    if (InputApplyDefaultGamepadBindingsForPlayer(iPlayer)) {
+      s_byPendingDefaultGamepadPlayers &= (uint8)~byPlayerBit;
+      SDL_Log("ROLLER web input: applied first-run defaults for player %d", iPlayer + 1);
+    }
   }
 }
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -2689,13 +2781,21 @@ static void InputApplyMusicSource(int iUseCD)
   if (iUseCD) {
     MusicCD = -1; MusicCard = 0;  MusicOS = 0; MusicOPL = 0;
   } else {
+#if defined(IS_WASM)
+    MusicCD = 0;  MusicCard = 0;  MusicOS = 0; MusicOPL = -1;
+#else
     MusicCD = 0;  MusicCard = -1; MusicOS = 0; MusicOPL = 0;
+#endif
   }
 }
 
 static void InputApplyMusicSourceOS(void)
 {
+#if defined(IS_WASM)
+  InputApplyMusicSource(0);
+#else
   MusicCD = 0; MusicCard = 0; MusicOS = -1; MusicOPL = 0;
+#endif
 }
 
 static void InputApplyMusicSourceOPL(void)
@@ -2757,6 +2857,12 @@ static int InputParseRendererSetting(const char *szValue)
   } else if (!InputParseBoolSetting(szValue, &bHardware)) {
     return 0;
   }
+
+#if defined(IS_WASM)
+  if (bHardware)
+    SDL_Log("input: hardware rendering setting ignored on wasm");
+  bHardware = false;
+#endif
 
   pRenderer = GetMenuRenderer();
   if (pRenderer)
@@ -2912,9 +3018,13 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
 
   if (InputStringEqualsNoCase(szName, "InfiniteDrawDistance") ||
       InputStringEqualsNoCase(szName, "ForceMaxDraw")) {
-    if (!InputParseBoolSetting(szValue, &bValue))
-      return 0;
-    g_bForceMaxDraw = bValue;
+    /* Was a bool (0/1) before this became a 0.0-1.0 fraction slider; atof
+     * parses old "0"/"1" values correctly as the new range's exact endpoints
+     * (0.0 = today's normal draw distance, 1.0 = today's whole-track/old
+     * "checked" behaviour), so old config files still load correctly. */
+    g_fDrawDistanceFraction = (float)atof(szValue);
+    if (g_fDrawDistanceFraction < 0.0f) g_fDrawDistanceFraction = 0.0f;
+    if (g_fDrawDistanceFraction > 1.0f) g_fDrawDistanceFraction = 1.0f;
     return 1;
   }
 
@@ -3016,10 +3126,25 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "RenderNative")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bRenderNative = bValue;
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "Vsync")) {
     g_bVsync = !(InputStringEqualsNoCase(szValue, "Off") ||
                  InputStringEqualsNoCase(szValue, "0")   ||
                  InputStringEqualsNoCase(szValue, "False"));
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "EmulateSoftwareTrackBorders") ||
+      InputStringEqualsNoCase(szName, "EmulateSoftwareTrackDarkenBorder")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bEmulateSoftwareTrackBorders = bValue;
     return 1;
   }
 
@@ -3037,10 +3162,21 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+  if (InputStringEqualsNoCase(szName, "BrazilianMayte")) {
+    g_bBrazilianMayte = InputStringEqualsNoCase(szValue, "On") ||
+                         InputStringEqualsNoCase(szValue, "1")  ||
+                         InputStringEqualsNoCase(szValue, "True");
+    return 1;
+  }
+
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
+#if defined(IS_WASM)
+    g_bCRTFilter = false;
+#else
     g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
                    InputStringEqualsNoCase(szValue, "1")  ||
                    InputStringEqualsNoCase(szValue, "True");
+#endif
     return 1;
   }
 
@@ -3102,6 +3238,12 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
   if (InputStringEqualsNoCase(szName, "FovMultiplier")) {
     g_fFovMultiplier = (float)atof(szValue);
     if (g_fFovMultiplier <= 0.1f) g_fFovMultiplier = 1.0f;
+    return 1;
+  }
+
+  if (InputStringEqualsNoCase(szName, "MirrorFov")) {
+    g_fMirrorFov = (float)atof(szValue);
+    if (g_fMirrorFov <= 0.1f) g_fMirrorFov = 0.75f;
     return 1;
   }
 
@@ -3279,6 +3421,23 @@ static void InputMigrateLegacyKeyboardBindings(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void InputApplyWindowConfig(void)
+{
+  SDL_Window *pWin = ROLLERGetWindow();
+
+  if (!pWin)
+    return;
+
+  if (g_bKeepWindowSize &&
+      g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
+    SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
+    SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+  }
+  SDL_ShowWindow(pWin);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int InputLoadConfig(void)
 {
   FILE *fp;
@@ -3288,6 +3447,9 @@ int InputLoadConfig(void)
   uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
+#if defined(IS_WASM)
+  s_byPendingDefaultGamepadPlayers = 0;
+#endif
 #if defined(IS_ANDROID)
   g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
   g_bShowActiveTouchControls = false;
@@ -3300,7 +3462,14 @@ int InputLoadConfig(void)
       InputApplyMusicSource(1);
 #endif
     InputMigrateLegacyKeyboardBindings();
+#if defined(IS_WASM)
+    s_byPendingDefaultGamepadPlayers = 0x03;
+    InputApplyPendingDefaultGamepadBindings();
+#else
     InputApplyDefaultGamepadBindings();
+#endif
+    InputApplyWindowConfig();
+    InputResolveAllBindings();
     return 0;
   }
 
@@ -3362,18 +3531,14 @@ int InputLoadConfig(void)
                                        uiCommunityTrackCRC != 0))
       CommunityRecordLoadForCurrentTrack();
   }
-#if defined(_WIN32)
-  {
-    SDL_Window *pWin = ROLLERGetWindow();
-    if (pWin) {
-      if (g_bKeepWindowSize && g_iSavedWindowWidth >= 320 && g_iSavedWindowHeight >= 200) {
-        SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
-        SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-      }
-      SDL_ShowWindow(pWin);
-    }
-  }
-#endif
+  /* Was Windows-only (paired with the SDL_WINDOW_HIDDEN flash-avoidance
+   * dance in roller.c's window creation, which relies on the early
+   * InputLoadStartupConfig() pre-parse) -- on other platforms the window
+   * is never hidden, so it's already visible, but the saved size still
+   * needs to be applied here or "Keep window size" silently does nothing
+   * on startup outside Windows. SDL_ShowWindow on an already-visible
+   * window is a harmless no-op. */
+  InputApplyWindowConfig();
   InputResolveAllBindings();
   return 1;
 }
@@ -3409,7 +3574,7 @@ void InputSaveConfig(void)
   fprintf(fp, "InputVersion=2\n");
   fprintf(fp, "[Settings]\n");
   fprintf(fp, "MusicSource=%s\n", MusicCD ? "CD" : MusicOPL ? "MIDI_OPL" : MusicOS ? "MIDI_OS" : "MIDI");
-  fprintf(fp, "InfiniteDrawDistance=%d\n", g_bForceMaxDraw ? 1 : 0);
+  fprintf(fp, "InfiniteDrawDistance=%.2f\n", g_fDrawDistanceFraction);
   fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
   fprintf(fp, "AirborneCollisions=%d\n", g_bAirborneCollisions ? 1 : 0);
   fprintf(fp, "AIAutomaticGears=%d\n", g_bAINoCheatStart ? 1 : 0);
@@ -3425,11 +3590,14 @@ void InputSaveConfig(void)
   fprintf(fp, "Trilinear=%s\n", g_bTrilinear ? "On" : "Off");
   fprintf(fp, "LodBias=%.2f\n", g_fLodBias);
   fprintf(fp, "RenderScale=%.2f\n", g_fRenderScale);
+  fprintf(fp, "RenderNative=%s\n", g_bRenderNative ? "On" : "Off");
   fprintf(fp, "AntiAliasing=%s\n",
           g_iAntiAliasing == 3 ? "8x" : g_iAntiAliasing == 2 ? "4x" :
           g_iAntiAliasing == 1 ? "2x" : "Off");
   fprintf(fp, "Vsync=%s\n", g_bVsync ? "On" : "Off");
+  fprintf(fp, "EmulateSoftwareTrackBorders=%s\n", g_bEmulateSoftwareTrackBorders ? "On" : "Off");
   fprintf(fp, "ShowCarOnExplosion=%s\n", g_bShowCarOnExplosion ? "On" : "Off");
+  fprintf(fp, "BrazilianMayte=%s\n", g_bBrazilianMayte ? "On" : "Off");
   fprintf(fp, "CRTFilter=%s\n",   g_bCRTFilter   ? "On" : "Off");
   fprintf(fp, "SignsOnTop=%s\n",  g_bSignsOnTop  ? "On" : "Off");
   fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");
@@ -3455,6 +3623,7 @@ void InputSaveConfig(void)
   fprintf(fp, "VigStrength=%.2f\n", g_fVigStrength);
   fprintf(fp, "Brightness=%.2f\n", g_fBrightness);
   fprintf(fp, "FovMultiplier=%.2f\n", g_fFovMultiplier);
+  fprintf(fp, "MirrorFov=%.2f\n", g_fMirrorFov);
   {
     const char *fps_pos[] = { "Off", "TopLeft", "TopRight", "BottomLeft", "BottomRight" };
     int idx = (g_iFpsDisplay >= 0 && g_iFpsDisplay <= 4) ? g_iFpsDisplay : 0;
@@ -3529,6 +3698,7 @@ void InputSaveConfig(void)
   }
 
   fclose(fp);
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------

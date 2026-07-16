@@ -16,20 +16,25 @@
 #include "rollercd.h"
 #include "view.h"
 #include "platform_log.h"
+#if defined(IS_WASM)
+#include "present_sdlrenderer.h"
+#include "web_default_config.h"
+#include <emscripten/emscripten.h>
+#endif
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <SDL3_image/SDL_image.h>
 #endif
 #if defined(IS_ANDROID)
 #include <jni.h>
 #include <SDL3/SDL_system.h>
 #endif
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <wildmidi_lib.h>
 #endif
 #include <fcntl.h>
@@ -56,11 +61,14 @@
 #include <inttypes.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #define O_BINARY 0 //linux does not differentiate between text and binary
 #endif
 #if defined(IS_ANDROID)
+#define CDROM_SUPPORT 0
+#elif defined(IS_WASM)
 #define CDROM_SUPPORT 0
 #elif defined(IS_LINUX)
 #include <linux/cdrom.h>
@@ -95,9 +103,11 @@ typedef struct
 //-------------------------------------------------------------------------------------------------
 
 static SDL_Window *s_pWindow = NULL;
+#if !defined(IS_WASM)
 static SDL_GPUDevice *s_pGPUDevice = NULL;
 static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
+#endif
 static int s_iGPUPresentSkipFrames = 0;
 /* Hard-disables GPU swapchain presentation while set. Used on Android during the
  * InitFATDATA import flow, where showing native dialogs (message box + SAF file
@@ -106,7 +116,7 @@ static int s_iGPUPresentSkipFrames = 0;
  * destroyed-mutex abort on the HWUI RenderThread). */
 static bool s_bGpuPresentDisabled = false;
 bool g_bPaletteSet = false;
-bool g_bForceMaxDraw = true;
+float g_fDrawDistanceFraction = 1.0f;
 bool g_bNoCollisionLimit = true;
 bool g_bAirborneCollisions = false;
 bool g_bAINoCheatStart = false;  //  Set true to not give AI cars an advantage during race start
@@ -114,6 +124,8 @@ bool g_bFixCarMenuBug = true;
 bool g_bImprovedJumpLanding = true;
 bool g_bNoclip = false;
 bool g_bShowCarOnExplosion = false;
+bool g_bBrazilianMayte = false;
+bool g_bFreeCamera = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
 bool  g_bTrilinear       = false;
@@ -132,6 +144,8 @@ float g_fContrast        = 1.0f;
 float g_fVigStrength     = 0.0f;
 float g_fBrightness      = 0.0f;
 float g_fFovMultiplier   = 1.0f;
+float g_fMirrorFov       = 0.75f;
+bool  g_bEmulateSoftwareTrackBorders = true;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
 bool  g_bCRTFilter       = false;
@@ -139,9 +153,16 @@ bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
 int   g_iSurfaceLogId    = -2;
+bool  g_bRenderStatsLog  = false;
+bool  g_bPickTextures     = false;
+bool  g_bPickTexturesPNG  = false;
+bool  g_bRenderNative     = false;
 bool  g_pendingClickQuery = false;
 float g_clickQueryNX      = 0.0f;
 float g_clickQueryNY      = 0.0f;
+bool  g_bChaseLookRightDown = false;
+float g_fChaseLookAccumX    = 0.0f;
+float g_fChaseLookAccumY    = 0.0f;
 bool  g_bKeepWindowSize  = false;
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
@@ -154,7 +175,82 @@ uint64 g_ullTimer150Ms = 0;
 
 #define ROLLER_PRESENT_ASPECT ((float)640.0f / (float)400.0f)
 
-SDL_GPUDevice *ROLLERGetGPUDevice(void) { return s_pGPUDevice; }
+#if defined(IS_WASM)
+EM_JS(void, ROLLERPersistSyncDebounced, (), {
+  if (Module["rollerPersistSyncTimer"])
+    clearTimeout(Module["rollerPersistSyncTimer"]);
+
+  Module["rollerPersistSyncTimer"] = setTimeout(function persist() {
+    Module["rollerPersistSyncTimer"] = 0;
+    if (Module["rollerPersistSyncInFlight"]) {
+      Module["rollerPersistSyncPending"] = true;
+      return;
+    }
+
+    Module["rollerPersistSyncInFlight"] = true;
+    Module["rollerPersistSyncPending"] = false;
+    var restoreDemoLink = false;
+    try {
+      try {
+        var fatdata = FS.lstat("/persist/fatdata");
+        if (FS.isLink(fatdata.mode)) {
+          FS.unlink("/persist/fatdata");
+          restoreDemoLink = true;
+        }
+      } catch (error) {}
+
+      FS.syncfs(false, function(error) {
+        Module["rollerPersistSyncInFlight"] = false;
+        if (error)
+          console.error("ROLLER: failed to persist browser filesystem", error);
+
+        if (Module["rollerPersistSyncPending"]) {
+          Module["rollerPersistSyncPending"] = false;
+          if (!Module["rollerPersistSyncTimer"])
+            Module["rollerPersistSyncTimer"] = setTimeout(persist, 500);
+        }
+      });
+
+      // IDBFS captures its local file list synchronously. Restore the runtime
+      // link immediately so asset reads are never blocked on IndexedDB.
+      if (restoreDemoLink)
+        FS.symlink("/demo/fatdata", "/persist/fatdata");
+    } catch (error) {
+      Module["rollerPersistSyncInFlight"] = false;
+      console.error("ROLLER: failed to start browser filesystem sync", error);
+      if (restoreDemoLink) {
+        try {
+          try {
+            FS.lstat("/persist/fatdata");
+          } catch (linkMissingError) {
+            FS.symlink("/demo/fatdata", "/persist/fatdata");
+          }
+        } catch (linkError) {
+          console.error("ROLLER: failed to restore demo FATDATA link", linkError);
+        }
+      }
+      if (Module["rollerPersistSyncPending"] && !Module["rollerPersistSyncTimer"])
+        Module["rollerPersistSyncTimer"] = setTimeout(persist, 500);
+    }
+  }, 500);
+});
+#endif
+
+void ROLLERPersistSync(void)
+{
+#if defined(IS_WASM)
+  ROLLERPersistSyncDebounced();
+#endif
+}
+
+SDL_GPUDevice *ROLLERGetGPUDevice(void)
+{
+#if defined(IS_WASM)
+  return NULL;
+#else
+  return s_pGPUDevice;
+#endif
+}
 SDL_Window *ROLLERGetWindow(void) { return s_pWindow; }
 
 static MenuRenderer *s_pMenuRenderer = NULL;
@@ -383,6 +479,7 @@ uint8 sdl_to_set1[] = {
 
 //-------------------------------------------------------------------------------------------------
 
+#if !defined(IS_WASM)
 static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
                                   uint8 *pRGBA, int width, int height)
 {
@@ -396,6 +493,7 @@ static void ConvertIndexedToRGBA(const uint8 *pIndexed, const tColor *pPalette,
     pRGBA[i * 4 + 3] = 255;
   }
 }
+#endif
 
 //-------------------------------------------------------------------------------------------------
 
@@ -408,8 +506,14 @@ bool ROLLERTryAcquireGPUSwapchainTexture(SDL_GPUCommandBuffer *pCmdBuf, SDL_Wind
   if (!pCmdBuf || !pWindow)
     return false;
 
+#if defined(IS_WASM)
+  (void)puiSwapchainW;
+  (void)puiSwapchainH;
+  return false;
+#else
   return SDL_AcquireGPUSwapchainTexture(pCmdBuf, pWindow, ppSwapchainTex,
                                         puiSwapchainW, puiSwapchainH);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -424,6 +528,9 @@ void UpdateSDLWindow()
   if (!g_bPaletteSet) return;
   if (ROLLERGpuPresentationSuspended()) return;
 
+#if defined(IS_WASM)
+  ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh);
+#else
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
@@ -497,12 +604,18 @@ void UpdateSDLWindow()
   }
   debug_overlay_render(s_pDebugOverlay, cmdBuf, swapchainTex, swW, swH);
   SDL_SubmitGPUCommandBuffer(cmdBuf);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
 
 static void PresentDebugOverlayOnly(void)
 {
+#if defined(IS_WASM)
+  if (!s_pWindow || ROLLERGpuPresentationSuspended())
+    return;
+  ROLLERPresentSDLRendererClear();
+#else
   if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
     return;
   if (ROLLERGpuPresentationSuspended())
@@ -531,6 +644,7 @@ static void PresentDebugOverlayOnly(void)
 
   debug_overlay_render(s_pDebugOverlay, pCmdBuf, pSwapchainTex, uiSwapchainW, uiSwapchainH);
   SDL_SubmitGPUCommandBuffer(pCmdBuf);
+#endif
 }
 
 void ROLLERRefreshStartupOverlay()
@@ -577,8 +691,10 @@ void ToggleFullscreen()
   }
 
   DeferGPUPresentation(3);
+#if !defined(IS_WASM)
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
+#endif
 
   if (!SDL_SetWindowFullscreen(s_pWindow, !bFullscreen)) {
     SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
@@ -593,17 +709,53 @@ void ToggleFullscreen()
     }
   }
 
+#if !defined(IS_WASM)
   if (s_pGPUDevice)
     SDL_WaitForGPUIdle(s_pGPUDevice);
+#endif
   DeferGPUPresentation(3);
   UpdateMouseCursorVisibility();
 }
 
 //-------------------------------------------------------------------------------------------------
 
+// The NVIDIA Vulkan driver opens a /dev/nvidia* file descriptor per GPU
+// allocation, so hardware rendering alone holds ~1000 fds -- just under the
+// common 1024 default soft limit. Championship mode's frontend (track mesh
+// preview + CD audio scan) pushes past it, at which point fence creation
+// fails with VK_ERROR_OUT_OF_HOST_MEMORY and unrelated file opens (e.g. the
+// CD audio folder scan) start failing too. Raise the soft limit to the hard
+// limit, as Vulkan-based games and translation layers commonly do.
+static void RaiseFileDescriptorLimit(void)
+{
+#if !defined(IS_WINDOWS)
+  struct rlimit limits;
+  if (getrlimit(RLIMIT_NOFILE, &limits) != 0)
+    return;
+  rlim_t newLimit = limits.rlim_max;
+#if defined(IS_MACOS)
+  // macOS reports rlim_max as RLIM_INFINITY but rejects setting rlim_cur
+  // above OPEN_MAX; clamp to the kernel's actual ceiling.
+  if (newLimit == RLIM_INFINITY || newLimit > OPEN_MAX)
+    newLimit = OPEN_MAX;
+#endif
+  if (limits.rlim_cur >= newLimit)
+    return;
+  limits.rlim_cur = newLimit;
+  if (setrlimit(RLIMIT_NOFILE, &limits) != 0)
+    SDL_Log("Failed to raise open file limit: %s", strerror(errno));
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
+  RaiseFileDescriptorLimit();
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+#if defined(IS_WASM)
+  SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, "#canvas");
+#endif
 #if defined(IS_ANDROID)
   SDL_SetHint(SDL_HINT_ORIENTATIONS,
               "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
@@ -622,6 +774,10 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
   ROLLERInstallPlatformLogSink();
+
+#if defined(IS_WASM)
+  SDL_strlcpy(whiplash_root, "/persist", 260);
+#endif
 
   if (strlen(whiplash_root)) {
     if (chdir(whiplash_root) != 0) {
@@ -675,6 +831,14 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+#if defined(IS_WASM)
+  if (!ROLLERPresentSDLRendererInit(s_pWindow, g_bVsync)) {
+    ErrorBoxExit("Couldn't create SDL_Renderer presentation: %s", SDL_GetError());
+    return 1;
+  }
+
+  s_pMenuRenderer = menu_render_create(NULL, s_pWindow);
+#else
   s_pGPUDevice = SDL_CreateGPUDevice(
     SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
     false, NULL);
@@ -741,21 +905,25 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     ErrorBoxExit("Couldn't create GPU transfer buffer: %s", SDL_GetError());
     return 1;
   }
+#endif
 
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
 #endif
 
+#if !defined(IS_WASM)
   // Move the window to the display where the mouse is currently located
   float mouseX, mouseY;
   SDL_GetGlobalMouseState(&mouseX, &mouseY);
   int displayIndex = SDL_GetDisplayForPoint(&(SDL_Point) { (int)mouseX, (int)mouseY });
   int sdl_window_centered = SDL_WINDOWPOS_CENTERED_DISPLAY(displayIndex);
   SDL_SetWindowPosition(s_pWindow, sdl_window_centered, sdl_window_centered);
+#endif
 
   InputInit();
 
+#if !defined(IS_WASM)
   char localMidiPath[256];
   if (midi_root) {
     SDL_strlcpy(localMidiPath, midi_root, sizeof(localMidiPath));
@@ -786,6 +954,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   if (!MIDI_OS_Init()) {
     SDL_Log("Failed to initialize OS MIDI (rtmidi).");
   }
+#else
+  (void)midi_root;
+#endif
   if (!MIDI_OPL_Init()) {
     SDL_Log("Failed to initialize OPL3 MIDI (libADLMIDI).");
   }
@@ -1147,6 +1318,65 @@ static bool AndroidStageCdImageSelection(const tDialogResult *pResult,
 //-------------------------------------------------------------------------------------------------
 #endif
 
+//-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static bool ROLLERWebPersistentPathExists(const char *szPath)
+{
+  struct stat sb;
+  return stat(szPath, &sb) == 0;
+}
+
+static void ROLLERApplyWebDefaultConfig(void)
+{
+  MenuRenderer *pMenuRenderer = GetMenuRenderer();
+
+  game_svga = -1;
+  game_size = 128;
+  soundon = -1;
+  musicon = -1;
+  MusicCard = 0;
+  MusicCD = 0;
+  MusicOS = 0;
+  MusicOPL = -1;
+  g_bVsync = true;
+
+  if (pMenuRenderer)
+    menu_render_set_mode(pMenuRenderer, MENU_RENDER_SOFTWARE);
+
+  // E5 applies runtime phone-control defaults here before the same writer once
+  // the browser phone-mode signal and WASM phone controls exist.
+}
+
+static void ROLLEREnsureWebDefaultConfig(const char *szDataRoot)
+{
+  bool bFatalExists = ROLLERWebPersistentPathExists("/persist/FATAL.INI");
+  bool bRollerExists = ROLLERWebPersistentPathExists("/persist/ROLLER.INI");
+  eROLLERWebDefaultConfigAction eAction =
+    ROLLERWebDefaultConfigChooseAction(bFatalExists, bRollerExists);
+
+  if (eAction == eROLLER_WEB_DEFAULT_CONFIG_NONE)
+    return;
+
+  if (eAction == eROLLER_WEB_DEFAULT_CONFIG_PRESERVE_PARTIAL) {
+    SDL_Log("Web config: preserving partial persistent state (FATAL.INI=%d, ROLLER.INI=%d)",
+            bFatalExists ? 1 : 0, bRollerExists ? 1 : 0);
+    return;
+  }
+
+  SDL_Log("Web config: creating first-run defaults in /persist");
+  ROLLERApplyWebDefaultConfig();
+  SaveDefaultFatalIni(szDataRoot);
+
+  if (!ROLLERWebPersistentPathExists("/persist/FATAL.INI") ||
+      !ROLLERWebPersistentPathExists("/persist/ROLLER.INI")) {
+    SDL_Log("Web config: failed to create both persistent config files");
+  }
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 void InitFATDATA(const char *szDataRoot)
 {
   if (!szDataRoot)
@@ -1207,7 +1437,10 @@ void InitFATDATA(const char *szDataRoot)
     // Re-enable GPU presentation now that all native dialogs are dismissed.
     s_bGpuPresentDisabled = false;
     DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
-#else
+#elif !defined(IS_WASM)
+    // Browser asset selection and retail extraction are completed by the page
+    // before callMain(). Native dialogs and their callback busy-wait must never
+    // run on the Emscripten main thread.
     debug_overlay_set_visible(s_pDebugOverlay, true);
     PresentDebugOverlayOnly();
 
@@ -1261,10 +1494,27 @@ void InitFATDATA(const char *szDataRoot)
   if (ROLLERAudioMusicAvailable()) {
     MusicCard = 0;
     MusicCD = -1;
+    MusicOS = 0;
+    MusicOPL = 0;
   } else {
+#if defined(IS_WASM)
+    // The browser bundle intentionally ships no WildMidi patch set and has no
+    // OS MIDI device. libADLMIDI is the self-contained web music backend.
+    MusicCard = 0;
+    MusicCD = 0;
+    MusicOS = 0;
+    MusicOPL = -1;
+#else
     MusicCard = -1;
     MusicCD = 0;
+    MusicOS = 0;
+    MusicOPL = 0;
+#endif
   }
+
+#if defined(IS_WASM)
+  ROLLEREnsureWebDefaultConfig(szDataRoot);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1341,14 +1591,18 @@ static void ROLLERCreateUserDataDir(const char *szDir)
 
 void InitREPLAYS(const char *szDataRoot)
 {
+  (void)szDataRoot;
   ROLLERCreateUserDataDir("./REPLAYS");
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void InitTRACKS(const char *szDataRoot)
 {
+  (void)szDataRoot;
   ROLLERCreateUserDataDir("./TRACKS");
+  ROLLERPersistSync();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1363,6 +1617,13 @@ void ShutdownSDL()
 
     InputShutdown();
 
+#if defined(IS_WASM)
+    menu_render_destroy(s_pMenuRenderer);
+    s_pMenuRenderer = NULL;
+    ROLLERPresentSDLRendererShutdown();
+    SDL_DestroyWindow(s_pWindow);
+    s_pWindow = NULL;
+#else
     debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
     crt_filter_destroy(s_pCRTFilter);
@@ -1373,6 +1634,7 @@ void ShutdownSDL()
     SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
     SDL_DestroyGPUDevice(s_pGPUDevice);
     SDL_DestroyWindow(s_pWindow);
+#endif
   }
 
   if (g_pDigiMutex) {
@@ -1532,6 +1794,9 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+#if defined(IS_WASM)
+  g_bCRTFilter = false;
+#endif
   game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
   game_render_set_crt_filter(g_pGameRenderer, g_bCRTFilter ? s_pCRTFilter : NULL);
   SDL_PumpEvents();
@@ -1543,6 +1808,12 @@ void UpdateSDL()
       eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
       continue;
     }
+#if defined(IS_WASM)
+    /* rAF may stop completely in a background tab. Reset on the queued event
+     * itself so a hidden+shown pair processed together cannot cause catch-up. */
+    if (e.type == SDL_EVENT_WINDOW_HIDDEN || e.type == SDL_EVENT_WINDOW_MINIMIZED)
+      wasm_tick_clock_suspend();
+#endif
     if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
       switch (e.type) {
         case SDL_EVENT_WINDOW_RESIZED:
@@ -1577,6 +1848,7 @@ void UpdateSDL()
         debug_overlay_toggle(s_pDebugOverlay);
         continue;
       }
+#if !defined(IS_WASM)
       if (e.key.scancode == SDL_SCANCODE_TAB && (e.key.mod & SDL_KMOD_SHIFT)) {
         s_pendingShiftDown.type = 0; /* consumed by SHIFT+TAB */
         if (g_pGameRenderer) {
@@ -1598,6 +1870,7 @@ void UpdateSDL()
         }
         continue;
       }
+#endif
       /* Defer SHIFT so it doesn't fire intro-skip before we know if TAB follows. */
       if (e.key.scancode == SDL_SCANCODE_LSHIFT || e.key.scancode == SDL_SCANCODE_RSHIFT) {
         s_pendingShiftDown = e;
@@ -1631,8 +1904,9 @@ void UpdateSDL()
     }
 
     /* Right-click surface pick: record normalised game-viewport coords before
-     * the overlay consumes the event. Works whether the overlay is open or not. */
-    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
+     * the overlay consumes the event. Works whether the overlay is open or not.
+     * Gated behind the "Pick Textures" debug checkbox. */
+    if (g_bPickTextures && e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_RIGHT) {
       int wpx = 0, wpy = 0;
       if (SDL_GetWindowSizeInPixels(s_pWindow, &wpx, &wpy) && wpx > 0 && wpy > 0) {
         SDL_GPUViewport vp;
@@ -1645,6 +1919,23 @@ void UpdateSDL()
       }
     }
 
+    /* Debug free-look (view.c chase_look_apply): track hold + accumulate
+     * raw motion deltas directly off events instead of SDL's relative-mouse-
+     * mode grab -- that grab has a confirmed quirk here where it doesn't
+     * actually start delivering motion until the window loses and regains
+     * focus, so we read xrel/yrel straight from SDL_EVENT_MOUSE_MOTION.
+     * TEMPORARILY rebound to LEFT mouse button (was RIGHT) so free-look can be
+     * held while right-clicking to pick a surface, without the release-RMB
+     * snap-back racing the pick click. Revert to SDL_BUTTON_RIGHT when done. */
+    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
+      g_bChaseLookRightDown = true;
+    } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.button == SDL_BUTTON_LEFT) {
+      g_bChaseLookRightDown = false;
+    } else if (e.type == SDL_EVENT_MOUSE_MOTION && g_bChaseLookRightDown) {
+      g_fChaseLookAccumX += e.motion.xrel;
+      g_fChaseLookAccumY += e.motion.yrel;
+    }
+
     if (debug_overlay_handle_event(s_pDebugOverlay, &e))
       continue;
 
@@ -1653,6 +1944,7 @@ void UpdateSDL()
 
     if (e.type == SDL_EVENT_KEY_DOWN) {
 
+#if !defined(IS_WASM)
       if (e.key.scancode == SDL_SCANCODE_TAB) {
         MenuRenderer *pTabRenderer = GetMenuRenderer();
         if (pTabRenderer) {
@@ -1663,6 +1955,7 @@ void UpdateSDL()
         }
         continue;
       }
+#endif
 
 #if _DEBUG
       if (e.key.key == SDLK_D) { // Add by ROLLER
@@ -1731,15 +2024,30 @@ void UpdateSDL()
     UpdateAudioTracks();
   }
 
+#if defined(IS_WASM)
+  /* Emscripten schedules the outer loop on requestAnimationFrame. The renderer
+   * still receives runtime vsync changes, but browser builds must not add the
+   * native GPU path's blocking frame delay on top of rAF pacing. */
+  {
+    static bool s_bVsyncWas = true;
+    if (g_bVsync != s_bVsyncWas) {
+      s_bVsyncWas = g_bVsync;
+      ROLLERPresentSDLRendererSetVSync(g_bVsync);
+    }
+  }
+#else
   /* SDL3 GPU's VSYNC present mode queues frames without blocking the CPU when
    * enough swapchain images are available, leaving the render loop spinning at
-   * uncapped rates.  Sleep the remaining frame budget so the render rate stays
-   * near the monitor refresh rate when vsync is on. */
+   * uncapped rates. This applies to both renderers: software frames are still
+   * uploaded and blitted through UpdateSDLWindow's SDL GPU command buffer.
+   * Sleep the remaining frame budget so the render rate stays near the monitor
+   * refresh rate when vsync is on. */
   {
     static uint64 s_targetFrameNs = 0;
     static uint64 s_nextFrameNs   = 0;
     static bool   s_vsyncWas      = true; /* init=true (vsync default) so first
                                              frame re-applies when config=off */
+    static GameRenderMode s_eRenderModeWas = (GameRenderMode)-1;
 
     if (g_bVsync != s_vsyncWas) {
       s_vsyncWas      = g_bVsync;
@@ -1757,13 +2065,40 @@ void UpdateSDL()
       }
     }
 
-    if (g_bVsync && g_pGameRenderer &&
-        game_render_get_mode(g_pGameRenderer) == GAME_RENDER_GPU) {
-      if (s_targetFrameNs == 0 && s_pWindow) {
-        SDL_DisplayID disp = SDL_GetDisplayForWindow(s_pWindow);
-        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(disp);
-        float hz = (mode && mode->refresh_rate > 0.0f) ? mode->refresh_rate : 60.0f;
-        s_targetFrameNs = (uint64)(1e9 / (double)hz);
+    if (g_bVsync) {
+      /* No GameRenderer exists on frontend/menu pages. Treat that as its own
+       * refresh-paced mode so non-blocking menu presentation cannot spin the
+       * outer loop at an uncapped rate. */
+      GameRenderMode eRenderMode = g_pGameRenderer
+          ? game_render_get_mode(g_pGameRenderer)
+          : (GameRenderMode)-1;
+      if (eRenderMode != s_eRenderModeWas) {
+        s_eRenderModeWas = eRenderMode;
+        s_targetFrameNs = 0;
+        s_nextFrameNs = 0;
+      }
+
+      if (eRenderMode == GAME_RENDER_SOFTWARE) {
+        /* Follow the active legacy tick timer rather than assuming its normal
+         * 36 Hz rate. SPEEDY and NUCLEAR reconfigure it to 50 and 100 Hz, and
+         * network setup can apply those rates as well. Rendering faster than
+         * the current tick interval only repeats the indexed framebuffer. */
+        uint64 ullTickFrameNs = ullTickIntervalNs;
+        if (ullTickFrameNs == 0)
+          ullTickFrameNs = HZ_TO_NS(36u);
+        if (s_targetFrameNs != ullTickFrameNs) {
+          s_targetFrameNs = ullTickFrameNs;
+          s_nextFrameNs = 0;
+        }
+      } else if (s_targetFrameNs == 0) {
+        float fRefreshHz = 60.0f;
+        if (s_pWindow) {
+          SDL_DisplayID uiDisplay = SDL_GetDisplayForWindow(s_pWindow);
+          const SDL_DisplayMode *pMode = SDL_GetCurrentDisplayMode(uiDisplay);
+          if (pMode && pMode->refresh_rate > 0.0f)
+            fRefreshHz = pMode->refresh_rate;
+        }
+        s_targetFrameNs = (uint64)(1e9 / (double)fRefreshHz);
       }
 
       uint64 now = SDL_GetTicksNS();
@@ -1777,6 +2112,7 @@ void UpdateSDL()
         s_nextFrameNs += s_targetFrameNs;
     }
   }
+#endif
 
   /* Shift freeze: block all tick steps so the engine image holds still. */
   g_bShiftFrozen = g_bShiftFreezeEnabled && s_shiftPressedMs != 0;
@@ -1827,12 +2163,48 @@ static int s_findpath_append(char *szPath, int iCurLen, int iMaxLen, const char 
 }
 #endif
 
+#if defined(IS_WASM)
+static bool ROLLERWasmPersistentFilePath(const char *szFile, char *szPath, size_t uiPathSize)
+{
+  char szCwd[ROLLER_MAX_PATH];
+  const char *szName = szFile;
+
+  if (!szFile || !szFile[0] || !getcwd(szCwd, sizeof(szCwd)) ||
+      strcmp(szCwd, "/demo/fatdata") != 0)
+    return false;
+
+  if (szName[0] == '.' && (szName[1] == '/' || szName[1] == '\\'))
+    szName += 2;
+
+  // Root files in the demo FATDATA tree are the game's mutable configs,
+  // records, and save slots. Keep persistent versions in /persist while
+  // allowing untouched files to fall back to the preloaded demo tree.
+  if (!szName[0] || strchr(szName, '/') || strchr(szName, '\\'))
+    return false;
+
+  int iLength = snprintf(szPath, uiPathSize, "/persist/%s", szName);
+  return iLength > 0 && (size_t)iLength < uiPathSize;
+}
+
+static bool ROLLERModeWrites(const char *szMode)
+{
+  return szMode && (strchr(szMode, 'w') || strchr(szMode, 'a') || strchr(szMode, '+'));
+}
+#endif
+
 const char *ROLLERfindpath(const char *szFile)
 {
 #ifdef IS_WINDOWS
   return szFile;
 #else
   static char szResolved[260];
+#if defined(IS_WASM)
+  if (ROLLERWasmPersistentFilePath(szFile, szResolved, sizeof(szResolved))) {
+    struct stat sb;
+    if (stat(szResolved, &sb) == 0)
+      return szResolved;
+  }
+#endif
   char szInput[260];
   strncpy(szInput, szFile, sizeof(szInput) - 1);
   szInput[sizeof(szInput) - 1] = '\0';
@@ -1899,6 +2271,16 @@ const char *ROLLERfindpath(const char *szFile)
 
 bool ROLLERfexists(const char *szFile)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    FILE *pPersistent = fopen(szPersistent, "r");
+    if (pPersistent) {
+      fclose(pPersistent);
+      return true;
+    }
+  }
+#endif
   FILE *pFile = fopen(szFile, "r");
   if (pFile) {
     fclose(pFile);
@@ -1977,6 +2359,14 @@ bool ROLLERdirexists(const char *szDir)
 
 FILE *ROLLERfopen(const char *szFile, const char *szMode)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    FILE *pPersistent = fopen(szPersistent, szMode);
+    if (pPersistent || ROLLERModeWrites(szMode))
+      return pPersistent;
+  }
+#endif
   FILE *pFile = fopen(szFile, szMode);
   if (pFile) return pFile;
 
@@ -2006,6 +2396,15 @@ FILE *ROLLERfopen(const char *szFile, const char *szMode)
 
 int ROLLERopen(const char *szFile, int iOpenFlags)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent))) {
+    int iPersistentHandle = open(szPersistent, iOpenFlags);
+    if (iPersistentHandle != -1 ||
+        (iOpenFlags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)))
+      return iPersistentHandle;
+  }
+#endif
   int iHandle = open(szFile, iOpenFlags);
   if (iHandle != -1) return iHandle;
 
@@ -2035,6 +2434,11 @@ int ROLLERopen(const char *szFile, int iOpenFlags)
 
 int ROLLERremove(const char *szFile)
 {
+#if defined(IS_WASM)
+  char szPersistent[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szFile, szPersistent, sizeof(szPersistent)))
+    return remove(szPersistent);
+#endif
   int iSuccess = remove(szFile);
   if (iSuccess == 0) return 0;
 
@@ -2064,6 +2468,14 @@ int ROLLERremove(const char *szFile)
 
 int ROLLERrename(const char *szOldName, const char *szNewName)
 {
+#if defined(IS_WASM)
+  char szPersistentOld[ROLLER_MAX_PATH];
+  if (ROLLERWasmPersistentFilePath(szOldName, szPersistentOld, sizeof(szPersistentOld))) {
+    char szPersistentNew[ROLLER_MAX_PATH];
+    if (ROLLERWasmPersistentFilePath(szNewName, szPersistentNew, sizeof(szPersistentNew)))
+      return rename(szPersistentOld, szPersistentNew);
+  }
+#endif
   int iSuccess = rename(szOldName, szNewName);
   if (iSuccess == 0) return 0;
 
@@ -2415,6 +2827,8 @@ void ROLLERGetAudioInfo()
     }
   }
 
+#elif defined(IS_WASM)
+    // Browser builds deliberately fall through to the ripped-track scan below.
 #elif defined(IS_LINUX)
     // Linux: Try to open CD device
   const char *szCDDevices[] = {
@@ -2466,6 +2880,8 @@ void ROLLERStopTrack()
     if (g_wDeviceID) {
       mciSendCommand(g_wDeviceID, MCI_STOP, 0, 0);
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       ioctl(g_iCDHandle, CDROMSTOP);
@@ -2511,6 +2927,8 @@ void ROLLERPlayTrack(int iTrack)
                     (DWORD_PTR)&mciPlayParms);
       iStarted = -1;
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       struct cdrom_ti ti;
@@ -2611,6 +3029,8 @@ void ROLLERSetAudioVolume(int iVolume)
         }
       }
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
         // Linux CD-ROM volume control
@@ -2682,6 +3102,8 @@ void UpdateAudioTracks(void)
         }
       }
     }
+#elif defined(IS_WASM)
+    // Unreachable because browser builds never select a physical CD drive.
 #elif defined(IS_LINUX)
     if (g_iCDHandle >= 0) {
       struct cdrom_subchnl subchnl;
@@ -2726,7 +3148,9 @@ void CleanupAudioCD(void)
 {
   ROLLERStopTrack();
 
-#if defined(IS_LINUX)
+#if defined(IS_WASM)
+  // Browser builds have no physical CD handle to close.
+#elif defined(IS_LINUX)
   if (g_iCDHandle >= 0) {
     close(g_iCDHandle);
     g_iCDHandle = -1;
