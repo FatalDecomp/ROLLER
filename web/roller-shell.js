@@ -13,7 +13,14 @@ var Module = (() => {
   const progressPattern = /\((\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)/;
   let runtimeReady = false;
   let runtimeStarted = false;
+  let filesystemPreparationError = null;
   const persistenceDependency = "roller-idbfs-restore";
+  const requiredDemoFiles = [
+    "/demo/fatdata/FATAL.INI",
+    "/demo/fatdata/FRONTEND.BM",
+    "/demo/fatdata/TRACK5.TRK",
+    "/demo/fatdata/WHIPTIT.BM"
+  ];
 
   function focusCanvas() {
     if (document.visibilityState === "visible" && document.activeElement !== canvas) {
@@ -50,7 +57,24 @@ var Module = (() => {
     runtimeStarted = true;
     startGate.hidden = true;
     focusCanvas();
-    Module.callMain(["--no-crash-handler"]);
+    try {
+      Module.callMain(["--no-crash-handler"]);
+    } catch (error) {
+      runtimeStarted = false;
+      startGate.hidden = false;
+      failStartup(error);
+    }
+  }
+
+  function failStartup(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    runtimeReady = false;
+    gateTitle.textContent = "ROLLER could not start";
+    status.textContent = message;
+    progress.hidden = true;
+    startInstruction.hidden = true;
+    startGate.setAttribute("aria-disabled", "true");
+    console.error("ROLLER: browser startup failed", error);
   }
 
   function filesystemNodeExists(path) {
@@ -67,10 +91,36 @@ var Module = (() => {
       FS.symlink(target, linkPath);
   }
 
+  function assertDemoPackage() {
+    let directory;
+    try {
+      directory = FS.stat("/demo/fatdata");
+    } catch (error) {
+      throw new Error("Demo package is missing /demo/fatdata");
+    }
+    if (!FS.isDir(directory.mode)) {
+      throw new Error("Demo package path /demo/fatdata is not a directory");
+    }
+
+    for (const path of requiredDemoFiles) {
+      let entry;
+      try {
+        entry = FS.stat(path);
+      } catch (error) {
+        throw new Error(`Demo package is missing required file ${path}`);
+      }
+      if (!FS.isFile(entry.mode)) {
+        throw new Error(`Demo package entry is not a file: ${path}`);
+      }
+    }
+  }
+
   function preparePersistentFilesystem() {
     setStatus("Restoring saved data...");
     FS.mkdirTree("/persist");
-    FS.mkdirTree("/demo/fatdata");
+    // The preload owns /demo/fatdata. Creating it here would mask a missing
+    // or failed roller-<hash>.data request until the engine opened a file.
+    FS.mkdirTree("/demo");
     FS.mount(IDBFS, {}, "/persist");
 
     addRunDependency(persistenceDependency);
@@ -90,6 +140,7 @@ var Module = (() => {
         ensureFilesystemLink("/persist/REPLAYS", "/demo/REPLAYS");
         ensureFilesystemLink("/persist/TRACKS", "/demo/TRACKS");
       } catch (error) {
+        filesystemPreparationError = error;
         console.error("ROLLER: failed to prepare browser filesystem layout", error);
       }
 
@@ -140,13 +191,27 @@ var Module = (() => {
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
-      runtimeReady = true;
-      gateTitle.textContent = "ROLLER is ready";
-      status.textContent = "Runtime loaded";
-      progress.hidden = true;
-      startInstruction.hidden = false;
-      startGate.setAttribute("aria-disabled", "false");
-      startGate.focus({ preventScroll: true });
+      try {
+        if (filesystemPreparationError) {
+          throw filesystemPreparationError;
+        }
+        // Emscripten preload run dependencies delay this callback until the
+        // hashed data file has downloaded and populated MEMFS.
+        assertDemoPackage();
+        runtimeReady = true;
+        Module["rollerDemoReady"] = true;
+        gateTitle.textContent = "ROLLER is ready";
+        status.textContent = "Runtime and demo loaded";
+        progress.hidden = true;
+        startInstruction.hidden = false;
+        startGate.setAttribute("aria-disabled", "false");
+        startGate.focus({ preventScroll: true });
+      } catch (error) {
+        failStartup(error);
+      }
+    },
+    onAbort(reason) {
+      failStartup(new Error(`Runtime aborted while loading: ${String(reason)}`));
     }
   };
 })();

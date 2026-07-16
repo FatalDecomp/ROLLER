@@ -191,6 +191,44 @@ jobs:
           path: roller-${{ matrix.os }}-${{ matrix.arch }}.*
           retention-days: 7
 
+  web:
+    name: Build browser bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Cache web build inputs
+        uses: actions/cache@v5
+        with:
+          path: |
+            .zig-cache
+            zig-out/demo-cache
+          key: web-${{ runner.os }}-eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c-${{ hashFiles('build.zig', 'build.zig.zon', 'scripts/fetch_demo_assets.py', 'scripts/finalize_web_bundle.py') }}
+          restore-keys: |
+            web-${{ runner.os }}-eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c-
+
+      - name: Build browser bundle
+        run: zig build web
+
+      - name: Upload browser bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: roller-web
+          path: zig-out/web
+          if-no-files-found: error
+          retention-days: 7
+
   android:
     name: Build Android APK
     runs-on: ubuntu-latest

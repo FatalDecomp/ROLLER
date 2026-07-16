@@ -92,6 +92,38 @@ class FetchDemoAssetsTests(unittest.TestCase):
                     ]
                 )
 
+    def test_verify_only_never_acquires_archive(self) -> None:
+        files = {"TRACK5.TRK": b"demo"}
+        identity = tree_identity(files)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "fatdata-demo"
+            output.mkdir()
+            (output / "TRACK5.TRK").write_bytes(files["TRACK5.TRK"])
+
+            original_identity = assets.DEMO_TREE_IDENTITY
+            assets.DEMO_TREE_IDENTITY = identity
+            try:
+                result = assets.main(
+                    [
+                        "--verify-only",
+                        "--output",
+                        str(output),
+                        "--manifest",
+                        str(root / "manifest.json"),
+                    ]
+                )
+            finally:
+                assets.DEMO_TREE_IDENTITY = original_identity
+
+            self.assertEqual(result, 0)
+            self.assertTrue((root / "manifest.json").is_file())
+            self.assertFalse((root / "demo-cache").exists())
+
+    def test_verify_only_rejects_source_option(self) -> None:
+        with self.assertRaisesRegex(assets.AssetError, "cannot be combined"):
+            assets.main(["--verify-only", "--source", "demo.zip"])
+
     def test_verified_cache_hit_skips_network(self) -> None:
         content = b"verified archive"
         identity = artifact_identity(content)

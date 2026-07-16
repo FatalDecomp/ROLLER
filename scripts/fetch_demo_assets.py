@@ -421,6 +421,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="output manifest path (default: OUTPUT.manifest.json)",
     )
     parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help=(
+            "verify an existing output tree and refresh its manifest without "
+            "opening the archive cache or network"
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=60.0,
@@ -431,6 +439,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.verify_only and args.source is not None:
+        raise AssetError("--source cannot be combined with --verify-only")
+
     output = args.output.resolve()
     manifest = (
         args.manifest.resolve()
@@ -444,12 +455,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raise AssetError("manifest must be outside the FATDATA output directory")
 
-    archive = acquire_archive(
-        cache_dir=args.cache_dir.resolve(),
-        source=args.source,
-        timeout=args.timeout,
-    )
-    entries = materialize_assets(archive, output, manifest)
+    if args.verify_only:
+        entries = verify_tree(
+            output,
+            DEMO_TREE_IDENTITY,
+            required_paths=("TRACK5.TRK",),
+            forbidden_paths=("TRACK1.TRK",),
+        )
+        write_manifest(manifest, entries)
+        print(f"Demo FATDATA verified without acquisition: {output}")
+    else:
+        archive = acquire_archive(
+            cache_dir=args.cache_dir.resolve(),
+            source=args.source,
+            timeout=args.timeout,
+        )
+        entries = materialize_assets(archive, output, manifest)
     print(
         f"Ready: {output} ({len(entries)} files, "
         f"{sum(entry.size for entry in entries)} bytes)"
