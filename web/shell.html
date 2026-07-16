@@ -26,17 +26,39 @@
       display: grid;
       place-items: center;
       padding: 1.5rem;
-      cursor: pointer;
       background: rgb(0 0 0 / 72%);
       text-align: center;
       user-select: none;
     }
-    .start-gate[aria-disabled="true"] { cursor: wait; }
-    .start-gate:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+    .start-gate[aria-busy="true"] { cursor: wait; }
     .gate-panel { width: min(28rem, 100%); }
     .gate-title { display: block; margin-bottom: 0.75rem; font-size: 1.25rem; }
+    #status { white-space: pre-line; }
     progress { width: 100%; margin-top: 0.75rem; accent-color: #fff; }
-    .start-instruction { margin-top: 0.75rem; }
+    .gate-actions { display: grid; gap: 0.65rem; margin-top: 1rem; }
+    button {
+      border: 1px solid #fff;
+      padding: 0.65rem 0.9rem;
+      background: #111;
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled), button:focus-visible { background: #fff; color: #000; }
+    button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+    button:disabled { cursor: wait; opacity: 0.55; }
+    .play-button { padding-block: 0.9rem; font-size: 1.25rem; font-weight: bold; }
+    .retail-controls { display: flex; justify-content: center; gap: 0.35rem; }
+    .retail-controls button {
+      border: 0;
+      padding: 0.25rem;
+      background: transparent;
+      color: #ccc;
+      font-size: 0.8rem;
+      text-decoration: underline;
+    }
+    .retail-controls button:hover:not(:disabled),
+    .retail-controls button:focus-visible { color: #fff; background: transparent; }
     [hidden] { display: none; }
   </style>
 </head>
@@ -44,15 +66,20 @@
   <main>
     <div class="game-frame">
       <canvas id="canvas" width="640" height="400" tabindex="-1" aria-label="ROLLER game canvas"></canvas>
-      <div id="start-gate" class="start-gate" role="button" tabindex="0"
-           aria-disabled="true" aria-describedby="status">
+      <div id="start-gate" class="start-gate" aria-busy="true" aria-describedby="status">
         <div class="gate-panel">
           <strong id="gate-title" class="gate-title">Loading ROLLER</strong>
           <div id="status" role="status" aria-live="polite">Preparing...</div>
           <progress id="loading-progress" aria-label="Loading progress"></progress>
-          <div id="start-instruction" class="start-instruction" hidden>
-            Click or press Enter/Space to start
+          <div id="gate-actions" class="gate-actions" hidden>
+            <button id="play-button" class="play-button" type="button" disabled>PLAY DEMO</button>
+            <button id="import-button" type="button" disabled>Import your CD image (full game)</button>
+            <div id="retail-controls" class="retail-controls" hidden>
+              <button id="reset-demo-button" type="button" disabled>Reset to demo</button>
+              <button id="reimport-button" type="button" disabled>Re-import CD image</button>
+            </div>
           </div>
+          <input id="cd-image-input" type="file" multiple accept=".iso,.cue,.bin" hidden>
         </div>
       </div>
     </div>

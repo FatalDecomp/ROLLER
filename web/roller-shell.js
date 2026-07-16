@@ -8,11 +8,28 @@ var Module = (() => {
   const gateTitle = document.getElementById("gate-title");
   const status = document.getElementById("status");
   const progress = document.getElementById("loading-progress");
-  const startInstruction = document.getElementById("start-instruction");
+  const gateActions = document.getElementById("gate-actions");
+  const playButton = document.getElementById("play-button");
+  const importButton = document.getElementById("import-button");
+  const retailControls = document.getElementById("retail-controls");
+  const resetDemoButton = document.getElementById("reset-demo-button");
+  const reimportButton = document.getElementById("reimport-button");
+  const cdImageInput = document.getElementById("cd-image-input");
   const scrollKeys = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"]);
   const progressPattern = /\((\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)/;
+  const persistentFatdataPath = "/persist/fatdata";
+  const extractedFatdataPath = "/persist/FATDATA";
+  const importPath = "/import";
+  const extractionFailureMessage =
+    "No game data could be extracted from the files you selected.\n\n" +
+    "For a CUE/BIN image you must select the .CUE file AND all of its " +
+    ".BIN/audio files together - selecting only the .CUE or only the .BIN " +
+    "will not work, because the other files cannot be read on their own.\n\n" +
+    "Please try again and select the .CUE and every file it references.";
   let runtimeReady = false;
   let runtimeStarted = false;
+  let gateBusy = true;
+  let retailFatdataReady = false;
   let filesystemPreparationError = null;
   const persistenceDependency = "roller-idbfs-restore";
   const requiredDemoFiles = [
@@ -49,11 +66,21 @@ var Module = (() => {
     }
   }
 
+  function setGateBusy(busy) {
+    gateBusy = busy;
+    startGate.setAttribute("aria-busy", String(busy));
+    playButton.disabled = busy || !runtimeReady;
+    importButton.disabled = busy || !runtimeReady;
+    resetDemoButton.disabled = busy || !runtimeReady;
+    reimportButton.disabled = busy || !runtimeReady;
+  }
+
   function startRuntime() {
-    if (!runtimeReady || runtimeStarted) {
+    if (!runtimeReady || runtimeStarted || gateBusy) {
       return;
     }
 
+    setGateBusy(true);
     runtimeStarted = true;
     startGate.hidden = true;
     focusCanvas();
@@ -72,23 +99,262 @@ var Module = (() => {
     gateTitle.textContent = "ROLLER could not start";
     status.textContent = message;
     progress.hidden = true;
-    startInstruction.hidden = true;
-    startGate.setAttribute("aria-disabled", "true");
+    gateActions.hidden = true;
+    setGateBusy(true);
     console.error("ROLLER: browser startup failed", error);
   }
 
-  function filesystemNodeExists(path) {
+  function filesystemNode(path) {
     try {
-      FS.lstat(path);
-      return true;
+      return FS.lstat(path);
     } catch (error) {
-      return false;
+      return null;
     }
   }
 
   function ensureFilesystemLink(target, linkPath) {
-    if (!filesystemNodeExists(linkPath))
+    if (!filesystemNode(linkPath))
       FS.symlink(target, linkPath);
+  }
+
+  function removeFilesystemTree(path) {
+    const entry = filesystemNode(path);
+    if (!entry) {
+      return;
+    }
+
+    if (FS.isDir(entry.mode) && !FS.isLink(entry.mode)) {
+      for (const name of FS.readdir(path)) {
+        if (name !== "." && name !== "..") {
+          removeFilesystemTree(`${path}/${name}`);
+        }
+      }
+      FS.rmdir(path);
+      return;
+    }
+
+    FS.unlink(path);
+  }
+
+  function persistentFatdataSource() {
+    const entry = filesystemNode(persistentFatdataPath);
+    if (!entry) {
+      return "missing";
+    }
+    if (FS.isLink(entry.mode)) {
+      return "demo";
+    }
+    if (FS.isDir(entry.mode)) {
+      return "retail";
+    }
+    throw new Error(`${persistentFatdataPath} is not a directory or symlink`);
+  }
+
+  function updateAssetGate() {
+    const source = persistentFatdataSource();
+    retailFatdataReady = source === "retail";
+    Module["rollerRetailReady"] = retailFatdataReady;
+    Module["rollerAssetSource"] = retailFatdataReady ? "retail" : "demo";
+    playButton.textContent = retailFatdataReady ? "PLAY FULL GAME" : "PLAY DEMO";
+    retailControls.hidden = !retailFatdataReady;
+    gateTitle.textContent = "ROLLER is ready";
+    status.textContent = retailFatdataReady
+      ? "Saved retail game data restored"
+      : "Freeware demo loaded";
+    progress.hidden = true;
+    gateActions.hidden = false;
+    setGateBusy(false);
+    playButton.focus({ preventScroll: true });
+  }
+
+  function syncPersistentFilesystem() {
+    // SaveDefaultFatalIni schedules the engine's normal debounced sync. An
+    // import performs its own awaited pre-main sync, so prevent both IDBFS
+    // transactions from racing once E4.S2 calls that writer.
+    if (Module["rollerPersistSyncTimer"]) {
+      clearTimeout(Module["rollerPersistSyncTimer"]);
+      Module["rollerPersistSyncTimer"] = 0;
+    }
+
+    return new Promise((resolve, reject) => {
+      FS.syncfs(false, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  function yieldForOverlayPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  }
+
+  function importFilename(file) {
+    const name = String(file.name || "");
+    if (!name || name === "." || name === ".." ||
+        name.includes("/") || name.includes("\\") || name.includes("\0")) {
+      throw new Error("A selected CD image has an invalid filename.");
+    }
+    return name;
+  }
+
+  function compareImportFiles(left, right) {
+    const leftName = importFilename(left).toLowerCase();
+    const rightName = importFilename(right).toLowerCase();
+    if (leftName < rightName) return -1;
+    if (leftName > rightName) return 1;
+    return 0;
+  }
+
+  function chooseCdImageEntry(files) {
+    const sortedFiles = Array.from(files).sort(compareImportFiles);
+    const cue = sortedFiles.find((file) => importFilename(file).toLowerCase().endsWith(".cue"));
+    if (cue) {
+      return cue;
+    }
+
+    const iso = sortedFiles.find((file) => importFilename(file).toLowerCase().endsWith(".iso"));
+    if (iso) {
+      return iso;
+    }
+
+    throw new Error(extractionFailureMessage);
+  }
+
+  function assertUniqueImportFilenames(files) {
+    const names = new Set();
+    for (const file of files) {
+      const name = importFilename(file).toLowerCase();
+      if (names.has(name)) {
+        throw new Error(`More than one selected file is named ${importFilename(file)}.`);
+      }
+      names.add(name);
+    }
+  }
+
+  function openCdImagePicker() {
+    if (!runtimeReady || runtimeStarted || gateBusy) {
+      return;
+    }
+    cdImageInput.value = "";
+    cdImageInput.click();
+  }
+
+  async function importCdImage(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length || !runtimeReady || runtimeStarted || gateBusy) {
+      return;
+    }
+
+    try {
+      assertUniqueImportFilenames(files);
+      const entryFile = chooseCdImageEntry(files);
+      if (typeof Module["_ROLLERWebExtractFATDATA"] !== "function") {
+        throw new Error("Retail CD extraction is not available in this build yet.");
+      }
+
+      setGateBusy(true);
+      gateTitle.textContent = "Importing retail game data";
+      status.textContent = "Staging selected CD image files...";
+      progress.max = files.reduce((total, file) => total + file.size, 0) || 1;
+      progress.value = 0;
+      progress.hidden = false;
+
+      removeFilesystemTree(importPath);
+      FS.mkdirTree(importPath);
+      let stagedBytes = 0;
+      for (const file of files) {
+        const name = importFilename(file);
+        status.textContent = `Staging ${name}...`;
+        const content = new Uint8Array(await file.arrayBuffer());
+        FS.writeFile(`${importPath}/${name}`, content);
+        stagedBytes += file.size;
+        progress.value = stagedBytes;
+      }
+
+      const currentSource = persistentFatdataSource();
+      if (currentSource === "demo") {
+        FS.unlink(persistentFatdataPath);
+      }
+      removeFilesystemTree(extractedFatdataPath);
+
+      status.textContent = "Extracting game data...";
+      progress.removeAttribute("value");
+      await yieldForOverlayPaint();
+
+      const entryPath = `${importPath}/${importFilename(entryFile)}`;
+      const extracted = Module.ccall(
+        "ROLLERWebExtractFATDATA",
+        "number",
+        ["string", "string"],
+        [entryPath, "/persist"]
+      );
+      const extractedEntry = filesystemNode(extractedFatdataPath);
+      if (!extracted || !extractedEntry || !FS.isDir(extractedEntry.mode)) {
+        throw new Error(extractionFailureMessage);
+      }
+
+      const previousRetailPath = "/persist/fatdata.previous";
+      removeFilesystemTree(previousRetailPath);
+      if (filesystemNode(persistentFatdataPath)) {
+        FS.rename(persistentFatdataPath, previousRetailPath);
+      }
+      try {
+        FS.rename(extractedFatdataPath, persistentFatdataPath);
+      } catch (error) {
+        if (filesystemNode(previousRetailPath) && !filesystemNode(persistentFatdataPath)) {
+          FS.rename(previousRetailPath, persistentFatdataPath);
+        }
+        throw error;
+      }
+      removeFilesystemTree(previousRetailPath);
+      removeFilesystemTree(importPath);
+
+      status.textContent = "Saving retail game data...";
+      await syncPersistentFilesystem();
+      retailFatdataReady = true;
+      updateAssetGate();
+      startRuntime();
+    } catch (error) {
+      removeFilesystemTree(importPath);
+      removeFilesystemTree(extractedFatdataPath);
+      if (persistentFatdataSource() === "missing") {
+        ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
+      }
+      updateAssetGate();
+      status.textContent = error instanceof Error ? error.message : String(error);
+      console.error("ROLLER: retail CD import failed", error);
+    }
+  }
+
+  async function resetToDemo() {
+    if (!retailFatdataReady || !runtimeReady || runtimeStarted || gateBusy) {
+      return;
+    }
+
+    setGateBusy(true);
+    gateTitle.textContent = "Switching to demo";
+    status.textContent = "Removing saved retail game data...";
+    progress.removeAttribute("value");
+    progress.hidden = false;
+    try {
+      removeFilesystemTree(persistentFatdataPath);
+      removeFilesystemTree(extractedFatdataPath);
+      await syncPersistentFilesystem();
+      ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
+      updateAssetGate();
+    } catch (error) {
+      if (persistentFatdataSource() === "missing") {
+        ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
+      }
+      updateAssetGate();
+      status.textContent = error instanceof Error ? error.message : String(error);
+      console.error("ROLLER: failed to reset retail game data", error);
+    }
   }
 
   function assertDemoPackage() {
@@ -132,7 +398,7 @@ var Module = (() => {
         // IDBFS cannot serialize symlinks. Recreate the demo layout after
         // every restore and keep these links out of the persisted snapshot.
         // A restored retail FATDATA directory takes precedence over the demo.
-        ensureFilesystemLink("/demo/fatdata", "/persist/fatdata");
+        ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
 
         // Emscripten resolves chdir through a symlink to its target. These
         // links keep the game's ../REPLAYS and ../TRACKS paths in IDBFS while
@@ -149,13 +415,11 @@ var Module = (() => {
     });
   }
 
-  startGate.addEventListener("click", startRuntime);
-  startGate.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.code === "Space") {
-      event.preventDefault();
-      startRuntime();
-    }
-  });
+  playButton.addEventListener("click", startRuntime);
+  importButton.addEventListener("click", openCdImagePicker);
+  reimportButton.addEventListener("click", openCdImagePicker);
+  resetDemoButton.addEventListener("click", () => void resetToDemo());
+  cdImageInput.addEventListener("change", () => void importCdImage(cdImageInput.files));
 
   // SDL's Emscripten keyboard target is #canvas. Keep it focused when mouse
   // input returns to the game or the browser tab/window becomes active again.
@@ -181,6 +445,11 @@ var Module = (() => {
   });
 
   window.addEventListener("keydown", (event) => {
+    // Keep the gate's native keyboard activation intact. Once the game has
+    // focus, Space is suppressed with the other browser scrolling keys.
+    if (event.code === "Space" && event.target?.tagName === "BUTTON") {
+      return;
+    }
     if (scrollKeys.has(event.key) || event.code === "Space") {
       event.preventDefault();
     }
@@ -200,12 +469,7 @@ var Module = (() => {
         assertDemoPackage();
         runtimeReady = true;
         Module["rollerDemoReady"] = true;
-        gateTitle.textContent = "ROLLER is ready";
-        status.textContent = "Runtime and demo loaded";
-        progress.hidden = true;
-        startInstruction.hidden = false;
-        startGate.setAttribute("aria-disabled", "false");
-        startGate.focus({ preventScroll: true });
+        updateAssetGate();
       } catch (error) {
         failStartup(error);
       }
