@@ -10,6 +10,7 @@
 #include "replay.h"
 #include "colision.h"
 #include "frontend.h"
+#include "phone_ui.h"
 #include "roller.h"
 #include <math.h>
 #include <float.h>
@@ -177,8 +178,8 @@ void humancar(int iCarIdx)
   byCarDesignIdx = Car[iCarIdx_1].byCarDesignIdx;
   iControlFlags = unFlags;
   iPhoneThrottle = 0;
-#if defined(IS_ANDROID)
-  if (iCarIdx_1 == player1_car &&
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  if (ROLLERPhoneUIActive() && iCarIdx_1 == player1_car &&
       (iControlFlags & BUTTON_FLAG_PHONE_THROTTLE) != 0) {
     iPhoneThrottle = -1;
     iControlFlags &= ~BUTTON_FLAG_PHONE_THROTTLE;

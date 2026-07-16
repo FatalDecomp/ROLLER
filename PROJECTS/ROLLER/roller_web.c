@@ -1,10 +1,20 @@
 #include "roller.h"
 #include "rollercd.h"
+#include "phone_ui.h"
 #include "sound.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten/emscripten.h>
 #include <string.h>
+
+EMSCRIPTEN_KEEPALIVE
+void ROLLERWebSetPhoneMode(int iPhoneMode)
+{
+  ROLLERSetPhoneUIActive(iPhoneMode);
+  SDL_Log("Web phone UI: %s", ROLLERPhoneUIActive() ? "enabled" : "disabled");
+}
+
+//-------------------------------------------------------------------------------------------------
 
 static void ROLLERWebChooseExtractedMusicSource(const char *szOutDir)
 {

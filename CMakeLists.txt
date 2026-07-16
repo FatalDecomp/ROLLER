@@ -78,6 +78,7 @@ add_executable(roller
     PROJECTS/ROLLER/network.c
     PROJECTS/ROLLER/plans.c
     PROJECTS/ROLLER/platform_log.c
+    PROJECTS/ROLLER/phone_ui.c
     PROJECTS/ROLLER/png_writer.c
     PROJECTS/ROLLER/polyf.c
     PROJECTS/ROLLER/polytex.c
@@ -90,6 +91,7 @@ add_executable(roller
     PROJECTS/ROLLER/snapshot.c
     PROJECTS/ROLLER/sound.c
     PROJECTS/ROLLER/tower.c
+    PROJECTS/ROLLER/touch_ui.c
     PROJECTS/ROLLER/transfrm.c
     PROJECTS/ROLLER/userfns.c
     PROJECTS/ROLLER/view.c

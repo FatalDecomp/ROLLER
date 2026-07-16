@@ -3,6 +3,7 @@
 #include "menu_render_software.h"
 #include "3d.h"
 #include "sound.h"
+#include "phone_ui.h"
 #include "touch_ui.h"
 
 #include <stdlib.h>
@@ -192,10 +193,13 @@ void menu_render_begin_frame(MenuRenderer *renderer) {
 
 void menu_render_end_frame(MenuRenderer *renderer) {
     if (!renderer) return;
-    touch_ui_register_buttons(MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
-    touch_ui_handle_buttons();
+    if (ROLLERPhoneUIActive()) {
+        touch_ui_register_buttons(MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
+        touch_ui_handle_buttons();
+    }
     menu_render_set_layer(renderer, MENU_LAYER_FOREGROUND);
-    touch_ui_render_menu(renderer, MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
+    if (ROLLERPhoneUIActive())
+        touch_ui_render_menu(renderer, MENU_RENDER_WIDTH, MENU_RENDER_HEIGHT);
 #if !defined(IS_WASM)
     if (renderer->mode == MENU_RENDER_GPU && renderer->gpu)
         menu_render_gpu_end_frame(renderer->gpu);

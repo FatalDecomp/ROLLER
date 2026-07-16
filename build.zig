@@ -105,6 +105,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
             "PROJECTS/ROLLER/platform_log.c",
+            "PROJECTS/ROLLER/phone_ui.c",
             "PROJECTS/ROLLER/png_writer.c",
             "PROJECTS/ROLLER/polyf.c",
             "PROJECTS/ROLLER/polytex.c",
@@ -441,6 +442,57 @@ fn configureRenderQueue3DTests(
     );
     web_gamepad_axis_tests.dependOn(&run_web_gamepad_axis.step);
     test_step.dependOn(web_gamepad_axis_tests);
+
+    const phone_ui_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    phone_ui_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    phone_ui_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/phone_ui.c",
+            "tests/phone_ui_test.c",
+        },
+    });
+    const phone_ui_exe = b.addExecutable(.{
+        .name = "phone_ui_test",
+        .root_module = phone_ui_mod,
+    });
+    const run_phone_ui = b.addRunArtifact(phone_ui_exe);
+
+    const phone_ui_android_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    phone_ui_android_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    phone_ui_android_mod.addCSourceFiles(.{
+        .flags = &.{
+            "-fwrapv",
+            "-fsigned-char",
+            "-DIS_ANDROID=1",
+            "-DTEST_PHONE_UI_ANDROID_DEFAULT=1",
+        },
+        .files = &.{
+            "PROJECTS/ROLLER/phone_ui.c",
+            "tests/phone_ui_test.c",
+        },
+    });
+    const phone_ui_android_exe = b.addExecutable(.{
+        .name = "phone_ui_android_default_test",
+        .root_module = phone_ui_android_mod,
+    });
+    const run_phone_ui_android = b.addRunArtifact(phone_ui_android_exe);
+
+    const phone_ui_tests = b.step(
+        "test-phone-ui",
+        "Run runtime phone UI capability tests",
+    );
+    phone_ui_tests.dependOn(&run_phone_ui.step);
+    phone_ui_tests.dependOn(&run_phone_ui_android.step);
+    test_step.dependOn(phone_ui_tests);
 
     const demo_assets_tests = b.addSystemCommand(&.{
         pythonExe(),
@@ -782,7 +834,7 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sFORCE_FILESYSTEM",
         "-lidbfs.js",
         "-sINVOKE_RUN=0",
-        "-sEXPORTED_FUNCTIONS=_main,_ROLLERWebExtractFATDATA",
+        "-sEXPORTED_FUNCTIONS=_main,_ROLLERWebExtractFATDATA,_ROLLERWebSetPhoneMode",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
         "-lc++",
         "--preload-file",

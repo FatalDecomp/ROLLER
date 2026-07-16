@@ -11,6 +11,7 @@
 #include "graphics.h"
 #include "menu_render.h"
 #include "moving.h"
+#include "phone_ui.h"
 #include "debug_overlay.h"
 #include "snapshot.h"
 #include "rollercd.h"
@@ -1344,8 +1345,10 @@ static void ROLLERApplyWebDefaultConfig(void)
   if (pMenuRenderer)
     menu_render_set_mode(pMenuRenderer, MENU_RENDER_SOFTWARE);
 
-  // E5 applies runtime phone-control defaults here before the same writer once
-  // the browser phone-mode signal and WASM phone controls exist.
+  if (ROLLERPhoneUIActive()) {
+    g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
+    g_bShowActiveTouchControls = false;
+  }
 }
 
 static void ROLLEREnsureWebDefaultConfig(const char *szDataRoot)
