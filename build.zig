@@ -133,6 +133,7 @@ pub fn build(b: *std.Build) void {
                 "PROJECTS/ROLLER/rollercomms_stub.c",
                 "PROJECTS/ROLLER/web_default_config.c",
                 "PROJECTS/ROLLER/web_gamepad_axis.c",
+                "PROJECTS/ROLLER/roller_web.c",
             },
         });
     } else {
@@ -781,7 +782,7 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sFORCE_FILESYSTEM",
         "-lidbfs.js",
         "-sINVOKE_RUN=0",
-        "-sEXPORTED_FUNCTIONS=_main",
+        "-sEXPORTED_FUNCTIONS=_main,_ROLLERWebExtractFATDATA",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
         "-lc++",
         "--preload-file",
