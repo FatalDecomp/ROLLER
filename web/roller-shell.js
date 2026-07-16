@@ -22,6 +22,9 @@ var Module = (() => {
   const progressPattern = /\((\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)/;
   const persistentFatdataPath = "/persist/fatdata";
   const extractedFatdataPath = "/persist/FATDATA";
+  const previousFatdataPath = "/persist/fatdata.previous";
+  const persistentAudioPath = "/persist/audio";
+  const previousAudioPath = "/persist/audio.previous";
   const importPath = "/import";
   const persistentDemoConfigPaths = ["/persist/FATAL.INI", "/persist/ROLLER.INI"];
   const importChunkBytes = 8 * 1024 * 1024;
@@ -384,6 +387,8 @@ var Module = (() => {
 
   async function importCdImage(fileList, largeImportConfirmed = false) {
     const files = Array.from(fileList || []);
+    let fatdataSwapStarted = false;
+    let audioSwapStarted = false;
     if (!files.length || !runtimeReady || runtimeStarted || gateBusy) {
       return;
     }
@@ -422,10 +427,19 @@ var Module = (() => {
       }
 
       const currentSource = persistentFatdataSource();
+      removeFilesystemTree(extractedFatdataPath);
+      removeFilesystemTree(previousFatdataPath);
       if (currentSource === "demo") {
         FS.unlink(persistentFatdataPath);
+      } else {
+        FS.rename(persistentFatdataPath, previousFatdataPath);
       }
-      removeFilesystemTree(extractedFatdataPath);
+      fatdataSwapStarted = true;
+      removeFilesystemTree(previousAudioPath);
+      if (filesystemNode(persistentAudioPath)) {
+        FS.rename(persistentAudioPath, previousAudioPath);
+      }
+      audioSwapStarted = true;
 
       status.textContent = "Extracting game data...";
       progress.removeAttribute("value");
@@ -443,20 +457,11 @@ var Module = (() => {
         throw new Error(extractionFailureMessage);
       }
 
-      const previousRetailPath = "/persist/fatdata.previous";
-      removeFilesystemTree(previousRetailPath);
-      if (filesystemNode(persistentFatdataPath)) {
-        FS.rename(persistentFatdataPath, previousRetailPath);
-      }
-      try {
-        FS.rename(extractedFatdataPath, persistentFatdataPath);
-      } catch (error) {
-        if (filesystemNode(previousRetailPath) && !filesystemNode(persistentFatdataPath)) {
-          FS.rename(previousRetailPath, persistentFatdataPath);
-        }
-        throw error;
-      }
-      removeFilesystemTree(previousRetailPath);
+      FS.rename(extractedFatdataPath, persistentFatdataPath);
+      fatdataSwapStarted = false;
+      audioSwapStarted = false;
+      removeFilesystemTree(previousFatdataPath);
+      removeFilesystemTree(previousAudioPath);
       removeFilesystemTree(importPath);
       cdImageInput.value = "";
 
@@ -468,6 +473,18 @@ var Module = (() => {
       cdImageInput.value = "";
       removeFilesystemTree(importPath);
       removeFilesystemTree(extractedFatdataPath);
+      if (fatdataSwapStarted) {
+        removeFilesystemTree(persistentFatdataPath);
+        if (filesystemNode(previousFatdataPath)) {
+          FS.rename(previousFatdataPath, persistentFatdataPath);
+        }
+      }
+      if (audioSwapStarted) {
+        removeFilesystemTree(persistentAudioPath);
+        if (filesystemNode(previousAudioPath)) {
+          FS.rename(previousAudioPath, persistentAudioPath);
+        }
+      }
       if (persistentFatdataSource() === "missing") {
         ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
       }
@@ -490,6 +507,9 @@ var Module = (() => {
     try {
       removeFilesystemTree(persistentFatdataPath);
       removeFilesystemTree(extractedFatdataPath);
+      removeFilesystemTree(previousFatdataPath);
+      removeFilesystemTree(persistentAudioPath);
+      removeFilesystemTree(previousAudioPath);
       // Config is source-dependent: the retail pair leaves with its tree above.
       // Clear the persistent pair together so the web first-run policy creates
       // consistent demo-safe settings when the demo next starts.
