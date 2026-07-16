@@ -839,7 +839,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
 void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose, int viewSlot)
 {
     if (!names_on) return;
-    if (NamesLeft >= 5 || NamesLeft < -2) return;
+    if (NamesLeft >= 16 || NamesLeft < -2) return;
     if (replaytype == 2) return;
     if (winner_mode) return;
     if (intro) return;
@@ -847,8 +847,8 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
 
     tCar *pCar = &Car[carIdx];
     if (pCar->byStatusFlags & 2) { s_tagScrX[viewSlot][carIdx] = -1; s_tagScrY[viewSlot][carIdx] = -1; return; }
-    if (!(names_on == 1 || (names_on == 2 && human_control[pCar->iDriverIdx]))) return;
-
+    if (!(names_on == 1 || (names_on == 2 && human_control[pCar->iDriverIdx])  || (names_on == 3 && !human_control[pCar->iDriverIdx]) )) return; // scf32
+    
     int carDesignIndex = pCar->byCarDesignIdx;
     float fHitboxZ = CarBox.hitboxAy[carDesignIndex][4].fZ;
 
