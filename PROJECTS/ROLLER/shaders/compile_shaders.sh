@@ -122,6 +122,10 @@ echo "Compiling CRT pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/crt_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/crt_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/crt_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/crt_pixel.msl"
 
+echo "Compiling CRT VGA fake double-scan pixel shader..."
+"$SHADERCROSS" "$SCRIPT_DIR/crt_vga_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/crt_vga_pixel.spv"
+"$SHADERCROSS" "$SCRIPT_DIR/crt_vga_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/crt_vga_pixel.msl"
+
 # --- Header generation via Python (uses Windows-native paths) ---
 EMBED_FN='
 import os, sys
@@ -243,7 +247,7 @@ echo "Generating crt_shaders.h..."
 $EMBED_FN
 out_dir = r'$W_OUT'
 h = '#ifndef CRT_SHADERS_H\n#define CRT_SHADERS_H\n\n'
-for stage in ['vertex', 'pixel']:
+for stage in ['vertex', 'pixel', 'vga_pixel']:
     for fmt, ext in [('spirv', 'spv'), ('msl', 'msl')]:
         p = os.path.join(out_dir, f'crt_{stage}.{ext}')
         if os.path.exists(p):
