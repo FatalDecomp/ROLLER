@@ -4,8 +4,15 @@
 
 typedef struct CRTFilter CRTFilter;
 
+typedef enum {
+    CRT_FILTER_HYLLIAN = 0,         // scanlines + phosphor mask, Catmull-Rom resample
+    CRT_FILTER_VGA_DOUBLE_SCAN = 1, // dosbox-staging "vga-1080p-fake-double-scan"
+} CRTFilterMode;
+
 CRTFilter *crt_filter_create(SDL_GPUDevice *device, SDL_Window *window);
 void       crt_filter_destroy(CRTFilter *filter);
+void       crt_filter_set_mode(CRTFilter *filter, CRTFilterMode mode);
+CRTFilterMode crt_filter_get_mode(CRTFilter *filter);
 
 // Apply CRT effect: reads srcTex (srcW x srcH), outputs to dstTex at the
 // letterbox rect [dstX, dstY, dstW, dstH].  The entire dstTex is cleared

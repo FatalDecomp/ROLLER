@@ -3171,11 +3171,17 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
 
   if (InputStringEqualsNoCase(szName, "CRTFilter")) {
 #if defined(IS_WASM)
-    g_bCRTFilter = false;
+    g_iCRTFilterMode = 0;
 #else
-    g_bCRTFilter = InputStringEqualsNoCase(szValue, "On") ||
-                   InputStringEqualsNoCase(szValue, "1")  ||
-                   InputStringEqualsNoCase(szValue, "True");
+    if (InputStringEqualsNoCase(szValue, "VGA"))
+      g_iCRTFilterMode = 1;
+    else if (InputStringEqualsNoCase(szValue, "Hyllian") ||
+             InputStringEqualsNoCase(szValue, "On")      ||  // pre-dropdown configs
+             InputStringEqualsNoCase(szValue, "1")       ||
+             InputStringEqualsNoCase(szValue, "True"))
+      g_iCRTFilterMode = 2;
+    else
+      g_iCRTFilterMode = 0;
 #endif
     return 1;
   }
@@ -3598,7 +3604,8 @@ void InputSaveConfig(void)
   fprintf(fp, "EmulateSoftwareTrackBorders=%s\n", g_bEmulateSoftwareTrackBorders ? "On" : "Off");
   fprintf(fp, "ShowCarOnExplosion=%s\n", g_bShowCarOnExplosion ? "On" : "Off");
   fprintf(fp, "BrazilianMayte=%s\n", g_bBrazilianMayte ? "On" : "Off");
-  fprintf(fp, "CRTFilter=%s\n",   g_bCRTFilter   ? "On" : "Off");
+  fprintf(fp, "CRTFilter=%s\n",   g_iCRTFilterMode == 1 ? "VGA" :
+                                  g_iCRTFilterMode == 2 ? "Hyllian" : "Off");
   fprintf(fp, "SignsOnTop=%s\n",  g_bSignsOnTop  ? "On" : "Off");
   fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");
   fprintf(fp, "KeepWindowSize=%d\n", g_bKeepWindowSize ? 1 : 0);

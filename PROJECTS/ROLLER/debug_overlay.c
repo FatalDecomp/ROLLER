@@ -1088,13 +1088,16 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
 
 #if !defined(IS_WASM)
-    int bCRTFilter = (int)g_bCRTFilter;
-    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-    if (nk_checkbox_label(pCtx, "CRT filter", &bCRTFilter)) {
-      g_bCRTFilter = (bool)bCRTFilter;
-      game_render_set_crt_filter(g_pGameRenderer,
-                                 g_bCRTFilter ? ROLLERGetCRTFilter() : NULL);
-      InputSaveConfig();
+    {
+      static const char *apszCRTFilterModes[] = { "Off", "VGA", "Hyllian" };
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+      nk_label(pCtx, "CRT filter", NK_TEXT_LEFT);
+      int iNewCRTFilterMode = nk_combo(pCtx, apszCRTFilterModes, NK_LEN(apszCRTFilterModes),
+                                       g_iCRTFilterMode, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
+      if (iNewCRTFilterMode != g_iCRTFilterMode) {
+        g_iCRTFilterMode = iNewCRTFilterMode;
+        InputSaveConfig();
+      }
     }
 #endif
 
@@ -1502,7 +1505,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         g_fBrightness     = 0.0f;  g_fContrast       = 1.0f;
         g_fGamma          = 1.0f;  g_fSaturation     = 1.0f;
         g_iFpsDisplay     = 0;     g_bWireframe      = false;  g_iCullMode = 0;
-        g_bVsync          = true;  g_bCRTFilter      = false;
+        g_bVsync          = true;  g_iCRTFilterMode  = 0;
         g_bEmulateSoftwareTrackBorders = false;
         game_render_set_render_scale(g_pGameRenderer,    g_fRenderScale);
         game_render_set_antialiasing(g_pGameRenderer,    g_iAntiAliasing);

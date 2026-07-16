@@ -43,7 +43,7 @@ extern float g_fMirrorFov;       /* rearview/side mirror FOV multiplier; 0.75 = 
 extern bool  g_bEmulateSoftwareTrackBorders; /* true = emulate SW extra-dark track-darken quad borders */
 extern bool  g_bWireframe;       /* wireframe rendering */
 extern int   g_iCullMode;        /* 0=default, 1=none, 2=back, 3=front — debug only, not saved */
-extern bool  g_bCRTFilter;      /* CRT scanline + phosphor mask post-process */
+extern int   g_iCRTFilterMode;  /* CRT post-process: 0=Off (default) 1=VGA fake double-scan 2=Hyllian scanline+mask */
 extern bool  g_bSignsOnTop;     /* signs use COMPARE_ALWAYS depth (always on top); false = depth-tested */
 extern bool  g_bSurfaceDebugViz; /* draw surface-type + flag labels on each quad */
 extern bool  g_bSurfaceLog;      /* enable pair UV SDL_Log (not saved to INI) */

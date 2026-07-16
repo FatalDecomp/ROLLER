@@ -23,6 +23,23 @@ typedef struct {
 } CRTUniforms;
 
 // ---------------------------------------------------------------------------
+// Uniform layout (matches cbuffer CRTVgaUniforms in crt_vga_pixel.hlsl)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    float srcSizeX, srcSizeY;   // source texture pixel dimensions
+    float dstSizeX, dstSizeY;   // destination viewport pixel dimensions
+    float phosphorLayout;       // 0=off 1=aperture 2=shadow-mask
+    float scanlineMin;          // SCANLINE_STRENGTH_MIN
+    float scanlineMax;          // SCANLINE_STRENGTH_MAX
+    float colorBoostEven;       // COLOR_BOOST_EVEN
+    float colorBoostOdd;        // COLOR_BOOST_ODD
+    float maskStrength;         // MASK_STRENGTH
+    float gammaInput;           // GAMMA_INPUT
+    float gammaOutput;          // GAMMA_OUTPUT
+} CRTVgaUniforms;
+
+// ---------------------------------------------------------------------------
 // Defaults — decent 1080p look out of the box
 // ---------------------------------------------------------------------------
 
@@ -45,11 +62,27 @@ typedef struct {
 #define CRT_REF_PIX_PER_ROW         2.7f
 
 // ---------------------------------------------------------------------------
+// VGA fake double-scan defaults -- taken verbatim from the #pragma parameter
+// defaults in dosbox-staging's vga-1080p-fake-double-scan.glsl.
+// ---------------------------------------------------------------------------
+
+#define CRT_VGA_DEFAULT_PHOSPHOR_LAYOUT   2.0f    // 2x2 shadow mask
+#define CRT_VGA_DEFAULT_SCANLINE_MIN      0.80f
+#define CRT_VGA_DEFAULT_SCANLINE_MAX      0.85f
+#define CRT_VGA_DEFAULT_COLOR_BOOST_EVEN  4.80f
+#define CRT_VGA_DEFAULT_COLOR_BOOST_ODD   1.40f
+#define CRT_VGA_DEFAULT_MASK_STRENGTH     0.10f
+#define CRT_VGA_DEFAULT_GAMMA_INPUT       2.40f
+#define CRT_VGA_DEFAULT_GAMMA_OUTPUT      2.62f
+
+// ---------------------------------------------------------------------------
 
 struct CRTFilter {
     SDL_GPUDevice            *device;
     SDL_GPUGraphicsPipeline  *pipeline;
+    SDL_GPUGraphicsPipeline  *pipelineVga;
     SDL_GPUSampler           *sampler;
+    CRTFilterMode             mode;
 };
 
 // ---------------------------------------------------------------------------
@@ -99,16 +132,21 @@ CRTFilter *crt_filter_create(SDL_GPUDevice *device, SDL_Window *window)
         crt_pixel_spirv,  crt_pixel_spirv_size,
         crt_pixel_msl,    crt_pixel_msl_size,
         1, 1);    /* 1 sampler, 1 uniform buffer */
+    SDL_GPUShader *pFragVga = LoadCRTShader(device, SDL_GPU_SHADERSTAGE_FRAGMENT,
+        crt_vga_pixel_spirv, crt_vga_pixel_spirv_size,
+        crt_vga_pixel_msl,   crt_vga_pixel_msl_size,
+        1, 1);    /* 1 sampler, 1 uniform buffer */
 
-    if (!pVert || !pFrag) {
+    if (!pVert || !pFrag || !pFragVga) {
         SDL_Log("crt_filter: failed to load shaders: %s", SDL_GetError());
-        if (pVert) SDL_ReleaseGPUShader(device, pVert);
-        if (pFrag) SDL_ReleaseGPUShader(device, pFrag);
+        if (pVert)    SDL_ReleaseGPUShader(device, pVert);
+        if (pFrag)    SDL_ReleaseGPUShader(device, pFrag);
+        if (pFragVga) SDL_ReleaseGPUShader(device, pFragVga);
         free(f);
         return NULL;
     }
 
-    // --- Pipeline ---
+    // --- Pipelines (both reuse the same fullscreen-triangle vertex shader) ---
     SDL_GPUColorTargetDescription ct = {0};
     ct.format = SDL_GetGPUSwapchainTextureFormat(device, window);
 
@@ -121,11 +159,17 @@ CRTFilter *crt_filter_create(SDL_GPUDevice *device, SDL_Window *window)
 
     f->pipeline = SDL_CreateGPUGraphicsPipeline(device, &pi);
 
+    pi.fragment_shader = pFragVga;
+    f->pipelineVga = SDL_CreateGPUGraphicsPipeline(device, &pi);
+
     SDL_ReleaseGPUShader(device, pVert);
     SDL_ReleaseGPUShader(device, pFrag);
+    SDL_ReleaseGPUShader(device, pFragVga);
 
-    if (!f->pipeline) {
+    if (!f->pipeline || !f->pipelineVga) {
         SDL_Log("crt_filter: failed to create pipeline: %s", SDL_GetError());
+        if (f->pipeline)    SDL_ReleaseGPUGraphicsPipeline(device, f->pipeline);
+        if (f->pipelineVga) SDL_ReleaseGPUGraphicsPipeline(device, f->pipelineVga);
         free(f);
         return NULL;
     }
@@ -143,6 +187,7 @@ CRTFilter *crt_filter_create(SDL_GPUDevice *device, SDL_Window *window)
     if (!f->sampler) {
         SDL_Log("crt_filter: failed to create sampler: %s", SDL_GetError());
         SDL_ReleaseGPUGraphicsPipeline(device, f->pipeline);
+        SDL_ReleaseGPUGraphicsPipeline(device, f->pipelineVga);
         free(f);
         return NULL;
     }
@@ -153,9 +198,20 @@ CRTFilter *crt_filter_create(SDL_GPUDevice *device, SDL_Window *window)
 void crt_filter_destroy(CRTFilter *filter)
 {
     if (!filter) return;
-    if (filter->sampler)  SDL_ReleaseGPUSampler(filter->device, filter->sampler);
-    if (filter->pipeline) SDL_ReleaseGPUGraphicsPipeline(filter->device, filter->pipeline);
+    if (filter->sampler)     SDL_ReleaseGPUSampler(filter->device, filter->sampler);
+    if (filter->pipeline)    SDL_ReleaseGPUGraphicsPipeline(filter->device, filter->pipeline);
+    if (filter->pipelineVga) SDL_ReleaseGPUGraphicsPipeline(filter->device, filter->pipelineVga);
     free(filter);
+}
+
+void crt_filter_set_mode(CRTFilter *filter, CRTFilterMode mode)
+{
+    if (filter) filter->mode = mode;
+}
+
+CRTFilterMode crt_filter_get_mode(CRTFilter *filter)
+{
+    return filter ? filter->mode : CRT_FILTER_HYLLIAN;
 }
 
 void crt_filter_apply(CRTFilter       *filter,
@@ -189,40 +245,59 @@ void crt_filter_apply(CRTFilter       *filter,
     SDL_Rect scissor = {(int)dstX, (int)dstY, (int)dstW, (int)dstH};
     SDL_SetGPUScissor(rp, &scissor);
 
-    SDL_BindGPUGraphicsPipeline(rp, filter->pipeline);
-
     SDL_GPUTextureSamplerBinding tsb = {srcTex, filter->sampler};
     SDL_BindGPUFragmentSamplers(rp, 0, &tsb, 1);
 
-    /* maskIntensity scales down at higher magnification so phosphor column
-     * stripes stay subtle when each source pixel spans many output pixels.
-     * Scanlines and colorBoost are NOT scaled by t: the Gaussian formula has a
-     * ~1.55 anti-scanline crossover (below that, gaps are brighter than centres).
-     * CRT_DEFAULT_SCANLINES=0.40 (scanStr=1.6) sits just above the crossover;
-     * halving it for SW mode would invert the effect.  At scanStr=1.6, bright
-     * areas self-clip to 1.0 so scanlines are invisible on sky at any
-     * magnification — no additional scaling is needed or safe. */
-    float pixPerRow = (srcH > 0)
-                      ? (float)dstH / (float)srcH
-                      : CRT_REF_PIX_PER_ROW;
-    float t = SDL_min(1.0f, CRT_REF_PIX_PER_ROW / pixPerRow);
+    if (filter->mode == CRT_FILTER_VGA_DOUBLE_SCAN) {
+        SDL_BindGPUGraphicsPipeline(rp, filter->pipelineVga);
 
-    CRTUniforms u;
-    u.srcSizeX       = (float)srcW;
-    u.srcSizeY       = (float)srcH;
-    u.dstSizeX       = (float)dstW;
-    u.dstSizeY       = (float)dstH;
-    u.scanlines      = CRT_DEFAULT_SCANLINES;
-    u.beamMin        = CRT_DEFAULT_BEAM_MIN;
-    u.beamMax        = CRT_DEFAULT_BEAM_MAX;
-    u.colorBoost     = CRT_DEFAULT_COLOR_BOOST;
-    u.phosphorLayout = CRT_DEFAULT_PHOSPHOR_LAYOUT;
-    u.maskIntensity  = CRT_DEFAULT_MASK_INTENSITY * t;  // 0.20 → ~0.10 at SW 5.4x scale
-    u.inputGamma     = CRT_DEFAULT_INPUT_GAMMA;
-    u.outputGamma    = CRT_DEFAULT_OUTPUT_GAMMA;
-    u.antiRinging    = CRT_DEFAULT_ANTI_RINGING;
-    u._pad           = 0.0f;
-    SDL_PushGPUFragmentUniformData(cmd, 0, &u, sizeof(u));
+        CRTVgaUniforms u;
+        u.srcSizeX      = (float)srcW;
+        u.srcSizeY      = (float)srcH;
+        u.dstSizeX      = (float)dstW;
+        u.dstSizeY      = (float)dstH;
+        u.phosphorLayout = CRT_VGA_DEFAULT_PHOSPHOR_LAYOUT;
+        u.scanlineMin    = CRT_VGA_DEFAULT_SCANLINE_MIN;
+        u.scanlineMax    = CRT_VGA_DEFAULT_SCANLINE_MAX;
+        u.colorBoostEven = CRT_VGA_DEFAULT_COLOR_BOOST_EVEN;
+        u.colorBoostOdd  = CRT_VGA_DEFAULT_COLOR_BOOST_ODD;
+        u.maskStrength   = CRT_VGA_DEFAULT_MASK_STRENGTH;
+        u.gammaInput     = CRT_VGA_DEFAULT_GAMMA_INPUT;
+        u.gammaOutput    = CRT_VGA_DEFAULT_GAMMA_OUTPUT;
+        SDL_PushGPUFragmentUniformData(cmd, 0, &u, sizeof(u));
+    } else {
+        SDL_BindGPUGraphicsPipeline(rp, filter->pipeline);
+
+        /* maskIntensity scales down at higher magnification so phosphor column
+         * stripes stay subtle when each source pixel spans many output pixels.
+         * Scanlines and colorBoost are NOT scaled by t: the Gaussian formula has a
+         * ~1.55 anti-scanline crossover (below that, gaps are brighter than centres).
+         * CRT_DEFAULT_SCANLINES=0.40 (scanStr=1.6) sits just above the crossover;
+         * halving it for SW mode would invert the effect.  At scanStr=1.6, bright
+         * areas self-clip to 1.0 so scanlines are invisible on sky at any
+         * magnification — no additional scaling is needed or safe. */
+        float pixPerRow = (srcH > 0)
+                          ? (float)dstH / (float)srcH
+                          : CRT_REF_PIX_PER_ROW;
+        float t = SDL_min(1.0f, CRT_REF_PIX_PER_ROW / pixPerRow);
+
+        CRTUniforms u;
+        u.srcSizeX       = (float)srcW;
+        u.srcSizeY       = (float)srcH;
+        u.dstSizeX       = (float)dstW;
+        u.dstSizeY       = (float)dstH;
+        u.scanlines      = CRT_DEFAULT_SCANLINES;
+        u.beamMin        = CRT_DEFAULT_BEAM_MIN;
+        u.beamMax        = CRT_DEFAULT_BEAM_MAX;
+        u.colorBoost     = CRT_DEFAULT_COLOR_BOOST;
+        u.phosphorLayout = CRT_DEFAULT_PHOSPHOR_LAYOUT;
+        u.maskIntensity  = CRT_DEFAULT_MASK_INTENSITY * t;  // 0.20 → ~0.10 at SW 5.4x scale
+        u.inputGamma     = CRT_DEFAULT_INPUT_GAMMA;
+        u.outputGamma    = CRT_DEFAULT_OUTPUT_GAMMA;
+        u.antiRinging    = CRT_DEFAULT_ANTI_RINGING;
+        u._pad           = 0.0f;
+        SDL_PushGPUFragmentUniformData(cmd, 0, &u, sizeof(u));
+    }
 
     SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
     SDL_EndGPURenderPass(rp);

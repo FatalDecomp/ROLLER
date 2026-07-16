@@ -1,0 +1,82 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct type_CRTVgaUniforms
+{
+    float2 srcSize;
+    float2 dstSize;
+    float phosphorLayout;
+    float scanlineMin;
+    float scanlineMax;
+    float colorBoostEven;
+    float colorBoostOdd;
+    float maskStrength;
+    float gammaInput;
+    float gammaOutput;
+};
+
+constant float4 _63 = {};
+
+struct main0_out
+{
+    float4 out_var_SV_Target [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 in_var_TEXCOORD0 [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant type_CRTVgaUniforms& CRTVgaUniforms [[buffer(0)]], texture2d<float> srcTex [[texture(0)]], sampler srcSampler [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 _72 = ceil(CRTVgaUniforms.dstSize / CRTVgaUniforms.srcSize);
+    float2 _73 = in.in_var_TEXCOORD0 * CRTVgaUniforms.srcSize;
+    float2 _76 = float2(0.5) / _72;
+    float2 _78 = fract(_73) - float2(0.5);
+    float2 _87 = fma(precise::min(floor(_73) + fma(_78 - fast::clamp(_78, _76 - float2(0.5), float2(0.5) - _76), _72, float2(0.5)), CRTVgaUniforms.srcSize - float2(0.5)) / CRTVgaUniforms.srcSize, CRTVgaUniforms.srcSize, float2(-0.5));
+    float2 _88 = floor(_87);
+    float2 _93 = float2(1.0) / CRTVgaUniforms.srcSize;
+    float4 _102 = float4(CRTVgaUniforms.gammaInput);
+    float4 _103 = powr(abs(srcTex.sample(srcSampler, ((_88 + float2(0.5)) * _93))), _102);
+    float4 _108 = powr(abs(srcTex.sample(srcSampler, ((_88 + float2(0.5, 1.5)) * _93))), _102);
+    float2 _119 = fract(_87);
+    float _121 = _119.x;
+    float4 _123 = _103 + ((powr(abs(srcTex.sample(srcSampler, ((_88 + float2(1.5, 0.5)) * _93))), _102) - _103) * _121);
+    float3 _131 = (_123 + (((_108 + ((powr(abs(srcTex.sample(srcSampler, ((_88 + float2(1.5)) * _93))), _102) - _108) * _121)) - _123) * _119.y)).xyz;
+    float _135 = floor(fmod(gl_FragCoord.y, 2.0));
+    float3 _152 = (_131 * fast::clamp(_135 + mix(1.0 - CRTVgaUniforms.scanlineMax, 1.0 - CRTVgaUniforms.scanlineMin, dot(float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875), _131)), 0.0, 1.0)).xyz * mix(CRTVgaUniforms.colorBoostEven, CRTVgaUniforms.colorBoostOdd, _135);
+    float _153 = mix(1.2000000476837158203125, 1.0299999713897705078125, _135);
+    float4 _160;
+    _160.x = powr(abs(_152.x) + 1.0000000116860974230803549289703e-07, _153);
+    _160.y = powr(abs(_152.y) + 1.0000000116860974230803549289703e-07, _153);
+    _160.z = powr(abs(_152.z) + 1.0000000116860974230803549289703e-07, _153);
+    int _178 = int(CRTVgaUniforms.phosphorLayout);
+    float3 _198;
+    do
+    {
+        float _181 = 1.0 - CRTVgaUniforms.maskStrength;
+        float3 _182 = float3(_181, 1.0, _181);
+        float3 _183 = float3(1.0, _181, 1.0);
+        float3 _187 = float3(floor(fmod(gl_FragCoord.x, 2.0)));
+        float3 _188 = mix(_183, _182, _187);
+        if (_178 == 1)
+        {
+            _198 = _188;
+            break;
+        }
+        if (_178 == 2)
+        {
+            _198 = mix(_188, mix(_182, _183, _187), float3(_135));
+            break;
+        }
+        _198 = float3(1.0);
+        break;
+    } while(false);
+    float3 _200 = (fast::normalize(_160.xyz) * length(_152.xyz)).xyz * _198;
+    out.out_var_SV_Target = float4(fast::clamp(powr(abs(float4(_200.x, _200.y, _200.z, _160.w)), float4(1.0 / CRTVgaUniforms.gammaOutput)).xyz, float3(0.0), float3(1.0)), 1.0);
+    return out;
+}
+

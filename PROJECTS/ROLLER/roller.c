@@ -148,7 +148,7 @@ float g_fMirrorFov       = 0.75f;
 bool  g_bEmulateSoftwareTrackBorders = true;
 bool  g_bWireframe       = false;
 int   g_iCullMode        = 0;
-bool  g_bCRTFilter       = false;
+int   g_iCRTFilterMode   = 0;
 bool  g_bSignsOnTop      = false;
 bool  g_bSurfaceDebugViz = false;
 bool  g_bSurfaceLog      = false;
@@ -594,7 +594,8 @@ void UpdateSDLWindow()
   blitInfo.load_op = SDL_GPU_LOADOP_CLEAR;
   blitInfo.clear_color = (SDL_FColor){0.0f, 0.0f, 0.0f, 1.0f};
 
-  if (g_bCRTFilter && s_pCRTFilter) {
+  if (g_iCRTFilterMode != 0 && s_pCRTFilter) {
+    crt_filter_set_mode(s_pCRTFilter, g_iCRTFilterMode == 2 ? CRT_FILTER_HYLLIAN : CRT_FILTER_VGA_DOUBLE_SCAN);
     crt_filter_apply(s_pCRTFilter, cmdBuf, s_pGameTexture, winw, winh,
                      swapchainTex,
                      blitInfo.destination.x, blitInfo.destination.y,
@@ -1795,10 +1796,15 @@ void UpdateDebugLoop()
 void UpdateSDL()
 {
 #if defined(IS_WASM)
-  g_bCRTFilter = false;
+  g_iCRTFilterMode = 0;
 #endif
   game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
-  game_render_set_crt_filter(g_pGameRenderer, g_bCRTFilter ? s_pCRTFilter : NULL);
+  if (g_iCRTFilterMode != 0 && s_pCRTFilter) {
+    crt_filter_set_mode(s_pCRTFilter, g_iCRTFilterMode == 2 ? CRT_FILTER_HYLLIAN : CRT_FILTER_VGA_DOUBLE_SCAN);
+    game_render_set_crt_filter(g_pGameRenderer, s_pCRTFilter);
+  } else {
+    game_render_set_crt_filter(g_pGameRenderer, NULL);
+  }
   SDL_PumpEvents();
   SDL_Event e;
   while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST) > 0) {
