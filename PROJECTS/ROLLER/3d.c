@@ -3031,9 +3031,14 @@ int main(int argc, const char **argv, const char **envp)
   // claim_ticktimer which sets up a callback to
   // increment ticks
   Initialise_SOS();
-  if (g_bSnapshotMode) {
-    // The SDL tick timer is not running in snapshot mode, so the busy-loop
-    // calibration in check_machine_speed would hang. Pick a sane default.
+  bool bUseFixedMachineSpeed = g_bSnapshotMode;
+#if defined(IS_WASM)
+  bUseFixedMachineSpeed = true;
+#endif
+  if (bUseFixedMachineSpeed) {
+    // Snapshot mode has no SDL tick timer. The WASM clock starts in the rAF
+    // main loop below, so it also cannot advance during this busy calibration.
+    // Pick a sane modern-machine value for both non-calibrating paths.
     machine_speed = 9000;
   } else {
     check_machine_speed();

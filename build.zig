@@ -131,6 +131,8 @@ pub fn build(b: *std.Build) void {
                 "PROJECTS/ROLLER/debug_overlay_stub.c",
                 "PROJECTS/ROLLER/present_sdlrenderer.c",
                 "PROJECTS/ROLLER/rollercomms_stub.c",
+                "PROJECTS/ROLLER/web_default_config.c",
+                "PROJECTS/ROLLER/web_gamepad_axis.c",
             },
         });
     } else {
@@ -388,6 +390,68 @@ fn configureRenderQueue3DTests(
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
+
+    const web_default_config_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    web_default_config_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    web_default_config_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/web_default_config.c",
+            "tests/web_default_config_test.c",
+        },
+    });
+    const web_default_config_exe = b.addExecutable(.{
+        .name = "web_default_config_test",
+        .root_module = web_default_config_mod,
+    });
+    const run_web_default_config = b.addRunArtifact(web_default_config_exe);
+    const web_default_config_tests = b.step(
+        "test-web-default-config",
+        "Run web first-run config policy tests",
+    );
+    web_default_config_tests.dependOn(&run_web_default_config.step);
+    test_step.dependOn(web_default_config_tests);
+
+    const web_gamepad_axis_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    web_gamepad_axis_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    web_gamepad_axis_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/web_gamepad_axis.c",
+            "tests/web_gamepad_axis_test.c",
+        },
+    });
+    const web_gamepad_axis_exe = b.addExecutable(.{
+        .name = "web_gamepad_axis_test",
+        .root_module = web_gamepad_axis_mod,
+    });
+    const run_web_gamepad_axis = b.addRunArtifact(web_gamepad_axis_exe);
+    const web_gamepad_axis_tests = b.step(
+        "test-web-gamepad-axis",
+        "Run web gamepad initial-axis tests",
+    );
+    web_gamepad_axis_tests.dependOn(&run_web_gamepad_axis.step);
+    test_step.dependOn(web_gamepad_axis_tests);
+
+    const demo_assets_tests = b.addSystemCommand(&.{
+        pythonExe(),
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_*.py",
+    });
+    test_step.dependOn(&demo_assets_tests.step);
 }
 
 const SnapshotReplay = struct {
@@ -644,6 +708,13 @@ fn configureDependencies(
 
 fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
     const web_step = b.step("web", "Build the browser bundle");
+    const demo_assets_option = b.option(
+        LazyPath,
+        "demo-assets-path",
+        "Verified E3.S2 FATDATA tree to package instead of acquiring the pinned demo",
+    );
+    const demo_assets_path = demo_assets_option orelse b.path("zig-out/fatdata-demo");
+    const demo_assets_abs = demo_assets_path.getPath2(b, null);
     const emsdk_option = b.option([]const u8, "emsdk", "Path to an emsdk checkout") orelse
         std.process.getEnvVarOwned(b.allocator, "EMSDK") catch
         b.pathJoin(&.{ b.build_root.path orelse ".", ".tools", "emsdk" });
@@ -683,8 +754,19 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         stage_prefix,
     });
 
+    const prepare_demo_assets = b.addSystemCommand(&.{pythonExe()});
+    prepare_demo_assets.addFileArg(b.path("scripts/fetch_demo_assets.py"));
+    if (demo_assets_option != null) {
+        prepare_demo_assets.addArg("--verify-only");
+        prepare_demo_assets.addArg("--output");
+        prepare_demo_assets.addArg(demo_assets_abs);
+        prepare_demo_assets.addArg("--manifest");
+        prepare_demo_assets.addArg(b.path("zig-out/web-demo-assets.manifest.json").getPath2(b, null));
+    }
+
     const run_emcc = b.addSystemCommand(&.{emcc_path});
     run_emcc.step.dependOn(&compile_wasm.step);
+    run_emcc.step.dependOn(&prepare_demo_assets.step);
     run_emcc.setEnvironmentVariable("EMSDK", emsdk_root);
     run_emcc.setEnvironmentVariable("EM_CONFIG", em_config);
     run_emcc.addFileArg(b.path("zig-out/wasm-stage/lib/libroller.a"));
@@ -702,6 +784,8 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sEXPORTED_FUNCTIONS=_main",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
         "-lc++",
+        "--preload-file",
+        b.fmt("{s}@/demo/fatdata", .{demo_assets_abs}),
         "--shell-file",
     });
     run_emcc.addFileArg(b.path("web/shell.html"));
@@ -709,18 +793,23 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         run_emcc.addArg("-sASSERTIONS=1");
     run_emcc.addArg("-o");
     const app_html = run_emcc.addOutputFileArg("roller.html");
-    const output_dir = app_html.dirname();
 
-    const install_html = b.addInstallFileWithDir(app_html, .{ .custom = "web" }, "index.html");
-    const install_js = b.addInstallFileWithDir(output_dir.path(b, "roller.js"), .{ .custom = "web" }, "roller.js");
-    const install_wasm = b.addInstallFileWithDir(output_dir.path(b, "roller.wasm"), .{ .custom = "web" }, "roller.wasm");
-    const install_shell_js = b.addInstallFileWithDir(b.path("web/roller-shell.js"), .{ .custom = "web" }, "roller-shell.js");
-    const install_headers = b.addInstallFileWithDir(b.path("web/_headers"), .{ .custom = "web" }, "_headers");
-    web_step.dependOn(&install_html.step);
-    web_step.dependOn(&install_js.step);
-    web_step.dependOn(&install_wasm.step);
-    web_step.dependOn(&install_shell_js.step);
-    web_step.dependOn(&install_headers.step);
+    // emcc 4.0.20 hard-codes roller.data in its generated loader. Install the
+    // complete bundle through one post-link step so the payload can be renamed
+    // to its actual content hash, every loader reference can be rewritten, and
+    // stale payloads cannot survive a successful build.
+    const finalize_bundle = b.addSystemCommand(&.{pythonExe()});
+    finalize_bundle.addFileArg(b.path("scripts/finalize_web_bundle.py"));
+    finalize_bundle.addArg("--html");
+    finalize_bundle.addFileArg(app_html);
+    finalize_bundle.addArg("--shell-js");
+    finalize_bundle.addFileArg(b.path("web/roller-shell.js"));
+    finalize_bundle.addArg("--headers");
+    finalize_bundle.addFileArg(b.path("web/_headers"));
+    finalize_bundle.addArg("--output-dir");
+    finalize_bundle.addArg(b.getInstallPath(.{ .custom = "web" }, ""));
+    finalize_bundle.has_side_effects = true;
+    web_step.dependOn(&finalize_bundle.step);
 }
 
 fn emccOptimizeFlag(optimize: OptimizeMode) []const u8 {
