@@ -3725,7 +3725,7 @@ void game_keys()
                     }
                     break;
                   case WHIP_SCANCODE_F9:
-                    if (++names_on > 2)       // F9 (0x43) - Toggle player names display (0=off, 1=on, 2=detailed)
+                    if (++names_on > 3)       // F9 (0x43) - Toggle player names display (0=off, 1=on, 2=detailed, 3=opponents only)
                       names_on = 0;
                     break;
                   case WHIP_SCANCODE_F10:
@@ -4263,7 +4263,7 @@ void game_keys()
                 textures_off ^= TEX_OFF_BUILDINGS;
                 goto PROCESS_NEXT_KEY;
               case 15:
-                if (++names_on > 2)
+                if (++names_on > 3)
                   names_on = 0;
                 goto PROCESS_NEXT_KEY;
               case 16:

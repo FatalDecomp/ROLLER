@@ -2729,7 +2729,7 @@ void frontend_config_update(void)
                       textures_off ^= TEX_OFF_BUILDINGS;
                       break;
                     case 15:
-                      if (++names_on > 2)
+                      if (++names_on > 3)
                         names_on = 0;
                       break;
                     case 16:
@@ -2928,11 +2928,19 @@ void frontend_config_update(void)
               byColor_105 = 0x8F;
             menu_render_scaled_text(mr, 15, &config_buffer[2816], font1_ascii, font1_offsets, 440, 80, byColor_105, 0, 200, 640, pal_addr);
           } else {
+            if (names_on == 3) {
+              if (iFrontendConfigVideoState == 15)
+                byColor_105 = 0xAB;
+              else
+                byColor_105 = 0x8F;
+              menu_render_scaled_text(mr, 15, "OPPONENTS ONLY", font1_ascii, font1_offsets, 440, 80, byColor_105, 0, 200, 640, pal_addr);              
+            } else {
             if (iFrontendConfigVideoState == 15)
               byColor_35 = 0xAB;
             else
               byColor_35 = 0x8F;
             menu_render_scaled_text(mr, 15, &config_buffer[2624], font1_ascii, font1_offsets, 440, 80, byColor_35, 0, 200, 640, pal_addr);
+          }
           }
         } else {
           if (iFrontendConfigVideoState == 15)

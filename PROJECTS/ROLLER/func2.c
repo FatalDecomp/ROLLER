@@ -3276,6 +3276,13 @@ void display_paused()
         byNamesColor = 0x83;
       prt_rightcol(rev_vga[1], buffer, 187, 36, byNamesColor);
       if (names_on) {
+        if (names_on == 3) {
+          if (graphic_mode == 15)
+            byNamesOnOff = 0x8F;
+          else
+            byNamesOnOff = 0x83;
+          pszNamesText = "OPPONENTS ONLY";          
+        } else {
         if (names_on == 2) {
           if (graphic_mode == 15)
             byNamesOnOff = 0x8F;
@@ -3288,6 +3295,7 @@ void display_paused()
           else
             byNamesOnOff = 0x83;
           pszNamesText = &config_buffer[2624];
+        }
         }
       } else {
         if (graphic_mode == 15)
@@ -3972,7 +3980,7 @@ void load_fatal_config()
       if (!game_svga)
         game_size /= 2;
       getconfigvalue(pData2, "View", game_view, 0, 8);
-      getconfigvalue(pData2, "Names", &names_on, 0, 2);
+      getconfigvalue(pData2, "Names", &names_on, 0, 3);
 
       // Read keyboard mappings
       getconfigvalueuc(pData2, "P1left",      (uint8*)&userkey[USERKEY_P1LEFT], 0, 139);
