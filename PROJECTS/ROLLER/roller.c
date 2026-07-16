@@ -18,6 +18,7 @@
 #include "platform_log.h"
 #if defined(IS_WASM)
 #include "present_sdlrenderer.h"
+#include "web_default_config.h"
 #include <emscripten/emscripten.h>
 #endif
 #include <assert.h>
@@ -1317,6 +1318,65 @@ static bool AndroidStageCdImageSelection(const tDialogResult *pResult,
 //-------------------------------------------------------------------------------------------------
 #endif
 
+//-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+static bool ROLLERWebPersistentPathExists(const char *szPath)
+{
+  struct stat sb;
+  return stat(szPath, &sb) == 0;
+}
+
+static void ROLLERApplyWebDefaultConfig(void)
+{
+  MenuRenderer *pMenuRenderer = GetMenuRenderer();
+
+  game_svga = -1;
+  game_size = 128;
+  soundon = -1;
+  musicon = -1;
+  MusicCard = 0;
+  MusicCD = 0;
+  MusicOS = 0;
+  MusicOPL = -1;
+  g_bVsync = true;
+
+  if (pMenuRenderer)
+    menu_render_set_mode(pMenuRenderer, MENU_RENDER_SOFTWARE);
+
+  // E5 applies runtime phone-control defaults here before the same writer once
+  // the browser phone-mode signal and WASM phone controls exist.
+}
+
+static void ROLLEREnsureWebDefaultConfig(const char *szDataRoot)
+{
+  bool bFatalExists = ROLLERWebPersistentPathExists("/persist/FATAL.INI");
+  bool bRollerExists = ROLLERWebPersistentPathExists("/persist/ROLLER.INI");
+  eROLLERWebDefaultConfigAction eAction =
+    ROLLERWebDefaultConfigChooseAction(bFatalExists, bRollerExists);
+
+  if (eAction == eROLLER_WEB_DEFAULT_CONFIG_NONE)
+    return;
+
+  if (eAction == eROLLER_WEB_DEFAULT_CONFIG_PRESERVE_PARTIAL) {
+    SDL_Log("Web config: preserving partial persistent state (FATAL.INI=%d, ROLLER.INI=%d)",
+            bFatalExists ? 1 : 0, bRollerExists ? 1 : 0);
+    return;
+  }
+
+  SDL_Log("Web config: creating first-run defaults in /persist");
+  ROLLERApplyWebDefaultConfig();
+  SaveDefaultFatalIni(szDataRoot);
+
+  if (!ROLLERWebPersistentPathExists("/persist/FATAL.INI") ||
+      !ROLLERWebPersistentPathExists("/persist/ROLLER.INI")) {
+    SDL_Log("Web config: failed to create both persistent config files");
+  }
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 void InitFATDATA(const char *szDataRoot)
 {
   if (!szDataRoot)
@@ -1448,6 +1508,10 @@ void InitFATDATA(const char *szDataRoot)
     MusicOPL = 0;
 #endif
   }
+
+#if defined(IS_WASM)
+  ROLLEREnsureWebDefaultConfig(szDataRoot);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

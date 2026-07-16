@@ -131,6 +131,7 @@ pub fn build(b: *std.Build) void {
                 "PROJECTS/ROLLER/debug_overlay_stub.c",
                 "PROJECTS/ROLLER/present_sdlrenderer.c",
                 "PROJECTS/ROLLER/rollercomms_stub.c",
+                "PROJECTS/ROLLER/web_default_config.c",
             },
         });
     } else {
@@ -388,6 +389,31 @@ fn configureRenderQueue3DTests(
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
+
+    const web_default_config_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    web_default_config_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    web_default_config_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/web_default_config.c",
+            "tests/web_default_config_test.c",
+        },
+    });
+    const web_default_config_exe = b.addExecutable(.{
+        .name = "web_default_config_test",
+        .root_module = web_default_config_mod,
+    });
+    const run_web_default_config = b.addRunArtifact(web_default_config_exe);
+    const web_default_config_tests = b.step(
+        "test-web-default-config",
+        "Run web first-run config policy tests",
+    );
+    web_default_config_tests.dependOn(&run_web_default_config.step);
+    test_step.dependOn(web_default_config_tests);
 
     const demo_assets_tests = b.addSystemCommand(&.{
         pythonExe(),
