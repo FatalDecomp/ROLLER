@@ -8,6 +8,9 @@
 #include "loadtrak.h"
 #include "menu_render.h"
 #include "roller.h"
+#if defined(IS_WASM)
+#include "web_gamepad_axis.h"
+#endif
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +158,7 @@ static int InputMenuGamepadButtonIsAccept(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonIsBack(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonIsCupSwitch(SDL_GamepadButton eButton);
 static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton eButton);
+static int InputMenuGamepadAxis(tInputDevice *pDevice, SDL_GamepadAxis eAxis);
 static void InputMenuRememberAxisRests(void);
 static void InputMenuRememberButtonStates(void);
 static void InputMenuResetKeyStates(void);
@@ -1577,10 +1581,22 @@ static int InputMenuGamepadButtonDown(tInputDevice *pDevice, SDL_GamepadButton e
 
 static int InputMenuGamepadAxis(tInputDevice *pDevice, SDL_GamepadAxis eAxis)
 {
+  int iValue;
+
   if (!pDevice->pGamepad || !SDL_GamepadHasAxis(pDevice->pGamepad, eAxis))
     return 0;
 
-  return SDL_GetGamepadAxis(pDevice->pGamepad, eAxis);
+  iValue = SDL_GetGamepadAxis(pDevice->pGamepad, eAxis);
+#if defined(IS_WASM)
+  // Some browsers expose a newly discovered gamepad with a stale full-scale
+  // stick sample. Ignore that axis until it first reports its neutral range.
+  if (!ROLLERWebGamepadAxisAcceptSample(
+        iValue, INPUT_MENU_AXIS_DEADZONE,
+        &pDevice->abMenuGamepadAxisReady[eAxis])) {
+    return 0;
+  }
+#endif
+  return iValue;
 }
 
 //-------------------------------------------------------------------------------------------------

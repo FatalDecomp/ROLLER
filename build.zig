@@ -132,6 +132,7 @@ pub fn build(b: *std.Build) void {
                 "PROJECTS/ROLLER/present_sdlrenderer.c",
                 "PROJECTS/ROLLER/rollercomms_stub.c",
                 "PROJECTS/ROLLER/web_default_config.c",
+                "PROJECTS/ROLLER/web_gamepad_axis.c",
             },
         });
     } else {
@@ -414,6 +415,31 @@ fn configureRenderQueue3DTests(
     );
     web_default_config_tests.dependOn(&run_web_default_config.step);
     test_step.dependOn(web_default_config_tests);
+
+    const web_gamepad_axis_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    web_gamepad_axis_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    web_gamepad_axis_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/web_gamepad_axis.c",
+            "tests/web_gamepad_axis_test.c",
+        },
+    });
+    const web_gamepad_axis_exe = b.addExecutable(.{
+        .name = "web_gamepad_axis_test",
+        .root_module = web_gamepad_axis_mod,
+    });
+    const run_web_gamepad_axis = b.addRunArtifact(web_gamepad_axis_exe);
+    const web_gamepad_axis_tests = b.step(
+        "test-web-gamepad-axis",
+        "Run web gamepad initial-axis tests",
+    );
+    web_gamepad_axis_tests.dependOn(&run_web_gamepad_axis.step);
+    test_step.dependOn(web_gamepad_axis_tests);
 
     const demo_assets_tests = b.addSystemCommand(&.{
         pythonExe(),
