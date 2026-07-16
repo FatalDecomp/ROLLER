@@ -1437,7 +1437,10 @@ void InitFATDATA(const char *szDataRoot)
     // Re-enable GPU presentation now that all native dialogs are dismissed.
     s_bGpuPresentDisabled = false;
     DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
-#else
+#elif !defined(IS_WASM)
+    // Browser asset selection and retail extraction are completed by the page
+    // before callMain(). Native dialogs and their callback busy-wait must never
+    // run on the Emscripten main thread.
     debug_overlay_set_visible(s_pDebugOverlay, true);
     PresentDebugOverlayOnly();
 
