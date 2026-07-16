@@ -15,11 +15,16 @@ var Module = (() => {
   const resetDemoButton = document.getElementById("reset-demo-button");
   const reimportButton = document.getElementById("reimport-button");
   const cdImageInput = document.getElementById("cd-image-input");
+  const importWarningActions = document.getElementById("import-warning-actions");
+  const continueImportButton = document.getElementById("continue-import-button");
+  const cancelImportButton = document.getElementById("cancel-import-button");
   const scrollKeys = new Set(["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"]);
   const progressPattern = /\((\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)/;
   const persistentFatdataPath = "/persist/fatdata";
   const extractedFatdataPath = "/persist/FATDATA";
   const importPath = "/import";
+  const importChunkBytes = 8 * 1024 * 1024;
+  const importSizeWarningBytes = 800 * 1024 * 1024;
   const extractionFailureMessage =
     "No game data could be extracted from the files you selected.\n\n" +
     "For a CUE/BIN image you must select the .CUE file AND all of its " +
@@ -30,6 +35,7 @@ var Module = (() => {
   let runtimeStarted = false;
   let gateBusy = true;
   let retailFatdataReady = false;
+  let pendingImportFiles = null;
   let filesystemPreparationError = null;
   const persistenceDependency = "roller-idbfs-restore";
   const requiredDemoFiles = [
@@ -73,6 +79,8 @@ var Module = (() => {
     importButton.disabled = busy || !runtimeReady;
     resetDemoButton.disabled = busy || !runtimeReady;
     reimportButton.disabled = busy || !runtimeReady;
+    continueImportButton.disabled = busy || !runtimeReady;
+    cancelImportButton.disabled = busy || !runtimeReady;
   }
 
   function startRuntime() {
@@ -100,6 +108,7 @@ var Module = (() => {
     status.textContent = message;
     progress.hidden = true;
     gateActions.hidden = true;
+    importWarningActions.hidden = true;
     setGateBusy(true);
     console.error("ROLLER: browser startup failed", error);
   }
@@ -152,6 +161,7 @@ var Module = (() => {
 
   function updateAssetGate() {
     const source = persistentFatdataSource();
+    pendingImportFiles = null;
     retailFatdataReady = source === "retail";
     Module["rollerRetailReady"] = retailFatdataReady;
     Module["rollerAssetSource"] = retailFatdataReady ? "retail" : "demo";
@@ -162,6 +172,7 @@ var Module = (() => {
       ? "Saved retail game data restored"
       : "Freeware demo loaded";
     progress.hidden = true;
+    importWarningActions.hidden = true;
     gateActions.hidden = false;
     setGateBusy(false);
     playButton.focus({ preventScroll: true });
@@ -191,6 +202,22 @@ var Module = (() => {
     return new Promise((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(resolve));
     });
+  }
+
+  function yieldForProgressPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    }
+    if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KiB`;
+    }
+    return `${bytes} bytes`;
   }
 
   function importFilename(file) {
@@ -236,6 +263,102 @@ var Module = (() => {
     }
   }
 
+  function assertCueHasBinSelection(files, entryFile) {
+    if (!importFilename(entryFile).toLowerCase().endsWith(".cue")) {
+      return;
+    }
+    if (!files.some((file) => importFilename(file).toLowerCase().endsWith(".bin"))) {
+      throw new Error(extractionFailureMessage);
+    }
+  }
+
+  function showLargeImportWarning(files, totalBytes) {
+    pendingImportFiles = files;
+    gateTitle.textContent = "Large CD image selected";
+    status.textContent =
+      `The selected files total ${formatBytes(totalBytes)}. Browser imports above ` +
+      `${formatBytes(importSizeWarningBytes)} can exhaust the WebAssembly memory ` +
+      "limit and crash this tab. Continue only if this browser has enough memory.";
+    progress.hidden = true;
+    gateActions.hidden = true;
+    importWarningActions.hidden = false;
+    setGateBusy(false);
+    continueImportButton.focus({ preventScroll: true });
+  }
+
+  function cancelLargeImport() {
+    pendingImportFiles = null;
+    cdImageInput.value = "";
+    updateAssetGate();
+    status.textContent = "CD image import cancelled";
+  }
+
+  function continueLargeImport() {
+    const files = pendingImportFiles;
+    pendingImportFiles = null;
+    importWarningActions.hidden = true;
+    gateActions.hidden = false;
+    if (files) {
+      void importCdImage(files, true);
+    }
+  }
+
+  async function requestPersistentStorage() {
+    Module["rollerStoragePersistRequested"] = true;
+    if (!navigator.storage || typeof navigator.storage.persist !== "function") {
+      Module["rollerStoragePersistent"] = false;
+      console.warn("ROLLER: persistent browser storage is not supported");
+      return;
+    }
+
+    try {
+      const granted = await navigator.storage.persist();
+      Module["rollerStoragePersistent"] = granted;
+      if (!granted) {
+        console.warn("ROLLER: persistent browser storage was not granted; retail data may be evicted");
+      }
+    } catch (error) {
+      Module["rollerStoragePersistent"] = false;
+      console.warn("ROLLER: persistent browser storage request failed", error);
+    }
+  }
+
+  async function stageImportFile(file, destination, stagingProgress) {
+    const stream = FS.open(destination, "w");
+    try {
+      for (let offset = 0; offset < file.size; offset += importChunkBytes) {
+        const end = Math.min(offset + importChunkBytes, file.size);
+        const content = new Uint8Array(await file.slice(offset, end).arrayBuffer());
+        let written = 0;
+        while (written < content.length) {
+          const count = FS.write(
+            stream,
+            content,
+            written,
+            content.length - written,
+            offset + written
+          );
+          if (count <= 0) {
+            throw new Error(`Could not stage ${importFilename(file)}.`);
+          }
+          written += count;
+        }
+
+        stagingProgress.completed += content.length;
+        progress.value = stagingProgress.completed;
+        const percent = Math.floor(
+          (stagingProgress.completed * 100) / Math.max(stagingProgress.total, 1)
+        );
+        status.textContent =
+          `Staging ${importFilename(file)}... ${formatBytes(stagingProgress.completed)} / ` +
+          `${formatBytes(stagingProgress.total)} (${percent}%)`;
+        await yieldForProgressPaint();
+      }
+    } finally {
+      FS.close(stream);
+    }
+  }
+
   function openCdImagePicker() {
     if (!runtimeReady || runtimeStarted || gateBusy) {
       return;
@@ -244,7 +367,7 @@ var Module = (() => {
     cdImageInput.click();
   }
 
-  async function importCdImage(fileList) {
+  async function importCdImage(fileList, largeImportConfirmed = false) {
     const files = Array.from(fileList || []);
     if (!files.length || !runtimeReady || runtimeStarted || gateBusy) {
       return;
@@ -253,27 +376,34 @@ var Module = (() => {
     try {
       assertUniqueImportFilenames(files);
       const entryFile = chooseCdImageEntry(files);
+      assertCueHasBinSelection(files, entryFile);
       if (typeof Module["_ROLLERWebExtractFATDATA"] !== "function") {
         throw new Error("Retail CD extraction is not available in this build yet.");
       }
 
+      const totalBytes = files.reduce((total, file) => total + file.size, 0);
+      if (totalBytes > importSizeWarningBytes && !largeImportConfirmed) {
+        showLargeImportWarning(files, totalBytes);
+        return;
+      }
+
       setGateBusy(true);
       gateTitle.textContent = "Importing retail game data";
+      status.textContent = "Requesting persistent browser storage...";
+      await requestPersistentStorage();
+
       status.textContent = "Staging selected CD image files...";
-      progress.max = files.reduce((total, file) => total + file.size, 0) || 1;
+      progress.max = totalBytes || 1;
       progress.value = 0;
       progress.hidden = false;
 
       removeFilesystemTree(importPath);
       FS.mkdirTree(importPath);
-      let stagedBytes = 0;
+      const stagingProgress = { completed: 0, total: totalBytes };
       for (const file of files) {
         const name = importFilename(file);
         status.textContent = `Staging ${name}...`;
-        const content = new Uint8Array(await file.arrayBuffer());
-        FS.writeFile(`${importPath}/${name}`, content);
-        stagedBytes += file.size;
-        progress.value = stagedBytes;
+        await stageImportFile(file, `${importPath}/${name}`, stagingProgress);
       }
 
       const currentSource = persistentFatdataSource();
@@ -313,6 +443,7 @@ var Module = (() => {
       }
       removeFilesystemTree(previousRetailPath);
       removeFilesystemTree(importPath);
+      cdImageInput.value = "";
 
       status.textContent = "Saving retail game data...";
       await syncPersistentFilesystem();
@@ -320,6 +451,8 @@ var Module = (() => {
       updateAssetGate();
       startRuntime();
     } catch (error) {
+      pendingImportFiles = null;
+      cdImageInput.value = "";
       removeFilesystemTree(importPath);
       removeFilesystemTree(extractedFatdataPath);
       if (persistentFatdataSource() === "missing") {
@@ -420,6 +553,8 @@ var Module = (() => {
   reimportButton.addEventListener("click", openCdImagePicker);
   resetDemoButton.addEventListener("click", () => void resetToDemo());
   cdImageInput.addEventListener("change", () => void importCdImage(cdImageInput.files));
+  continueImportButton.addEventListener("click", continueLargeImport);
+  cancelImportButton.addEventListener("click", cancelLargeImport);
 
   // SDL's Emscripten keyboard target is #canvas. Keep it focused when mouse
   // input returns to the game or the browser tab/window becomes active again.
