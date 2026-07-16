@@ -23,6 +23,7 @@ var Module = (() => {
   const persistentFatdataPath = "/persist/fatdata";
   const extractedFatdataPath = "/persist/FATDATA";
   const importPath = "/import";
+  const persistentDemoConfigPaths = ["/persist/FATAL.INI", "/persist/ROLLER.INI"];
   const importChunkBytes = 8 * 1024 * 1024;
   const importSizeWarningBytes = 800 * 1024 * 1024;
   const extractionFailureMessage =
@@ -323,6 +324,20 @@ var Module = (() => {
     }
   }
 
+  async function reloadAfterSourceSwitch(source) {
+    retailFatdataReady = source === "retail";
+    Module["rollerRetailReady"] = retailFatdataReady;
+    Module["rollerAssetSource"] = source;
+    Module["rollerSourceSwitchReloading"] = source;
+    gateTitle.textContent = source === "retail"
+      ? "Retail game data is ready"
+      : "Demo game data is ready";
+    status.textContent = "Reloading ROLLER...";
+    progress.hidden = true;
+    await yieldForOverlayPaint();
+    window.location.reload();
+  }
+
   async function stageImportFile(file, destination, stagingProgress) {
     const stream = FS.open(destination, "w");
     try {
@@ -447,9 +462,7 @@ var Module = (() => {
 
       status.textContent = "Saving retail game data...";
       await syncPersistentFilesystem();
-      retailFatdataReady = true;
-      updateAssetGate();
-      startRuntime();
+      await reloadAfterSourceSwitch("retail");
     } catch (error) {
       pendingImportFiles = null;
       cdImageInput.value = "";
@@ -477,9 +490,15 @@ var Module = (() => {
     try {
       removeFilesystemTree(persistentFatdataPath);
       removeFilesystemTree(extractedFatdataPath);
+      // Config is source-dependent: the retail pair leaves with its tree above.
+      // Clear the persistent pair together so the web first-run policy creates
+      // consistent demo-safe settings when the demo next starts.
+      for (const path of persistentDemoConfigPaths) {
+        removeFilesystemTree(path);
+      }
       await syncPersistentFilesystem();
       ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
-      updateAssetGate();
+      await reloadAfterSourceSwitch("demo");
     } catch (error) {
       if (persistentFatdataSource() === "missing") {
         ensureFilesystemLink("/demo/fatdata", persistentFatdataPath);
