@@ -129,6 +129,9 @@ static eInputWindowsBackend s_eWindowsBackend = INPUT_WINDOWS_BACKEND_SDL_DINPUT
 static tInputPhoneTouch s_aPhoneTouches[INPUT_PHONE_MAX_TOUCHES];
 static float s_afPhoneAccel[3] = { 0.0f, 0.0f, 0.0f };
 static int s_iPhoneAccelValid = 0;
+#if defined(IS_WASM)
+static int s_iPhoneControlsOverride = -1;
+#endif
 #if defined(IS_ANDROID)
 static SDL_Sensor *s_pPhoneAccelSensor = NULL;
 static int s_iPhoneAccelOpenTried = 0;
@@ -382,6 +385,44 @@ static void InputPhoneShutdown(void)
 }
 
 //-------------------------------------------------------------------------------------------------
+
+#if defined(IS_WASM)
+void InputPhoneSetWebAccel(float fX, float fY, float fZ)
+{
+  s_afPhoneAccel[0] = fX;
+  s_afPhoneAccel[1] = fY;
+  s_afPhoneAccel[2] = fZ;
+  s_iPhoneAccelValid = -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void InputPhoneSetWebControls(ePhoneControls eControls)
+{
+  g_ePhoneControls = eControls;
+  s_iPhoneControlsOverride = (int)eControls;
+  if (eControls != PHONE_CONTROLS_TILT_TURN)
+    s_iPhoneAccelValid = 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+int InputPhoneGetControls(void)
+{
+  return (int)g_ePhoneControls;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+static void InputPhoneApplyWebControlsOverride(void)
+{
+  if (s_iPhoneControlsOverride >= (int)PHONE_CONTROLS_DISABLED &&
+      s_iPhoneControlsOverride <= (int)PHONE_CONTROLS_TOUCH_TURN)
+    g_ePhoneControls = (ePhoneControls)s_iPhoneControlsOverride;
+}
+
+//-------------------------------------------------------------------------------------------------
+#endif
 
 static int InputPhoneTouchInVisibleButton(const tInputPhoneTouch *pTouch)
 {
@@ -3498,6 +3539,9 @@ int InputLoadConfig(void)
 #else
     InputApplyDefaultGamepadBindings();
 #endif
+#if defined(IS_WASM)
+    InputPhoneApplyWebControlsOverride();
+#endif
     InputApplyWindowConfig();
     InputResolveAllBindings();
     return 0;
@@ -3551,6 +3595,9 @@ int InputLoadConfig(void)
   }
 
   fclose(fp);
+#if defined(IS_WASM)
+  InputPhoneApplyWebControlsOverride();
+#endif
 #if defined(IS_ANDROID)
   if (ROLLERAudioMusicAvailable())
     InputApplyMusicSource(1);

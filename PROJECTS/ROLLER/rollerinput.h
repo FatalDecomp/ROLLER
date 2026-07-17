@@ -117,6 +117,11 @@ int InputPhoneAutoAccelerate(void);
 int InputPhoneBrakePressed(void);
 int InputGetPhoneSteeringValue(void);
 void InputGetPhoneControlDebugState(int *piLeft, int *piRight, int *piBrake);
+#if defined(IS_WASM)
+void InputPhoneSetWebAccel(float fX, float fY, float fZ);
+void InputPhoneSetWebControls(ePhoneControls eControls);
+int InputPhoneGetControls(void);
+#endif
 void InputGetBindingName(const tInputBinding *pBinding, char *szOut, int iOutLen);
 void InputGetActionBindingName(int iAction, char *szOut, int iOutLen);
 void InputSetKeyboardBinding(int iAction, int iScancode);

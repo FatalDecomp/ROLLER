@@ -1,5 +1,6 @@
 #include "roller.h"
 #include "rollercd.h"
+#include "rollerinput.h"
 #include "phone_ui.h"
 #include "sound.h"
 
@@ -12,6 +13,37 @@ void ROLLERWebSetPhoneMode(int iPhoneMode)
 {
   ROLLERSetPhoneUIActive(iPhoneMode);
   SDL_Log("Web phone UI: %s", ROLLERPhoneUIActive() ? "enabled" : "disabled");
+}
+
+//-------------------------------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+void ROLLERWebSetAccel(float fX, float fY, float fZ)
+{
+  if (ROLLERPhoneUIActive())
+    InputPhoneSetWebAccel(fX, fY, fZ);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ROLLERWebSetPhoneControls(int iControls)
+{
+  if (iControls < (int)PHONE_CONTROLS_DISABLED ||
+      iControls > (int)PHONE_CONTROLS_TOUCH_TURN)
+    return 0;
+
+  InputPhoneSetWebControls((ePhoneControls)iControls);
+  SDL_Log("Web phone controls: scheme %d", iControls);
+  return 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ROLLERWebGetPhoneControls(void)
+{
+  return InputPhoneGetControls();
 }
 
 //-------------------------------------------------------------------------------------------------

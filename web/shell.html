@@ -63,6 +63,20 @@
       user-select: none;
     }
     .start-gate[aria-busy="true"] { cursor: wait; }
+    .phone-status {
+      position: absolute;
+      z-index: 2;
+      top: 0.75rem;
+      left: 50%;
+      width: max-content;
+      max-width: calc(100% - 1.5rem);
+      transform: translateX(-50%);
+      border: 1px solid #fff;
+      padding: 0.5rem 0.75rem;
+      background: rgb(0 0 0 / 88%);
+      text-align: center;
+      pointer-events: none;
+    }
     .gate-panel { width: min(28rem, 100%); }
     .gate-title { display: block; margin-bottom: 0.75rem; font-size: 1.25rem; }
     #status { white-space: pre-line; }
@@ -118,6 +132,7 @@
           <input id="cd-image-input" type="file" multiple accept=".iso,.cue,.bin" hidden>
         </div>
       </div>
+      <div id="phone-status" class="phone-status" role="status" aria-live="polite" hidden></div>
     </div>
   </main>
   <script src="roller-shell.js"></script>

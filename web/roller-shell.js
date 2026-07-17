@@ -8,6 +8,7 @@ var Module = (() => {
   const startGate = document.getElementById("start-gate");
   const gateTitle = document.getElementById("gate-title");
   const status = document.getElementById("status");
+  const phoneStatus = document.getElementById("phone-status");
   const progress = document.getElementById("loading-progress");
   const gateActions = document.getElementById("gate-actions");
   const playButton = document.getElementById("play-button");
@@ -30,6 +31,10 @@ var Module = (() => {
   const persistentDemoConfigPaths = ["/persist/FATAL.INI", "/persist/ROLLER.INI"];
   const importChunkBytes = 8 * 1024 * 1024;
   const importSizeWarningBytes = 800 * 1024 * 1024;
+  const phoneControlsTiltTurn = 1;
+  const phoneControlsTouchTurn = 2;
+  const motionSampleIntervalMs = 1000 / 60;
+  const motionSampleTimeoutMs = 2000;
   const extractionFailureMessage =
     "No game data could be extracted from the files you selected.\n\n" +
     "For a CUE/BIN image you must select the .CUE file AND all of its " +
@@ -40,6 +45,12 @@ var Module = (() => {
   let runtimeReady = false;
   let runtimeStarted = false;
   let phoneModeApplied = false;
+  let motionPermissionState = "not-requested";
+  let motionListening = false;
+  let motionSampleReceived = false;
+  let motionLastSampleMs = Number.NEGATIVE_INFINITY;
+  let motionSampleTimer = 0;
+  let phoneStatusTimer = 0;
   let gateBusy = true;
   let retailFatdataReady = false;
   let pendingImportFiles = null;
@@ -94,6 +105,184 @@ var Module = (() => {
     );
   }
 
+  function updateMotionDiagnostics() {
+    Module["rollerMotionPermission"] = motionPermissionState;
+    Module["rollerMotionListening"] = motionListening;
+    Module["rollerMotionSampleReceived"] = motionSampleReceived;
+  }
+
+  function showPhoneStatus(message) {
+    if (phoneStatusTimer) {
+      clearTimeout(phoneStatusTimer);
+      phoneStatusTimer = 0;
+    }
+    phoneStatus.textContent = message;
+    phoneStatus.hidden = false;
+    if (!runtimeStarted)
+      status.textContent = message;
+    phoneStatusTimer = setTimeout(() => {
+      phoneStatus.hidden = true;
+      phoneStatusTimer = 0;
+    }, 5000);
+  }
+
+  function phoneControlsScheme() {
+    if (typeof Module["_ROLLERWebGetPhoneControls"] !== "function")
+      return phoneControlsTiltTurn;
+    return Module["_ROLLERWebGetPhoneControls"]();
+  }
+
+  function clearMotionSampleTimer() {
+    if (motionSampleTimer) {
+      clearTimeout(motionSampleTimer);
+      motionSampleTimer = 0;
+    }
+  }
+
+  function setWebAccel(fX, fY, fZ) {
+    if (typeof Module["_ROLLERWebSetAccel"] === "function")
+      Module["_ROLLERWebSetAccel"](fX, fY, fZ);
+  }
+
+  function handleDeviceMotion(event) {
+    if (!motionListening || document.hidden)
+      return;
+
+    const accel = event.accelerationIncludingGravity;
+    const fX = Number(accel?.x);
+    const fY = Number(accel?.y);
+    const fZ = Number(accel?.z);
+    if (!Number.isFinite(fX) || !Number.isFinite(fY) || !Number.isFinite(fZ))
+      return;
+
+    const now = performance.now();
+    if (now - motionLastSampleMs < motionSampleIntervalMs)
+      return;
+    motionLastSampleMs = now;
+
+    // DeviceMotion and SDL's Android accelerometer both use device-relative
+    // X-right, Y-top, Z-out axes. The shared C path applies the portrait or
+    // landscape orientation sign/swap before calculating steering.
+    setWebAccel(fX, fY, fZ);
+    motionSampleReceived = true;
+    Module["rollerMotionLastAccel"] = [fX, fY, fZ];
+    clearMotionSampleTimer();
+    updateMotionDiagnostics();
+  }
+
+  function stopPhoneMotionSubscription() {
+    if (motionListening) {
+      window.removeEventListener("devicemotion", handleDeviceMotion);
+      motionListening = false;
+    }
+    clearMotionSampleTimer();
+    motionSampleReceived = false;
+    motionLastSampleMs = Number.NEGATIVE_INFINITY;
+    if (phoneModeDecision.active)
+      setWebAccel(0.0, 0.0, 0.0);
+    updateMotionDiagnostics();
+  }
+
+  function useTouchSteeringFallback(message, state) {
+    stopPhoneMotionSubscription();
+    motionPermissionState = state;
+    if (typeof Module["_ROLLERWebSetPhoneControls"] === "function")
+      Module["_ROLLERWebSetPhoneControls"](phoneControlsTouchTurn);
+    Module["rollerMotionFallback"] = true;
+    showPhoneStatus(message);
+    updateMotionDiagnostics();
+  }
+
+  function scheduleMotionSampleTimeout() {
+    clearMotionSampleTimer();
+    if (!motionListening || motionSampleReceived)
+      return;
+
+    motionSampleTimer = setTimeout(() => {
+      motionSampleTimer = 0;
+      if (document.hidden || phoneControlsScheme() !== phoneControlsTiltTurn)
+        return;
+      useTouchSteeringFallback(
+        "Motion data is unavailable; using touch steering.",
+        "unavailable"
+      );
+    }, motionSampleTimeoutMs);
+  }
+
+  function startPhoneMotionSubscription() {
+    if (!phoneModeDecision.active || motionPermissionState !== "granted" ||
+        document.hidden || phoneControlsScheme() !== phoneControlsTiltTurn) {
+      return;
+    }
+    if (!motionListening) {
+      window.addEventListener("devicemotion", handleDeviceMotion, { passive: true });
+      motionListening = true;
+      motionSampleReceived = false;
+      motionLastSampleMs = Number.NEGATIVE_INFINITY;
+      scheduleMotionSampleTimeout();
+    } else if (!motionSampleReceived) {
+      scheduleMotionSampleTimeout();
+    }
+    updateMotionDiagnostics();
+  }
+
+  function refreshPhoneMotionSubscription() {
+    if (motionPermissionState === "granted" &&
+        phoneControlsScheme() === phoneControlsTiltTurn) {
+      startPhoneMotionSubscription();
+    } else {
+      stopPhoneMotionSubscription();
+    }
+  }
+
+  async function requestPhoneMotionFromGesture() {
+    if (!phoneModeDecision.active) {
+      motionPermissionState = "not-applicable";
+      updateMotionDiagnostics();
+      return;
+    }
+    if (phoneControlsScheme() !== phoneControlsTiltTurn) {
+      updateMotionDiagnostics();
+      return;
+    }
+    if (!("DeviceMotionEvent" in window)) {
+      useTouchSteeringFallback(
+        "Motion controls are unavailable; using touch steering.",
+        "unavailable"
+      );
+      return;
+    }
+
+    const requestPermission = window.DeviceMotionEvent?.requestPermission;
+    if (typeof requestPermission === "function") {
+      motionPermissionState = "requesting";
+      status.textContent = "Requesting tilt steering permission...";
+      updateMotionDiagnostics();
+      try {
+        const result = await requestPermission.call(window.DeviceMotionEvent);
+        if (result !== "granted") {
+          useTouchSteeringFallback(
+            "Tilt permission was denied; using touch steering.",
+            "denied"
+          );
+          return;
+        }
+      } catch (error) {
+        console.warn("ROLLER: motion permission request failed", error);
+        useTouchSteeringFallback(
+          "Tilt permission could not be granted; using touch steering.",
+          "error"
+        );
+        return;
+      }
+    }
+
+    motionPermissionState = "granted";
+    Module["rollerMotionFallback"] = false;
+    updateMotionDiagnostics();
+    startPhoneMotionSubscription();
+  }
+
   function focusCanvas() {
     if (document.visibilityState === "visible" && document.activeElement !== canvas) {
       canvas.focus({ preventScroll: true });
@@ -132,19 +321,22 @@ var Module = (() => {
     cancelImportButton.disabled = busy || !runtimeReady;
   }
 
-  function startRuntime() {
+  async function startRuntime() {
     if (!runtimeReady || runtimeStarted || gateBusy) {
       return;
     }
 
     setGateBusy(true);
-    runtimeStarted = true;
-    startGate.hidden = true;
-    focusCanvas();
     try {
       applyPhoneMode();
+      await requestPhoneMotionFromGesture();
+      runtimeStarted = true;
+      startGate.hidden = true;
+      focusCanvas();
+      setTimeout(refreshPhoneMotionSubscription, 0);
       Module.callMain(["--no-crash-handler"]);
     } catch (error) {
+      stopPhoneMotionSubscription();
       runtimeStarted = false;
       startGate.hidden = false;
       failStartup(error);
@@ -152,6 +344,7 @@ var Module = (() => {
   }
 
   function failStartup(error) {
+    stopPhoneMotionSubscription();
     const message = error instanceof Error ? error.message : String(error);
     runtimeReady = false;
     gateTitle.textContent = "ROLLER could not start";
@@ -633,7 +826,7 @@ var Module = (() => {
     });
   }
 
-  playButton.addEventListener("click", startRuntime);
+  playButton.addEventListener("click", () => void startRuntime());
   importButton.addEventListener("click", openCdImagePicker);
   reimportButton.addEventListener("click", openCdImagePicker);
   resetDemoButton.addEventListener("click", () => void resetToDemo());
@@ -667,7 +860,10 @@ var Module = (() => {
     }
   });
   document.addEventListener("visibilitychange", () => {
-    if (runtimeStarted) {
+    if (document.hidden) {
+      stopPhoneMotionSubscription();
+    } else if (runtimeStarted) {
+      refreshPhoneMotionSubscription();
       focusCanvas();
     }
   });
@@ -689,11 +885,16 @@ var Module = (() => {
     rollerPhoneModeSource: phoneModeDecision.source,
     rollerPhoneTouchPoints: phoneModeDecision.touchPoints,
     rollerPhoneCoarsePointer: phoneModeDecision.coarsePointer,
+    rollerMotionPermission: motionPermissionState,
+    rollerMotionListening: motionListening,
+    rollerMotionSampleReceived: motionSampleReceived,
+    rollerMotionFallback: false,
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
       try {
         applyPhoneMode();
+        updateMotionDiagnostics();
         if (filesystemPreparationError) {
           throw filesystemPreparationError;
         }
