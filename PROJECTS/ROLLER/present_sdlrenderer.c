@@ -1,4 +1,5 @@
 #include "present_sdlrenderer.h"
+#include "debug_overlay.h"
 #include "roller.h"
 
 //-------------------------------------------------------------------------------------------------
@@ -93,8 +94,35 @@ void ROLLERPresentSDLRendererClear(void)
 
 //-------------------------------------------------------------------------------------------------
 
+SDL_Renderer *ROLLERPresentSDLRendererGetRenderer(void)
+{
+  return s_pRenderer;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERPresentSDLRendererOverlayOnly(DebugOverlay *pOverlay)
+{
+  int iOutputW = 0;
+  int iOutputH = 0;
+
+  if (!s_pRenderer || !pOverlay ||
+      !SDL_GetCurrentRenderOutputSize(s_pRenderer, &iOutputW, &iOutputH) ||
+      iOutputW <= 0 || iOutputH <= 0)
+    return;
+
+  SDL_SetRenderDrawColor(s_pRenderer, 0, 0, 0, 255);
+  SDL_RenderClear(s_pRenderer);
+  debug_overlay_render(pOverlay, NULL, NULL,
+                       (Uint32)iOutputW, (Uint32)iOutputH);
+  SDL_RenderPresent(s_pRenderer);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void ROLLERPresentSDLRendererFrame(const uint8 *pIndexed, const tColor *pPalette,
-                                   int iWidth, int iHeight)
+                                   int iWidth, int iHeight,
+                                   DebugOverlay *pOverlay)
 {
   SDL_Rect rSrcLockRect;
   SDL_FRect rSrcRect;
@@ -139,6 +167,8 @@ void ROLLERPresentSDLRendererFrame(const uint8 *pIndexed, const tColor *pPalette
   SDL_RenderClear(s_pRenderer);
   if (!SDL_RenderTexture(s_pRenderer, s_pTexture, &rSrcRect, &rDstRect))
     SDL_Log("SDL_RenderTexture failed: %s", SDL_GetError());
+  debug_overlay_render(pOverlay, NULL, NULL,
+                       (Uint32)iOutputW, (Uint32)iOutputH);
   SDL_RenderPresent(s_pRenderer);
 }
 
