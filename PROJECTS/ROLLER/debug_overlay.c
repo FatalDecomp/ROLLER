@@ -1001,7 +1001,10 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_WASM)
+    static const char *apszMusic[] = { "MIDI (OPL3)", "CD" };
+    int iMusicSel = (MusicCD != 0) ? 1 : 0;
+#elif defined(IS_ANDROID)
     static const char *apszMusic[] = { "MIDI", "MIDI (OPL3)", "CD" };
     int iMusicSel = (MusicCD != 0) ? 2 : (MusicOPL != 0) ? 1 : 0;
 #else
@@ -1132,6 +1135,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     }
 #endif
 
+#if !defined(IS_WASM)
     nk_layout_row_dynamic(pCtx, DEBUG_SPACING_H, 1);
     nk_spacing(pCtx, 1);
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
@@ -1583,6 +1587,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
     }
+#endif
   }
   nk_end(pCtx);
 }
