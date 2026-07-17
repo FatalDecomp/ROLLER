@@ -1,12 +1,46 @@
 #include "roller.h"
 #include "rollercd.h"
 #include "rollerinput.h"
+#include "roller_web.h"
 #include "phone_ui.h"
+#include "frontend.h"
+#include "replay.h"
 #include "sound.h"
 
 #include <SDL3/SDL.h>
 #include <emscripten/emscripten.h>
 #include <string.h>
+
+EM_JS(int, ROLLERWebShowTextDialogJS,
+      (int iTarget, const char *szCurrentValue), {
+  const showDialog = Module["rollerShowTextDialog"];
+  if (typeof showDialog !== "function")
+    return 0;
+
+  return showDialog(iTarget, UTF8ToString(szCurrentValue)) ? 1 : 0;
+});
+
+int ROLLERWebShowTextDialog(eROLLERWebTextDialog eTarget,
+                            const char *szCurrentValue)
+{
+  if (eTarget <= ROLLER_WEB_TEXT_DIALOG_NONE ||
+      eTarget > ROLLER_WEB_TEXT_DIALOG_REPLAY || !szCurrentValue)
+    return 0;
+
+  return ROLLERWebShowTextDialogJS((int)eTarget, szCurrentValue);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+void ROLLERWebTextDialogComplete(int iTarget, const char *szValue, int iAccepted)
+{
+  if (iTarget == (int)ROLLER_WEB_TEXT_DIALOG_NAME) {
+    frontend_config_web_name_entry_complete(szValue, iAccepted);
+  } else if (iTarget == (int)ROLLER_WEB_TEXT_DIALOG_REPLAY) {
+    replay_web_name_entry_complete(szValue, iAccepted);
+  }
+}
 
 EMSCRIPTEN_KEEPALIVE
 void ROLLERWebSetPhoneMode(int iPhoneMode)

@@ -165,6 +165,9 @@ void displaypaneltime(int iTime, int iX, int iY, int iScreenWidth);
 void discmenu();
 void replay_control_panel_update_mouse_state(void);
 int replay_control_panel_mouse_held_icon(void);
+#if defined(IS_WASM)
+void replay_web_name_entry_complete(const char *szValue, int iAccepted);
+#endif
 void initsoundlag(uint32 uiTicks);
 void resetsmoke();
 

@@ -10,6 +10,11 @@ var Module = (() => {
   const status = document.getElementById("status");
   const phoneStatus = document.getElementById("phone-status");
   const fullscreenButton = document.getElementById("fullscreen-button");
+  const textDialog = document.getElementById("text-dialog");
+  const textDialogTitle = document.getElementById("text-dialog-title");
+  const textDialogInput = document.getElementById("text-dialog-input");
+  const textDialogHelp = document.getElementById("text-dialog-help");
+  const textDialogCancel = document.getElementById("text-dialog-cancel");
   const progress = document.getElementById("loading-progress");
   const gateActions = document.getElementById("gate-actions");
   const playButton = document.getElementById("play-button");
@@ -34,6 +39,8 @@ var Module = (() => {
   const importSizeWarningBytes = 800 * 1024 * 1024;
   const phoneControlsTiltTurn = 1;
   const phoneControlsTouchTurn = 2;
+  const textDialogTargetName = 1;
+  const textDialogTargetReplay = 2;
   const motionSampleIntervalMs = 1000 / 60;
   const motionSampleTimeoutMs = 2000;
   const extractionFailureMessage =
@@ -45,6 +52,7 @@ var Module = (() => {
   const phoneModeDecision = detectPhoneMode();
   let runtimeReady = false;
   let runtimeStarted = false;
+  let activeTextDialogTarget = 0;
   let phoneModeApplied = false;
   let motionPermissionState = "not-requested";
   let motionListening = false;
@@ -297,6 +305,102 @@ var Module = (() => {
     startPhoneMotionSubscription();
   }
 
+  function sanitizeTextDialogValue(value, target) {
+    const allowSpaces = target === textDialogTargetName;
+    let sanitized = "";
+
+    for (const original of String(value ?? "")) {
+      let ch = original;
+      if (ch >= "a" && ch <= "z")
+        ch = ch.toUpperCase();
+      if ((ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") ||
+          (allowSpaces && ch === " ")) {
+        sanitized += ch;
+        if (sanitized.length === 8)
+          break;
+      }
+    }
+
+    return sanitized;
+  }
+
+  function filterTextDialogInput() {
+    if (!activeTextDialogTarget)
+      return;
+
+    const value = textDialogInput.value;
+    const selection = textDialogInput.selectionStart ?? value.length;
+    const sanitized = sanitizeTextDialogValue(value, activeTextDialogTarget);
+    if (sanitized === value)
+      return;
+
+    const filteredSelection = sanitizeTextDialogValue(
+      value.slice(0, selection), activeTextDialogTarget
+    ).length;
+    textDialogInput.value = sanitized;
+    textDialogInput.setSelectionRange(filteredSelection, filteredSelection);
+  }
+
+  function showTextDialog(target, currentValue) {
+    if (!phoneModeDecision.active || !runtimeStarted || activeTextDialogTarget ||
+        (target !== textDialogTargetName && target !== textDialogTargetReplay)) {
+      return false;
+    }
+
+    activeTextDialogTarget = target;
+    textDialogTitle.textContent = target === textDialogTargetName
+      ? "ENTER NAME"
+      : "SAVE REPLAY";
+    textDialogHelp.textContent = target === textDialogTargetName
+      ? "Letters, digits, and spaces; 8 characters maximum"
+      : "Letters and digits; 8 characters maximum";
+    textDialogInput.value = sanitizeTextDialogValue(currentValue, target);
+    textDialog.hidden = false;
+    Module["rollerTextDialogActive"] = true;
+    Module["rollerTextDialogTarget"] = target;
+    updateFullscreenUI();
+
+    const virtualKeyboard = navigator.virtualKeyboard;
+    if (virtualKeyboard && typeof virtualKeyboard.show === "function")
+      textDialogInput.virtualKeyboardPolicy = "manual";
+    try {
+      textDialogInput.focus({ preventScroll: true });
+    } catch (error) {
+      textDialogInput.focus();
+    }
+    const end = textDialogInput.value.length;
+    textDialogInput.setSelectionRange(end, end);
+    virtualKeyboard?.show?.();
+    return true;
+  }
+
+  function completeTextDialog(accepted) {
+    if (!activeTextDialogTarget)
+      return;
+
+    const target = activeTextDialogTarget;
+    const value = accepted
+      ? sanitizeTextDialogValue(textDialogInput.value, target)
+      : "";
+    activeTextDialogTarget = 0;
+    textDialog.hidden = true;
+    navigator.virtualKeyboard?.hide?.();
+    textDialogInput.blur();
+    Module["rollerTextDialogActive"] = false;
+    Module["rollerTextDialogTarget"] = 0;
+
+    Module.ccall(
+      "ROLLERWebTextDialogComplete",
+      null,
+      ["number", "string", "number"],
+      [target, value, accepted ? 1 : 0]
+    );
+    updateFullscreenUI();
+    // Wait until the input's Done/Enter event has fully unwound so its keyup
+    // cannot be delivered to SDL after focus returns to the canvas.
+    requestAnimationFrame(focusCanvas);
+  }
+
   function moduleDiagnosticsAvailable() {
     return typeof Module === "object" && Module !== null;
   }
@@ -474,7 +578,7 @@ var Module = (() => {
     const supported = fullscreenSupported();
     const active = activeFullscreenElement() === gameFrame;
     fullscreenButton.hidden = !phoneModeDecision.active || !runtimeStarted ||
-                              !supported || active;
+                              !supported || active || !!activeTextDialogTarget;
     fullscreenButton.textContent = "FULLSCREEN";
     fullscreenButton.setAttribute("aria-label", "Enter fullscreen");
     if (active)
@@ -523,7 +627,8 @@ var Module = (() => {
   }
 
   function focusCanvas() {
-    if (document.visibilityState === "visible" && document.activeElement !== canvas) {
+    if (!activeTextDialogTarget && document.visibilityState === "visible" &&
+        document.activeElement !== canvas) {
       canvas.focus({ preventScroll: true });
     }
   }
@@ -1077,6 +1182,19 @@ var Module = (() => {
   continueImportButton.addEventListener("click", continueLargeImport);
   cancelImportButton.addEventListener("click", cancelLargeImport);
   fullscreenButton.addEventListener("click", () => void toggleFullscreenFromGesture());
+  textDialogInput.addEventListener("input", filterTextDialogInput);
+  textDialog.addEventListener("submit", (event) => {
+    event.preventDefault();
+    completeTextDialog(true);
+  });
+  textDialogCancel.addEventListener("click", () => completeTextDialog(false));
+  textDialog.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      completeTextDialog(false);
+    }
+  });
 
   // SDL's Emscripten keyboard target is #canvas. Keep it focused when mouse
   // input returns to the game or the browser tab/window becomes active again.
@@ -1140,6 +1258,9 @@ var Module = (() => {
     if (event.code === "Space" && event.target?.tagName === "BUTTON") {
       return;
     }
+    if (event.target?.tagName === "INPUT" || event.target?.tagName === "TEXTAREA") {
+      return;
+    }
     if (scrollKeys.has(event.key) || event.code === "Space") {
       event.preventDefault();
     }
@@ -1161,6 +1282,9 @@ var Module = (() => {
     rollerFullscreenSupported: fullscreenSupported(),
     rollerFullscreenActive: false,
     rollerFullscreenLayout: null,
+    rollerTextDialogActive: false,
+    rollerTextDialogTarget: 0,
+    rollerShowTextDialog: showTextDialog,
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {

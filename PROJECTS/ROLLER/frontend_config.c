@@ -19,6 +19,10 @@
 #include "menu_render.h"
 #include "snapshot.h"
 #include "rollerinput.h"
+#include "phone_ui.h"
+#if defined(IS_WASM)
+#include "roller_web.h"
+#endif
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -209,7 +213,7 @@ static void frontend_config_android_name_dialog_unlock(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static int frontend_config_android_name_dialog_active(void)
+static int frontend_config_name_dialog_active(void)
 {
   int iActive;
 
@@ -222,7 +226,7 @@ static int frontend_config_android_name_dialog_active(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_config_android_clear_name_dialog_state(void)
+static void frontend_config_clear_name_dialog_state(void)
 {
   frontend_config_android_name_dialog_lock();
   iFrontendConfigAndroidNameDialogActive = 0;
@@ -234,7 +238,7 @@ static void frontend_config_android_clear_name_dialog_state(void)
 
 //-------------------------------------------------------------------------------------------------
 
-static int frontend_config_android_show_name_dialog(void)
+static int frontend_config_show_name_dialog(void)
 {
   JNIEnv *pEnv;
   jobject activity;
@@ -291,7 +295,7 @@ cleanup_activity:
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_config_android_poll_name_dialog(void)
+static void frontend_config_poll_name_dialog(void)
 {
   int iPending;
   int iAccepted;
@@ -353,22 +357,86 @@ Java_racing_fatal_roller_RollerActivity_nativeNameEntryComplete(
   iFrontendConfigAndroidNameDialogPending = 1;
   frontend_config_android_name_dialog_unlock();
 }
+#elif defined(IS_WASM)
+static int s_iFrontendConfigWebNameDialogActive;
+static int s_iFrontendConfigWebNameDialogPending;
+static int s_iFrontendConfigWebNameDialogAccepted;
+static char s_szFrontendConfigWebNameDialogValue[9];
+
+static int frontend_config_name_dialog_active(void)
+{
+  return s_iFrontendConfigWebNameDialogActive;
+}
+
+static void frontend_config_clear_name_dialog_state(void)
+{
+  s_iFrontendConfigWebNameDialogActive = 0;
+  s_iFrontendConfigWebNameDialogPending = 0;
+  s_iFrontendConfigWebNameDialogAccepted = 0;
+  s_szFrontendConfigWebNameDialogValue[0] = 0;
+}
+
+static int frontend_config_show_name_dialog(void)
+{
+  if (!ROLLERPhoneUIActive())
+    return 0;
+
+  s_iFrontendConfigWebNameDialogActive = 1;
+  s_iFrontendConfigWebNameDialogPending = 0;
+  s_iFrontendConfigWebNameDialogAccepted = 0;
+  if (!ROLLERWebShowTextDialog(ROLLER_WEB_TEXT_DIALOG_NAME,
+                               szFrontendConfigNewNameBuf)) {
+    s_iFrontendConfigWebNameDialogActive = 0;
+    return 0;
+  }
+
+  return 1;
+}
+
+static void frontend_config_poll_name_dialog(void)
+{
+  if (!s_iFrontendConfigWebNameDialogPending)
+    return;
+
+  s_iFrontendConfigWebNameDialogPending = 0;
+  s_iFrontendConfigWebNameDialogActive = 0;
+  frontend_mouse_cancel_click();
+
+  if (!iFrontendConfigEditingName)
+    return;
+
+  if (s_iFrontendConfigWebNameDialogAccepted) {
+    frontend_config_set_name_edit_text(s_szFrontendConfigWebNameDialogValue);
+    frontend_config_commit_name_edit();
+  } else {
+    iFrontendConfigEditingName = 0;
+  }
+}
+
+void frontend_config_web_name_entry_complete(const char *szValue, int iAccepted)
+{
+  frontend_config_copy_sanitized_name(
+      s_szFrontendConfigWebNameDialogValue,
+      sizeof(s_szFrontendConfigWebNameDialogValue), szValue);
+  s_iFrontendConfigWebNameDialogAccepted = iAccepted ? 1 : 0;
+  s_iFrontendConfigWebNameDialogPending = 1;
+}
 #else
-static int frontend_config_android_name_dialog_active(void)
+static int frontend_config_name_dialog_active(void)
 {
   return 0;
 }
 
-static void frontend_config_android_clear_name_dialog_state(void)
+static void frontend_config_clear_name_dialog_state(void)
 {
 }
 
-static int frontend_config_android_show_name_dialog(void)
+static int frontend_config_show_name_dialog(void)
 {
   return 0;
 }
 
-static void frontend_config_android_poll_name_dialog(void)
+static void frontend_config_poll_name_dialog(void)
 {
 }
 #endif
@@ -388,7 +456,7 @@ static void frontend_config_start_name_edit(void)
 
   frontend_config_load_name_edit_text();
 
-  if (frontend_config_android_show_name_dialog())
+  if (frontend_config_show_name_dialog())
     frontend_mouse_cancel_click();
 }
 
@@ -595,7 +663,7 @@ void frontend_config_enter(void)
   iFrontendConfigState = 0;
   iFrontendConfigBroadcastWaitAction = FRONTEND_CONFIG_BROADCAST_WAIT_NONE;
   iFrontendConfigExitHovered = 0;
-  frontend_config_android_clear_name_dialog_state();
+  frontend_config_clear_name_dialog_state();
   frontend_config_clear_last_controller_name();
   {
     extern tColor palette[];
@@ -936,7 +1004,7 @@ static void frontend_config_handle_mouse(void)
   int iSubItem;
   int iWheelY;
 
-  if (frontend_config_android_name_dialog_active()) {
+  if (frontend_config_name_dialog_active()) {
     frontend_mouse_take_wheel_y();
     (void)frontend_mouse_take_hovered_id();
     (void)frontend_mouse_consume_click_anywhere();
@@ -1256,7 +1324,7 @@ void frontend_config_update(void)
   int iTuneY;
   int iTuneColor;
 
-  frontend_config_android_poll_name_dialog();
+  frontend_config_poll_name_dialog();
 
   if (select_messages_active()) {
     select_messages();
@@ -2090,7 +2158,7 @@ void frontend_config_update(void)
 
         // Process keyboard input when not editing controls
         if (!iFrontendConfigControlsInEdit &&
-            !frontend_config_android_name_dialog_active()) {
+            !frontend_config_name_dialog_active()) {
           while (fatkbhit()) {
             switch (iFrontendConfigState) {
               case 0:                           // MAIN MENU NAVIGATION

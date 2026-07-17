@@ -112,6 +112,48 @@
       text-align: center;
     }
     .rotate-guidance strong { max-width: 18rem; font-size: 1.15rem; }
+    .text-dialog {
+      position: absolute;
+      z-index: 10;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: calc(1rem + env(safe-area-inset-top))
+               calc(1rem + env(safe-area-inset-right))
+               calc(1rem + env(safe-area-inset-bottom))
+               calc(1rem + env(safe-area-inset-left));
+      background: rgb(0 0 0 / 88%);
+      touch-action: manipulation;
+      -webkit-user-select: auto;
+      user-select: auto;
+    }
+    .text-dialog-panel {
+      display: grid;
+      gap: 0.8rem;
+      width: min(30rem, 100%);
+      border: 1px solid #fff;
+      padding: 1rem;
+      background: #080808;
+      text-align: center;
+    }
+    .text-dialog-title { font-size: 1.25rem; }
+    .text-dialog-help { margin: 0; color: #ccc; font-size: 0.8rem; }
+    .text-dialog-input {
+      width: 100%;
+      border: 1px solid #fff;
+      border-radius: 0;
+      padding: 0.55rem 0.7rem;
+      background: #000;
+      color: #fff;
+      font: bold 1.75rem monospace;
+      text-align: center;
+      text-transform: uppercase;
+      touch-action: manipulation;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .text-dialog-input:focus { outline: 3px solid #fff; outline-offset: 2px; }
+    .text-dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
     @media (orientation: portrait) {
       html[data-roller-phone-mode="true"] .rotate-guidance { display: grid; }
     }
@@ -196,6 +238,20 @@
       <div id="rotate-guidance" class="rotate-guidance" role="status">
         <strong>Rotate your phone to landscape to play.</strong>
       </div>
+      <form id="text-dialog" class="text-dialog" role="dialog" aria-modal="true"
+            aria-labelledby="text-dialog-title" hidden>
+        <div class="text-dialog-panel">
+          <strong id="text-dialog-title" class="text-dialog-title">ENTER NAME</strong>
+          <input id="text-dialog-input" class="text-dialog-input" type="text"
+                 maxlength="8" enterkeyhint="done" autocapitalize="characters"
+                 autocomplete="off" spellcheck="false" aria-describedby="text-dialog-help">
+          <p id="text-dialog-help" class="text-dialog-help">8 characters maximum</p>
+          <div class="text-dialog-actions">
+            <button id="text-dialog-cancel" type="button">CANCEL</button>
+            <button id="text-dialog-ok" type="submit">OK</button>
+          </div>
+        </div>
+      </form>
     </div>
   </main>
   <script src="roller-shell.js"></script>

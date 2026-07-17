@@ -11,6 +11,10 @@
 #include "function.h"
 #include "snapshot.h"
 #include "frontend.h"
+#include "phone_ui.h"
+#if defined(IS_WASM)
+#include "roller_web.h"
+#endif
 #include <string.h>
 #include <errno.h>
 #include <math.h>
@@ -2552,14 +2556,8 @@ static void replay_file_select_scroll(int iRows)
   replay_file_select_copy_current_name();
 }
 
-#ifdef IS_ANDROID
-static int iReplayAndroidNameDialogActive;
-static int iReplayAndroidNameDialogPending;
-static int iReplayAndroidNameDialogAccepted;
-static char szReplayAndroidNameDialogValue[9];
-static SDL_Mutex *pReplayAndroidNameDialogMutex;
-
-static int replay_android_filename_char(int iChar)
+#if defined(IS_ANDROID) || defined(IS_WASM)
+static int replay_filename_char(int iChar)
 {
   if (iChar >= 'a' && iChar <= 'z')
     iChar -= 'a' - 'A';
@@ -2570,9 +2568,8 @@ static int replay_android_filename_char(int iChar)
   return 0;
 }
 
-static void replay_android_copy_sanitized_filename(char *szDest,
-                                                   int iDestLen,
-                                                   const char *szText)
+static void replay_copy_sanitized_filename(char *szDest, int iDestLen,
+                                           const char *szText)
 {
   int iNameChar;
   int iOutChar = 0;
@@ -2584,7 +2581,7 @@ static void replay_android_copy_sanitized_filename(char *szDest,
 
   if (szText) {
     for (; *szText && iOutChar < iDestLen - 1 && iOutChar < 8; ++szText) {
-      iNameChar = replay_android_filename_char((unsigned char)*szText);
+      iNameChar = replay_filename_char((unsigned char)*szText);
       if (!iNameChar)
         continue;
       szDest[iOutChar++] = (char)iNameChar;
@@ -2594,11 +2591,18 @@ static void replay_android_copy_sanitized_filename(char *szDest,
   szDest[iOutChar] = '\0';
 }
 
-static void replay_android_set_selectfilename(const char *szText)
+static void replay_set_selectfilename(const char *szText)
 {
-  replay_android_copy_sanitized_filename(
-      selectfilename, sizeof(selectfilename), szText);
+  replay_copy_sanitized_filename(selectfilename, sizeof(selectfilename), szText);
 }
+#endif
+
+#if defined(IS_ANDROID)
+static int iReplayAndroidNameDialogActive;
+static int iReplayAndroidNameDialogPending;
+static int iReplayAndroidNameDialogAccepted;
+static char szReplayAndroidNameDialogValue[9];
+static SDL_Mutex *pReplayAndroidNameDialogMutex;
 
 static SDL_Mutex *replay_android_name_dialog_mutex(void)
 {
@@ -2622,7 +2626,7 @@ static void replay_android_name_dialog_unlock(void)
     SDL_UnlockMutex(pMutex);
 }
 
-static int replay_android_name_dialog_active(void)
+static int replay_name_dialog_active(void)
 {
   int iActive;
 
@@ -2633,7 +2637,7 @@ static int replay_android_name_dialog_active(void)
   return iActive;
 }
 
-static int replay_android_show_name_dialog(void)
+static int replay_show_name_dialog(void)
 {
   JNIEnv *pEnv;
   jobject activity;
@@ -2689,7 +2693,7 @@ cleanup_activity:
   return iOk;
 }
 
-static void replay_android_poll_name_dialog(void)
+static void replay_poll_name_dialog(void)
 {
   int iPending;
   int iAccepted;
@@ -2713,7 +2717,7 @@ static void replay_android_poll_name_dialog(void)
   frontend_mouse_cancel_click();
 
   if (iAccepted && filingmenu == 2) {
-    replay_android_set_selectfilename(szValue);
+    replay_set_selectfilename(szValue);
     if (selectfilename[0])
       frontend_mouse_press_accept();
   }
@@ -2732,8 +2736,7 @@ Java_racing_fatal_roller_RollerActivity_nativeReplayNameEntryComplete(
   if (jValue)
     szValue = (*pEnv)->GetStringUTFChars(pEnv, jValue, NULL);
 
-  replay_android_copy_sanitized_filename(szSanitized, sizeof(szSanitized),
-                                         szValue);
+  replay_copy_sanitized_filename(szSanitized, sizeof(szSanitized), szValue);
 
   if (jValue && szValue)
     (*pEnv)->ReleaseStringUTFChars(pEnv, jValue, szValue);
@@ -2745,18 +2748,68 @@ Java_racing_fatal_roller_RollerActivity_nativeReplayNameEntryComplete(
   iReplayAndroidNameDialogPending = 1;
   replay_android_name_dialog_unlock();
 }
+#elif defined(IS_WASM)
+static int s_iReplayWebNameDialogActive;
+static int s_iReplayWebNameDialogPending;
+static int s_iReplayWebNameDialogAccepted;
+static char s_szReplayWebNameDialogValue[9];
+
+static int replay_name_dialog_active(void)
+{
+  return s_iReplayWebNameDialogActive;
+}
+
+static int replay_show_name_dialog(void)
+{
+  if (!ROLLERPhoneUIActive())
+    return 0;
+
+  s_iReplayWebNameDialogActive = 1;
+  s_iReplayWebNameDialogPending = 0;
+  s_iReplayWebNameDialogAccepted = 0;
+  if (!ROLLERWebShowTextDialog(ROLLER_WEB_TEXT_DIALOG_REPLAY, selectfilename)) {
+    s_iReplayWebNameDialogActive = 0;
+    return 0;
+  }
+
+  return 1;
+}
+
+static void replay_poll_name_dialog(void)
+{
+  if (!s_iReplayWebNameDialogPending)
+    return;
+
+  s_iReplayWebNameDialogPending = 0;
+  s_iReplayWebNameDialogActive = 0;
+  frontend_mouse_cancel_click();
+
+  if (s_iReplayWebNameDialogAccepted && filingmenu == 2) {
+    replay_set_selectfilename(s_szReplayWebNameDialogValue);
+    if (selectfilename[0])
+      frontend_mouse_press_accept();
+  }
+}
+
+void replay_web_name_entry_complete(const char *szValue, int iAccepted)
+{
+  replay_copy_sanitized_filename(s_szReplayWebNameDialogValue,
+                                 sizeof(s_szReplayWebNameDialogValue), szValue);
+  s_iReplayWebNameDialogAccepted = iAccepted ? 1 : 0;
+  s_iReplayWebNameDialogPending = 1;
+}
 #else
-static int replay_android_name_dialog_active(void)
+static int replay_name_dialog_active(void)
 {
   return 0;
 }
 
-static int replay_android_show_name_dialog(void)
+static int replay_show_name_dialog(void)
 {
   return 0;
 }
 
-static void replay_android_poll_name_dialog(void)
+static void replay_poll_name_dialog(void)
 {
 }
 #endif
@@ -3162,7 +3215,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
   int iLeftEdge; // [esp+34h] [ebp-14h]
   int iBottomEdge; // [esp+38h] [ebp-10h]
 
-  replay_android_poll_name_dialog();
+  replay_poll_name_dialog();
 
   iLeftEdge = iBoxX0;                           // Store left edge coordinate in local variable
   if (filingmenu == 2 || filingmenu == 4)     // Check if in save mode (2) or assemble mode (4) to enable text editing
@@ -3216,7 +3269,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
       szDestPtr += 2;
     } while (byChar2);
   }
-  if (!replay_android_name_dialog_active()) {
+  if (!replay_name_dialog_active()) {
     while (fatkbhit())                          // Main keyboard input processing loop
     {
       byKeyCode = fatgetch();
@@ -3390,7 +3443,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
   {
     int iWheelY = frontend_mouse_take_wheel_y();
 
-    if (!replay_android_name_dialog_active() && iWheelY && filefiles > 0)
+    if (!replay_name_dialog_active() && iWheelY && filefiles > 0)
       replay_file_select_scroll(-iWheelY);
   }
   iRightEdge = iLeftEdge + 20;
@@ -3429,8 +3482,8 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     }
     prt_stringcol(rev_vga[1], selectfilename, iLeftEdge + 20, iTextY + 100, 255);
     selectfilename[uiCursorLen - 1] = 0;
-#if defined(IS_ANDROID)
-    if (filingmenu == 2)
+#if defined(IS_ANDROID) || defined(IS_WASM)
+    if (ROLLERPhoneUIActive() && filingmenu == 2)
       frontend_mouse_register_rect(REPLAY_MOUSE_EDIT_LINE,
                                    replay_mouse_scaled_coord(iLeftEdge + 20),
                                    replay_mouse_scaled_coord(iTextY + 96),
@@ -3468,7 +3521,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
     int iHovered = frontend_mouse_take_hovered_id();
     int iClicked = frontend_mouse_peek_clicked_id();
 
-    if (replay_android_name_dialog_active()) {
+    if (replay_name_dialog_active()) {
       (void)frontend_mouse_consume_click_anywhere();
     } else {
       if (iHovered >= REPLAY_MOUSE_FILE_BASE &&
@@ -3489,7 +3542,7 @@ void fileselect(int iBoxX0, int iBoxY0, int iBoxX1, int iBoxY1, int iTextX, int 
         } else if (iClicked == REPLAY_MOUSE_SCROLL_DOWN) {
           replay_file_select_scroll(1);
         } else if (iClicked == REPLAY_MOUSE_EDIT_LINE && filingmenu == 2) {
-          if (replay_android_show_name_dialog())
+          if (replay_show_name_dialog())
             frontend_mouse_cancel_click();
         }
       }

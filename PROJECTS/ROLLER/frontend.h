@@ -139,6 +139,9 @@ void frontend_config_enter(void);
 void frontend_config_update(void);
 void frontend_config_exit(void);
 int frontend_config_axis_tune_active(void);
+#if defined(IS_WASM)
+void frontend_config_web_name_entry_complete(const char *szValue, int iAccepted);
+#endif
 void frontend_players_select_enter(void);
 void frontend_players_select_update(void);
 void frontend_players_select_exit(void);
