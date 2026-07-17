@@ -1210,6 +1210,41 @@ cleanup:
 
 //-------------------------------------------------------------------------------------------------
 
+static void AndroidSetExtractionProgressVisible(bool bVisible)
+{
+  JNIEnv *pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
+  jobject activity = NULL;
+  jclass activityClass = NULL;
+
+  if (!pEnv)
+    return;
+
+  activity = (jobject)SDL_GetAndroidActivity();
+  if (!activity)
+    return;
+
+  activityClass = (*pEnv)->GetObjectClass(pEnv, activity);
+  if (activityClass) {
+    jmethodID setVisible = (*pEnv)->GetMethodID(
+        pEnv, activityClass, "setExtractionProgressVisible", "(Z)V");
+    if (setVisible) {
+      (*pEnv)->CallVoidMethod(pEnv, activity, setVisible,
+                              bVisible ? JNI_TRUE : JNI_FALSE);
+    }
+
+    if ((*pEnv)->ExceptionCheck(pEnv)) {
+      (*pEnv)->ExceptionDescribe(pEnv);
+      (*pEnv)->ExceptionClear(pEnv);
+    }
+  }
+
+  if (activityClass)
+    (*pEnv)->DeleteLocalRef(pEnv, activityClass);
+  (*pEnv)->DeleteLocalRef(pEnv, activity);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static bool AndroidPathEndsWithIgnoreCase(const char *szPath, const char *szExt)
 {
   size_t nPath = strlen(szPath);
@@ -1426,6 +1461,7 @@ void InitFATDATA(const char *szDataRoot)
       if (!result.bCancelled && result.iNumPaths > 0) {
         bSelectedFiles = true;
         char szStagedEntry[ROLLER_MAX_PATH];
+        AndroidSetExtractionProgressVisible(true);
         if (AndroidStageCdImageSelection(&result, szDataRoot, szStagedEntry,
                                          sizeof(szStagedEntry))) {
           ROLLERRefreshStartupOverlay();
@@ -1435,6 +1471,7 @@ void InitFATDATA(const char *szDataRoot)
           if (bImported)
             s_bAndroidDefaultConfigPending = true;
         }
+        AndroidSetExtractionProgressVisible(false);
       }
     }
 

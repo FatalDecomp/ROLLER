@@ -29,6 +29,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import org.libsdl.app.SDLActivity;
@@ -46,6 +47,7 @@ public class RollerActivity extends SDLActivity {
     private static final int NAME_ENTRY_TARGET_REPLAY = 2;
     private Dialog nameEntryDialog;
     private int nameEntryDialogTarget;
+    private Dialog extractionProgressDialog;
 
     private static native void nativeNameEntryComplete(String value, boolean accepted);
     private static native void nativeReplayNameEntryComplete(String value, boolean accepted);
@@ -105,6 +107,87 @@ public class RollerActivity extends SDLActivity {
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                             | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         }
+    }
+
+    public void setExtractionProgressVisible(boolean visible) {
+        runOnUiThread(() -> {
+            if (visible) {
+                showExtractionProgressOnUiThread();
+            } else {
+                hideExtractionProgressOnUiThread();
+            }
+        });
+    }
+
+    private void showExtractionProgressOnUiThread() {
+        if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
+                && isDestroyed())) {
+            return;
+        }
+
+        if (extractionProgressDialog != null) {
+            extractionProgressDialog.dismiss();
+        }
+
+        Dialog dialog = new Dialog(this);
+        extractionProgressDialog = dialog;
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER);
+        root.setPadding(dp(40), dp(40), dp(40), dp(40));
+        root.setBackgroundColor(Color.BLACK);
+
+        ProgressBar progress = new ProgressBar(this);
+        progress.setIndeterminate(true);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                dp(64), dp(64));
+        progressParams.setMargins(0, 0, 0, dp(28));
+        root.addView(progress, progressParams);
+
+        TextView title = new TextView(this);
+        title.setText("EXTRACTING GAME DATA");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView message = new TextView(this);
+        message.setText("Importing the selected CD image.\nThis may take a minute. Please wait.");
+        message.setTextColor(Color.LTGRAY);
+        message.setTextSize(16.0f);
+        message.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        messageParams.setMargins(0, dp(16), 0, 0);
+        root.addView(message, messageParams);
+
+        dialog.setContentView(root);
+        dialog.show();
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.BLACK));
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+        enterFullscreen();
+    }
+
+    private void hideExtractionProgressOnUiThread() {
+        if (extractionProgressDialog != null) {
+            extractionProgressDialog.dismiss();
+            extractionProgressDialog = null;
+        }
+        enterFullscreen();
     }
 
     public void showNameEntryDialog(String currentName) {
