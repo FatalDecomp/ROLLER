@@ -17,7 +17,7 @@ This project aims to implement all the functionality of the 1995 game Whiplash/F
 
 **[Play ROLLER in your browser][web-url]** with the bundled freeware demo, or import an image of a legally owned retail disc for the full game. No install is required.
 
-Native installations require assets from a retail copy of the game. Download the latest native version from the [releases](https://github.com/FatalDecomp/ROLLER/releases) page and extract it wherever you want. On initial launch, select a CD image (CUE/BIN or ISO) to extract the assets. Press the ` key to access additional settings and the debug log.
+Native installations require assets from a retail copy of the game. Download the latest native version from the [releases](https://github.com/FatalDecomp/ROLLER/releases) page and extract it wherever you want. On initial launch, select a CD image (CUE/BIN or ISO) to extract the assets. Press the ` key to access additional settings.
 
 ## About
 
