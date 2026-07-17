@@ -39,28 +39,19 @@
 #define OVERLAY_BPP      4    // RGBA
 #define OVERLAY_ASPECT   ((float)OVERLAY_W / (float)OVERLAY_H)
 
-#define MAX_LOG_MESSAGES 512
-#define MAX_LOG_LEN      256
-
-#define OVERLAY_FONT_SIZE 24.0f
+#define OVERLAY_FONT_SIZE 28.0f
 #define PANEL_MARGIN     10
-#define DEBUG_ROW_H      30
+#define DEBUG_ROW_H      34
 #define COMBO_ITEM_H     (DEBUG_ROW_H + 4)
 #define COMBO_W          190
-#define DEBUG_SPACING_H  12
 #define HINT_H           42
 #define PANEL_Y          (PANEL_MARGIN + HINT_H + PANEL_MARGIN)
 #define PANEL_H          (OVERLAY_H - PANEL_Y - PANEL_MARGIN)
-#define LEFT_W           410
-#define RIGHT_X          (PANEL_MARGIN + LEFT_W + PANEL_MARGIN)
-#define RIGHT_W          (OVERLAY_W - RIGHT_X - PANEL_MARGIN)
-#define LOG_ROW_H        DEBUG_ROW_H
+#define PANEL_FULL_W      (OVERLAY_W - PANEL_MARGIN * 2)
+#define PANEL_COLUMN_W    ((OVERLAY_W - PANEL_MARGIN * 3) / 2)
+#define GRAPHICS_PANEL_X  (PANEL_MARGIN * 2 + PANEL_COLUMN_W)
 #define TOUCH_GESTURE_THRESHOLD 24.0f
 #define TOUCH_SCROLL_PIXELS_PER_STEP 72.0f
-
-typedef struct {
-  char szText[MAX_LOG_LEN];
-} tLogEntry;
 
 struct DebugOverlay {
 #if defined(IS_WASM)
@@ -85,16 +76,6 @@ struct DebugOverlay {
   SDL_GPUSampler          *pSampler;
 #endif
 
-  // Log ring buffer
-  tLogEntry              aLogEntries[MAX_LOG_MESSAGES];
-  int                    iLogHead;     // index of oldest entry
-  int                    iLogCount;
-  SDL_Mutex             *pLogMutex;
-
-  // Chained SDL log function
-  SDL_LogOutputFunction  pPrevLogFn;
-  void                  *pPrevLogUserdata;
-
 #if !defined(IS_WASM)
   uint32_t               uLastCmdHash; // FNV-1a of Nuklear command buffer; 0 = force rasterize
 #endif
@@ -118,8 +99,6 @@ struct DebugOverlay {
   SDL_FingerID           ullDismissFingerId;
   SDL_MouseID            uiDismissMouseId;
   Uint8                  byDismissMouseButton;
-  bool                   bHideLog;
-
 };
 
 // ---------------------------------------------------------------------------
@@ -175,47 +154,6 @@ void debug_overlay_pick_outline_set(bool active, const float nx[4], const float 
       s_pickOutline.valid[i] = valid[i];
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// Log callback
-// ---------------------------------------------------------------------------
-
-static const char *PriorityPrefix(SDL_LogPriority priority) {
-  switch (priority) {
-  case SDL_LOG_PRIORITY_VERBOSE:  return "[VRB] ";
-  case SDL_LOG_PRIORITY_DEBUG:    return "[DBG] ";
-  case SDL_LOG_PRIORITY_INFO:     return "[INF] ";
-  case SDL_LOG_PRIORITY_WARN:     return "[WRN] ";
-  case SDL_LOG_PRIORITY_ERROR:    return "[ERR] ";
-  case SDL_LOG_PRIORITY_CRITICAL: return "[CRT] ";
-  default:                        return "      ";
-  }
-}
-
-static void LogCallback(void *pUserdata, int iCategory, SDL_LogPriority priority,
-                         const char *pMessage) {
-  DebugOverlay *pOverlay = (DebugOverlay *)pUserdata;
-
-  // Chain to previous handler so console output is preserved
-  if (pOverlay->pPrevLogFn)
-    pOverlay->pPrevLogFn(pOverlay->pPrevLogUserdata, iCategory, priority, pMessage);
-
-  SDL_LockMutex(pOverlay->pLogMutex);
-
-  int iIdx;
-  if (pOverlay->iLogCount < MAX_LOG_MESSAGES) {
-    iIdx = (pOverlay->iLogHead + pOverlay->iLogCount) % MAX_LOG_MESSAGES;
-    pOverlay->iLogCount++;
-  } else {
-    iIdx = pOverlay->iLogHead;
-    pOverlay->iLogHead = (pOverlay->iLogHead + 1) % MAX_LOG_MESSAGES;
-  }
-
-  snprintf(pOverlay->aLogEntries[iIdx].szText, MAX_LOG_LEN,
-           "%s%s", PriorityPrefix(priority), pMessage);
-
-  SDL_UnlockMutex(pOverlay->pLogMutex);
 }
 
 // ---------------------------------------------------------------------------
@@ -529,10 +467,6 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pOverlay->pTransfer = SDL_CreateGPUTransferBuffer(pDevice, &tbi);
 #endif
 
-  pOverlay->pLogMutex = SDL_CreateMutex();
-  SDL_GetLogOutputFunction(&pOverlay->pPrevLogFn, &pOverlay->pPrevLogUserdata);
-  SDL_SetLogOutputFunction(LogCallback, pOverlay);
-
 #if !defined(IS_WASM)
   // Build alpha-blend pipeline for compositing overlay over swapchain
   SDL_GPUShader *pVert = LoadOverlayShader(pDevice, SDL_GPU_SHADERSTAGE_VERTEX,
@@ -584,8 +518,6 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
 
 void debug_overlay_destroy(DebugOverlay *pOverlay) {
   if (!pOverlay) return;
-  SDL_SetLogOutputFunction(pOverlay->pPrevLogFn, pOverlay->pPrevLogUserdata);
-  SDL_DestroyMutex(pOverlay->pLogMutex);
   nk_free(&pOverlay->nk);
   nk_font_atlas_clear(&pOverlay->atlas);
 #if defined(IS_WASM)
@@ -989,7 +921,7 @@ static void DrawHintPanel(DebugOverlay *pOverlay) {
                        OVERLAY_W - PANEL_MARGIN * 2, HINT_H),
                NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
     nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-    nk_label(pCtx, "Debug menu: press ` to toggle", NK_TEXT_LEFT);
+    nk_label(pCtx, "ROLLER menu: press ` to toggle", NK_TEXT_LEFT);
   }
   nk_end(pCtx);
 }
@@ -998,8 +930,13 @@ static void DrawHintPanel(DebugOverlay *pOverlay) {
 
 static void DrawDebugPanel(DebugOverlay *pOverlay) {
   struct nk_context *pCtx = &pOverlay->nk;
-  if (nk_begin(pCtx, "Settings",
-               nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
+#if defined(IS_WASM)
+  int iGeneralW = PANEL_FULL_W;
+#else
+  int iGeneralW = PANEL_COLUMN_W;
+#endif
+  if (nk_begin(pCtx, "General",
+               nk_rect(PANEL_MARGIN, PANEL_Y, iGeneralW, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
 #if defined(IS_WASM)
     static const char *apszMusic[] = { "MIDI (OPL3)", "CD" };
@@ -1134,14 +1071,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
     }
 #endif
+  }
+  nk_end(pCtx);
 
 #if !defined(IS_WASM)
-    nk_layout_row_dynamic(pCtx, DEBUG_SPACING_H, 1);
-    nk_spacing(pCtx, 1);
-    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-    nk_label(pCtx, "Experimental", NK_TEXT_LEFT);
-
-#if !defined(IS_WASM)
+  if (nk_begin(pCtx, "Graphics",
+               nk_rect(GRAPHICS_PANEL_X, PANEL_Y, PANEL_COLUMN_W, PANEL_H),
+               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
     {
       static const char *apszCRTFilterModes[] = { "Off", "VGA", "Hyllian" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
@@ -1153,7 +1089,6 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
     }
-#endif
 
     MenuRenderer *pRenderer = GetMenuRenderer();
     if (pRenderer) {
@@ -1541,11 +1476,6 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
 
-      int bHideLog = pOverlay->bHideLog ? 1 : 0;
-      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
-      if (nk_checkbox_label(pCtx, "Hide log", &bHideLog))
-        pOverlay->bHideLog = bHideLog != 0;
-
       int bReset = 0;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
       if (nk_checkbox_label(pCtx, "Reset graphics", &bReset) && bReset) {
@@ -1587,32 +1517,9 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         InputSaveConfig();
       }
     }
+  }
+  nk_end(pCtx);
 #endif
-  }
-  nk_end(pCtx);
-}
-
-static void DrawLogPanel(DebugOverlay *pOverlay) {
-  struct nk_context *pCtx = &pOverlay->nk;
-
-  if (nk_begin(pCtx, "Log",
-               nk_rect(RIGHT_X, PANEL_Y, RIGHT_W, PANEL_H),
-               NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_dynamic(pCtx, PANEL_H - 50, 1);
-    if (nk_group_begin(pCtx, "log_inner", NK_WINDOW_BORDER)) {
-      nk_layout_row_dynamic(pCtx, LOG_ROW_H, 1);
-      SDL_LockMutex(pOverlay->pLogMutex);
-      int iCount = pOverlay->iLogCount;
-      int iHead  = pOverlay->iLogHead;
-      for (int iI = 0; iI < iCount; iI++) {
-        int iIdx = (iHead + iI) % MAX_LOG_MESSAGES;
-        nk_label(pCtx, pOverlay->aLogEntries[iIdx].szText, NK_TEXT_LEFT);
-      }
-      SDL_UnlockMutex(pOverlay->pLogMutex);
-      nk_group_end(pCtx);
-    }
-  }
-  nk_end(pCtx);
 }
 
 // ---------------------------------------------------------------------------
@@ -1652,8 +1559,6 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   if (pOverlay->bVisible) {
     DrawHintPanel(pOverlay);
     DrawDebugPanel(pOverlay);
-    if (!pOverlay->bHideLog)
-      DrawLogPanel(pOverlay);
   }
 
 #if defined(IS_WASM)
