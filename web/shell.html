@@ -2,16 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <link rel="icon" href="data:,">
   <title>ROLLER</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: #000; color: #fff; }
-    body { display: grid; place-items: center; overflow: hidden; font: 16px monospace; }
-    main { width: min(100vw, 960px); }
-    .game-frame { position: relative; width: 100%; aspect-ratio: 8 / 5; background: #000; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #000;
+      color: #fff;
+      overscroll-behavior: none;
+    }
+    body {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      width: 100%;
+      overflow: hidden;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+      font: 16px monospace;
+    }
+    main { width: min(100%, 960px, 160vh); }
+    @supports (height: 100dvh) {
+      main { width: min(100%, 960px, 160dvh); }
+    }
+    .game-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 8 / 5;
+      background: #000;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
     canvas {
       display: block;
       width: 100%;
@@ -19,6 +47,10 @@
       background: #000;
       image-rendering: pixelated;
       outline: none;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
     .start-gate {
       position: absolute;

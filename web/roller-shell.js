@@ -4,6 +4,7 @@
 // setup extend this gate in E4 and E5 without changing the generated loader.
 var Module = (() => {
   const canvas = document.getElementById("canvas");
+  const gameFrame = document.querySelector(".game-frame");
   const startGate = document.getElementById("start-gate");
   const gateTitle = document.getElementById("gate-title");
   const status = document.getElementById("status");
@@ -35,8 +36,10 @@ var Module = (() => {
     ".BIN/audio files together - selecting only the .CUE or only the .BIN " +
     "will not work, because the other files cannot be read on their own.\n\n" +
     "Please try again and select the .CUE and every file it references.";
+  const phoneModeDecision = detectPhoneMode();
   let runtimeReady = false;
   let runtimeStarted = false;
+  let phoneModeApplied = false;
   let gateBusy = true;
   let retailFatdataReady = false;
   let pendingImportFiles = null;
@@ -48,6 +51,48 @@ var Module = (() => {
     "/demo/fatdata/TRACK5.TRK",
     "/demo/fatdata/WHIPTIT.BM"
   ];
+
+  function detectPhoneMode() {
+    const override = new URLSearchParams(window.location.search).get("phone");
+    if (override === "0" || override === "1") {
+      return {
+        active: override === "1",
+        source: "query",
+        touchPoints: Number(navigator.maxTouchPoints) || 0,
+        coarsePointer: window.matchMedia("(pointer: coarse)").matches
+      };
+    }
+
+    const touchPoints = Number(navigator.maxTouchPoints) || 0;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    return {
+      active: touchPoints > 0 && coarsePointer,
+      source: "capability",
+      touchPoints,
+      coarsePointer
+    };
+  }
+
+  function applyPhoneMode() {
+    if (phoneModeApplied) {
+      return;
+    }
+    if (typeof Module["_ROLLERWebSetPhoneMode"] !== "function") {
+      throw new Error("This browser bundle does not contain phone-mode support.");
+    }
+
+    Module["_ROLLERWebSetPhoneMode"](phoneModeDecision.active ? 1 : 0);
+    Module["rollerPhoneMode"] = phoneModeDecision.active;
+    Module["rollerPhoneModeSource"] = phoneModeDecision.source;
+    Module["rollerPhoneTouchPoints"] = phoneModeDecision.touchPoints;
+    Module["rollerPhoneCoarsePointer"] = phoneModeDecision.coarsePointer;
+    phoneModeApplied = true;
+    console.log(
+      `ROLLER: phone mode ${phoneModeDecision.active ? "enabled" : "disabled"} ` +
+      `(${phoneModeDecision.source}, touch points ${phoneModeDecision.touchPoints}, ` +
+      `coarse pointer ${phoneModeDecision.coarsePointer ? "yes" : "no"})`
+    );
+  }
 
   function focusCanvas() {
     if (document.visibilityState === "visible" && document.activeElement !== canvas) {
@@ -97,6 +142,7 @@ var Module = (() => {
     startGate.hidden = true;
     focusCanvas();
     try {
+      applyPhoneMode();
       Module.callMain(["--no-crash-handler"]);
     } catch (error) {
       runtimeStarted = false;
@@ -604,9 +650,17 @@ var Module = (() => {
       focusCanvas();
     }
   });
-  canvas.addEventListener("contextmenu", (event) => {
+  gameFrame.addEventListener("contextmenu", (event) => {
     event.preventDefault();
   });
+  gameFrame.addEventListener("dragstart", (event) => {
+    event.preventDefault();
+  });
+  for (const eventName of ["gesturestart", "gesturechange", "gestureend"]) {
+    window.addEventListener(eventName, (event) => {
+      event.preventDefault();
+    }, { passive: false });
+  }
   window.addEventListener("focus", () => {
     if (runtimeStarted) {
       focusCanvas();
@@ -631,10 +685,15 @@ var Module = (() => {
 
   return {
     canvas,
+    rollerPhoneMode: phoneModeDecision.active,
+    rollerPhoneModeSource: phoneModeDecision.source,
+    rollerPhoneTouchPoints: phoneModeDecision.touchPoints,
+    rollerPhoneCoarsePointer: phoneModeDecision.coarsePointer,
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
       try {
+        applyPhoneMode();
         if (filesystemPreparationError) {
           throw filesystemPreparationError;
         }
