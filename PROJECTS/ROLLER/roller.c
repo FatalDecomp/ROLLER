@@ -530,7 +530,8 @@ void UpdateSDLWindow()
   if (ROLLERGpuPresentationSuspended()) return;
 
 #if defined(IS_WASM)
-  ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh);
+  ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh,
+                                s_pDebugOverlay);
 #else
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
@@ -614,9 +615,9 @@ void UpdateSDLWindow()
 static void PresentDebugOverlayOnly(void)
 {
 #if defined(IS_WASM)
-  if (!s_pWindow || ROLLERGpuPresentationSuspended())
+  if (!s_pWindow || !s_pDebugOverlay || ROLLERGpuPresentationSuspended())
     return;
-  ROLLERPresentSDLRendererClear();
+  ROLLERPresentSDLRendererOverlayOnly(s_pDebugOverlay);
 #else
   if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
     return;
@@ -840,6 +841,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   }
 
   s_pMenuRenderer = menu_render_create(NULL, s_pWindow);
+  s_pDebugOverlay = debug_overlay_create(NULL, s_pWindow);
+  if (!s_pDebugOverlay)
+    SDL_Log("debug_overlay: failed to create SDL_Renderer backend");
 #else
   s_pGPUDevice = SDL_CreateGPUDevice(
     SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
@@ -1621,6 +1625,8 @@ void ShutdownSDL()
     InputShutdown();
 
 #if defined(IS_WASM)
+    debug_overlay_destroy(s_pDebugOverlay);
+    s_pDebugOverlay = NULL;
     menu_render_destroy(s_pMenuRenderer);
     s_pMenuRenderer = NULL;
     ROLLERPresentSDLRendererShutdown();

@@ -129,7 +129,8 @@ pub fn build(b: *std.Build) void {
             .flags = c_flags,
             .files = &.{
                 "PROJECTS/ROLLER/crashdump_stub.c",
-                "PROJECTS/ROLLER/debug_overlay_stub.c",
+                "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/nuklear_sdl_renderer.c",
                 "PROJECTS/ROLLER/present_sdlrenderer.c",
                 "PROJECTS/ROLLER/rollercomms_stub.c",
                 "PROJECTS/ROLLER/web_default_config.c",

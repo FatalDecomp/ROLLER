@@ -1,6 +1,12 @@
 #include "debug_overlay.h"
+#include "types.h"
+#if defined(IS_WASM)
+#include "nuklear_sdl_renderer.h"
+#include "present_sdlrenderer.h"
+#else
 #include "debug_overlay_shaders.h"
 #include "crt_filter.h"
+#endif
 #include "frontend.h"
 #include "roller.h"
 #include "rollerinput.h"
@@ -21,6 +27,7 @@
 #define NK_INCLUDE_DEFAULT_ALLOCATOR
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
 #define NK_ZERO_COMMAND_MEMORY
 #define NK_IMPLEMENTATION
 #include "nuklear.h"
@@ -56,12 +63,17 @@ typedef struct {
 } tLogEntry;
 
 struct DebugOverlay {
+#if defined(IS_WASM)
+  NuklearSDLRenderer    *pSDLRenderer;
+#else
   SDL_GPUDevice         *pDevice;
+#endif
   SDL_Window            *pWindow;
   bool                   bVisible;
 
   struct nk_context      nk;
   struct nk_font_atlas   atlas;
+#if !defined(IS_WASM)
   int                    iAtlasW;
   int                    iAtlasH;
   uint8_t               *pAtlasPixels; // owned RGBA copy
@@ -71,6 +83,7 @@ struct DebugOverlay {
   SDL_GPUTransferBuffer *pTransfer;
   SDL_GPUGraphicsPipeline *pPipeline;
   SDL_GPUSampler          *pSampler;
+#endif
 
   // Log ring buffer
   tLogEntry              aLogEntries[MAX_LOG_MESSAGES];
@@ -82,7 +95,9 @@ struct DebugOverlay {
   SDL_LogOutputFunction  pPrevLogFn;
   void                  *pPrevLogUserdata;
 
+#if !defined(IS_WASM)
   uint32_t               uLastCmdHash; // FNV-1a of Nuklear command buffer; 0 = force rasterize
+#endif
 
   bool                   bInputBegun;
   bool                   bTouchActive;
@@ -207,6 +222,7 @@ static void LogCallback(void *pUserdata, int iCategory, SDL_LogPriority priority
 // Software rasterizer helpers
 // ---------------------------------------------------------------------------
 
+#if !defined(IS_WASM)
 static void OverlayFillRect(uint8_t *pBuf, int iBx, int iBy, int iBw, int iBh,
                      struct nk_color c) {
   for (int iY = iBy; iY < iBy + iBh; iY++) {
@@ -398,11 +414,13 @@ static void UploadAndBlit(DebugOverlay *pOverlay, SDL_GPUCommandBuffer *pCmdBuf)
   SDL_UploadToGPUTexture(pCp, &src, &dst, false);
   SDL_EndGPUCopyPass(pCp);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+#if !defined(IS_WASM)
 static SDL_GPUShader *LoadOverlayShader(SDL_GPUDevice *pDevice, SDL_GPUShaderStage stage,
     const unsigned char *pSpirv, unsigned int uiSpirvSize,
     const unsigned char *pMsl, unsigned int uiMslSize,
@@ -427,11 +445,19 @@ static SDL_GPUShader *LoadOverlayShader(SDL_GPUDevice *pDevice, SDL_GPUShaderSta
   }
   return SDL_CreateGPUShader(pDevice, &info);
 }
+#endif
 
 DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) {
   DebugOverlay *pOverlay = calloc(1, sizeof(DebugOverlay));
+  int iAtlasW = 0;
+  int iAtlasH = 0;
+
   if (!pOverlay) return NULL;
+#if defined(IS_WASM)
+  (void)pDevice;
+#else
   pOverlay->pDevice     = pDevice;
+#endif
   pOverlay->pWindow     = pWindow;
   pOverlay->bVisible    = false;
 
@@ -441,14 +467,30 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
                                                     OVERLAY_FONT_SIZE, NULL);
 
   const void *pBaked = nk_font_atlas_bake(&pOverlay->atlas,
-                                           &pOverlay->iAtlasW, &pOverlay->iAtlasH,
+                                           &iAtlasW, &iAtlasH,
                                            NK_FONT_ATLAS_RGBA32);
-  size_t uiAtlasBytes = (size_t)(pOverlay->iAtlasW * pOverlay->iAtlasH * 4);
+#if defined(IS_WASM)
+  pOverlay->pSDLRenderer = nuklear_sdl_renderer_create(
+      ROLLERPresentSDLRendererGetRenderer());
+  if (!pOverlay->pSDLRenderer ||
+      !nuklear_sdl_renderer_finish_font_atlas(
+          pOverlay->pSDLRenderer, &pOverlay->atlas, pBaked,
+          iAtlasW, iAtlasH)) {
+    nuklear_sdl_renderer_destroy(pOverlay->pSDLRenderer);
+    nk_font_atlas_clear(&pOverlay->atlas);
+    free(pOverlay);
+    return NULL;
+  }
+#else
+  pOverlay->iAtlasW = iAtlasW;
+  pOverlay->iAtlasH = iAtlasH;
+  size_t uiAtlasBytes = (size_t)(iAtlasW * iAtlasH * 4);
   pOverlay->pAtlasPixels = malloc(uiAtlasBytes);
   memcpy(pOverlay->pAtlasPixels, pBaked, uiAtlasBytes);
 
   struct nk_draw_null_texture nullTex = {0};
   nk_font_atlas_end(&pOverlay->atlas, nk_handle_ptr(pOverlay->pAtlasPixels), &nullTex);
+#endif
   nk_init_default(&pOverlay->nk, &pFont->handle);
 
   // Make window and group backgrounds translucent (~80% opacity)
@@ -464,10 +506,11 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   pStyle->checkbox.cursor_hover        = nk_style_item_color(nk_rgba(255, 255, 255, 255));
   pStyle->combo.content_padding        = nk_vec2(4, 0);
   pStyle->combo.border                 = 0;
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   pStyle->window.scrollbar_size        = nk_vec2(24, 24);
 #endif
 
+#if !defined(IS_WASM)
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
   SDL_GPUTextureCreateInfo ti = {0};
@@ -484,11 +527,13 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   tbi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
   tbi.size  = OVERLAY_W * OVERLAY_H * OVERLAY_BPP;
   pOverlay->pTransfer = SDL_CreateGPUTransferBuffer(pDevice, &tbi);
+#endif
 
   pOverlay->pLogMutex = SDL_CreateMutex();
   SDL_GetLogOutputFunction(&pOverlay->pPrevLogFn, &pOverlay->pPrevLogUserdata);
   SDL_SetLogOutputFunction(LogCallback, pOverlay);
 
+#if !defined(IS_WASM)
   // Build alpha-blend pipeline for compositing overlay over swapchain
   SDL_GPUShader *pVert = LoadOverlayShader(pDevice, SDL_GPU_SHADERSTAGE_VERTEX,
     overlay_vertex_spirv, overlay_vertex_spirv_size,
@@ -532,6 +577,7 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
   si.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
   si.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
   pOverlay->pSampler = SDL_CreateGPUSampler(pDevice, &si);
+#endif
 
   return pOverlay;
 }
@@ -542,6 +588,9 @@ void debug_overlay_destroy(DebugOverlay *pOverlay) {
   SDL_DestroyMutex(pOverlay->pLogMutex);
   nk_free(&pOverlay->nk);
   nk_font_atlas_clear(&pOverlay->atlas);
+#if defined(IS_WASM)
+  nuklear_sdl_renderer_destroy(pOverlay->pSDLRenderer);
+#else
   free(pOverlay->pAtlasPixels);
   free(pOverlay->pPixels);
   SDL_ReleaseGPUTexture(pOverlay->pDevice, pOverlay->pTexture);
@@ -550,6 +599,7 @@ void debug_overlay_destroy(DebugOverlay *pOverlay) {
     SDL_ReleaseGPUGraphicsPipeline(pOverlay->pDevice, pOverlay->pPipeline);
   if (pOverlay->pSampler)
     SDL_ReleaseGPUSampler(pOverlay->pDevice, pOverlay->pSampler);
+#endif
   free(pOverlay);
 }
 
@@ -951,7 +1001,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Settings",
                nk_rect(PANEL_MARGIN, PANEL_Y, LEFT_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-#ifdef __ANDROID__
+#if defined(IS_ANDROID) || defined(IS_WASM)
     static const char *apszMusic[] = { "MIDI", "MIDI (OPL3)", "CD" };
     int iMusicSel = (MusicCD != 0) ? 2 : (MusicOPL != 0) ? 1 : 0;
 #else
@@ -1059,7 +1109,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     }
 #endif
 
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
     {
       static const char *apszPhoneControls[] = { "Disabled", "Tilt turn", "Touch turn" };
       int iSel = (int)g_ePhoneControls;
@@ -1568,7 +1618,9 @@ void debug_overlay_render(DebugOverlay *pOverlay,
                           SDL_GPUCommandBuffer *pCmdBuf,
                           SDL_GPUTexture *pSwapchainTex,
                           Uint32 uiSwapchainW, Uint32 uiSwapchainH) {
+#if !defined(IS_WASM)
   SDL_GPUViewport viewport = {0};
+#endif
 
   const bool *_kb = SDL_GetKeyboardState(NULL);
   bool bShiftLabel = _kb[SDL_SCANCODE_LSHIFT] || _kb[SDL_SCANCODE_RSHIFT];
@@ -1599,6 +1651,14 @@ void debug_overlay_render(DebugOverlay *pOverlay,
       DrawLogPanel(pOverlay);
   }
 
+#if defined(IS_WASM)
+  (void)pCmdBuf;
+  (void)pSwapchainTex;
+  (void)nuklear_sdl_renderer_render(
+      pOverlay->pSDLRenderer, pCtx, OVERLAY_W, OVERLAY_H,
+      (int)uiSwapchainW, (int)uiSwapchainH);
+  return;
+#else
   /* Lazy re-rasterize: hash the Nuklear command buffer (FNV-1a).
    * Skip the expensive software raster + GPU upload when nothing changed;
    * the GPU texture still holds the previous frame's correct content.
@@ -1643,4 +1703,5 @@ void debug_overlay_render(DebugOverlay *pOverlay,
   SDL_BindGPUFragmentSamplers(pRp, 0, &binding, 1);
   SDL_DrawGPUPrimitives(pRp, 3, 1, 0, 0);
   SDL_EndGPURenderPass(pRp);
+#endif
 }
