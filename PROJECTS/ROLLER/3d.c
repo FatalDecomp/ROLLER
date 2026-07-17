@@ -23,6 +23,7 @@
 #include "snapshot.h"
 #include "snapshot_scenes.h"
 #include "rollerinput.h"
+#include "phone_ui.h"
 #include "touch_ui.h"
 #include "menu_render.h"
 #include <SDL3/SDL.h>
@@ -1573,8 +1574,10 @@ static void race_handle_mouse_shortcuts(void)
   iWidth = winw > 0 ? winw : XMAX;
   iHeight = winh > 0 ? winh : YMAX;
   frontend_mouse_begin_frame(iWidth, iHeight);
-  touch_ui_register_buttons(iWidth, iHeight);
-  touch_ui_handle_buttons();
+  if (ROLLERPhoneUIActive()) {
+    touch_ui_register_buttons(iWidth, iHeight);
+    touch_ui_handle_buttons();
+  }
 
   if (intro && replaytype == 2 && !game_req) {
     if (frontend_mouse_consume_click_anywhere()) {
@@ -4892,7 +4895,8 @@ HANDLE_SPECIAL_MODES:
       start_time = curr_time;
     }
   }
-  touch_ui_render_game(winw > 0 ? winw : XMAX, winh > 0 ? winh : YMAX);
+  if (ROLLERPhoneUIActive())
+    touch_ui_render_game(winw > 0 ? winw : XMAX, winh > 0 ? winh : YMAX);
   if (draw_type != 2)                         // Final screen buffer copy to destination
     copypic(pSrc, pDest);
 }

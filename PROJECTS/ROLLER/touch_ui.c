@@ -7,6 +7,7 @@
 #include "graphics.h"
 #include "menu_render.h"
 #include "moving.h"
+#include "phone_ui.h"
 #include "roller.h"
 #include "rollerinput.h"
 #include "replay.h"
@@ -35,8 +36,8 @@ static int s_iTouchCheatHeld = 0;
 
 static int touch_ui_race_buttons_visible(void)
 {
-#if defined(IS_ANDROID)
-  if (g_bSnapshotMode)
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  if (!ROLLERPhoneUIActive() || g_bSnapshotMode)
     return 0;
   if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
     return 0;
@@ -55,8 +56,8 @@ static int touch_ui_race_buttons_visible(void)
 
 static int touch_ui_esc_button_visible(void)
 {
-#if defined(IS_ANDROID)
-  if (g_bSnapshotMode)
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  if (!ROLLERPhoneUIActive() || g_bSnapshotMode)
     return 0;
   if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
     return 0;
@@ -75,8 +76,8 @@ static int touch_ui_esc_button_visible(void)
 
 static int touch_ui_active_controls_visible(void)
 {
-#if defined(IS_ANDROID)
-  if (!g_bShowActiveTouchControls ||
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  if (!ROLLERPhoneUIActive() || !g_bShowActiveTouchControls ||
       g_ePhoneControls == PHONE_CONTROLS_DISABLED)
     return 0;
 
@@ -125,10 +126,10 @@ static const char *touch_ui_button_label(int iId)
 static void touch_ui_build_buttons(int iVirtualWidth, int iVirtualHeight)
 {
   s_iTouchButtonCount = 0;
-#if !defined(IS_ANDROID)
+#if !defined(IS_ANDROID) && !defined(IS_WASM)
   return;
 #endif
-  if (g_bSnapshotMode)
+  if (!ROLLERPhoneUIActive() || g_bSnapshotMode)
     return;
 
   int iTop = TOUCH_UI_MARGIN;
@@ -178,6 +179,11 @@ void touch_ui_register_buttons(int iVirtualWidth, int iVirtualHeight)
 
 void touch_ui_handle_buttons(void)
 {
+  if (!ROLLERPhoneUIActive()) {
+    s_iTouchCheatHeld = 0;
+    return;
+  }
+
   int iClicked = frontend_mouse_peek_clicked_id();
   int iHovered = frontend_mouse_peek_hovered_id();
 
@@ -285,7 +291,7 @@ static void touch_ui_render_menu_box_thick(MenuRenderer *pRenderer,
 static void touch_ui_render_active_menu(MenuRenderer *pRenderer,
                                         int iVirtualWidth, int iVirtualHeight)
 {
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   int iLeft = 0;
   int iRight = 0;
   int iBrake = 0;
@@ -400,7 +406,7 @@ static void touch_ui_render_game_box_thick(int iX, int iY, int iWidth,
 
 static void touch_ui_render_active_game(int iVirtualWidth, int iVirtualHeight)
 {
-#if defined(IS_ANDROID)
+#if defined(IS_ANDROID) || defined(IS_WASM)
   int iLeft = 0;
   int iRight = 0;
   int iBrake = 0;
@@ -459,13 +465,16 @@ void touch_ui_render_game(int iVirtualWidth, int iVirtualHeight)
 
 int touch_ui_cheat_pressed(void)
 {
-  return s_iTouchCheatHeld;
+  return ROLLERPhoneUIActive() ? s_iTouchCheatHeld : 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 int touch_ui_point_in_visible_button(int iX, int iY)
 {
+  if (!ROLLERPhoneUIActive())
+    return 0;
+
   for (int iButton = 0; iButton < s_iTouchButtonCount; ++iButton) {
     tTouchButton *pButton = &s_touchButtons[iButton];
 

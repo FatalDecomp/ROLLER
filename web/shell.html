@@ -2,16 +2,54 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <link rel="icon" href="data:,">
   <title>ROLLER</title>
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      --roller-viewport-width: 100vw;
+      --roller-viewport-height: 100vh;
+      --roller-landscape-width: 160vh;
+    }
+    @supports (height: 100dvh) {
+      :root {
+        --roller-viewport-height: 100dvh;
+        --roller-landscape-width: 160dvh;
+      }
+    }
     * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: #000; color: #fff; }
-    body { display: grid; place-items: center; overflow: hidden; font: 16px monospace; }
-    main { width: min(100vw, 960px); }
-    .game-frame { position: relative; width: 100%; aspect-ratio: 8 / 5; background: #000; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #000;
+      color: #fff;
+      overscroll-behavior: none;
+    }
+    body {
+      position: fixed;
+      top: 0;
+      left: 0;
+      display: grid;
+      place-items: center;
+      width: var(--roller-viewport-width);
+      height: var(--roller-viewport-height);
+      overflow: hidden;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+      font: 16px monospace;
+    }
+    main { width: min(100%, 960px, var(--roller-landscape-width)); }
+    .game-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 8 / 5;
+      background: #000;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
     canvas {
       display: block;
       width: 100%;
@@ -19,9 +57,14 @@
       background: #000;
       image-rendering: pixelated;
       outline: none;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
     .start-gate {
       position: absolute;
+      z-index: 1;
       inset: 0;
       display: grid;
       place-items: center;
@@ -31,6 +74,63 @@
       user-select: none;
     }
     .start-gate[aria-busy="true"] { cursor: wait; }
+    .phone-status {
+      position: absolute;
+      z-index: 5;
+      top: calc(0.75rem + env(safe-area-inset-top));
+      left: 50%;
+      width: max-content;
+      max-width: calc(100% - 1.5rem);
+      transform: translateX(-50%);
+      border: 1px solid #fff;
+      padding: 0.5rem 0.75rem;
+      background: rgb(0 0 0 / 88%);
+      text-align: center;
+      pointer-events: none;
+    }
+    .fullscreen-button {
+      position: absolute;
+      z-index: 3;
+      top: calc(0.5rem + env(safe-area-inset-top));
+      right: calc(0.5rem + env(safe-area-inset-right));
+      min-width: 2.75rem;
+      padding: 0.45rem 0.6rem;
+      background: rgb(0 0 0 / 78%);
+      font-size: 0.75rem;
+    }
+    .rotate-guidance {
+      position: absolute;
+      z-index: 6;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: calc(1.5rem + env(safe-area-inset-top))
+               calc(1.5rem + env(safe-area-inset-right))
+               calc(1.5rem + env(safe-area-inset-bottom))
+               calc(1.5rem + env(safe-area-inset-left));
+      background: rgb(0 0 0 / 92%);
+      text-align: center;
+    }
+    .rotate-guidance strong { max-width: 18rem; font-size: 1.15rem; }
+    @media (orientation: portrait) {
+      html[data-roller-phone-mode="true"] .rotate-guidance { display: grid; }
+    }
+    .game-frame.fullscreen-sizing {
+      width: var(--roller-fullscreen-width);
+      height: var(--roller-fullscreen-height);
+      aspect-ratio: auto;
+      padding: max(env(safe-area-inset-top), env(safe-area-inset-bottom))
+               max(env(safe-area-inset-left), env(safe-area-inset-right));
+    }
+    .game-frame:fullscreen,
+    .game-frame:-webkit-full-screen {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+      background: #000;
+      padding: max(env(safe-area-inset-top), env(safe-area-inset-bottom))
+               max(env(safe-area-inset-left), env(safe-area-inset-right));
+    }
     .gate-panel { width: min(28rem, 100%); }
     .gate-title { display: block; margin-bottom: 0.75rem; font-size: 1.25rem; }
     #status { white-space: pre-line; }
@@ -44,7 +144,10 @@
       font: inherit;
       cursor: pointer;
     }
-    button:hover:not(:disabled), button:focus-visible { background: #fff; color: #000; }
+    button:focus-visible { background: #fff; color: #000; }
+    @media (hover: hover) {
+      button:hover:not(:disabled) { background: #fff; color: #000; }
+    }
     button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
     button:disabled { cursor: wait; opacity: 0.55; }
     .play-button { padding-block: 0.9rem; font-size: 1.25rem; font-weight: bold; }
@@ -57,14 +160,16 @@
       font-size: 0.8rem;
       text-decoration: underline;
     }
-    .retail-controls button:hover:not(:disabled),
     .retail-controls button:focus-visible { color: #fff; background: transparent; }
+    @media (hover: hover) {
+      .retail-controls button:hover:not(:disabled) { color: #fff; background: transparent; }
+    }
     [hidden] { display: none; }
   </style>
 </head>
 <body>
   <main>
-    <div class="game-frame">
+    <div id="game-frame" class="game-frame">
       <canvas id="canvas" width="640" height="400" tabindex="-1" aria-label="ROLLER game canvas"></canvas>
       <div id="start-gate" class="start-gate" aria-busy="true" aria-describedby="status">
         <div class="gate-panel">
@@ -85,6 +190,11 @@
           </div>
           <input id="cd-image-input" type="file" multiple accept=".iso,.cue,.bin" hidden>
         </div>
+      </div>
+      <div id="phone-status" class="phone-status" role="status" aria-live="polite" hidden></div>
+      <button id="fullscreen-button" class="fullscreen-button" type="button" hidden>FULLSCREEN</button>
+      <div id="rotate-guidance" class="rotate-guidance" role="status">
+        <strong>Rotate your phone to landscape to play.</strong>
       </div>
     </div>
   </main>
