@@ -87,7 +87,7 @@ typedef struct
 
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 ePhoneControls g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
-bool g_bShowActiveTouchControls = false;
+bool g_bShowActiveTouchControls = true;
 
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;

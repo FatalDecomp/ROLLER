@@ -48,6 +48,19 @@ int ROLLERWebGetPhoneControls(void)
 
 //-------------------------------------------------------------------------------------------------
 
+EMSCRIPTEN_KEEPALIVE
+int ROLLERWebSetWindowSize(int iWidth, int iHeight)
+{
+  SDL_Window *pWindow = ROLLERGetWindow();
+
+  if (!pWindow || iWidth <= 0 || iHeight <= 0)
+    return 0;
+
+  return SDL_SetWindowSize(pWindow, iWidth, iHeight) ? 1 : 0;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 static void ROLLERWebChooseExtractedMusicSource(const char *szOutDir)
 {
   char szAudioPath[ROLLER_MAX_PATH];

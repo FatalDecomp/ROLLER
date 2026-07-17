@@ -252,6 +252,13 @@ var Module = (() => {
       updateMotionDiagnostics();
       return;
     }
+    if (!window.isSecureContext) {
+      useTouchSteeringFallback(
+        "Tilt requires HTTPS; using touch steering.",
+        "insecure-context"
+      );
+      return;
+    }
     if (!("DeviceMotionEvent" in window)) {
       useTouchSteeringFallback(
         "Motion controls are unavailable; using touch steering.",
@@ -330,9 +337,29 @@ var Module = (() => {
     // canvas size, and then updates the backing canvas and SDL window. Mobile
     // browser chrome can resize visualViewport without resizing window, so
     // bridge that event after the CSS dimensions have been committed.
-    if (notifySDL && runtimeStarted) {
-      syntheticWindowResize = true;
+    if (notifySDL)
+      notifySDLWindowResize();
+  }
+
+  function notifySDLWindowResize() {
+    if (!runtimeStarted)
+      return;
+
+    const width = Math.round(canvas.clientWidth);
+    const height = Math.round(canvas.clientHeight);
+    if (width <= 0 || height <= 0)
+      return;
+
+    if (typeof Module["_ROLLERWebSetWindowSize"] === "function") {
+      Module["_ROLLERWebSetWindowSize"](width, height);
+      return;
+    }
+
+    // Compatibility fallback for a stale loader paired with this shell.
+    syntheticWindowResize = true;
+    try {
       window.dispatchEvent(new Event("resize"));
+    } finally {
       syntheticWindowResize = false;
     }
   }
@@ -358,27 +385,100 @@ var Module = (() => {
     return gameFrame.requestFullscreen || gameFrame.webkitRequestFullscreen;
   }
 
-  function fullscreenExitMethod() {
-    return document.exitFullscreen || document.webkitExitFullscreen;
+  function fullscreenTargetSize() {
+    const viewport = readVisualViewport();
+    let screenWidth = Number(window.screen?.width) || viewport.width;
+    let screenHeight = Number(window.screen?.height) || viewport.height;
+    const viewportIsLandscape = viewport.width >= viewport.height;
+    const screenIsLandscape = screenWidth >= screenHeight;
+
+    // Some mobile engines retain natural-orientation screen dimensions until
+    // after fullscreen. Align them with the current viewport before sizing.
+    if (viewportIsLandscape !== screenIsLandscape)
+      [screenWidth, screenHeight] = [screenHeight, screenWidth];
+
+    return {
+      width: Math.max(viewport.width, screenWidth),
+      height: Math.max(viewport.height, screenHeight)
+    };
+  }
+
+  function prepareFullscreenSizing() {
+    const target = fullscreenTargetSize();
+    gameFrame.style.setProperty("--roller-fullscreen-width", cssPixels(target.width));
+    gameFrame.style.setProperty("--roller-fullscreen-height", cssPixels(target.height));
+    gameFrame.classList.add("fullscreen-sizing");
+
+    // A wrapper-originated fullscreenchange makes SDL mark its window as
+    // fullscreen, after which its Emscripten resize handler ignores window
+    // resize events. Size the CSS canvas and notify SDL synchronously before
+    // requestFullscreen(), while the driver still accepts the new dimensions.
+    gameFrame.getBoundingClientRect();
+    notifySDLWindowResize();
+    if (moduleDiagnosticsAvailable())
+      Module["rollerFullscreenTarget"] = { ...target };
+  }
+
+  function clearFullscreenSizing() {
+    gameFrame.classList.remove("fullscreen-sizing");
+    gameFrame.style.removeProperty("--roller-fullscreen-width");
+    gameFrame.style.removeProperty("--roller-fullscreen-height");
+  }
+
+  function syncFullscreenLayoutToSDL() {
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (width <= 0 || height <= 0)
+      return;
+
+    // Use the canvas content box, not the raw screen or wrapper box: fullscreen
+    // safe-area padding can make both larger than the actual touch surface.
+    notifySDLWindowResize();
+    if (moduleDiagnosticsAvailable()) {
+      const frameRect = gameFrame.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      const frameStyle = getComputedStyle(gameFrame);
+      Module["rollerFullscreenTarget"] = { width, height };
+      Module["rollerFullscreenLayout"] = {
+        frame: {
+          x: frameRect.x,
+          y: frameRect.y,
+          width: frameRect.width,
+          height: frameRect.height
+        },
+        canvas: {
+          x: canvasRect.x,
+          y: canvasRect.y,
+          width: canvasRect.width,
+          height: canvasRect.height,
+          backingWidth: canvas.width,
+          backingHeight: canvas.height
+        },
+        padding: {
+          top: parseFloat(frameStyle.paddingTop) || 0,
+          right: parseFloat(frameStyle.paddingRight) || 0,
+          bottom: parseFloat(frameStyle.paddingBottom) || 0,
+          left: parseFloat(frameStyle.paddingLeft) || 0
+        }
+      };
+    }
   }
 
   function fullscreenSupported() {
     const enabled = document.fullscreenEnabled ?? document.webkitFullscreenEnabled;
     return enabled !== false &&
-           typeof fullscreenRequestMethod() === "function" &&
-           typeof fullscreenExitMethod() === "function";
+           typeof fullscreenRequestMethod() === "function";
   }
 
   function updateFullscreenUI() {
     const supported = fullscreenSupported();
     const active = activeFullscreenElement() === gameFrame;
-    fullscreenButton.hidden = !phoneModeDecision.active || !runtimeStarted || !supported;
-    fullscreenButton.textContent = active ? "EXIT FULLSCREEN" : "FULLSCREEN";
-    fullscreenButton.setAttribute(
-      "aria-label",
-      active ? "Exit fullscreen" : "Enter fullscreen"
-    );
-    fullscreenButton.setAttribute("aria-pressed", String(active));
+    fullscreenButton.hidden = !phoneModeDecision.active || !runtimeStarted ||
+                              !supported || active;
+    fullscreenButton.textContent = "FULLSCREEN";
+    fullscreenButton.setAttribute("aria-label", "Enter fullscreen");
+    if (active)
+      fullscreenButton.blur();
 
     if (moduleDiagnosticsAvailable()) {
       Module["rollerFullscreenSupported"] = supported;
@@ -393,12 +493,14 @@ var Module = (() => {
     }
 
     try {
-      const active = activeFullscreenElement();
-      const operation = active
-        ? fullscreenExitMethod().call(document)
-        : fullscreenRequestMethod().call(gameFrame);
+      if (activeFullscreenElement())
+        return;
+      prepareFullscreenSizing();
+      const operation = fullscreenRequestMethod().call(gameFrame);
       await operation;
     } catch (error) {
+      clearFullscreenSizing();
+      notifySDLWindowResize();
       console.warn("ROLLER: fullscreen request failed", error);
       showPhoneStatus("Fullscreen could not be opened; continuing in the browser.");
       updateFullscreenUI();
@@ -406,8 +508,16 @@ var Module = (() => {
   }
 
   function handleFullscreenChange() {
+    const active = activeFullscreenElement() === gameFrame;
+    if (active)
+      syncFullscreenLayoutToSDL();
     updateFullscreenUI();
-    scheduleVisualViewportLayout(true);
+    if (active) {
+      showPhoneStatus("Use Back or the browser fullscreen gesture to exit.");
+    } else {
+      clearFullscreenSizing();
+      scheduleVisualViewportLayout(true);
+    }
     if (runtimeStarted)
       focusCanvas();
   }
@@ -1003,6 +1113,16 @@ var Module = (() => {
   window.visualViewport?.addEventListener("scroll", () => {
     scheduleVisualViewportLayout(false);
   });
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      if (activeFullscreenElement() !== gameFrame)
+        return;
+      if (canvas.width !== Math.round(canvas.clientWidth) ||
+          canvas.height !== Math.round(canvas.clientHeight)) {
+        syncFullscreenLayoutToSDL();
+      }
+    }).observe(canvas);
+  }
   document.addEventListener("fullscreenchange", handleFullscreenChange);
   document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
   document.addEventListener("visibilitychange", () => {
@@ -1040,6 +1160,7 @@ var Module = (() => {
     rollerVisualViewport: visualViewportState,
     rollerFullscreenSupported: fullscreenSupported(),
     rollerFullscreenActive: false,
+    rollerFullscreenLayout: null,
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
