@@ -45,6 +45,9 @@ var Module = (() => {
   const motionSampleIntervalMs = 1000 / 60;
   const motionSampleTimeoutMs = 2000;
   const motionDebug = new URLSearchParams(window.location.search).get("motiondebug") === "1";
+  const appleMobileMotion = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const motionAccelerationSign = appleMobileMotion ? -1 : 1;
   const extractionFailureMessage =
     "No game data could be extracted from the files you selected.\n\n" +
     "For a CUE/BIN image you must select the .CUE file AND all of its " +
@@ -163,6 +166,7 @@ var Module = (() => {
       `secure=${window.isSecureContext} frame=${window.top === window.self ? "top" : "embedded"}`,
       `phone=${phoneModeDecision.active} controls=${controls} ` +
         `steering=${runtimeReady ? phoneSteeringValue() : "not-ready"}`,
+      `normalization=${appleMobileMotion ? "webkit-gravity-flip" : "standard"}`,
       `permission=${motionPermissionState} listening=${motionListening}`,
       `policy accel=${policy.accelerometer} gyro=${policy.gyroscope}`,
       `browser accel=${motionSensorPermissions.accelerometer} gyro=${motionSensorPermissions.gyroscope}`,
@@ -192,6 +196,7 @@ var Module = (() => {
     Module["rollerMotionSecureContext"] = window.isSecureContext;
     Module["rollerMotionPolicy"] = policy;
     Module["rollerMotionSensorPermissions"] = { ...motionSensorPermissions };
+    Module["rollerMotionAccelerationSign"] = motionAccelerationSign;
     scheduleMotionDebugStatus();
   }
 
@@ -248,9 +253,9 @@ var Module = (() => {
       return;
 
     const accel = event.accelerationIncludingGravity;
-    const fX = Number(accel?.x);
-    const fY = Number(accel?.y);
-    const fZ = Number(accel?.z);
+    const fX = Number(accel?.x) * motionAccelerationSign;
+    const fY = Number(accel?.y) * motionAccelerationSign;
+    const fZ = Number(accel?.z) * motionAccelerationSign;
     if (!Number.isFinite(fX) || !Number.isFinite(fY) || !Number.isFinite(fZ))
       return;
 
@@ -259,9 +264,10 @@ var Module = (() => {
       return;
     motionLastSampleMs = now;
 
-    // DeviceMotion and SDL's Android accelerometer both use device-relative
-    // X-right, Y-top, Z-out axes. The shared C path applies the portrait or
-    // landscape orientation sign/swap before calculating steering.
+    // WebKit builds accelerationIncludingGravity from Core Motion's gravity
+    // vector, whose sign is opposite the W3C/Android proper-acceleration
+    // convention. Normalize Apple mobile browsers before the shared C path
+    // applies the portrait or landscape orientation sign/swap.
     setWebAccel(fX, fY, fZ);
     motionSampleReceived = true;
     Module["rollerMotionLastAccel"] = [fX, fY, fZ];
@@ -1404,6 +1410,7 @@ var Module = (() => {
     rollerMotionSecureContext: window.isSecureContext,
     rollerMotionPolicy: readMotionPolicy(),
     rollerMotionSensorPermissions: { ...motionSensorPermissions },
+    rollerMotionAccelerationSign: motionAccelerationSign,
     rollerMotionDebug: motionDebug,
     rollerVisualViewport: visualViewportState,
     rollerFullscreenSupported: fullscreenSupported(),
