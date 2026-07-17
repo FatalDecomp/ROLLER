@@ -52,3 +52,144 @@ jobs:
       git_hash: ${{ needs.get-version.outputs.full_hash }}
       short_hash: ${{ needs.get-version.outputs.short_hash }}
       build_date: ${{ needs.get-version.outputs.build_date }}
+
+  build-web:
+    name: Build browser bundle
+    needs: get-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.pages-deployment-alias-url || steps.deploy.outputs.deployment-url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Cache web build inputs
+        uses: actions/cache@v5
+        with:
+          path: |
+            .zig-cache
+            zig-out/demo-cache
+          key: web-${{ runner.os }}-eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c-${{ hashFiles('build.zig', 'build.zig.zon', 'mise.toml', 'scripts/fetch_demo_assets.py', 'scripts/finalize_web_bundle.py') }}
+          restore-keys: |
+            web-${{ runner.os }}-eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c-
+
+      - name: Prepare demo assets
+        run: python scripts/fetch_demo_assets.py
+
+      - name: Build browser bundle
+        env:
+          BUILD_VERSION: ${{ needs.get-version.outputs.version }}
+          BUILD_HASH: ${{ needs.get-version.outputs.full_hash }}
+          BUILD_DATE_INPUT: ${{ needs.get-version.outputs.build_date }}
+        run: |
+          BUILD_DATE_VALUE="$BUILD_DATE_INPUT"
+          if [ -z "$BUILD_DATE_VALUE" ]; then
+            BUILD_DATE_VALUE="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          fi
+
+          python scripts/build.py \
+            --write-build-info-only \
+            --version="$BUILD_VERSION" \
+            --git-hash="$BUILD_HASH" \
+            --build-date="$BUILD_DATE_VALUE" \
+            --build-target=wasm32-emscripten
+          zig build web \
+            -Doptimize=ReleaseFast \
+            -Ddemo-assets-path=zig-out/fatdata-demo
+
+      - name: Upload browser bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: roller-web
+          path: zig-out/web
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check Cloudflare credentials
+        id: cloudflare_credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare credentials are unavailable; skipping deployment."
+          fi
+
+      - name: Deploy browser bundle
+        id: deploy
+        if: steps.cloudflare_credentials.outputs.available == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy zig-out/web
+            --project-name=roller-web
+            --branch=${{ github.head_ref || github.ref_name }}
+
+  comment-web-preview:
+    name: Comment browser preview
+    needs: build-web
+    if: ${{ github.event_name == 'pull_request' && needs['build-web'].outputs.preview_url != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Add preview link to pull request
+        uses: actions/github-script@v9
+        env:
+          PREVIEW_URL: ${{ needs['build-web'].outputs.preview_url }}
+        with:
+          script: |
+            const marker = '<!-- roller-web-preview -->';
+            const previewUrl = process.env.PREVIEW_URL;
+            const body = `${marker}
+            ROLLER browser preview: [${previewUrl}](${previewUrl})
+
+            _Updated for commit ${context.sha.slice(0, 7)}._`;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              },
+            );
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.includes(marker),
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
