@@ -459,11 +459,10 @@ void humancar(int iCarIdx)
       if ((iControlFlags & 2) != 0)          // Check control flags: bit 2=brake, bit 1=accelerate, else=freewheel
       {
         Decelerate(pCar);
-      } else if (iPhoneThrottle && race_started) {
-        pCar->byThrottlePressed = -1;
-        pCar->byEngineStartTimer = 0;
-        Accelerate(pCar);
       } else if (iPhoneThrottle || (iControlFlags & 1) != 0) {
+        // Keep phone auto-throttle on the normal engine-start path. Forcing
+        // these fields every tick made a stopped car accelerate immediately
+        // when the phone brake was released, skipping the restart sound/timer.
         Accelerate(pCar);
       } else {
         FreeWheel(pCar);
