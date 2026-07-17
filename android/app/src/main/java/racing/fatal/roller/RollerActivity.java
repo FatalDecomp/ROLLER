@@ -147,6 +147,7 @@ public class RollerActivity extends SDLActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         EditText edit = new EditText(this);
+        boolean allowSpaces = target == NAME_ENTRY_TARGET_CONFIG;
         edit.setSingleLine(true);
         edit.setGravity(Gravity.CENTER);
         edit.setTextColor(Color.WHITE);
@@ -159,10 +160,10 @@ public class RollerActivity extends SDLActivity {
                 | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         edit.setImeOptions(EditorInfo.IME_ACTION_DONE);
         edit.setFilters(new InputFilter[] {
-                new NameInputFilter(),
+                new NameInputFilter(allowSpaces),
                 new InputFilter.LengthFilter(8),
         });
-        edit.setText(sanitizeName(currentName));
+        edit.setText(sanitizeName(currentName, allowSpaces));
         edit.setSelection(edit.getText().length());
 
         LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(
@@ -237,7 +238,9 @@ public class RollerActivity extends SDLActivity {
         nameEntryDialogTarget = 0;
         dialog.dismiss();
         enterFullscreen();
-        String sanitizedValue = accepted ? sanitizeName(value) : "";
+        String sanitizedValue = accepted
+                ? sanitizeName(value, target == NAME_ENTRY_TARGET_CONFIG)
+                : "";
         if (target == NAME_ENTRY_TARGET_REPLAY) {
             nativeReplayNameEntryComplete(sanitizedValue, accepted);
         } else {
@@ -250,14 +253,14 @@ public class RollerActivity extends SDLActivity {
         return Math.round((float)value * density);
     }
 
-    private static String sanitizeName(String value) {
+    private static String sanitizeName(String value, boolean allowSpaces) {
         if (value == null) {
             return "";
         }
 
         StringBuilder builder = new StringBuilder(8);
         for (int i = 0; i < value.length() && builder.length() < 8; ++i) {
-            char ch = sanitizeNameChar(value.charAt(i));
+            char ch = sanitizeNameChar(value.charAt(i), allowSpaces);
             if (ch != 0) {
                 builder.append(ch);
             }
@@ -265,17 +268,24 @@ public class RollerActivity extends SDLActivity {
         return builder.toString();
     }
 
-    private static char sanitizeNameChar(char ch) {
+    private static char sanitizeNameChar(char ch, boolean allowSpaces) {
         if (ch >= 'a' && ch <= 'z') {
             ch = (char)(ch - ('a' - 'A'));
         }
-        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
+                || (allowSpaces && ch == ' ')) {
             return ch;
         }
         return 0;
     }
 
     private static final class NameInputFilter implements InputFilter {
+        private final boolean allowSpaces;
+
+        NameInputFilter(boolean allowSpaces) {
+            this.allowSpaces = allowSpaces;
+        }
+
         @Override
         public CharSequence filter(CharSequence source, int start, int end,
                 Spanned dest, int dstart, int dend) {
@@ -284,7 +294,7 @@ public class RollerActivity extends SDLActivity {
 
             for (int i = start; i < end; ++i) {
                 char original = source.charAt(i);
-                char ch = sanitizeNameChar(original);
+                char ch = sanitizeNameChar(original, allowSpaces);
                 if (ch == 0) {
                     changed = true;
                     continue;

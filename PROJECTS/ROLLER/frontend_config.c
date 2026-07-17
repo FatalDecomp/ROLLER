@@ -85,7 +85,8 @@ static int frontend_config_name_char(int iChar)
   if (iChar >= 'a' && iChar <= 'z')
     iChar -= 'a' - 'A';
 
-  if ((iChar >= 'A' && iChar <= 'Z') || (iChar >= '0' && iChar <= '9'))
+  if (iChar == ' ' || (iChar >= 'A' && iChar <= 'Z') ||
+      (iChar >= '0' && iChar <= '9'))
     return iChar;
 
   return 0;
