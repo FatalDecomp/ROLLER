@@ -3522,7 +3522,6 @@ int InputLoadConfig(void)
 #if defined(IS_ANDROID) || defined(IS_WASM)
   if (ROLLERPhoneUIActive()) {
     g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
-    g_bShowActiveTouchControls = false;
   }
 #endif
 
