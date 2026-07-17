@@ -2955,7 +2955,9 @@ int main(int argc, const char **argv, const char **envp)
     // The CD-image extraction prompt, replays directory bootstrap, and audio
     // probe are all interactive or audio-device-dependent: skip in headless
     // snapshot mode. The replay file is loaded directly from cwd later.
+#if !defined(IS_ANDROID)
     InitFATDATA(whiplash_root);
+#endif
     InitREPLAYS(whiplash_root);
     InitTRACKS(whiplash_root);
     ROLLERGetAudioInfo();

@@ -110,12 +110,9 @@ static SDL_GPUTexture *s_pGameTexture = NULL;
 static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 #endif
 static int s_iGPUPresentSkipFrames = 0;
-/* Hard-disables GPU swapchain presentation while set. Used on Android during the
- * InitFATDATA import flow, where showing native dialogs (message box + SAF file
- * picker) destroys/recreates the Activity surface; driving the SDL Vulkan renderer
- * against the in-flux surface corrupts the Adreno driver (libvulkan crash /
- * destroyed-mutex abort on the HWUI RenderThread). */
-static bool s_bGpuPresentDisabled = false;
+#if defined(IS_ANDROID)
+static bool s_bAndroidDefaultConfigPending = false;
+#endif
 bool g_bPaletteSet = false;
 float g_fDrawDistanceFraction = 1.0f;
 bool g_bNoCollisionLimit = true;
@@ -311,9 +308,6 @@ static void DeferGPUPresentation(int iFrames)
 
 bool ROLLERGpuPresentationSuspended(void)
 {
-  if (s_bGpuPresentDisabled)
-    return true;
-
   if (!s_pWindow)
     return true;
 
@@ -652,7 +646,7 @@ static void PresentDebugOverlayOnly(void)
 
 void ROLLERRefreshStartupOverlay()
 {
-  if (!s_pWindow || !s_pDebugOverlay)
+  if (!s_pWindow)
     return;
 
   SDL_Event e;
@@ -663,14 +657,16 @@ void ROLLERRefreshStartupOverlay()
       exit(0);
     }
 
-    if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_GRAVE)
+    if (s_pDebugOverlay && e.type == SDL_EVENT_KEY_DOWN &&
+        e.key.scancode == SDL_SCANCODE_GRAVE)
       debug_overlay_toggle(s_pDebugOverlay);
-    else
+    else if (s_pDebugOverlay)
       (void)debug_overlay_handle_event(s_pDebugOverlay, &e);
   }
 
   UpdateMouseCursorVisibility();
-  PresentDebugOverlayOnly();
+  if (s_pDebugOverlay)
+    PresentDebugOverlayOnly();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -834,6 +830,17 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
 
+#if defined(IS_ANDROID)
+  InputInit();
+
+  /* The Android file picker backgrounds the Activity and replaces its native
+   * surface. Run first-launch import before claiming the window for a GPU device
+   * so every swapchain and renderer resource is created against the restored
+   * surface. Reusing resources created before the picker leaves a black frame on
+   * some Vulkan drivers until the process is restarted. */
+  InitFATDATA(whiplash_root);
+#endif
+
 #if defined(IS_WASM)
   if (!ROLLERPresentSDLRendererInit(s_pWindow, g_bVsync)) {
     ErrorBoxExit("Couldn't create SDL_Renderer presentation: %s", SDL_GetError());
@@ -913,6 +920,13 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   }
 #endif
 
+#if defined(IS_ANDROID)
+  if (s_bAndroidDefaultConfigPending) {
+    SaveDefaultFatalIni(whiplash_root);
+    s_bAndroidDefaultConfigPending = false;
+  }
+#endif
+
 #if !defined(IS_ANDROID) && !defined(IS_WASM)
   SDL_Surface *pIcon = IMG_Load("roller.ico");
   SDL_SetWindowIcon(s_pWindow, pIcon);
@@ -927,7 +941,9 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   SDL_SetWindowPosition(s_pWindow, sdl_window_centered, sdl_window_centered);
 #endif
 
+#if !defined(IS_ANDROID)
   InputInit();
+#endif
 
 #if !defined(IS_WASM)
   char localMidiPath[256];
@@ -1395,13 +1411,6 @@ void InitFATDATA(const char *szDataRoot)
     bool bSelectedFiles = false;
     bool bImported = false;
 
-    // Showing native dialogs (message box + SAF picker) below destroys and
-    // recreates the Activity surface. Driving the SDL Vulkan renderer against the
-    // in-flux surface crashes the Adreno driver, so suppress all GPU presentation
-    // for the whole import flow. ROLLERRefreshStartupOverlay() still pumps events
-    // (needed for the picker callback and SDL_EVENT_QUIT); it just won't present.
-    s_bGpuPresentDisabled = true;
-
     if (AndroidPromptForCdImage()) {
       SDL_DialogFileFilter filters[] = { { "CD Images", "iso;bin;cue;ISO;BIN;CUE" } };
       tDialogResult result = { 0 };
@@ -1421,9 +1430,10 @@ void InitFATDATA(const char *szDataRoot)
                                          sizeof(szStagedEntry))) {
           ROLLERRefreshStartupOverlay();
           ExtractFATDATA(szStagedEntry, szDataRoot);
-          SaveDefaultFatalIni(szDataRoot); //save default config after extraction so all users will have svga, sfx, and music on by default
           ROLLERRefreshStartupOverlay();
           bImported = ROLLERdirexists("./FATDATA") || ROLLERdirexists("./fatdata");
+          if (bImported)
+            s_bAndroidDefaultConfigPending = true;
         }
       }
     }
@@ -1441,8 +1451,7 @@ void InitFATDATA(const char *szDataRoot)
       }
     }
 
-    // Re-enable GPU presentation now that all native dialogs are dismissed.
-    s_bGpuPresentDisabled = false;
+    // Let the restored Android surface settle before the first GPU presentation.
     DeferGPUPresentation(ROLLER_RESIZE_DEFER_FRAMES);
 #elif !defined(IS_WASM)
     // Browser asset selection and retail extraction are completed by the page
@@ -1625,24 +1634,41 @@ void ShutdownSDL()
     InputShutdown();
 
 #if defined(IS_WASM)
-    debug_overlay_destroy(s_pDebugOverlay);
+    if (s_pDebugOverlay)
+      debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
-    menu_render_destroy(s_pMenuRenderer);
+    if (s_pMenuRenderer)
+      menu_render_destroy(s_pMenuRenderer);
     s_pMenuRenderer = NULL;
     ROLLERPresentSDLRendererShutdown();
-    SDL_DestroyWindow(s_pWindow);
+    if (s_pWindow)
+      SDL_DestroyWindow(s_pWindow);
     s_pWindow = NULL;
 #else
-    debug_overlay_destroy(s_pDebugOverlay);
+    if (s_pDebugOverlay)
+      debug_overlay_destroy(s_pDebugOverlay);
     s_pDebugOverlay = NULL;
-    crt_filter_destroy(s_pCRTFilter);
+    if (s_pCRTFilter)
+      crt_filter_destroy(s_pCRTFilter);
     s_pCRTFilter = NULL;
-    menu_render_destroy(s_pMenuRenderer);
-    SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
-    SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
-    SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
-    SDL_DestroyGPUDevice(s_pGPUDevice);
-    SDL_DestroyWindow(s_pWindow);
+    if (s_pMenuRenderer)
+      menu_render_destroy(s_pMenuRenderer);
+    s_pMenuRenderer = NULL;
+    if (s_pGPUDevice) {
+      if (s_pGameTexture)
+        SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
+      if (s_pTransferBuffer)
+        SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
+      if (s_pWindow)
+        SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
+      SDL_DestroyGPUDevice(s_pGPUDevice);
+    }
+    s_pGameTexture = NULL;
+    s_pTransferBuffer = NULL;
+    s_pGPUDevice = NULL;
+    if (s_pWindow)
+      SDL_DestroyWindow(s_pWindow);
+    s_pWindow = NULL;
 #endif
   }
 
