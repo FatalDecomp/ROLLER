@@ -1348,7 +1348,6 @@ static void ROLLERApplyWebDefaultConfig(void)
 
   if (ROLLERPhoneUIActive()) {
     g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
-    g_bShowActiveTouchControls = false;
   }
 }
 
