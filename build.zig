@@ -835,7 +835,7 @@ fn configureWebBuild(b: *Build, optimize: OptimizeMode) void {
         "-sFORCE_FILESYSTEM",
         "-lidbfs.js",
         "-sINVOKE_RUN=0",
-        "-sEXPORTED_FUNCTIONS=_main,_ROLLERWebExtractFATDATA,_ROLLERWebSetPhoneMode,_ROLLERWebSetAccel,_ROLLERWebSetPhoneControls,_ROLLERWebGetPhoneControls,_ROLLERWebSetWindowSize,_ROLLERWebTextDialogComplete",
+        "-sEXPORTED_FUNCTIONS=_main,_ROLLERWebExtractFATDATA,_ROLLERWebSetPhoneMode,_ROLLERWebSetAccel,_ROLLERWebSetPhoneControls,_ROLLERWebGetPhoneControls,_ROLLERWebGetPhoneSteering,_ROLLERWebSetWindowSize,_ROLLERWebTextDialogComplete",
         "-sEXPORTED_RUNTIME_METHODS=callMain,FS,IDBFS,cwrap,ccall",
         "-lc++",
         "--preload-file",

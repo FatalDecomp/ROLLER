@@ -39,10 +39,12 @@ var Module = (() => {
   const importSizeWarningBytes = 800 * 1024 * 1024;
   const phoneControlsTiltTurn = 1;
   const phoneControlsTouchTurn = 2;
+  const motionFeatureNames = ["accelerometer", "gyroscope"];
   const textDialogTargetName = 1;
   const textDialogTargetReplay = 2;
   const motionSampleIntervalMs = 1000 / 60;
   const motionSampleTimeoutMs = 2000;
+  const motionDebug = new URLSearchParams(window.location.search).get("motiondebug") === "1";
   const extractionFailureMessage =
     "No game data could be extracted from the files you selected.\n\n" +
     "For a CUE/BIN image you must select the .CUE file AND all of its " +
@@ -60,6 +62,13 @@ var Module = (() => {
   let motionLastSampleMs = Number.NEGATIVE_INFINITY;
   let motionSampleTimer = 0;
   let phoneStatusTimer = 0;
+  let motionStatusMessage = "";
+  let motionDebugPaintTimer = 0;
+  let motionDebugLastPaintMs = Number.NEGATIVE_INFINITY;
+  let motionSensorPermissions = {
+    accelerometer: "unknown",
+    gyroscope: "unknown"
+  };
   let viewportUpdateFrame = 0;
   let viewportResizeNeedsSDL = false;
   let syntheticWindowResize = false;
@@ -120,13 +129,82 @@ var Module = (() => {
     );
   }
 
+  function readMotionPolicy() {
+    const policy = document.permissionsPolicy ?? document.featurePolicy;
+    const result = {};
+
+    for (const name of motionFeatureNames) {
+      if (typeof policy?.allowsFeature !== "function") {
+        result[name] = "unknown";
+        continue;
+      }
+      try {
+        result[name] = policy.allowsFeature(name) ? "allowed" : "blocked";
+      } catch (error) {
+        result[name] = "unknown";
+      }
+    }
+    return result;
+  }
+
+  function paintMotionDebugStatus() {
+    motionDebugPaintTimer = 0;
+    motionDebugLastPaintMs = performance.now();
+    if (!motionDebug)
+      return;
+
+    const policy = readMotionPolicy();
+    const accel = Array.isArray(Module["rollerMotionLastAccel"])
+      ? Module["rollerMotionLastAccel"].map((value) => Number(value).toFixed(2)).join(", ")
+      : "none";
+    const controls = runtimeReady ? phoneControlsScheme() : "not-ready";
+    phoneStatus.textContent = [
+      "MOTION DEBUG",
+      `secure=${window.isSecureContext} frame=${window.top === window.self ? "top" : "embedded"}`,
+      `phone=${phoneModeDecision.active} controls=${controls} ` +
+        `steering=${runtimeReady ? phoneSteeringValue() : "not-ready"}`,
+      `permission=${motionPermissionState} listening=${motionListening}`,
+      `policy accel=${policy.accelerometer} gyro=${policy.gyroscope}`,
+      `browser accel=${motionSensorPermissions.accelerometer} gyro=${motionSensorPermissions.gyroscope}`,
+      `sample=${motionSampleReceived} xyz=${accel}`,
+      motionStatusMessage
+    ].filter(Boolean).join("\n");
+    phoneStatus.hidden = false;
+  }
+
+  function scheduleMotionDebugStatus() {
+    if (!motionDebug || motionDebugPaintTimer)
+      return;
+
+    const elapsed = performance.now() - motionDebugLastPaintMs;
+    if (elapsed >= 250) {
+      paintMotionDebugStatus();
+      return;
+    }
+    motionDebugPaintTimer = setTimeout(paintMotionDebugStatus, 250 - elapsed);
+  }
+
   function updateMotionDiagnostics() {
+    const policy = readMotionPolicy();
     Module["rollerMotionPermission"] = motionPermissionState;
     Module["rollerMotionListening"] = motionListening;
     Module["rollerMotionSampleReceived"] = motionSampleReceived;
+    Module["rollerMotionSecureContext"] = window.isSecureContext;
+    Module["rollerMotionPolicy"] = policy;
+    Module["rollerMotionSensorPermissions"] = { ...motionSensorPermissions };
+    scheduleMotionDebugStatus();
   }
 
   function showPhoneStatus(message) {
+    motionStatusMessage = message;
+    if (motionDebug) {
+      if (phoneStatusTimer) {
+        clearTimeout(phoneStatusTimer);
+        phoneStatusTimer = 0;
+      }
+      paintMotionDebugStatus();
+      return;
+    }
     if (phoneStatusTimer) {
       clearTimeout(phoneStatusTimer);
       phoneStatusTimer = 0;
@@ -145,6 +223,12 @@ var Module = (() => {
     if (typeof Module["_ROLLERWebGetPhoneControls"] !== "function")
       return phoneControlsTiltTurn;
     return Module["_ROLLERWebGetPhoneControls"]();
+  }
+
+  function phoneSteeringValue() {
+    if (typeof Module["_ROLLERWebGetPhoneSteering"] !== "function")
+      return "unavailable";
+    return Module["_ROLLERWebGetPhoneSteering"]();
   }
 
   function clearMotionSampleTimer() {
@@ -250,6 +334,23 @@ var Module = (() => {
     }
   }
 
+  async function readBrowserMotionPermissions() {
+    if (typeof navigator.permissions?.query !== "function")
+      return;
+
+    const permissions = {};
+    for (const name of motionFeatureNames) {
+      try {
+        const status = await navigator.permissions.query({ name });
+        permissions[name] = status.state;
+      } catch (error) {
+        permissions[name] = "unsupported";
+      }
+    }
+    motionSensorPermissions = permissions;
+    updateMotionDiagnostics();
+  }
+
   async function requestPhoneMotionFromGesture() {
     if (!phoneModeDecision.active) {
       motionPermissionState = "not-applicable";
@@ -275,6 +376,15 @@ var Module = (() => {
       return;
     }
 
+    const policy = readMotionPolicy();
+    if (motionFeatureNames.some((name) => policy[name] === "blocked")) {
+      useTouchSteeringFallback(
+        "Motion sensors are blocked by this page or frame; using touch steering.",
+        "policy-blocked"
+      );
+      return;
+    }
+
     const requestPermission = window.DeviceMotionEvent?.requestPermission;
     if (typeof requestPermission === "function") {
       motionPermissionState = "requesting";
@@ -294,6 +404,19 @@ var Module = (() => {
         useTouchSteeringFallback(
           "Tilt permission could not be granted; using touch steering.",
           "error"
+        );
+        return;
+      }
+      motionSensorPermissions = {
+        accelerometer: "explicitly-granted",
+        gyroscope: "explicitly-granted"
+      };
+    } else {
+      await readBrowserMotionPermissions();
+      if (motionFeatureNames.some((name) => motionSensorPermissions[name] === "denied")) {
+        useTouchSteeringFallback(
+          "Motion sensors are blocked in browser site settings; using touch steering.",
+          "site-settings-blocked"
         );
         return;
       }
@@ -1278,6 +1401,10 @@ var Module = (() => {
     rollerMotionListening: motionListening,
     rollerMotionSampleReceived: motionSampleReceived,
     rollerMotionFallback: false,
+    rollerMotionSecureContext: window.isSecureContext,
+    rollerMotionPolicy: readMotionPolicy(),
+    rollerMotionSensorPermissions: { ...motionSensorPermissions },
+    rollerMotionDebug: motionDebug,
     rollerVisualViewport: visualViewportState,
     rollerFullscreenSupported: fullscreenSupported(),
     rollerFullscreenActive: false,

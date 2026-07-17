@@ -83,6 +83,14 @@ int ROLLERWebGetPhoneControls(void)
 //-------------------------------------------------------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
+int ROLLERWebGetPhoneSteering(void)
+{
+  return InputGetPhoneSteeringValue();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
 int ROLLERWebSetWindowSize(int iWidth, int iHeight)
 {
   SDL_Window *pWindow = ROLLERGetWindow();
