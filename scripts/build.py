@@ -42,6 +42,11 @@ def main():
     _ = parser.add_argument("--version", default="local", help="Version string for build identity")
     _ = parser.add_argument("--build-date", default="unknown", help="Build date for build identity")
     _ = parser.add_argument("--build-target", default=None, help="Target string for build identity")
+    _ = parser.add_argument(
+        "--write-build-info-only",
+        action="store_true",
+        help="Write PROJECTS/ROLLER/build_info.h without compiling a native target",
+    )
     _ = parser.add_argument("--crash-debug", action="store_true", help="Enable crash dump friendly build flags")
     _ = parser.add_argument("--build-id", default=None, help="Zig build ID style")
 
@@ -49,6 +54,9 @@ def main():
 
     print("Building ROLLER...")
     write_build_info(args)
+    if args.write_build_info_only:
+        print("Build information generated")
+        return 0
 
     # Check for unsupported cross-compilation
     if "macos" in args.target and platform.system() != "Darwin":
