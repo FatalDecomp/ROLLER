@@ -9,6 +9,7 @@ var Module = (() => {
   const gateTitle = document.getElementById("gate-title");
   const status = document.getElementById("status");
   const phoneStatus = document.getElementById("phone-status");
+  const fullscreenButton = document.getElementById("fullscreen-button");
   const progress = document.getElementById("loading-progress");
   const gateActions = document.getElementById("gate-actions");
   const playButton = document.getElementById("play-button");
@@ -51,6 +52,10 @@ var Module = (() => {
   let motionLastSampleMs = Number.NEGATIVE_INFINITY;
   let motionSampleTimer = 0;
   let phoneStatusTimer = 0;
+  let viewportUpdateFrame = 0;
+  let viewportResizeNeedsSDL = false;
+  let syntheticWindowResize = false;
+  let visualViewportState = null;
   let gateBusy = true;
   let retailFatdataReady = false;
   let pendingImportFiles = null;
@@ -83,6 +88,8 @@ var Module = (() => {
       coarsePointer
     };
   }
+
+  document.documentElement.dataset.rollerPhoneMode = String(phoneModeDecision.active);
 
   function applyPhoneMode() {
     if (phoneModeApplied) {
@@ -283,6 +290,128 @@ var Module = (() => {
     startPhoneMotionSubscription();
   }
 
+  function moduleDiagnosticsAvailable() {
+    return typeof Module === "object" && Module !== null;
+  }
+
+  function readVisualViewport() {
+    const viewport = window.visualViewport;
+    const fallbackWidth = window.innerWidth || document.documentElement.clientWidth;
+    const fallbackHeight = window.innerHeight || document.documentElement.clientHeight;
+
+    return {
+      width: Math.max(1, Number(viewport?.width) || fallbackWidth || 1),
+      height: Math.max(1, Number(viewport?.height) || fallbackHeight || 1),
+      offsetLeft: Number(viewport?.offsetLeft) || 0,
+      offsetTop: Number(viewport?.offsetTop) || 0,
+      scale: Number(viewport?.scale) || 1,
+      source: viewport ? "visualViewport" : "window"
+    };
+  }
+
+  function cssPixels(value) {
+    return `${Math.round(value * 100) / 100}px`;
+  }
+
+  function applyVisualViewportLayout(notifySDL) {
+    visualViewportState = readVisualViewport();
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--roller-viewport-width", cssPixels(visualViewportState.width));
+    rootStyle.setProperty("--roller-viewport-height", cssPixels(visualViewportState.height));
+    rootStyle.setProperty(
+      "--roller-landscape-width",
+      cssPixels(visualViewportState.height * 1.6)
+    );
+
+    if (moduleDiagnosticsAvailable())
+      Module["rollerVisualViewport"] = { ...visualViewportState };
+
+    // SDL's Emscripten video driver listens to window resize, reads the CSS
+    // canvas size, and then updates the backing canvas and SDL window. Mobile
+    // browser chrome can resize visualViewport without resizing window, so
+    // bridge that event after the CSS dimensions have been committed.
+    if (notifySDL && runtimeStarted) {
+      syntheticWindowResize = true;
+      window.dispatchEvent(new Event("resize"));
+      syntheticWindowResize = false;
+    }
+  }
+
+  function scheduleVisualViewportLayout(notifySDL = false) {
+    viewportResizeNeedsSDL ||= notifySDL;
+    if (viewportUpdateFrame)
+      return;
+
+    viewportUpdateFrame = requestAnimationFrame(() => {
+      viewportUpdateFrame = 0;
+      const shouldNotifySDL = viewportResizeNeedsSDL;
+      viewportResizeNeedsSDL = false;
+      applyVisualViewportLayout(shouldNotifySDL);
+    });
+  }
+
+  function activeFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function fullscreenRequestMethod() {
+    return gameFrame.requestFullscreen || gameFrame.webkitRequestFullscreen;
+  }
+
+  function fullscreenExitMethod() {
+    return document.exitFullscreen || document.webkitExitFullscreen;
+  }
+
+  function fullscreenSupported() {
+    const enabled = document.fullscreenEnabled ?? document.webkitFullscreenEnabled;
+    return enabled !== false &&
+           typeof fullscreenRequestMethod() === "function" &&
+           typeof fullscreenExitMethod() === "function";
+  }
+
+  function updateFullscreenUI() {
+    const supported = fullscreenSupported();
+    const active = activeFullscreenElement() === gameFrame;
+    fullscreenButton.hidden = !phoneModeDecision.active || !runtimeStarted || !supported;
+    fullscreenButton.textContent = active ? "EXIT FULLSCREEN" : "FULLSCREEN";
+    fullscreenButton.setAttribute(
+      "aria-label",
+      active ? "Exit fullscreen" : "Enter fullscreen"
+    );
+    fullscreenButton.setAttribute("aria-pressed", String(active));
+
+    if (moduleDiagnosticsAvailable()) {
+      Module["rollerFullscreenSupported"] = supported;
+      Module["rollerFullscreenActive"] = active;
+    }
+  }
+
+  async function toggleFullscreenFromGesture() {
+    if (!fullscreenSupported()) {
+      showPhoneStatus("Fullscreen is unavailable in this browser.");
+      return;
+    }
+
+    try {
+      const active = activeFullscreenElement();
+      const operation = active
+        ? fullscreenExitMethod().call(document)
+        : fullscreenRequestMethod().call(gameFrame);
+      await operation;
+    } catch (error) {
+      console.warn("ROLLER: fullscreen request failed", error);
+      showPhoneStatus("Fullscreen could not be opened; continuing in the browser.");
+      updateFullscreenUI();
+    }
+  }
+
+  function handleFullscreenChange() {
+    updateFullscreenUI();
+    scheduleVisualViewportLayout(true);
+    if (runtimeStarted)
+      focusCanvas();
+  }
+
   function focusCanvas() {
     if (document.visibilityState === "visible" && document.activeElement !== canvas) {
       canvas.focus({ preventScroll: true });
@@ -332,9 +461,11 @@ var Module = (() => {
       await requestPhoneMotionFromGesture();
       runtimeStarted = true;
       startGate.hidden = true;
+      updateFullscreenUI();
       focusCanvas();
       setTimeout(refreshPhoneMotionSubscription, 0);
       Module.callMain(["--no-crash-handler"]);
+      scheduleVisualViewportLayout(true);
     } catch (error) {
       stopPhoneMotionSubscription();
       runtimeStarted = false;
@@ -345,6 +476,8 @@ var Module = (() => {
 
   function failStartup(error) {
     stopPhoneMotionSubscription();
+    runtimeStarted = false;
+    updateFullscreenUI();
     const message = error instanceof Error ? error.message : String(error);
     runtimeReady = false;
     gateTitle.textContent = "ROLLER could not start";
@@ -833,6 +966,7 @@ var Module = (() => {
   cdImageInput.addEventListener("change", () => void importCdImage(cdImageInput.files));
   continueImportButton.addEventListener("click", continueLargeImport);
   cancelImportButton.addEventListener("click", cancelLargeImport);
+  fullscreenButton.addEventListener("click", () => void toggleFullscreenFromGesture());
 
   // SDL's Emscripten keyboard target is #canvas. Keep it focused when mouse
   // input returns to the game or the browser tab/window becomes active again.
@@ -859,6 +993,18 @@ var Module = (() => {
       focusCanvas();
     }
   });
+  window.addEventListener("resize", () => {
+    if (!syntheticWindowResize)
+      scheduleVisualViewportLayout(false);
+  });
+  window.visualViewport?.addEventListener("resize", () => {
+    scheduleVisualViewportLayout(true);
+  });
+  window.visualViewport?.addEventListener("scroll", () => {
+    scheduleVisualViewportLayout(false);
+  });
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopPhoneMotionSubscription();
@@ -879,6 +1025,8 @@ var Module = (() => {
     }
   }, { passive: false });
 
+  applyVisualViewportLayout(false);
+
   return {
     canvas,
     rollerPhoneMode: phoneModeDecision.active,
@@ -889,12 +1037,16 @@ var Module = (() => {
     rollerMotionListening: motionListening,
     rollerMotionSampleReceived: motionSampleReceived,
     rollerMotionFallback: false,
+    rollerVisualViewport: visualViewportState,
+    rollerFullscreenSupported: fullscreenSupported(),
+    rollerFullscreenActive: false,
     preRun: [preparePersistentFilesystem],
     setStatus,
     onRuntimeInitialized() {
       try {
         applyPhoneMode();
         updateMotionDiagnostics();
+        updateFullscreenUI();
         if (filesystemPreparationError) {
           throw filesystemPreparationError;
         }
