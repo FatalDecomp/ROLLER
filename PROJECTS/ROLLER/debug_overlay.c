@@ -1051,6 +1051,17 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
 
 #if defined(IS_ANDROID) || defined(IS_WASM)
     {
+      int bForceLandscape = (int)g_bForceLandscape;
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      if (nk_checkbox_label(pCtx, "Force landscape mode", &bForceLandscape)) {
+        InputSetForceLandscape((bool)bForceLandscape);
+        InputSaveConfig();
+      }
+    }
+#endif
+
+#if defined(IS_ANDROID) || defined(IS_WASM)
+    {
       static const char *apszPhoneControls[] = { "Disabled", "Tilt turn", "Touch turn" };
       int iSel = (int)g_ePhoneControls;
       if (iSel < 0 || iSel > 2)

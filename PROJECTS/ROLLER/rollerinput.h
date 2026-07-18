@@ -106,6 +106,10 @@ void InputResetBindings(void);
 void InputApplyDefaultGamepadBindings(void);
 int InputLoadConfig(void);
 void InputSaveConfig(void);
+#if defined(IS_ANDROID) || defined(IS_WASM)
+extern bool g_bForceLandscape;
+void InputSetForceLandscape(bool bForceLandscape);
+#endif
 #if defined(_WIN32)
 eInputWindowsBackend InputGetWindowsBackend(void);
 void InputLoadStartupConfig(void);

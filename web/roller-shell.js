@@ -76,6 +76,8 @@ var Module = (() => {
   let viewportResizeNeedsSDL = false;
   let syntheticWindowResize = false;
   let visualViewportState = null;
+  let forceLandscapeEnabled = true;
+  let orientationLockRequest = 0;
   let gateBusy = true;
   let retailFatdataReady = false;
   let pendingImportFiles = null;
@@ -614,6 +616,59 @@ var Module = (() => {
     return document.fullscreenElement || document.webkitFullscreenElement || null;
   }
 
+  function unlockScreenOrientation() {
+    const orientation = window.screen?.orientation;
+    if (typeof orientation?.unlock !== "function")
+      return;
+
+    try {
+      orientation.unlock();
+    } catch (error) {
+      console.warn("ROLLER: screen orientation unlock failed", error);
+    }
+  }
+
+  async function syncForceLandscapeOrientation() {
+    const request = ++orientationLockRequest;
+    const active = activeFullscreenElement() === gameFrame;
+    const orientation = window.screen?.orientation;
+    const supported = typeof orientation?.lock === "function";
+
+    Module["rollerForceLandscape"] = forceLandscapeEnabled;
+    Module["rollerOrientationLockSupported"] = supported;
+    if (!forceLandscapeEnabled || !active) {
+      unlockScreenOrientation();
+      Module["rollerOrientationLockActive"] = false;
+      return;
+    }
+
+    if (!supported) {
+      Module["rollerOrientationLockActive"] = false;
+      return;
+    }
+
+    try {
+      await orientation.lock("landscape");
+      if (request !== orientationLockRequest || !forceLandscapeEnabled ||
+          activeFullscreenElement() !== gameFrame) {
+        unlockScreenOrientation();
+        Module["rollerOrientationLockActive"] = false;
+        return;
+      }
+      Module["rollerOrientationLockActive"] = true;
+    } catch (error) {
+      if (request === orientationLockRequest) {
+        Module["rollerOrientationLockActive"] = false;
+        console.warn("ROLLER: landscape orientation lock failed", error);
+      }
+    }
+  }
+
+  function setForceLandscape(enabled) {
+    forceLandscapeEnabled = !!enabled;
+    void syncForceLandscapeOrientation();
+  }
+
   function fullscreenRequestMethod() {
     return gameFrame.requestFullscreen || gameFrame.webkitRequestFullscreen;
   }
@@ -742,6 +797,7 @@ var Module = (() => {
 
   function handleFullscreenChange() {
     const active = activeFullscreenElement() === gameFrame;
+    void syncForceLandscapeOrientation();
     if (active)
       syncFullscreenLayoutToSDL();
     updateFullscreenUI();
@@ -1416,8 +1472,13 @@ var Module = (() => {
     rollerFullscreenSupported: fullscreenSupported(),
     rollerFullscreenActive: false,
     rollerFullscreenLayout: null,
+    rollerForceLandscape: forceLandscapeEnabled,
+    rollerOrientationLockSupported:
+      typeof window.screen?.orientation?.lock === "function",
+    rollerOrientationLockActive: false,
     rollerTextDialogActive: false,
     rollerTextDialogTarget: 0,
+    rollerSetForceLandscape: setForceLandscape,
     rollerShowTextDialog: showTextDialog,
     preRun: [preparePersistentFilesystem],
     setStatus,

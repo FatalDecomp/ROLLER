@@ -10,12 +10,17 @@
 #include "menu_render.h"
 #include "roller.h"
 #if defined(IS_WASM)
+#include "roller_web.h"
 #include "web_gamepad_axis.h"
 #endif
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(IS_ANDROID)
+#include <jni.h>
+#include <SDL3/SDL_system.h>
+#endif
 #if defined(_WIN32)
 #include <windows.h>
 #include <mmsystem.h>
@@ -88,6 +93,9 @@ typedef struct
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 ePhoneControls g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
 bool g_bShowActiveTouchControls = true;
+#if defined(IS_ANDROID) || defined(IS_WASM)
+bool g_bForceLandscape = true;
+#endif
 
 static tInputDevice *s_pDevices = NULL;
 static int s_iNumDevices = 0;
@@ -2637,6 +2645,53 @@ int InputPhoneAutoAccelerate(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(IS_ANDROID) || defined(IS_WASM)
+void InputSetForceLandscape(bool bForceLandscape)
+{
+#if defined(IS_ANDROID)
+  JNIEnv *pEnv;
+  jobject activity;
+  jclass activityClass;
+  jmethodID setLandscapeModeEnabled;
+#endif
+
+  g_bForceLandscape = bForceLandscape;
+#if defined(IS_ANDROID)
+  pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
+  if (!pEnv)
+    return;
+
+  activity = (jobject)SDL_GetAndroidActivity();
+  if (!activity)
+    return;
+
+  activityClass = (*pEnv)->GetObjectClass(pEnv, activity);
+  if (!activityClass)
+    goto cleanup_activity;
+
+  setLandscapeModeEnabled = (*pEnv)->GetMethodID(
+      pEnv, activityClass, "setLandscapeModeEnabled", "(Z)V");
+  if (setLandscapeModeEnabled) {
+    (*pEnv)->CallVoidMethod(pEnv, activity, setLandscapeModeEnabled,
+                            bForceLandscape ? JNI_TRUE : JNI_FALSE);
+  }
+
+  if ((*pEnv)->ExceptionCheck(pEnv)) {
+    (*pEnv)->ExceptionDescribe(pEnv);
+    (*pEnv)->ExceptionClear(pEnv);
+  }
+
+  (*pEnv)->DeleteLocalRef(pEnv, activityClass);
+cleanup_activity:
+  (*pEnv)->DeleteLocalRef(pEnv, activity);
+#elif defined(IS_WASM)
+  ROLLERWebSetForceLandscape(bForceLandscape);
+#endif
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 int InputPhoneBrakePressed(void)
 {
 #if defined(IS_ANDROID) || defined(IS_WASM)
@@ -3139,6 +3194,16 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
   }
 
 #if defined(IS_ANDROID) || defined(IS_WASM)
+  if (InputStringEqualsNoCase(szName, "ForceLandscape") ||
+      InputStringEqualsNoCase(szName, "AndroidForceLandscape")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bForceLandscape = bValue;
+    return 1;
+  }
+#endif
+
+#if defined(IS_ANDROID) || defined(IS_WASM)
   if (ROLLERPhoneUIActive() &&
       (InputStringEqualsNoCase(szName, "PhoneControls") ||
        InputStringEqualsNoCase(szName, "AndroidPhoneControls"))) {
@@ -3522,6 +3587,9 @@ int InputLoadConfig(void)
   uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  g_bForceLandscape = true;
+#endif
 #if defined(IS_WASM)
   s_byPendingDefaultGamepadPlayers = 0;
 #endif
@@ -3549,6 +3617,9 @@ int InputLoadConfig(void)
 #endif
     InputApplyWindowConfig();
     InputResolveAllBindings();
+#if defined(IS_ANDROID) || defined(IS_WASM)
+    InputSetForceLandscape(g_bForceLandscape);
+#endif
     return 0;
   }
 
@@ -3622,6 +3693,9 @@ int InputLoadConfig(void)
    * window is a harmless no-op. */
   InputApplyWindowConfig();
   InputResolveAllBindings();
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  InputSetForceLandscape(g_bForceLandscape);
+#endif
   return 1;
 }
 
@@ -3723,6 +3797,9 @@ void InputSaveConfig(void)
     fprintf(fp, "ShowActiveTouchControls=%d\n",
             g_bShowActiveTouchControls ? 1 : 0);
   }
+#endif
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  fprintf(fp, "ForceLandscape=%d\n", g_bForceLandscape ? 1 : 0);
 #endif
   fprintf(fp, "[CommunityTracks]\n");
   if (TrackLoad == TRACK_LOAD_COMMUNITY &&

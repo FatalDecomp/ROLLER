@@ -32,6 +32,19 @@ int ROLLERWebShowTextDialog(eROLLERWebTextDialog eTarget,
 
 //-------------------------------------------------------------------------------------------------
 
+EM_JS(void, ROLLERWebSetForceLandscapeJS, (int iEnabled), {
+  const setForceLandscape = Module["rollerSetForceLandscape"];
+  if (typeof setForceLandscape === "function")
+    setForceLandscape(!!iEnabled);
+});
+
+void ROLLERWebSetForceLandscape(bool bForceLandscape)
+{
+  ROLLERWebSetForceLandscapeJS(bForceLandscape ? 1 : 0);
+}
+
+//-------------------------------------------------------------------------------------------------
+
 EMSCRIPTEN_KEEPALIVE
 void ROLLERWebTextDialogComplete(int iTarget, const char *szValue, int iAccepted)
 {
