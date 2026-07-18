@@ -1579,7 +1579,7 @@ static void race_handle_mouse_shortcuts(void)
     touch_ui_handle_buttons();
   }
 
-  if (intro && replaytype == 2 && !game_req) {
+  if ((intro && replaytype == 2 && !game_req) || winner_mode) {
     if (frontend_mouse_consume_click_anywhere()) {
       race_drain_pending_key_input();
       racing = 0;
