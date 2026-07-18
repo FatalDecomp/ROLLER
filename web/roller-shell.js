@@ -76,7 +76,6 @@ var Module = (() => {
   let viewportResizeNeedsSDL = false;
   let syntheticWindowResize = false;
   let visualViewportState = null;
-  let forceLandscapeEnabled = true;
   let orientationLockRequest = 0;
   let gateBusy = true;
   let retailFatdataReady = false;
@@ -628,15 +627,14 @@ var Module = (() => {
     }
   }
 
-  async function syncForceLandscapeOrientation() {
+  async function syncFullscreenOrientation() {
     const request = ++orientationLockRequest;
     const active = activeFullscreenElement() === gameFrame;
     const orientation = window.screen?.orientation;
     const supported = typeof orientation?.lock === "function";
 
-    Module["rollerForceLandscape"] = forceLandscapeEnabled;
     Module["rollerOrientationLockSupported"] = supported;
-    if (!forceLandscapeEnabled || !active) {
+    if (!active) {
       unlockScreenOrientation();
       Module["rollerOrientationLockActive"] = false;
       return;
@@ -649,7 +647,7 @@ var Module = (() => {
 
     try {
       await orientation.lock("landscape");
-      if (request !== orientationLockRequest || !forceLandscapeEnabled ||
+      if (request !== orientationLockRequest ||
           activeFullscreenElement() !== gameFrame) {
         unlockScreenOrientation();
         Module["rollerOrientationLockActive"] = false;
@@ -662,11 +660,6 @@ var Module = (() => {
         console.warn("ROLLER: landscape orientation lock failed", error);
       }
     }
-  }
-
-  function setForceLandscape(enabled) {
-    forceLandscapeEnabled = !!enabled;
-    void syncForceLandscapeOrientation();
   }
 
   function fullscreenRequestMethod() {
@@ -797,7 +790,7 @@ var Module = (() => {
 
   function handleFullscreenChange() {
     const active = activeFullscreenElement() === gameFrame;
-    void syncForceLandscapeOrientation();
+    void syncFullscreenOrientation();
     if (active)
       syncFullscreenLayoutToSDL();
     updateFullscreenUI();
@@ -1472,13 +1465,11 @@ var Module = (() => {
     rollerFullscreenSupported: fullscreenSupported(),
     rollerFullscreenActive: false,
     rollerFullscreenLayout: null,
-    rollerForceLandscape: forceLandscapeEnabled,
     rollerOrientationLockSupported:
       typeof window.screen?.orientation?.lock === "function",
     rollerOrientationLockActive: false,
     rollerTextDialogActive: false,
     rollerTextDialogTarget: 0,
-    rollerSetForceLandscape: setForceLandscape,
     rollerShowTextDialog: showTextDialog,
     preRun: [preparePersistentFilesystem],
     setStatus,

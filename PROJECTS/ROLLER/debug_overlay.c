@@ -1049,7 +1049,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     }
 #endif
 
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
     {
       int bForceLandscape = (int)g_bForceLandscape;
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);

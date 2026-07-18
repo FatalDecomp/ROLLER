@@ -10,7 +10,6 @@
 #include "menu_render.h"
 #include "roller.h"
 #if defined(IS_WASM)
-#include "roller_web.h"
 #include "web_gamepad_axis.h"
 #endif
 #include <ctype.h>
@@ -93,7 +92,7 @@ typedef struct
 tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 ePhoneControls g_ePhoneControls = PHONE_CONTROLS_TILT_TURN;
 bool g_bShowActiveTouchControls = true;
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
 bool g_bForceLandscape = true;
 #endif
 
@@ -2645,18 +2644,15 @@ int InputPhoneAutoAccelerate(void)
 
 //-------------------------------------------------------------------------------------------------
 
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
 void InputSetForceLandscape(bool bForceLandscape)
 {
-#if defined(IS_ANDROID)
   JNIEnv *pEnv;
   jobject activity;
   jclass activityClass;
   jmethodID setLandscapeModeEnabled;
-#endif
 
   g_bForceLandscape = bForceLandscape;
-#if defined(IS_ANDROID)
   pEnv = (JNIEnv *)SDL_GetAndroidJNIEnv();
   if (!pEnv)
     return;
@@ -2684,9 +2680,6 @@ void InputSetForceLandscape(bool bForceLandscape)
   (*pEnv)->DeleteLocalRef(pEnv, activityClass);
 cleanup_activity:
   (*pEnv)->DeleteLocalRef(pEnv, activity);
-#elif defined(IS_WASM)
-  ROLLERWebSetForceLandscape(bForceLandscape);
-#endif
 }
 #endif
 
@@ -3193,7 +3186,7 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return InputParseRendererSetting(szValue);
   }
 
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
   if (InputStringEqualsNoCase(szName, "ForceLandscape") ||
       InputStringEqualsNoCase(szName, "AndroidForceLandscape")) {
     if (!InputParseBoolSetting(szValue, &bValue))
@@ -3587,7 +3580,7 @@ int InputLoadConfig(void)
   uint32 uiCommunityTrackCRC = 0;
 
   InputResetBindings();
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
   g_bForceLandscape = true;
 #endif
 #if defined(IS_WASM)
@@ -3617,7 +3610,7 @@ int InputLoadConfig(void)
 #endif
     InputApplyWindowConfig();
     InputResolveAllBindings();
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
     InputSetForceLandscape(g_bForceLandscape);
 #endif
     return 0;
@@ -3693,7 +3686,7 @@ int InputLoadConfig(void)
    * window is a harmless no-op. */
   InputApplyWindowConfig();
   InputResolveAllBindings();
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
   InputSetForceLandscape(g_bForceLandscape);
 #endif
   return 1;
@@ -3798,7 +3791,7 @@ void InputSaveConfig(void)
             g_bShowActiveTouchControls ? 1 : 0);
   }
 #endif
-#if defined(IS_ANDROID) || defined(IS_WASM)
+#if defined(IS_ANDROID)
   fprintf(fp, "ForceLandscape=%d\n", g_bForceLandscape ? 1 : 0);
 #endif
   fprintf(fp, "[CommunityTracks]\n");
