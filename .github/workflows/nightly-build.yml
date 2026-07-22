@@ -42,8 +42,10 @@ jobs:
       - name: Check for new commits since last nightly
         id: check
         run: |
-          # Get the latest nightly release
-          LATEST_NIGHTLY=$(gh release list --limit 1 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease == true) | .tagName' | head -1 || echo "")
+          # Get the most recently published nightly release. Fetch multiple releases
+          # before filtering so a newer stable release does not hide the nightlies.
+          LATEST_NIGHTLY=$(gh release list --limit 50 --json tagName,isPrerelease,publishedAt \
+            --jq '[.[] | select(.isPrerelease == true and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-dev\\.[0-9]+$")))] | sort_by(.publishedAt) | last | .tagName // empty')
 
           if [ -z "$LATEST_NIGHTLY" ]; then
             echo "No previous nightly releases found, will build"
@@ -51,8 +53,8 @@ jobs:
             exit 0
           fi
 
-          # Get the commit of the latest nightly release
-          LATEST_COMMIT=$(gh release view "$LATEST_NIGHTLY" --json body --jq '.body' | grep -o 'Commit: [a-f0-9]\{7,40\}' | cut -d' ' -f2 || echo "")
+          # Resolve the release tag instead of parsing the human-readable release notes.
+          LATEST_COMMIT=$(git rev-parse --verify "${LATEST_NIGHTLY}^{commit}" 2>/dev/null || echo "")
 
           if [ -z "$LATEST_COMMIT" ]; then
             echo "Could not determine commit from latest nightly, will build"
