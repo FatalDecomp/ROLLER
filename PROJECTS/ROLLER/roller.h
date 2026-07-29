@@ -115,6 +115,8 @@ int ROLLERfilelength(const char *szFile);
 void ROLLERsrand(unsigned int uiSeed);
 int ROLLERrandRaw(void);
 int ROLLERrand();
+uint32 ROLLERrandStateGet(void);
+void ROLLERrandStateSet(uint32 uiState);
 Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);
 Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);
 int IsCDROMDevice(const char *szPath);

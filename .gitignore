@@ -78,6 +78,7 @@ StyleCopReport.xml
 *.ilk
 *.meta
 *.obj
+!tests/fixtures/f_s4a_reference.obj
 *.iobj
 *.pch
 *.pdb

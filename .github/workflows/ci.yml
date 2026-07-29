@@ -53,6 +53,77 @@ jobs:
       short_hash: ${{ needs.get-version.outputs.short_hash }}
       build_date: ${{ needs.get-version.outputs.build_date }}
 
+  gpu-parity:
+    name: GPU parity (${{ matrix.backend }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            backend: vulkan
+          - runner: windows-latest
+            backend: direct3d12
+          - runner: macos-15
+            backend: metal
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Install Vulkan software-rendering prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers xvfb xauth
+
+      - name: Build native parity executable
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Prepare verified freeware demo assets
+        if: runner.os == 'Linux'
+        run: python scripts/fetch_demo_assets.py
+
+      - name: Run F-S2 path/state parity and F-S3 live reload soak
+        if: runner.os == 'Linux'
+        run: >-
+          xvfb-run -a zig build test-f-s2-path
+          -Doptimize=ReleaseSafe
+          -Dassets-path=zig-out/fatdata-demo
+
+      - name: Run Vulkan parity matrix
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ./zig-out/bin/roller --gpu-parity vulkan
+
+      - name: Run D3D12 parity matrix
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'gpu-parity-stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'gpu-parity-stderr.txt'
+          $process = Start-Process -FilePath '.\zig-out\bin\roller.exe' `
+            -ArgumentList '--gpu-parity', 'direct3d12' -Wait -PassThru `
+            -WindowStyle Hidden -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
+          exit $process.ExitCode
+
+      - name: Run Metal parity matrix
+        if: runner.os == 'macOS'
+        run: ./zig-out/bin/roller --gpu-parity metal
+
   build-web:
     name: Build browser bundle
     needs: get-version

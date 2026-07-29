@@ -10,6 +10,7 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
+#include "editor_surface.h"
 #include <math.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -45,6 +46,8 @@ int CarsLeft;       //001446A0
 int VisibleCars;    //001446A4
 int num_pols;       //001446A8
 int small_poly;     //001446AC
+
+static tEdSurfaceSelection g_EditorSurfaceSelection;
 
 //-------------------------------------------------------------------------------------------------
 static int remap_surface_to_flat(int surfaceFlags)
@@ -150,6 +153,134 @@ static void world_verts_left_wall(GameRenderVertex *verts,
     verts[1].u = 0; verts[1].v = 0;
     verts[2].u = 0; verts[2].v = 0;
     verts[3].u = 0; verts[3].v = 0;
+}
+
+typedef struct
+{
+    GameRenderer *pRenderer;
+    const tEdMaterialTable *pMaterials;
+    const tEdSurfaceSelection *pSelection;
+} tEdRenderSurfaceContext;
+
+static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
+                                 void *pUserData)
+{
+    tEdRenderSurfaceContext *pContext = pUserData;
+    GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+    const tEdMaterial *pFrontMaterial;
+    TextureHandle hTexture = TEXTURE_HANDLE_INVALID;
+    bool bSelected;
+    uint32_t uiRenderFlags;
+
+    if (!pSurface || !pContext
+            || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+        return;
+
+    pFrontMaterial = ed_material_table_get(
+        pContext->pMaterials, pSurface->uiFrontMaterialId);
+    if (!pFrontMaterial)
+        return;
+    bSelected = ed_surface_selection_matches(
+        pContext->pSelection, pSurface);
+    uiRenderFlags = ed_surface_selection_render_flags(
+        pContext->pSelection, pSurface);
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        aVertices[i].x = pSurface->aVertices[i].fPosition[0];
+        aVertices[i].y = pSurface->aVertices[i].fPosition[1];
+        aVertices[i].z = pSurface->aVertices[i].fPosition[2];
+        aVertices[i].u = 0.0f;
+        aVertices[i].v = 0.0f;
+        startsx[i] = pSurface->aVertices[i].iRenderU16_16;
+        startsy[i] = pSurface->aVertices[i].iRenderV16_16;
+    }
+
+    if (!bSelected
+            && (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
+                || pFrontMaterial->uiKind
+                    == ROLLER_ED_MATERIAL_TEXTURED_PAIR)) {
+        hTexture = game_render_get_texture_handle(
+            pContext->pRenderer, (int)pFrontMaterial->uiTextureSet);
+    }
+
+    game_render_quad_world(pContext->pRenderer, aVertices, hTexture,
+                           (int)uiRenderFlags,
+                           pSurface->fSubdivideThreshold);
+}
+
+static bool emit_left_wall_to_renderer(GameRenderer *pRenderer,
+                                       const GameRenderVertex aVertices[4],
+                                       uint32_t uiChunkId,
+                                       int iSurfaceFlags,
+                                       float fSubdivideThreshold,
+                                       bool bHighWall)
+{
+    tEdMaterial aMaterials[2];
+    tEdMaterialTable MaterialTable;
+    tEdRenderSurfaceContext RenderContext;
+    tEdLeftWallSurfaceInfo Info;
+    float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3];
+    uint32_t uiTileSize = gfx_size ? 32u : 64u;
+    uint32_t uiTilesPerRow = 256u / uiTileSize;
+    uint32_t uiTileCount = num_textures[19] > 0
+        ? (uint32_t)num_textures[19]
+        : 0u;
+    tEdTextureAtlas Atlas = {
+        .uiWidth = 256u,
+        .uiHeight = uiTileCount
+            ? ((uiTileCount + uiTilesPerRow - 1u) / uiTilesPerRow) * uiTileSize
+            : 0u,
+        .uiTileSize = uiTileSize,
+        .uiTileCount = uiTileCount
+    };
+
+    if (!ed_material_table_init(&MaterialTable, aMaterials, 2u, Atlas))
+        return false;
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        afWorldVertices[i][0] = aVertices[i].x;
+        afWorldVertices[i][1] = aVertices[i].y;
+        afWorldVertices[i][2] = aVertices[i].z;
+    }
+
+    Info.uiChunkId = uiChunkId;
+    Info.uiRenderFlags = (uint32_t)iSurfaceFlags;
+    Info.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
+    Info.uiTextureSet = TEXTURE_BANK_TRACK;
+    Info.fSubdivideThreshold = fSubdivideThreshold;
+    Info.bPairTextureEnabled =
+        (iSurfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on != 0;
+    Info.bHighWall = bHighWall;
+    if (iSurfaceFlags & SURFACE_FLAG_BACK) {
+        uint32_t uiTile =
+            (uint32_t)iSurfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
+        Info.uiBackSurfaceFlags =
+            (uint32_t)texture_back[256 * TEXTURE_BANK_TRACK + uiTile];
+    }
+
+    RenderContext.pRenderer = pRenderer;
+    RenderContext.pMaterials = &MaterialTable;
+    RenderContext.pSelection = &g_EditorSurfaceSelection;
+    return ed_emit_left_wall_surface(
+        afWorldVertices, &Info, &MaterialTable,
+        draw_emitted_surface, &RenderContext);
+}
+
+void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
+                                   uint32_t uiLastChunkId,
+                                   uint16_t unSurfaceClass,
+                                   uint8_t byHighlightColour)
+{
+    g_EditorSurfaceSelection.uiFirstChunkId = uiFirstChunkId;
+    g_EditorSurfaceSelection.uiLastChunkId = uiLastChunkId;
+    g_EditorSurfaceSelection.unSurfaceClass = unSurfaceClass;
+    g_EditorSurfaceSelection.byHighlightColour = byHighlightColour;
+    g_EditorSurfaceSelection.bEnabled = true;
+}
+
+void drawtrk3_editor_selection_clear(void)
+{
+    g_EditorSurfaceSelection.bEnabled = false;
 }
 
 // Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source
@@ -2275,11 +2406,15 @@ LABEL_393:
             if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
               GameRenderVertex v[4];
               world_verts_left_wall(v, iNextSectionIndex, iSectionNum, highWall ? 2 : 0);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[3] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              if (!emit_left_wall_to_renderer(
+                    g_pGameRenderer, v, (uint32_t)iSectionNum,
+                    sf, subT, highWall != 0)) {
+                TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
+                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
+                  : TEXTURE_HANDLE_INVALID;
+                game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              }
             }
           }
           goto LABEL_1271;

@@ -75,6 +75,9 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_reference_mesh.c",
+            "PROJECTS/ROLLER/editor_surface.c",
+            "PROJECTS/ROLLER/editor_track_loader.c",
             "PROJECTS/ROLLER/render_queue_3d.c",
             "PROJECTS/ROLLER/engines.c",
             "PROJECTS/ROLLER/frontend.c",
@@ -93,6 +96,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/func3.c",
             "PROJECTS/ROLLER/function.c",
             "PROJECTS/ROLLER/graphics.c",
+            "PROJECTS/ROLLER/gpu_parity.c",
             "PROJECTS/ROLLER/horizon.c",
             "PROJECTS/ROLLER/loadtrak.c",
             "PROJECTS/ROLLER/menu_render.c",
@@ -319,6 +323,7 @@ pub fn build(b: *std.Build) void {
     // -Dupdate-snapshots flag suppresses the diff check so an explicit
     // refresh run produces a clean exit before the developer commits.
     configureSnapshotTests(b, exe, assets_path);
+    configureEpicFPathReloadTests(b, exe, assets_path);
 }
 
 fn configureRenderQueue3DTests(
@@ -393,6 +398,94 @@ fn configureRenderQueue3DTests(
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
+
+    const editor_surface_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_surface_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_surface_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_surface.c",
+            "tests/editor_surface_test.c",
+        },
+    });
+    const editor_surface_exe = b.addExecutable(.{
+        .name = "editor_surface_test",
+        .root_module = editor_surface_mod,
+    });
+    const run_editor_surface = b.addRunArtifact(editor_surface_exe);
+    const editor_surface_tests = b.step(
+        "test-editor-surface",
+        "Run canonical editor surface emission tests",
+    );
+    editor_surface_tests.dependOn(&run_editor_surface.step);
+    test_step.dependOn(editor_surface_tests);
+
+    const editor_track_loader_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_track_loader_mod.sanitize_c =
+        if (target.result.os.tag == .windows) .off else .full;
+    editor_track_loader_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_track_loader_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_track_loader.c",
+            "tests/editor_track_loader_test.c",
+        },
+    });
+    const editor_track_loader_exe = b.addExecutable(.{
+        .name = "editor_track_loader_test",
+        .root_module = editor_track_loader_mod,
+    });
+    const run_editor_track_loader =
+        b.addRunArtifact(editor_track_loader_exe);
+    run_editor_track_loader.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_track_loader.addArg(
+        b.pathJoin(&.{ b.build_root.path orelse ".", "zig-out" }),
+    );
+    const editor_track_loader_tests = b.step(
+        "test-f-s3-soak",
+        "Run bounded decoder and transactional valid-malformed-valid soak",
+    );
+    editor_track_loader_tests.dependOn(&run_editor_track_loader.step);
+    test_step.dependOn(editor_track_loader_tests);
+
+    const editor_reference_mesh_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_reference_mesh_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_reference_mesh_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_reference_mesh.c",
+            "tests/editor_reference_mesh_test.c",
+        },
+    });
+    const editor_reference_mesh_exe = b.addExecutable(.{
+        .name = "editor_reference_mesh_test",
+        .root_module = editor_reference_mesh_mod,
+    });
+    const run_editor_reference_mesh =
+        b.addRunArtifact(editor_reference_mesh_exe);
+    run_editor_reference_mesh.addFileArg(
+        b.path("tests/fixtures/f_s4a_reference.obj"),
+    );
+    const editor_reference_mesh_tests = b.step(
+        "test-f-s4a-reference-mesh",
+        "Run AD-13 reference mesh import/copy/lifetime tests",
+    );
+    editor_reference_mesh_tests.dependOn(
+        &run_editor_reference_mesh.step,
+    );
+    test_step.dependOn(editor_reference_mesh_tests);
 
     const web_default_config_mod = b.createModule(.{
         .target = target,
@@ -651,6 +744,36 @@ fn configureSnapshotTests(
     diff_check.has_side_effects = true;
     if (prev_run) |p| diff_check.step.dependOn(p);
     test_snapshots.dependOn(&diff_check.step);
+}
+
+fn configureEpicFPathReloadTests(
+    b: *Build,
+    roller_exe: *Compile,
+    assets_path: LazyPath,
+) void {
+    const scratch_abs = b.pathJoin(&.{
+        b.build_root.path orelse ".",
+        "zig-out",
+        "epic-f-path-reload",
+    });
+    const run_test = b.addSystemCommand(&.{pythonExe()});
+    run_test.addFileArg(b.path("tools/test_epic_f_path_reload.py"));
+    run_test.addArtifactArg(roller_exe);
+    run_test.addDirectoryArg(assets_path);
+    run_test.addArg(scratch_abs);
+    run_test.has_side_effects = true;
+
+    const f_s2_test = b.step(
+        "test-f-s2-path",
+        "Run absolute-path populated-state and render parity regression",
+    );
+    f_s2_test.dependOn(&run_test.step);
+
+    const f_s3_live_test = b.step(
+        "test-f-s3-live-soak",
+        "Run live valid-malformed-valid scene/resource soak and render",
+    );
+    f_s3_live_test.dependOn(&run_test.step);
 }
 
 fn configureDependencies(

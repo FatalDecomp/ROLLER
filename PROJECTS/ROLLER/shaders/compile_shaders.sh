@@ -6,6 +6,7 @@ HEADER="$SCRIPT_DIR/../menu_shaders.h"
 OVERLAY_HEADER="$SCRIPT_DIR/../debug_overlay_shaders.h"
 SCENE_HEADER="$SCRIPT_DIR/../game_scene_shaders.h"
 HUD_HEADER="$SCRIPT_DIR/../game_hud_shaders.h"
+DXIL_HEADER="$SCRIPT_DIR/../game_dxil_shaders.h"
 
 # Find shadercross binary
 SHADERCROSS="${SHADERCROSS:-$(dirname "$SCRIPT_DIR")/../../tools/shadercross/zig-out/bin/shadercross}"
@@ -72,39 +73,48 @@ echo "Compiling overlay pixel shader..."
 echo "Compiling game scene vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_scene_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_scene_vertex.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_vertex.hlsl" -s HLSL -d DXIL  -t vertex   -e main -o "$OUT_DIR/game_scene_vertex.dxil"
 
 echo "Compiling game scene pixel shader (opaque)..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_scene_pixel.dxil"
 
 echo "Compiling game scene pixel shader (alpha-blend)..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel_blend.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_pixel_blend.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel_blend.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_pixel_blend.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_pixel_blend.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_scene_pixel_blend.dxil"
 
 echo "Compiling game scene track-darken pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_track_darken_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_track_darken_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_track_darken_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_track_darken_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_track_darken_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_scene_track_darken_pixel.dxil"
 
 echo "Compiling game scene sign pixel shader (depth-check)..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_sign_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_scene_sign_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_scene_sign_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_scene_sign_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_scene_sign_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_scene_sign_pixel.dxil"
 
 echo "Compiling game car vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_car_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_car_vertex.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_car_vertex.hlsl" -s HLSL -d DXIL  -t vertex   -e main -o "$OUT_DIR/game_car_vertex.dxil"
 
 echo "Compiling game car pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_car_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_car_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_car_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_car_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_car_pixel.dxil"
 
 # --- HUD shaders ---
 echo "Compiling HUD overlay vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_hud_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_hud_vertex.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_hud_vertex.hlsl" -s HLSL -d DXIL  -t vertex   -e main -o "$OUT_DIR/game_hud_vertex.dxil"
 
 echo "Compiling HUD overlay pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_hud_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_hud_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_hud_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_hud_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_hud_pixel.dxil"
 
 # --- CRT shaders ---
 CRT_HEADER="$SCRIPT_DIR/../crt_shaders.h"
@@ -213,18 +223,22 @@ fi
 echo "Compiling particle vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_vertex.hlsl" -s HLSL -d DXIL  -t vertex   -e main -o "$OUT_DIR/game_particle_vertex.dxil"
 
 echo "Compiling particle pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_particle_pixel.dxil"
 
 echo "Compiling textured particle vertex shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d SPIRV -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d MSL   -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_vertex.hlsl" -s HLSL -d DXIL  -t vertex   -e main -o "$OUT_DIR/game_particle_tex_vertex.dxil"
 
 echo "Compiling textured particle pixel shader..."
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d SPIRV -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.spv"
 "$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d MSL   -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.msl"
+"$SHADERCROSS" "$SCRIPT_DIR/game_particle_tex_pixel.hlsl" -s HLSL -d DXIL  -t fragment -e main -o "$OUT_DIR/game_particle_tex_pixel.dxil"
 
 echo "Generating game_particle_shaders.h..."
 "$PYTHON" -c "
@@ -241,6 +255,10 @@ with open(r'$W_PARTICLE', 'w') as f:
     f.write(h)
 "
 echo "Generated $PARTICLE_HEADER"
+
+echo "Generating game_dxil_shaders.h..."
+"$PYTHON" "$SCRIPT_DIR/embed_dxil.py"
+echo "Generated $DXIL_HEADER"
 
 echo "Generating crt_shaders.h..."
 "$PYTHON" -c "

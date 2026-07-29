@@ -18,6 +18,8 @@ struct CRTFilter;
 SceneRendererGPU *scene_render_get_gpu(struct SceneRenderer *renderer);
 
 SceneRendererGPU *scene_render_gpu_create(SDL_GPUDevice *device, SDL_Window *window);
+/* Creates the editor/spike path with no SDL_Window and a fixed RGBA8 target. */
+SceneRendererGPU *scene_render_gpu_create_windowless(SDL_GPUDevice *device);
 void              scene_render_gpu_destroy(SceneRendererGPU *r);
 
 /* Generic one-off GPU upload helpers -- not tied to any SceneRendererGPU
@@ -32,6 +34,13 @@ SDL_GPUBuffer  *scene_render_gpu_upload_buffer(SDL_GPUDevice *dev, SDL_GPUBuffer
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r);
 void scene_render_gpu_end_frame(SceneRendererGPU *r);
+/* Renders the same pre-presentation resolved scene as end_frame, then waits
+ * for the GPU and copies it to top-left-origin, straight-alpha RGBA8.  The
+ * destination is untouched when validation or GPU readback fails. */
+bool scene_render_gpu_end_frame_readback(SceneRendererGPU *r,
+                                         uint8 *pbyPixels,
+                                         Uint32 uiBufferSize,
+                                         Uint32 uiRowPitch);
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r);
 void scene_render_gpu_discard_queued(SceneRendererGPU *r);
 
