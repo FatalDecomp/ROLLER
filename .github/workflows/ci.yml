@@ -91,9 +91,16 @@ jobs:
       - name: Build native parity executable
         run: zig build -Doptimize=ReleaseSafe
 
+      - name: Prepare verified freeware demo assets
+        if: runner.os == 'Linux'
+        run: python scripts/fetch_demo_assets.py
+
       - name: Run F-S2 path/state parity and F-S3 live reload soak
         if: runner.os == 'Linux'
-        run: xvfb-run -a zig build test-f-s2-path -Doptimize=ReleaseSafe
+        run: >-
+          xvfb-run -a zig build test-f-s2-path
+          -Doptimize=ReleaseSafe
+          -Dassets-path=zig-out/fatdata-demo
 
       - name: Run Vulkan parity matrix
         if: runner.os == 'Linux'

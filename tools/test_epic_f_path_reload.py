@@ -73,11 +73,18 @@ def main() -> int:
     roller = args.roller.resolve()
     assets = args.assets.resolve()
     scratch = args.scratch.resolve()
-    source_track = assets / "TRACK3.TRK"
     replay = "INTRO1.GSS"
+    replay_path = assets / replay
 
     if not roller.is_file():
         raise RuntimeError(f"ROLLER executable not found: {roller}")
+    if not replay_path.is_file():
+        raise RuntimeError(f"F-S2 fixture replay not found: {replay_path}")
+    with replay_path.open("rb") as replay_file:
+        replay_track = replay_file.read(1)
+    if len(replay_track) != 1:
+        raise RuntimeError(f"F-S2 fixture replay is empty: {replay_path}")
+    source_track = assets / f"TRACK{replay_track[0]}.TRK"
     if not source_track.is_file():
         raise RuntimeError(f"F-S2 fixture track not found: {source_track}")
     scratch.mkdir(parents=True, exist_ok=True)
