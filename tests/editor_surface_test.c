@@ -238,6 +238,56 @@ static void test_export_mapping_uses_material_transform(void)
     assert_float_near(afAtlasUV[1], 0.6875f);
 }
 
+static void test_selection_uses_only_canonical_identity(void)
+{
+    tEdSurfaceSelection Selection = {
+        .uiFirstChunkId = 12u,
+        .uiLastChunkId = 10u,
+        .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+        .byHighlightColour = 0x8Fu,
+        .bEnabled = true
+    };
+    tEdSurfaceEmission Surface;
+    memset(&Surface, 0xA5, sizeof(Surface));
+    Surface.uiChunkId = 9u;
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL;
+    Surface.uiRenderFlags =
+        SURFACE_FLAG_APPLY_TEXTURE
+        | SURFACE_FLAG_TEXTURE_PAIR
+        | SURFACE_FLAG_FLIP_BACKFACE
+        | 7u;
+
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+    Surface.uiChunkId = 10u;
+    assert(ed_surface_selection_matches(&Selection, &Surface));
+    Surface.uiChunkId = 11u;
+    assert(ed_surface_selection_matches(&Selection, &Surface));
+    Surface.uiChunkId = 12u;
+    assert(ed_surface_selection_matches(&Selection, &Surface));
+    Surface.uiChunkId = 13u;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+
+    Surface.uiChunkId = 11u;
+    Surface.unSurfaceClass =
+        (uint16_t)(ROLLER_ED_SURFACE_CLASS_LEFT_WALL + 1u);
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL;
+
+    uint32_t uiHighlightFlags =
+        ed_surface_selection_render_flags(&Selection, &Surface);
+    assert((uiHighlightFlags & SURFACE_FLAG_APPLY_TEXTURE) == 0);
+    assert((uiHighlightFlags & SURFACE_FLAG_TRANSPARENT) == 0);
+    assert((uiHighlightFlags & SURFACE_FLAG_PARTIAL_TRANS) == 0);
+    assert((uiHighlightFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0);
+    assert((uiHighlightFlags & SURFACE_FLAG_FLIP_BACKFACE) != 0);
+    assert((uiHighlightFlags & SURFACE_MASK_TEXTURE_INDEX) == 0x8Fu);
+
+    Selection.bEnabled = false;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+    assert(ed_surface_selection_render_flags(&Selection, &Surface)
+           == Surface.uiRenderFlags);
+}
+
 int main(void)
 {
     test_exact_fixed_uvs_and_identity();
@@ -245,6 +295,7 @@ int main(void)
     test_reverse_material_and_generated_back_face();
     test_paired_mapping_in_both_directions();
     test_export_mapping_uses_material_transform();
+    test_selection_uses_only_canonical_identity();
     puts("editor surface emission tests passed");
     return 0;
 }

@@ -108,6 +108,15 @@ typedef struct
     bool bHighWall;
 } tEdLeftWallSurfaceInfo;
 
+typedef struct
+{
+    uint32_t uiFirstChunkId;
+    uint32_t uiLastChunkId;
+    uint16_t unSurfaceClass;
+    uint8_t byHighlightColour;
+    bool bEnabled;
+} tEdSurfaceSelection;
+
 bool ed_material_table_init(tEdMaterialTable *pTable,
                             tEdMaterial *pStorage,
                             uint32_t uiCapacity,
@@ -119,6 +128,13 @@ const tEdMaterial *ed_material_table_get(const tEdMaterialTable *pTable,
 void ed_material_resolve_uv(const tEdMaterial *pMaterial,
                             const float afMaterialUV[2],
                             float afAtlasUV[2]);
+
+bool ed_surface_selection_matches(const tEdSurfaceSelection *pSelection,
+                                  const tEdSurfaceEmission *pSurface);
+
+uint32_t ed_surface_selection_render_flags(
+    const tEdSurfaceSelection *pSelection,
+    const tEdSurfaceEmission *pSurface);
 
 bool ed_emit_left_wall_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
                                const tEdLeftWallSurfaceInfo *pInfo,

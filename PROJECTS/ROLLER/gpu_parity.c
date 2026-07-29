@@ -67,6 +67,9 @@ typedef struct
 {
     SceneRendererGPU *pRenderer;
     SceneTextureHandle iTexture;
+    const tEdSurfaceSelection *pSelection;
+    Uint32 uiSelectedChunkMask;
+    Uint32 uiSelectedCount;
     bool bCalled;
 } tGpuEmissionRenderContext;
 
@@ -156,9 +159,24 @@ static void gpu_f_s5_render_emission(const tEdSurfaceEmission *pSurface,
         .subdivideType = SCENE_RENDER_SUBDIVIDE_TYPE_AUTO,
         .subThreshold = pSurface->fSubdivideThreshold
     };
+    bool bSelected;
+    uint32_t uiRenderFlags;
+    SceneTextureHandle iTexture;
 
     if (pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
         return;
+    bSelected = ed_surface_selection_matches(
+        pContext->pSelection, pSurface);
+    uiRenderFlags = ed_surface_selection_render_flags(
+        pContext->pSelection, pSurface);
+    iTexture = bSelected
+        ? SCENE_TEXTURE_HANDLE_INVALID
+        : pContext->iTexture;
+    if (bSelected) {
+        pContext->uiSelectedCount++;
+        if (pSurface->uiChunkId < 32u)
+            pContext->uiSelectedChunkMask |= 1u << pSurface->uiChunkId;
+    }
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         aVertices[i].x = pSurface->aVertices[i].fPosition[0];
         aVertices[i].y = pSurface->aVertices[i].fPosition[1];
@@ -169,8 +187,8 @@ static void gpu_f_s5_render_emission(const tEdSurfaceEmission *pSurface,
         startsy[i] = pSurface->aVertices[i].iRenderV16_16;
     }
     scene_render_gpu_quad_world_legacy(
-        pContext->pRenderer, aVertices, pContext->iTexture,
-        (int)pSurface->uiRenderFlags, Options);
+        pContext->pRenderer, aVertices, iTexture,
+        (int)uiRenderFlags, Options);
     pContext->bCalled = true;
 }
 
@@ -562,6 +580,137 @@ cleanup:
     return bPass;
 }
 
+static bool gpu_f_s4b_selected_surface_check(
+    SceneRendererGPU *pRenderer,
+    SceneTextureHandle iTexture)
+{
+    static const float afLeft[4] = {
+        -0.92f, -0.46f, 0.06f, 0.52f
+    };
+    static const float afRight[4] = {
+        -0.52f, -0.06f, 0.46f, 0.92f
+    };
+    /* Deliberately non-monotonic in screen order: identity, not position or
+     * queue order, must choose the two outer quads. */
+    static const uint32_t auiChunkId[4] = { 10u, 9u, 12u, 11u };
+    const Uint32 uiWidth = 320;
+    const Uint32 uiHeight = 200;
+    const Uint32 uiBufferSize = uiWidth * uiHeight * 4u;
+    uint8 *pbyPixels = malloc(uiBufferSize);
+    tEdMaterial aMaterials[1];
+    tEdMaterialTable MaterialTable;
+    tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+    tEdSurfaceSelection Selection = {
+        .uiFirstChunkId = 10u,
+        .uiLastChunkId = 11u,
+        .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+        .byHighlightColour = 5u,
+        .bEnabled = true
+    };
+    tGpuEmissionRenderContext RenderContext = {
+        .pRenderer = pRenderer,
+        .iTexture = iTexture,
+        .pSelection = &Selection
+    };
+    SceneRenderCamera Camera = {
+        .cosYaw = 1.0f,
+        .fovScale = (float)uiWidth * 0.5f,
+        .renderChunkIdx = -1
+    };
+    SceneRenderProjection Projection = {
+        .view = {
+            { 1.0f, 0.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f }
+        },
+        .screenScale = 64,
+        .centerX = (int)uiWidth / 2,
+        .centerY = 199 - (int)uiHeight / 2
+    };
+    Uint64 aullHighlightPixels[4] = { 0 };
+    bool bPass = false;
+
+    if (!pbyPixels
+            || !ed_material_table_init(
+                &MaterialTable, aMaterials, 1u, Atlas))
+        goto cleanup;
+
+    scene_render_gpu_set_msaa(pRenderer, 0);
+    scene_render_gpu_begin_frame(pRenderer);
+    scene_render_gpu_set_viewport(
+        pRenderer, 0, 0, (int)uiWidth, (int)uiHeight);
+    scene_render_gpu_set_camera(pRenderer, &Camera);
+    scene_render_gpu_set_projection(pRenderer, &Projection);
+    scene_render_gpu_set_sky_color(pRenderer, 0.07f, 0.10f, 0.16f);
+
+    for (int iQuad = 0; iQuad < 4; iQuad++) {
+        SceneRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+        float afWorld[ED_SURFACE_VERTEX_COUNT][3];
+        tEdLeftWallSurfaceInfo Info = {
+            .uiChunkId = auiChunkId[iQuad],
+            .uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE,
+            .uiBackSurfaceFlags = ED_MATERIAL_ID_NONE,
+            .uiTextureSet = TEXTURE_BANK_TRACK,
+            .fSubdivideThreshold = 1000000.0f,
+            .bPairTextureEnabled = false,
+            .bHighWall = false
+        };
+        gpu_parity_make_quad(
+            aVertices, afLeft[iQuad], 0.65f,
+            afRight[iQuad], -0.65f,
+            1000.0f, uiWidth, uiHeight);
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            afWorld[i][0] = aVertices[i].x;
+            afWorld[i][1] = aVertices[i].y;
+            afWorld[i][2] = aVertices[i].z;
+        }
+        if (!ed_emit_left_wall_surface(
+                afWorld, &Info, &MaterialTable,
+                gpu_f_s5_render_emission, &RenderContext)) {
+            scene_render_gpu_cancel_frame(pRenderer);
+            goto cleanup;
+        }
+    }
+
+    if (!scene_render_gpu_end_frame_readback(
+            pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u))
+        goto cleanup;
+
+    for (int iQuad = 0; iQuad < 4; iQuad++) {
+        int iMinX = (int)((afLeft[iQuad] + 1.0f) * 0.5f * uiWidth) + 3;
+        int iMaxX = (int)((afRight[iQuad] + 1.0f) * 0.5f * uiWidth) - 3;
+        for (int iY = 0; iY < (int)uiHeight; iY++) {
+            for (int iX = iMinX; iX <= iMaxX; iX++) {
+                const uint8 *pbyPixel =
+                    &pbyPixels[((Uint32)iY * uiWidth + (Uint32)iX) * 4u];
+                if (pbyPixel[0] >= 210u
+                        && pbyPixel[1] >= 45u && pbyPixel[1] <= 90u
+                        && pbyPixel[2] >= 205u)
+                    aullHighlightPixels[iQuad]++;
+            }
+        }
+    }
+
+    bPass = RenderContext.uiSelectedCount == 2u
+         && RenderContext.uiSelectedChunkMask
+                == ((1u << 10) | (1u << 11))
+         && aullHighlightPixels[0] >= 3000u
+         && aullHighlightPixels[1] == 0u
+         && aullHighlightPixels[2] == 0u
+         && aullHighlightPixels[3] >= 3000u;
+    SDL_Log("F-S4b %s: selected-mask=0x%X highlight-pixels=[%llu,%llu,%llu,%llu]",
+            bPass ? "PASS" : "FAIL",
+            RenderContext.uiSelectedChunkMask,
+            (unsigned long long)aullHighlightPixels[0],
+            (unsigned long long)aullHighlightPixels[1],
+            (unsigned long long)aullHighlightPixels[2],
+            (unsigned long long)aullHighlightPixels[3]);
+
+cleanup:
+    free(pbyPixels);
+    return bPass;
+}
+
 static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
                                       SceneRendererGPU *pRenderer,
                                       SceneTextureHandle iTrackTexture)
@@ -809,6 +958,8 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
     bool bSurfaceMetadataPass = gpu_f_s5_metadata_check();
     bool bSurfaceRendererPass = gpu_f_s5_renderer_byte_check(
         pWindowless, iWindowlessTexture);
+    bool bSelectedSurfacePass = gpu_f_s4b_selected_surface_check(
+        pWindowless, iWindowlessTexture);
     bool bReferenceDepthPass = gpu_reference_depth_check(
         pDevice, pWindowless, iWindowlessTexture);
     if (iFailures == 0) {
@@ -817,7 +968,8 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
         SDL_Log("F-S1 FAIL: %d comparison(s) failed", iFailures);
     }
     if (iFailures == 0 && bSurfaceMetadataPass
-            && bSurfaceRendererPass && bReferenceDepthPass)
+            && bSurfaceRendererPass && bSelectedSurfacePass
+            && bReferenceDepthPass)
         iResult = 0;
 
 cleanup:

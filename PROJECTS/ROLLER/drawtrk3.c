@@ -47,6 +47,8 @@ int VisibleCars;    //001446A4
 int num_pols;       //001446A8
 int small_poly;     //001446AC
 
+static tEdSurfaceSelection g_EditorSurfaceSelection;
+
 //-------------------------------------------------------------------------------------------------
 static int remap_surface_to_flat(int surfaceFlags)
 {
@@ -157,6 +159,7 @@ typedef struct
 {
     GameRenderer *pRenderer;
     const tEdMaterialTable *pMaterials;
+    const tEdSurfaceSelection *pSelection;
 } tEdRenderSurfaceContext;
 
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
@@ -166,6 +169,8 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
     GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
     const tEdMaterial *pFrontMaterial;
     TextureHandle hTexture = TEXTURE_HANDLE_INVALID;
+    bool bSelected;
+    uint32_t uiRenderFlags;
 
     if (!pSurface || !pContext
             || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
@@ -175,6 +180,10 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         pContext->pMaterials, pSurface->uiFrontMaterialId);
     if (!pFrontMaterial)
         return;
+    bSelected = ed_surface_selection_matches(
+        pContext->pSelection, pSurface);
+    uiRenderFlags = ed_surface_selection_render_flags(
+        pContext->pSelection, pSurface);
 
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         aVertices[i].x = pSurface->aVertices[i].fPosition[0];
@@ -186,14 +195,16 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         startsy[i] = pSurface->aVertices[i].iRenderV16_16;
     }
 
-    if (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
-            || pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_PAIR) {
+    if (!bSelected
+            && (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
+                || pFrontMaterial->uiKind
+                    == ROLLER_ED_MATERIAL_TEXTURED_PAIR)) {
         hTexture = game_render_get_texture_handle(
             pContext->pRenderer, (int)pFrontMaterial->uiTextureSet);
     }
 
     game_render_quad_world(pContext->pRenderer, aVertices, hTexture,
-                           (int)pSurface->uiRenderFlags,
+                           (int)uiRenderFlags,
                            pSurface->fSubdivideThreshold);
 }
 
@@ -249,9 +260,27 @@ static bool emit_left_wall_to_renderer(GameRenderer *pRenderer,
 
     RenderContext.pRenderer = pRenderer;
     RenderContext.pMaterials = &MaterialTable;
+    RenderContext.pSelection = &g_EditorSurfaceSelection;
     return ed_emit_left_wall_surface(
         afWorldVertices, &Info, &MaterialTable,
         draw_emitted_surface, &RenderContext);
+}
+
+void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
+                                   uint32_t uiLastChunkId,
+                                   uint16_t unSurfaceClass,
+                                   uint8_t byHighlightColour)
+{
+    g_EditorSurfaceSelection.uiFirstChunkId = uiFirstChunkId;
+    g_EditorSurfaceSelection.uiLastChunkId = uiLastChunkId;
+    g_EditorSurfaceSelection.unSurfaceClass = unSurfaceClass;
+    g_EditorSurfaceSelection.byHighlightColour = byHighlightColour;
+    g_EditorSurfaceSelection.bEnabled = true;
+}
+
+void drawtrk3_editor_selection_clear(void)
+{
+    g_EditorSurfaceSelection.bEnabled = false;
 }
 
 // Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source

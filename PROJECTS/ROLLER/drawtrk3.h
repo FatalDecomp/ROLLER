@@ -48,6 +48,11 @@ int facing_ok(float fX0, float fY0, float fZ0,
               float fX2, float fY2, float fZ2,
               float fX3, float fY3, float fZ3);
 void set_starts(unsigned int uiType);
+void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
+                                   uint32_t uiLastChunkId,
+                                   uint16_t unSurfaceClass,
+                                   uint8_t byHighlightColour);
+void drawtrk3_editor_selection_clear(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif

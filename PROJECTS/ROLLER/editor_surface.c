@@ -110,6 +110,43 @@ void ed_material_resolve_uv(const tEdMaterial *pMaterial,
                  + pMaterial->fAtlasBias[1];
 }
 
+bool ed_surface_selection_matches(const tEdSurfaceSelection *pSelection,
+                                  const tEdSurfaceEmission *pSurface)
+{
+    uint32_t uiFirstChunkId;
+    uint32_t uiLastChunkId;
+
+    if (!pSelection || !pSurface || !pSelection->bEnabled
+            || pSurface->unSurfaceClass != pSelection->unSurfaceClass)
+        return false;
+
+    uiFirstChunkId = pSelection->uiFirstChunkId;
+    uiLastChunkId = pSelection->uiLastChunkId;
+    if (uiFirstChunkId > uiLastChunkId) {
+        uint32_t uiTemp = uiFirstChunkId;
+        uiFirstChunkId = uiLastChunkId;
+        uiLastChunkId = uiTemp;
+    }
+    return pSurface->uiChunkId >= uiFirstChunkId
+        && pSurface->uiChunkId <= uiLastChunkId;
+}
+
+uint32_t ed_surface_selection_render_flags(
+    const tEdSurfaceSelection *pSelection,
+    const tEdSurfaceEmission *pSurface)
+{
+    const uint32_t uiMaterialFlags =
+        SURFACE_FLAG_APPLY_TEXTURE
+        | SURFACE_FLAG_TRANSPARENT
+        | SURFACE_FLAG_PARTIAL_TRANS;
+
+    if (!ed_surface_selection_matches(pSelection, pSurface))
+        return pSurface ? pSurface->uiRenderFlags : 0u;
+    return (pSurface->uiRenderFlags
+            & ~(uiMaterialFlags | SURFACE_MASK_TEXTURE_INDEX))
+        | pSelection->byHighlightColour;
+}
+
 bool ed_emit_left_wall_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
                                const tEdLeftWallSurfaceInfo *pInfo,
                                tEdMaterialTable *pMaterials,
