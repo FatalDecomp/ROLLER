@@ -91,6 +91,10 @@ jobs:
       - name: Build native parity executable
         run: zig build -Doptimize=ReleaseSafe
 
+      - name: Run F-S2 path/state parity and F-S3 live reload soak
+        if: runner.os == 'Linux'
+        run: xvfb-run -a zig build test-f-s2-path -Doptimize=ReleaseSafe
+
       - name: Run Vulkan parity matrix
         if: runner.os == 'Linux'
         run: xvfb-run -a ./zig-out/bin/roller --gpu-parity vulkan

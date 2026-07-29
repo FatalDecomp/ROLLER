@@ -2669,6 +2669,20 @@ int ROLLERrandRaw(void)
 
 //-------------------------------------------------------------------------------------------------
 
+uint32 ROLLERrandStateGet(void)
+{
+  return g_uiRandState;
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void ROLLERrandStateSet(uint32 uiState)
+{
+  g_uiRandState = uiState;
+}
+
+//-------------------------------------------------------------------------------------------------
+
 int ROLLERrand()
 {
   return GetHighOrderRand(0x7FFF, ROLLERrandRaw());

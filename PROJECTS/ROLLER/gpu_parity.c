@@ -15,6 +15,7 @@ int ROLLERGpuParityRun(const char *szBackend)
 #include "polytex.h"
 #include "3d.h"
 #include "drawtrk3.h"
+#include "editor_reference_mesh.h"
 #include "editor_surface.h"
 #include "graphics.h"
 
@@ -715,50 +716,97 @@ static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
                                       SceneRendererGPU *pRenderer,
                                       SceneTextureHandle iTrackTexture)
 {
+    static const char szReferenceObj[] =
+        "tests/fixtures/f_s4a_reference.obj";
     static const float afIdentity[16] = {
         1, 0, 0, 0,
         0, 1, 0, 0,
         0, 0, 1, 0,
         0, 0, 0, 1
     };
-    static const uint8 abyWhiteTexture[16] = {
-        255, 255, 255, 255, 255, 255, 255, 255,
-        255, 255, 255, 255, 255, 255, 255, 255
-    };
-    static const tGpuReferenceVertex aVertices[8] = {
-        {{-0.82f,  0.55f, 0.50f}, {0, 0}, {1, 0, 0, 1}},
-        {{-0.08f,  0.55f, 0.50f}, {1, 0}, {1, 0, 0, 1}},
-        {{-0.08f, -0.55f, 0.50f}, {1, 1}, {1, 0, 0, 1}},
-        {{-0.82f, -0.55f, 0.50f}, {0, 1}, {1, 0, 0, 1}},
-        {{ 0.08f,  0.55f, 1.00f}, {0, 0}, {0, 1, 0, 1}},
-        {{ 0.82f,  0.55f, 1.00f}, {1, 0}, {0, 1, 0, 1}},
-        {{ 0.82f, -0.55f, 1.00f}, {1, 1}, {0, 1, 0, 1}},
-        {{ 0.08f, -0.55f, 1.00f}, {0, 1}, {0, 1, 0, 1}}
-    };
-    /* Each rectangle contains both windings. The active backend culls one
-     * winding and renders the other, keeping this fixture independent of the
-     * backend's render-target Y convention. */
-    static const Uint32 aIndices[24] = {
-        0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2,
-        4, 5, 6, 4, 6, 7, 4, 6, 5, 4, 7, 6
+    uint8 abyImportedTexture[8] = {
+        255, 0, 0, 255,
+        0, 255, 0, 255
     };
     const Uint32 uiWidth = 320;
     const Uint32 uiHeight = 200;
     const Uint32 uiBufferSize = uiWidth * uiHeight * 4u;
     uint8 *pbyPixels = malloc(uiBufferSize);
+    tGpuReferenceVertex *pGpuVertices = NULL;
     SDL_GPUBuffer *pVertexBuffer = NULL;
     SDL_GPUBuffer *pIndexBuffer = NULL;
     SDL_GPUTexture *pMeshTexture = NULL;
+    tEdReferenceMeshImport Import;
+    tEdReferenceMeshState State;
+    tEdReferenceMesh Mesh;
+    char szReferenceError[256];
     bool bPass = false;
 
+    ed_reference_mesh_import_init(&Import);
+    ed_reference_mesh_state_init(&State);
     if (!pbyPixels)
         goto cleanup;
+    if (ed_reference_mesh_import_obj(
+            szReferenceObj, &Import,
+            szReferenceError, sizeof(szReferenceError))
+            != ED_REFERENCE_MESH_OK) {
+        SDL_Log("F-S4a FAIL: reference OBJ import failed: %s",
+                szReferenceError);
+        goto cleanup;
+    }
+    memset(&Mesh, 0, sizeof(Mesh));
+    Mesh.uiStructSize = sizeof(Mesh);
+    Mesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION;
+    Mesh.pVertices = Import.pVertices;
+    Mesh.uiVertexCount = Import.uiVertexCount;
+    Mesh.puiIndices = Import.puiIndices;
+    Mesh.uiIndexCount = Import.uiIndexCount;
+    Mesh.pbyTextureRGBA = abyImportedTexture;
+    Mesh.uiTextureWidth = 2u;
+    Mesh.uiTextureHeight = 1u;
+    Mesh.uiTextureRowPitch = 8u;
+    Mesh.fScale[0] = 1.0f;
+    Mesh.fScale[1] = 1.0f;
+    Mesh.fScale[2] = 1.0f;
+    Mesh.uiFlags = ROLLER_ED_REFERENCE_TWO_SIDED;
+    if (ed_reference_mesh_replace(
+            &State, &Mesh,
+            szReferenceError, sizeof(szReferenceError))
+            != ED_REFERENCE_MESH_OK) {
+        SDL_Log("F-S4a FAIL: AD-13 reference replacement failed: %s",
+                szReferenceError);
+        goto cleanup;
+    }
+    /*
+     * The contract promises synchronous copies. Destroy the imported arrays
+     * and overwrite the caller texture before GPU upload; correct rendering
+     * can now only come from State's owned copies.
+     */
+    ed_reference_mesh_import_dispose(&Import);
+    memset(abyImportedTexture, 0, sizeof(abyImportedTexture));
+    pGpuVertices = malloc(
+        (size_t)State.uiVertexCount * sizeof(*pGpuVertices));
+    if (!pGpuVertices)
+        goto cleanup;
+    for (uint32_t i = 0; i < State.uiVertexCount; i++) {
+        memcpy(pGpuVertices[i].afPosition,
+               State.pVertices[i].fPosition,
+               sizeof(pGpuVertices[i].afPosition));
+        memcpy(pGpuVertices[i].afUv,
+               State.pVertices[i].fUV,
+               sizeof(pGpuVertices[i].afUv));
+        for (size_t iChannel = 0; iChannel < 4u; iChannel++)
+            pGpuVertices[i].afColor[iChannel] = 1.0f;
+    }
     pVertexBuffer = scene_render_gpu_upload_buffer(
-        pDevice, SDL_GPU_BUFFERUSAGE_VERTEX, aVertices, sizeof(aVertices));
+        pDevice, SDL_GPU_BUFFERUSAGE_VERTEX, pGpuVertices,
+        (size_t)State.uiVertexCount * sizeof(*pGpuVertices));
     pIndexBuffer = scene_render_gpu_upload_buffer(
-        pDevice, SDL_GPU_BUFFERUSAGE_INDEX, aIndices, sizeof(aIndices));
+        pDevice, SDL_GPU_BUFFERUSAGE_INDEX, State.puiIndices,
+        (size_t)State.uiIndexCount * sizeof(*State.puiIndices));
     pMeshTexture = scene_render_gpu_upload_rgba(
-        pDevice, abyWhiteTexture, 2, 2, false);
+        pDevice, State.pbyTextureRGBA,
+        (int)State.uiTextureWidth, (int)State.uiTextureHeight, false);
     if (!pVertexBuffer || !pIndexBuffer || !pMeshTexture) {
         SDL_Log("F-S4a FAIL: reference mesh resource upload failed: %s",
                 SDL_GetError());
@@ -792,7 +840,8 @@ static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
         SCENE_RENDER_SUBDIVIDE_TYPE_AUTO,
         -0.92f, 0.78f, 0.92f, -0.78f, 1000.0f, uiWidth, uiHeight);
     scene_render_gpu_queue_car_draw(pRenderer, pVertexBuffer, pIndexBuffer,
-                                    pMeshTexture, 0, 24, afIdentity);
+                                    pMeshTexture, 0,
+                                    (int)State.uiIndexCount, afIdentity);
     if (!scene_render_gpu_end_frame_readback(
             pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u)) {
         SDL_Log("F-S4a FAIL: composed-scene readback failed: %s", SDL_GetError());
@@ -809,8 +858,11 @@ static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
             ullOccludedPixels++;
     }
     bPass = ullFrontPixels >= 4000 && ullOccludedPixels == 0;
-    SDL_Log("F-S4a %s: reference-front-pixels=%llu behind-track-pixels=%llu",
+    SDL_Log("F-S4a %s: imported-vertices=%u copied-texture=%ux%u reference-front-pixels=%llu behind-track-pixels=%llu",
             bPass ? "PASS" : "FAIL",
+            State.uiVertexCount,
+            State.uiTextureWidth,
+            State.uiTextureHeight,
             (unsigned long long)ullFrontPixels,
             (unsigned long long)ullOccludedPixels);
 
@@ -821,6 +873,9 @@ cleanup:
         SDL_ReleaseGPUBuffer(pDevice, pIndexBuffer);
     if (pVertexBuffer)
         SDL_ReleaseGPUBuffer(pDevice, pVertexBuffer);
+    free(pGpuVertices);
+    ed_reference_mesh_state_dispose(&State);
+    ed_reference_mesh_import_dispose(&Import);
     free(pbyPixels);
     return bPass;
 }

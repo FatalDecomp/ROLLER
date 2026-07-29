@@ -11,6 +11,7 @@
 #include "transfrm.h"
 #include "view.h"
 #include "control.h"
+#include "editor_track_loader.h"
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
@@ -445,19 +446,6 @@ static int track_path_is_absolute(const char *szPath)
   return 0;
 }
 
-static int track_path_has_plausible_header(const char *szPath)
-{
-  FILE *pFile = ROLLERfopen(szPath, "rb");
-  int iDeclaredLength = 0;
-  if (!pFile)
-    return 0;
-  size_t uiBytesRead = fread(&iDeclaredLength, 1, sizeof(iDeclaredLength),
-                             pFile);
-  fclose(pFile);
-  return uiBytesRead == sizeof(iDeclaredLength) && iDeclaredLength > 0
-      && iDeclaredLength <= 64 * 1024 * 1024;
-}
-
 static uint64 community_track_state_hash(void)
 {
   const uint64 ullOffsetBasis = UINT64_C(14695981039346656037);
@@ -483,7 +471,8 @@ static uint64 community_track_state_hash(void)
 
 //0004AF80
 static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
-                              const char *szDirectTrackPath)
+                              const char *szDirectTrackPath,
+                              const tEdTrackStage *pDirectStage)
 {
   int iCarIdx; // ecx
   tCar *pCar; // edi
@@ -633,7 +622,6 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
   const char *szTrackFile; // [ROLLER]
   int bDirectPath = szDirectTrackPath != NULL;
 
-  ++g_iTrackLoadGeneration;
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
   bMinimalMode = iPreviewMode;
   p_iBuildingBase = BuildingBase[0];
@@ -641,17 +629,6 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
   pTowerBasePtr = (int *)TowerBase;
   iCompactedFlag = 0;
   pData = 0;
-  NumBuildings = 0;
-  NumTowers = 0;
-  iCarIdx = 0;
-  if (numcars > 0) {
-    pCar = Car;
-    do {
-      memset(pCar, 0, sizeof(tCar));
-      ++iCarIdx;
-      ++pCar;
-    } while (iCarIdx < numcars);
-  }
   pFile_2 = 0;
   szTrackFile = NULL;
   if (bDirectPath) {
@@ -667,7 +644,7 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
     szTrackFile = names[iTrackIdx_1];
   }
   if (szTrackFile) {
-    pFile = ROLLERfopen(szTrackFile, "r");     // Open and validate track file
+    pFile = ROLLERfopen(szTrackFile, "rb");     // Open and validate track file
     if (!pFile) {
       if (bDirectPath)
         return 0;
@@ -682,6 +659,29 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
       //doexit();
     }
     fclose(pFile);
+    if (pDirectStage) {
+      iCompactedFileLength = (int)pDirectStage->uiDataLength;
+      if (bMinimalMode
+          && pDirectStage->uiDataLength + 1u > SCRBUF_MAX_PIXELS)
+        return 0;
+      pTrackBuffer = bMinimalMode
+        ? scrbuf
+        : (uint8 *)trybuffer((uint32)iCompactedFileLength + 1u);
+      if (!pTrackBuffer)
+        return 0;
+      pData = pTrackBuffer;
+      pCurrDataPtr = pTrackBuffer;
+      memcpy(pTrackBuffer, pDirectStage->pbyData,
+             pDirectStage->uiDataLength);
+      pData[iCompactedFileLength] = 26;
+      pFile_2 = ROLLERfopen(szTrackFile, "rb");
+      if (!pFile_2) {
+        if (!bMinimalMode)
+          fre((void **)&pData);
+        return 0;
+      }
+      iCompactedFlag = -1;
+    } else {
     iCompactedFileLength = getcompactedfilelength(szTrackFile);
     if ((int16)iCompactedFileLength == 8224)// Check if file is compacted (magic number 8224)
     {
@@ -712,6 +712,19 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
       pFile_2 = pFile_1;
       iCompactedFlag = -1;
     }
+    }
+  }
+  ++g_iTrackLoadGeneration;
+  NumBuildings = 0;
+  NumTowers = 0;
+  iCarIdx = 0;
+  if (numcars > 0) {
+    pCar = Car;
+    do {
+      memset(pCar, 0, sizeof(tCar));
+      ++iCarIdx;
+      ++pCar;
+    } while (iCarIdx < numcars);
   }
   meof = 0;
   if (iTrackIdx_1 >= 0)
@@ -1378,19 +1391,54 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
 
 void loadtrack(int iTrackIdx, int iPreviewMode)
 {
-  (void)loadtrack_internal(iTrackIdx, iPreviewMode, NULL);
+  (void)loadtrack_internal(iTrackIdx, iPreviewMode, NULL, NULL);
 }
 
 int loadtrack_from_path(const char *szTrackPath, int iPreviewMode)
 {
+  tEdTrackStage TrackStage;
+  tEdTrackStage AssetStage;
+  char szStageError[256];
   uint64 ullCommunityStateBefore;
   int iResult;
 
-  if (!track_path_is_absolute(szTrackPath)
-      || !track_path_has_plausible_header(szTrackPath))
+  ed_track_stage_init(&TrackStage);
+  ed_track_stage_init(&AssetStage);
+  if (!track_path_is_absolute(szTrackPath))
     return 0;
+  if (ed_track_file_stage(
+        szTrackPath, &TrackStage, szStageError, sizeof(szStageError))
+      != ED_TRACK_LOAD_OK) {
+    fprintf(stderr, "Direct track staging rejected '%s': %s\n",
+            szTrackPath, szStageError);
+    return 0;
+  }
+  if (!iPreviewMode) {
+    const char *aszAssets[2] = {
+      TrackStage.szTextureFile,
+      TrackStage.szBuildingTextureFile
+    };
+    for (size_t iAsset = 0; iAsset < 2; iAsset++) {
+      const char *szResolvedAsset = ROLLERfindpath(aszAssets[iAsset]);
+
+      if (!szResolvedAsset)
+        szResolvedAsset = aszAssets[iAsset];
+      if (ed_compacted_file_stage(
+            szResolvedAsset, &AssetStage,
+            szStageError, sizeof(szStageError)) != ED_TRACK_LOAD_OK) {
+        fprintf(stderr, "Direct track asset staging rejected '%s': %s\n",
+                aszAssets[iAsset], szStageError);
+        ed_track_stage_dispose(&AssetStage);
+        ed_track_stage_dispose(&TrackStage);
+        return 0;
+      }
+      ed_track_stage_dispose(&AssetStage);
+    }
+  }
   ullCommunityStateBefore = community_track_state_hash();
-  iResult = loadtrack_internal(TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath);
+  iResult = loadtrack_internal(
+    TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, &TrackStage);
+  ed_track_stage_dispose(&TrackStage);
   if (community_track_state_hash() != ullCommunityStateBefore) {
     fprintf(stderr, "Direct track load changed community-track selection state\n");
     return 0;

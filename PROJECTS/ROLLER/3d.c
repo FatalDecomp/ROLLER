@@ -18,6 +18,7 @@
 #include "colision.h"
 #include "horizon.h"
 #include "building.h"
+#include "tower.h"
 #include "rollercomms.h"
 #include "crashdump.h"
 #include "snapshot.h"
@@ -95,6 +96,14 @@ static int iFrontendNetworkErrorHandled = 0;
 static int iFrontendRaceTrack = 0;
 static int iFrontendRaceFadeOutPending = 0;
 static const char *g_szDirectTrackPath = NULL;
+static int g_bDirectTrackStateFixture = 0;
+#define DIRECT_TRACK_RELOAD_MAX_MALFORMED 8
+static const char *g_aszDirectTrackMalformed[
+  DIRECT_TRACK_RELOAD_MAX_MALFORMED];
+static int g_iDirectTrackMalformedCount = 0;
+static int g_iDirectTrackReloadCycles = 0;
+static uint32 g_uiDirectTrackSeedBeforeLoad = 0;
+static uint32 g_uiDirectTrackSeedAfterLoad = 0;
 
 //-------------------------------------------------------------------------------------------------
 //symbols defined by ROLLER
@@ -595,6 +604,9 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
   cli_fprintf(f, " --gpu-parity BACKEND   run F-S1 parity (vulkan, direct3d12, or metal)\n");
   cli_fprintf(f, " --track-path PATH       load a track directly from an absolute path\n");
+  cli_fprintf(f, " --verify-track-state    seed populated community state and verify it is preserved\n");
+  cli_fprintf(f, " --track-reload-malformed PATH  add a rejected path to the direct-load soak\n");
+  cli_fprintf(f, " --track-reload-cycles N repeat valid/malformed/valid reload checks\n");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2923,6 +2935,37 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--track-path' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--verify-track-state") == 0) {
+      g_bDirectTrackStateFixture = -1;
+      consumed = 1;
+    } else if (strcmp(argv[i], "--track-reload-malformed") == 0) {
+      if (i + 1 < argc
+          && g_iDirectTrackMalformedCount
+               < DIRECT_TRACK_RELOAD_MAX_MALFORMED) {
+        g_aszDirectTrackMalformed[g_iDirectTrackMalformedCount++] =
+          argv[i + 1];
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr,
+          "ERROR: '--track-reload-malformed' needs a path and accepts at most %d paths\n",
+          DIRECT_TRACK_RELOAD_MAX_MALFORMED);
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--track-reload-cycles") == 0) {
+      if (i + 1 < argc) {
+        g_iDirectTrackReloadCycles = atoi(argv[i + 1]);
+        if (g_iDirectTrackReloadCycles <= 0
+            || g_iDirectTrackReloadCycles > 1000) {
+          cli_fprintf(stderr,
+            "ERROR: '--track-reload-cycles' expects 1-1000\n");
+          return 1;
+        }
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr,
+          "ERROR: '--track-reload-cycles' needs an argument\n");
+        return 1;
+      }
     }
     if (consumed < 0) {
       cli_fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
@@ -2938,6 +2981,20 @@ int main(int argc, const char **argv, const char **envp)
       return 1;
     }
     return ROLLERGpuParityRun(szGpuParityBackend);
+  }
+  if ((g_bDirectTrackStateFixture
+       || g_iDirectTrackMalformedCount
+       || g_iDirectTrackReloadCycles)
+      && !g_szDirectTrackPath) {
+    cli_fprintf(stderr,
+      "ERROR: direct-track verification options require '--track-path'\n");
+    return 1;
+  }
+  if ((g_iDirectTrackMalformedCount == 0)
+      != (g_iDirectTrackReloadCycles == 0)) {
+    cli_fprintf(stderr,
+      "ERROR: the reload soak requires malformed paths and a cycle count\n");
+    return 1;
   }
 
 #if defined(IS_ANDROID)
@@ -3152,6 +3209,140 @@ int main(int argc, const char **argv, const char **envp)
 
 //-------------------------------------------------------------------------------------------------
 //00012050
+static void direct_track_seed_community_state(void)
+{
+  memset(g_aszCommunityTracks, 0, sizeof(g_aszCommunityTracks));
+  snprintf(g_aszCommunityTracks[0],
+           sizeof(g_aszCommunityTracks[0]), "ALPHA.TRK");
+  snprintf(g_aszCommunityTracks[1],
+           sizeof(g_aszCommunityTracks[1]), "BETA.TRK");
+  snprintf(g_aszCommunityTracks[2],
+           sizeof(g_aszCommunityTracks[2]), "GAMMA.TRK");
+  g_iCommunityTrackCount = 3;
+  g_iCommunityTrackSel = 1;
+  g_iCommunityTrackTop = 1;
+  g_iCommunityTrackMissing = -1;
+  g_uiCommunityTrackCRC = 0xD15EA5E5u;
+}
+
+static uint64 direct_track_hash_bytes(uint64 ullHash,
+                                      const void *pData,
+                                      size_t uiSize)
+{
+  const uint8 *pbyData = pData;
+
+  for (size_t i = 0; i < uiSize; i++) {
+    ullHash ^= pbyData[i];
+    ullHash *= UINT64_C(1099511628211);
+  }
+  return ullHash;
+}
+
+static uint64 direct_track_scene_hash(void)
+{
+  uint64 ullHash = UINT64_C(14695981039346656037);
+  size_t uiChunks = TRAK_LEN > 0 && TRAK_LEN <= MAX_TRACK_CHUNKS
+    ? (size_t)TRAK_LEN
+    : 0u;
+
+#define HASH_SCENE(value) \
+  ullHash = direct_track_hash_bytes( \
+    ullHash, &(value), sizeof(value))
+  HASH_SCENE(TRAK_LEN);
+  HASH_SCENE(NumBuildings);
+  HASH_SCENE(NumTowers);
+  HASH_SCENE(texture_file);
+  HASH_SCENE(bldtex_file);
+#undef HASH_SCENE
+  ullHash = direct_track_hash_bytes(
+    ullHash, TrakPt, uiChunks * sizeof(TrakPt[0]));
+  ullHash = direct_track_hash_bytes(
+    ullHash, GroundPt, uiChunks * sizeof(GroundPt[0]));
+  ullHash = direct_track_hash_bytes(
+    ullHash, TrakColour, uiChunks * sizeof(TrakColour[0]));
+  ullHash = direct_track_hash_bytes(
+    ullHash, GroundColour, uiChunks * sizeof(GroundColour[0]));
+  ullHash = direct_track_hash_bytes(
+    ullHash, TrackInfo, uiChunks * sizeof(TrackInfo[0]));
+  return ullHash;
+}
+
+static void direct_track_memory_summary(int *piActiveBlocks,
+                                        uint64 *pullTrackedBytes)
+{
+  int iActiveBlocks = 0;
+  uint64 ullTrackedBytes = 0;
+
+  for (int i = 0; i < MEM_BLOCK_COUNT; i++) {
+    if (mem_blocks[i].pBuf) {
+      iActiveBlocks++;
+      ullTrackedBytes += mem_blocks[i].uiSize;
+    }
+  }
+  *piActiveBlocks = iActiveBlocks;
+  *pullTrackedBytes = ullTrackedBytes;
+}
+
+static int direct_track_run_reload_soak(void)
+{
+  const uint64 ullExpectedSceneHash = direct_track_scene_hash();
+  int iExpectedActiveBlocks;
+  uint64 ullExpectedTrackedBytes;
+
+  direct_track_memory_summary(
+    &iExpectedActiveBlocks, &ullExpectedTrackedBytes);
+  for (int iCycle = 0; iCycle < g_iDirectTrackReloadCycles; iCycle++) {
+    for (int iMalformed = 0;
+         iMalformed < g_iDirectTrackMalformedCount;
+         iMalformed++) {
+      uint64 ullBeforeFailure = direct_track_scene_hash();
+      int iGenerationBeforeFailure = g_iTrackLoadGeneration;
+      int iActiveBlocks;
+      uint64 ullTrackedBytes;
+
+      if (loadtrack_from_path(
+            g_aszDirectTrackMalformed[iMalformed], 0)) {
+        SDL_Log("F-S3 FAIL: malformed fixture %d loaded in cycle %d",
+                iMalformed, iCycle);
+        return 0;
+      }
+      direct_track_memory_summary(&iActiveBlocks, &ullTrackedBytes);
+      if (g_iTrackLoadGeneration != iGenerationBeforeFailure
+          || direct_track_scene_hash() != ullBeforeFailure
+          || iActiveBlocks != iExpectedActiveBlocks
+          || ullTrackedBytes != ullExpectedTrackedBytes) {
+        SDL_Log("F-S3 FAIL: rejected fixture mutated live state/resources in cycle %d",
+                iCycle);
+        return 0;
+      }
+      ROLLERrandStateSet(g_uiDirectTrackSeedBeforeLoad);
+      if (!loadtrack_from_path(g_szDirectTrackPath, 0)
+          || g_iTrackLoadGeneration != iGenerationBeforeFailure + 1
+          || direct_track_scene_hash() != ullExpectedSceneHash
+          || ROLLERrandStateGet() != g_uiDirectTrackSeedAfterLoad) {
+        SDL_Log("F-S3 FAIL: valid recovery failed in cycle %d",
+                iCycle);
+        return 0;
+      }
+      direct_track_memory_summary(&iActiveBlocks, &ullTrackedBytes);
+      if (iActiveBlocks != iExpectedActiveBlocks
+          || ullTrackedBytes != ullExpectedTrackedBytes) {
+        SDL_Log("F-S3 FAIL: tracked allocation drift after recovery cycle %d (%d/%d blocks, %llu/%llu bytes)",
+                iCycle, iActiveBlocks, iExpectedActiveBlocks,
+                (unsigned long long)ullTrackedBytes,
+                (unsigned long long)ullExpectedTrackedBytes);
+        return 0;
+      }
+    }
+  }
+  SDL_Log("F-S3 PASS: %d valid/malformed/valid cycles across %d malformed classes; scene and tracked allocations stable",
+          g_iDirectTrackReloadCycles,
+          g_iDirectTrackMalformedCount);
+  return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+//00012050
 void play_game_init()
 {
   //uint32 uiTexturesOff; // edx
@@ -3344,10 +3535,22 @@ void play_game_init()
   finishers = 0;
   human_finishers = 0;
   setreplaytrack();
+  if (g_bDirectTrackStateFixture)
+    direct_track_seed_community_state();
   if (g_szDirectTrackPath) {
+    g_uiDirectTrackSeedBeforeLoad = ROLLERrandStateGet();
     if (!loadtrack_from_path(g_szDirectTrackPath, 0)) {
       SDL_Log("Direct track load failed (path must be absolute): %s",
               g_szDirectTrackPath);
+      doexit();
+      return;
+    }
+    g_uiDirectTrackSeedAfterLoad = ROLLERrandStateGet();
+    if (g_bDirectTrackStateFixture) {
+      SDL_Log("F-S2 PASS: populated community discovery and selection state remained unchanged");
+    }
+    if (g_iDirectTrackReloadCycles
+        && !direct_track_run_reload_soak()) {
       doexit();
       return;
     }

@@ -1,0 +1,27 @@
+# F-S4a AD-13 imported reference mesh.
+# Left rectangle is in front of the track and samples red.
+# Right rectangle is behind the track and samples green.
+v -0.82  0.55 0.50
+v -0.08  0.55 0.50
+v -0.08 -0.55 0.50
+v -0.82 -0.55 0.50
+v  0.08  0.55 1.00
+v  0.82  0.55 1.00
+v  0.82 -0.55 1.00
+v  0.08 -0.55 1.00
+vt 0.25 0.00
+vt 0.25 0.00
+vt 0.25 1.00
+vt 0.25 1.00
+vt 0.75 0.00
+vt 0.75 0.00
+vt 0.75 1.00
+vt 0.75 1.00
+f 1/1 2/2 3/3
+f 1/1 3/3 4/4
+f 1/1 3/3 2/2
+f 1/1 4/4 3/3
+f 5/5 6/6 7/7
+f 5/5 7/7 8/8
+f 5/5 7/7 6/6
+f 5/5 8/8 7/7
