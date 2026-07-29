@@ -75,6 +75,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/render_queue_3d.c",
             "PROJECTS/ROLLER/engines.c",
             "PROJECTS/ROLLER/frontend.c",
@@ -394,6 +395,31 @@ fn configureRenderQueue3DTests(
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
+
+    const editor_surface_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_surface_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_surface_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_surface.c",
+            "tests/editor_surface_test.c",
+        },
+    });
+    const editor_surface_exe = b.addExecutable(.{
+        .name = "editor_surface_test",
+        .root_module = editor_surface_mod,
+    });
+    const run_editor_surface = b.addRunArtifact(editor_surface_exe);
+    const editor_surface_tests = b.step(
+        "test-editor-surface",
+        "Run canonical editor surface emission tests",
+    );
+    editor_surface_tests.dependOn(&run_editor_surface.step);
+    test_step.dependOn(editor_surface_tests);
 
     const web_default_config_mod = b.createModule(.{
         .target = target,

@@ -14,6 +14,9 @@ int ROLLERGpuParityRun(const char *szBackend)
 #include "game_render.h"
 #include "polytex.h"
 #include "3d.h"
+#include "drawtrk3.h"
+#include "editor_surface.h"
+#include "graphics.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -53,6 +56,19 @@ typedef struct
     float afUv[2];
     float afColor[4];
 } tGpuReferenceVertex;
+
+typedef struct
+{
+    tEdSurfaceEmission Surface;
+    bool bCalled;
+} tGpuEmissionCapture;
+
+typedef struct
+{
+    SceneRendererGPU *pRenderer;
+    SceneTextureHandle iTexture;
+    bool bCalled;
+} tGpuEmissionRenderContext;
 
 static const char *g_aszGpuParityFixtures[GPU_PARITY_FIXTURE_COUNT] = {
     "opaque-track",
@@ -121,6 +137,178 @@ static void gpu_parity_set_uvs(bool bPair)
     startsy[1] = 0;
     startsy[2] = 0x3FF000;
     startsy[3] = 0x3FF000;
+}
+
+static void gpu_f_s5_capture_emission(const tEdSurfaceEmission *pSurface,
+                                      void *pUserData)
+{
+    tGpuEmissionCapture *pCapture = pUserData;
+    pCapture->Surface = *pSurface;
+    pCapture->bCalled = true;
+}
+
+static void gpu_f_s5_render_emission(const tEdSurfaceEmission *pSurface,
+                                     void *pUserData)
+{
+    tGpuEmissionRenderContext *pContext = pUserData;
+    SceneRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+    SceneRenderLegacyQuadOptions Options = {
+        .subdivideType = SCENE_RENDER_SUBDIVIDE_TYPE_AUTO,
+        .subThreshold = pSurface->fSubdivideThreshold
+    };
+
+    if (pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+        return;
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        aVertices[i].x = pSurface->aVertices[i].fPosition[0];
+        aVertices[i].y = pSurface->aVertices[i].fPosition[1];
+        aVertices[i].z = pSurface->aVertices[i].fPosition[2];
+        aVertices[i].u = 0.0f;
+        aVertices[i].v = 0.0f;
+        startsx[i] = pSurface->aVertices[i].iRenderU16_16;
+        startsy[i] = pSurface->aVertices[i].iRenderV16_16;
+    }
+    scene_render_gpu_quad_world_legacy(
+        pContext->pRenderer, aVertices, pContext->iTexture,
+        (int)pSurface->uiRenderFlags, Options);
+    pContext->bCalled = true;
+}
+
+static bool gpu_f_s5_metadata_check(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = {
+        { -880.0f,  700.0f, 1000.0f },
+        {  880.0f,  700.0f, 1000.0f },
+        {  880.0f, -700.0f, 1000.0f },
+        { -880.0f, -700.0f, 1000.0f }
+    };
+    fixed16_16 aiSavedU[ED_SURFACE_VERTEX_COUNT];
+    fixed16_16 aiSavedV[ED_SURFACE_VERTEX_COUNT];
+    int iSavedGfxSize = gfx_size;
+    bool bPass = true;
+
+    memcpy(aiSavedU, startsx, sizeof(aiSavedU));
+    memcpy(aiSavedV, startsy, sizeof(aiSavedV));
+    gfx_size = 0;
+
+    tEdMaterial aReverseMaterials[2];
+    tEdMaterialTable ReverseTable;
+    tGpuEmissionCapture ReverseCapture = { 0 };
+    tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+    tEdLeftWallSurfaceInfo ReverseInfo = {
+        .uiChunkId = 73u,
+        .uiRenderFlags =
+            SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK,
+        .uiBackSurfaceFlags = 1u,
+        .uiTextureSet = TEXTURE_BANK_TRACK,
+        .fSubdivideThreshold = 1000000.0f,
+        .bPairTextureEnabled = false,
+        .bHighWall = false
+    };
+    bPass = ed_material_table_init(
+        &ReverseTable, aReverseMaterials, 2u, Atlas)
+        && ed_emit_left_wall_surface(
+            afWorld, &ReverseInfo, &ReverseTable,
+            gpu_f_s5_capture_emission, &ReverseCapture)
+        && ReverseCapture.bCalled;
+
+    set_starts(0);
+    for (uint32_t i = 0; bPass && i < ED_SURFACE_VERTEX_COUNT; i++) {
+        bPass = ReverseCapture.Surface.aVertices[i].iRenderU16_16
+                    == startsx[i]
+             && ReverseCapture.Surface.aVertices[i].iRenderV16_16
+                    == startsy[i];
+    }
+    const tEdMaterial *pFrontMaterial = bPass
+        ? ed_material_table_get(
+            &ReverseTable, ReverseCapture.Surface.uiFrontMaterialId)
+        : NULL;
+    const tEdMaterial *pBackMaterial = bPass
+        ? ed_material_table_get(
+            &ReverseTable, ReverseCapture.Surface.uiBackMaterialId)
+        : NULL;
+    float afFrontAtlasUV[2] = { 0 };
+    float afBackAtlasUV[2] = { 0 };
+    if (pFrontMaterial && pBackMaterial) {
+        ed_material_resolve_uv(
+            pFrontMaterial,
+            ReverseCapture.Surface.aVertices[0].fMaterialUV,
+            afFrontAtlasUV);
+        ed_material_resolve_uv(
+            pBackMaterial,
+            ReverseCapture.Surface.aVertices[0].fMaterialUV,
+            afBackAtlasUV);
+        bPass = pFrontMaterial->uiTileIndex == 0u
+             && pBackMaterial->uiTileIndex == 1u
+             && afFrontAtlasUV[0] < 0.5f
+             && afBackAtlasUV[0] >= 0.5f;
+    } else {
+        bPass = false;
+    }
+
+    tEdMaterial aForwardMaterial[1];
+    tEdMaterial aFlippedMaterial[1];
+    tEdMaterialTable ForwardTable;
+    tEdMaterialTable FlippedTable;
+    tGpuEmissionCapture ForwardCapture = { 0 };
+    tGpuEmissionCapture FlippedCapture = { 0 };
+    tEdLeftWallSurfaceInfo ForwardInfo = {
+        .uiChunkId = 74u,
+        .uiRenderFlags =
+            SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR,
+        .uiBackSurfaceFlags = ED_MATERIAL_ID_NONE,
+        .uiTextureSet = TEXTURE_BANK_TRACK,
+        .fSubdivideThreshold = 1000000.0f,
+        .bPairTextureEnabled = true,
+        .bHighWall = false
+    };
+    tEdLeftWallSurfaceInfo FlippedInfo = ForwardInfo;
+    FlippedInfo.uiRenderFlags |= SURFACE_FLAG_FLIP_HORIZ;
+    bPass = bPass
+        && ed_material_table_init(
+            &ForwardTable, aForwardMaterial, 1u, Atlas)
+        && ed_material_table_init(
+            &FlippedTable, aFlippedMaterial, 1u, Atlas)
+        && ed_emit_left_wall_surface(
+            afWorld, &ForwardInfo, &ForwardTable,
+            gpu_f_s5_capture_emission, &ForwardCapture)
+        && ed_emit_left_wall_surface(
+            afWorld, &FlippedInfo, &FlippedTable,
+            gpu_f_s5_capture_emission, &FlippedCapture);
+
+    set_starts(1);
+    for (uint32_t i = 0; bPass && i < ED_SURFACE_VERTEX_COUNT; i++) {
+        bPass = ForwardCapture.Surface.aVertices[i].iRenderU16_16
+                    == startsx[i]
+             && ForwardCapture.Surface.aVertices[i].iRenderV16_16
+                    == startsy[i];
+    }
+    if (bPass) {
+        bPass = ForwardCapture.Surface.aVertices[0].fMaterialUV[0]
+                    > ForwardCapture.Surface.aVertices[1].fMaterialUV[0]
+             && FlippedCapture.Surface.aVertices[0].fMaterialUV[0]
+                    < FlippedCapture.Surface.aVertices[1].fMaterialUV[0];
+    }
+
+    tEdMaterial NonDerivedMaterial = {
+        .uiTileIndex = 203u,
+        .fAtlasScale = { 0.125f, 0.25f },
+        .fAtlasBias = { 0.375f, 0.5f }
+    };
+    const float afMaterialUV[2] = { 0.25f, 0.75f };
+    float afAtlasUV[2] = { 0 };
+    ed_material_resolve_uv(
+        &NonDerivedMaterial, afMaterialUV, afAtlasUV);
+    bPass = bPass
+        && fabsf(afAtlasUV[0] - 0.40625f) < 0.000001f
+        && fabsf(afAtlasUV[1] - 0.6875f) < 0.000001f;
+
+    gfx_size = iSavedGfxSize;
+    memcpy(startsx, aiSavedU, sizeof(aiSavedU));
+    memcpy(startsy, aiSavedV, sizeof(aiSavedV));
+    SDL_Log("F-S5 %s: exact-render-uvs reverse-material paired-directions atlas-transforms",
+            bPass ? "PASS" : "FAIL");
+    return bPass;
 }
 
 static void gpu_parity_queue_quad(SceneRendererGPU *pRenderer,
@@ -251,6 +439,127 @@ static tGpuParityMetrics gpu_parity_compare(const uint8 *pbyWindowed,
     }
 
     return metrics;
+}
+
+static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
+                                    SceneTextureHandle iTexture,
+                                    bool bUseEmitter,
+                                    uint8 *pbyPixels,
+                                    Uint32 uiBufferSize)
+{
+    const Uint32 uiWidth = 320;
+    const Uint32 uiHeight = 200;
+    SceneRenderCamera Camera = {
+        .cosYaw = 1.0f,
+        .fovScale = (float)uiWidth * 0.5f,
+        .renderChunkIdx = -1
+    };
+    SceneRenderProjection Projection = {
+        .view = {
+            { 1.0f, 0.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f }
+        },
+        .screenScale = 64,
+        .centerX = (int)uiWidth / 2,
+        .centerY = 199 - (int)uiHeight / 2
+    };
+
+    scene_render_gpu_begin_frame(pRenderer);
+    scene_render_gpu_set_viewport(
+        pRenderer, 0, 0, (int)uiWidth, (int)uiHeight);
+    scene_render_gpu_set_camera(pRenderer, &Camera);
+    scene_render_gpu_set_projection(pRenderer, &Projection);
+    scene_render_gpu_set_sky_color(pRenderer, 0.07f, 0.10f, 0.16f);
+
+    if (bUseEmitter) {
+        SceneRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+        float afWorld[ED_SURFACE_VERTEX_COUNT][3];
+        tEdMaterial aMaterials[1];
+        tEdMaterialTable MaterialTable;
+        tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+        tEdLeftWallSurfaceInfo Info = {
+            .uiChunkId = 91u,
+            .uiRenderFlags =
+                SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR,
+            .uiBackSurfaceFlags = ED_MATERIAL_ID_NONE,
+            .uiTextureSet = TEXTURE_BANK_TRACK,
+            .fSubdivideThreshold = 1000000.0f,
+            .bPairTextureEnabled = true,
+            .bHighWall = false
+        };
+        tGpuEmissionRenderContext RenderContext = {
+            .pRenderer = pRenderer,
+            .iTexture = iTexture,
+            .bCalled = false
+        };
+        gpu_parity_make_quad(
+            aVertices, -0.88f, 0.70f, 0.88f, -0.70f,
+            1000.0f, uiWidth, uiHeight);
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            afWorld[i][0] = aVertices[i].x;
+            afWorld[i][1] = aVertices[i].y;
+            afWorld[i][2] = aVertices[i].z;
+        }
+        if (!ed_material_table_init(
+                &MaterialTable, aMaterials, 1u, Atlas)
+                || !ed_emit_left_wall_surface(
+                    afWorld, &Info, &MaterialTable,
+                    gpu_f_s5_render_emission, &RenderContext)
+                || !RenderContext.bCalled) {
+            scene_render_gpu_cancel_frame(pRenderer);
+            return false;
+        }
+    } else {
+        gpu_parity_queue_quad(
+            pRenderer, iTexture,
+            SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR,
+            SCENE_RENDER_SUBDIVIDE_TYPE_AUTO,
+            -0.88f, 0.70f, 0.88f, -0.70f,
+            1000.0f, uiWidth, uiHeight);
+    }
+
+    return scene_render_gpu_end_frame_readback(
+        pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u);
+}
+
+static bool gpu_f_s5_renderer_byte_check(SceneRendererGPU *pRenderer,
+                                         SceneTextureHandle iTexture)
+{
+    const Uint32 uiWidth = 320;
+    const Uint32 uiHeight = 200;
+    const Uint32 uiBufferSize = uiWidth * uiHeight * 4u;
+    uint8 *pbyLegacy = malloc(uiBufferSize);
+    uint8 *pbyEmitted = malloc(uiBufferSize);
+    bool bPass = false;
+
+    if (!pbyLegacy || !pbyEmitted)
+        goto cleanup;
+    scene_render_gpu_set_msaa(pRenderer, 0);
+    if (!gpu_f_s5_render_fixture(
+            pRenderer, iTexture, false, pbyLegacy, uiBufferSize)
+            || !gpu_f_s5_render_fixture(
+                pRenderer, iTexture, true, pbyEmitted, uiBufferSize)) {
+        SDL_Log("F-S5 FAIL: renderer readback failed: %s", SDL_GetError());
+        goto cleanup;
+    }
+
+    tGpuParityMetrics Metrics = gpu_parity_compare(
+        pbyLegacy, pbyEmitted, uiWidth, uiHeight);
+    bPass = Metrics.uiMaxChannelDelta == 0
+         && Metrics.ullDifferingPixels == 0
+         && Metrics.ullCoveredPixels
+                >= (Uint64)(uiWidth * uiHeight * GPU_PARITY_MIN_COVERAGE_SHARE);
+    SDL_Log("F-S5 %s: renderer output byte-identical differing-pixels=%llu coverage=%.2f%%",
+            bPass ? "PASS" : "FAIL",
+            (unsigned long long)Metrics.ullDifferingPixels,
+            (double)Metrics.ullCoveredPixels * 100.0
+                / (double)((Uint64)uiWidth * uiHeight));
+
+cleanup:
+    free(pbyEmitted);
+    free(pbyLegacy);
+    return bPass;
 }
 
 static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
@@ -497,6 +806,9 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
         }
     }
 
+    bool bSurfaceMetadataPass = gpu_f_s5_metadata_check();
+    bool bSurfaceRendererPass = gpu_f_s5_renderer_byte_check(
+        pWindowless, iWindowlessTexture);
     bool bReferenceDepthPass = gpu_reference_depth_check(
         pDevice, pWindowless, iWindowlessTexture);
     if (iFailures == 0) {
@@ -504,7 +816,8 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
     } else {
         SDL_Log("F-S1 FAIL: %d comparison(s) failed", iFailures);
     }
-    if (iFailures == 0 && bReferenceDepthPass)
+    if (iFailures == 0 && bSurfaceMetadataPass
+            && bSurfaceRendererPass && bReferenceDepthPass)
         iResult = 0;
 
 cleanup:
