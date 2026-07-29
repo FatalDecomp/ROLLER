@@ -431,8 +431,59 @@ uint32 community_track_crc(const char *szPath)
 }
 
 //-------------------------------------------------------------------------------------------------
+static int track_path_is_absolute(const char *szPath)
+{
+  if (!szPath || !szPath[0])
+    return 0;
+  if (szPath[0] == '/')
+    return -1;
+  if ((szPath[0] == '\\' && szPath[1] == '\\') ||
+      (((szPath[0] >= 'A' && szPath[0] <= 'Z') ||
+        (szPath[0] >= 'a' && szPath[0] <= 'z')) &&
+       szPath[1] == ':' && (szPath[2] == '\\' || szPath[2] == '/')))
+    return -1;
+  return 0;
+}
+
+static int track_path_has_plausible_header(const char *szPath)
+{
+  FILE *pFile = ROLLERfopen(szPath, "rb");
+  int iDeclaredLength = 0;
+  if (!pFile)
+    return 0;
+  size_t uiBytesRead = fread(&iDeclaredLength, 1, sizeof(iDeclaredLength),
+                             pFile);
+  fclose(pFile);
+  return uiBytesRead == sizeof(iDeclaredLength) && iDeclaredLength > 0
+      && iDeclaredLength <= 64 * 1024 * 1024;
+}
+
+static uint64 community_track_state_hash(void)
+{
+  const uint64 ullOffsetBasis = UINT64_C(14695981039346656037);
+  const uint64 ullPrime = UINT64_C(1099511628211);
+  uint64 ullHash = ullOffsetBasis;
+#define HASH_STATE_BYTES(value) do { \
+    const uint8 *pbyHashData = (const uint8 *)&(value); \
+    for (size_t uiHashByte = 0; uiHashByte < sizeof(value); uiHashByte++) { \
+      ullHash ^= pbyHashData[uiHashByte]; \
+      ullHash *= ullPrime; \
+    } \
+  } while (0)
+  HASH_STATE_BYTES(g_aszCommunityTracks);
+  HASH_STATE_BYTES(g_iCommunityTrackCount);
+  HASH_STATE_BYTES(g_iCommunityTrackSel);
+  HASH_STATE_BYTES(g_iCommunityTrackTop);
+  HASH_STATE_BYTES(g_iCommunityTrackMissing);
+  HASH_STATE_BYTES(g_uiCommunityTrackCRC);
+  HASH_STATE_BYTES(g_szCommunityTrackDir);
+#undef HASH_STATE_BYTES
+  return ullHash;
+}
+
 //0004AF80
-void loadtrack(int iTrackIdx, int iPreviewMode)
+static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
+                              const char *szDirectTrackPath)
 {
   int iCarIdx; // ecx
   tCar *pCar; // edi
@@ -580,6 +631,7 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   int *pTowerBasePtr; // [esp+270h] [ebp-1Ch]
   unsigned int uiGroundPtOffset; // [esp+274h] [ebp-18h]
   const char *szTrackFile; // [ROLLER]
+  int bDirectPath = szDirectTrackPath != NULL;
 
   ++g_iTrackLoadGeneration;
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
@@ -602,12 +654,14 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   }
   pFile_2 = 0;
   szTrackFile = NULL;
-  if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
+  if (bDirectPath) {
+    szTrackFile = szDirectTrackPath;
+  } else if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
     szTrackFile = community_track_path();
     if (!szTrackFile) {
       g_iCommunityTrackSel = -1;
       g_uiCommunityTrackCRC = 0;
-      return;
+      return 0;
     }
   } else if ((unsigned int)iTrackIdx_1 <= 0x18) {
     szTrackFile = names[iTrackIdx_1];
@@ -615,10 +669,12 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   if (szTrackFile) {
     pFile = ROLLERfopen(szTrackFile, "r");     // Open and validate track file
     if (!pFile) {
+      if (bDirectPath)
+        return 0;
       if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
         g_iCommunityTrackSel = -1;
         g_uiCommunityTrackCRC = 0;
-        return;
+        return 0;
       }
       ErrorBoxExit("Track %d not found\n", iTrackIdx_1);
       //__asm { int     10h; -VIDEO - SET VIDEO MODE }
@@ -1279,7 +1335,7 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
   if (iTrackIdx_1 >= 0) {
     readline2(&pCurrDataPtr, "i", &actualtrack);// Read actual track ID and validate against requested
     if (iCompactedFlag && replaytype != 2 &&
-        iTrackIdx_1 != TRACK_LOAD_COMMUNITY &&
+        !bDirectPath && iTrackIdx_1 != TRACK_LOAD_COMMUNITY &&
         iTrackIdx_1 != actualtrack && !bMinimalMode) {
       ErrorBoxExit("Cheat!!!! Track %d is really track %d!!!\n", iTrackIdx_1, actualtrack);
       //__asm { int     10h; -VIDEO - SET VIDEO MODE }
@@ -1317,6 +1373,29 @@ void loadtrack(int iTrackIdx, int iPreviewMode)
       LoadTextures();
     }
   }
+  return -1;
+}
+
+void loadtrack(int iTrackIdx, int iPreviewMode)
+{
+  (void)loadtrack_internal(iTrackIdx, iPreviewMode, NULL);
+}
+
+int loadtrack_from_path(const char *szTrackPath, int iPreviewMode)
+{
+  uint64 ullCommunityStateBefore;
+  int iResult;
+
+  if (!track_path_is_absolute(szTrackPath)
+      || !track_path_has_plausible_header(szTrackPath))
+    return 0;
+  ullCommunityStateBefore = community_track_state_hash();
+  iResult = loadtrack_internal(TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath);
+  if (community_track_state_hash() != ullCommunityStateBefore) {
+    fprintf(stderr, "Direct track load changed community-track selection state\n");
+    return 0;
+  }
+  return iResult;
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -26,6 +26,7 @@
 #include "phone_ui.h"
 #include "touch_ui.h"
 #include "menu_render.h"
+#include "gpu_parity.h"
 #include <SDL3/SDL.h>
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -93,6 +94,7 @@ static int iFrontendTimeTrialScreenActive = 0;
 static int iFrontendNetworkErrorHandled = 0;
 static int iFrontendRaceTrack = 0;
 static int iFrontendRaceFadeOutPending = 0;
+static const char *g_szDirectTrackPath = NULL;
 
 //-------------------------------------------------------------------------------------------------
 //symbols defined by ROLLER
@@ -591,6 +593,8 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
   cli_fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
   cli_fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
+  cli_fprintf(f, " --gpu-parity BACKEND   run F-S1 parity (vulkan, direct3d12, or metal)\n");
+  cli_fprintf(f, " --track-path PATH       load a track directly from an absolute path\n");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2771,6 +2775,7 @@ int main(int argc, const char **argv, const char **envp)
   char whiplash_root[260] = { 0 };
   char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
   const char *midi_root = NULL;
+  const char *szGpuParityBackend = NULL;
 
   for (int i = 1; i < argc;) {
     int consumed = -1;
@@ -2896,6 +2901,28 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--out' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--gpu-parity") == 0) {
+      if (i + 1 < argc) {
+        szGpuParityBackend = argv[i + 1];
+        if (strcmp(szGpuParityBackend, "vulkan") != 0
+            && strcmp(szGpuParityBackend, "direct3d12") != 0
+            && strcmp(szGpuParityBackend, "metal") != 0) {
+          cli_fprintf(stderr, "ERROR: '--gpu-parity' expects vulkan, direct3d12, or metal\n");
+          return 1;
+        }
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr, "ERROR: '--gpu-parity' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--track-path") == 0) {
+      if (i + 1 < argc) {
+        g_szDirectTrackPath = argv[i + 1];
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr, "ERROR: '--track-path' needs an argument\n");
+        return 1;
+      }
     }
     if (consumed < 0) {
       cli_fprintf(stderr, "ERROR: Unknown argument '%s'\n", argv[i]);
@@ -2903,6 +2930,14 @@ int main(int argc, const char **argv, const char **envp)
       return 1;
     }
     i += consumed;
+  }
+
+  if (szGpuParityBackend) {
+    if (g_bSnapshotMode || g_szDirectTrackPath) {
+      cli_fprintf(stderr, "ERROR: '--gpu-parity' cannot be combined with snapshot or track-path mode\n");
+      return 1;
+    }
+    return ROLLERGpuParityRun(szGpuParityBackend);
   }
 
 #if defined(IS_ANDROID)
@@ -3309,7 +3344,16 @@ void play_game_init()
   finishers = 0;
   human_finishers = 0;
   setreplaytrack();
-  loadtrack(game_track, 0);                     // Load track data and initialize game world
+  if (g_szDirectTrackPath) {
+    if (!loadtrack_from_path(g_szDirectTrackPath, 0)) {
+      SDL_Log("Direct track load failed (path must be absolute): %s",
+              g_szDirectTrackPath);
+      doexit();
+      return;
+    }
+  } else {
+    loadtrack(game_track, 0);                   // Load track data and initialize game world
+  }
   LoadGenericCarTextures();
   InitCars();
   if (game_type >= 2)                         // Set lap count based on game type (championship vs single race)

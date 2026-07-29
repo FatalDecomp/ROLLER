@@ -72,6 +72,7 @@ add_executable(roller
     PROJECTS/ROLLER/func3.c
     PROJECTS/ROLLER/function.c
     PROJECTS/ROLLER/graphics.c
+    PROJECTS/ROLLER/gpu_parity.c
     PROJECTS/ROLLER/horizon.c
     PROJECTS/ROLLER/loadtrak.c
     PROJECTS/ROLLER/moving.c
