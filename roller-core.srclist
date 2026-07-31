@@ -81,6 +81,7 @@ KEEP|PROJECTS/ROLLER/func2.c
 KEEP|PROJECTS/ROLLER/func3.c
 KEEP|PROJECTS/ROLLER/userfns.c
 KEEP|PROJECTS/ROLLER/platform_log.c
+KEEP|PROJECTS/ROLLER/roller_core_error.c
 KEEP|PROJECTS/ROLLER/editor_api.c
 KEEP|PROJECTS/ROLLER/editor_reference_mesh.c
 KEEP|PROJECTS/ROLLER/editor_surface.c

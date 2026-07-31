@@ -1,5 +1,4 @@
 #include "render_queue_3d.h"
-#include <assert.h>
 #include <stdlib.h>
 //-------------------------------------------------------------------------------------------------
 
@@ -14,16 +13,6 @@ typedef struct
 
 //-------------------------------------------------------------------------------------------------
 
-static void render_queue_3d_require(int iCondition)
-{
-  if (!iCondition) {
-    assert(iCondition);
-    abort();
-  }
-}
-
-//-------------------------------------------------------------------------------------------------
-
 RenderQueue3D *render_queue_3d_global(void)
 {
   return &g_RenderQueue3D;
@@ -34,6 +23,7 @@ RenderQueue3D *render_queue_3d_global(void)
 void render_queue_3d_clear(RenderQueue3D *pQueue)
 {
   pQueue->count = 0;
+  pQueue->overflowed = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -61,6 +51,11 @@ int render_queue_3d_count(const RenderQueue3D *pQueue)
   return pQueue->count;
 }
 
+int render_queue_3d_overflowed(const RenderQueue3D *pQueue)
+{
+  return pQueue->overflowed;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 static tTrackZOrderEntry *render_queue_3d_add_required(RenderQueue3D *pQueue,
@@ -70,7 +65,10 @@ static tTrackZOrderEntry *render_queue_3d_add_required(RenderQueue3D *pQueue,
 {
   tTrackZOrderEntry *pEntry;
 
-  render_queue_3d_require(pQueue->count < RENDER_QUEUE_3D_CAPACITY);
+  if (pQueue->count >= RENDER_QUEUE_3D_CAPACITY) {
+    pQueue->overflowed = 1;
+    return NULL;
+  }
 
   pEntry = &pQueue->entries[pQueue->count];
   pEntry->nRenderPriority = (int16)iLegacyPriority;
@@ -88,7 +86,10 @@ void render_queue_3d_add_ground(RenderQueue3D *pQueue,
                                  int iSectionIdx,
                                  float fZDepth)
 {
-  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY, iSectionIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, RENDER_QUEUE_3D_GROUND_LEGACY_PRIORITY,
+        iSectionIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_GROUND_SURFACE;
   pCommand->payload.ground_surface.section_idx = iSectionIdx;
@@ -101,7 +102,10 @@ static void render_queue_3d_add_roof_surface(RenderQueue3D *pQueue,
                                              float fZDepth,
                                              RenderCommand3DRoofSurfaceVariant variant)
 {
-  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY, iSectionIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, RENDER_QUEUE_3D_ROOF_LEGACY_PRIORITY,
+        iSectionIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_ROOF_SURFACE;
   pCommand->payload.roof_surface.section_idx = iSectionIdx;
@@ -138,7 +142,9 @@ static void render_queue_3d_add_road_surface(RenderQueue3D *pQueue,
                                              float fZDepth,
                                              RenderCommand3DRoadSurfaceKind surfaceKind)
 {
-  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, iLegacyPriority, iSectionIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_ROAD_SURFACE;
   pCommand->payload.road_surface.section_idx = iSectionIdx;
@@ -189,7 +195,9 @@ static void render_queue_3d_add_wall_surface(RenderQueue3D *pQueue,
                                              RenderCommand3DWallSurfaceSide side,
                                              RenderCommand3DWallSurfaceVariant variant)
 {
-  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, iLegacyPriority, iSectionIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_WALL_SURFACE;
   pCommand->payload.wall_surface.section_idx = iSectionIdx;
@@ -253,7 +261,9 @@ static void render_queue_3d_add_lower_wall_surface(RenderQueue3D *pQueue,
                                                    float fZDepth,
                                                    RenderCommand3DWallSurfaceSide side)
 {
-  render_queue_3d_add_required(pQueue, iLegacyPriority, iSectionIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, iLegacyPriority, iSectionIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_LOWER_WALL_SURFACE;
   pCommand->payload.lower_wall_surface.section_idx = iSectionIdx;
@@ -291,7 +301,10 @@ void render_queue_3d_add_building(RenderQueue3D *pQueue,
                                    int iBuildingIdx,
                                    float fZDepth)
 {
-  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY, iBuildingIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, RENDER_QUEUE_3D_BUILDING_LEGACY_PRIORITY,
+        iBuildingIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_BUILDING;
   pCommand->payload.building.building_idx = iBuildingIdx;
@@ -305,7 +318,10 @@ void render_queue_3d_add_car(RenderQueue3D *pQueue,
                               const GameRenderCarPose *pPose,
                               const GameRenderCarOptions *pOptions)
 {
-  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY, iCarIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, RENDER_QUEUE_3D_CAR_LEGACY_PRIORITY,
+        iCarIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_CAR;
   pCommand->payload.car.car_idx = iCarIdx;
@@ -338,7 +354,10 @@ void render_queue_3d_add_start_light(RenderQueue3D *pQueue,
                                       int iLightIdx,
                                       float fZDepth)
 {
-  render_queue_3d_add_required(pQueue, RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY, iLightIdx, fZDepth);
+  if (!render_queue_3d_add_required(
+        pQueue, RENDER_QUEUE_3D_START_LIGHT_LEGACY_PRIORITY,
+        iLightIdx, fZDepth))
+    return;
   RenderCommand3D *pCommand = &pQueue->commands[pQueue->count - 1];
   pCommand->kind = RENDER_COMMAND_3D_KIND_START_LIGHT;
   pCommand->payload.start_light.light_idx = iLightIdx;

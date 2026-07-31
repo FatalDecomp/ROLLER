@@ -322,6 +322,7 @@ void LoadPanel()
         ErrorBoxExit("Unable to open %s", szRevFile);
         //printf("Unable to open %s\n\n", szRevFile);
         //doexit();
+        return;
       }
       close(iFileHandle);
 
@@ -345,6 +346,7 @@ void LoadPanel()
         ErrorBoxExit("Unable to open %s", szRevFile);
         //printf("Unable to open %s\n\n", szRevFile);
         //doexit();
+        return;
       }
       close(iFileHandle);
 
@@ -406,6 +408,7 @@ void LoadGenericCarTextures()
     ErrorBoxExit("Unable to open texture map data file <%s>", gencartex_name);
     //printf("Unable to open texture map data file <%s>\n\n", gencartex_name);
     //doexit();
+    return;
   }
   close(iFileHandle);
 
@@ -523,6 +526,7 @@ void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx)
     ErrorBoxExit("Unable to open texture map data file <%s>", szTexFile);
     //printf("Unable to open texture map data file <%s>\n\n", szTexFile);
     //doexit();
+    return;
   }
   close(iFileHandle);
 
@@ -705,6 +709,7 @@ void LoadBldTextures()
     ErrorBoxExit("Unable to open bld texture map data file");
     //printf("Unable to open bld texture map data file\n\n");
     //doexit();
+    return;
   }
   close(iFileHandle);
 
@@ -789,6 +794,7 @@ void LoadTextures()
     ErrorBoxExit("Unable to open texture map data file");
     //printf("Unable to open texture map data file\n\n");
     //doexit();
+    return;
   }
   close(iFileHandle);
 

@@ -1,4 +1,5 @@
 #include "editor_api.h"
+#include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
@@ -11,6 +12,8 @@ typedef struct
 {
     SDL_Semaphore *pReady;
     SDL_Semaphore *pContinue;
+    const char *szValidTrack;
+    const char *szMalformedTrack;
     int iFailureLine;
 } tLifecycleTestContext;
 
@@ -71,6 +74,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         .uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION
     };
     uint32_t uiInitialEpoch;
+    uint32_t uiInitialGeneration;
 
     InvalidInfo.uiVersion++;
     CHECK_WORKER(RollerEd_Init(&InvalidInfo)
@@ -86,6 +90,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(Sizes.uiPrimitiveStride == sizeof(tEdPrimitive));
     CHECK_WORKER(Sizes.uiMaterialStride == sizeof(tEdMaterial));
     uiInitialEpoch = Sizes.uiGeometryEpoch;
+    uiInitialGeneration = Sizes.uiTrackGeneration;
 
     SDL_SignalSemaphore(pContext->pReady);
     SDL_WaitSemaphore(pContext->pContinue);
@@ -135,6 +140,95 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                      == ROLLER_ED_RESULT_NO_SCENE);
         CHECK_WORKER(memcmp(&Vertex, &Before, sizeof(Before)) == 0);
     }
+    {
+        uint32_t uiReadyEpoch;
+        uint32_t uiReadyGeneration;
+
+        CHECK_WORKER(RollerEd_LoadTrackFile(
+                         pContext->szValidTrack, "facade-test-assets")
+                     == ROLLER_ED_RESULT_OK);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
+        CHECK_WORKER(Sizes.uiTrackGeneration != uiInitialGeneration);
+        CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
+        uiReadyEpoch = Sizes.uiGeometryEpoch;
+        uiReadyGeneration = Sizes.uiTrackGeneration;
+
+        CHECK_WORKER(RollerEd_LoadTrackFile(
+                         pContext->szMalformedTrack, "facade-test-assets")
+                     == ROLLER_ED_RESULT_LOAD_FAILED);
+        CHECK_WORKER(RollerEd_GetLastError()[0] != '\0');
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "line") != NULL);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_FAILED);
+        CHECK_WORKER(Sizes.uiVertexCount == 0u && Sizes.uiIndexCount == 0u
+                     && Sizes.uiPrimitiveCount == 0u
+                     && Sizes.uiMaterialCount == 0u);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiReadyGeneration);
+        CHECK_WORKER(Sizes.uiGeometryEpoch != uiReadyEpoch);
+        CHECK_WORKER(RollerEd_GetLastError()[0] == '\0');
+
+        {
+            tEdVertex Vertex;
+            tEdVertex Before;
+
+            memset(&Vertex, 0xc3, sizeof(Vertex));
+            Before = Vertex;
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, &Vertex, 1u,
+                             NULL, 0u, NULL, 0u, NULL, 0u)
+                         == ROLLER_ED_RESULT_NO_SCENE);
+            CHECK_WORKER(memcmp(&Vertex, &Before, sizeof(Before)) == 0);
+        }
+
+        CHECK_WORKER(RollerEd_LoadTrackFile(
+                         pContext->szValidTrack, "facade-test-assets")
+                     == ROLLER_ED_RESULT_OK);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
+        CHECK_WORKER(Sizes.uiTrackGeneration != uiReadyGeneration);
+
+        {
+            tEdVertex Vertex;
+            tEdVertex Before;
+
+            memset(&Vertex, 0x6d, sizeof(Vertex));
+            Before = Vertex;
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             uiReadyEpoch, &Vertex, 1u,
+                             NULL, 0u, NULL, 0u, NULL, 0u)
+                         == ROLLER_ED_RESULT_STALE);
+            CHECK_WORKER(memcmp(&Vertex, &Before, sizeof(Before)) == 0);
+        }
+
+        uiReadyEpoch = Sizes.uiGeometryEpoch;
+        uiReadyGeneration = Sizes.uiTrackGeneration;
+        CHECK_WORKER(RollerEd_LoadTrackFile(
+                         "e0_s7_missing_track_73f0d7c9.trk",
+                         "facade-test-assets")
+                     == ROLLER_ED_RESULT_IO_FAILED);
+        CHECK_WORKER(RollerEd_GetLastError()[0] != '\0');
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_FAILED);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiReadyGeneration);
+        CHECK_WORKER(Sizes.uiGeometryEpoch != uiReadyEpoch);
+
+        CHECK_WORKER(RollerEd_LoadTrackFile(
+                         pContext->szValidTrack, "facade-test-assets")
+                     == ROLLER_ED_RESULT_OK);
+    }
 
     CHECK_WORKER(RollerEd_UnloadTrack() == ROLLER_ED_RESULT_OK);
     Sizes.uiStructSize = sizeof(Sizes);
@@ -153,7 +247,7 @@ publish_failure:
     return pContext->iFailureLine;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     tRollerEdBootstrapInfo BootstrapInfo = {
         .uiStructSize = sizeof(BootstrapInfo),
@@ -165,6 +259,7 @@ int main(void)
     int iThreadResult = 0;
     int iMainFailure = 0;
 
+    CHECK_MAIN(argc == 3);
     SDL_SetMainReady();
     SDL_SetAssertionHandler(count_thread_assertion, NULL);
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
@@ -189,6 +284,8 @@ int main(void)
 
     Context.pReady = SDL_CreateSemaphore(0u);
     Context.pContinue = SDL_CreateSemaphore(0u);
+    Context.szValidTrack = argv[1];
+    Context.szMalformedTrack = argv[2];
     Context.iFailureLine = 0;
     CHECK_MAIN(Context.pReady != NULL && Context.pContinue != NULL);
     pThread = SDL_CreateThread(lifecycle_worker, "facade-render-worker", &Context);
@@ -233,6 +330,8 @@ int main(void)
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
+    CHECK_MAIN(ed_track_loader_live_allocations() == 0u);
+    CHECK_MAIN(ed_track_loader_live_bytes() == 0u);
     SDL_SetAssertionHandler(NULL, NULL);
     SDL_Quit();
     puts("editor API lifecycle and SDL ownership tests passed");

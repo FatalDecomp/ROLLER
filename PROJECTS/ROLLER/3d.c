@@ -2211,6 +2211,9 @@ void fre(void **ppData)
 //00010AF0
 void doexit()
 {
+#if defined(ROLLER_EDITOR_CORE)
+  ErrorBoxExit("legacy code requested a process exit");
+#else
   frontend_shutdown_request();
 
   if (!frontend_shutdown_complete() &&
@@ -2224,6 +2227,7 @@ void doexit()
 #ifndef __EMSCRIPTEN__
   if (frontend_shutdown_complete())
     exit(0);
+#endif
 #endif
 }
 
@@ -3301,7 +3305,8 @@ static int direct_track_run_reload_soak(void)
       uint64 ullTrackedBytes;
 
       if (loadtrack_from_path(
-            g_aszDirectTrackMalformed[iMalformed], 0)) {
+            g_aszDirectTrackMalformed[iMalformed], 0)
+          == ROLLER_ED_RESULT_OK) {
         SDL_Log("F-S3 FAIL: malformed fixture %d loaded in cycle %d",
                 iMalformed, iCycle);
         return 0;
@@ -3316,7 +3321,8 @@ static int direct_track_run_reload_soak(void)
         return 0;
       }
       ROLLERrandStateSet(g_uiDirectTrackSeedBeforeLoad);
-      if (!loadtrack_from_path(g_szDirectTrackPath, 0)
+      if (loadtrack_from_path(g_szDirectTrackPath, 0)
+            != ROLLER_ED_RESULT_OK
           || g_iTrackLoadGeneration != iGenerationBeforeFailure + 1
           || direct_track_scene_hash() != ullExpectedSceneHash
           || ROLLERrandStateGet() != g_uiDirectTrackSeedAfterLoad) {
@@ -3539,7 +3545,8 @@ void play_game_init()
     direct_track_seed_community_state();
   if (g_szDirectTrackPath) {
     g_uiDirectTrackSeedBeforeLoad = ROLLERrandStateGet();
-    if (!loadtrack_from_path(g_szDirectTrackPath, 0)) {
+    if (loadtrack_from_path(g_szDirectTrackPath, 0)
+        != ROLLER_ED_RESULT_OK) {
       SDL_Log("Direct track load failed (path must be absolute): %s",
               g_szDirectTrackPath);
       doexit();

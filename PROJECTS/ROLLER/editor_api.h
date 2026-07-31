@@ -178,7 +178,7 @@ typedef struct
 {
     uint32_t uiStructSize;
     uint32_t uiVersion;
-    const char *szAssetRoot; /* Copied by RollerEd_Init; never retained. */
+    const char *szAssetRoot; /* Copied by RollerEd_Init; caller storage is not retained. */
     eRollerEdRenderer ePreferredRenderer;
     uint32_t uiAllowSoftwareFallback; /* 0 or 1 only. */
 } tRollerEdInitInfo;
@@ -393,6 +393,12 @@ ROLLER_ED_API uint32_t ROLLER_ED_CALL RollerEd_GetAvailableRenderers(void);
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(
     eRollerEdRenderer eKind);
 
+/*
+ * Both paths are consumed synchronously and never retained. A successful
+ * load advances both the geometry epoch and committed track generation. A
+ * failed file load clears the renderable scene, advances only the geometry
+ * epoch, and reports SCENE_FAILED until a later load succeeds.
+ */
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     const char *szTrackPath, const char *szDocumentAssetRoot);
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void);

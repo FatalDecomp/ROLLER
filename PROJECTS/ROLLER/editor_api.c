@@ -1,4 +1,5 @@
 #include "editor_api.h"
+#include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
@@ -30,6 +31,7 @@ static uint32_t s_uiAllowSoftwareFallback;
 static uint32_t s_uiGeometryEpoch;
 static uint32_t s_uiTrackGeneration;
 static eRollerEdSceneState s_eSceneState = ROLLER_ED_SCENE_EMPTY;
+static tEdTrackStage s_TrackStage;
 static char s_szLastError[512];
 
 static void roller_ed_clear_error(void)
@@ -52,6 +54,41 @@ static void roller_ed_advance_geometry_epoch(void)
     s_uiGeometryEpoch++;
     if (s_uiGeometryEpoch == 0u)
         s_uiGeometryEpoch = 1u;
+}
+
+static void roller_ed_advance_track_generation(void)
+{
+    s_uiTrackGeneration++;
+    if (s_uiTrackGeneration == 0u)
+        s_uiTrackGeneration = 1u;
+}
+
+static eRollerEdResult roller_ed_track_load_result(
+    eEdTrackLoadResult eResult)
+{
+    switch (eResult) {
+    case ED_TRACK_LOAD_OK:
+        return ROLLER_ED_RESULT_OK;
+    case ED_TRACK_LOAD_INVALID_ARGUMENT:
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    case ED_TRACK_LOAD_IO_FAILED:
+        return ROLLER_ED_RESULT_IO_FAILED;
+    case ED_TRACK_LOAD_OUT_OF_MEMORY:
+        return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+    case ED_TRACK_LOAD_TRUNCATED:
+    case ED_TRACK_LOAD_INVALID_SIZE:
+    case ED_TRACK_LOAD_INVALID_BACK_REFERENCE:
+    case ED_TRACK_LOAD_OUTPUT_OVERFLOW:
+    case ED_TRACK_LOAD_MALFORMED_TEXT:
+        return ROLLER_ED_RESULT_LOAD_FAILED;
+    }
+    return ROLLER_ED_RESULT_INTERNAL_ERROR;
+}
+
+static void roller_ed_clear_scene(eRollerEdSceneState eState)
+{
+    ed_track_stage_dispose(&s_TrackStage);
+    s_eSceneState = eState;
 }
 
 static bool roller_ed_is_main_owner(void)
@@ -110,7 +147,7 @@ static void roller_ed_release_worker_resources(void)
     s_szAssetRoot = NULL;
     s_ePreferredRenderer = ROLLER_ED_RENDERER_GPU;
     s_uiAllowSoftwareFallback = 0u;
-    s_eSceneState = ROLLER_ED_SCENE_EMPTY;
+    roller_ed_clear_scene(ROLLER_ED_SCENE_EMPTY);
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_Bootstrap(
@@ -322,6 +359,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     const char *szTrackPath, const char *szDocumentAssetRoot)
 {
     eRollerEdResult eResult = roller_ed_require_worker();
+    eEdTrackLoadResult eLoadResult;
+    tEdTrackStage Staged;
 
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
@@ -330,8 +369,23 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
         roller_ed_set_error("track path and document asset root are required");
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
-    roller_ed_set_error("facade track loading is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+
+    ed_track_stage_init(&Staged);
+    eLoadResult = ed_track_file_stage(
+        szTrackPath, &Staged, s_szLastError, sizeof(s_szLastError));
+    if (eLoadResult != ED_TRACK_LOAD_OK) {
+        ed_track_stage_dispose(&Staged);
+        roller_ed_clear_scene(ROLLER_ED_SCENE_FAILED);
+        roller_ed_advance_geometry_epoch();
+        return roller_ed_track_load_result(eLoadResult);
+    }
+
+    ed_track_stage_dispose(&s_TrackStage);
+    s_TrackStage = Staged;
+    s_eSceneState = ROLLER_ED_SCENE_READY;
+    roller_ed_advance_geometry_epoch();
+    roller_ed_advance_track_generation();
+    return ROLLER_ED_RESULT_OK;
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void)
@@ -340,7 +394,7 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void)
 
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    s_eSceneState = ROLLER_ED_SCENE_EMPTY;
+    roller_ed_clear_scene(ROLLER_ED_SCENE_EMPTY);
     roller_ed_advance_geometry_epoch();
     return ROLLER_ED_RESULT_OK;
 }
@@ -469,7 +523,6 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_FillGeometry(
 {
     eRollerEdResult eResult = roller_ed_require_worker();
 
-    (void)uiExpectedGeometryEpoch;
     (void)pVerts;
     (void)uiVertexCapacity;
     (void)puiIndices;
@@ -484,6 +537,11 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_FillGeometry(
     if (s_eSceneState != ROLLER_ED_SCENE_READY) {
         roller_ed_set_error("there is no geometry scene");
         return ROLLER_ED_RESULT_NO_SCENE;
+    }
+    if (uiExpectedGeometryEpoch != s_uiGeometryEpoch) {
+        roller_ed_set_error("geometry epoch %u is stale; current epoch is %u",
+                            uiExpectedGeometryEpoch, s_uiGeometryEpoch);
+        return ROLLER_ED_RESULT_STALE;
     }
     roller_ed_set_error("facade geometry extraction is not implemented yet");
     return ROLLER_ED_RESULT_UNSUPPORTED;

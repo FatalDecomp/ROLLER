@@ -69,6 +69,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/polyf.c
     PROJECTS/ROLLER/polytex.c
     PROJECTS/ROLLER/replay.c
+    PROJECTS/ROLLER/roller_core_error.c
     PROJECTS/ROLLER/roller.c
     PROJECTS/ROLLER/rollercd.c
     PROJECTS/ROLLER/rollerinput.c

@@ -115,6 +115,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polyf.c",
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
+            "PROJECTS/ROLLER/roller_core_error.c",
             "PROJECTS/ROLLER/roller.c",
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollerinput.c",
@@ -445,6 +446,7 @@ fn configureRenderQueue3DTests(
         .flags = c_flags,
         .files = &.{
             "PROJECTS/ROLLER/editor_api.c",
+            "PROJECTS/ROLLER/editor_track_loader.c",
             "tests/editor_api_lifecycle_test.c",
         },
     });
@@ -453,6 +455,8 @@ fn configureRenderQueue3DTests(
         .root_module = editor_api_mod,
     });
     const run_editor_api = b.addRunArtifact(editor_api_exe);
+    run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_valid.trk"));
+    run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_malformed.trk"));
 
     const editor_api_cpp_mod = b.createModule(.{
         .target = target,
@@ -471,12 +475,33 @@ fn configureRenderQueue3DTests(
     });
     const run_editor_api_cpp = b.addRunArtifact(editor_api_cpp_exe);
 
+    const core_error_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    core_error_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    core_error_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    core_error_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/roller_core_error.c",
+            "tests/roller_core_error_test.c",
+        },
+    });
+    const core_error_exe = b.addExecutable(.{
+        .name = "roller_core_error_test",
+        .root_module = core_error_mod,
+    });
+    const run_core_error = b.addRunArtifact(core_error_exe);
+
     const editor_api_tests = b.step(
         "test-editor-api",
-        "Run E0-S6 facade lifecycle, SDL ownership, and C/C++ ABI tests",
+        "Run E0-S6/S7 facade lifecycle, error-boundary, and ABI tests",
     );
     editor_api_tests.dependOn(&run_editor_api.step);
     editor_api_tests.dependOn(&run_editor_api_cpp.step);
+    editor_api_tests.dependOn(&run_core_error.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{
