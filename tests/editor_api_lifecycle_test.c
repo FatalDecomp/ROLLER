@@ -1,4 +1,5 @@
 #include "editor_api.h"
+#include "editor_legacy_scene.h"
 #include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -18,6 +19,53 @@ typedef struct
 } tLifecycleTestContext;
 
 static int s_iThreadAssertionCount;
+static int s_iLegacyInstallCount;
+static int s_iLegacyRenderCount;
+
+eRollerEdResult roller_ed_legacy_scene_install(
+    const char *szTrackPath,
+    const tEdTrackStage *pStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!szTrackPath || !pStage || !pStage->pbyData
+            || !szDocumentAssetRoot || !szFallbackAssetRoot) {
+        snprintf(szError, uiErrorCapacity, "invalid legacy install seam input");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_iLegacyInstallCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_render(
+    uint8_t *pbyPixels,
+    uint32_t uiBufferSize,
+    uint32_t uiRowPitch,
+    uint32_t uiWidth,
+    uint32_t uiHeight,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    (void)uiBufferSize;
+    for (uint32_t iRow = 0; iRow < uiHeight; ++iRow)
+        memset(pbyPixels + iRow * uiRowPitch, 0x7c, uiWidth * 4u);
+    s_iLegacyRenderCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+void roller_ed_legacy_scene_unload(void)
+{
+}
+
+void roller_ed_legacy_scene_shutdown(void)
+{
+}
 
 static SDL_AssertState SDLCALL count_thread_assertion(
     const SDL_AssertData *pData, void *pUserData)
@@ -154,6 +202,17 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
         CHECK_WORKER(Sizes.uiTrackGeneration != uiInitialGeneration);
         CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
+        {
+            uint8_t abyPixels[64];
+
+            memset(abyPixels, 0, sizeof(abyPixels));
+            CHECK_WORKER(RollerEd_RenderFrame(
+                             abyPixels, sizeof(abyPixels), 16u, 4u, 4u,
+                             ROLLER_ED_PIXEL_RGBA8)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(abyPixels[0] == 0x7c
+                         && abyPixels[sizeof(abyPixels) - 1u] == 0x7c);
+        }
         uiReadyEpoch = Sizes.uiGeometryEpoch;
         uiReadyGeneration = Sizes.uiTrackGeneration;
 
@@ -326,6 +385,8 @@ int main(int argc, char **argv)
         return iMainFailure;
     CHECK_MAIN(iThreadResult == 0 && Context.iFailureLine == 0);
     CHECK_MAIN(s_iThreadAssertionCount >= 3);
+    CHECK_MAIN(s_iLegacyInstallCount == 3);
+    CHECK_MAIN(s_iLegacyRenderCount == 1);
 
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);

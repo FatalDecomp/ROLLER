@@ -76,6 +76,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
             "PROJECTS/ROLLER/editor_api.c",
+            "PROJECTS/ROLLER/editor_legacy_scene.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -326,6 +327,7 @@ pub fn build(b: *std.Build) void {
     // refresh run produces a clean exit before the developer commits.
     configureSnapshotTests(b, exe, assets_path);
     configureEpicFPathReloadTests(b, exe, assets_path);
+    configureE1S4DocumentAssetTests(b, exe, assets_path);
 }
 
 fn configureRenderQueue3DTests(
@@ -907,6 +909,30 @@ fn configureEpicFPathReloadTests(
         "Run live valid-malformed-valid scene/resource soak and render",
     );
     f_s3_live_test.dependOn(&run_test.step);
+}
+
+fn configureE1S4DocumentAssetTests(
+    b: *Build,
+    roller_exe: *Compile,
+    assets_path: LazyPath,
+) void {
+    const scratch_abs = b.pathJoin(&.{
+        b.build_root.path orelse ".",
+        "zig-out",
+        "e1-s4-document-assets",
+    });
+    const run_test = b.addSystemCommand(&.{pythonExe()});
+    run_test.addFileArg(b.path("tools/test_e1_s4_document_assets.py"));
+    run_test.addArtifactArg(roller_exe);
+    run_test.addDirectoryArg(assets_path);
+    run_test.addArg(scratch_abs);
+    run_test.has_side_effects = true;
+
+    const e1_s4_test = b.step(
+        "test-e1-s4-document-assets",
+        "Run direct-stage per-document asset resolution and render checks",
+    );
+    e1_s4_test.dependOn(&run_test.step);
 }
 
 fn configureDependencies(

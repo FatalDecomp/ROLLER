@@ -410,7 +410,9 @@ void doexit();
 void firework_screen();
 void updatescreen();
 void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyImmediately, int iChaseCamIdx);
+#if !defined(ROLLER_EDITOR_CORE)
 int main(int argc, const char **argv, const char **envp);
+#endif
 int main_loop_iteration(void);
 void play_game_init();
 void play_game_uninit();

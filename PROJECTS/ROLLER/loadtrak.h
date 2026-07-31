@@ -2,6 +2,7 @@
 #define _ROLLER_LOADTRAK_H
 //-------------------------------------------------------------------------------------------------
 #include "editor_api.h"
+#include "editor_track_loader.h"
 #include "types.h"
 #include <stddef.h>
 #include <stdio.h>
@@ -106,6 +107,24 @@ eRollerEdResult loadtrack_from_path(const char *szTrackPath, int iPreviewMode);
 eRollerEdResult loadtrack_from_path_ex(
     const char *szTrackPath, int iPreviewMode,
     char *szError, size_t uiErrorCapacity);
+eRollerEdResult loadtrack_from_path_with_assets_ex(
+    const char *szTrackPath,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity);
+/* Installs an already validated stage without re-reading or re-decoding the
+ * track. When roots are supplied, all render assets use document-first then
+ * configured-root lookup. */
+eRollerEdResult loadtrack_from_stage_with_assets_ex(
+    const char *szTrackPath,
+    const tEdTrackStage *pTrackStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);
 void read_bldmap(uint8 **ppTrackData);

@@ -96,6 +96,8 @@ static int iFrontendNetworkErrorHandled = 0;
 static int iFrontendRaceTrack = 0;
 static int iFrontendRaceFadeOutPending = 0;
 static const char *g_szDirectTrackPath = NULL;
+static const char *g_szDirectTrackAssetRoot = NULL;
+static const char *g_szDirectTrackFallbackRoot = NULL;
 static int g_bDirectTrackStateFixture = 0;
 #define DIRECT_TRACK_RELOAD_MAX_MALFORMED 8
 static const char *g_aszDirectTrackMalformed[
@@ -604,6 +606,8 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
   cli_fprintf(f, " --gpu-parity BACKEND   run F-S1 parity (vulkan, direct3d12, or metal)\n");
   cli_fprintf(f, " --track-path PATH       load a track directly from an absolute path\n");
+  cli_fprintf(f, " --track-asset-root DIR  resolve direct-track assets from this document root first\n");
+  cli_fprintf(f, " --track-fallback-root DIR  override the direct-track FATDATA fallback root\n");
   cli_fprintf(f, " --verify-track-state    seed populated community state and verify it is preserved\n");
   cli_fprintf(f, " --track-reload-malformed PATH  add a rejected path to the direct-load soak\n");
   cli_fprintf(f, " --track-reload-cycles N repeat valid/malformed/valid reload checks\n");
@@ -2775,6 +2779,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
 //-------------------------------------------------------------------------------------------------
 //00011930
+#if !defined(ROLLER_EDITOR_CORE)
 #if defined(IS_ANDROID)
 int main(int argc, const char **argv, const char **envp);
 int SDL_main(int argc, char *argv[])
@@ -2939,6 +2944,22 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--track-path' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--track-asset-root") == 0) {
+      if (i + 1 < argc) {
+        g_szDirectTrackAssetRoot = argv[i + 1];
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr, "ERROR: '--track-asset-root' needs an argument\n");
+        return 1;
+      }
+    } else if (strcmp(argv[i], "--track-fallback-root") == 0) {
+      if (i + 1 < argc) {
+        g_szDirectTrackFallbackRoot = argv[i + 1];
+        consumed = 2;
+      } else {
+        cli_fprintf(stderr, "ERROR: '--track-fallback-root' needs an argument\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "--verify-track-state") == 0) {
       g_bDirectTrackStateFixture = -1;
       consumed = 1;
@@ -2987,11 +3008,18 @@ int main(int argc, const char **argv, const char **envp)
     return ROLLERGpuParityRun(szGpuParityBackend);
   }
   if ((g_bDirectTrackStateFixture
+       || g_szDirectTrackAssetRoot
+       || g_szDirectTrackFallbackRoot
        || g_iDirectTrackMalformedCount
        || g_iDirectTrackReloadCycles)
       && !g_szDirectTrackPath) {
     cli_fprintf(stderr,
       "ERROR: direct-track verification options require '--track-path'\n");
+    return 1;
+  }
+  if (g_szDirectTrackFallbackRoot && !g_szDirectTrackAssetRoot) {
+    cli_fprintf(stderr,
+      "ERROR: '--track-fallback-root' requires '--track-asset-root'\n");
     return 1;
   }
   if ((g_iDirectTrackMalformedCount == 0)
@@ -3210,6 +3238,7 @@ int main(int argc, const char **argv, const char **envp)
     doexit();
   return 0;
 }
+#endif
 
 //-------------------------------------------------------------------------------------------------
 //00012050
@@ -3544,11 +3573,22 @@ void play_game_init()
   if (g_bDirectTrackStateFixture)
     direct_track_seed_community_state();
   if (g_szDirectTrackPath) {
+    char szDirectLoadError[512];
+    eRollerEdResult eDirectLoadResult;
+
     g_uiDirectTrackSeedBeforeLoad = ROLLERrandStateGet();
-    if (loadtrack_from_path(g_szDirectTrackPath, 0)
-        != ROLLER_ED_RESULT_OK) {
-      SDL_Log("Direct track load failed (path must be absolute): %s",
-              g_szDirectTrackPath);
+    if (g_szDirectTrackAssetRoot) {
+      eDirectLoadResult = loadtrack_from_path_with_assets_ex(
+        g_szDirectTrackPath, g_szDirectTrackAssetRoot,
+        g_szDirectTrackFallbackRoot ? g_szDirectTrackFallbackRoot : ".", 0,
+        szDirectLoadError, sizeof(szDirectLoadError));
+    } else {
+      eDirectLoadResult = loadtrack_from_path_ex(
+        g_szDirectTrackPath, 0, szDirectLoadError, sizeof(szDirectLoadError));
+    }
+    if (eDirectLoadResult != ROLLER_ED_RESULT_OK) {
+      SDL_Log("Direct track load failed for '%s': %s",
+              g_szDirectTrackPath, szDirectLoadError);
       doexit();
       return;
     }

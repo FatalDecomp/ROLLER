@@ -12,6 +12,7 @@
 #include "view.h"
 #include "control.h"
 #include "editor_track_loader.h"
+#include "sound.h"
 #if defined(ROLLER_EDITOR_CORE)
 #include "roller_core_error.h"
 #endif
@@ -505,11 +506,123 @@ static eRollerEdResult loadtrack_stage_result(eEdTrackLoadResult eResult)
   return ROLLER_ED_RESULT_INTERNAL_ERROR;
 }
 
+static int loadtrack_join_asset_path(
+    char szPath[ROLLER_MAX_PATH], const char *szRoot, const char *szAsset)
+{
+  size_t uiRootLength;
+  int iLength;
+  char chSeparator;
+
+  if (!szPath || !szRoot || !szRoot[0] || !szAsset || !szAsset[0])
+    return 0;
+  uiRootLength = strlen(szRoot);
+  chSeparator = (uiRootLength > 0
+      && (szRoot[uiRootLength - 1u] == '/'
+          || szRoot[uiRootLength - 1u] == '\\')) ? '\0' : '/';
+  iLength = chSeparator
+    ? snprintf(szPath, ROLLER_MAX_PATH, "%s%c%s",
+               szRoot, chSeparator, szAsset)
+    : snprintf(szPath, ROLLER_MAX_PATH, "%s%s", szRoot, szAsset);
+  return iLength > 0 && iLength < ROLLER_MAX_PATH;
+}
+
+static int loadtrack_copy_existing_path(
+    char szResolved[ROLLER_MAX_PATH], const char *szCandidate)
+{
+  const char *szCaseResolved;
+  size_t uiLength;
+
+  if (!szCandidate || !ROLLERfexists(szCandidate))
+    return 0;
+  szCaseResolved = ROLLERfindpath(szCandidate);
+  if (!szCaseResolved)
+    szCaseResolved = szCandidate;
+  uiLength = strlen(szCaseResolved);
+  if (uiLength >= ROLLER_MAX_PATH)
+    return 0;
+  memcpy(szResolved, szCaseResolved, uiLength + 1u);
+  return -1;
+}
+
+static eRollerEdResult loadtrack_resolve_document_asset(
+    const char *szAsset,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    char szResolved[ROLLER_MAX_PATH],
+    char *szError,
+    size_t uiErrorCapacity)
+{
+  char szCandidate[ROLLER_MAX_PATH];
+
+  if (szDocumentAssetRoot && szFallbackAssetRoot) {
+    if (!loadtrack_join_asset_path(
+            szCandidate, szDocumentAssetRoot, szAsset)) {
+      loadtrack_set_error(szError, uiErrorCapacity,
+                          "document asset path is too long for '%s'", szAsset);
+      return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (loadtrack_copy_existing_path(szResolved, szCandidate))
+      return ROLLER_ED_RESULT_OK;
+
+    if (!loadtrack_join_asset_path(
+            szCandidate, szFallbackAssetRoot, szAsset)) {
+      loadtrack_set_error(szError, uiErrorCapacity,
+                          "fallback asset path is too long for '%s'", szAsset);
+      return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (loadtrack_copy_existing_path(szResolved, szCandidate))
+      return ROLLER_ED_RESULT_OK;
+
+    loadtrack_set_error(
+        szError, uiErrorCapacity,
+        "asset '%s' was not found in document root '%s' or fallback root '%s'",
+        szAsset, szDocumentAssetRoot, szFallbackAssetRoot);
+    return ROLLER_ED_RESULT_IO_FAILED;
+  }
+
+  if (loadtrack_copy_existing_path(szResolved, szAsset))
+    return ROLLER_ED_RESULT_OK;
+  loadtrack_set_error(szError, uiErrorCapacity,
+                      "track asset '%s' was not found", szAsset);
+  return ROLLER_ED_RESULT_IO_FAILED;
+}
+
+static eRollerEdResult loadtrack_validate_palette(
+    const char *szPalettePath, char *szError, size_t uiErrorCapacity)
+{
+  FILE *pPalette = ROLLERfopen(szPalettePath, "rb");
+  long lLength;
+
+  if (!pPalette) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "palette asset could not be opened: %s", szPalettePath);
+    return ROLLER_ED_RESULT_IO_FAILED;
+  }
+  if (fseek(pPalette, 0, SEEK_END) != 0) {
+    fclose(pPalette);
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "palette asset length could not be read: %s",
+                        szPalettePath);
+    return ROLLER_ED_RESULT_IO_FAILED;
+  }
+  lLength = ftell(pPalette);
+  fclose(pPalette);
+  if (lLength != 256L * 3L) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "palette asset '%s' has length %ld; expected 768 bytes",
+                        szPalettePath, lLength);
+    return ROLLER_ED_RESULT_LOAD_FAILED;
+  }
+  return ROLLER_ED_RESULT_OK;
+}
+
 //0004AF80
 static eRollerEdResult loadtrack_internal(
     int iTrackIdx, int iPreviewMode,
     const char *szDirectTrackPath,
     const tEdTrackStage *pDirectStage,
+    const char *szDirectTexturePath,
+    const char *szDirectBuildingTexturePath,
     char *szError, size_t uiErrorCapacity)
 {
   int iCarIdx; // ecx
@@ -1394,6 +1507,15 @@ static eRollerEdResult loadtrack_internal(
       readstuntdata(&pCurrDataPtr);
       read_texturemap(&pCurrDataPtr);
       read_bldmap(&pCurrDataPtr);
+      if (szDirectTexturePath) {
+        strncpy(texture_file, szDirectTexturePath, sizeof(texture_file) - 1u);
+        texture_file[sizeof(texture_file) - 1u] = '\0';
+      }
+      if (szDirectBuildingTexturePath) {
+        strncpy(bldtex_file, szDirectBuildingTexturePath,
+                sizeof(bldtex_file) - 1u);
+        bldtex_file[sizeof(bldtex_file) - 1u] = '\0';
+      }
       read_backs(&pCurrDataPtr);
     }
     if (Play_View == 1)
@@ -1464,7 +1586,8 @@ eRollerEdResult loadtrack(int iTrackIdx, int iPreviewMode)
 {
   char szError[256];
   eRollerEdResult eResult = loadtrack_internal(
-    iTrackIdx, iPreviewMode, NULL, NULL, szError, sizeof(szError));
+    iTrackIdx, iPreviewMode, NULL, NULL, NULL, NULL,
+    szError, sizeof(szError));
 
 #if !defined(ROLLER_EDITOR_CORE)
   if (eResult != ROLLER_ED_RESULT_OK)
@@ -1473,20 +1596,19 @@ eRollerEdResult loadtrack(int iTrackIdx, int iPreviewMode)
   return eResult;
 }
 
-eRollerEdResult loadtrack_from_path_ex(
-    const char *szTrackPath, int iPreviewMode,
+eRollerEdResult loadtrack_from_path_with_assets_ex(
+    const char *szTrackPath,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
     char *szError, size_t uiErrorCapacity)
 {
   tEdTrackStage TrackStage;
-  tEdTrackStage AssetStage;
   char szStageError[256];
-  uint64 ullCommunityStateBefore;
-  int iGenerationBefore;
   eEdTrackLoadResult eStageResult;
   eRollerEdResult eResult;
 
   ed_track_stage_init(&TrackStage);
-  ed_track_stage_init(&AssetStage);
   if (!track_path_is_absolute(szTrackPath)) {
     loadtrack_set_error(szError, uiErrorCapacity,
                         "track path must be absolute");
@@ -1499,36 +1621,114 @@ eRollerEdResult loadtrack_from_path_ex(
                         "track staging failed: %s", szStageError);
     return loadtrack_stage_result(eStageResult);
   }
+  eResult = loadtrack_from_stage_with_assets_ex(
+    szTrackPath, &TrackStage, szDocumentAssetRoot, szFallbackAssetRoot,
+    iPreviewMode,
+    szError, uiErrorCapacity);
+  ed_track_stage_dispose(&TrackStage);
+  return eResult;
+}
+
+eRollerEdResult loadtrack_from_path_ex(
+    const char *szTrackPath, int iPreviewMode,
+    char *szError, size_t uiErrorCapacity)
+{
+  return loadtrack_from_path_with_assets_ex(
+    szTrackPath, NULL, NULL, iPreviewMode, szError, uiErrorCapacity);
+}
+
+eRollerEdResult loadtrack_from_stage_with_assets_ex(
+    const char *szTrackPath,
+    const tEdTrackStage *pTrackStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+  tEdTrackStage AssetStage;
+  char szStageError[256];
+  char szTexturePath[ROLLER_MAX_PATH];
+  char szBuildingTexturePath[ROLLER_MAX_PATH];
+  char szPalettePath[ROLLER_MAX_PATH];
+  const char *szTextureOverride = NULL;
+  const char *szBuildingOverride = NULL;
+  uint64 ullCommunityStateBefore;
+  int iGenerationBefore;
+  eEdTrackLoadResult eStageResult;
+  eRollerEdResult eResult;
+
+  if (!track_path_is_absolute(szTrackPath)) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "track path must be absolute");
+    return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+  }
+  if (!pTrackStage || !pTrackStage->pbyData
+      || pTrackStage->uiDataLength == 0u) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "a validated track stage is required");
+    return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+  }
+  if ((szDocumentAssetRoot == NULL) != (szFallbackAssetRoot == NULL)
+      || (szDocumentAssetRoot && (!szDocumentAssetRoot[0]
+                                  || !szFallbackAssetRoot[0]))) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "both document and fallback asset roots are required");
+    return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+  }
+
+  ed_track_stage_init(&AssetStage);
   if (!iPreviewMode) {
     const char *aszAssets[2] = {
-      TrackStage.szTextureFile,
-      TrackStage.szBuildingTextureFile
+      pTrackStage->szTextureFile,
+      pTrackStage->szBuildingTextureFile
     };
-    for (size_t iAsset = 0; iAsset < 2; iAsset++) {
-      const char *szResolvedAsset = ROLLERfindpath(aszAssets[iAsset]);
+    char *aszResolved[2] = { szTexturePath, szBuildingTexturePath };
 
-      if (!szResolvedAsset)
-        szResolvedAsset = aszAssets[iAsset];
+    for (size_t iAsset = 0; iAsset < 2; iAsset++) {
+      eResult = loadtrack_resolve_document_asset(
+        aszAssets[iAsset], szDocumentAssetRoot, szFallbackAssetRoot,
+        aszResolved[iAsset], szError, uiErrorCapacity);
+      if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
       eStageResult = ed_compacted_file_stage(
-        szResolvedAsset, &AssetStage,
+        aszResolved[iAsset], &AssetStage,
         szStageError, sizeof(szStageError));
       if (eStageResult != ED_TRACK_LOAD_OK) {
         loadtrack_set_error(szError, uiErrorCapacity,
-                            "track asset '%s' failed staging: %s",
-                            aszAssets[iAsset], szStageError);
+                            "track asset '%s' at '%s' failed staging: %s",
+                            aszAssets[iAsset], aszResolved[iAsset], szStageError);
         ed_track_stage_dispose(&AssetStage);
-        ed_track_stage_dispose(&TrackStage);
         return loadtrack_stage_result(eStageResult);
       }
       ed_track_stage_dispose(&AssetStage);
     }
+    szTextureOverride = szTexturePath;
+    szBuildingOverride = szBuildingTexturePath;
+
+    if (szDocumentAssetRoot) {
+      eResult = loadtrack_resolve_document_asset(
+        "PALETTE.PAL", szDocumentAssetRoot, szFallbackAssetRoot,
+        szPalettePath, szError, uiErrorCapacity);
+      if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+      eResult = loadtrack_validate_palette(
+        szPalettePath, szError, uiErrorCapacity);
+      if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+      if (!setpal(szPalettePath)) {
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "palette asset failed loading: %s", szPalettePath);
+        return ROLLER_ED_RESULT_IO_FAILED;
+      }
+    }
   }
+
   ullCommunityStateBefore = community_track_state_hash();
   iGenerationBefore = g_iTrackLoadGeneration;
   eResult = loadtrack_internal(
-    TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, &TrackStage,
-    szError, uiErrorCapacity);
-  ed_track_stage_dispose(&TrackStage);
+    TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, pTrackStage,
+    szTextureOverride, szBuildingOverride, szError, uiErrorCapacity);
   if (community_track_state_hash() != ullCommunityStateBefore) {
     g_iTrackLoadGeneration = iGenerationBefore;
     loadtrack_set_error(szError, uiErrorCapacity,

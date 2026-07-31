@@ -6,8 +6,10 @@
 
 extern char revs_files1[6][13];
 extern char revs_files2[6][13];
-extern char texture_file[13];
-extern char bldtex_file[13];
+/* Direct editor loads replace these legacy 8.3 names with resolved absolute
+ * document paths before the texture loaders run. */
+extern char texture_file[ROLLER_MAX_PATH];
+extern char bldtex_file[ROLLER_MAX_PATH];
 extern char gencartex_name[11];
 extern int car_remap[4096];
 extern int cargen_remap[256];

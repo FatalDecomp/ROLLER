@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+tColor palette[256];
+
 static int fail(const char *szMessage)
 {
   fprintf(stderr, "sound stub test failed: %s\n", szMessage);
