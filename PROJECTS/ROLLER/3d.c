@@ -2731,14 +2731,17 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   // Gameplay frame phase: camera/projection setup.
   screen_pointer = pScrPtr;                     // Set global screen buffer pointer for rendering functions
   game_render_set_target(g_pGameRenderer, pScrPtr, winw, winw, winh);
+#if defined(ROLLER_EDITOR_CORE)
+  if (!roller_ed_track_only_active() || !roller_ed_camera_apply()) {
+#endif
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
   noclip_camera_apply();
   chase_look_apply(); // Debug "Free Camera": hold RMB + move mouse to free-look, gated on the debug-overlay checkbox
 #if defined(ROLLER_EDITOR_CORE)
-  /* The editor camera is an explicit world-space override.  Applying it after
-   * the legacy view calculation keeps all renderer setup intact while making
-   * the facade state authoritative for this frame. */
-  roller_ed_camera_apply();
+    /* Non-track-only core callers retain the legacy setup, then accept the
+     * explicit facade override exactly as before E1-S6. */
+    roller_ed_camera_apply();
+  }
 #endif
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
@@ -2772,7 +2775,10 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 
   // Gameplay frame phase: visibility/entity production.
   CalcVisibleTrack(iCarIdx, uiVisibilityViewMode); // Calculate which track segments are visible from current viewpoint
-  DrawCars(iCarIdx, uiVisibilityViewMode);         // Prepare visible cars (excluding current player if in chase cam)
+#if defined(ROLLER_EDITOR_CORE)
+  if (!roller_ed_track_only_active())
+#endif
+    DrawCars(iCarIdx, uiVisibilityViewMode);       // Prepare visible cars (excluding current player if in chase cam)
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
 
   // Gameplay frame phase: 3D queue production and sorted dispatch.

@@ -125,6 +125,18 @@ eRollerEdResult loadtrack_from_stage_with_assets_ex(
     int iPreviewMode,
     char *szError,
     size_t uiErrorCapacity);
+/* Editor-only installation mode. It commits the same staged track and asset
+ * semantics while deliberately omitting gameplay cars and car-derived view
+ * initialization. This is an internal seam, not part of the public C ABI. */
+eRollerEdResult loadtrack_from_stage_with_assets_editor_ex(
+    const char *szTrackPath,
+    const tEdTrackStage *pTrackStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity);
+int roller_ed_track_only_active(void);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);
 void read_bldmap(uint8 **ppTrackData);

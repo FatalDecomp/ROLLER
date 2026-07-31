@@ -105,6 +105,9 @@ uint32 g_uiCommunityTrackCRC = 0;
 // Bumped only after a complete load so caches never accept partially loaded
 // or rejected track-derived data as a committed generation.
 int g_iTrackLoadGeneration = 0;
+/* Committed load mode for the current legacy scene. Normal game loads never
+ * enable it; the editor facade opts in through its dedicated staged seam. */
+static int s_bEditorTrackOnly;
 static char g_szCommunityTrackDir[16] = "../TRACKS";
 static int g_iStockTrackAvailabilityScanned = 0;
 static uint32 g_uiStockTrackAvailabilityMask = 0;
@@ -623,6 +626,7 @@ static eRollerEdResult loadtrack_internal(
     const tEdTrackStage *pDirectStage,
     const char *szDirectTexturePath,
     const char *szDirectBuildingTexturePath,
+    int bEditorTrackOnly,
     char *szError, size_t uiErrorCapacity)
 {
   int iCarIdx; // ecx
@@ -776,6 +780,10 @@ static eRollerEdResult loadtrack_internal(
 #if defined(ROLLER_EDITOR_CORE)
   roller_core_error_clear();
 #endif
+  /* This must precede every car-sized initialization in the loader. Merely
+   * skipping DrawCars would still create simulated gameplay cars. */
+  if (bEditorTrackOnly)
+    numcars = 0;
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
   bMinimalMode = iPreviewMode;
   p_iBuildingBase = BuildingBase[0];
@@ -1501,7 +1509,8 @@ static eRollerEdResult loadtrack_internal(
     initlocaltrack();                           // Initialize track objects and car placement
     InitTowers();
     InitBuildings();
-    placecars();
+    if (!bEditorTrackOnly)
+      placecars();
     if (iTrackIdx_1 >= 0) {
       start_f = pCurrDataPtr;                   // Read additional track data: stunts, textures, buildings
       readstuntdata(&pCurrDataPtr);
@@ -1518,12 +1527,14 @@ static eRollerEdResult loadtrack_internal(
       }
       read_backs(&pCurrDataPtr);
     }
-    if (Play_View == 1)
-      testteaminit(&Car[ViewType[0]]);
-    else
-      initcarview(ViewType[0], 0);
-    if (player_type == 2)
-      initcarview(ViewType[1], 1);
+    if (!bEditorTrackOnly) {
+      if (Play_View == 1)
+        testteaminit(&Car[ViewType[0]]);
+      else
+        initcarview(ViewType[0], 0);
+      if (player_type == 2)
+        initcarview(ViewType[1], 1);
+    }
     initpits();
   }
   if (iTrackIdx_1 >= 0) {
@@ -1577,6 +1588,7 @@ static eRollerEdResult loadtrack_internal(
 #endif
     }
   }
+  s_bEditorTrackOnly = bEditorTrackOnly;
   ++g_iTrackLoadGeneration;
   loadtrack_set_error(szError, uiErrorCapacity, "");
   return ROLLER_ED_RESULT_OK;
@@ -1586,7 +1598,7 @@ eRollerEdResult loadtrack(int iTrackIdx, int iPreviewMode)
 {
   char szError[256];
   eRollerEdResult eResult = loadtrack_internal(
-    iTrackIdx, iPreviewMode, NULL, NULL, NULL, NULL,
+    iTrackIdx, iPreviewMode, NULL, NULL, NULL, NULL, 0,
     szError, sizeof(szError));
 
 #if !defined(ROLLER_EDITOR_CORE)
@@ -1637,12 +1649,13 @@ eRollerEdResult loadtrack_from_path_ex(
     szTrackPath, NULL, NULL, iPreviewMode, szError, uiErrorCapacity);
 }
 
-eRollerEdResult loadtrack_from_stage_with_assets_ex(
+static eRollerEdResult loadtrack_from_stage_with_assets_mode_ex(
     const char *szTrackPath,
     const tEdTrackStage *pTrackStage,
     const char *szDocumentAssetRoot,
     const char *szFallbackAssetRoot,
     int iPreviewMode,
+    int bEditorTrackOnly,
     char *szError,
     size_t uiErrorCapacity)
 {
@@ -1728,7 +1741,8 @@ eRollerEdResult loadtrack_from_stage_with_assets_ex(
   iGenerationBefore = g_iTrackLoadGeneration;
   eResult = loadtrack_internal(
     TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, pTrackStage,
-    szTextureOverride, szBuildingOverride, szError, uiErrorCapacity);
+    szTextureOverride, szBuildingOverride, bEditorTrackOnly,
+    szError, uiErrorCapacity);
   if (community_track_state_hash() != ullCommunityStateBefore) {
     g_iTrackLoadGeneration = iGenerationBefore;
     loadtrack_set_error(szError, uiErrorCapacity,
@@ -1736,6 +1750,39 @@ eRollerEdResult loadtrack_from_stage_with_assets_ex(
     return ROLLER_ED_RESULT_INTERNAL_ERROR;
   }
   return eResult;
+}
+
+eRollerEdResult loadtrack_from_stage_with_assets_ex(
+    const char *szTrackPath,
+    const tEdTrackStage *pTrackStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+  return loadtrack_from_stage_with_assets_mode_ex(
+    szTrackPath, pTrackStage, szDocumentAssetRoot, szFallbackAssetRoot,
+    iPreviewMode, 0, szError, uiErrorCapacity);
+}
+
+eRollerEdResult loadtrack_from_stage_with_assets_editor_ex(
+    const char *szTrackPath,
+    const tEdTrackStage *pTrackStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    int iPreviewMode,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+  return loadtrack_from_stage_with_assets_mode_ex(
+    szTrackPath, pTrackStage, szDocumentAssetRoot, szFallbackAssetRoot,
+    iPreviewMode, -1, szError, uiErrorCapacity);
+}
+
+int roller_ed_track_only_active(void)
+{
+  return s_bEditorTrackOnly;
 }
 
 eRollerEdResult loadtrack_from_path(const char *szTrackPath, int iPreviewMode)

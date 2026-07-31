@@ -100,7 +100,7 @@ eRollerEdResult roller_ed_legacy_scene_install(
 
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    return loadtrack_from_stage_with_assets_ex(
+    return loadtrack_from_stage_with_assets_editor_ex(
         szTrackPath, pStage, szDocumentAssetRoot, szFallbackAssetRoot, 0,
         szError, uiErrorCapacity);
 }
@@ -156,6 +156,8 @@ eRollerEdResult roller_ed_legacy_scene_render(
     game_render_set_viewport(g_pGameRenderer, 0, 0, (int)uiWidth,
                              (int)uiHeight);
     game_render_begin_frame(g_pGameRenderer);
+    /* draw_road is the scene-only path: the gameplay panel/HUD compositor is
+     * intentionally not part of editor readback. */
     draw_road(scrbuf, ViewType[0], (unsigned int)DriveView[0], 0, 0);
     if (!scene_render_gpu_end_frame_readback(
             pGPU, pbyPixels, uiBufferSize, uiRowPitch, uiWidth, uiHeight)) {

@@ -1,0 +1,225 @@
+#include "3d.h"
+#include "car.h"
+#include "drawtrk3.h"
+#include "editor_api.h"
+#include "loadtrak.h"
+#include "moving.h"
+#include "render_queue_3d.h"
+
+#define SDL_MAIN_HANDLED 1
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct
+{
+    const char *szTrackPath;
+    const char *szAssetRoot;
+    char szError[512];
+    int iResult;
+} tTrackOnlyContext;
+
+static void acceptance_error(tTrackOnlyContext *pContext, const char *szMessage)
+{
+    snprintf(pContext->szError, sizeof(pContext->szError), "%s: %s",
+             szMessage, RollerEd_GetLastError());
+    pContext->iResult = 1;
+}
+
+static int queue_has_kind(const RenderQueue3D *pQueue, RenderCommand3DKind eKind)
+{
+    int iCount = render_queue_3d_count(pQueue);
+
+    for (int i = 0; i < iCount; ++i) {
+        const RenderCommand3D *pCommand = render_queue_3d_command_at(pQueue, i);
+        if (pCommand && pCommand->kind == eKind)
+            return -1;
+    }
+    return 0;
+}
+
+static int pixels_have_scene_content(const uint8_t *pPixels, size_t uiSize)
+{
+    uint32_t uiFirst;
+
+    if (uiSize < sizeof(uiFirst))
+        return 0;
+    memcpy(&uiFirst, pPixels, sizeof(uiFirst));
+    for (size_t i = sizeof(uiFirst); i + sizeof(uint32_t) <= uiSize;
+         i += sizeof(uint32_t)) {
+        uint32_t uiPixel;
+        memcpy(&uiPixel, pPixels + i, sizeof(uiPixel));
+        if (uiPixel != uiFirst)
+            return -1;
+    }
+    return 0;
+}
+
+static int SDLCALL track_only_worker(void *pUserData)
+{
+    enum { WIDTH = 640, HEIGHT = 480, ROW_PITCH = WIDTH * 4 };
+    static const float afYaw[] = { 0.0f, 90.0f, 180.0f, 270.0f };
+    static const float afPitch[] = { -25.0f, 0.0f, 25.0f };
+    tTrackOnlyContext *pContext = (tTrackOnlyContext *)pUserData;
+    tRollerEdInitInfo InitInfo = {
+        .uiStructSize = sizeof(InitInfo),
+        .uiVersion = ROLLER_ED_INIT_INFO_VERSION,
+        .szAssetRoot = pContext->szAssetRoot,
+        .ePreferredRenderer = ROLLER_ED_RENDERER_GPU,
+        .uiAllowSoftwareFallback = 0u
+    };
+    uint8_t *pPixels = NULL;
+    float fTargetX = 0.0f;
+    float fTargetY = 0.0f;
+    float fTargetZ = 0.0f;
+    int bFoundTrackFrame = 0;
+
+    if (RollerEd_Init(&InitInfo) != ROLLER_ED_RESULT_OK) {
+        acceptance_error(pContext, "RollerEd_Init failed");
+        return pContext->iResult;
+    }
+    if (RollerEd_LoadTrackFile(pContext->szTrackPath, pContext->szAssetRoot)
+            != ROLLER_ED_RESULT_OK) {
+        acceptance_error(pContext, "RollerEd_LoadTrackFile failed");
+        goto shutdown;
+    }
+    if (!roller_ed_track_only_active() || numcars != 0) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "editor load did not commit track-only zero-car mode");
+        pContext->iResult = 1;
+        goto shutdown;
+    }
+
+    for (int iPoint = 0; iPoint < 6; ++iPoint) {
+        fTargetX += TrakPt[0].pointAy[iPoint].fX;
+        fTargetY += TrakPt[0].pointAy[iPoint].fY;
+        fTargetZ += TrakPt[0].pointAy[iPoint].fZ;
+    }
+    fTargetX /= 6.0f;
+    fTargetY /= 6.0f;
+    fTargetZ /= 6.0f;
+
+    pPixels = (uint8_t *)malloc((size_t)ROW_PITCH * HEIGHT);
+    if (!pPixels) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "pixel allocation failed");
+        pContext->iResult = 1;
+        goto shutdown;
+    }
+
+    for (int iLight = 0; iLight < 3; ++iLight) {
+        SLight[0][iLight].currentPos.fX = fTargetX;
+        SLight[0][iLight].currentPos.fY = fTargetY;
+        SLight[0][iLight].currentPos.fZ = fTargetZ + 500.0f;
+    }
+    countdown = 0;
+    replaytype = 0;
+    game_type = 0;
+    winner_mode = 0;
+
+    for (size_t iPitch = 0;
+         iPitch < sizeof(afPitch) / sizeof(afPitch[0]) && !bFoundTrackFrame;
+         ++iPitch) {
+        for (size_t iYaw = 0;
+             iYaw < sizeof(afYaw) / sizeof(afYaw[0]) && !bFoundTrackFrame;
+             ++iYaw) {
+            tEdCameraState Camera = {
+                .uiStructSize = sizeof(Camera),
+                .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION,
+                .fPosition = { fTargetX - 4000.0f, fTargetY,
+                               fTargetZ + 1600.0f },
+                .fYawDegrees = afYaw[iYaw],
+                .fPitchDegrees = afPitch[iPitch]
+            };
+            RenderQueue3D *pQueue;
+
+            if (RollerEd_SetCamera(&Camera) != ROLLER_ED_RESULT_OK) {
+                acceptance_error(pContext, "RollerEd_SetCamera failed");
+                goto shutdown;
+            }
+            memset(pPixels, 0, (size_t)ROW_PITCH * HEIGHT);
+            if (RollerEd_RenderFrame(
+                    pPixels, ROW_PITCH * HEIGHT, ROW_PITCH, WIDTH, HEIGHT,
+                    ROLLER_ED_PIXEL_RGBA8) != ROLLER_ED_RESULT_OK) {
+                acceptance_error(pContext, "RollerEd_RenderFrame failed");
+                goto shutdown;
+            }
+
+            pQueue = render_queue_3d_global();
+            if (queue_has_kind(pQueue, RENDER_COMMAND_3D_KIND_CAR)
+                    || queue_has_kind(pQueue, RENDER_COMMAND_3D_KIND_START_LIGHT)) {
+                snprintf(pContext->szError, sizeof(pContext->szError),
+                         "editor frame queued a gameplay car or race-start cube");
+                pContext->iResult = 1;
+                goto shutdown;
+            }
+            bFoundTrackFrame =
+                (queue_has_kind(pQueue, RENDER_COMMAND_3D_KIND_ROAD_SURFACE)
+                 || queue_has_kind(pQueue, RENDER_COMMAND_3D_KIND_GROUND_SURFACE))
+                && queue_has_kind(pQueue, RENDER_COMMAND_3D_KIND_BUILDING)
+                && pixels_have_scene_content(
+                    pPixels, (size_t)ROW_PITCH * HEIGHT);
+        }
+    }
+
+    if (!bFoundTrackFrame) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "explicit camera produced no visible track/scenery content");
+        pContext->iResult = 1;
+    }
+
+shutdown:
+    free(pPixels);
+    if (RollerEd_Shutdown() != ROLLER_ED_RESULT_OK && !pContext->iResult)
+        acceptance_error(pContext, "RollerEd_Shutdown failed");
+    return pContext->iResult;
+}
+
+int main(int argc, char **argv)
+{
+    tRollerEdBootstrapInfo BootstrapInfo = {
+        .uiStructSize = sizeof(BootstrapInfo),
+        .uiVersion = ROLLER_ED_BOOTSTRAP_INFO_VERSION,
+        .uiFlags = 0u
+    };
+    tTrackOnlyContext Context;
+    SDL_Thread *pWorker;
+    int iWorkerResult = 1;
+
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s ABSOLUTE_TRACK_PATH ABSOLUTE_ASSET_ROOT\n",
+                argv[0]);
+        return 2;
+    }
+    memset(&Context, 0, sizeof(Context));
+    Context.szTrackPath = argv[1];
+    Context.szAssetRoot = argv[2];
+
+    SDL_SetMainReady();
+    if (RollerEd_Bootstrap(&BootstrapInfo) != ROLLER_ED_RESULT_OK) {
+        fprintf(stderr, "RollerEd_Bootstrap failed: %s\n", RollerEd_GetLastError());
+        return 1;
+    }
+    pWorker = SDL_CreateThread(track_only_worker, "editor-track-only", &Context);
+    if (!pWorker) {
+        fprintf(stderr, "worker creation failed: %s\n", SDL_GetError());
+        RollerEd_Teardown();
+        return 1;
+    }
+    SDL_WaitThread(pWorker, &iWorkerResult);
+    if (RollerEd_Teardown() != ROLLER_ED_RESULT_OK && iWorkerResult == 0) {
+        fprintf(stderr, "RollerEd_Teardown failed: %s\n", RollerEd_GetLastError());
+        return 1;
+    }
+    if (iWorkerResult != 0) {
+        fprintf(stderr, "E1-S6 acceptance failed: %s\n", Context.szError);
+        return 1;
+    }
+    puts("E1-S6 PASS: facade rendered track/scenery content with an explicit camera and queued no cars or race-start cubes");
+    return 0;
+}

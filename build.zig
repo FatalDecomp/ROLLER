@@ -317,7 +317,9 @@ pub fn build(b: *std.Build) void {
     });
     run_step.dependOn(&wildmidi_config_install.step);
 
-    configureRenderQueue3DTests(b, target, optimize, c_flags, python_checks);
+    configureRenderQueue3DTests(
+        b, target, optimize, c_flags, python_checks, assets_path,
+    );
 
     // Snapshot regression harness: drive the snapshot binary serially across
     // every configured intro replay, writing PNGs straight into the
@@ -337,6 +339,7 @@ fn configureRenderQueue3DTests(
     optimize: OptimizeMode,
     c_flags: []const []const u8,
     python_checks: bool,
+    assets_path: LazyPath,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -370,6 +373,67 @@ fn configureRenderQueue3DTests(
         "Run render_queue_3d sort/mapping tests",
     );
     render_queue_tests.dependOn(&run_unit.step);
+
+    const sdl_image = b.dependency("SDL_image", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sdl_image_source = sdl_image.builder.dependency("SDL_image", .{
+        .lto = .none,
+    });
+    const wildmidi = b.dependency("wildmidi", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const libcdio = b.dependency("libcdio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const editor_track_only_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_track_only_mod.sanitize_c = .off;
+    editor_track_only_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_track_only_mod.addIncludePath(sdl.builder.path("include"));
+    editor_track_only_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_track_only_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_track_only_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_track_only_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_track_only_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_track_only_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_track_only_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_track_only_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_track_only_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_track_only_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_track_only_acceptance.c",
+        },
+    });
+    const editor_track_only_exe = b.addExecutable(.{
+        .name = "editor_track_only_acceptance",
+        .root_module = editor_track_only_mod,
+    });
+    const run_editor_track_only = b.addRunArtifact(editor_track_only_exe);
+    run_editor_track_only.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_track_only.addDirectoryArg(assets_path);
+    const editor_track_only_tests = b.step(
+        "test-e1-s6-track-only",
+        "Run real-facade zero-car track-only render acceptance (retail assets)",
+    );
+    editor_track_only_tests.dependOn(&run_editor_track_only.step);
 
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{
@@ -1200,6 +1264,59 @@ fn androidNdkHostTag() []const u8 {
 
 fn pythonExe() []const u8 {
     return if (host_builtin.os.tag == .windows) "python" else "python3";
+}
+
+fn rollerCoreSources(b: *Build) []const []const u8 {
+    var sources: ArrayList([]const u8) = .empty;
+    var lines = std.mem.splitScalar(
+        u8,
+        @embedFile("roller-core.srclist"),
+        '\n',
+    );
+
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r");
+        if (line.len == 0 or line[0] == '#')
+            continue;
+        const separator = std.mem.indexOfScalar(u8, line, '|') orelse
+            @panic("invalid roller-core manifest line");
+        const category = line[0..separator];
+        if (std.mem.eql(u8, category, "EXCLUDE"))
+            continue;
+        const source = std.mem.trim(u8, line[separator + 1 ..], " \t");
+        sources.append(
+            b.allocator,
+            b.allocator.dupe(u8, source) catch @panic("out of memory"),
+        ) catch @panic("out of memory");
+    }
+    return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
+}
+
+fn editorAcceptanceHostSources() []const []const u8 {
+    return &.{
+        "PROJECTS/ROLLER/frontend.c",
+        "PROJECTS/ROLLER/frontend_config.c",
+        "PROJECTS/ROLLER/frontend_data.c",
+        "PROJECTS/ROLLER/frontend_lobby.c",
+        "PROJECTS/ROLLER/frontend_pause.c",
+        "PROJECTS/ROLLER/frontend_screens.c",
+        "PROJECTS/ROLLER/frontend_select_car.c",
+        "PROJECTS/ROLLER/frontend_select_disk.c",
+        "PROJECTS/ROLLER/frontend_select_players.c",
+        "PROJECTS/ROLLER/frontend_select_track.c",
+        "PROJECTS/ROLLER/frontend_select_type.c",
+        "PROJECTS/ROLLER/frontend_util.c",
+        "PROJECTS/ROLLER/menu_render.c",
+        "PROJECTS/ROLLER/menu_render_gpu.c",
+        "PROJECTS/ROLLER/menu_render_software.c",
+        "PROJECTS/ROLLER/phone_ui.c",
+        "PROJECTS/ROLLER/touch_ui.c",
+        "PROJECTS/ROLLER/network.c",
+        "PROJECTS/ROLLER/comms.c",
+        "PROJECTS/ROLLER/snapshot.c",
+        "PROJECTS/ROLLER/snapshot_scenes.c",
+        "PROJECTS/ROLLER/gpu_parity.c",
+    };
 }
 
 const compile_flagz = @import("compile_flagz");

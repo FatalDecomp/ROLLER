@@ -2347,7 +2347,10 @@ LABEL_393:
                                  pVisibleBuildingsPtr->fDepth);
     ++pVisibleBuildingsPtr;
   }
-  if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
+  /* SLight is the transient three-cube race-start countdown display, not
+   * scene illumination. The track editor never renders it. */
+  if (!roller_ed_track_only_active()
+      && countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
     iLightIndex = 0;
     do {
