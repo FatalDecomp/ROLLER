@@ -33,7 +33,10 @@ SDL_GPUBuffer  *scene_render_gpu_upload_buffer(SDL_GPUDevice *dev, SDL_GPUBuffer
                                                 const void *data, Uint32 size);
 
 void scene_render_gpu_begin_frame(SceneRendererGPU *r);
-void scene_render_gpu_end_frame(SceneRendererGPU *r);
+/* Submits the offscreen scene and, when a window exists, late-acquires and
+ * presents its swapchain texture. Returns false if submission/presentation
+ * setup fails. */
+bool scene_render_gpu_end_frame(SceneRendererGPU *r);
 /* Renders the same pre-presentation resolved scene as end_frame, then waits
  * for the GPU and copies it to top-left-origin, straight-alpha RGBA8.  The
  * destination is untouched when validation or GPU readback fails. */

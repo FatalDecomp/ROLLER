@@ -880,6 +880,18 @@ cleanup:
     return bPass;
 }
 
+static bool gpu_e1_s2_present_smoke(SceneRendererGPU *pRenderer)
+{
+    scene_render_gpu_begin_frame(pRenderer);
+    scene_render_gpu_set_viewport(pRenderer, 0, 0, 320, 200);
+    scene_render_gpu_set_sky_color(pRenderer, 0.07f, 0.10f, 0.16f);
+
+    bool bPass = scene_render_gpu_end_frame(pRenderer);
+    SDL_Log("E1-S2 %s: windowed offscreen scene submitted through late swapchain presentation",
+            bPass ? "PASS" : "FAIL");
+    return bPass;
+}
+
 static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
 {
     const Uint32 uiAtlasW = 128;
@@ -1017,6 +1029,7 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
         pWindowless, iWindowlessTexture);
     bool bReferenceDepthPass = gpu_reference_depth_check(
         pDevice, pWindowless, iWindowlessTexture);
+    bool bPresentationPass = gpu_e1_s2_present_smoke(pWindowed);
     if (iFailures == 0) {
         SDL_Log("F-S1 PASS: all 16 windowed/windowless comparisons passed");
     } else {
@@ -1024,7 +1037,7 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
     }
     if (iFailures == 0 && bSurfaceMetadataPass
             && bSurfaceRendererPass && bSelectedSurfacePass
-            && bReferenceDepthPass)
+            && bReferenceDepthPass && bPresentationPass)
         iResult = 0;
 
 cleanup:

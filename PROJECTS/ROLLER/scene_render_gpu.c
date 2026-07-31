@@ -2881,14 +2881,6 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     s_clickHit.active = false;
     s_clickWasPending = g_pendingClickQuery;
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
-    if (!r->cmdBuf) return;
-    if (r->window) {
-        if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
-                &r->swapchainTex, NULL, NULL) || !r->swapchainTex) {
-            SDL_CancelGPUCommandBuffer(r->cmdBuf);
-            r->cmdBuf = NULL;
-        }
-    }
 }
 
 static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
@@ -2962,7 +2954,7 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
     }
     ensure_depth_texture(r, renderW, renderH);
     ensure_offscreen_texture(r, renderW, renderH);
-    if (!r->offscreenTex && (bReadback || !r->swapchainTex)) {
+    if (!r->offscreenTex) {
         scene_render_gpu_cancel_frame(r);
         return false;
     }
@@ -3146,7 +3138,7 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
 
     /* Render to the selected offscreen target.  With MSAA, msaaTex is the
      * render target and offscreenTex is the resolve target. */
-    SDL_GPUTexture *resolveTarget = r->offscreenTex ? r->offscreenTex : r->swapchainTex;
+    SDL_GPUTexture *resolveTarget = r->offscreenTex;
 
     /* ====================================================================
      * Pass 1: 3D scene + car meshes → offscreen (with optional MSAA resolve)
@@ -3522,6 +3514,18 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
         SDL_EndGPUCopyPass(pReadbackPass);
     }
 
+    /* Swapchain acquisition belongs strictly to the presentation path.  The
+     * complete scene and HUD have already been recorded into offscreenTex, so
+     * editor readback never needs a window and game presentation cannot shape
+     * the scene pass itself. */
+    if (!bReadback && r->window) {
+        if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
+                &r->swapchainTex, NULL, NULL) || !r->swapchainTex) {
+            scene_render_gpu_cancel_frame(r);
+            return false;
+        }
+    }
+
     /* ====================================================================
      * Blit/CRT offscreen → swapchain with letterbox/pillarbox
      * ==================================================================== */
@@ -3652,9 +3656,9 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
     return bFrameOk;
 }
 
-void scene_render_gpu_end_frame(SceneRendererGPU *r)
+bool scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
-    (void)scene_render_gpu_end_frame_internal(r, NULL, 0, 0);
+    return scene_render_gpu_end_frame_internal(r, NULL, 0, 0);
 }
 
 bool scene_render_gpu_end_frame_readback(SceneRendererGPU *r,
