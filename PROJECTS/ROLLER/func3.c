@@ -6758,6 +6758,7 @@ MAIN_UI_LOOP:
   s_SelectMessages.iActive = 0;
 
 SELECT_MESSAGES_DONE:
+  ;
 #undef iExitFlag
 #undef iSelectedPlayer
 #undef iMenuSelection
