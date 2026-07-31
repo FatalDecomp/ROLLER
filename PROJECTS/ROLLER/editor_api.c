@@ -8,6 +8,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -429,8 +430,16 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(const tEdCameraState *pCam)
         "tEdCameraState");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade camera control is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    if (!isfinite(pCam->fPosition[0])
+            || !isfinite(pCam->fPosition[1])
+            || !isfinite(pCam->fPosition[2])
+            || !isfinite(pCam->fYawDegrees)
+            || !isfinite(pCam->fPitchDegrees)) {
+        roller_ed_set_error("camera position and angles must be finite");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    return roller_ed_legacy_scene_set_camera(
+        pCam, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_RenderFrame(

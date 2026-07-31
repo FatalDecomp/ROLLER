@@ -75,6 +75,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_camera.c",
             "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_legacy_scene.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
@@ -499,11 +500,32 @@ fn configureRenderQueue3DTests(
 
     const editor_api_tests = b.step(
         "test-editor-api",
-        "Run E0-S6/S7 facade lifecycle, error-boundary, and ABI tests",
+        "Run facade lifecycle, camera, error-boundary, and ABI tests",
     );
     editor_api_tests.dependOn(&run_editor_api.step);
     editor_api_tests.dependOn(&run_editor_api_cpp.step);
     editor_api_tests.dependOn(&run_core_error.step);
+
+    const editor_camera_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_camera_mod.addIncludePath(sdl.builder.path("include"));
+    editor_camera_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_camera_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_camera.c",
+            "tests/editor_camera_test.c",
+        },
+    });
+    const editor_camera_exe = b.addExecutable(.{
+        .name = "editor_camera_test",
+        .root_module = editor_camera_mod,
+    });
+    const run_editor_camera = b.addRunArtifact(editor_camera_exe);
+    editor_api_tests.dependOn(&run_editor_camera.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{

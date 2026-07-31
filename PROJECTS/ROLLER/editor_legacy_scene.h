@@ -18,6 +18,11 @@ eRollerEdResult roller_ed_legacy_scene_install(
     char *szError,
     size_t uiErrorCapacity);
 
+eRollerEdResult roller_ed_legacy_scene_set_camera(
+    const tEdCameraState *pCamera,
+    char *szError,
+    size_t uiErrorCapacity);
+
 eRollerEdResult roller_ed_legacy_scene_render(
     uint8_t *pbyPixels,
     uint32_t uiBufferSize,

@@ -29,6 +29,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/control.c
     PROJECTS/ROLLER/date.c
     PROJECTS/ROLLER/drawtrk3.c
+    PROJECTS/ROLLER/editor_camera.c
     PROJECTS/ROLLER/editor_api.c
     PROJECTS/ROLLER/editor_legacy_scene.c
     PROJECTS/ROLLER/editor_reference_mesh.c

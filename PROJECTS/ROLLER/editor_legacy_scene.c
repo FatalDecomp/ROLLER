@@ -2,6 +2,7 @@
 
 #include "3d.h"
 #include "car.h"
+#include "editor_camera.h"
 #include "game_render.h"
 #include "loadtrak.h"
 #include "scene_render_gpu.h"
@@ -104,6 +105,21 @@ eRollerEdResult roller_ed_legacy_scene_install(
         szError, uiErrorCapacity);
 }
 
+eRollerEdResult roller_ed_legacy_scene_set_camera(
+    const tEdCameraState *pCamera,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pCamera) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "editor camera state is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    roller_ed_camera_set(pCamera);
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
 eRollerEdResult roller_ed_legacy_scene_render(
     uint8_t *pbyPixels,
     uint32_t uiBufferSize,
@@ -137,9 +153,6 @@ eRollerEdResult roller_ed_legacy_scene_render(
         return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     }
 
-    /* E1-S5 replaces this legacy car-derived default with the facade camera.
-     * For E1-S4 it is sufficient to prove that the committed document is the
-     * scene being submitted and downloaded. */
     game_render_set_viewport(g_pGameRenderer, 0, 0, (int)uiWidth,
                              (int)uiHeight);
     game_render_begin_frame(g_pGameRenderer);
@@ -165,6 +178,7 @@ void roller_ed_legacy_scene_unload(void)
 
 void roller_ed_legacy_scene_shutdown(void)
 {
+    roller_ed_camera_reset();
     if (g_pGameRenderer) {
         game_render_destroy(g_pGameRenderer);
         g_pGameRenderer = NULL;

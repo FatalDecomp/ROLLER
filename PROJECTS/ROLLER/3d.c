@@ -28,6 +28,9 @@
 #include "touch_ui.h"
 #include "menu_render.h"
 #include "gpu_parity.h"
+#if defined(ROLLER_EDITOR_CORE)
+#include "editor_camera.h"
+#endif
 #include <SDL3/SDL.h>
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -2731,6 +2734,12 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   calculateview(uiViewMode, iCarIdx, iChaseCamIdx); // Calculate camera view matrix and projection parameters
   noclip_camera_apply();
   chase_look_apply(); // Debug "Free Camera": hold RMB + move mouse to free-look, gated on the debug-overlay checkbox
+#if defined(ROLLER_EDITOR_CORE)
+  /* The editor camera is an explicit world-space override.  Applying it after
+   * the legacy view calculation keeps all renderer setup intact while making
+   * the facade state authoritative for this frame. */
+  roller_ed_camera_apply();
+#endif
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
   GameRenderCamera cam = {

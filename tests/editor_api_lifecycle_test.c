@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -21,6 +22,8 @@ typedef struct
 static int s_iThreadAssertionCount;
 static int s_iLegacyInstallCount;
 static int s_iLegacyRenderCount;
+static int s_iLegacySetCameraCount;
+static tEdCameraState s_LastLegacyCamera;
 
 eRollerEdResult roller_ed_legacy_scene_install(
     const char *szTrackPath,
@@ -54,6 +57,22 @@ eRollerEdResult roller_ed_legacy_scene_render(
     for (uint32_t iRow = 0; iRow < uiHeight; ++iRow)
         memset(pbyPixels + iRow * uiRowPitch, 0x7c, uiWidth * 4u);
     s_iLegacyRenderCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_camera(
+    const tEdCameraState *pCamera,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pCamera) {
+        snprintf(szError, uiErrorCapacity, "camera is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyCamera = *pCamera;
+    s_iLegacySetCameraCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -146,11 +165,40 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     {
         tEdCameraState Camera = {
             .uiStructSize = sizeof(Camera),
-            .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION
+            .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION,
+            .fPosition = { 125.0f, -250.0f, 375.0f },
+            .fYawDegrees = 450.0f,
+            .fPitchDegrees = -45.0f
         };
-        CHECK_WORKER(RollerEd_SetCamera(&Camera)
-                     == ROLLER_ED_RESULT_UNSUPPORTED);
-        CHECK_WORKER(strstr(RollerEd_GetLastError(), "not implemented") != NULL);
+        tEdCameraState InvalidCamera = Camera;
+
+        CHECK_WORKER(RollerEd_SetCamera(&Camera) == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetCameraCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyCamera, &Camera, sizeof(Camera)) == 0);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiGeometryEpoch == uiInitialEpoch);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiInitialGeneration);
+
+        InvalidCamera.uiVersion++;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        InvalidCamera = Camera;
+        InvalidCamera.uiStructSize = sizeof(InvalidCamera) - 1u;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidCamera = Camera;
+        InvalidCamera.fPosition[1] = INFINITY;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "finite") != NULL);
+        InvalidCamera = Camera;
+        InvalidCamera.fYawDegrees = NAN;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetCameraCount == 1);
     }
     {
         tEdGeometrySizes InvalidSizes;
@@ -387,6 +435,7 @@ int main(int argc, char **argv)
     CHECK_MAIN(s_iThreadAssertionCount >= 3);
     CHECK_MAIN(s_iLegacyInstallCount == 3);
     CHECK_MAIN(s_iLegacyRenderCount == 1);
+    CHECK_MAIN(s_iLegacySetCameraCount == 1);
 
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);
