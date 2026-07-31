@@ -1,4 +1,4 @@
-"""Durable E1-S1/S2 windowless GPU contract checks."""
+"""Durable E1-S1/S2/S3 windowless GPU contract checks."""
 
 from pathlib import Path
 import re
@@ -36,7 +36,10 @@ class EditorWindowlessGpuTests(unittest.TestCase):
         )[1].split("\nstatic bool scene_render_gpu_end_frame_internal", 1)[0]
         cls.end_frame = cls.renderer.split(
             "static bool scene_render_gpu_end_frame_internal(", 1
-        )[1].split("\nvoid scene_render_gpu_end_frame(", 1)[0]
+        )[1].split("\nbool scene_render_gpu_end_frame(", 1)[0]
+        cls.ensure_offscreen = cls.renderer.split(
+            "static void ensure_offscreen_texture(", 1
+        )[1].split("\nstatic void ensure_secondary_textures", 1)[0]
 
     def test_all_scene_color_targets_use_the_renderer_format(self) -> None:
         self.assertIn(
@@ -168,6 +171,52 @@ class EditorWindowlessGpuTests(unittest.TestCase):
         self.assertLess(download_scene, acquire_swapchain)
         self.assertLess(acquire_swapchain, fenced_submit)
         self.assertIn("if (!bReadback && r->window)", self.end_frame)
+
+    def test_readback_dimensions_drive_offscreen_allocation(self) -> None:
+        self.assertRegex(
+            self.renderer_header,
+            r"scene_render_gpu_end_frame_readback\s*\("
+            r"[\s\S]*?Uint32 uiWidth,\s*Uint32 uiHeight\s*\);",
+        )
+        dimension_selection = self.end_frame.split(
+            "bool bReadback = pbyPixels != NULL;", 1
+        )[1].split("Uint64 ullPackedSize", 1)[0]
+        self.assertRegex(
+            dimension_selection,
+            r"if \(bReadback\) \{[\s\S]*?"
+            r"renderW = \(int\)uiReadbackWidth;[\s\S]*?"
+            r"renderH = \(int\)uiReadbackHeight;[\s\S]*?"
+            r"\} else \{[\s\S]*?r->renderScale",
+        )
+        self.assertIn(
+            "ensure_offscreen_texture(r, renderW, renderH);",
+            self.end_frame,
+        )
+
+    def test_offscreen_texture_reallocates_when_dimensions_change(self) -> None:
+        self.assertIn(
+            "r->offscreenW == w && r->offscreenH == h",
+            self.ensure_offscreen,
+        )
+        self.assertIn(
+            "SDL_ReleaseGPUTexture(r->device, r->offscreenTex)",
+            self.ensure_offscreen,
+        )
+        self.assertIn("r->offscreenW   = w;", self.ensure_offscreen)
+        self.assertIn("r->offscreenH   = h;", self.ensure_offscreen)
+        self.assertIn(
+            "E1-S3 PASS: caller-sized offscreen resize matrix completed at "
+            "320x200 and 853x480 independent of renderScale=2.0/0.5",
+            self.parity,
+        )
+        self.assertIn(
+            "scene_render_gpu_set_render_scale(pWindowed, 2.0f)",
+            self.parity,
+        )
+        self.assertIn(
+            "scene_render_gpu_set_render_scale(pWindowless, 0.5f)",
+            self.parity,
+        )
 
 
 if __name__ == "__main__":

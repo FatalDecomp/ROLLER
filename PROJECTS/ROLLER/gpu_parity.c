@@ -426,7 +426,8 @@ static bool gpu_parity_render_fixture(SceneRendererGPU *pRenderer,
     }
 
     return scene_render_gpu_end_frame_readback(pRenderer, pbyPixels,
-                                                uiBufferSize, uiWidth * 4u);
+                                                uiBufferSize, uiWidth * 4u,
+                                                uiWidth, uiHeight);
 }
 
 static tGpuParityMetrics gpu_parity_compare(const uint8 *pbyWindowed,
@@ -539,7 +540,8 @@ static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
     }
 
     return scene_render_gpu_end_frame_readback(
-        pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u);
+        pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u,
+        uiWidth, uiHeight);
 }
 
 static bool gpu_f_s5_renderer_byte_check(SceneRendererGPU *pRenderer,
@@ -674,7 +676,8 @@ static bool gpu_f_s4b_selected_surface_check(
     }
 
     if (!scene_render_gpu_end_frame_readback(
-            pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u))
+            pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u,
+            uiWidth, uiHeight))
         goto cleanup;
 
     for (int iQuad = 0; iQuad < 4; iQuad++) {
@@ -843,7 +846,8 @@ static bool gpu_reference_depth_check(SDL_GPUDevice *pDevice,
                                     pMeshTexture, 0,
                                     (int)State.uiIndexCount, afIdentity);
     if (!scene_render_gpu_end_frame_readback(
-            pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u)) {
+            pRenderer, pbyPixels, uiBufferSize, uiWidth * 4u,
+            uiWidth, uiHeight)) {
         SDL_Log("F-S4a FAIL: composed-scene readback failed: %s", SDL_GetError());
         goto cleanup;
     }
@@ -926,6 +930,11 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
         SDL_Log("F-S1: fixture texture upload failed: %s", SDL_GetError());
         goto cleanup;
     }
+
+    /* E1-S3: explicit readback dimensions must be authoritative even when
+     * each renderer carries different game-facing render-scale state. */
+    scene_render_gpu_set_render_scale(pWindowed, 2.0f);
+    scene_render_gpu_set_render_scale(pWindowless, 0.5f);
 
     SDL_GPUTextureFormat eWindowedFormat =
         SDL_GetGPUSwapchainTextureFormat(pDevice, pWindow);
@@ -1022,6 +1031,8 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
         }
     }
 
+    scene_render_gpu_set_render_scale(pWindowed, 1.0f);
+    scene_render_gpu_set_render_scale(pWindowless, 1.0f);
     bool bSurfaceMetadataPass = gpu_f_s5_metadata_check();
     bool bSurfaceRendererPass = gpu_f_s5_renderer_byte_check(
         pWindowless, iWindowlessTexture);
@@ -1032,6 +1043,7 @@ static int gpu_parity_run_matrix(SDL_GPUDevice *pDevice, SDL_Window *pWindow)
     bool bPresentationPass = gpu_e1_s2_present_smoke(pWindowed);
     if (iFailures == 0) {
         SDL_Log("F-S1 PASS: all 16 windowed/windowless comparisons passed");
+        SDL_Log("E1-S3 PASS: caller-sized offscreen resize matrix completed at 320x200 and 853x480 independent of renderScale=2.0/0.5");
     } else {
         SDL_Log("F-S1 FAIL: %d comparison(s) failed", iFailures);
     }

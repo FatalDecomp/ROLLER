@@ -18,6 +18,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
+#include <limits.h>
 
 /* palette[256]: correctly filled by setpal(); use instead of pal_addr
  * (pal_addr is the raw 3-byte-per-entry file buffer, which gives wrong G/B
@@ -2886,7 +2887,9 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
 static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
                                                  uint8 *pbyPixels,
                                                  Uint32 uiBufferSize,
-                                                 Uint32 uiRowPitch)
+                                                 Uint32 uiRowPitch,
+                                                 Uint32 uiReadbackWidth,
+                                                 Uint32 uiReadbackHeight)
 {
     if (!r || !r->cmdBuf) return false;
 
@@ -2935,14 +2938,30 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
         g_pendingClickQuery = false;
     }
 
-    int nativeW = r->viewportW > 0 ? r->viewportW : 640;
-    int nativeH = r->viewportH > 0 ? r->viewportH : 400;
-    float rs = r->renderScale > 0.25f ? r->renderScale : 1.0f;
-    int renderW = (int)(nativeW * rs + 0.5f);
-    int renderH = (int)(nativeH * rs + 0.5f);
-    if (renderW < 1) renderW = 1;
-    if (renderH < 1) renderH = 1;
     bool bReadback = pbyPixels != NULL;
+    int nativeW = 0;
+    int nativeH = 0;
+    float rs = 1.0f;
+    int renderW;
+    int renderH;
+    if (bReadback) {
+        if (uiReadbackWidth == 0 || uiReadbackHeight == 0
+                || uiReadbackWidth > INT_MAX
+                || uiReadbackHeight > INT_MAX) {
+            scene_render_gpu_cancel_frame(r);
+            return false;
+        }
+        renderW = (int)uiReadbackWidth;
+        renderH = (int)uiReadbackHeight;
+    } else {
+        nativeW = r->viewportW > 0 ? r->viewportW : 640;
+        nativeH = r->viewportH > 0 ? r->viewportH : 400;
+        rs = r->renderScale > 0.25f ? r->renderScale : 1.0f;
+        renderW = (int)(nativeW * rs + 0.5f);
+        renderH = (int)(nativeH * rs + 0.5f);
+        if (renderW < 1) renderW = 1;
+        if (renderH < 1) renderH = 1;
+    }
     Uint64 ullPackedSize = (Uint64)(Uint32)renderW * (Uint64)(Uint32)renderH * 4u;
     Uint64 ullCallerSize = (Uint64)uiRowPitch * (Uint64)(Uint32)renderH;
     if (bReadback && (uiRowPitch < (Uint32)renderW * 4u
@@ -3658,17 +3677,20 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
 
 bool scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
-    return scene_render_gpu_end_frame_internal(r, NULL, 0, 0);
+    return scene_render_gpu_end_frame_internal(r, NULL, 0, 0, 0, 0);
 }
 
 bool scene_render_gpu_end_frame_readback(SceneRendererGPU *r,
                                          uint8 *pbyPixels,
                                          Uint32 uiBufferSize,
-                                         Uint32 uiRowPitch)
+                                         Uint32 uiRowPitch,
+                                         Uint32 uiWidth,
+                                         Uint32 uiHeight)
 {
     if (!pbyPixels) return false;
     return scene_render_gpu_end_frame_internal(r, pbyPixels,
-                                                uiBufferSize, uiRowPitch);
+                                                uiBufferSize, uiRowPitch,
+                                                uiWidth, uiHeight);
 }
 
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r)
