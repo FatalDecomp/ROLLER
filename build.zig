@@ -75,6 +75,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -431,6 +432,52 @@ fn configureRenderQueue3DTests(
     );
     source_set_drift_tests.dependOn(&source_set_drift_check.step);
     test_step.dependOn(source_set_drift_tests);
+
+    const editor_api_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_api_mod.addIncludePath(sdl.builder.path("include"));
+    editor_api_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_api_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_api_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_api.c",
+            "tests/editor_api_lifecycle_test.c",
+        },
+    });
+    const editor_api_exe = b.addExecutable(.{
+        .name = "editor_api_lifecycle_test",
+        .root_module = editor_api_mod,
+    });
+    const run_editor_api = b.addRunArtifact(editor_api_exe);
+
+    const editor_api_cpp_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = true,
+    });
+    editor_api_cpp_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_api_cpp_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/editor_api_cpp_test.cpp"},
+    });
+    const editor_api_cpp_exe = b.addExecutable(.{
+        .name = "editor_api_cpp_test",
+        .root_module = editor_api_cpp_mod,
+    });
+    const run_editor_api_cpp = b.addRunArtifact(editor_api_cpp_exe);
+
+    const editor_api_tests = b.step(
+        "test-editor-api",
+        "Run E0-S6 facade lifecycle, SDL ownership, and C/C++ ABI tests",
+    );
+    editor_api_tests.dependOn(&run_editor_api.step);
+    editor_api_tests.dependOn(&run_editor_api_cpp.step);
+    test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{
         .target = target,

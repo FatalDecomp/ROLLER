@@ -29,6 +29,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/control.c
     PROJECTS/ROLLER/date.c
     PROJECTS/ROLLER/drawtrk3.c
+    PROJECTS/ROLLER/editor_api.c
     PROJECTS/ROLLER/editor_reference_mesh.c
     PROJECTS/ROLLER/editor_surface.c
     PROJECTS/ROLLER/editor_track_loader.c
@@ -139,6 +140,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
 
     set_target_properties(roller-core PROPERTIES
         OUTPUT_NAME "roller-core"
+        PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/editor_api.h"
         POSITION_INDEPENDENT_CODE ON)
     target_include_directories(roller-core
         PUBLIC

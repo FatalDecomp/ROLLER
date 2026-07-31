@@ -24,6 +24,7 @@ class RollerCoreManifestTests(unittest.TestCase):
         )
         self.assertEqual(len(entries), actual_source_count)
         self.assertEqual(sum(counts.values()), actual_source_count)
+        self.assertEqual(entries["PROJECTS/ROLLER/editor_api.c"], "KEEP")
         self.assertEqual(
             entries["PROJECTS/ROLLER/editor_reference_mesh.c"], "KEEP"
         )
