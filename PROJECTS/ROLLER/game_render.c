@@ -58,6 +58,12 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->window = window;
     r->sw = game_render_sw_create(device, window);
     r->scene = scene_render_create(device, window);
+    if (!r->sw || !r->scene) {
+        scene_render_destroy(r->scene);
+        game_render_sw_destroy(r->sw);
+        free(r);
+        return NULL;
+    }
 #if !defined(IS_WASM)
     r->gpu   = scene_render_get_gpu(r->scene);
 #endif
@@ -225,6 +231,26 @@ void game_render_end_frame(GameRenderer *renderer) {
         scene_render_gpu_end_frame(renderer->gpu);
     }
 #endif
+}
+
+bool game_render_end_frame_software_readback(
+    GameRenderer *renderer,
+    const uint8 *pbyIndexedPixels,
+    uint32_t uiIndexedRowPitch,
+    uint32_t uiNativeWidth,
+    uint32_t uiNativeHeight,
+    uint8 *pbyRGBA,
+    uint32_t uiRGBABufferSize,
+    uint32_t uiRGBARowPitch,
+    uint32_t uiRGBAWidth,
+    uint32_t uiRGBAHeight)
+{
+    if (!renderer || renderer->mode != GAME_RENDER_SOFTWARE)
+        return false;
+    return game_render_sw_end_frame_readback(
+        renderer->sw, pbyIndexedPixels, uiIndexedRowPitch,
+        uiNativeWidth, uiNativeHeight, pbyRGBA, uiRGBABufferSize,
+        uiRGBARowPitch, uiRGBAWidth, uiRGBAHeight);
 }
 
 #if !defined(IS_WASM)

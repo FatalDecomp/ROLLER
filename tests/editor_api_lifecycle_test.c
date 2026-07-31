@@ -23,6 +23,8 @@ static int s_iThreadAssertionCount;
 static int s_iLegacyInstallCount;
 static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
+static eRollerEdRenderer s_eLastPreferredRenderer;
+static uint32_t s_uiLastAllowSoftwareFallback;
 static tEdCameraState s_LastLegacyCamera;
 
 eRollerEdResult roller_ed_legacy_scene_install(
@@ -30,6 +32,8 @@ eRollerEdResult roller_ed_legacy_scene_install(
     const tEdTrackStage *pStage,
     const char *szDocumentAssetRoot,
     const char *szFallbackAssetRoot,
+    eRollerEdRenderer ePreferredRenderer,
+    uint32_t uiAllowSoftwareFallback,
     char *szError,
     size_t uiErrorCapacity)
 {
@@ -38,6 +42,8 @@ eRollerEdResult roller_ed_legacy_scene_install(
         snprintf(szError, uiErrorCapacity, "invalid legacy install seam input");
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
+    s_eLastPreferredRenderer = ePreferredRenderer;
+    s_uiLastAllowSoftwareFallback = uiAllowSoftwareFallback;
     s_iLegacyInstallCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
@@ -243,6 +249,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(RollerEd_LoadTrackFile(
                          pContext->szValidTrack, "facade-test-assets")
                      == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_eLastPreferredRenderer == ROLLER_ED_RENDERER_GPU);
+        CHECK_WORKER(s_uiLastAllowSoftwareFallback == 1u);
         Sizes.uiStructSize = sizeof(Sizes);
         Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
         CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)

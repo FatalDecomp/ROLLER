@@ -15,6 +15,8 @@ eRollerEdResult roller_ed_legacy_scene_install(
     const tEdTrackStage *pStage,
     const char *szDocumentAssetRoot,
     const char *szFallbackAssetRoot,
+    eRollerEdRenderer ePreferredRenderer,
+    uint32_t uiAllowSoftwareFallback,
     char *szError,
     size_t uiErrorCapacity);
 

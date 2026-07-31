@@ -63,6 +63,20 @@ void game_render_set_crt_filter(GameRenderer *renderer, CRTFilter *filter);
 // Frame lifecycle
 void game_render_begin_frame(GameRenderer *renderer);
 void game_render_end_frame(GameRenderer *renderer);
+/* Editor-only synchronous software completion. Converts the native indexed
+ * frame directly to top-left RGBA8 and scales with opaque-black letterboxing;
+ * it never calls UpdateSDLWindow or simulates a GPU download. */
+bool game_render_end_frame_software_readback(
+    GameRenderer *renderer,
+    const uint8 *pbyIndexedPixels,
+    uint32_t uiIndexedRowPitch,
+    uint32_t uiNativeWidth,
+    uint32_t uiNativeHeight,
+    uint8 *pbyRGBA,
+    uint32_t uiRGBABufferSize,
+    uint32_t uiRGBARowPitch,
+    uint32_t uiRGBAWidth,
+    uint32_t uiRGBAHeight);
 
 // Mirror pass (rearview / side view): in GPU mode, the scene calls made
 // between begin/end (with a secondary camera already set via

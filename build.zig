@@ -440,6 +440,52 @@ fn configureRenderQueue3DTests(
     );
     editor_visibility_tests.dependOn(&run_editor_track_only.step);
 
+    const editor_software_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_software_mod.sanitize_c = .off;
+    editor_software_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_software_mod.addIncludePath(sdl.builder.path("include"));
+    editor_software_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_software_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_software_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_software_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_software_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_software_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_software_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_software_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_software_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_software_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_software_acceptance.c",
+        },
+    });
+    const editor_software_exe = b.addExecutable(.{
+        .name = "editor_software_acceptance",
+        .root_module = editor_software_mod,
+    });
+    const run_editor_software = b.addRunArtifact(editor_software_exe);
+    run_editor_software.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_software.addDirectoryArg(assets_path);
+    const editor_software_tests = b.step(
+        "test-e1-s7-software",
+        "Run GPU-free software RGBA8 scaling/letterbox acceptance (retail assets)",
+    );
+    editor_software_tests.dependOn(&run_editor_software.step);
+
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{
             pythonExe(),

@@ -386,6 +386,7 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
 
     eResult = roller_ed_legacy_scene_install(
         szTrackPath, &Staged, szDocumentAssetRoot, s_szAssetRoot,
+        s_ePreferredRenderer, s_uiAllowSoftwareFallback,
         s_szLastError, sizeof(s_szLastError));
     if (eResult != ROLLER_ED_RESULT_OK) {
         ed_track_stage_dispose(&Staged);
