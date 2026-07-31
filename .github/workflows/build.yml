@@ -41,6 +41,9 @@ jobs:
       - name: Validate game build matrix
         run: python tools/check_game_build_matrix.py
 
+      - name: Validate Zig and CMake source sets
+        run: python tools/check_source_set_drift.py
+
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}
     needs: validate-game-targets

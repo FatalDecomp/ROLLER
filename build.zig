@@ -421,6 +421,17 @@ fn configureRenderQueue3DTests(
     game_build_matrix_tests.dependOn(&game_build_matrix_check.step);
     test_step.dependOn(game_build_matrix_tests);
 
+    const source_set_drift_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_source_set_drift.py",
+    });
+    const source_set_drift_tests = b.step(
+        "check-source-set-drift",
+        "Validate the E0-S5 platform-aware Zig/CMake source sets",
+    );
+    source_set_drift_tests.dependOn(&source_set_drift_check.step);
+    test_step.dependOn(source_set_drift_tests);
+
     const sound_stub_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
