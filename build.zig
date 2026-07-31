@@ -410,6 +410,17 @@ fn configureRenderQueue3DTests(
     roller_core_manifest_tests.dependOn(&roller_core_manifest_check.step);
     test_step.dependOn(roller_core_manifest_tests);
 
+    const game_build_matrix_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_game_build_matrix.py",
+    });
+    const game_build_matrix_tests = b.step(
+        "check-game-build-matrix",
+        "Validate the E0-S4 six-target game build contract",
+    );
+    game_build_matrix_tests.dependOn(&game_build_matrix_check.step);
+    test_step.dependOn(game_build_matrix_tests);
+
     const sound_stub_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

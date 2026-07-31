@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "id": "linux-aarch64",
+      "builder": "zig",
+      "target": "aarch64-linux-gnu",
+      "runner": "ubuntu-latest",
+      "os": "linux",
+      "arch": "aarch64"
+    },
+    {
+      "id": "linux-x86_64",
+      "builder": "zig",
+      "target": "x86_64-linux-gnu",
+      "runner": "ubuntu-latest",
+      "os": "linux",
+      "arch": "x86_64"
+    },
+    {
+      "id": "windows-x86_64",
+      "builder": "zig",
+      "target": "x86_64-windows",
+      "runner": "ubuntu-latest",
+      "os": "windows",
+      "arch": "x86_64"
+    },
+    {
+      "id": "macos-aarch64",
+      "builder": "zig",
+      "target": "aarch64-macos",
+      "runner": "macos-15",
+      "os": "macos",
+      "arch": "aarch64"
+    },
+    {
+      "id": "macos-x86_64",
+      "builder": "zig",
+      "target": "x86_64-macos",
+      "runner": "macos-15-intel",
+      "os": "macos",
+      "arch": "x86_64"
+    },
+    {
+      "id": "android-apk",
+      "builder": "gradle",
+      "runner": "ubuntu-latest",
+      "compile_sdk": 36,
+      "build_tools": "36.0.0",
+      "ndk_version": "27.2.12479018",
+      "gradle_version": "8.7",
+      "abis": [
+        "arm64-v8a",
+        "x86_64"
+      ]
+    }
+  ]
+}

@@ -30,8 +30,20 @@ on:
         description: "Build with nightly/dev crash debugging settings"
 
 jobs:
+  validate-game-targets:
+    name: Validate six-target game build contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate game build matrix
+        run: python tools/check_game_build_matrix.py
+
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}
+    needs: validate-game-targets
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -193,6 +205,7 @@ jobs:
 
   android:
     name: Build Android APK
+    needs: validate-game-targets
     runs-on: ubuntu-latest
 
     steps:
