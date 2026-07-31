@@ -399,6 +399,17 @@ fn configureRenderQueue3DTests(
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
 
+    const roller_core_manifest_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_roller_core_manifest.py",
+    });
+    const roller_core_manifest_tests = b.step(
+        "check-roller-core-manifest",
+        "Validate the E0-S1 roller-core translation-unit partition",
+    );
+    roller_core_manifest_tests.dependOn(&roller_core_manifest_check.step);
+    test_step.dependOn(roller_core_manifest_tests);
+
     const editor_surface_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

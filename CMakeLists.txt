@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.0...4.0)
 project(roller C)
 
+include(cmake/RollerCoreManifest.cmake)
+roller_load_core_manifest(
+    "${CMAKE_CURRENT_SOURCE_DIR}/roller-core.srclist"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
 set(CMAKE_COMPILE_WARNING_AS_ERROR "OFF" CACHE BOOL "Treat warnings as errors")
 
 if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
