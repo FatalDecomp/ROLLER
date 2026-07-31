@@ -47,6 +47,9 @@ EXCLUDE|PROJECTS/ROLLER/gpu_parity.c
 STUB_SWAP|PROJECTS/ROLLER/rollercomms_stub.c
 STUB_SWAP|PROJECTS/ROLLER/crashdump_stub.c
 STUB_SWAP|PROJECTS/ROLLER/debug_overlay_stub.c
+STUB_SWAP|PROJECTS/ROLLER/sound_stub.c
+STUB_SWAP|PROJECTS/ROLLER/rollersound_stub.c
+STUB_SWAP|PROJECTS/ROLLER/cdx_stub.c
 
 # KEEP: loading, rendering, editor bridge, scenery, and shared utilities.
 KEEP|PROJECTS/ROLLER/3d.c

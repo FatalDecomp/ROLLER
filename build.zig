@@ -410,6 +410,34 @@ fn configureRenderQueue3DTests(
     roller_core_manifest_tests.dependOn(&roller_core_manifest_check.step);
     test_step.dependOn(roller_core_manifest_tests);
 
+    const sound_stub_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sound_stub_mod.addIncludePath(sdl.builder.path("include"));
+    sound_stub_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    sound_stub_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/sound_stub.c",
+            "PROJECTS/ROLLER/rollersound_stub.c",
+            "PROJECTS/ROLLER/cdx_stub.c",
+            "tests/sound_stub_test.c",
+        },
+    });
+    const sound_stub_exe = b.addExecutable(.{
+        .name = "sound_stub_test",
+        .root_module = sound_stub_mod,
+    });
+    const run_sound_stub = b.addRunArtifact(sound_stub_exe);
+    const sound_stub_tests = b.step(
+        "test-roller-core-sound-stubs",
+        "Run roller-core null sound boundary tests",
+    );
+    sound_stub_tests.dependOn(&run_sound_stub.step);
+    test_step.dependOn(sound_stub_tests);
+
     const editor_surface_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
