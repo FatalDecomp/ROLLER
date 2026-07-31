@@ -25,6 +25,9 @@ static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
 static eRollerEdRenderer s_eLastPreferredRenderer;
 static uint32_t s_uiLastAllowSoftwareFallback;
+static uint32_t s_uiStubAvailableRenderers =
+    ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU;
+static eRollerEdRenderer s_eStubActiveRenderer;
 static tEdCameraState s_LastLegacyCamera;
 
 eRollerEdResult roller_ed_legacy_scene_install(
@@ -44,6 +47,7 @@ eRollerEdResult roller_ed_legacy_scene_install(
     }
     s_eLastPreferredRenderer = ePreferredRenderer;
     s_uiLastAllowSoftwareFallback = uiAllowSoftwareFallback;
+    s_eStubActiveRenderer = ePreferredRenderer;
     s_iLegacyInstallCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
@@ -79,6 +83,26 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
     }
     s_LastLegacyCamera = *pCamera;
     s_iLegacySetCameraCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+uint32_t roller_ed_legacy_scene_get_available_renderers(void)
+{
+    return s_uiStubAvailableRenderers;
+}
+
+eRollerEdResult roller_ed_legacy_scene_select_renderer(
+    eRollerEdRenderer eKind,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if ((s_uiStubAvailableRenderers & eKind) == 0u) {
+        snprintf(szError, uiErrorCapacity, "renderer unavailable in test seam");
+        return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+    }
+    s_eStubActiveRenderer = eKind;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -154,7 +178,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                  == ROLLER_ED_RESULT_INVALID_VERSION);
     CHECK_WORKER(RollerEd_Init(&InitInfo) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(RollerEd_Init(&InitInfo) == ROLLER_ED_RESULT_INVALID_STATE);
-    CHECK_WORKER(RollerEd_GetAvailableRenderers() == 0u);
+    CHECK_WORKER(RollerEd_GetAvailableRenderers()
+                 == (ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU));
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
     CHECK_WORKER(Sizes.uiVertexCount == 0u && Sizes.uiIndexCount == 0u
@@ -351,8 +376,28 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
     CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
+    uint32_t uiSwitchEpoch = Sizes.uiGeometryEpoch;
+    uint32_t uiSwitchGeneration = Sizes.uiTrackGeneration;
+    CHECK_WORKER(RollerEd_SelectRenderer(4u)
+                 == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+    CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_SOFTWARE)
+                 == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE);
+    s_uiStubAvailableRenderers = ROLLER_ED_RENDERER_SOFTWARE;
+    CHECK_WORKER(RollerEd_GetAvailableRenderers()
+                 == ROLLER_ED_RENDERER_SOFTWARE);
     CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_GPU)
                  == ROLLER_ED_RESULT_RENDERER_UNAVAILABLE);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE);
+    s_uiStubAvailableRenderers |= ROLLER_ED_RENDERER_GPU;
+    CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_GPU)
+                 == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_GPU);
+    Sizes.uiStructSize = sizeof(Sizes);
+    Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+    CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(Sizes.uiGeometryEpoch == uiSwitchEpoch);
+    CHECK_WORKER(Sizes.uiTrackGeneration == uiSwitchGeneration);
     CHECK_WORKER(RollerEd_Shutdown() == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(RollerEd_Shutdown() == ROLLER_ED_RESULT_INVALID_STATE);
     return 0;

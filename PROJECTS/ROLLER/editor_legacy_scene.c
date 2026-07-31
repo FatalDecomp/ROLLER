@@ -14,6 +14,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#define EDITOR_GPU_SHADER_FORMATS \
+    (SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL \
+     | SDL_GPU_SHADERFORMAT_DXIL)
+
 static SDL_GPUDevice *s_pEditorGPUDevice;
 static int s_bEditorOwnsGPUDevice;
 static int s_bLegacyInitialized;
@@ -59,8 +63,7 @@ static eRollerEdResult editor_scene_create_gpu_renderer(
     eRollerEdResult eResult = ROLLER_ED_RESULT_OK;
 
     s_pEditorGPUDevice = SDL_CreateGPUDevice(
-        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL
-            | SDL_GPU_SHADERFORMAT_DXIL,
+        EDITOR_GPU_SHADER_FORMATS,
         false, NULL);
     if (!s_pEditorGPUDevice) {
         editor_scene_set_error(szError, uiErrorCapacity,
@@ -72,6 +75,9 @@ static eRollerEdResult editor_scene_create_gpu_renderer(
 
     g_pGameRenderer = game_render_create(s_pEditorGPUDevice, NULL);
     if (!g_pGameRenderer || !game_render_get_gpu(g_pGameRenderer)) {
+        char szGPUError[256];
+
+        snprintf(szGPUError, sizeof(szGPUError), "%s", SDL_GetError());
         if (g_pGameRenderer) {
             game_render_destroy(g_pGameRenderer);
             g_pGameRenderer = NULL;
@@ -81,7 +87,7 @@ static eRollerEdResult editor_scene_create_gpu_renderer(
         s_bEditorOwnsGPUDevice = 0;
         editor_scene_set_error(szError, uiErrorCapacity,
                                "windowless GPU renderer creation failed: %s",
-                               SDL_GetError());
+                               szGPUError);
         eResult = ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     } else {
         /* Select before loading so the legacy texture loaders populate the GPU
@@ -95,6 +101,23 @@ static eRollerEdResult editor_scene_create_gpu_renderer(
 #endif
 }
 
+static eRollerEdResult editor_scene_ensure_legacy_initialized(
+    char *szError, size_t uiErrorCapacity)
+{
+    if (s_bLegacyInitialized)
+        return ROLLER_ED_RESULT_OK;
+
+    init();
+    init_screen();
+    if (!scrbuf) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "legacy screen-buffer initialization failed");
+        return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+    }
+    s_bLegacyInitialized = -1;
+    return ROLLER_ED_RESULT_OK;
+}
+
 static eRollerEdResult editor_scene_ensure_renderer(
     eRollerEdRenderer ePreferredRenderer,
     uint32_t uiAllowSoftwareFallback,
@@ -102,16 +125,9 @@ static eRollerEdResult editor_scene_ensure_renderer(
 {
     eRollerEdResult eResult;
 
-    if (!s_bLegacyInitialized) {
-        init();
-        init_screen();
-        if (!scrbuf) {
-            editor_scene_set_error(szError, uiErrorCapacity,
-                                   "legacy screen-buffer initialization failed");
-            return ROLLER_ED_RESULT_OUT_OF_MEMORY;
-        }
-        s_bLegacyInitialized = -1;
-    }
+    eResult = editor_scene_ensure_legacy_initialized(szError, uiErrorCapacity);
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
 
     if (g_pGameRenderer)
         return ROLLER_ED_RESULT_OK;
@@ -122,6 +138,92 @@ static eRollerEdResult editor_scene_ensure_renderer(
     if (eResult == ROLLER_ED_RESULT_OK || !uiAllowSoftwareFallback)
         return eResult;
     return editor_scene_create_software_renderer(szError, uiErrorCapacity);
+}
+
+uint32_t roller_ed_legacy_scene_get_available_renderers(void)
+{
+    uint32_t uiAvailable = ROLLER_ED_RENDERER_SOFTWARE;
+
+#if !defined(IS_WASM)
+    if (s_pEditorGPUDevice
+            || (g_pGameRenderer && game_render_get_gpu(g_pGameRenderer))
+            || SDL_GPUSupportsShaderFormats(EDITOR_GPU_SHADER_FORMATS, NULL))
+        uiAvailable |= ROLLER_ED_RENDERER_GPU;
+#endif
+    return uiAvailable;
+}
+
+eRollerEdResult roller_ed_legacy_scene_select_renderer(
+    eRollerEdRenderer eKind,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    eRollerEdResult eResult;
+
+    eResult = editor_scene_ensure_legacy_initialized(szError, uiErrorCapacity);
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+
+    if (eKind == ROLLER_ED_RENDERER_SOFTWARE) {
+        if (!g_pGameRenderer)
+            return editor_scene_create_software_renderer(
+                szError, uiErrorCapacity);
+        /* Once the lazy GPU backend exists, keep its texture state synchronized
+         * while software is active so a later switch remains a frame-boundary
+         * operation and never has to rebuild a partially stale backend. */
+        game_render_set_force_gpu_load(
+            g_pGameRenderer, game_render_get_gpu(g_pGameRenderer) != NULL);
+        game_render_set_mode(g_pGameRenderer, GAME_RENDER_SOFTWARE);
+        s_eActiveRenderer = ROLLER_ED_RENDERER_SOFTWARE;
+        editor_scene_set_error(szError, uiErrorCapacity, "");
+        return ROLLER_ED_RESULT_OK;
+    }
+
+    if ((roller_ed_legacy_scene_get_available_renderers()
+            & ROLLER_ED_RENDERER_GPU) == 0u) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "windowless GPU renderer is unavailable");
+        return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+    }
+    if (!g_pGameRenderer)
+        return editor_scene_create_gpu_renderer(szError, uiErrorCapacity);
+
+    if (!game_render_get_gpu(g_pGameRenderer)) {
+#if defined(IS_WASM)
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "windowless GPU renderer is unavailable on wasm");
+        return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+#else
+        SDL_GPUDevice *pCandidateDevice = SDL_CreateGPUDevice(
+            EDITOR_GPU_SHADER_FORMATS, false, NULL);
+
+        if (!pCandidateDevice) {
+            editor_scene_set_error(szError, uiErrorCapacity,
+                                   "windowless GPU device creation failed: %s",
+                                   SDL_GetError());
+            return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+        }
+        if (!game_render_attach_gpu_device(
+                g_pGameRenderer, pCandidateDevice)) {
+            char szGPUError[256];
+
+            snprintf(szGPUError, sizeof(szGPUError), "%s", SDL_GetError());
+            SDL_DestroyGPUDevice(pCandidateDevice);
+            editor_scene_set_error(szError, uiErrorCapacity,
+                                   "GPU renderer switch failed while preserving software mode: %s",
+                                   szGPUError);
+            return ROLLER_ED_RESULT_GPU_FAILED;
+        }
+        s_pEditorGPUDevice = pCandidateDevice;
+        s_bEditorOwnsGPUDevice = -1;
+#endif
+    }
+
+    game_render_set_force_gpu_load(g_pGameRenderer, true);
+    game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
+    s_eActiveRenderer = ROLLER_ED_RENDERER_GPU;
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
 }
 
 eRollerEdResult roller_ed_legacy_scene_install(

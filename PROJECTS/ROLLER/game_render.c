@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <math.h>
 
 struct GameRenderer {
@@ -135,6 +136,42 @@ void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay
 
 GameRenderMode game_render_get_mode(const GameRenderer *renderer) {
     return renderer->mode;
+}
+
+bool game_render_attach_gpu_device(GameRenderer *renderer,
+                                   SDL_GPUDevice *device) {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)device;
+    return false;
+#else
+    GameRendererHardware *candidateHW;
+
+    if (!renderer || !device)
+        return false;
+    if (renderer->gpu)
+        return renderer->device == device;
+
+    candidateHW = game_render_hw_create(device);
+    if (!candidateHW) {
+        SDL_SetError("game GPU backend allocation failed");
+        return false;
+    }
+    if (!scene_render_attach_gpu_device(renderer->scene, device)) {
+        char error[256];
+
+        snprintf(error, sizeof(error), "%s", SDL_GetError());
+        game_render_hw_destroy(candidateHW);
+        SDL_SetError("%s", error);
+        return false;
+    }
+
+    game_render_hw_destroy(renderer->hw);
+    renderer->hw = candidateHW;
+    renderer->gpu = scene_render_get_gpu(renderer->scene);
+    renderer->device = device;
+    return renderer->gpu != NULL;
+#endif
 }
 
 void game_render_set_split_screen(GameRenderer *renderer, bool split) {

@@ -3,6 +3,7 @@
 #include "scene_render_gpu.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 struct SceneRenderer {
@@ -77,6 +78,88 @@ void scene_render_reload_gpu_textures(SceneRenderer *renderer) {
         return;
     renderer->gpu_load_enabled = true;
     scene_render_sw_for_each_texture(renderer->sw, scene_render_reload_gpu_textures_cb, renderer);
+#endif
+}
+
+#if !defined(IS_WASM)
+typedef struct {
+    SceneRendererGPU *gpu;
+    bool success;
+    int failed_tex_idx;
+    int failed_width;
+    int failed_height;
+    int failed_half_res;
+} SceneRenderAttachGPUContext;
+
+static void scene_render_attach_gpu_texture_cb(void *ctx, uint8 *pixels,
+                                                int width, int height,
+                                                int tex_idx, int texHalfRes) {
+    SceneRenderAttachGPUContext *attach =
+        (SceneRenderAttachGPUContext *)ctx;
+
+    if (!attach->success)
+        return;
+    /* Legacy loading retains a non-null pointer for an optional empty bank
+     * (for example TRACK3's 256x0 building-sign bank).  The ordinary
+     * GPU-first path treats that as no texture and continues, so replay must
+     * preserve the same semantics instead of turning it into a switch error. */
+    if (!pixels || width <= 0 || height <= 0)
+        return;
+    if (scene_render_gpu_load_texture(
+            attach->gpu, pixels, width, height, tex_idx, texHalfRes)
+            == SCENE_TEXTURE_HANDLE_INVALID) {
+        attach->success = false;
+        attach->failed_tex_idx = tex_idx;
+        attach->failed_width = width;
+        attach->failed_height = height;
+        attach->failed_half_res = texHalfRes;
+    }
+}
+#endif
+
+bool scene_render_attach_gpu_device(SceneRenderer *renderer,
+                                    SDL_GPUDevice *device) {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)device;
+    return false;
+#else
+    SceneRendererGPU *candidate;
+    SceneRenderAttachGPUContext attach;
+
+    if (!renderer || !device)
+        return false;
+    if (renderer->gpu)
+        return renderer->device == device;
+
+    candidate = scene_render_gpu_create(device, renderer->window);
+    if (!candidate) {
+        if (!SDL_GetError()[0])
+            SDL_SetError("windowless scene GPU backend creation failed");
+        return false;
+    }
+    attach.gpu = candidate;
+    attach.success = true;
+    attach.failed_tex_idx = -1;
+    scene_render_sw_for_each_texture(
+        renderer->sw, scene_render_attach_gpu_texture_cb, &attach);
+    if (!attach.success) {
+        char error[256];
+
+        snprintf(error, sizeof(error),
+                 "retained scene texture %d (%dx%d half=%d) GPU upload failed: %s",
+                 attach.failed_tex_idx, attach.failed_width,
+                 attach.failed_height, attach.failed_half_res,
+                 SDL_GetError());
+        scene_render_gpu_destroy(candidate);
+        SDL_SetError("%s", error);
+        return false;
+    }
+
+    renderer->gpu = candidate;
+    renderer->device = device;
+    renderer->gpu_load_enabled = true;
+    return true;
 #endif
 }
 

@@ -34,6 +34,12 @@ eRollerEdResult roller_ed_legacy_scene_render(
     char *szError,
     size_t uiErrorCapacity);
 
+uint32_t roller_ed_legacy_scene_get_available_renderers(void);
+eRollerEdResult roller_ed_legacy_scene_select_renderer(
+    eRollerEdRenderer eKind,
+    char *szError,
+    size_t uiErrorCapacity);
+
 void roller_ed_legacy_scene_unload(void);
 void roller_ed_legacy_scene_shutdown(void);
 

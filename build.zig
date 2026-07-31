@@ -486,6 +486,52 @@ fn configureRenderQueue3DTests(
     );
     editor_software_tests.dependOn(&run_editor_software.step);
 
+    const editor_renderer_switch_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_renderer_switch_mod.sanitize_c = .off;
+    editor_renderer_switch_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_renderer_switch_mod.addIncludePath(sdl.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_renderer_switch_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_renderer_switch_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_renderer_switch_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_renderer_switch_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_renderer_switch_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_renderer_switch_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_renderer_switch_acceptance.c",
+        },
+    });
+    const editor_renderer_switch_exe = b.addExecutable(.{
+        .name = "editor_renderer_switch_acceptance",
+        .root_module = editor_renderer_switch_mod,
+    });
+    const run_editor_renderer_switch = b.addRunArtifact(editor_renderer_switch_exe);
+    run_editor_renderer_switch.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_renderer_switch.addDirectoryArg(assets_path);
+    const editor_renderer_switch_tests = b.step(
+        "test-e1-s8-renderer-switch",
+        "Run loaded-scene software/GPU renderer-switch acceptance (retail assets)",
+    );
+    editor_renderer_switch_tests.dependOn(&run_editor_renderer_switch.step);
+
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{
             pythonExe(),

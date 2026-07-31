@@ -339,8 +339,7 @@ uint32_t ROLLER_ED_CALL RollerEd_GetAvailableRenderers(void)
     if (roller_ed_require_worker() != ROLLER_ED_RESULT_OK)
         return 0u;
 
-    /* Availability probing and lazy GPU creation land in E1-S8. */
-    return 0u;
+    return roller_ed_legacy_scene_get_available_renderers();
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(eRollerEdRenderer eKind)
@@ -354,8 +353,11 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(eRollerEdRenderer eKind)
         roller_ed_set_error("invalid renderer %u", eKind);
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
-    roller_ed_set_error("renderer selection is not implemented yet");
-    return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+    eResult = roller_ed_legacy_scene_select_renderer(
+        eKind, s_szLastError, sizeof(s_szLastError));
+    if (eResult == ROLLER_ED_RESULT_OK)
+        s_ePreferredRenderer = eKind;
+    return eResult;
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
