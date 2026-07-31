@@ -68,8 +68,29 @@ class EditorTrackOnlyTests(unittest.TestCase):
         self.assertLess(editor_camera, legacy_camera)
         self.assertRegex(
             draw_road,
-            r"if \(!roller_ed_track_only_active\(\)\)\s*#endif\s*DrawCars\(",
+            r"if \(!roller_ed_track_only_active\(\)\) \{[\s\S]*?DrawCars\(",
         )
+
+    def test_editor_visibility_uses_camera_across_the_full_track(self) -> None:
+        visibility = extract_function(self.track_draw, "CalcVisibleTrackEditor")
+        self.assertIn("iChunk < TRAK_LEN", visibility)
+        self.assertIn("localdata[iChunk].pointAy[3]", visibility)
+        self.assertIn("viewx", visibility)
+        self.assertIn("viewy", visibility)
+        self.assertIn("viewz", visibility)
+        self.assertNotIn("Car[", visibility)
+        self.assertNotIn("numcars", visibility)
+        self.assertIn("TrackSize = TRAK_LEN - 1", visibility)
+        self.assertIn("first_size = TrackSize", visibility)
+        self.assertIn("gap_size = 6 * TRAK_LEN", visibility)
+
+        draw_road = extract_function(self.game, "draw_road")
+        self.assertRegex(
+            draw_road,
+            r"if \(roller_ed_track_only_active\(\)\)\s+"
+            r"iRenderChunkIdx = CalcVisibleTrackEditor\(uiVisibilityViewMode\)",
+        )
+        self.assertIn(".renderChunkIdx = iRenderChunkIdx", draw_road)
 
     def test_cars_start_cubes_and_hud_are_absent(self) -> None:
         self.assertRegex(

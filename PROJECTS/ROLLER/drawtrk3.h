@@ -40,6 +40,9 @@ extern int small_poly;
 //-------------------------------------------------------------------------------------------------
 
 int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode);
+#if defined(ROLLER_EDITOR_CORE)
+int CalcVisibleTrackEditor(unsigned int uiViewMode);
+#endif
 void DrawTrack3(uint8 *pScrPtr, int iChaseCamIdx, int iCarIdx,
                 const GameRenderCamera *camera,
                 const GameRenderProjection *projection);

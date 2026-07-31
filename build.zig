@@ -434,6 +434,11 @@ fn configureRenderQueue3DTests(
         "Run real-facade zero-car track-only render acceptance (retail assets)",
     );
     editor_track_only_tests.dependOn(&run_editor_track_only.step);
+    const editor_visibility_tests = b.step(
+        "test-e1-s6b-visibility",
+        "Run camera-derived full-track editor visibility acceptance (retail assets)",
+    );
+    editor_visibility_tests.dependOn(&run_editor_track_only.step);
 
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{

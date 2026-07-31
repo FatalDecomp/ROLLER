@@ -2,6 +2,7 @@
 #include "car.h"
 #include "drawtrk3.h"
 #include "editor_api.h"
+#include "editor_camera.h"
 #include "loadtrak.h"
 #include "moving.h"
 #include "render_queue_3d.h"
@@ -60,6 +61,129 @@ static int pixels_have_scene_content(const uint8_t *pPixels, size_t uiSize)
     return 0;
 }
 
+static int nearest_chunk_to(float fX, float fY, float fZ)
+{
+    double dBestDistanceSquared = HUGE_VAL;
+    int iBestChunk = -1;
+
+    for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+        const tVec3 *pCenter = &localdata[iChunk].pointAy[3];
+        double dDeltaX = -(double)pCenter->fX - (double)fX;
+        double dDeltaY = -(double)pCenter->fY - (double)fY;
+        double dDeltaZ = -(double)pCenter->fZ - (double)fZ;
+        double dDistanceSquared = dDeltaX * dDeltaX
+                                + dDeltaY * dDeltaY
+                                + dDeltaZ * dDeltaZ;
+        if (dDistanceSquared < dBestDistanceSquared) {
+            dBestDistanceSquared = dDistanceSquared;
+            iBestChunk = iChunk;
+        }
+    }
+    return iBestChunk;
+}
+
+static int chunk_forward_yaw_degrees(int iChunk, float *pfYawDegrees)
+{
+    for (int iStep = 1; iStep < TRAK_LEN; ++iStep) {
+        int iNextChunk = iChunk + iStep;
+        double dTrackX;
+        double dTrackY;
+
+        if (iNextChunk >= TRAK_LEN)
+            iNextChunk -= TRAK_LEN;
+        dTrackX = (double)localdata[iChunk].pointAy[3].fX
+                - (double)localdata[iNextChunk].pointAy[3].fX;
+        dTrackY = (double)localdata[iChunk].pointAy[3].fY
+                - (double)localdata[iNextChunk].pointAy[3].fY;
+        if (dTrackX * dTrackX + dTrackY * dTrackY > 0.000001) {
+            *pfYawDegrees = (float)(atan2(dTrackY, dTrackX)
+                                  * 57.29577951308232);
+            return -1;
+        }
+    }
+    *pfYawDegrees = 0.0f;
+    return 0;
+}
+
+static int verify_visibility_at(tTrackOnlyContext *pContext,
+                                float fX, float fY, float fZ,
+                                int bCheckBothDirections)
+{
+    int iExpectedChunk = nearest_chunk_to(fX, fY, fZ);
+    float fForwardYaw;
+    int bHasDirection = chunk_forward_yaw_degrees(
+        iExpectedChunk, &fForwardYaw);
+    int iDirectionCount = bCheckBothDirections && bHasDirection ? 2 : 1;
+
+    for (int iDirection = 0; iDirection < iDirectionCount; ++iDirection) {
+        tEdCameraState Camera = {
+            .uiStructSize = sizeof(Camera),
+            .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION,
+            .fPosition = { fX, fY, fZ },
+            .fYawDegrees = fForwardYaw + (iDirection ? 180.0f : 0.0f),
+            .fPitchDegrees = 0.0f
+        };
+        int iAnchorChunk;
+        int iExpectedBackwards = iDirection ? -1 : 0;
+
+        if (RollerEd_SetCamera(&Camera) != ROLLER_ED_RESULT_OK) {
+            acceptance_error(pContext, "RollerEd_SetCamera failed during visibility sweep");
+            return 0;
+        }
+        if (!roller_ed_camera_apply()) {
+            snprintf(pContext->szError, sizeof(pContext->szError),
+                     "explicit camera did not apply during visibility sweep");
+            pContext->iResult = 1;
+            return 0;
+        }
+        iAnchorChunk = CalcVisibleTrackEditor(0u);
+        if (iAnchorChunk != iExpectedChunk
+                || TrackSize != TRAK_LEN - 1
+                || first_size != TrackSize
+                || gap_size != 6 * TRAK_LEN
+                || (bHasDirection && backwards != iExpectedBackwards)) {
+            snprintf(pContext->szError, sizeof(pContext->szError),
+                     "editor visibility mismatch at camera (%.1f, %.1f, %.1f): "
+                     "anchor=%d expected=%d backwards=%d expected=%d "
+                     "range=%d/%d gap=%d",
+                     fX, fY, fZ, iAnchorChunk, iExpectedChunk,
+                     backwards, iExpectedBackwards,
+                     TrackSize, first_size, gap_size);
+            pContext->iResult = 1;
+            return 0;
+        }
+        if ((backwards && start_sect != (iExpectedChunk + 1) % TRAK_LEN)
+                || (!backwards && start_sect != iExpectedChunk)) {
+            snprintf(pContext->szError, sizeof(pContext->szError),
+                     "editor visibility start section did not follow camera direction");
+            pContext->iResult = 1;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int verify_editor_visibility_sweep(tTrackOnlyContext *pContext)
+{
+    for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+        const tVec3 *pCenter = &localdata[iChunk].pointAy[3];
+        if (!verify_visibility_at(
+                pContext, -pCenter->fX, -pCenter->fY, -pCenter->fZ, -1))
+            return 0;
+    }
+
+    if (!verify_visibility_at(
+            pContext, 10000000.0f, -20000000.0f, 5000000.0f, -1))
+        return 0;
+    if (numcars != 0) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "editor visibility sweep mutated numcars");
+        pContext->iResult = 1;
+        return 0;
+    }
+    return -1;
+}
+
 static int SDLCALL track_only_worker(void *pUserData)
 {
     enum { WIDTH = 640, HEIGHT = 480, ROW_PITCH = WIDTH * 4 };
@@ -94,6 +218,8 @@ static int SDLCALL track_only_worker(void *pUserData)
         pContext->iResult = 1;
         goto shutdown;
     }
+    if (!verify_editor_visibility_sweep(pContext))
+        goto shutdown;
 
     for (int iPoint = 0; iPoint < 6; ++iPoint) {
         fTargetX += TrakPt[0].pointAy[iPoint].fX;
@@ -217,9 +343,9 @@ int main(int argc, char **argv)
         return 1;
     }
     if (iWorkerResult != 0) {
-        fprintf(stderr, "E1-S6 acceptance failed: %s\n", Context.szError);
+        fprintf(stderr, "E1-S6b acceptance failed: %s\n", Context.szError);
         return 1;
     }
-    puts("E1-S6 PASS: facade rendered track/scenery content with an explicit camera and queued no cars or race-start cubes");
+    puts("E1-S6b PASS: camera-derived visibility covered the full track and a far-off camera without cars or race-start cubes");
     return 0;
 }

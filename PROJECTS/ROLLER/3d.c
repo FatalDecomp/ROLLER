@@ -2745,6 +2745,14 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
 #endif
   extern float viewx, viewy, viewz;
   extern int worlddirn, VIEWDIST;
+  unsigned int uiVisibilityViewMode = g_bNoclip ? 3u : uiViewMode;
+  int iRenderChunkIdx;
+#if defined(ROLLER_EDITOR_CORE)
+  if (roller_ed_track_only_active())
+    iRenderChunkIdx = CalcVisibleTrackEditor(uiVisibilityViewMode);
+  else
+#endif
+    iRenderChunkIdx = Car[iCarIdx].nCurrChunk;
   GameRenderCamera cam = {
       .viewX = viewx,
       .viewY = viewy,
@@ -2752,7 +2760,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
       .cosYaw = SDL_cosf(ANGLE_TO_RADIANS(worlddirn)),
       .sinYaw = SDL_sinf(ANGLE_TO_RADIANS(worlddirn)),
       .fovScale = (float)VIEWDIST,
-      .renderChunkIdx = Car[iCarIdx].nCurrChunk,
+      .renderChunkIdx = iRenderChunkIdx,
   };
   game_render_set_camera(g_pGameRenderer, &cam);
 
@@ -2771,14 +2779,15 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
   // Gameplay frame phase: atmosphere. Sky/horizon stays outside the depth-sorted 3D queue.
   game_render_draw_sky(g_pGameRenderer, &cam, &proj); // Draw sky/horizon background
 
-  unsigned int uiVisibilityViewMode = g_bNoclip ? 3u : uiViewMode;
-
   // Gameplay frame phase: visibility/entity production.
-  CalcVisibleTrack(iCarIdx, uiVisibilityViewMode); // Calculate which track segments are visible from current viewpoint
 #if defined(ROLLER_EDITOR_CORE)
-  if (!roller_ed_track_only_active())
+  if (!roller_ed_track_only_active()) {
 #endif
+    CalcVisibleTrack(iCarIdx, uiVisibilityViewMode); // Calculate which track segments are visible from current viewpoint
     DrawCars(iCarIdx, uiVisibilityViewMode);       // Prepare visible cars (excluding current player if in chase cam)
+#if defined(ROLLER_EDITOR_CORE)
+  }
+#endif
   CalcVisibleBuildings();                       // Calculate visibility and prepare building rendering data
 
   // Gameplay frame phase: 3D queue production and sorted dispatch.
