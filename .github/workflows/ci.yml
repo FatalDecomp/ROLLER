@@ -91,6 +91,9 @@ jobs:
       - name: Build native parity executable
         run: zig build -Doptimize=ReleaseSafe
 
+      - name: Run E0-S6/S7 facade lifecycle, ABI, and error boundary
+        run: zig build test-editor-api -Doptimize=ReleaseSafe
+
       - name: Prepare verified freeware demo assets
         if: runner.os == 'Linux'
         run: python scripts/fetch_demo_assets.py

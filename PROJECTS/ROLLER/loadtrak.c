@@ -12,6 +12,9 @@
 #include "view.h"
 #include "control.h"
 #include "editor_track_loader.h"
+#if defined(ROLLER_EDITOR_CORE)
+#include "roller_core_error.h"
+#endif
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
@@ -98,9 +101,8 @@ int g_iCommunityTrackSel = -1;
 int g_iCommunityTrackTop = 0;
 int g_iCommunityTrackMissing = 0;
 uint32 g_uiCommunityTrackCRC = 0;
-// Bumped on every loadtrack() call so caches of track-derived data (e.g. the
-// GPU menu preview mesh) can detect reloads even when the track index is
-// unchanged -- all community tracks share TRACK_LOAD_COMMUNITY.
+// Bumped only after a complete load so caches never accept partially loaded
+// or rejected track-derived data as a committed generation.
 int g_iTrackLoadGeneration = 0;
 static char g_szCommunityTrackDir[16] = "../TRACKS";
 static int g_iStockTrackAvailabilityScanned = 0;
@@ -469,10 +471,46 @@ static uint64 community_track_state_hash(void)
   return ullHash;
 }
 
+static void loadtrack_set_error(char *szError, size_t uiErrorCapacity,
+                                const char *szFormat, ...)
+{
+  va_list Args;
+
+  if (!szError || uiErrorCapacity == 0)
+    return;
+  va_start(Args, szFormat);
+  vsnprintf(szError, uiErrorCapacity, szFormat, Args);
+  va_end(Args);
+  szError[uiErrorCapacity - 1u] = '\0';
+}
+
+static eRollerEdResult loadtrack_stage_result(eEdTrackLoadResult eResult)
+{
+  switch (eResult) {
+    case ED_TRACK_LOAD_OK:
+      return ROLLER_ED_RESULT_OK;
+    case ED_TRACK_LOAD_INVALID_ARGUMENT:
+      return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    case ED_TRACK_LOAD_IO_FAILED:
+      return ROLLER_ED_RESULT_IO_FAILED;
+    case ED_TRACK_LOAD_OUT_OF_MEMORY:
+      return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+    case ED_TRACK_LOAD_TRUNCATED:
+    case ED_TRACK_LOAD_INVALID_SIZE:
+    case ED_TRACK_LOAD_INVALID_BACK_REFERENCE:
+    case ED_TRACK_LOAD_OUTPUT_OVERFLOW:
+    case ED_TRACK_LOAD_MALFORMED_TEXT:
+      return ROLLER_ED_RESULT_LOAD_FAILED;
+  }
+  return ROLLER_ED_RESULT_INTERNAL_ERROR;
+}
+
 //0004AF80
-static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
-                              const char *szDirectTrackPath,
-                              const tEdTrackStage *pDirectStage)
+static eRollerEdResult loadtrack_internal(
+    int iTrackIdx, int iPreviewMode,
+    const char *szDirectTrackPath,
+    const tEdTrackStage *pDirectStage,
+    char *szError, size_t uiErrorCapacity)
 {
   int iCarIdx; // ecx
   tCar *pCar; // edi
@@ -622,6 +660,9 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
   const char *szTrackFile; // [ROLLER]
   int bDirectPath = szDirectTrackPath != NULL;
 
+#if defined(ROLLER_EDITOR_CORE)
+  roller_core_error_clear();
+#endif
   iTrackIdx_1 = iTrackIdx;                      // Initialize variables and clear car structures
   bMinimalMode = iPreviewMode;
   p_iBuildingBase = BuildingBase[0];
@@ -638,37 +679,54 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
     if (!szTrackFile) {
       g_iCommunityTrackSel = -1;
       g_uiCommunityTrackCRC = 0;
-      return 0;
+      loadtrack_set_error(szError, uiErrorCapacity,
+                          "selected community track is unavailable");
+      return ROLLER_ED_RESULT_IO_FAILED;
     }
   } else if ((unsigned int)iTrackIdx_1 <= 0x18) {
     szTrackFile = names[iTrackIdx_1];
   }
+  if (!szTrackFile) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "track index %d is invalid", iTrackIdx_1);
+    return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+  }
   if (szTrackFile) {
     pFile = ROLLERfopen(szTrackFile, "rb");     // Open and validate track file
     if (!pFile) {
-      if (bDirectPath)
-        return 0;
+      if (bDirectPath) {
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "unable to open track file: %s", szTrackFile);
+        return ROLLER_ED_RESULT_IO_FAILED;
+      }
       if (iTrackIdx_1 == TRACK_LOAD_COMMUNITY) {
         g_iCommunityTrackSel = -1;
         g_uiCommunityTrackCRC = 0;
-        return 0;
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "selected community track is unavailable");
+        return ROLLER_ED_RESULT_IO_FAILED;
       }
-      ErrorBoxExit("Track %d not found\n", iTrackIdx_1);
-      //__asm { int     10h; -VIDEO - SET VIDEO MODE }
-      //printf("Track %d not found\n", iTrackIdx_1);
-      //doexit();
+      loadtrack_set_error(szError, uiErrorCapacity,
+                          "track %d was not found", iTrackIdx_1);
+      return ROLLER_ED_RESULT_IO_FAILED;
     }
     fclose(pFile);
     if (pDirectStage) {
       iCompactedFileLength = (int)pDirectStage->uiDataLength;
       if (bMinimalMode
-          && pDirectStage->uiDataLength + 1u > SCRBUF_MAX_PIXELS)
-        return 0;
+          && pDirectStage->uiDataLength + 1u > SCRBUF_MAX_PIXELS) {
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "track data exceeds the preview buffer");
+        return ROLLER_ED_RESULT_LOAD_FAILED;
+      }
       pTrackBuffer = bMinimalMode
         ? scrbuf
         : (uint8 *)trybuffer((uint32)iCompactedFileLength + 1u);
-      if (!pTrackBuffer)
-        return 0;
+      if (!pTrackBuffer) {
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "track buffer allocation failed");
+        return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+      }
       pData = pTrackBuffer;
       pCurrDataPtr = pTrackBuffer;
       memcpy(pTrackBuffer, pDirectStage->pbyData,
@@ -678,7 +736,9 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
       if (!pFile_2) {
         if (!bMinimalMode)
           fre((void **)&pData);
-        return 0;
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "unable to reopen track file: %s", szTrackFile);
+        return ROLLER_ED_RESULT_IO_FAILED;
       }
       iCompactedFlag = -1;
     } else {
@@ -714,7 +774,6 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
     }
     }
   }
-  ++g_iTrackLoadGeneration;
   NumBuildings = 0;
   NumTowers = 0;
   iCarIdx = 0;
@@ -1350,10 +1409,13 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
     if (iCompactedFlag && replaytype != 2 &&
         !bDirectPath && iTrackIdx_1 != TRACK_LOAD_COMMUNITY &&
         iTrackIdx_1 != actualtrack && !bMinimalMode) {
-      ErrorBoxExit("Cheat!!!! Track %d is really track %d!!!\n", iTrackIdx_1, actualtrack);
-      //__asm { int     10h; -VIDEO - SET VIDEO MODE }
-      //printf("Cheat!!!! Track %d is really track %d!!!\n", iTrackIdx_1, actualtrack);
-      //doexit();
+      loadtrack_set_error(szError, uiErrorCapacity,
+                          "Cheat!!!! Track %d is really track %d!!!\n",
+                          iTrackIdx_1, actualtrack);
+      fclose(pFile_2);
+      if (!bMinimalMode && pData)
+        fre((void **)&pData);
+      return ROLLER_ED_RESULT_LOAD_FAILED;
     }
     cur_laps[0] = 0;                            // Initialize lap counters
     if (!meof) {
@@ -1384,34 +1446,58 @@ static int loadtrack_internal(int iTrackIdx, int iPreviewMode,
       activatestunts();
       LoadBldTextures();
       LoadTextures();
+#if defined(ROLLER_EDITOR_CORE)
+      if (roller_core_error_pending()) {
+        loadtrack_set_error(szError, uiErrorCapacity, "%s",
+                            roller_core_error_message());
+        return ROLLER_ED_RESULT_IO_FAILED;
+      }
+#endif
     }
   }
-  return -1;
+  ++g_iTrackLoadGeneration;
+  loadtrack_set_error(szError, uiErrorCapacity, "");
+  return ROLLER_ED_RESULT_OK;
 }
 
-void loadtrack(int iTrackIdx, int iPreviewMode)
+eRollerEdResult loadtrack(int iTrackIdx, int iPreviewMode)
 {
-  (void)loadtrack_internal(iTrackIdx, iPreviewMode, NULL, NULL);
+  char szError[256];
+  eRollerEdResult eResult = loadtrack_internal(
+    iTrackIdx, iPreviewMode, NULL, NULL, szError, sizeof(szError));
+
+#if !defined(ROLLER_EDITOR_CORE)
+  if (eResult != ROLLER_ED_RESULT_OK)
+    ErrorBoxExit("%s", szError[0] ? szError : "track load failed");
+#endif
+  return eResult;
 }
 
-int loadtrack_from_path(const char *szTrackPath, int iPreviewMode)
+eRollerEdResult loadtrack_from_path_ex(
+    const char *szTrackPath, int iPreviewMode,
+    char *szError, size_t uiErrorCapacity)
 {
   tEdTrackStage TrackStage;
   tEdTrackStage AssetStage;
   char szStageError[256];
   uint64 ullCommunityStateBefore;
-  int iResult;
+  int iGenerationBefore;
+  eEdTrackLoadResult eStageResult;
+  eRollerEdResult eResult;
 
   ed_track_stage_init(&TrackStage);
   ed_track_stage_init(&AssetStage);
-  if (!track_path_is_absolute(szTrackPath))
-    return 0;
-  if (ed_track_file_stage(
-        szTrackPath, &TrackStage, szStageError, sizeof(szStageError))
-      != ED_TRACK_LOAD_OK) {
-    fprintf(stderr, "Direct track staging rejected '%s': %s\n",
-            szTrackPath, szStageError);
-    return 0;
+  if (!track_path_is_absolute(szTrackPath)) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "track path must be absolute");
+    return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+  }
+  eStageResult = ed_track_file_stage(
+    szTrackPath, &TrackStage, szStageError, sizeof(szStageError));
+  if (eStageResult != ED_TRACK_LOAD_OK) {
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "track staging failed: %s", szStageError);
+    return loadtrack_stage_result(eStageResult);
   }
   if (!iPreviewMode) {
     const char *aszAssets[2] = {
@@ -1423,27 +1509,45 @@ int loadtrack_from_path(const char *szTrackPath, int iPreviewMode)
 
       if (!szResolvedAsset)
         szResolvedAsset = aszAssets[iAsset];
-      if (ed_compacted_file_stage(
-            szResolvedAsset, &AssetStage,
-            szStageError, sizeof(szStageError)) != ED_TRACK_LOAD_OK) {
-        fprintf(stderr, "Direct track asset staging rejected '%s': %s\n",
-                aszAssets[iAsset], szStageError);
+      eStageResult = ed_compacted_file_stage(
+        szResolvedAsset, &AssetStage,
+        szStageError, sizeof(szStageError));
+      if (eStageResult != ED_TRACK_LOAD_OK) {
+        loadtrack_set_error(szError, uiErrorCapacity,
+                            "track asset '%s' failed staging: %s",
+                            aszAssets[iAsset], szStageError);
         ed_track_stage_dispose(&AssetStage);
         ed_track_stage_dispose(&TrackStage);
-        return 0;
+        return loadtrack_stage_result(eStageResult);
       }
       ed_track_stage_dispose(&AssetStage);
     }
   }
   ullCommunityStateBefore = community_track_state_hash();
-  iResult = loadtrack_internal(
-    TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, &TrackStage);
+  iGenerationBefore = g_iTrackLoadGeneration;
+  eResult = loadtrack_internal(
+    TRACK_LOAD_COMMUNITY, iPreviewMode, szTrackPath, &TrackStage,
+    szError, uiErrorCapacity);
   ed_track_stage_dispose(&TrackStage);
   if (community_track_state_hash() != ullCommunityStateBefore) {
-    fprintf(stderr, "Direct track load changed community-track selection state\n");
-    return 0;
+    g_iTrackLoadGeneration = iGenerationBefore;
+    loadtrack_set_error(szError, uiErrorCapacity,
+                        "direct load changed community-track selection state");
+    return ROLLER_ED_RESULT_INTERNAL_ERROR;
   }
-  return iResult;
+  return eResult;
+}
+
+eRollerEdResult loadtrack_from_path(const char *szTrackPath, int iPreviewMode)
+{
+  char szError[256];
+  eRollerEdResult eResult = loadtrack_from_path_ex(
+    szTrackPath, iPreviewMode, szError, sizeof(szError));
+
+  if (eResult != ROLLER_ED_RESULT_OK)
+    fprintf(stderr, "Direct track load rejected '%s': %s\n",
+            szTrackPath ? szTrackPath : "(null)", szError);
+  return eResult;
 }
 
 //-------------------------------------------------------------------------------------------------

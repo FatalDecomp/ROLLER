@@ -75,6 +75,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -114,6 +115,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polyf.c",
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
+            "PROJECTS/ROLLER/roller_core_error.c",
             "PROJECTS/ROLLER/roller.c",
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollerinput.c",
@@ -398,6 +400,137 @@ fn configureRenderQueue3DTests(
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
+
+    const roller_core_manifest_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_roller_core_manifest.py",
+    });
+    const roller_core_manifest_tests = b.step(
+        "check-roller-core-manifest",
+        "Validate the E0-S1 roller-core translation-unit partition",
+    );
+    roller_core_manifest_tests.dependOn(&roller_core_manifest_check.step);
+    test_step.dependOn(roller_core_manifest_tests);
+
+    const game_build_matrix_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_game_build_matrix.py",
+    });
+    const game_build_matrix_tests = b.step(
+        "check-game-build-matrix",
+        "Validate the E0-S4 six-target game build contract",
+    );
+    game_build_matrix_tests.dependOn(&game_build_matrix_check.step);
+    test_step.dependOn(game_build_matrix_tests);
+
+    const source_set_drift_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_source_set_drift.py",
+    });
+    const source_set_drift_tests = b.step(
+        "check-source-set-drift",
+        "Validate the E0-S5 platform-aware Zig/CMake source sets",
+    );
+    source_set_drift_tests.dependOn(&source_set_drift_check.step);
+    test_step.dependOn(source_set_drift_tests);
+
+    const editor_api_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_api_mod.addIncludePath(sdl.builder.path("include"));
+    editor_api_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_api_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_api_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_api.c",
+            "PROJECTS/ROLLER/editor_track_loader.c",
+            "tests/editor_api_lifecycle_test.c",
+        },
+    });
+    const editor_api_exe = b.addExecutable(.{
+        .name = "editor_api_lifecycle_test",
+        .root_module = editor_api_mod,
+    });
+    const run_editor_api = b.addRunArtifact(editor_api_exe);
+    run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_valid.trk"));
+    run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_malformed.trk"));
+
+    const editor_api_cpp_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = true,
+    });
+    editor_api_cpp_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_api_cpp_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/editor_api_cpp_test.cpp"},
+    });
+    const editor_api_cpp_exe = b.addExecutable(.{
+        .name = "editor_api_cpp_test",
+        .root_module = editor_api_cpp_mod,
+    });
+    const run_editor_api_cpp = b.addRunArtifact(editor_api_cpp_exe);
+
+    const core_error_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    core_error_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    core_error_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    core_error_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/roller_core_error.c",
+            "tests/roller_core_error_test.c",
+        },
+    });
+    const core_error_exe = b.addExecutable(.{
+        .name = "roller_core_error_test",
+        .root_module = core_error_mod,
+    });
+    const run_core_error = b.addRunArtifact(core_error_exe);
+
+    const editor_api_tests = b.step(
+        "test-editor-api",
+        "Run E0-S6/S7 facade lifecycle, error-boundary, and ABI tests",
+    );
+    editor_api_tests.dependOn(&run_editor_api.step);
+    editor_api_tests.dependOn(&run_editor_api_cpp.step);
+    editor_api_tests.dependOn(&run_core_error.step);
+    test_step.dependOn(editor_api_tests);
+
+    const sound_stub_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sound_stub_mod.addIncludePath(sdl.builder.path("include"));
+    sound_stub_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    sound_stub_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/sound_stub.c",
+            "PROJECTS/ROLLER/rollersound_stub.c",
+            "PROJECTS/ROLLER/cdx_stub.c",
+            "tests/sound_stub_test.c",
+        },
+    });
+    const sound_stub_exe = b.addExecutable(.{
+        .name = "sound_stub_test",
+        .root_module = sound_stub_mod,
+    });
+    const run_sound_stub = b.addRunArtifact(sound_stub_exe);
+    const sound_stub_tests = b.step(
+        "test-roller-core-sound-stubs",
+        "Run roller-core null sound boundary tests",
+    );
+    sound_stub_tests.dependOn(&run_sound_stub.step);
+    test_step.dependOn(sound_stub_tests);
 
     const editor_surface_mod = b.createModule(.{
         .target = target,

@@ -5455,6 +5455,7 @@ void load_language_file(char *szFilename, int iUseConfigBuffer)
     ErrorBoxExit("Unable to open file: %s", szFilename);
     //printf("Unable to open file: %s\n", szFilename);
     //doexit(1);
+    return;
   }
 
   int iEndFound = 0;

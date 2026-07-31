@@ -1,27 +1,13 @@
 #ifndef ROLLER_EDITOR_SURFACE_H
 #define ROLLER_EDITOR_SURFACE_H
 
+#include "editor_api.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
 #define ED_SURFACE_VERTEX_COUNT 4u
-#define ED_MATERIAL_ID_NONE UINT32_MAX
-
-typedef enum
-{
-    ROLLER_ED_CONTENT_AUTHORED_TRACK = 0,
-    ROLLER_ED_CONTENT_AUTHORED_SIGN,
-    ROLLER_ED_CONTENT_AUTHORED_SCENERY,
-    ROLLER_ED_CONTENT_RUNTIME_SCENERY
-} eRollerEdContentClass;
-
-typedef enum
-{
-    ROLLER_ED_MATERIAL_TEXTURED_TILE = 0,
-    ROLLER_ED_MATERIAL_TEXTURED_PAIR,
-    ROLLER_ED_MATERIAL_FLAT_PALETTE_COLOR,
-    ROLLER_ED_MATERIAL_SCREEN_DARKEN
-} eRollerEdMaterialKind;
+#define ED_MATERIAL_ID_NONE ROLLER_ED_INVALID_MATERIAL_ID
 
 typedef enum
 {
@@ -49,18 +35,6 @@ typedef struct
     int32_t iRenderV16_16;
     float fMaterialUV[2];
 } tEdSurfaceVertex;
-
-typedef struct
-{
-    uint32_t uiKind;
-    uint32_t uiTextureSet;
-    uint32_t uiTileIndex;
-    uint32_t uiPaletteColour;
-    uint32_t uiDarkenLevel;
-    uint32_t uiFlags;
-    float fAtlasScale[2];
-    float fAtlasBias[2];
-} tEdMaterial;
 
 typedef struct
 {

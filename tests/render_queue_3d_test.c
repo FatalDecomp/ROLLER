@@ -310,6 +310,25 @@ static void test_sort_keeps_typed_payloads_with_sorted_entries(void)
   assert(command->payload.road_surface.depth == 30.0f);
 }
 
+static void test_capacity_overflow_is_recoverable(void)
+{
+  RenderQueue3D queue;
+
+  render_queue_3d_clear(&queue);
+  for (int i = 0; i < RENDER_QUEUE_3D_CAPACITY; i++)
+    render_queue_3d_add_ground(&queue, i, (float)i);
+  assert(render_queue_3d_count(&queue) == RENDER_QUEUE_3D_CAPACITY);
+  assert(!render_queue_3d_overflowed(&queue));
+
+  render_queue_3d_add_ground(&queue, 123, 456.0f);
+  assert(render_queue_3d_count(&queue) == RENDER_QUEUE_3D_CAPACITY);
+  assert(render_queue_3d_overflowed(&queue));
+
+  render_queue_3d_clear(&queue);
+  assert(render_queue_3d_count(&queue) == 0);
+  assert(!render_queue_3d_overflowed(&queue));
+}
+
 int main(int argc, const char **argv, const char **envp)
 {
   (void)argc;
@@ -324,5 +343,6 @@ int main(int argc, const char **argv, const char **envp)
   test_start_light_priority_mapping();
   test_car_priority_mapping_payload();
   test_sort_keeps_typed_payloads_with_sorted_entries();
+  test_capacity_overflow_is_recoverable();
   return 0;
 }

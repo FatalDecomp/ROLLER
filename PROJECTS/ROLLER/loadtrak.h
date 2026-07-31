@@ -1,7 +1,9 @@
 #ifndef _ROLLER_LOADTRAK_H
 #define _ROLLER_LOADTRAK_H
 //-------------------------------------------------------------------------------------------------
+#include "editor_api.h"
 #include "types.h"
+#include <stddef.h>
 #include <stdio.h>
 //-------------------------------------------------------------------------------------------------
 
@@ -97,10 +99,13 @@ int community_track_available(void);
 uint32 community_track_crc(const char *szPath);
 int stock_track_available(int iTrackIdx);
 int stock_track_demo_only(void);
-void loadtrack(int iTrackIdx, int iPreviewMode);
+eRollerEdResult loadtrack(int iTrackIdx, int iPreviewMode);
 /* Loads a track directly without consulting or mutating community discovery.
- * szTrackPath must be absolute. Returns nonzero after a complete load. */
-int loadtrack_from_path(const char *szTrackPath, int iPreviewMode);
+ * szTrackPath must be absolute. Returns OK only after a complete load. */
+eRollerEdResult loadtrack_from_path(const char *szTrackPath, int iPreviewMode);
+eRollerEdResult loadtrack_from_path_ex(
+    const char *szTrackPath, int iPreviewMode,
+    char *szError, size_t uiErrorCapacity);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);
 void read_bldmap(uint8 **ppTrackData);

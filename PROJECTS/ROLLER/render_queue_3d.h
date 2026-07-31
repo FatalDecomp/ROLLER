@@ -137,6 +137,7 @@ typedef struct
   RenderCommand3D commands[RENDER_QUEUE_3D_CAPACITY];
   int has_typed_command[RENDER_QUEUE_3D_CAPACITY];
   int count;
+  int overflowed;
 } RenderQueue3D;
 
 //-------------------------------------------------------------------------------------------------
@@ -146,6 +147,7 @@ void render_queue_3d_clear(RenderQueue3D *pQueue);
 tTrackZOrderEntry *render_queue_3d_entries(RenderQueue3D *pQueue);
 const RenderCommand3D *render_queue_3d_command_at(const RenderQueue3D *pQueue, int iIndex);
 int render_queue_3d_count(const RenderQueue3D *pQueue);
+int render_queue_3d_overflowed(const RenderQueue3D *pQueue);
 
 void render_queue_3d_add_ground(RenderQueue3D *pQueue,
                                  int iSectionIdx,

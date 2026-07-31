@@ -39,7 +39,10 @@ static bool ed_build_material(const tEdMaterialTable *pTable,
     memset(pMaterial, 0, sizeof(*pMaterial));
     pMaterial->uiTextureSet = uiTextureSet;
     pMaterial->uiTileIndex = uiTileIndex;
-    pMaterial->uiFlags = uiSurfaceFlags & SURFACE_MASK_FLAGS;
+    if (uiSurfaceFlags & (SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_PARTIAL_TRANS))
+        pMaterial->uiFlags |= ROLLER_ED_MATERIAL_FLAG_ALPHA_BLEND;
+    if (uiSurfaceFlags & SURFACE_FLAG_PARTIAL_TRANS)
+        pMaterial->uiFlags |= ROLLER_ED_MATERIAL_FLAG_PARTIAL_ALPHA;
 
     if (uiSurfaceFlags & SURFACE_FLAG_APPLY_TEXTURE) {
         uint32_t uiTilesPerRow = pTable->Atlas.uiWidth
