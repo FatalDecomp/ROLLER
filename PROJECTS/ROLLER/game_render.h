@@ -207,6 +207,10 @@ void game_render_draw_pause_darken(GameRenderer *renderer);
 // Viewport
 void game_render_set_viewport(GameRenderer *renderer,
                               int x, int y, int w, int h);
+/* Decouples physical viewport resolution from the legacy logical projection.
+ * Zero restores ordinary game behavior. */
+void game_render_set_projection_reference_height(GameRenderer *renderer,
+                                                  int height);
 void game_render_set_target(GameRenderer *renderer, uint8 *buffer,
                             int stride, int width, int height);
 

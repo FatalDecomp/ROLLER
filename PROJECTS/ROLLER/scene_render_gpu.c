@@ -297,6 +297,7 @@ struct SceneRendererGPU {
 
     /* ---- Viewport ---- */
     int viewportX, viewportY, viewportW, viewportH;
+    int projectionReferenceHeight;
 
     /* ---- Sky clear color ---- */
     float skyR, skyG, skyB;
@@ -795,13 +796,24 @@ SDL_GPUTexture *scene_render_gpu_get_flat_color_texture(SceneRendererGPU *r, int
  *   shift_y = (vpH/2 - ss*(199-centerY)) / (vpH/2)
  *   clip.y += shift_y * fV.z  →  each column j: mvp[j*4+1] += shift_y * mvp[j*4+3]
  */
+static float effective_screen_scale(const SceneRendererGPU *r, int viewportHeight)
+{
+    float screenScale = (float)r->proj.screenScale / 64.0f;
+
+    if (r->projectionReferenceHeight > 0 && viewportHeight > 0)
+        screenScale *= (float)viewportHeight
+                     / (float)r->projectionReferenceHeight;
+    return screenScale;
+}
+
 static void build_mvp(float mvp[16],
                       const SceneRenderCamera *cam,
                       const SceneRenderProjection *proj,
                       int vpW, int vpH,
-                      float fovMult)
+                      float fovMult,
+                      float screenScale)
 {
-    float ss   = (float)proj->screenScale / 64.0f;
+    float ss   = screenScale;
     float fovX = (2.0f * cam->fovScale * fovMult * ss) / (float)vpW;
     float fovY = (2.0f * cam->fovScale * fovMult * ss) / (float)vpH;
     float zF   = SCENE_GPU_FAR  / (SCENE_GPU_FAR - SCENE_GPU_NEAR);
@@ -839,7 +851,8 @@ void scene_render_gpu_build_vp(const SceneRendererGPU *r, float vp[16])
 {
     int vpW = r->viewportW > 0 ? r->viewportW : 640;
     int vpH = r->viewportH > 0 ? r->viewportH : 400;
-    build_mvp(vp, &r->camera, &r->proj, vpW, vpH, r->fovMultiplier);
+    build_mvp(vp, &r->camera, &r->proj, vpW, vpH, r->fovMultiplier,
+              effective_screen_scale(r, vpH));
 }
 
 bool scene_render_gpu_project_to_ndc(const SceneRendererGPU *r,
@@ -858,7 +871,7 @@ bool scene_render_gpu_project_to_ndc(const SceneRendererGPU *r,
      * false in "Render Scale (native)" mode, which widens vpW independent of
      * winw to show a genuinely wider FOV, not just more pixels for the same
      * content. Projecting straight from camera-space is correct in every mode. */
-    float ss   = (float)r->proj.screenScale / 64.0f;
+    float ss   = effective_screen_scale(r, vpH);
     float fovX = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpW;
     float fovY = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpH;
     float horizon_y = ss * (199.0f - (float)r->proj.centerY);
@@ -3731,6 +3744,13 @@ void scene_render_gpu_set_viewport(SceneRendererGPU *r, int x, int y, int w, int
     r->viewportW = w; r->viewportH = h;
 }
 
+void scene_render_gpu_set_projection_reference_height(SceneRendererGPU *r,
+                                                       int height)
+{
+    if (!r) return;
+    r->projectionReferenceHeight = height > 0 ? height : 0;
+}
+
 void scene_render_gpu_set_camera(SceneRendererGPU *r, const SceneRenderCamera *cam)
 {
     if (r && cam) r->camera = *cam;
@@ -4702,7 +4722,7 @@ static bool scene_render_gpu_quad_frustum_culled(const SceneRendererGPU *r,
     float up_x    = r->proj.view[0][1], up_y    = r->proj.view[1][1], up_z    = r->proj.view[2][1];
     int   vpW = r->viewportW > 0 ? r->viewportW : 640;
     int   vpH = r->viewportH > 0 ? r->viewportH : 400;
-    float ss   = (float)r->proj.screenScale / 64.0f;
+    float ss   = effective_screen_scale(r, vpH);
     float fovX = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpW;
     float fovY = (2.0f * r->camera.fovScale * r->fovMultiplier * ss) / (float)vpH;
 
@@ -5740,7 +5760,7 @@ void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
             const float (*M)[3] = r->proj.view;
             int vpW = r->viewportW > 0 ? r->viewportW : 640;
             int vpH = r->viewportH > 0 ? r->viewportH : 400;
-            float ss   = (float)r->proj.screenScale / 64.0f;
+            float ss   = effective_screen_scale(r, vpH);
             float fovX = 2.0f * r->camera.fovScale * g_fFovMultiplier * ss / (float)vpW;
             float fovY = 2.0f * r->camera.fovScale * g_fFovMultiplier * ss / (float)vpH;
             /* Vertical center correction, matching build_mvp's shift_y exactly:

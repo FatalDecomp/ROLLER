@@ -318,6 +318,13 @@ eRollerEdResult roller_ed_legacy_scene_render(
         return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     }
 
+    /* The game camera is authored in the legacy logical render space (320x200
+     * or its 640x400 SVGA scale), while editor readback uses the QWidget's
+     * device-pixel size. Preserve the game's focal length and horizon at any
+     * physical target size instead of widening both FOV axes as the widget
+     * grows. */
+    game_render_set_projection_reference_height(
+        g_pGameRenderer, YMAX > 0 ? YMAX : 200);
     game_render_set_viewport(g_pGameRenderer, 0, 0, (int)uiWidth,
                              (int)uiHeight);
     game_render_begin_frame(g_pGameRenderer);

@@ -18,6 +18,9 @@ class EditorWindowlessGpuTests(unittest.TestCase):
         cls.renderer_header = (sources / "scene_render_gpu.h").read_text(
             encoding="utf-8"
         )
+        cls.editor_scene = (sources / "editor_legacy_scene.c").read_text(
+            encoding="utf-8"
+        )
         cls.parity = (sources / "gpu_parity.c").read_text(encoding="utf-8")
         cls.workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
@@ -217,6 +220,60 @@ class EditorWindowlessGpuTests(unittest.TestCase):
             "scene_render_gpu_set_render_scale(pWindowless, 0.5f)",
             self.parity,
         )
+
+    def test_editor_viewport_preserves_legacy_projection(self) -> None:
+        self.assertIn(
+            "int projectionReferenceHeight;", self.renderer_struct
+        )
+        self.assertIn(
+            "screenScale *= (float)viewportHeight\n"
+            "                     / (float)r->projectionReferenceHeight;",
+            self.renderer,
+        )
+        self.assertEqual(
+            self.renderer.count("effective_screen_scale(r, vpH)"), 4
+        )
+        self.assertIn(
+            "game_render_set_projection_reference_height(\n"
+            "        g_pGameRenderer, YMAX > 0 ? YMAX : 200);",
+            self.editor_scene,
+        )
+
+        legacy_focal_length = 270.0
+        for reference_height, base_screen_scale in (
+            (200.0, 1.0),
+            (400.0, 2.0),
+        ):
+            expected_fov_y = (
+                2.0
+                * legacy_focal_length
+                * base_screen_scale
+                / reference_height
+            )
+            expected_horizon_fraction = (
+                base_screen_scale
+                * (199.0 - 115.0)
+                / reference_height
+            )
+            for viewport_height in (200.0, 480.0, 800.0, 1440.0):
+                screen_scale = (
+                    base_screen_scale
+                    * viewport_height
+                    / reference_height
+                )
+                actual_fov_y = (
+                    2.0
+                    * legacy_focal_length
+                    * screen_scale
+                    / viewport_height
+                )
+                actual_horizon_fraction = (
+                    screen_scale * (199.0 - 115.0) / viewport_height
+                )
+                self.assertAlmostEqual(actual_fov_y, expected_fov_y)
+                self.assertAlmostEqual(
+                    actual_horizon_fraction, expected_horizon_fraction
+                )
 
 
 if __name__ == "__main__":

@@ -53,6 +53,11 @@ void scene_render_gpu_discard_queued(SceneRendererGPU *r);
 
 void scene_render_gpu_set_viewport(SceneRendererGPU *r,
                                    int x, int y, int w, int h);
+/* Keeps the legacy camera projection tied to a logical render height while
+ * rasterizing into an independently sized physical viewport. Zero disables
+ * the override and preserves normal game viewport behavior. */
+void scene_render_gpu_set_projection_reference_height(SceneRendererGPU *r,
+                                                       int height);
 
 void scene_render_gpu_set_camera(SceneRendererGPU *r,
                                  const SceneRenderCamera *cam);

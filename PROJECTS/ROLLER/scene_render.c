@@ -192,6 +192,18 @@ void scene_render_set_viewport(SceneRenderer *renderer,
 #endif
 }
 
+void scene_render_set_projection_reference_height(SceneRenderer *renderer,
+                                                   int height) {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)height;
+#else
+    if (renderer && renderer->gpu)
+        scene_render_gpu_set_projection_reference_height(
+            renderer->gpu, height);
+#endif
+}
+
 void scene_render_set_camera(SceneRenderer *renderer,
                              const SceneRenderCamera *camera) {
     if (!renderer || !camera)

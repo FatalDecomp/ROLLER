@@ -18,6 +18,8 @@ void scene_render_set_target(SceneRenderer *renderer, uint8 *buffer,
                              int stride, int width, int height);
 void scene_render_set_viewport(SceneRenderer *renderer,
                                int x, int y, int w, int h);
+void scene_render_set_projection_reference_height(SceneRenderer *renderer,
+                                                   int height);
 void scene_render_set_camera(SceneRenderer *renderer,
                              const SceneRenderCamera *camera);
 void scene_render_set_projection(SceneRenderer *renderer,

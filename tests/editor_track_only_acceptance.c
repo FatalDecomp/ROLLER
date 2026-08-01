@@ -3,9 +3,11 @@
 #include "drawtrk3.h"
 #include "editor_api.h"
 #include "editor_camera.h"
+#include "game_render.h"
 #include "loadtrak.h"
 #include "moving.h"
 #include "render_queue_3d.h"
+#include "scene_render_gpu.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
@@ -59,6 +61,58 @@ static int pixels_have_scene_content(const uint8_t *pPixels, size_t uiSize)
             return -1;
     }
     return 0;
+}
+
+static int verify_projection_resolution_independence(
+    tTrackOnlyContext *pContext, uint8_t *pPixels, size_t uiBufferSize,
+    uint32_t uiRowPitch)
+{
+    static const uint32_t auiWidth[] = { 320u, 640u };
+    static const uint32_t auiHeight[] = { 200u, 400u };
+    SceneRendererGPU *pGPU = game_render_get_gpu(g_pGameRenderer);
+    float fReferenceX = 0.0f;
+    float fReferenceY = 0.0f;
+
+    if (!pGPU) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "GPU renderer unavailable during projection check");
+        pContext->iResult = 1;
+        return 0;
+    }
+    for (size_t i = 0; i < sizeof(auiWidth) / sizeof(auiWidth[0]); ++i) {
+        float fNdcX;
+        float fNdcY;
+
+        memset(pPixels, 0, uiBufferSize);
+        if (RollerEd_RenderFrame(
+                pPixels, (uint32_t)uiBufferSize, uiRowPitch,
+                auiWidth[i], auiHeight[i], ROLLER_ED_PIXEL_RGBA8)
+                != ROLLER_ED_RESULT_OK) {
+            acceptance_error(
+                pContext, "RollerEd_RenderFrame failed during projection check");
+            return 0;
+        }
+        if (!scene_render_gpu_project_to_ndc(
+                pGPU, 100.0, 50.0, 1000.0, &fNdcX, &fNdcY)) {
+            snprintf(pContext->szError, sizeof(pContext->szError),
+                     "camera-space projection failed during resolution check");
+            pContext->iResult = 1;
+            return 0;
+        }
+        if (i == 0) {
+            fReferenceX = fNdcX;
+            fReferenceY = fNdcY;
+        } else if (fabsf(fNdcX - fReferenceX) > 0.00001f
+                || fabsf(fNdcY - fReferenceY) > 0.00001f) {
+            snprintf(pContext->szError, sizeof(pContext->szError),
+                     "editor projection changed with proportional viewport: "
+                     "(%.6f, %.6f) vs (%.6f, %.6f)",
+                     fReferenceX, fReferenceY, fNdcX, fNdcY);
+            pContext->iResult = 1;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 static int nearest_chunk_to(float fX, float fY, float fZ)
@@ -247,6 +301,10 @@ static int SDLCALL track_only_worker(void *pUserData)
     replaytype = 0;
     game_type = 0;
     winner_mode = 0;
+
+    if (!verify_projection_resolution_independence(
+            pContext, pPixels, (size_t)ROW_PITCH * HEIGHT, ROW_PITCH))
+        goto shutdown;
 
     for (size_t iPitch = 0;
          iPitch < sizeof(afPitch) / sizeof(afPitch[0]) && !bFoundTrackFrame;

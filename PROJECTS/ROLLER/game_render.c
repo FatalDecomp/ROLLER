@@ -722,6 +722,12 @@ void game_render_set_viewport(GameRenderer *renderer,
     scene_render_set_viewport(renderer->scene, x, y, w, h);
 }
 
+void game_render_set_projection_reference_height(GameRenderer *renderer,
+                                                  int height) {
+    if (renderer)
+        scene_render_set_projection_reference_height(renderer->scene, height);
+}
+
 void game_render_set_target(GameRenderer *renderer, uint8 *pixBuf,
                             int stride, int width, int height) {
     if (!renderer)
