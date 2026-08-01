@@ -685,6 +685,7 @@ fn configureRenderQueue3DTests(
         .flags = c_flags,
         .files = &.{
             "PROJECTS/ROLLER/sound_stub.c",
+            "PROJECTS/ROLLER/editor_track_loader.c",
             "PROJECTS/ROLLER/rollersound_stub.c",
             "PROJECTS/ROLLER/cdx_stub.c",
             "tests/sound_stub_test.c",
@@ -695,6 +696,9 @@ fn configureRenderQueue3DTests(
         .root_module = sound_stub_mod,
     });
     const run_sound_stub = b.addRunArtifact(sound_stub_exe);
+    run_sound_stub.addArg(
+        b.pathJoin(&.{ b.build_root.path orelse ".", "zig-out" }),
+    );
     const sound_stub_tests = b.step(
         "test-roller-core-sound-stubs",
         "Run roller-core null sound boundary tests",

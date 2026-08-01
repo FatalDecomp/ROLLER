@@ -5,8 +5,10 @@
  */
 #include "sound.h"
 #include "3d.h"
+#include "editor_track_loader.h"
 
 #include <SDL3/SDL_atomic.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -118,6 +120,58 @@ int languages;
 int net_loading;
 int already_quit;
 int network_error;
+
+/* Compacted-file loading is a shared asset service that historically lives
+ * in sound.c.  roller-core replaces sound.c with this null-audio boundary,
+ * but graphics.c still needs the service for track and building textures.
+ * Keep one decoded file cached between the legacy length/init/load calls so
+ * editor reloads do not decode each texture bank twice. */
+static tEdTrackStage s_CompactedStage;
+static char s_szCompactedPath[ROLLER_MAX_PATH];
+static size_t s_uiCompactedOffset;
+static int s_bCompactedStageLoaded;
+
+static void sound_stub_dispose_compacted_stage(void)
+{
+  ed_track_stage_dispose(&s_CompactedStage);
+  s_szCompactedPath[0] = '\0';
+  s_uiCompactedOffset = 0u;
+  s_bCompactedStageLoaded = 0;
+  unmangleinpoff = 0;
+  unmangledst = NULL;
+  unmangleoverflow = 0;
+  unmanglefile = NULL;
+  unmanglebufpos = 0;
+}
+
+static int sound_stub_stage_compacted_file(const char *szFilename)
+{
+  size_t uiPathLength;
+  char szError[256];
+
+  if (!szFilename)
+    return 0;
+  if (s_bCompactedStageLoaded
+      && strcmp(s_szCompactedPath, szFilename) == 0)
+    return -1;
+
+  sound_stub_dispose_compacted_stage();
+  uiPathLength = strlen(szFilename);
+  if (uiPathLength >= sizeof(s_szCompactedPath))
+    return 0;
+  if (ed_compacted_file_stage(
+          szFilename, &s_CompactedStage, szError, sizeof(szError))
+      != ED_TRACK_LOAD_OK)
+    return 0;
+  if (s_CompactedStage.uiDataLength > (size_t)INT_MAX) {
+    sound_stub_dispose_compacted_stage();
+    return 0;
+  }
+
+  memcpy(s_szCompactedPath, szFilename, uiPathLength + 1u);
+  s_bCompactedStageLoaded = -1;
+  return -1;
+}
 
 static void sound_stub_note_playback(void)
 {
@@ -554,43 +608,81 @@ void reinitmusic(void)
 
 int getcompactedfilelength(const char *szFilename)
 {
-  (void)szFilename;
-  return -1;
+  if (!sound_stub_stage_compacted_file(szFilename))
+    return -1;
+  return (int)s_CompactedStage.uiDataLength;
 }
 
 int initmangle(const char *szFilename)
 {
-  (void)szFilename;
+  if (!sound_stub_stage_compacted_file(szFilename))
+    return -1;
+  s_uiCompactedOffset = 0u;
+  unmangleinpoff = 4;
+  unmanglebufpos = 4;
+  unmangleoverflow = 0;
   return 0;
 }
 
 int uninitmangle(void)
 {
+  sound_stub_dispose_compacted_stage();
   return 0;
 }
 
 int loadcompactedfile(const char *szFilename, uint8 *pBuffer)
 {
-  (void)szFilename;
-  (void)pBuffer;
-  return -1;
+  if (!pBuffer || !sound_stub_stage_compacted_file(szFilename))
+    return -1;
+  memcpy(pBuffer, s_CompactedStage.pbyData,
+         s_CompactedStage.uiDataLength);
+  sound_stub_dispose_compacted_stage();
+  return 0;
 }
 
 void readmangled(uint8 *pBuffer, int iLength)
 {
-  (void)pBuffer;
-  (void)iLength;
+  size_t uiLength;
+  size_t uiRemaining;
+
+  if (!pBuffer || iLength <= 0 || !s_bCompactedStageLoaded)
+    return;
+  uiLength = (size_t)iLength;
+  uiRemaining = s_CompactedStage.uiDataLength - s_uiCompactedOffset;
+  if (uiLength > uiRemaining)
+    uiLength = uiRemaining;
+  memcpy(pBuffer + 40000, s_CompactedStage.pbyData + s_uiCompactedOffset,
+         uiLength);
+  s_uiCompactedOffset += uiLength;
+  unmangleinpoff = (int)s_uiCompactedOffset + 4;
+  unmangledst = pBuffer + 40000 + uiLength;
 }
 
 void loadcompactedfilepart(uint8 *pDestination, uint32 uiDestinationLength)
 {
-  (void)pDestination;
-  (void)uiDestinationLength;
+  size_t uiLength = (size_t)uiDestinationLength;
+  size_t uiRemaining;
+
+  if (!pDestination || !s_bCompactedStageLoaded)
+    return;
+  uiRemaining = s_CompactedStage.uiDataLength - s_uiCompactedOffset;
+  if (uiLength > uiRemaining)
+    uiLength = uiRemaining;
+  memcpy(pDestination, s_CompactedStage.pbyData + s_uiCompactedOffset,
+         uiLength);
+  s_uiCompactedOffset += uiLength;
+  unmangleinpoff = (int)s_uiCompactedOffset + 4;
+  unmangledst = pDestination + uiLength;
 }
 
 uint8 *unmangleGet(unsigned int uiPosition, unsigned int uiCount)
 {
-  (void)uiPosition;
-  (void)uiCount;
-  return NULL;
+  size_t uiOffset = (size_t)uiPosition;
+  size_t uiLength = (size_t)uiCount;
+
+  if (!s_bCompactedStageLoaded
+      || uiOffset > s_CompactedStage.uiDataLength
+      || uiLength > s_CompactedStage.uiDataLength - uiOffset)
+    return NULL;
+  return s_CompactedStage.pbyData + uiOffset;
 }
