@@ -37,7 +37,12 @@ class RollerCoreManifestTests(unittest.TestCase):
         )
         self.assertEqual(entries["PROJECTS/ROLLER/editor_surface.c"], "KEEP")
         self.assertEqual(entries["PROJECTS/ROLLER/editor_track_loader.c"], "KEEP")
-        self.assertEqual(entries["PROJECTS/ROLLER/gpu_parity.c"], "EXCLUDE")
+        self.assertEqual(
+            entries["PROJECTS/ROLLER/editor_core_host.c"], "KEEP"
+        )
+        self.assertEqual(
+            entries["PROJECTS/ROLLER/gpu_parity.c"], "PRESENT_BUT_DORMANT"
+        )
 
     def test_unclassified_translation_unit_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

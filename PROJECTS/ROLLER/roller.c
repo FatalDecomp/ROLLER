@@ -28,6 +28,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#if defined(_WIN32)
+#define strtok_r strtok_s
+#endif
 #if !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <SDL3_image/SDL_image.h>
 #endif
@@ -35,12 +38,12 @@
 #include <jni.h>
 #include <SDL3/SDL_system.h>
 #endif
-#if !defined(IS_ANDROID) && !defined(IS_WASM)
+#if !defined(ROLLER_EDITOR_CORE) && !defined(IS_ANDROID) && !defined(IS_WASM)
 #include <wildmidi_lib.h>
 #endif
 #include <fcntl.h>
 #include <sys/stat.h>
-#if !defined(IS_ANDROID)
+#if !defined(ROLLER_EDITOR_CORE) && !defined(IS_ANDROID)
 #include <cdio/cdio.h>
 #include <cdio/iso9660.h>
 #include <cdio/disc.h>

@@ -147,7 +147,9 @@ if(ROLLER_BUILD_EDITOR_CORE)
         POSITION_INDEPENDENT_CODE ON)
     target_include_directories(roller-core
         PUBLIC
-            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER>")
+            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER>"
+        PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/Nuklear-4.13.2")
     target_compile_definitions(roller-core PRIVATE ROLLER_EDITOR_CORE=1)
     target_compile_features(roller-core PUBLIC c_std_11)
     target_link_libraries(roller-core PRIVATE
@@ -156,7 +158,14 @@ if(ROLLER_BUILD_EDITOR_CORE)
     if(ROLLER_MATH_LIBRARY)
         target_link_libraries(roller-core PRIVATE "${ROLLER_MATH_LIBRARY}")
     endif()
+    if(WIN32)
+        target_link_libraries(roller-core PRIVATE winmm)
+    endif()
     roller_configure_c_target(roller-core)
+
+    add_executable(editor-core-link-test tests/editor_core_link_test.c)
+    target_link_libraries(editor-core-link-test PRIVATE ROLLER::core)
+    roller_configure_c_target(editor-core-link-test)
 endif()
 
 if(ROLLER_BUILD_GAME)

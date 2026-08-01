@@ -4,30 +4,11 @@
 # Valid categories are EXCLUDE, STUB_SWAP, KEEP, and PRESENT_BUT_DORMANT.
 # Every C translation unit directly under PROJECTS/ROLLER must occur exactly once.
 #
-# EXCLUDE: game entry points, frontends, networking, real sound/CD services,
-# platform-specific UI, and test-only code that is not linked into roller-core.
+# EXCLUDE: game entry points, real sound/CD services, platform-only support,
+# and test-only code that is not linked into roller-core.
 EXCLUDE|PROJECTS/ROLLER/roller.c
 EXCLUDE|PROJECTS/ROLLER/roller_web.c
-EXCLUDE|PROJECTS/ROLLER/frontend.c
-EXCLUDE|PROJECTS/ROLLER/frontend_config.c
-EXCLUDE|PROJECTS/ROLLER/frontend_data.c
-EXCLUDE|PROJECTS/ROLLER/frontend_lobby.c
-EXCLUDE|PROJECTS/ROLLER/frontend_pause.c
-EXCLUDE|PROJECTS/ROLLER/frontend_screens.c
-EXCLUDE|PROJECTS/ROLLER/frontend_select_car.c
-EXCLUDE|PROJECTS/ROLLER/frontend_select_disk.c
-EXCLUDE|PROJECTS/ROLLER/frontend_select_players.c
-EXCLUDE|PROJECTS/ROLLER/frontend_select_track.c
-EXCLUDE|PROJECTS/ROLLER/frontend_select_type.c
-EXCLUDE|PROJECTS/ROLLER/frontend_util.c
-EXCLUDE|PROJECTS/ROLLER/menu_render.c
-EXCLUDE|PROJECTS/ROLLER/menu_render_gpu.c
-EXCLUDE|PROJECTS/ROLLER/menu_render_software.c
 EXCLUDE|PROJECTS/ROLLER/nuklear_sdl_renderer.c
-EXCLUDE|PROJECTS/ROLLER/phone_ui.c
-EXCLUDE|PROJECTS/ROLLER/touch_ui.c
-EXCLUDE|PROJECTS/ROLLER/network.c
-EXCLUDE|PROJECTS/ROLLER/comms.c
 EXCLUDE|PROJECTS/ROLLER/rollercomms.c
 EXCLUDE|PROJECTS/ROLLER/sound.c
 EXCLUDE|PROJECTS/ROLLER/rollersound.c
@@ -36,11 +17,8 @@ EXCLUDE|PROJECTS/ROLLER/cdx.c
 EXCLUDE|PROJECTS/ROLLER/rollercd.c
 EXCLUDE|PROJECTS/ROLLER/web_default_config.c
 EXCLUDE|PROJECTS/ROLLER/web_gamepad_axis.c
-EXCLUDE|PROJECTS/ROLLER/snapshot.c
-EXCLUDE|PROJECTS/ROLLER/snapshot_scenes.c
 EXCLUDE|PROJECTS/ROLLER/crashdump.c
 EXCLUDE|PROJECTS/ROLLER/debug_overlay.c
-EXCLUDE|PROJECTS/ROLLER/gpu_parity.c
 
 # STUB_SWAP: link the inert implementation in roller-core in place of the
 # corresponding real implementation listed in EXCLUDE.
@@ -88,6 +66,7 @@ KEEP|PROJECTS/ROLLER/editor_legacy_scene.c
 KEEP|PROJECTS/ROLLER/editor_reference_mesh.c
 KEEP|PROJECTS/ROLLER/editor_surface.c
 KEEP|PROJECTS/ROLLER/editor_track_loader.c
+KEEP|PROJECTS/ROLLER/editor_core_host.c
 
 # PRESENT_BUT_DORMANT: required by the legacy load/render dependency graph,
 # but not driven directly by an editor host.
@@ -98,3 +77,25 @@ PRESENT_BUT_DORMANT|PROJECTS/ROLLER/engines.c
 PRESENT_BUT_DORMANT|PROJECTS/ROLLER/replay.c
 PRESENT_BUT_DORMANT|PROJECTS/ROLLER/control.c
 PRESENT_BUT_DORMANT|PROJECTS/ROLLER/rollerinput.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_config.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_data.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_lobby.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_pause.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_screens.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_select_car.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_select_disk.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_select_players.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_select_track.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_select_type.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/frontend_util.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/menu_render.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/menu_render_gpu.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/menu_render_software.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/phone_ui.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/touch_ui.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/network.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/comms.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/snapshot.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/snapshot_scenes.c
+PRESENT_BUT_DORMANT|PROJECTS/ROLLER/gpu_parity.c

@@ -15,6 +15,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#if defined(_WIN32)
+#define strtok_r strtok_s
+#endif
+
 //-------------------------------------------------------------------------------------------------
 
 int g_bSnapshotMode = 0;

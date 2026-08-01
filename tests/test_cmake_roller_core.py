@@ -110,10 +110,13 @@ class CMakeRollerCoreTests(unittest.TestCase):
             source_names = {
                 Path(source["path"]).name for source in core_target["sources"]
             }
-            self.assertEqual(len(source_names), 49)
+            self.assertEqual(len(source_names), 72)
             self.assertIn("editor_camera.c", source_names)
             self.assertIn("editor_api.c", source_names)
             self.assertIn("editor_legacy_scene.c", source_names)
+            self.assertIn("editor_core_host.c", source_names)
+            self.assertIn("frontend.c", source_names)
+            self.assertIn("network.c", source_names)
             self.assertIn("roller_core_error.c", source_names)
             self.assertIn("sound_stub.c", source_names)
             self.assertIn("rollersound_stub.c", source_names)
@@ -121,6 +124,7 @@ class CMakeRollerCoreTests(unittest.TestCase):
             self.assertNotIn("sound.c", source_names)
             self.assertNotIn("rollersound.c", source_names)
             self.assertNotIn("cdx.c", source_names)
+            self.assertIn("editor-core-link-test", targets_by_name)
 
 
 if __name__ == "__main__":

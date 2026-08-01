@@ -413,12 +413,7 @@ fn configureRenderQueue3DTests(
     });
     editor_track_only_mod.addCSourceFiles(.{
         .flags = c_flags,
-        .files = editorAcceptanceHostSources(),
-    });
-    editor_track_only_mod.addCSourceFiles(.{
-        .flags = c_flags,
         .files = &.{
-            "tests/editor_acceptance_roller_host.c",
             "tests/editor_track_only_acceptance.c",
         },
     });
@@ -464,12 +459,7 @@ fn configureRenderQueue3DTests(
     });
     editor_software_mod.addCSourceFiles(.{
         .flags = c_flags,
-        .files = editorAcceptanceHostSources(),
-    });
-    editor_software_mod.addCSourceFiles(.{
-        .flags = c_flags,
         .files = &.{
-            "tests/editor_acceptance_roller_host.c",
             "tests/editor_software_acceptance.c",
         },
     });
@@ -510,12 +500,7 @@ fn configureRenderQueue3DTests(
     });
     editor_renderer_switch_mod.addCSourceFiles(.{
         .flags = c_flags,
-        .files = editorAcceptanceHostSources(),
-    });
-    editor_renderer_switch_mod.addCSourceFiles(.{
-        .flags = c_flags,
         .files = &.{
-            "tests/editor_acceptance_roller_host.c",
             "tests/editor_renderer_switch_acceptance.c",
         },
     });
@@ -1387,33 +1372,6 @@ fn rollerCoreSources(b: *Build) []const []const u8 {
         ) catch @panic("out of memory");
     }
     return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
-}
-
-fn editorAcceptanceHostSources() []const []const u8 {
-    return &.{
-        "PROJECTS/ROLLER/frontend.c",
-        "PROJECTS/ROLLER/frontend_config.c",
-        "PROJECTS/ROLLER/frontend_data.c",
-        "PROJECTS/ROLLER/frontend_lobby.c",
-        "PROJECTS/ROLLER/frontend_pause.c",
-        "PROJECTS/ROLLER/frontend_screens.c",
-        "PROJECTS/ROLLER/frontend_select_car.c",
-        "PROJECTS/ROLLER/frontend_select_disk.c",
-        "PROJECTS/ROLLER/frontend_select_players.c",
-        "PROJECTS/ROLLER/frontend_select_track.c",
-        "PROJECTS/ROLLER/frontend_select_type.c",
-        "PROJECTS/ROLLER/frontend_util.c",
-        "PROJECTS/ROLLER/menu_render.c",
-        "PROJECTS/ROLLER/menu_render_gpu.c",
-        "PROJECTS/ROLLER/menu_render_software.c",
-        "PROJECTS/ROLLER/phone_ui.c",
-        "PROJECTS/ROLLER/touch_ui.c",
-        "PROJECTS/ROLLER/network.c",
-        "PROJECTS/ROLLER/comms.c",
-        "PROJECTS/ROLLER/snapshot.c",
-        "PROJECTS/ROLLER/snapshot_scenes.c",
-        "PROJECTS/ROLLER/gpu_parity.c",
-    };
 }
 
 const compile_flagz = @import("compile_flagz");
