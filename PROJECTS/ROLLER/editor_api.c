@@ -1,4 +1,5 @@
 #include "editor_api.h"
+#include "editor_legacy_scene.h"
 #include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -7,6 +8,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,6 +145,7 @@ static eRollerEdResult roller_ed_require_worker(void)
 
 static void roller_ed_release_worker_resources(void)
 {
+    roller_ed_legacy_scene_shutdown();
     free(s_szAssetRoot);
     s_szAssetRoot = NULL;
     s_ePreferredRenderer = ROLLER_ED_RENDERER_GPU;
@@ -336,8 +339,7 @@ uint32_t ROLLER_ED_CALL RollerEd_GetAvailableRenderers(void)
     if (roller_ed_require_worker() != ROLLER_ED_RESULT_OK)
         return 0u;
 
-    /* Availability probing and lazy GPU creation land in E1-S8. */
-    return 0u;
+    return roller_ed_legacy_scene_get_available_renderers();
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(eRollerEdRenderer eKind)
@@ -351,8 +353,11 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(eRollerEdRenderer eKind)
         roller_ed_set_error("invalid renderer %u", eKind);
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
-    roller_ed_set_error("renderer selection is not implemented yet");
-    return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+    eResult = roller_ed_legacy_scene_select_renderer(
+        eKind, s_szLastError, sizeof(s_szLastError));
+    if (eResult == ROLLER_ED_RESULT_OK)
+        s_ePreferredRenderer = eKind;
+    return eResult;
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
@@ -375,9 +380,22 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
         szTrackPath, &Staged, s_szLastError, sizeof(s_szLastError));
     if (eLoadResult != ED_TRACK_LOAD_OK) {
         ed_track_stage_dispose(&Staged);
+        roller_ed_legacy_scene_unload();
         roller_ed_clear_scene(ROLLER_ED_SCENE_FAILED);
         roller_ed_advance_geometry_epoch();
         return roller_ed_track_load_result(eLoadResult);
+    }
+
+    eResult = roller_ed_legacy_scene_install(
+        szTrackPath, &Staged, szDocumentAssetRoot, s_szAssetRoot,
+        s_ePreferredRenderer, s_uiAllowSoftwareFallback,
+        s_szLastError, sizeof(s_szLastError));
+    if (eResult != ROLLER_ED_RESULT_OK) {
+        ed_track_stage_dispose(&Staged);
+        roller_ed_legacy_scene_unload();
+        roller_ed_clear_scene(ROLLER_ED_SCENE_FAILED);
+        roller_ed_advance_geometry_epoch();
+        return eResult;
     }
 
     ed_track_stage_dispose(&s_TrackStage);
@@ -394,6 +412,7 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void)
 
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
+    roller_ed_legacy_scene_unload();
     roller_ed_clear_scene(ROLLER_ED_SCENE_EMPTY);
     roller_ed_advance_geometry_epoch();
     return ROLLER_ED_RESULT_OK;
@@ -414,8 +433,16 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(const tEdCameraState *pCam)
         "tEdCameraState");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade camera control is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    if (!isfinite(pCam->fPosition[0])
+            || !isfinite(pCam->fPosition[1])
+            || !isfinite(pCam->fPosition[2])
+            || !isfinite(pCam->fYawDegrees)
+            || !isfinite(pCam->fPitchDegrees)) {
+        roller_ed_set_error("camera position and angles must be finite");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    return roller_ed_legacy_scene_set_camera(
+        pCam, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_RenderFrame(
@@ -439,8 +466,9 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_RenderFrame(
         roller_ed_set_error("there is no renderable scene");
         return ROLLER_ED_RESULT_NO_SCENE;
     }
-    roller_ed_set_error("facade rendering is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    return roller_ed_legacy_scene_render(
+        pbyPixels, uiBufferSize, uiRowPitch, uiWidth, uiHeight,
+        s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_SetOverlayState(

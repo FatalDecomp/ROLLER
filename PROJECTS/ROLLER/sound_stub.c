@@ -4,8 +4,10 @@
  * every playback operation inert. The game continues to link sound.c.
  */
 #include "sound.h"
+#include "3d.h"
 
 #include <SDL3/SDL_atomic.h>
+#include <stdlib.h>
 #include <string.h>
 
 volatile uint64 ullLastTickTimeNs;
@@ -128,16 +130,59 @@ static void sound_stub_note_playback(void)
 
 bool loadDOS(const char *szFilename, void **pOutBuffer)
 {
-  (void)szFilename;
-  if (pOutBuffer)
-    *pOutBuffer = NULL;
-  return false;
+  FILE *pFile;
+  long lFileLength;
+  void *pBuffer;
+
+  if (!pOutBuffer)
+    return false;
+  *pOutBuffer = NULL;
+  /* Editor palette paths are resolved to absolute paths before this null
+   * sound boundary is called, so no game-global filesystem service is needed. */
+  pFile = fopen(szFilename, "rb");
+  if (!pFile)
+    return false;
+  if (fseek(pFile, 0, SEEK_END) != 0
+      || (lFileLength = ftell(pFile)) <= 0
+      || fseek(pFile, 0, SEEK_SET) != 0) {
+    fclose(pFile);
+    return false;
+  }
+  pBuffer = malloc((size_t)lFileLength);
+  if (!pBuffer) {
+    fclose(pFile);
+    return false;
+  }
+  if (fread(pBuffer, 1, (size_t)lFileLength, pFile)
+      != (size_t)lFileLength) {
+    free(pBuffer);
+    fclose(pFile);
+    return false;
+  }
+  fclose(pFile);
+  *pOutBuffer = pBuffer;
+  return true;
 }
 
 bool setpal(const char *szFilename)
 {
-  (void)szFilename;
-  return false;
+  void *pFileData = NULL;
+  const uint8 *pbyRaw;
+
+  if (!loadDOS(szFilename, &pFileData))
+    return false;
+  if (pal_addr)
+    free(pal_addr);
+  pal_addr = (tColor *)pFileData;
+  pal_selector = pFileData;
+  pbyRaw = (const uint8 *)pFileData;
+  for (int iColor = 0; iColor < 256; ++iColor) {
+    palette[iColor].byR = pbyRaw[iColor * 3 + 0];
+    palette[iColor].byG = pbyRaw[iColor * 3 + 1];
+    palette[iColor].byB = pbyRaw[iColor * 3 + 2];
+  }
+  palette_brightness = 32;
+  return true;
 }
 
 void blankpal(void)
@@ -433,6 +478,16 @@ void fade_audio_restore(void)
 
 void palette_sync_pal_addr(void)
 {
+  if (!pal_addr)
+    return;
+  for (int iColor = 0; iColor < 256; ++iColor) {
+    pal_addr[iColor].byR =
+      (uint8)((palette[iColor].byR * palette_brightness) >> 5);
+    pal_addr[iColor].byG =
+      (uint8)((palette[iColor].byG * palette_brightness) >> 5);
+    pal_addr[iColor].byB =
+      (uint8)((palette[iColor].byB * palette_brightness) >> 5);
+  }
 }
 
 void fade_palette_finish(void)

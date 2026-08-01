@@ -29,7 +29,9 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/control.c
     PROJECTS/ROLLER/date.c
     PROJECTS/ROLLER/drawtrk3.c
+    PROJECTS/ROLLER/editor_camera.c
     PROJECTS/ROLLER/editor_api.c
+    PROJECTS/ROLLER/editor_legacy_scene.c
     PROJECTS/ROLLER/editor_reference_mesh.c
     PROJECTS/ROLLER/editor_surface.c
     PROJECTS/ROLLER/editor_track_loader.c
@@ -147,6 +149,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
         PUBLIC
             "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER>")
     target_compile_definitions(roller-core PRIVATE ROLLER_EDITOR_CORE=1)
+    target_compile_features(roller-core PUBLIC c_std_11)
     target_link_libraries(roller-core PRIVATE
         SDL3::SDL3
         SDL3_image::SDL3_image)

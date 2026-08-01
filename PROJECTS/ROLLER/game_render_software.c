@@ -108,14 +108,99 @@ void game_render_sw_begin_frame(GameRendererSoftware *sw) {
     (void)sw;
 }
 
-void game_render_sw_end_frame(GameRendererSoftware *sw) {
+static void game_render_sw_finish_frame(GameRendererSoftware *sw) {
     game_render_sw_start_pending_fade_in(sw);
     if (fade_palette_active())
         fade_palette_update();
     else
         palette_sync_pal_addr();
-    if (pal_addr) g_bPaletteSet = true;
+    if (pal_addr)
+        g_bPaletteSet = true;
+}
+
+void game_render_sw_end_frame(GameRendererSoftware *sw) {
+    game_render_sw_finish_frame(sw);
     UpdateSDLWindow();
+}
+
+bool game_render_sw_end_frame_readback(
+    GameRendererSoftware *sw,
+    const uint8 *pbyIndexedPixels,
+    uint32_t uiIndexedRowPitch,
+    uint32_t uiNativeWidth,
+    uint32_t uiNativeHeight,
+    uint8 *pbyRGBA,
+    uint32_t uiRGBABufferSize,
+    uint32_t uiRGBARowPitch,
+    uint32_t uiRGBAWidth,
+    uint32_t uiRGBAHeight)
+{
+    uint32_t uiScaledWidth;
+    uint32_t uiScaledHeight;
+    uint32_t uiOffsetX;
+    uint32_t uiOffsetY;
+
+    if (!sw || !pbyIndexedPixels || !pal_addr || !pbyRGBA
+            || uiNativeWidth == 0u || uiNativeHeight == 0u
+            || uiRGBAWidth == 0u || uiRGBAHeight == 0u
+            || uiIndexedRowPitch < uiNativeWidth
+            || uiRGBAWidth > UINT32_MAX / 4u
+            || uiRGBARowPitch < uiRGBAWidth * 4u
+            || uiRGBARowPitch > UINT32_MAX / uiRGBAHeight
+            || uiRGBABufferSize < uiRGBARowPitch * uiRGBAHeight)
+        return false;
+
+    game_render_sw_finish_frame(sw);
+
+    if ((uint64_t)uiRGBAWidth * uiNativeHeight
+            <= (uint64_t)uiRGBAHeight * uiNativeWidth) {
+        uiScaledWidth = uiRGBAWidth;
+        uiScaledHeight = (uint32_t)(
+            (uint64_t)uiRGBAWidth * uiNativeHeight / uiNativeWidth);
+    } else {
+        uiScaledHeight = uiRGBAHeight;
+        uiScaledWidth = (uint32_t)(
+            (uint64_t)uiRGBAHeight * uiNativeWidth / uiNativeHeight);
+    }
+    if (uiScaledWidth == 0u)
+        uiScaledWidth = 1u;
+    if (uiScaledHeight == 0u)
+        uiScaledHeight = 1u;
+    uiOffsetX = (uiRGBAWidth - uiScaledWidth) / 2u;
+    uiOffsetY = (uiRGBAHeight - uiScaledHeight) / 2u;
+
+    for (uint32_t uiY = 0; uiY < uiRGBAHeight; ++uiY) {
+        uint8 *pbyRow = pbyRGBA + (size_t)uiY * uiRGBARowPitch;
+        for (uint32_t uiX = 0; uiX < uiRGBAWidth; ++uiX) {
+            pbyRow[uiX * 4u + 0u] = 0u;
+            pbyRow[uiX * 4u + 1u] = 0u;
+            pbyRow[uiX * 4u + 2u] = 0u;
+            pbyRow[uiX * 4u + 3u] = 255u;
+        }
+    }
+
+    for (uint32_t uiY = 0; uiY < uiScaledHeight; ++uiY) {
+        uint32_t uiSourceY = (uint32_t)(
+            (uint64_t)uiY * uiNativeHeight / uiScaledHeight);
+        const uint8 *pbySourceRow = pbyIndexedPixels
+                                  + (size_t)uiSourceY * uiIndexedRowPitch;
+        uint8 *pbyDestRow = pbyRGBA
+                          + (size_t)(uiOffsetY + uiY) * uiRGBARowPitch
+                          + (size_t)uiOffsetX * 4u;
+
+        for (uint32_t uiX = 0; uiX < uiScaledWidth; ++uiX) {
+            uint32_t uiSourceX = (uint32_t)(
+                (uint64_t)uiX * uiNativeWidth / uiScaledWidth);
+            const tColor *pColour = &pal_addr[pbySourceRow[uiSourceX]];
+
+            pbyDestRow[uiX * 4u + 0u] = (uint8_t)(pColour->byR * 255u / 63u);
+            pbyDestRow[uiX * 4u + 1u] = (uint8_t)(pColour->byG * 255u / 63u);
+            pbyDestRow[uiX * 4u + 2u] = (uint8_t)(pColour->byB * 255u / 63u);
+            pbyDestRow[uiX * 4u + 3u] = 255u;
+        }
+    }
+
+    return true;
 }
 
 // ---------------------------------------------------------------------------

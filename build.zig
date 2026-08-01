@@ -75,7 +75,9 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
             "PROJECTS/ROLLER/drawtrk3.c",
+            "PROJECTS/ROLLER/editor_camera.c",
             "PROJECTS/ROLLER/editor_api.c",
+            "PROJECTS/ROLLER/editor_legacy_scene.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -315,7 +317,9 @@ pub fn build(b: *std.Build) void {
     });
     run_step.dependOn(&wildmidi_config_install.step);
 
-    configureRenderQueue3DTests(b, target, optimize, c_flags, python_checks);
+    configureRenderQueue3DTests(
+        b, target, optimize, c_flags, python_checks, assets_path,
+    );
 
     // Snapshot regression harness: drive the snapshot binary serially across
     // every configured intro replay, writing PNGs straight into the
@@ -326,6 +330,7 @@ pub fn build(b: *std.Build) void {
     // refresh run produces a clean exit before the developer commits.
     configureSnapshotTests(b, exe, assets_path);
     configureEpicFPathReloadTests(b, exe, assets_path);
+    configureE1S4DocumentAssetTests(b, exe, assets_path);
 }
 
 fn configureRenderQueue3DTests(
@@ -334,6 +339,7 @@ fn configureRenderQueue3DTests(
     optimize: OptimizeMode,
     c_flags: []const []const u8,
     python_checks: bool,
+    assets_path: LazyPath,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -367,6 +373,164 @@ fn configureRenderQueue3DTests(
         "Run render_queue_3d sort/mapping tests",
     );
     render_queue_tests.dependOn(&run_unit.step);
+
+    const sdl_image = b.dependency("SDL_image", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sdl_image_source = sdl_image.builder.dependency("SDL_image", .{
+        .lto = .none,
+    });
+    const wildmidi = b.dependency("wildmidi", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const libcdio = b.dependency("libcdio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const editor_track_only_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_track_only_mod.sanitize_c = .off;
+    editor_track_only_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_track_only_mod.addIncludePath(sdl.builder.path("include"));
+    editor_track_only_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_track_only_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_track_only_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_track_only_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_track_only_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_track_only_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_track_only_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_track_only_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_track_only_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_track_only_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_track_only_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_track_only_acceptance.c",
+        },
+    });
+    const editor_track_only_exe = b.addExecutable(.{
+        .name = "editor_track_only_acceptance",
+        .root_module = editor_track_only_mod,
+    });
+    const run_editor_track_only = b.addRunArtifact(editor_track_only_exe);
+    run_editor_track_only.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_track_only.addDirectoryArg(assets_path);
+    const editor_track_only_tests = b.step(
+        "test-e1-s6-track-only",
+        "Run real-facade zero-car track-only render acceptance (retail assets)",
+    );
+    editor_track_only_tests.dependOn(&run_editor_track_only.step);
+    const editor_visibility_tests = b.step(
+        "test-e1-s6b-visibility",
+        "Run camera-derived full-track editor visibility acceptance (retail assets)",
+    );
+    editor_visibility_tests.dependOn(&run_editor_track_only.step);
+
+    const editor_software_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_software_mod.sanitize_c = .off;
+    editor_software_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_software_mod.addIncludePath(sdl.builder.path("include"));
+    editor_software_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_software_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_software_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_software_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_software_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_software_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_software_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_software_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_software_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_software_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_software_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_software_acceptance.c",
+        },
+    });
+    const editor_software_exe = b.addExecutable(.{
+        .name = "editor_software_acceptance",
+        .root_module = editor_software_mod,
+    });
+    const run_editor_software = b.addRunArtifact(editor_software_exe);
+    run_editor_software.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_software.addDirectoryArg(assets_path);
+    const editor_software_tests = b.step(
+        "test-e1-s7-software",
+        "Run GPU-free software RGBA8 scaling/letterbox acceptance (retail assets)",
+    );
+    editor_software_tests.dependOn(&run_editor_software.step);
+
+    const editor_renderer_switch_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_renderer_switch_mod.sanitize_c = .off;
+    editor_renderer_switch_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_renderer_switch_mod.addIncludePath(sdl.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_renderer_switch_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_renderer_switch_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_renderer_switch_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_renderer_switch_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_renderer_switch_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_renderer_switch_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_renderer_switch_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = editorAcceptanceHostSources(),
+    });
+    editor_renderer_switch_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_acceptance_roller_host.c",
+            "tests/editor_renderer_switch_acceptance.c",
+        },
+    });
+    const editor_renderer_switch_exe = b.addExecutable(.{
+        .name = "editor_renderer_switch_acceptance",
+        .root_module = editor_renderer_switch_mod,
+    });
+    const run_editor_renderer_switch = b.addRunArtifact(editor_renderer_switch_exe);
+    run_editor_renderer_switch.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_renderer_switch.addDirectoryArg(assets_path);
+    const editor_renderer_switch_tests = b.step(
+        "test-e1-s8-renderer-switch",
+        "Run loaded-scene software/GPU renderer-switch acceptance (retail assets)",
+    );
+    editor_renderer_switch_tests.dependOn(&run_editor_renderer_switch.step);
 
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{
@@ -497,11 +661,32 @@ fn configureRenderQueue3DTests(
 
     const editor_api_tests = b.step(
         "test-editor-api",
-        "Run E0-S6/S7 facade lifecycle, error-boundary, and ABI tests",
+        "Run facade lifecycle, camera, error-boundary, and ABI tests",
     );
     editor_api_tests.dependOn(&run_editor_api.step);
     editor_api_tests.dependOn(&run_editor_api_cpp.step);
     editor_api_tests.dependOn(&run_core_error.step);
+
+    const editor_camera_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_camera_mod.addIncludePath(sdl.builder.path("include"));
+    editor_camera_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_camera_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_camera.c",
+            "tests/editor_camera_test.c",
+        },
+    });
+    const editor_camera_exe = b.addExecutable(.{
+        .name = "editor_camera_test",
+        .root_module = editor_camera_mod,
+    });
+    const run_editor_camera = b.addRunArtifact(editor_camera_exe);
+    editor_api_tests.dependOn(&run_editor_camera.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{
@@ -909,6 +1094,30 @@ fn configureEpicFPathReloadTests(
     f_s3_live_test.dependOn(&run_test.step);
 }
 
+fn configureE1S4DocumentAssetTests(
+    b: *Build,
+    roller_exe: *Compile,
+    assets_path: LazyPath,
+) void {
+    const scratch_abs = b.pathJoin(&.{
+        b.build_root.path orelse ".",
+        "zig-out",
+        "e1-s4-document-assets",
+    });
+    const run_test = b.addSystemCommand(&.{pythonExe()});
+    run_test.addFileArg(b.path("tools/test_e1_s4_document_assets.py"));
+    run_test.addArtifactArg(roller_exe);
+    run_test.addDirectoryArg(assets_path);
+    run_test.addArg(scratch_abs);
+    run_test.has_side_effects = true;
+
+    const e1_s4_test = b.step(
+        "test-e1-s4-document-assets",
+        "Run direct-stage per-document asset resolution and render checks",
+    );
+    e1_s4_test.dependOn(&run_test.step);
+}
+
 fn configureDependencies(
     b: *Build,
     exe: *Compile,
@@ -1152,6 +1361,59 @@ fn androidNdkHostTag() []const u8 {
 
 fn pythonExe() []const u8 {
     return if (host_builtin.os.tag == .windows) "python" else "python3";
+}
+
+fn rollerCoreSources(b: *Build) []const []const u8 {
+    var sources: ArrayList([]const u8) = .empty;
+    var lines = std.mem.splitScalar(
+        u8,
+        @embedFile("roller-core.srclist"),
+        '\n',
+    );
+
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t\r");
+        if (line.len == 0 or line[0] == '#')
+            continue;
+        const separator = std.mem.indexOfScalar(u8, line, '|') orelse
+            @panic("invalid roller-core manifest line");
+        const category = line[0..separator];
+        if (std.mem.eql(u8, category, "EXCLUDE"))
+            continue;
+        const source = std.mem.trim(u8, line[separator + 1 ..], " \t");
+        sources.append(
+            b.allocator,
+            b.allocator.dupe(u8, source) catch @panic("out of memory"),
+        ) catch @panic("out of memory");
+    }
+    return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
+}
+
+fn editorAcceptanceHostSources() []const []const u8 {
+    return &.{
+        "PROJECTS/ROLLER/frontend.c",
+        "PROJECTS/ROLLER/frontend_config.c",
+        "PROJECTS/ROLLER/frontend_data.c",
+        "PROJECTS/ROLLER/frontend_lobby.c",
+        "PROJECTS/ROLLER/frontend_pause.c",
+        "PROJECTS/ROLLER/frontend_screens.c",
+        "PROJECTS/ROLLER/frontend_select_car.c",
+        "PROJECTS/ROLLER/frontend_select_disk.c",
+        "PROJECTS/ROLLER/frontend_select_players.c",
+        "PROJECTS/ROLLER/frontend_select_track.c",
+        "PROJECTS/ROLLER/frontend_select_type.c",
+        "PROJECTS/ROLLER/frontend_util.c",
+        "PROJECTS/ROLLER/menu_render.c",
+        "PROJECTS/ROLLER/menu_render_gpu.c",
+        "PROJECTS/ROLLER/menu_render_software.c",
+        "PROJECTS/ROLLER/phone_ui.c",
+        "PROJECTS/ROLLER/touch_ui.c",
+        "PROJECTS/ROLLER/network.c",
+        "PROJECTS/ROLLER/comms.c",
+        "PROJECTS/ROLLER/snapshot.c",
+        "PROJECTS/ROLLER/snapshot_scenes.c",
+        "PROJECTS/ROLLER/gpu_parity.c",
+    };
 }
 
 const compile_flagz = @import("compile_flagz");

@@ -17,6 +17,17 @@ void game_render_sw_destroy(GameRendererSoftware *sw);
 // Frame lifecycle
 void game_render_sw_begin_frame(GameRendererSoftware *sw);
 void game_render_sw_end_frame(GameRendererSoftware *sw);
+bool game_render_sw_end_frame_readback(
+    GameRendererSoftware *sw,
+    const uint8 *pbyIndexedPixels,
+    uint32_t uiIndexedRowPitch,
+    uint32_t uiNativeWidth,
+    uint32_t uiNativeHeight,
+    uint8 *pbyRGBA,
+    uint32_t uiRGBABufferSize,
+    uint32_t uiRGBARowPitch,
+    uint32_t uiRGBAWidth,
+    uint32_t uiRGBAHeight);
 
 // Viewport
 void game_render_sw_set_viewport(GameRendererSoftware *sw,

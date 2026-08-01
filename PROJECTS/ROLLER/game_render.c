@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <math.h>
 
 struct GameRenderer {
@@ -58,6 +59,12 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->window = window;
     r->sw = game_render_sw_create(device, window);
     r->scene = scene_render_create(device, window);
+    if (!r->sw || !r->scene) {
+        scene_render_destroy(r->scene);
+        game_render_sw_destroy(r->sw);
+        free(r);
+        return NULL;
+    }
 #if !defined(IS_WASM)
     r->gpu   = scene_render_get_gpu(r->scene);
 #endif
@@ -129,6 +136,42 @@ void game_render_set_debug_overlay(GameRenderer *renderer, DebugOverlay *overlay
 
 GameRenderMode game_render_get_mode(const GameRenderer *renderer) {
     return renderer->mode;
+}
+
+bool game_render_attach_gpu_device(GameRenderer *renderer,
+                                   SDL_GPUDevice *device) {
+#if defined(IS_WASM)
+    (void)renderer;
+    (void)device;
+    return false;
+#else
+    GameRendererHardware *candidateHW;
+
+    if (!renderer || !device)
+        return false;
+    if (renderer->gpu)
+        return renderer->device == device;
+
+    candidateHW = game_render_hw_create(device);
+    if (!candidateHW) {
+        SDL_SetError("game GPU backend allocation failed");
+        return false;
+    }
+    if (!scene_render_attach_gpu_device(renderer->scene, device)) {
+        char error[256];
+
+        snprintf(error, sizeof(error), "%s", SDL_GetError());
+        game_render_hw_destroy(candidateHW);
+        SDL_SetError("%s", error);
+        return false;
+    }
+
+    game_render_hw_destroy(renderer->hw);
+    renderer->hw = candidateHW;
+    renderer->gpu = scene_render_get_gpu(renderer->scene);
+    renderer->device = device;
+    return renderer->gpu != NULL;
+#endif
 }
 
 void game_render_set_split_screen(GameRenderer *renderer, bool split) {
@@ -225,6 +268,26 @@ void game_render_end_frame(GameRenderer *renderer) {
         scene_render_gpu_end_frame(renderer->gpu);
     }
 #endif
+}
+
+bool game_render_end_frame_software_readback(
+    GameRenderer *renderer,
+    const uint8 *pbyIndexedPixels,
+    uint32_t uiIndexedRowPitch,
+    uint32_t uiNativeWidth,
+    uint32_t uiNativeHeight,
+    uint8 *pbyRGBA,
+    uint32_t uiRGBABufferSize,
+    uint32_t uiRGBARowPitch,
+    uint32_t uiRGBAWidth,
+    uint32_t uiRGBAHeight)
+{
+    if (!renderer || renderer->mode != GAME_RENDER_SOFTWARE)
+        return false;
+    return game_render_sw_end_frame_readback(
+        renderer->sw, pbyIndexedPixels, uiIndexedRowPitch,
+        uiNativeWidth, uiNativeHeight, pbyRGBA, uiRGBABufferSize,
+        uiRGBARowPitch, uiRGBAWidth, uiRGBAHeight);
 }
 
 #if !defined(IS_WASM)

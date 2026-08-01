@@ -11,6 +11,7 @@
 #include "roller.h"
 #include "render_queue_3d.h"
 #include "editor_surface.h"
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -738,6 +739,103 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   start_sect = result;
   return result;
 }
+
+#if defined(ROLLER_EDITOR_CORE)
+//-------------------------------------------------------------------------------------------------
+// Editor visibility has no car anchor. Find the closest section to the
+// explicit facade camera across the complete track, then initialize a
+// gap-free legacy range. Rendering the full track is intentional here: an
+// editor camera may be arbitrarily far from the circuit and must never lose
+// sections because a gameplay draw-distance window was selected elsewhere.
+int CalcVisibleTrackEditor(unsigned int uiViewMode)
+{
+  double dMinDistanceSquared = DBL_MAX;
+  double dTrackX = 0.0;
+  double dTrackY = 0.0;
+  double dTrackLengthSquared = 0.0;
+  float fViewAlignment = 1.0f;
+  int iCurrChunk = -1;
+
+  (void)uiViewMode;
+  set_starts(0);
+
+  if (TRAK_LEN <= 0 || TRAK_LEN > MAX_TRACK_CHUNKS) {
+    TrackSize = -1;
+    start_sect = 0;
+    first_size = -1;
+    gap_size = 0;
+    next_front = -1;
+    mid_sec = -1;
+    front_sec = 0;
+    back_sec = 0;
+    backwards = 0;
+    alltrackflag = 0;
+    return -1;
+  }
+
+  for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+    const tVec3 *pCenter = &localdata[iChunk].pointAy[3];
+    double dDeltaX = -(double)pCenter->fX - (double)viewx;
+    double dDeltaY = -(double)pCenter->fY - (double)viewy;
+    double dDeltaZ = -(double)pCenter->fZ - (double)viewz;
+    double dDistanceSquared = dDeltaX * dDeltaX
+                            + dDeltaY * dDeltaY
+                            + dDeltaZ * dDeltaZ;
+
+    if (dDistanceSquared < dMinDistanceSquared) {
+      dMinDistanceSquared = dDistanceSquared;
+      iCurrChunk = iChunk;
+    }
+  }
+
+  // Prefer the local forward tangent. If adjacent section centers coincide,
+  // continue around the circuit until a usable horizontal direction exists.
+  for (int iStep = 1; iStep < TRAK_LEN; ++iStep) {
+    int iNextChunk = iCurrChunk + iStep;
+    if (iNextChunk >= TRAK_LEN)
+      iNextChunk -= TRAK_LEN;
+    dTrackX = (double)localdata[iCurrChunk].pointAy[3].fX
+            - (double)localdata[iNextChunk].pointAy[3].fX;
+    dTrackY = (double)localdata[iCurrChunk].pointAy[3].fY
+            - (double)localdata[iNextChunk].pointAy[3].fY;
+    dTrackLengthSquared = dTrackX * dTrackX + dTrackY * dTrackY;
+    if (dTrackLengthSquared > 0.000001)
+      break;
+  }
+
+  if (dTrackLengthSquared > 0.000001) {
+    fViewAlignment = (float)(
+        (dTrackX * (double)tcos[worlddirn]
+       + dTrackY * (double)tsin[worlddirn])
+        / sqrt(dTrackLengthSquared));
+  }
+
+  backwards = fViewAlignment < 0.0f ? -1 : 0;
+  TrackSize = TRAK_LEN - 1;
+  first_size = TrackSize;
+  gap_size = 6 * TRAK_LEN;
+  next_front = -1;
+  mid_sec = -1;
+  alltrackflag = -1;
+  test_y1 = iCurrChunk;
+
+  if (backwards) {
+    front_sec = iCurrChunk;
+    back_sec = iCurrChunk + 1;
+    if (back_sec >= TRAK_LEN)
+      back_sec = 0;
+    start_sect = back_sec;
+  } else {
+    front_sec = iCurrChunk;
+    back_sec = iCurrChunk - 1;
+    if (back_sec < 0)
+      back_sec = TRAK_LEN - 1;
+    start_sect = front_sec;
+  }
+
+  return iCurrChunk;
+}
+#endif
 
 //-------------------------------------------------------------------------------------------------
 //0001DE40
@@ -2347,7 +2445,10 @@ LABEL_393:
                                  pVisibleBuildingsPtr->fDepth);
     ++pVisibleBuildingsPtr;
   }
-  if (countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
+  /* SLight is the transient three-cube race-start countdown display, not
+   * scene illumination. The track editor never renders it. */
+  if (!roller_ed_track_only_active()
+      && countdown > -72 && replaytype != 2 && game_type != 2 && !winner_mode)// Process starting lights for rendering (if countdown active)
   {
     iLightIndex = 0;
     do {

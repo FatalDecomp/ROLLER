@@ -1,10 +1,12 @@
 #include "editor_api.h"
+#include "editor_legacy_scene.h"
 #include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +20,101 @@ typedef struct
 } tLifecycleTestContext;
 
 static int s_iThreadAssertionCount;
+static int s_iLegacyInstallCount;
+static int s_iLegacyRenderCount;
+static int s_iLegacySetCameraCount;
+static eRollerEdRenderer s_eLastPreferredRenderer;
+static uint32_t s_uiLastAllowSoftwareFallback;
+static uint32_t s_uiStubAvailableRenderers =
+    ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU;
+static eRollerEdRenderer s_eStubActiveRenderer;
+static tEdCameraState s_LastLegacyCamera;
+
+eRollerEdResult roller_ed_legacy_scene_install(
+    const char *szTrackPath,
+    const tEdTrackStage *pStage,
+    const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot,
+    eRollerEdRenderer ePreferredRenderer,
+    uint32_t uiAllowSoftwareFallback,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!szTrackPath || !pStage || !pStage->pbyData
+            || !szDocumentAssetRoot || !szFallbackAssetRoot) {
+        snprintf(szError, uiErrorCapacity, "invalid legacy install seam input");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_eLastPreferredRenderer = ePreferredRenderer;
+    s_uiLastAllowSoftwareFallback = uiAllowSoftwareFallback;
+    s_eStubActiveRenderer = ePreferredRenderer;
+    s_iLegacyInstallCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_render(
+    uint8_t *pbyPixels,
+    uint32_t uiBufferSize,
+    uint32_t uiRowPitch,
+    uint32_t uiWidth,
+    uint32_t uiHeight,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    (void)uiBufferSize;
+    for (uint32_t iRow = 0; iRow < uiHeight; ++iRow)
+        memset(pbyPixels + iRow * uiRowPitch, 0x7c, uiWidth * 4u);
+    s_iLegacyRenderCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_camera(
+    const tEdCameraState *pCamera,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pCamera) {
+        snprintf(szError, uiErrorCapacity, "camera is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyCamera = *pCamera;
+    s_iLegacySetCameraCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+uint32_t roller_ed_legacy_scene_get_available_renderers(void)
+{
+    return s_uiStubAvailableRenderers;
+}
+
+eRollerEdResult roller_ed_legacy_scene_select_renderer(
+    eRollerEdRenderer eKind,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if ((s_uiStubAvailableRenderers & eKind) == 0u) {
+        snprintf(szError, uiErrorCapacity, "renderer unavailable in test seam");
+        return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
+    }
+    s_eStubActiveRenderer = eKind;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+void roller_ed_legacy_scene_unload(void)
+{
+}
+
+void roller_ed_legacy_scene_shutdown(void)
+{
+}
 
 static SDL_AssertState SDLCALL count_thread_assertion(
     const SDL_AssertData *pData, void *pUserData)
@@ -81,7 +178,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                  == ROLLER_ED_RESULT_INVALID_VERSION);
     CHECK_WORKER(RollerEd_Init(&InitInfo) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(RollerEd_Init(&InitInfo) == ROLLER_ED_RESULT_INVALID_STATE);
-    CHECK_WORKER(RollerEd_GetAvailableRenderers() == 0u);
+    CHECK_WORKER(RollerEd_GetAvailableRenderers()
+                 == (ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU));
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
     CHECK_WORKER(Sizes.uiVertexCount == 0u && Sizes.uiIndexCount == 0u
@@ -98,11 +196,40 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     {
         tEdCameraState Camera = {
             .uiStructSize = sizeof(Camera),
-            .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION
+            .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION,
+            .fPosition = { 125.0f, -250.0f, 375.0f },
+            .fYawDegrees = 450.0f,
+            .fPitchDegrees = -45.0f
         };
-        CHECK_WORKER(RollerEd_SetCamera(&Camera)
-                     == ROLLER_ED_RESULT_UNSUPPORTED);
-        CHECK_WORKER(strstr(RollerEd_GetLastError(), "not implemented") != NULL);
+        tEdCameraState InvalidCamera = Camera;
+
+        CHECK_WORKER(RollerEd_SetCamera(&Camera) == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetCameraCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyCamera, &Camera, sizeof(Camera)) == 0);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiGeometryEpoch == uiInitialEpoch);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiInitialGeneration);
+
+        InvalidCamera.uiVersion++;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        InvalidCamera = Camera;
+        InvalidCamera.uiStructSize = sizeof(InvalidCamera) - 1u;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidCamera = Camera;
+        InvalidCamera.fPosition[1] = INFINITY;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "finite") != NULL);
+        InvalidCamera = Camera;
+        InvalidCamera.fYawDegrees = NAN;
+        CHECK_WORKER(RollerEd_SetCamera(&InvalidCamera)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetCameraCount == 1);
     }
     {
         tEdGeometrySizes InvalidSizes;
@@ -147,6 +274,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(RollerEd_LoadTrackFile(
                          pContext->szValidTrack, "facade-test-assets")
                      == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_eLastPreferredRenderer == ROLLER_ED_RENDERER_GPU);
+        CHECK_WORKER(s_uiLastAllowSoftwareFallback == 1u);
         Sizes.uiStructSize = sizeof(Sizes);
         Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
         CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
@@ -154,6 +283,17 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
         CHECK_WORKER(Sizes.uiTrackGeneration != uiInitialGeneration);
         CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
+        {
+            uint8_t abyPixels[64];
+
+            memset(abyPixels, 0, sizeof(abyPixels));
+            CHECK_WORKER(RollerEd_RenderFrame(
+                             abyPixels, sizeof(abyPixels), 16u, 4u, 4u,
+                             ROLLER_ED_PIXEL_RGBA8)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(abyPixels[0] == 0x7c
+                         && abyPixels[sizeof(abyPixels) - 1u] == 0x7c);
+        }
         uiReadyEpoch = Sizes.uiGeometryEpoch;
         uiReadyGeneration = Sizes.uiTrackGeneration;
 
@@ -236,8 +376,28 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
     CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
+    uint32_t uiSwitchEpoch = Sizes.uiGeometryEpoch;
+    uint32_t uiSwitchGeneration = Sizes.uiTrackGeneration;
+    CHECK_WORKER(RollerEd_SelectRenderer(4u)
+                 == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+    CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_SOFTWARE)
+                 == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE);
+    s_uiStubAvailableRenderers = ROLLER_ED_RENDERER_SOFTWARE;
+    CHECK_WORKER(RollerEd_GetAvailableRenderers()
+                 == ROLLER_ED_RENDERER_SOFTWARE);
     CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_GPU)
                  == ROLLER_ED_RESULT_RENDERER_UNAVAILABLE);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE);
+    s_uiStubAvailableRenderers |= ROLLER_ED_RENDERER_GPU;
+    CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_GPU)
+                 == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_GPU);
+    Sizes.uiStructSize = sizeof(Sizes);
+    Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+    CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
+    CHECK_WORKER(Sizes.uiGeometryEpoch == uiSwitchEpoch);
+    CHECK_WORKER(Sizes.uiTrackGeneration == uiSwitchGeneration);
     CHECK_WORKER(RollerEd_Shutdown() == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(RollerEd_Shutdown() == ROLLER_ED_RESULT_INVALID_STATE);
     return 0;
@@ -326,6 +486,9 @@ int main(int argc, char **argv)
         return iMainFailure;
     CHECK_MAIN(iThreadResult == 0 && Context.iFailureLine == 0);
     CHECK_MAIN(s_iThreadAssertionCount >= 3);
+    CHECK_MAIN(s_iLegacyInstallCount == 3);
+    CHECK_MAIN(s_iLegacyRenderCount == 1);
+    CHECK_MAIN(s_iLegacySetCameraCount == 1);
 
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);

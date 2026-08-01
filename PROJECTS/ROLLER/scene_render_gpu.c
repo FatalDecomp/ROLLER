@@ -18,6 +18,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
+#include <limits.h>
 
 /* palette[256]: correctly filled by setpal(); use instead of pal_addr
  * (pal_addr is the raw 3-byte-per-entry file buffer, which gives wrong G/B
@@ -2881,20 +2882,14 @@ void scene_render_gpu_begin_frame(SceneRendererGPU *r)
     s_clickHit.active = false;
     s_clickWasPending = g_pendingClickQuery;
     r->cmdBuf = SDL_AcquireGPUCommandBuffer(r->device);
-    if (!r->cmdBuf) return;
-    if (r->window) {
-        if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
-                &r->swapchainTex, NULL, NULL) || !r->swapchainTex) {
-            SDL_CancelGPUCommandBuffer(r->cmdBuf);
-            r->cmdBuf = NULL;
-        }
-    }
 }
 
 static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
                                                  uint8 *pbyPixels,
                                                  Uint32 uiBufferSize,
-                                                 Uint32 uiRowPitch)
+                                                 Uint32 uiRowPitch,
+                                                 Uint32 uiReadbackWidth,
+                                                 Uint32 uiReadbackHeight)
 {
     if (!r || !r->cmdBuf) return false;
 
@@ -2943,14 +2938,30 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
         g_pendingClickQuery = false;
     }
 
-    int nativeW = r->viewportW > 0 ? r->viewportW : 640;
-    int nativeH = r->viewportH > 0 ? r->viewportH : 400;
-    float rs = r->renderScale > 0.25f ? r->renderScale : 1.0f;
-    int renderW = (int)(nativeW * rs + 0.5f);
-    int renderH = (int)(nativeH * rs + 0.5f);
-    if (renderW < 1) renderW = 1;
-    if (renderH < 1) renderH = 1;
     bool bReadback = pbyPixels != NULL;
+    int nativeW = 0;
+    int nativeH = 0;
+    float rs = 1.0f;
+    int renderW;
+    int renderH;
+    if (bReadback) {
+        if (uiReadbackWidth == 0 || uiReadbackHeight == 0
+                || uiReadbackWidth > INT_MAX
+                || uiReadbackHeight > INT_MAX) {
+            scene_render_gpu_cancel_frame(r);
+            return false;
+        }
+        renderW = (int)uiReadbackWidth;
+        renderH = (int)uiReadbackHeight;
+    } else {
+        nativeW = r->viewportW > 0 ? r->viewportW : 640;
+        nativeH = r->viewportH > 0 ? r->viewportH : 400;
+        rs = r->renderScale > 0.25f ? r->renderScale : 1.0f;
+        renderW = (int)(nativeW * rs + 0.5f);
+        renderH = (int)(nativeH * rs + 0.5f);
+        if (renderW < 1) renderW = 1;
+        if (renderH < 1) renderH = 1;
+    }
     Uint64 ullPackedSize = (Uint64)(Uint32)renderW * (Uint64)(Uint32)renderH * 4u;
     Uint64 ullCallerSize = (Uint64)uiRowPitch * (Uint64)(Uint32)renderH;
     if (bReadback && (uiRowPitch < (Uint32)renderW * 4u
@@ -2962,7 +2973,7 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
     }
     ensure_depth_texture(r, renderW, renderH);
     ensure_offscreen_texture(r, renderW, renderH);
-    if (!r->offscreenTex && (bReadback || !r->swapchainTex)) {
+    if (!r->offscreenTex) {
         scene_render_gpu_cancel_frame(r);
         return false;
     }
@@ -3146,7 +3157,7 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
 
     /* Render to the selected offscreen target.  With MSAA, msaaTex is the
      * render target and offscreenTex is the resolve target. */
-    SDL_GPUTexture *resolveTarget = r->offscreenTex ? r->offscreenTex : r->swapchainTex;
+    SDL_GPUTexture *resolveTarget = r->offscreenTex;
 
     /* ====================================================================
      * Pass 1: 3D scene + car meshes → offscreen (with optional MSAA resolve)
@@ -3522,6 +3533,18 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
         SDL_EndGPUCopyPass(pReadbackPass);
     }
 
+    /* Swapchain acquisition belongs strictly to the presentation path.  The
+     * complete scene and HUD have already been recorded into offscreenTex, so
+     * editor readback never needs a window and game presentation cannot shape
+     * the scene pass itself. */
+    if (!bReadback && r->window) {
+        if (!ROLLERTryAcquireGPUSwapchainTexture(r->cmdBuf, r->window,
+                &r->swapchainTex, NULL, NULL) || !r->swapchainTex) {
+            scene_render_gpu_cancel_frame(r);
+            return false;
+        }
+    }
+
     /* ====================================================================
      * Blit/CRT offscreen → swapchain with letterbox/pillarbox
      * ==================================================================== */
@@ -3652,19 +3675,22 @@ static bool scene_render_gpu_end_frame_internal(SceneRendererGPU *r,
     return bFrameOk;
 }
 
-void scene_render_gpu_end_frame(SceneRendererGPU *r)
+bool scene_render_gpu_end_frame(SceneRendererGPU *r)
 {
-    (void)scene_render_gpu_end_frame_internal(r, NULL, 0, 0);
+    return scene_render_gpu_end_frame_internal(r, NULL, 0, 0, 0, 0);
 }
 
 bool scene_render_gpu_end_frame_readback(SceneRendererGPU *r,
                                          uint8 *pbyPixels,
                                          Uint32 uiBufferSize,
-                                         Uint32 uiRowPitch)
+                                         Uint32 uiRowPitch,
+                                         Uint32 uiWidth,
+                                         Uint32 uiHeight)
 {
     if (!pbyPixels) return false;
     return scene_render_gpu_end_frame_internal(r, pbyPixels,
-                                                uiBufferSize, uiRowPitch);
+                                                uiBufferSize, uiRowPitch,
+                                                uiWidth, uiHeight);
 }
 
 void scene_render_gpu_cancel_frame(SceneRendererGPU *r)
