@@ -8,7 +8,7 @@
 
 Extract the game loop toward a reusable `RollerRuntime` module so the game simulation can be driven outside the current executable loop. The long-term consumers are tests, tooling, editor integration, and external engines.
 
-The first useful milestone is not arbitrary high-level input. It is a replay-driven runtime path that can run the existing snapshot harness. That gives an immediate regression gate: `RollerRuntime` must reproduce the existing VCS-managed snapshot PNG baselines.
+The first useful milestone is not arbitrary high-level input. It is a replay-driven runtime path that can run the existing snapshot harness. Replay loading/parsing stays outside `RollerRuntime`; the runtime consumes an input/timeline source and must reproduce the existing VCS-managed snapshot PNG baselines.
 
 ## Non-goals for the first milestone
 
@@ -44,6 +44,7 @@ flowchart LR
     Host[Future external host input]
   end
 
+  ReplaySource[Replay input source]
   Runtime[RollerRuntime SDL-free interface]
   Adapter[Runtime adapter legacy-compatible implementation]
   StateView[Renderer-facing runtime state view]
@@ -63,7 +64,8 @@ flowchart LR
   Baselines[VCS-managed snapshot PNG baselines]
   Telemetry[Future stable telemetry]
 
-  Replay --> Runtime
+  Replay --> ReplaySource
+  ReplaySource --> Runtime
   Scripted -. milestone 2 .-> Runtime
   Host -. later .-> Runtime
   Runtime --> Adapter
@@ -85,17 +87,17 @@ The public runtime interface should use plain C types and should not require inc
 
 - create/destroy runtime
 - configure deterministic/headless runtime settings
-- load a replay fixture
+- attach or select a caller-owned input source
 - step a fixed number of logical ticks
 - query status/error information
 
-A future milestone can add high-level player action input. That input is still valuable for tests, bots, and external engines, but replay support comes first because it has lower parity risk and plugs directly into the existing snapshot baseline.
+A future milestone can add high-level player action input. That input is still valuable for tests, bots, and external engines, but replay-sourced stepping comes first because it has lower parity risk and plugs directly into the existing snapshot baseline. The replay file format and loader remain a separate module/adapter concern, not a `RollerRuntime` responsibility.
 
 ## Runtime implementation strategy
 
 The initial implementation should preserve behavior by driving the existing code path:
 
-- reuse existing replay playback semantics
+- consume replay playback through a separate replay/input-source adapter
 - reuse current RNG behavior
 - call `tick_clock_step`, `game_tick_step`, and `control_one_tick` as the primary stepping mechanism; any replacement must prove parity first
 - bypass frontend/menu flow for runtime-driven tests
@@ -141,7 +143,7 @@ Migration stages:
 ### Milestone 1: replay-driven runtime snapshot parity
 
 - Introduce SDL-free `RollerRuntime` public interface.
-- Implement replay loading and fixed stepping through the runtime adapter.
+- Implement replay/input-source attachment and fixed stepping through the runtime adapter.
 - Wire a parallel `test-runtime-snapshots` build step.
 - Use existing VCS-managed snapshot PNG baselines as the authoritative comparison.
 - Acceptance: both `zig build test-snapshots` and `zig build test-runtime-snapshots` pass against the same baselines.
@@ -154,7 +156,7 @@ Migration stages:
 
 ### Milestone 3: high-level input source
 
-- Add an input-source abstraction behind `RollerRuntime`.
+- Extend the input-source abstraction behind `RollerRuntime`.
 - Support high-level player actions such as steering, throttle, brake, gear up/down, and action/cheat.
 - Convert those actions into the same legacy input data path as current gameplay.
 - Use this for controllable simulations, bots, fuzz tests, and external host integration.
@@ -180,6 +182,6 @@ The design is successful when:
 
 - Exact public header names and symbol prefixes.
 - Which existing startup/init functions can be reused safely in headless runtime mode.
-- Whether replay fixture loading should accept file paths, caller-provided bytes, or both.
+- Whether the separate replay/input-source adapter should accept file paths, caller-provided bytes, or both.
 - How to structure test-only snapshot adapters versus future public renderer modules.
 - When to switch `test-snapshots` from the legacy path to the runtime path.

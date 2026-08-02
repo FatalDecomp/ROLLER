@@ -5,6 +5,7 @@ flowchart LR
     Host[Future external host input]
   end
 
+  ReplaySource[Replay input source]
   Runtime[RollerRuntime SDL-free interface]
   Adapter[Runtime adapter legacy-compatible implementation]
   StateView[Renderer-facing runtime state view]
@@ -24,7 +25,8 @@ flowchart LR
   Baselines[VCS-managed snapshot PNG baselines]
   Telemetry[Future stable telemetry]
 
-  Replay --> Runtime
+  Replay --> ReplaySource
+  ReplaySource --> Runtime
   Scripted -. milestone 2 .-> Runtime
   Host -. later .-> Runtime
   Runtime --> Adapter
