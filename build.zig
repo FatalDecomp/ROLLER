@@ -1027,6 +1027,33 @@ const snapshot_scenes = [_]SnapshotScene{
     .{ .name = "time-trials", .frames = "1" },
 };
 
+fn addSnapshotReplayRuns(
+    b: *Build,
+    roller_exe: *Compile,
+    assets_path: LazyPath,
+    out_abs: []const u8,
+    runtime_snapshot: bool,
+    prev_run: *?*Step,
+) void {
+    for (snapshot_replays) |replay| {
+        const run_capture = b.addRunArtifact(roller_exe);
+        run_capture.addArg("--no-crash-handler");
+        run_capture.addArg("--whiplash-root");
+        run_capture.addDirectoryArg(assets_path);
+        run_capture.addArg("--snapshot");
+        run_capture.addArg(b.fmt("{s}.gss", .{replay.name}));
+        if (runtime_snapshot)
+            run_capture.addArg("--runtime-snapshot");
+        run_capture.addArg("--frames");
+        run_capture.addArg(replay.frames);
+        run_capture.addArg("--out");
+        run_capture.addArg(out_abs);
+        run_capture.has_side_effects = true;
+        if (prev_run.*) |p| run_capture.step.dependOn(p);
+        prev_run.* = &run_capture.step;
+    }
+}
+
 fn configureSnapshotTests(
     b: *Build,
     roller_exe: *Compile,
@@ -1047,6 +1074,10 @@ fn configureSnapshotTests(
         "test-snapshots",
         "Run rendering snapshot regression tests across the intro replays",
     );
+    const test_runtime_snapshots = b.step(
+        "test-runtime-snapshots",
+        "Run runtime-driven replay snapshot regression tests",
+    );
 
     const assets_abs = assets_path.getPath2(b, null);
     const assets_available = blk: {
@@ -1061,6 +1092,7 @@ fn configureSnapshotTests(
             .{assets_abs},
         ));
         test_snapshots.dependOn(&missing_assets.step);
+        test_runtime_snapshots.dependOn(&missing_assets.step);
         return;
     }
 
@@ -1069,21 +1101,7 @@ fn configureSnapshotTests(
     // contention on shared system probes during early init); chaining each
     // run through the previous one's step forces a one-at-a-time schedule.
     var prev_run: ?*Step = null;
-    for (snapshot_replays) |replay| {
-        const run_capture = b.addRunArtifact(roller_exe);
-        run_capture.addArg("--no-crash-handler");
-        run_capture.addArg("--whiplash-root");
-        run_capture.addDirectoryArg(assets_path);
-        run_capture.addArg("--snapshot");
-        run_capture.addArg(b.fmt("{s}.gss", .{replay.name}));
-        run_capture.addArg("--frames");
-        run_capture.addArg(replay.frames);
-        run_capture.addArg("--out");
-        run_capture.addArg(out_abs);
-        run_capture.has_side_effects = true;
-        if (prev_run) |p| run_capture.step.dependOn(p);
-        prev_run = &run_capture.step;
-    }
+    addSnapshotReplayRuns(b, roller_exe, assets_path, out_abs, false, &prev_run);
 
     for (snapshot_scenes) |scene| {
         const run_capture = b.addRunArtifact(roller_exe);
@@ -1107,25 +1125,43 @@ fn configureSnapshotTests(
         // directory against the baselines with whatever tool they prefer
         // (e.g. `diff -rq tests/snapshots/baselines zig-out/snapshot-scratch`).
         if (prev_run) |p| test_snapshots.dependOn(p);
-        return;
+    } else {
+        // After the captures land in the canonical baseline directory, fail the
+        // build if any baseline diverged from HEAD. The diff itself is what
+        // reviewers see in the PR (GitHub renders LFS-backed PNGs as
+        // side-by-side image diffs). To bless an intentional change the
+        // developer reruns, eyeballs the working-tree diff, and commits.
+        const diff_check = b.addSystemCommand(&.{
+            "git",
+            "diff",
+            "--exit-code",
+            "--stat",
+            "--",
+            baselines_dir,
+        });
+        diff_check.has_side_effects = true;
+        if (prev_run) |p| diff_check.step.dependOn(p);
+        test_snapshots.dependOn(&diff_check.step);
     }
 
-    // After the captures land in the canonical baseline directory, fail the
-    // build if any baseline diverged from HEAD. The diff itself is what
-    // reviewers see in the PR (GitHub renders LFS-backed PNGs as
-    // side-by-side image diffs). To bless an intentional change the
-    // developer reruns, eyeballs the working-tree diff, and commits.
-    const diff_check = b.addSystemCommand(&.{
-        "git",
-        "diff",
-        "--exit-code",
-        "--stat",
-        "--",
-        baselines_dir,
-    });
-    diff_check.has_side_effects = true;
-    if (prev_run) |p| diff_check.step.dependOn(p);
-    test_snapshots.dependOn(&diff_check.step);
+    var runtime_prev_run: ?*Step = null;
+    addSnapshotReplayRuns(b, roller_exe, assets_path, out_abs, true, &runtime_prev_run);
+
+    if (scratch) {
+        if (runtime_prev_run) |p| test_runtime_snapshots.dependOn(p);
+    } else {
+        const runtime_diff_check = b.addSystemCommand(&.{
+            "git",
+            "diff",
+            "--exit-code",
+            "--stat",
+            "--",
+            baselines_dir,
+        });
+        runtime_diff_check.has_side_effects = true;
+        if (runtime_prev_run) |p| runtime_diff_check.step.dependOn(p);
+        test_runtime_snapshots.dependOn(&runtime_diff_check.step);
+    }
 }
 
 fn configureEpicFPathReloadTests(
