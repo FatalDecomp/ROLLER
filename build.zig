@@ -118,6 +118,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/polytex.c",
             "PROJECTS/ROLLER/replay.c",
             "PROJECTS/ROLLER/roller_core_error.c",
+            "PROJECTS/ROLLER/roller_runtime.c",
             "PROJECTS/ROLLER/roller.c",
             "PROJECTS/ROLLER/rollercd.c",
             "PROJECTS/ROLLER/rollerinput.c",
@@ -317,8 +318,10 @@ pub fn build(b: *std.Build) void {
     });
     run_step.dependOn(&wildmidi_config_install.step);
 
+    const test_step = b.step("test", "Run focused unit tests and optional seam checks");
+    configureRollerRuntimeApiTests(b, target, optimize, c_flags, test_step);
     configureRenderQueue3DTests(
-        b, target, optimize, c_flags, python_checks, assets_path,
+        b, target, optimize, c_flags, python_checks, assets_path, test_step,
     );
 
     // Snapshot regression harness: drive the snapshot binary serially across
@@ -333,6 +336,40 @@ pub fn build(b: *std.Build) void {
     configureE1S4DocumentAssetTests(b, exe, assets_path);
 }
 
+fn configureRollerRuntimeApiTests(
+    b: *Build,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+    c_flags: []const []const u8,
+    test_step: *Step,
+) void {
+    const runtime_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    runtime_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/roller_runtime.c",
+            "tests/roller_runtime_api_test.c",
+        },
+    });
+
+    const runtime_test = b.addExecutable(.{
+        .name = "roller_runtime_api_test",
+        .root_module = runtime_mod,
+    });
+    const run_runtime_test = b.addRunArtifact(runtime_test);
+    const runtime_tests = b.step(
+        "test-roller-runtime-api",
+        "Run RollerRuntime public API lifecycle tests",
+    );
+    runtime_tests.dependOn(&run_runtime_test.step);
+    test_step.dependOn(runtime_tests);
+}
+
 fn configureRenderQueue3DTests(
     b: *Build,
     target: ResolvedTarget,
@@ -340,6 +377,7 @@ fn configureRenderQueue3DTests(
     c_flags: []const []const u8,
     python_checks: bool,
     assets_path: LazyPath,
+    test_step: *Step,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -546,7 +584,6 @@ fn configureRenderQueue3DTests(
     );
     tick_clock_tests.dependOn(&run_tick_clock.step);
 
-    const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
     test_step.dependOn(tick_clock_tests);
 
