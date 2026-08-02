@@ -46,12 +46,11 @@ static eRollerRuntimeResult ROLLER_RUNTIME_CALL input_advance(void *pUserData, u
 
 int main(void)
 {
-  RollerRuntime *pRuntime = NULL;
+  RollerRuntime runtime;
   int iInputAccumulator = 0;
   tRollerRuntimeConfig config = {
     .uiStructSize = sizeof(config),
     .uiVersion = ROLLER_RUNTIME_API_VERSION,
-    .uiFlags = ROLLER_RUNTIME_FLAG_HEADLESS | ROLLER_RUNTIME_FLAG_DETERMINISTIC,
   };
   tRollerRuntimeInputSource source = {
     .uiStructSize = sizeof(source),
@@ -61,27 +60,34 @@ int main(void)
   };
 
   CHECK(RollerRuntime_Step(NULL, 1) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
-  CHECK(RollerRuntime_Create(&config, &pRuntime) == ROLLER_RUNTIME_RESULT_OK);
-  CHECK(RollerRuntime_Step(pRuntime, 1) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+  runtime = (RollerRuntime){0};
+  CHECK(RollerRuntime_Step(&runtime, 1) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
 
-  CHECK(RollerRuntime_SetInputSource(pRuntime, &source) == ROLLER_RUNTIME_RESULT_OK);
-  CHECK(RollerRuntime_Step(pRuntime, 0) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
-  CHECK(RollerRuntime_Step(pRuntime, 3) == ROLLER_RUNTIME_RESULT_OK);
+  runtime = RollerRuntime_Create(NULL);
+  CHECK(RollerRuntime_Step(&runtime, 1) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+
+  runtime = RollerRuntime_Create(&config);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_CREATED);
+  CHECK(RollerRuntime_Step(&runtime, 1) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_OK);
+  CHECK(RollerRuntime_Step(&runtime, 0) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+  CHECK(RollerRuntime_Step(&runtime, 3) == ROLLER_RUNTIME_RESULT_OK);
   CHECK(g_runtime_test_input_advance_calls == 3);
   CHECK(g_runtime_test_last_tick_index == 2u);
   CHECK(iInputAccumulator == 3);
   CHECK(g_runtime_test_tick_clock_calls == 3);
   CHECK(g_runtime_test_clear_pending_calls == 3);
   CHECK(g_runtime_test_game_tick_calls == 3);
-  CHECK(RollerRuntime_GetStatus(pRuntime) == ROLLER_RUNTIME_STATUS_RUNNING);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_RUNNING);
 
   g_runtime_test_frontend_on = 1;
-  CHECK(RollerRuntime_Step(pRuntime, 2) == ROLLER_RUNTIME_RESULT_OK);
+  CHECK(RollerRuntime_Step(&runtime, 2) == ROLLER_RUNTIME_RESULT_OK);
   CHECK(g_runtime_test_input_advance_calls == 5);
   CHECK(g_runtime_test_tick_clock_calls == 5);
   CHECK(g_runtime_test_clear_pending_calls == 5);
   CHECK(g_runtime_test_game_tick_calls == 3);
 
-  RollerRuntime_Destroy(pRuntime);
+  RollerRuntime_Destroy(&runtime);
   return 0;
 }

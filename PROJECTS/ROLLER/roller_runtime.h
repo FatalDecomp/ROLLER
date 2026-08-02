@@ -27,9 +27,15 @@
 extern "C" {
 #endif
 
-#define ROLLER_RUNTIME_API_VERSION 1u
-
-typedef struct RollerRuntime RollerRuntime;
+/*
+ * SDL-free fixed-step ROLLER simulation runtime.
+ *
+ * RollerRuntime owns no replay files, file-format parsing, rendering resources,
+ * or SDL objects. Replay/tools/editor hosts feed input/timeline data through an
+ * input source, step the runtime, then render from the existing game state via
+ * separate renderer APIs.
+ */
+#define ROLLER_RUNTIME_API_VERSION 2u
 
 typedef uint32_t eRollerRuntimeResult;
 enum
@@ -53,20 +59,19 @@ enum
   ROLLER_RUNTIME_STATUS_FAILED = 5u,
 };
 
-enum
-{
-  ROLLER_RUNTIME_FLAG_HEADLESS = 1u << 0,
-  ROLLER_RUNTIME_FLAG_DETERMINISTIC = 1u << 1,
-};
-
 typedef eRollerRuntimeResult (ROLLER_RUNTIME_CALL *RollerRuntimeInputAdvanceFn)(
     void *pUserData, uint32_t uiTickIndex);
 
+/*
+ * Config/input-source structs include uiStructSize and uiVersion so callers can
+ * be rejected cleanly if they were compiled against a different runtime API.
+ * Set uiStructSize to sizeof(the struct being passed) and uiVersion to
+ * ROLLER_RUNTIME_API_VERSION.
+ */
 typedef struct
 {
   uint32_t uiStructSize;
   uint32_t uiVersion;
-  uint32_t uiFlags;
 } tRollerRuntimeConfig;
 
 typedef struct
@@ -77,12 +82,38 @@ typedef struct
   RollerRuntimeInputAdvanceFn pfnAdvance;
 } tRollerRuntimeInputSource;
 
-ROLLER_RUNTIME_API eRollerRuntimeResult ROLLER_RUNTIME_CALL
-RollerRuntime_Create(const tRollerRuntimeConfig *pConfig,
-                     RollerRuntime **ppRuntime);
+/*
+ * Runtime state is public so embedders can place it on the stack or inside
+ * their own allocation systems. Treat the fields as private: initialize with
+ * RollerRuntime_Create(), mutate through the RollerRuntime_* functions, and
+ * finish with RollerRuntime_Destroy(). Recompile consumers when
+ * ROLLER_RUNTIME_API_VERSION changes; the visible struct layout is API, not a
+ * persistent save-data format.
+ */
+typedef struct RollerRuntime
+{
+  eRollerRuntimeStatus eStatus;
+  tRollerRuntimeInputSource InputSource;
+  int iHasInputSource;
+  char szLastError[512];
+} RollerRuntime;
 
+/* Creates a caller-owned runtime value. No heap allocation is performed. */
+ROLLER_RUNTIME_API RollerRuntime ROLLER_RUNTIME_CALL
+RollerRuntime_Create(const tRollerRuntimeConfig *pConfig);
+
+/* Allocates a runtime with malloc(), then initializes it with RollerRuntime_Create(). */
+ROLLER_RUNTIME_API eRollerRuntimeResult ROLLER_RUNTIME_CALL
+RollerRuntime_New(const tRollerRuntimeConfig *pConfig,
+                  RollerRuntime **ppRuntime);
+
+/* Releases runtime-owned references but does not free the RollerRuntime object. */
 ROLLER_RUNTIME_API void ROLLER_RUNTIME_CALL
 RollerRuntime_Destroy(RollerRuntime *pRuntime);
+
+/* Calls RollerRuntime_Destroy(), then frees a runtime allocated by RollerRuntime_New(). */
+ROLLER_RUNTIME_API void ROLLER_RUNTIME_CALL
+RollerRuntime_Delete(RollerRuntime *pRuntime);
 
 ROLLER_RUNTIME_API eRollerRuntimeResult ROLLER_RUNTIME_CALL
 RollerRuntime_SetInputSource(RollerRuntime *pRuntime,

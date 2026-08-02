@@ -3293,7 +3293,6 @@ int main(int argc, const char **argv, const char **envp)
     tRollerRuntimeConfig runtimeConfig = {
       .uiStructSize = sizeof(runtimeConfig),
       .uiVersion = ROLLER_RUNTIME_API_VERSION,
-      .uiFlags = ROLLER_RUNTIME_FLAG_HEADLESS | ROLLER_RUNTIME_FLAG_DETERMINISTIC,
     };
     tRollerRuntimeInputSource inputSource = {
       .uiStructSize = sizeof(inputSource),
@@ -3301,20 +3300,20 @@ int main(int argc, const char **argv, const char **envp)
       .pUserData = NULL,
       .pfnAdvance = RuntimeSnapshotAdvanceInput,
     };
-    eRollerRuntimeResult runtimeResult = RollerRuntime_Create(
+    eRollerRuntimeResult runtimeResult = RollerRuntime_New(
       &runtimeConfig, &g_pSnapshotRuntime);
     if (runtimeResult == ROLLER_RUNTIME_RESULT_OK)
       runtimeResult = RollerRuntime_SetInputSource(g_pSnapshotRuntime, &inputSource);
     if (runtimeResult != ROLLER_RUNTIME_RESULT_OK) {
       cli_fprintf(stderr, "ERROR: failed to initialize RollerRuntime snapshot driver: %s\n",
                   RollerRuntime_GetLastError(g_pSnapshotRuntime));
-      RollerRuntime_Destroy(g_pSnapshotRuntime);
+      RollerRuntime_Delete(g_pSnapshotRuntime);
       g_pSnapshotRuntime = NULL;
       return 1;
     }
   }
   frontend_run_game_loop(g_bSnapshotMode ? eFRONTEND_STATE_RACING : eFRONTEND_STATE_COPYRIGHT);
-  RollerRuntime_Destroy(g_pSnapshotRuntime);
+  RollerRuntime_Delete(g_pSnapshotRuntime);
   g_pSnapshotRuntime = NULL;
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   if (!frontend_shutdown_complete())

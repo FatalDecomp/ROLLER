@@ -32,15 +32,6 @@ void runtime_test_clear_pending_ticks(void);
 #define RUNTIME_CLEAR_PENDING_TICKS() SDL_SetAtomicInt(&iTicksPending, 0)
 #endif
 
-struct RollerRuntime
-{
-  uint32_t uiFlags;
-  eRollerRuntimeStatus eStatus;
-  tRollerRuntimeInputSource InputSource;
-  int iHasInputSource;
-  char szLastError[512];
-};
-
 static void runtime_clear_error(RollerRuntime *pRuntime)
 {
   if (pRuntime)
@@ -70,9 +61,54 @@ static eRollerRuntimeResult runtime_validate_struct(uint32_t uiStructSize,
   return ROLLER_RUNTIME_RESULT_OK;
 }
 
+static int runtime_is_usable(const RollerRuntime *pRuntime)
+{
+  if (!pRuntime)
+    return 0;
+  return pRuntime->eStatus == ROLLER_RUNTIME_STATUS_CREATED ||
+         pRuntime->eStatus == ROLLER_RUNTIME_STATUS_READY ||
+         pRuntime->eStatus == ROLLER_RUNTIME_STATUS_RUNNING;
+}
+
+static eRollerRuntimeResult runtime_validate_config(
+    const tRollerRuntimeConfig *pConfig)
+{
+  if (!pConfig)
+    return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
+  return runtime_validate_struct(pConfig->uiStructSize, pConfig->uiVersion,
+                                 sizeof(*pConfig));
+}
+
+static RollerRuntime runtime_make_failed(const char *szMessage)
+{
+  RollerRuntime Runtime;
+
+  memset(&Runtime, 0, sizeof(Runtime));
+  Runtime.eStatus = ROLLER_RUNTIME_STATUS_FAILED;
+  runtime_set_error(&Runtime, "%s", szMessage);
+  return Runtime;
+}
+
+RollerRuntime ROLLER_RUNTIME_CALL
+RollerRuntime_Create(const tRollerRuntimeConfig *pConfig)
+{
+  eRollerRuntimeResult eResult;
+  RollerRuntime Runtime;
+
+  eResult = runtime_validate_config(pConfig);
+  if (eResult == ROLLER_RUNTIME_RESULT_INVALID_VERSION)
+    return runtime_make_failed("runtime config version is not supported");
+  if (eResult != ROLLER_RUNTIME_RESULT_OK)
+    return runtime_make_failed("runtime config is invalid");
+
+  memset(&Runtime, 0, sizeof(Runtime));
+  Runtime.eStatus = ROLLER_RUNTIME_STATUS_CREATED;
+  return Runtime;
+}
+
 eRollerRuntimeResult ROLLER_RUNTIME_CALL
-RollerRuntime_Create(const tRollerRuntimeConfig *pConfig,
-                     RollerRuntime **ppRuntime)
+RollerRuntime_New(const tRollerRuntimeConfig *pConfig,
+                  RollerRuntime **ppRuntime)
 {
   eRollerRuntimeResult eResult;
   RollerRuntime *pRuntime;
@@ -80,26 +116,32 @@ RollerRuntime_Create(const tRollerRuntimeConfig *pConfig,
   if (!ppRuntime)
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
   *ppRuntime = NULL;
-  if (!pConfig)
-    return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
 
-  eResult = runtime_validate_struct(pConfig->uiStructSize, pConfig->uiVersion,
-                                    sizeof(*pConfig));
+  eResult = runtime_validate_config(pConfig);
   if (eResult != ROLLER_RUNTIME_RESULT_OK)
     return eResult;
 
-  pRuntime = (RollerRuntime *)calloc(1, sizeof(*pRuntime));
+  pRuntime = (RollerRuntime *)malloc(sizeof(*pRuntime));
   if (!pRuntime)
     return ROLLER_RUNTIME_RESULT_OUT_OF_MEMORY;
 
-  pRuntime->uiFlags = pConfig->uiFlags;
-  pRuntime->eStatus = ROLLER_RUNTIME_STATUS_CREATED;
+  *pRuntime = RollerRuntime_Create(pConfig);
   *ppRuntime = pRuntime;
   return ROLLER_RUNTIME_RESULT_OK;
 }
 
 void ROLLER_RUNTIME_CALL RollerRuntime_Destroy(RollerRuntime *pRuntime)
 {
+  if (!pRuntime)
+    return;
+  memset(pRuntime, 0, sizeof(*pRuntime));
+}
+
+void ROLLER_RUNTIME_CALL RollerRuntime_Delete(RollerRuntime *pRuntime)
+{
+  if (!pRuntime)
+    return;
+  RollerRuntime_Destroy(pRuntime);
   free(pRuntime);
 }
 
@@ -112,6 +154,11 @@ RollerRuntime_SetInputSource(RollerRuntime *pRuntime,
   if (!pRuntime || !pSource)
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
   runtime_clear_error(pRuntime);
+  if (!runtime_is_usable(pRuntime)) {
+    runtime_set_error(pRuntime, "runtime is not initialized");
+    return ROLLER_RUNTIME_RESULT_INVALID_STATE;
+  }
+
 
   eResult = runtime_validate_struct(pSource->uiStructSize, pSource->uiVersion,
                                     sizeof(*pSource));
@@ -134,6 +181,11 @@ RollerRuntime_ClearInputSource(RollerRuntime *pRuntime)
   if (!pRuntime)
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
   runtime_clear_error(pRuntime);
+  if (!runtime_is_usable(pRuntime)) {
+    runtime_set_error(pRuntime, "runtime is not initialized");
+    return ROLLER_RUNTIME_RESULT_INVALID_STATE;
+  }
+
   memset(&pRuntime->InputSource, 0, sizeof(pRuntime->InputSource));
   pRuntime->iHasInputSource = 0;
   pRuntime->eStatus = ROLLER_RUNTIME_STATUS_CREATED;
@@ -146,6 +198,11 @@ RollerRuntime_Step(RollerRuntime *pRuntime, uint32_t uiTicks)
   if (!pRuntime)
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
   runtime_clear_error(pRuntime);
+  if (!runtime_is_usable(pRuntime)) {
+    runtime_set_error(pRuntime, "runtime is not initialized");
+    return ROLLER_RUNTIME_RESULT_INVALID_STATE;
+  }
+
   if (uiTicks == 0u) {
     runtime_set_error(pRuntime, "step tick count must be greater than zero");
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;

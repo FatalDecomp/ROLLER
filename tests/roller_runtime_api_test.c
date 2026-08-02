@@ -23,12 +23,12 @@ static eRollerRuntimeResult ROLLER_RUNTIME_CALL test_advance(void *pUserData, ui
 
 int main(void)
 {
-  RollerRuntime *pRuntime = (RollerRuntime *)0x1;
+  RollerRuntime runtime;
+  RollerRuntime *pHeapRuntime = (RollerRuntime *)0x1;
   int iAdvanceCount = 0;
   tRollerRuntimeConfig config = {
     .uiStructSize = sizeof(config),
     .uiVersion = ROLLER_RUNTIME_API_VERSION,
-    .uiFlags = ROLLER_RUNTIME_FLAG_HEADLESS | ROLLER_RUNTIME_FLAG_DETERMINISTIC,
   };
   tRollerRuntimeInputSource source = {
     .uiStructSize = sizeof(source),
@@ -37,37 +37,59 @@ int main(void)
     .pfnAdvance = test_advance,
   };
 
-  CHECK(RollerRuntime_Create(NULL, &pRuntime) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
-  CHECK(RollerRuntime_Create(&config, NULL) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+  runtime = RollerRuntime_Create(NULL);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_FAILED);
+  CHECK(strcmp(RollerRuntime_GetLastError(&runtime), "") != 0);
+  CHECK(RollerRuntime_ClearInputSource(&runtime) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+
 
   config.uiVersion++;
-  pRuntime = NULL;
-  CHECK(RollerRuntime_Create(&config, &pRuntime) == ROLLER_RUNTIME_RESULT_INVALID_VERSION);
-  CHECK(pRuntime == NULL);
+  runtime = RollerRuntime_Create(&config);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_FAILED);
+  pHeapRuntime = NULL;
+  CHECK(RollerRuntime_New(&config, &pHeapRuntime) == ROLLER_RUNTIME_RESULT_INVALID_VERSION);
+  CHECK(pHeapRuntime == NULL);
 
   config.uiVersion = ROLLER_RUNTIME_API_VERSION;
-  CHECK(RollerRuntime_Create(&config, &pRuntime) == ROLLER_RUNTIME_RESULT_OK);
-  CHECK(pRuntime != NULL);
-  CHECK(RollerRuntime_GetStatus(pRuntime) == ROLLER_RUNTIME_STATUS_CREATED);
-  CHECK(strcmp(RollerRuntime_GetLastError(pRuntime), "") == 0);
+  CHECK(RollerRuntime_New(NULL, &pHeapRuntime) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+  CHECK(RollerRuntime_New(&config, NULL) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+
+  runtime = RollerRuntime_Create(&config);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_CREATED);
+  CHECK(strcmp(RollerRuntime_GetLastError(&runtime), "") == 0);
 
   CHECK(RollerRuntime_SetInputSource(NULL, &source) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
-  CHECK(RollerRuntime_SetInputSource(pRuntime, NULL) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+  CHECK(RollerRuntime_SetInputSource(&runtime, NULL) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
 
   source.uiVersion++;
-  CHECK(RollerRuntime_SetInputSource(pRuntime, &source) == ROLLER_RUNTIME_RESULT_INVALID_VERSION);
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_INVALID_VERSION);
 
   source.uiVersion = ROLLER_RUNTIME_API_VERSION;
   source.pfnAdvance = NULL;
-  CHECK(RollerRuntime_SetInputSource(pRuntime, &source) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT);
 
   source.pfnAdvance = test_advance;
-  CHECK(RollerRuntime_SetInputSource(pRuntime, &source) == ROLLER_RUNTIME_RESULT_OK);
-  CHECK(RollerRuntime_GetStatus(pRuntime) == ROLLER_RUNTIME_STATUS_READY);
-  CHECK(RollerRuntime_ClearInputSource(pRuntime) == ROLLER_RUNTIME_RESULT_OK);
-  CHECK(RollerRuntime_GetStatus(pRuntime) == ROLLER_RUNTIME_STATUS_CREATED);
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_OK);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_READY);
+  CHECK(RollerRuntime_ClearInputSource(&runtime) == ROLLER_RUNTIME_RESULT_OK);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_CREATED);
+  RollerRuntime_Destroy(&runtime);
+  CHECK(RollerRuntime_GetStatus(&runtime) == ROLLER_RUNTIME_STATUS_EMPTY);
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+  CHECK(RollerRuntime_ClearInputSource(&runtime) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+  runtime = (RollerRuntime){0};
+  CHECK(RollerRuntime_SetInputSource(&runtime, &source) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
+  CHECK(RollerRuntime_ClearInputSource(&runtime) == ROLLER_RUNTIME_RESULT_INVALID_STATE);
 
-  RollerRuntime_Destroy(pRuntime);
-  RollerRuntime_Destroy(NULL);
+
+
+  CHECK(RollerRuntime_New(&config, &pHeapRuntime) == ROLLER_RUNTIME_RESULT_OK);
+  CHECK(pHeapRuntime != NULL);
+  CHECK(RollerRuntime_GetStatus(pHeapRuntime) == ROLLER_RUNTIME_STATUS_CREATED);
+  RollerRuntime_Delete(pHeapRuntime);
+  RollerRuntime_Delete(NULL);
+
   return 0;
 }
