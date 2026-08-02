@@ -3,6 +3,7 @@
 #include "3d.h"
 #include "view.h"
 #include "transfrm.h"
+#include "drawtrk3.h"
 #include <string.h>
 #include <math.h>
 //-------------------------------------------------------------------------------------------------
@@ -134,12 +135,24 @@ void DrawTower(int iTowerIdx, uint8 *pScrBuf)
         verts[vi].u = 0.0f;
         verts[vi].v = 0.0f;
       }
-      game_render_quad_world(
-        g_pGameRenderer,
-        verts,
-        TEXTURE_HANDLE_INVALID,
-        SURFACE_FLAG_FLIP_BACKFACE | 0xE7,
-        1.0f);
+      {
+        tEdSurfaceInfo SurfaceInfo;
+        memset(&SurfaceInfo, 0, sizeof(SurfaceInfo));
+        SurfaceInfo.uiChunkId = TowerBase[iTowerIdx].iChunkIdx >= 0
+          ? (uint32_t)TowerBase[iTowerIdx].iChunkIdx
+          : ROLLER_ED_INVALID_CHUNK_ID;
+        SurfaceInfo.uiRenderFlags = SURFACE_FLAG_FLIP_BACKFACE | 0xE7;
+        SurfaceInfo.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
+        SurfaceInfo.uiTextureSet = TEXTURE_BANK_TRACK;
+        SurfaceInfo.fSubdivideThreshold = 1.0f;
+        SurfaceInfo.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_TOWER;
+        SurfaceInfo.unContentClass = ROLLER_ED_CONTENT_RUNTIME_SCENERY;
+        SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+        SurfaceInfo.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
+        SurfaceInfo.iRenderSubdivideType = GAME_RENDER_SUBDIVIDE_TYPE_AUTO;
+        drawtrk3_emit_surface_to_renderer(
+          g_pGameRenderer, verts, &SurfaceInfo);
+      }
     }
   }
 }

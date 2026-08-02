@@ -11,6 +11,7 @@
 #include "roller.h"
 #include "render_queue_3d.h"
 #include "editor_surface.h"
+#include "graphics.h"
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -204,33 +205,49 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
             pContext->pRenderer, (int)pFrontMaterial->uiTextureSet);
     }
 
-    game_render_quad_world(pContext->pRenderer, aVertices, hTexture,
-                           (int)uiRenderFlags,
-                           pSurface->fSubdivideThreshold);
+    game_render_quad_world_subdivide_type(
+        pContext->pRenderer, aVertices, hTexture,
+        (int)uiRenderFlags, pSurface->iRenderSubdivideType,
+        pSurface->fSubdivideThreshold);
 }
 
-static bool emit_left_wall_to_renderer(GameRenderer *pRenderer,
-                                       const GameRenderVertex aVertices[4],
-                                       uint32_t uiChunkId,
-                                       int iSurfaceFlags,
-                                       float fSubdivideThreshold,
-                                       bool bHighWall)
+static uint32_t editor_surface_texture_count(uint32_t uiTextureSet)
+{
+    if (uiTextureSet == TEXTURE_BANK_TRACK)
+        return num_textures[19] > 0 ? (uint32_t)num_textures[19] : 0u;
+    if (uiTextureSet == TEXTURE_BANK_BUILDING)
+        return num_textures[17] > 0 ? (uint32_t)num_textures[17] : 0u;
+    if (uiTextureSet == TEXTURE_BANK_CARGEN)
+        return num_textures[18] > 0 ? (uint32_t)num_textures[18] : 0u;
+    return 0u;
+}
+
+bool drawtrk3_emit_surface_to_renderer(
+    GameRenderer *pRenderer,
+    const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
+    const tEdSurfaceInfo *pInfo)
 {
     tEdMaterial aMaterials[2];
     tEdMaterialTable MaterialTable;
     tEdRenderSurfaceContext RenderContext;
-    tEdLeftWallSurfaceInfo Info;
+    tEdSurfaceInfo Info;
     float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3];
     uint32_t uiTileSize = gfx_size ? 32u : 64u;
     uint32_t uiTilesPerRow = 256u / uiTileSize;
-    uint32_t uiTileCount = num_textures[19] > 0
-        ? (uint32_t)num_textures[19]
-        : 0u;
+    uint32_t uiTileCount;
+    uint32_t uiAtlasRows;
+
+    if (!pRenderer || !aVertices || !pInfo)
+        return false;
+
+    Info = *pInfo;
+    uiTileCount = editor_surface_texture_count(Info.uiTextureSet);
+    uiAtlasRows = uiTileCount
+        ? (uiTileCount + uiTilesPerRow - 1u) / uiTilesPerRow
+        : 1u;
     tEdTextureAtlas Atlas = {
         .uiWidth = 256u,
-        .uiHeight = uiTileCount
-            ? ((uiTileCount + uiTilesPerRow - 1u) / uiTilesPerRow) * uiTileSize
-            : 0u,
+        .uiHeight = uiAtlasRows * uiTileSize,
         .uiTileSize = uiTileSize,
         .uiTileCount = uiTileCount
     };
@@ -244,6 +261,34 @@ static bool emit_left_wall_to_renderer(GameRenderer *pRenderer,
         afWorldVertices[i][2] = aVertices[i].z;
     }
 
+    if (Info.uiBackSurfaceFlags == ED_MATERIAL_ID_NONE
+            && (Info.uiRenderFlags & SURFACE_FLAG_BACK)
+            && Info.uiTextureSet <= TEXTURE_BANK_BUILDING) {
+        uint32_t uiTile =
+            Info.uiRenderFlags & SURFACE_MASK_TEXTURE_INDEX;
+        Info.uiBackSurfaceFlags =
+            (uint32_t)texture_back[256 * Info.uiTextureSet + uiTile];
+    }
+
+    RenderContext.pRenderer = pRenderer;
+    RenderContext.pMaterials = &MaterialTable;
+    RenderContext.pSelection = &g_EditorSurfaceSelection;
+    return ed_emit_surface(
+        afWorldVertices, &Info, &MaterialTable,
+        draw_emitted_surface, &RenderContext);
+}
+
+static bool emit_track_surface_to_renderer(
+    GameRenderer *pRenderer,
+    const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
+    uint32_t uiChunkId,
+    uint16_t unSurfaceClass,
+    int iSurfaceFlags,
+    float fSubdivideThreshold,
+    bool bHighVariant)
+{
+    tEdSurfaceInfo Info;
+    memset(&Info, 0, sizeof(Info));
     Info.uiChunkId = uiChunkId;
     Info.uiRenderFlags = (uint32_t)iSurfaceFlags;
     Info.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
@@ -251,20 +296,15 @@ static bool emit_left_wall_to_renderer(GameRenderer *pRenderer,
     Info.fSubdivideThreshold = fSubdivideThreshold;
     Info.bPairTextureEnabled =
         (iSurfaceFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on != 0;
-    Info.bHighWall = bHighWall;
-    if (iSurfaceFlags & SURFACE_FLAG_BACK) {
-        uint32_t uiTile =
-            (uint32_t)iSurfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
-        Info.uiBackSurfaceFlags =
-            (uint32_t)texture_back[256 * TEXTURE_BANK_TRACK + uiTile];
-    }
-
-    RenderContext.pRenderer = pRenderer;
-    RenderContext.pMaterials = &MaterialTable;
-    RenderContext.pSelection = &g_EditorSurfaceSelection;
-    return ed_emit_left_wall_surface(
-        afWorldVertices, &Info, &MaterialTable,
-        draw_emitted_surface, &RenderContext);
+    Info.bHighVariant = bHighVariant;
+    Info.unSurfaceClass = unSurfaceClass;
+    Info.unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK;
+    Info.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+    Info.byRenderUVLayout = Info.bPairTextureEnabled
+        ? ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
+        : ROLLER_ED_RENDER_UV_TILE;
+    Info.iRenderSubdivideType = GAME_RENDER_SUBDIVIDE_TYPE_AUTO;
+    return drawtrk3_emit_surface_to_renderer(pRenderer, aVertices, &Info);
 }
 
 void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
@@ -2504,19 +2544,13 @@ LABEL_393:
             } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
               sf = SURFACE_FLAG_SKIP_RENDER;
             }
-            if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
-              GameRenderVertex v[4];
-              world_verts_left_wall(v, iNextSectionIndex, iSectionNum, highWall ? 2 : 0);
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[3] * subscale;
-              if (!emit_left_wall_to_renderer(
-                    g_pGameRenderer, v, (uint32_t)iSectionNum,
-                    sf, subT, highWall != 0)) {
-                TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                  : TEXTURE_HANDLE_INVALID;
-                game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-              }
-            }
+            GameRenderVertex v[4];
+            world_verts_left_wall(v, iNextSectionIndex, iSectionNum, highWall ? 2 : 0);
+            float subT = (uint8)Subdivide[iSectionNum].subdivides[3] * subscale;
+            emit_track_surface_to_renderer(
+                g_pGameRenderer, v, (uint32_t)iSectionNum,
+                ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+                sf, subT, highWall != 0);
           }
           goto LABEL_1271;
         case RENDER_QUEUE_3D_RIGHT_WALL_LEGACY_PRIORITY:
@@ -2534,15 +2568,13 @@ LABEL_393:
             } else if ((textures_off & TEX_OFF_GLASS_WALLS) != 0 && (sf & SURFACE_FLAG_TRANSPARENT) != 0) {
               sf = SURFACE_FLAG_SKIP_RENDER;
             }
-            if ((sf & SURFACE_FLAG_SKIP_RENDER) == 0) {
-              GameRenderVertex v[4];
-              world_verts_right_wall(v, iNextSectionIndex, iSectionNum, highWall ? 3 : 4);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
-              float subT = (uint8)Subdivide[iSectionNum].subdivides[4] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
-            }
+            GameRenderVertex v[4];
+            world_verts_right_wall(v, iNextSectionIndex, iSectionNum, highWall ? 3 : 4);
+            float subT = (uint8)Subdivide[iSectionNum].subdivides[4] * subscale;
+            emit_track_surface_to_renderer(
+                g_pGameRenderer, v, (uint32_t)iSectionNum,
+                ROLLER_ED_SURFACE_CLASS_RIGHT_WALL,
+                sf, subT, highWall != 0);
           }
           goto LABEL_1271;
         LABEL_1271:
@@ -2571,11 +2603,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_ground_cross_first(v, iNextSectionIndex, iSectionNum, 3, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[8] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_OUTER_WALL_FLOOR,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2604,11 +2636,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 0, 1);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[6] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_LEFT_UPPER_OUTER_WALL,
+                  sf, subT, false);
             }
           }
           goto LABEL_1068;
@@ -2639,11 +2671,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 1, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[7] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_LEFT_LOWER_OUTER_WALL,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2672,11 +2704,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 4, 5);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[10] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_RIGHT_UPPER_OUTER_WALL,
+                  sf, subT, false);
             }
           }
           goto LABEL_1174;
@@ -2705,11 +2737,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_ground_forward(v, iNextSectionIndex, iSectionNum, 3, 4);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[9] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_RIGHT_LOWER_OUTER_WALL,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2721,11 +2753,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 3, 2);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[1] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_CENTER,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2741,11 +2773,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 2, 0);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[0] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_LEFT_SHOULDER,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2759,11 +2791,11 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 4, 3);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[2] * subscale;
-              game_render_quad_world(g_pGameRenderer, v, h, sf, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_RIGHT_SHOULDER,
+                  sf, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2784,11 +2816,11 @@ LABEL_393:
                 v[3].x = g->pointAy[0].fX; v[3].y = g->pointAy[0].fY; v[3].z = g->pointAy[0].fZ;
                 v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
                 v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
-                TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
-                  ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                  : TEXTURE_HANDLE_INVALID;
                 float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-                game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
+                emit_track_surface_to_renderer(
+                    g_pGameRenderer, v, (uint32_t)iNextSectionIndex,
+                    ROLLER_ED_SURFACE_CLASS_ROOF,
+                    renderSf, subT, false);
               }
             }
             /* Single-section roof from CUR section (very negative surface) */
@@ -2808,11 +2840,11 @@ LABEL_393:
                   v[3].x = g->pointAy[5].fX; v[3].y = g->pointAy[5].fY; v[3].z = g->pointAy[5].fZ;
                   v[0].u = 0; v[0].v = 0; v[1].u = 0; v[1].v = 0;
                   v[2].u = 0; v[2].v = 0; v[3].u = 0; v[3].v = 0;
-                  TextureHandle h = (renderSf & SURFACE_FLAG_APPLY_TEXTURE)
-                    ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                    : TEXTURE_HANDLE_INVALID;
                   float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
-                  game_render_quad_world(g_pGameRenderer, v, h, renderSf, subT);
+                  emit_track_surface_to_renderer(
+                      g_pGameRenderer, v, (uint32_t)iSectionNum,
+                      ROLLER_ED_SURFACE_CLASS_ROOF,
+                      renderSf, subT, false);
                 }
               }
             }
@@ -2822,13 +2854,12 @@ LABEL_393:
             {
               GameRenderVertex v[4];
               world_verts_cross_first(v, TrakPt, iNextSectionIndex, iSectionNum, 1, 5);
-              TextureHandle h = (sf & SURFACE_FLAG_APPLY_TEXTURE)
-                ? game_render_get_texture_handle(g_pGameRenderer, 0)
-                : TEXTURE_HANDLE_INVALID;
               float subT = (uint8)Subdivide[iSectionNum].subdivides[5] * subscale;
               /* FLIP_BACKFACE: roof underside is back-facing at shallow angles (same elevation as camera). */
-              game_render_quad_world(g_pGameRenderer, v, h,
-                                    sf | SURFACE_FLAG_FLIP_BACKFACE, subT);
+              emit_track_surface_to_renderer(
+                  g_pGameRenderer, v, (uint32_t)iSectionNum,
+                  ROLLER_ED_SURFACE_CLASS_ROOF,
+                  sf | SURFACE_FLAG_FLIP_BACKFACE, subT, false);
             }
           }
           goto LABEL_1271;
@@ -2919,47 +2950,8 @@ int facing_ok(float fX0, float fY0, float fZ0,
 //00027A60
 void set_starts(unsigned int uiType)
 {
-  startsx[1] = 0;
-  startsx[2] = 0;
-  startsy[0] = 0;
-  startsy[1] = 0;
-  if (gfx_size) {
-    if (uiType) {
-      if (uiType <= 1) {
-        startsx[0] = 0x3FF000; //64.0
-        startsx[3] = 0x3FF000; //64.0
-        startsy[2] = 0x1FF000; //31.875
-        startsy[3] = 0x1FF000; //31.875
-      } else if (uiType == 2) {
-        startsx[0] = 0x1FF000; //31.875
-        startsx[3] = 0x1FF000; //31.875
-        startsy[2] = 0x3FF000; //64.0
-        startsy[3] = 0x3FF000; //64.0
-      }
-    } else {
-      startsx[0] = 0x1FF000; //31.875
-      startsx[3] = 0x1FF000; //31.875
-      startsy[2] = 0x1FF000; //31.875
-      startsy[3] = 0x1FF000; //31.875
-    }
-  } else if (uiType) {
-    if (uiType <= 1) {
-      startsx[0] = 0x7FF000; //128.0
-      startsx[3] = 0x7FF000; //128.0
-      startsy[2] = 0x3FF000; //64.0
-      startsy[3] = 0x3FF000; //64.0
-    } else if (uiType == 2) {
-      startsx[0] = 0x3FF000; //64.0
-      startsx[3] = 0x3FF000; //64.0
-      startsy[2] = 0x7FF000; //128.0
-      startsy[3] = 0x7FF000; //128.0
-    }
-  } else {
-    startsx[0] = 0x3FF000; //64.0
-    startsx[3] = 0x3FF000; //64.0
-    startsy[2] = 0x3FF000; //64.0
-    startsy[3] = 0x3FF000; //64.0
-  }
+  ed_surface_compute_render_uvs(
+      (uint8_t)uiType, gfx_size != 0, startsx, startsy);
 }
 
 //-------------------------------------------------------------------------------------------------

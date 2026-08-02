@@ -214,7 +214,7 @@ static bool gpu_f_s5_metadata_check(void)
     tEdMaterialTable ReverseTable;
     tGpuEmissionCapture ReverseCapture = { 0 };
     tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
-    tEdLeftWallSurfaceInfo ReverseInfo = {
+    tEdSurfaceInfo ReverseInfo = {
         .uiChunkId = 73u,
         .uiRenderFlags =
             SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK,
@@ -222,11 +222,15 @@ static bool gpu_f_s5_metadata_check(void)
         .uiTextureSet = TEXTURE_BANK_TRACK,
         .fSubdivideThreshold = 1000000.0f,
         .bPairTextureEnabled = false,
-        .bHighWall = false
+        .bHighVariant = false,
+        .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+        .unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK,
+        .byTopology = ROLLER_ED_TOPOLOGY_QUAD,
+        .byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE
     };
     bPass = ed_material_table_init(
         &ReverseTable, aReverseMaterials, 2u, Atlas)
-        && ed_emit_left_wall_surface(
+        && ed_emit_surface(
             afWorld, &ReverseInfo, &ReverseTable,
             gpu_f_s5_capture_emission, &ReverseCapture)
         && ReverseCapture.bCalled;
@@ -271,7 +275,7 @@ static bool gpu_f_s5_metadata_check(void)
     tEdMaterialTable FlippedTable;
     tGpuEmissionCapture ForwardCapture = { 0 };
     tGpuEmissionCapture FlippedCapture = { 0 };
-    tEdLeftWallSurfaceInfo ForwardInfo = {
+    tEdSurfaceInfo ForwardInfo = {
         .uiChunkId = 74u,
         .uiRenderFlags =
             SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR,
@@ -279,19 +283,23 @@ static bool gpu_f_s5_metadata_check(void)
         .uiTextureSet = TEXTURE_BANK_TRACK,
         .fSubdivideThreshold = 1000000.0f,
         .bPairTextureEnabled = true,
-        .bHighWall = false
+        .bHighVariant = false,
+        .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+        .unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK,
+        .byTopology = ROLLER_ED_TOPOLOGY_QUAD,
+        .byRenderUVLayout = ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
     };
-    tEdLeftWallSurfaceInfo FlippedInfo = ForwardInfo;
+    tEdSurfaceInfo FlippedInfo = ForwardInfo;
     FlippedInfo.uiRenderFlags |= SURFACE_FLAG_FLIP_HORIZ;
     bPass = bPass
         && ed_material_table_init(
             &ForwardTable, aForwardMaterial, 1u, Atlas)
         && ed_material_table_init(
             &FlippedTable, aFlippedMaterial, 1u, Atlas)
-        && ed_emit_left_wall_surface(
+        && ed_emit_surface(
             afWorld, &ForwardInfo, &ForwardTable,
             gpu_f_s5_capture_emission, &ForwardCapture)
-        && ed_emit_left_wall_surface(
+        && ed_emit_surface(
             afWorld, &FlippedInfo, &FlippedTable,
             gpu_f_s5_capture_emission, &FlippedCapture);
 
@@ -498,7 +506,7 @@ static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
         tEdMaterial aMaterials[1];
         tEdMaterialTable MaterialTable;
         tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
-        tEdLeftWallSurfaceInfo Info = {
+        tEdSurfaceInfo Info = {
             .uiChunkId = 91u,
             .uiRenderFlags =
                 SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR,
@@ -506,7 +514,11 @@ static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
             .uiTextureSet = TEXTURE_BANK_TRACK,
             .fSubdivideThreshold = 1000000.0f,
             .bPairTextureEnabled = true,
-            .bHighWall = false
+            .bHighVariant = false,
+            .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+            .unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK,
+            .byTopology = ROLLER_ED_TOPOLOGY_QUAD,
+            .byRenderUVLayout = ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
         };
         tGpuEmissionRenderContext RenderContext = {
             .pRenderer = pRenderer,
@@ -523,7 +535,7 @@ static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
         }
         if (!ed_material_table_init(
                 &MaterialTable, aMaterials, 1u, Atlas)
-                || !ed_emit_left_wall_surface(
+                || !ed_emit_surface(
                     afWorld, &Info, &MaterialTable,
                     gpu_f_s5_render_emission, &RenderContext)
                 || !RenderContext.bCalled) {
@@ -649,14 +661,18 @@ static bool gpu_f_s4b_selected_surface_check(
     for (int iQuad = 0; iQuad < 4; iQuad++) {
         SceneRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
         float afWorld[ED_SURFACE_VERTEX_COUNT][3];
-        tEdLeftWallSurfaceInfo Info = {
+        tEdSurfaceInfo Info = {
             .uiChunkId = auiChunkId[iQuad],
             .uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE,
             .uiBackSurfaceFlags = ED_MATERIAL_ID_NONE,
             .uiTextureSet = TEXTURE_BANK_TRACK,
             .fSubdivideThreshold = 1000000.0f,
             .bPairTextureEnabled = false,
-            .bHighWall = false
+            .bHighVariant = false,
+            .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+            .unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK,
+            .byTopology = ROLLER_ED_TOPOLOGY_QUAD,
+            .byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE
         };
         gpu_parity_make_quad(
             aVertices, afLeft[iQuad], 0.65f,
@@ -667,7 +683,7 @@ static bool gpu_f_s4b_selected_surface_check(
             afWorld[i][1] = aVertices[i].y;
             afWorld[i][2] = aVertices[i].z;
         }
-        if (!ed_emit_left_wall_surface(
+        if (!ed_emit_surface(
                 afWorld, &Info, &MaterialTable,
                 gpu_f_s5_render_emission, &RenderContext)) {
             scene_render_gpu_cancel_frame(pRenderer);

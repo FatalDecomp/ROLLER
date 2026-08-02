@@ -81,7 +81,7 @@ bool ed_material_table_init(tEdMaterialTable *pTable,
 {
     if (!pTable || !pStorage || uiCapacity == 0
             || Atlas.uiWidth == 0 || Atlas.uiHeight == 0
-            || Atlas.uiTileSize == 0 || Atlas.uiTileCount == 0
+            || Atlas.uiTileSize == 0
             || Atlas.uiWidth % Atlas.uiTileSize != 0
             || Atlas.uiHeight % Atlas.uiTileSize != 0)
         return false;
@@ -150,40 +150,85 @@ uint32_t ed_surface_selection_render_flags(
         | pSelection->byHighlightColour;
 }
 
-bool ed_emit_left_wall_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
-                               const tEdLeftWallSurfaceInfo *pInfo,
-                               tEdMaterialTable *pMaterials,
-                               tEdEmitSurfaceFn pfnEmit,
-                               void *pUserData)
+bool ed_surface_compute_render_uvs(
+    uint8_t byRenderUVLayout,
+    bool bHalfResolution,
+    int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT],
+    int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT])
+{
+    static const int32_t aiUCorner[ED_SURFACE_VERTEX_COUNT] = { 1, 0, 0, 1 };
+    static const int32_t aiVCorner[ED_SURFACE_VERTEX_COUNT] = { 0, 0, 1, 1 };
+    uint32_t uiTileSize;
+    uint32_t uiRenderWidth;
+    uint32_t uiRenderHeight;
+    int32_t iMaxU;
+    int32_t iMaxV;
+
+    if (!aiRenderU16_16 || !aiRenderV16_16
+            || byRenderUVLayout > ROLLER_ED_RENDER_UV_PAIR_VERTICAL)
+        return false;
+
+    uiTileSize = bHalfResolution ? 32u : 64u;
+    uiRenderWidth = uiTileSize
+                  * (byRenderUVLayout == ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
+                     ? 2u : 1u);
+    uiRenderHeight = uiTileSize
+                   * (byRenderUVLayout == ROLLER_ED_RENDER_UV_PAIR_VERTICAL
+                      ? 2u : 1u);
+    iMaxU = (int32_t)(uiRenderWidth << 16) - 0x1000;
+    iMaxV = (int32_t)(uiRenderHeight << 16) - 0x1000;
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        aiRenderU16_16[i] = aiUCorner[i] ? iMaxU : 0;
+        aiRenderV16_16[i] = aiVCorner[i] ? iMaxV : 0;
+    }
+    return true;
+}
+
+bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
+                     const tEdSurfaceInfo *pInfo,
+                     tEdMaterialTable *pMaterials,
+                     tEdEmitSurfaceFn pfnEmit,
+                     void *pUserData)
 {
     tEdSurfaceEmission Surface;
     tEdMaterial FrontMaterial;
     uint32_t uiTileSize;
     uint32_t uiRenderWidth;
-    int32_t iMaxU;
-    int32_t iMaxV;
+    uint32_t uiRenderHeight;
+    int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT];
+    int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT];
 
     if (!afWorldVertices || !pInfo || !pMaterials || !pfnEmit)
         return false;
+    if (pInfo->uiRenderFlags & SURFACE_FLAG_SKIP_RENDER)
+        return true;
 
     uiTileSize = pMaterials->Atlas.uiTileSize;
-    uiRenderWidth = uiTileSize * (pInfo->bPairTextureEnabled ? 2u : 1u);
+    uiRenderWidth = uiTileSize
+                  * (pInfo->byRenderUVLayout
+                     == ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL ? 2u : 1u);
+    uiRenderHeight = uiTileSize
+                   * (pInfo->byRenderUVLayout
+                      == ROLLER_ED_RENDER_UV_PAIR_VERTICAL ? 2u : 1u);
     if (uiRenderWidth > (uint32_t)(INT32_MAX >> 16)
-            || uiTileSize > (uint32_t)(INT32_MAX >> 16))
+            || uiRenderHeight > (uint32_t)(INT32_MAX >> 16)
+            || !ed_surface_compute_render_uvs(
+                pInfo->byRenderUVLayout, uiTileSize == 32u,
+                aiRenderU16_16, aiRenderV16_16))
         return false;
-
-    iMaxU = (int32_t)(uiRenderWidth << 16) - 0x1000;
-    iMaxV = (int32_t)(uiTileSize << 16) - 0x1000;
 
     memset(&Surface, 0, sizeof(Surface));
     Surface.uiVertexCount = ED_SURFACE_VERTEX_COUNT;
     Surface.uiBackMaterialId = ED_MATERIAL_ID_NONE;
     Surface.uiChunkId = pInfo->uiChunkId;
     Surface.uiRenderFlags = pInfo->uiRenderFlags;
+    Surface.iRenderSubdivideType = pInfo->iRenderSubdivideType;
     Surface.fSubdivideThreshold = pInfo->fSubdivideThreshold;
-    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL;
-    Surface.unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK;
-    Surface.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+    Surface.unSurfaceClass = pInfo->unSurfaceClass;
+    Surface.unContentClass = pInfo->unContentClass;
+    Surface.unFlags = pInfo->unFlags;
+    Surface.byTopology = pInfo->byTopology;
 
     if (pInfo->uiRenderFlags
             & (SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_PARTIAL_TRANS))
@@ -194,22 +239,20 @@ bool ed_emit_left_wall_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COU
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_TEXTURED;
     if (pInfo->bPairTextureEnabled)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_PAIRED_TEXTURE;
-    if (pInfo->bHighWall)
+    if (pInfo->bHighVariant)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_HIGH_VARIANT;
 
-    static const int32_t aiUCorner[ED_SURFACE_VERTEX_COUNT] = { 1, 0, 0, 1 };
-    static const int32_t aiVCorner[ED_SURFACE_VERTEX_COUNT] = { 0, 0, 1, 1 };
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         memcpy(Surface.aVertices[i].fPosition, afWorldVertices[i],
                sizeof(Surface.aVertices[i].fPosition));
-        Surface.aVertices[i].iRenderU16_16 = aiUCorner[i] ? iMaxU : 0;
-        Surface.aVertices[i].iRenderV16_16 = aiVCorner[i] ? iMaxV : 0;
+        Surface.aVertices[i].iRenderU16_16 = aiRenderU16_16[i];
+        Surface.aVertices[i].iRenderV16_16 = aiRenderV16_16[i];
         Surface.aVertices[i].fMaterialUV[0] =
             (float)Surface.aVertices[i].iRenderU16_16
             / (float)(uiRenderWidth << 16);
         Surface.aVertices[i].fMaterialUV[1] =
             (float)Surface.aVertices[i].iRenderV16_16
-            / (float)(uiTileSize << 16);
+            / (float)(uiRenderHeight << 16);
     }
 
     if (pInfo->uiRenderFlags & SURFACE_FLAG_FLIP_HORIZ) {

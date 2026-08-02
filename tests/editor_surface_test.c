@@ -25,9 +25,9 @@ static void assert_float_near(float fActual, float fExpected)
     assert(fabsf(fActual - fExpected) < 0.000001f);
 }
 
-static tEdLeftWallSurfaceInfo make_info(uint32_t uiFlags)
+static tEdSurfaceInfo make_info(uint32_t uiFlags)
 {
-    tEdLeftWallSurfaceInfo Info = {
+    tEdSurfaceInfo Info = {
         .uiChunkId = 417u,
         .uiRenderFlags = uiFlags,
         .uiBackSurfaceFlags = ED_MATERIAL_ID_NONE,
@@ -35,7 +35,14 @@ static tEdLeftWallSurfaceInfo make_info(uint32_t uiFlags)
         .fSubdivideThreshold = 1234.5f,
         .bPairTextureEnabled =
             (uiFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0,
-        .bHighWall = true
+        .bHighVariant = true,
+        .unSurfaceClass = ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+        .unContentClass = ROLLER_ED_CONTENT_AUTHORED_TRACK,
+        .byTopology = ROLLER_ED_TOPOLOGY_QUAD,
+        .byRenderUVLayout = (uiFlags & SURFACE_FLAG_TEXTURE_PAIR)
+            ? ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
+            : ROLLER_ED_RENDER_UV_TILE,
+        .iRenderSubdivideType = 29
     };
     return Info;
 }
@@ -58,14 +65,14 @@ static void test_exact_fixed_uvs_and_identity(void)
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
     tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
-    tEdLeftWallSurfaceInfo Info = make_info(
+    tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE
         | SURFACE_FLAG_TEXTURE_PAIR
         | SURFACE_FLAG_FLIP_BACKFACE
         | 2u);
 
     assert(ed_material_table_init(&Table, aMaterials, 2u, Atlas));
-    assert(ed_emit_left_wall_surface(
+    assert(ed_emit_surface(
         afWorld, &Info, &Table, capture_emission, &Capture));
     assert(Capture.iCalls == 1);
     assert(Capture.Surface.uiVertexCount == ED_SURFACE_VERTEX_COUNT);
@@ -83,6 +90,7 @@ static void test_exact_fixed_uvs_and_identity(void)
     assert((Capture.Surface.unFlags
             & ROLLER_ED_SURFACE_FLAG_HIGH_VARIANT) != 0);
     assert_float_near(Capture.Surface.fSubdivideThreshold, 1234.5f);
+    assert(Capture.Surface.iRenderSubdivideType == 29);
 
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         assert(memcmp(Capture.Surface.aVertices[i].fPosition,
@@ -111,11 +119,11 @@ static void test_low_resolution_fixed_uvs(void)
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
     tEdTextureAtlas Atlas = { 256u, 32u, 32u, 8u };
-    tEdLeftWallSurfaceInfo Info = make_info(
+    tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR);
 
     assert(ed_material_table_init(&Table, aMaterials, 1u, Atlas));
-    assert(ed_emit_left_wall_surface(
+    assert(ed_emit_surface(
         afWorld, &Info, &Table, capture_emission, &Capture));
     assert(Capture.Surface.aVertices[0].iRenderU16_16 == 0x3FF000);
     assert(Capture.Surface.aVertices[2].iRenderV16_16 == 0x1FF000);
@@ -128,13 +136,13 @@ static void test_reverse_material_and_generated_back_face(void)
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
     tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
-    tEdLeftWallSurfaceInfo Info = make_info(
+    tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK | 1u);
     Info.uiBackSurfaceFlags = 6u;
     Info.bPairTextureEnabled = false;
 
     assert(ed_material_table_init(&Table, aMaterials, 2u, Atlas));
-    assert(ed_emit_left_wall_surface(
+    assert(ed_emit_surface(
         afWorld, &Info, &Table, capture_emission, &Capture));
     assert(Capture.Surface.uiBackMaterialId != ED_MATERIAL_ID_NONE);
     assert(Capture.Surface.uiBackMaterialId
@@ -170,9 +178,9 @@ static void test_paired_mapping_in_both_directions(void)
     tEmissionCapture Forward = { 0 };
     tEmissionCapture Reverse = { 0 };
     tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
-    tEdLeftWallSurfaceInfo ForwardInfo = make_info(
+    tEdSurfaceInfo ForwardInfo = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR);
-    tEdLeftWallSurfaceInfo ReverseInfo = make_info(
+    tEdSurfaceInfo ReverseInfo = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR
         | SURFACE_FLAG_FLIP_HORIZ);
 
@@ -180,9 +188,9 @@ static void test_paired_mapping_in_both_directions(void)
         &ForwardTable, aForwardMaterials, 1u, Atlas));
     assert(ed_material_table_init(
         &ReverseTable, aReverseMaterials, 1u, Atlas));
-    assert(ed_emit_left_wall_surface(
+    assert(ed_emit_surface(
         afWorld, &ForwardInfo, &ForwardTable, capture_emission, &Forward));
-    assert(ed_emit_left_wall_surface(
+    assert(ed_emit_surface(
         afWorld, &ReverseInfo, &ReverseTable, capture_emission, &Reverse));
 
     assert(Forward.Surface.aVertices[0].fMaterialUV[0]
@@ -236,6 +244,49 @@ static void test_export_mapping_uses_material_transform(void)
     ed_material_resolve_uv(&Material, afMaterialUV, afAtlasUV);
     assert_float_near(afAtlasUV[0], 0.40625f);
     assert_float_near(afAtlasUV[1], 0.6875f);
+}
+
+static void test_generic_identity_layout_and_skip(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    int32_t aiRenderU[ED_SURFACE_VERTEX_COUNT];
+    int32_t aiRenderV[ED_SURFACE_VERTEX_COUNT];
+    tEdMaterial aMaterials[1];
+    tEdMaterialTable Table;
+    tEmissionCapture Capture = { 0 };
+    tEdTextureAtlas Atlas = { 256u, 64u, 64u, 0u };
+    tEdSurfaceInfo Info = make_info(
+        SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_FLIP_BACKFACE | 5u);
+    Info.uiChunkId = ROLLER_ED_INVALID_CHUNK_ID;
+    Info.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_SIGN;
+    Info.unContentClass = ROLLER_ED_CONTENT_AUTHORED_SIGN;
+    Info.bHighVariant = false;
+
+    assert(ed_surface_compute_render_uvs(
+        ROLLER_ED_RENDER_UV_PAIR_VERTICAL, false,
+        aiRenderU, aiRenderV));
+    assert(aiRenderU[0] == 0x3FF000);
+    assert(aiRenderV[2] == 0x7FF000);
+
+    assert(ed_material_table_init(&Table, aMaterials, 1u, Atlas));
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    assert(Capture.iCalls == 1);
+    assert(Capture.Surface.uiChunkId == ROLLER_ED_INVALID_CHUNK_ID);
+    assert(Capture.Surface.unSurfaceClass == ROLLER_ED_SURFACE_CLASS_SIGN);
+    assert(Capture.Surface.unContentClass == ROLLER_ED_CONTENT_AUTHORED_SIGN);
+    assert((Capture.Surface.unFlags & ROLLER_ED_SURFACE_FLAG_ALPHA) != 0);
+    assert((Capture.Surface.unFlags & ROLLER_ED_SURFACE_FLAG_TWO_SIDED) != 0);
+    const tEdMaterial *pMaterial = ed_material_table_get(
+        &Table, Capture.Surface.uiFrontMaterialId);
+    assert(pMaterial);
+    assert(pMaterial->uiKind == ROLLER_ED_MATERIAL_SCREEN_DARKEN);
+
+    Capture.iCalls = 0;
+    Info.uiRenderFlags |= SURFACE_FLAG_SKIP_RENDER;
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    assert(Capture.iCalls == 0);
 }
 
 static void test_selection_uses_only_canonical_identity(void)
@@ -295,6 +346,7 @@ int main(void)
     test_reverse_material_and_generated_back_face();
     test_paired_mapping_in_both_directions();
     test_export_mapping_uses_material_transform();
+    test_generic_identity_layout_and_skip();
     test_selection_uses_only_canonical_identity();
     puts("editor surface emission tests passed");
     return 0;

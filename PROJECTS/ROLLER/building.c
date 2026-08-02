@@ -746,9 +746,6 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             verts[vi].u = 0.0f;
             verts[vi].v = 0.0f;
           }
-          TextureHandle th = ((uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            ? game_render_get_texture_handle(g_pGameRenderer, TEXTURE_BANK_BUILDING)
-            : TEXTURE_HANDLE_INVALID;
           /* All sign-type polygons use GAME_RENDER_SUBDIVIDE_TYPE_SIGN so the GPU
            * renderer knows to bypass the normal backface-cull and depth routing.
            * SURFACE_FLAG_GPU_IS_SIGN (bit 20) is ORed in for real advert panels only;
@@ -764,10 +761,33 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
            * the SW painter's algorithm where trees are always visible. */
           bool isTree = (uiBuildingType == 10); /* SIGN_TREE: fixed tree texture, never advert_list */
           if (isTree) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_TREE;
-          game_render_quad_world_subdivide_type(
-            g_pGameRenderer, verts, th, gpuSurfFlags,
-            subdivType,
-            (float)BuildingSub[uiBuildingType] * subscale);
+          {
+            tEdSurfaceInfo SurfaceInfo;
+            memset(&SurfaceInfo, 0, sizeof(SurfaceInfo));
+            SurfaceInfo.uiChunkId = BuildingBase[iBuildingIdx][1] >= 0
+              ? (uint32_t)BuildingBase[iBuildingIdx][1]
+              : ROLLER_ED_INVALID_CHUNK_ID;
+            SurfaceInfo.uiRenderFlags = (uint32_t)gpuSurfFlags;
+            SurfaceInfo.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
+            SurfaceInfo.uiTextureSet = TEXTURE_BANK_BUILDING;
+            SurfaceInfo.fSubdivideThreshold =
+              (float)BuildingSub[uiBuildingType] * subscale;
+            SurfaceInfo.bPairTextureEnabled =
+              (gpuSurfFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on != 0;
+            SurfaceInfo.unSurfaceClass = isRealSign
+              ? ROLLER_ED_SURFACE_CLASS_SIGN
+              : ROLLER_ED_SURFACE_CLASS_BUILDING;
+            SurfaceInfo.unContentClass = isRealSign
+              ? ROLLER_ED_CONTENT_AUTHORED_SIGN
+              : ROLLER_ED_CONTENT_RUNTIME_SCENERY;
+            SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+            SurfaceInfo.byRenderUVLayout = SurfaceInfo.bPairTextureEnabled
+              ? ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
+              : ROLLER_ED_RENDER_UV_TILE;
+            SurfaceInfo.iRenderSubdivideType = subdivType;
+            drawtrk3_emit_surface_to_renderer(
+              g_pGameRenderer, verts, &SurfaceInfo);
+          }
         }
         skip_polygon:;
         iZOrderOffset = iCurrentZOrderIdx * 12 + 12;

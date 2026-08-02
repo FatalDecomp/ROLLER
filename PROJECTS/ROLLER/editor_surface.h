@@ -11,13 +11,33 @@
 
 typedef enum
 {
-    ROLLER_ED_SURFACE_CLASS_LEFT_WALL = 0
+    ROLLER_ED_SURFACE_CLASS_CENTER = 0,
+    ROLLER_ED_SURFACE_CLASS_LEFT_SHOULDER,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_SHOULDER,
+    ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_WALL,
+    ROLLER_ED_SURFACE_CLASS_ROOF,
+    ROLLER_ED_SURFACE_CLASS_OUTER_WALL_FLOOR,
+    ROLLER_ED_SURFACE_CLASS_LEFT_LOWER_OUTER_WALL,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_LOWER_OUTER_WALL,
+    ROLLER_ED_SURFACE_CLASS_LEFT_UPPER_OUTER_WALL,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_UPPER_OUTER_WALL,
+    ROLLER_ED_SURFACE_CLASS_SIGN,
+    ROLLER_ED_SURFACE_CLASS_BUILDING,
+    ROLLER_ED_SURFACE_CLASS_TOWER
 } eRollerEdSurfaceClass;
 
 typedef enum
 {
     ROLLER_ED_TOPOLOGY_QUAD = 0
 } eRollerEdTopology;
+
+typedef enum
+{
+    ROLLER_ED_RENDER_UV_TILE = 0,
+    ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL = 1,
+    ROLLER_ED_RENDER_UV_PAIR_VERTICAL = 2
+} eRollerEdRenderUVLayout;
 
 enum
 {
@@ -60,6 +80,7 @@ typedef struct
     uint32_t uiBackMaterialId;
     uint32_t uiChunkId;
     uint32_t uiRenderFlags;
+    int32_t iRenderSubdivideType;
     float fSubdivideThreshold;
     uint16_t unSurfaceClass;
     uint16_t unContentClass;
@@ -79,8 +100,14 @@ typedef struct
     uint32_t uiTextureSet;
     float fSubdivideThreshold;
     bool bPairTextureEnabled;
-    bool bHighWall;
-} tEdLeftWallSurfaceInfo;
+    bool bHighVariant;
+    uint16_t unSurfaceClass;
+    uint16_t unContentClass;
+    uint16_t unFlags;
+    uint8_t byTopology;
+    uint8_t byRenderUVLayout;
+    int32_t iRenderSubdivideType;
+} tEdSurfaceInfo;
 
 typedef struct
 {
@@ -110,10 +137,16 @@ uint32_t ed_surface_selection_render_flags(
     const tEdSurfaceSelection *pSelection,
     const tEdSurfaceEmission *pSurface);
 
-bool ed_emit_left_wall_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
-                               const tEdLeftWallSurfaceInfo *pInfo,
-                               tEdMaterialTable *pMaterials,
-                               tEdEmitSurfaceFn pfnEmit,
-                               void *pUserData);
+bool ed_surface_compute_render_uvs(
+    uint8_t byRenderUVLayout,
+    bool bHalfResolution,
+    int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT],
+    int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT]);
+
+bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
+                     const tEdSurfaceInfo *pInfo,
+                     tEdMaterialTable *pMaterials,
+                     tEdEmitSurfaceFn pfnEmit,
+                     void *pUserData);
 
 #endif

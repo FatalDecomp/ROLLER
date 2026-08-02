@@ -4,6 +4,7 @@
 #include "polyf.h"
 #include "types.h"
 #include "3d.h"
+#include "editor_surface.h"
 //-------------------------------------------------------------------------------------------------
 
 extern int showsub;
@@ -51,6 +52,10 @@ int facing_ok(float fX0, float fY0, float fZ0,
               float fX2, float fY2, float fZ2,
               float fX3, float fY3, float fZ3);
 void set_starts(unsigned int uiType);
+bool drawtrk3_emit_surface_to_renderer(
+    GameRenderer *pRenderer,
+    const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
+    const tEdSurfaceInfo *pInfo);
 void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
                                    uint32_t uiLastChunkId,
                                    uint16_t unSurfaceClass,
