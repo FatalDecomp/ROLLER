@@ -5,6 +5,33 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(ROLLER_RUNTIME_TEST_SEAMS)
+#if defined(ROLLER_RUNTIME_TEST_SEAMS_DEFAULTS)
+static int g_runtime_test_frontend_on;
+static void runtime_test_tick_clock_step(void) {}
+static void runtime_test_game_tick_step(void) {}
+static void runtime_test_clear_pending_ticks(void) {}
+#else
+extern int g_runtime_test_frontend_on;
+void runtime_test_tick_clock_step(void);
+void runtime_test_game_tick_step(void);
+void runtime_test_clear_pending_ticks(void);
+#endif
+#define RUNTIME_FRONTEND_ON() (g_runtime_test_frontend_on)
+#define RUNTIME_TICK_CLOCK_STEP() runtime_test_tick_clock_step()
+#define RUNTIME_GAME_TICK_STEP() runtime_test_game_tick_step()
+#define RUNTIME_CLEAR_PENDING_TICKS() runtime_test_clear_pending_ticks()
+#else
+#include "frontend.h"
+#include "roller.h"
+#include "sound.h"
+#include <SDL3/SDL_atomic.h>
+#define RUNTIME_FRONTEND_ON() (frontend_on)
+#define RUNTIME_TICK_CLOCK_STEP() tick_clock_step()
+#define RUNTIME_GAME_TICK_STEP() game_tick_step()
+#define RUNTIME_CLEAR_PENDING_TICKS() SDL_SetAtomicInt(&iTicksPending, 0)
+#endif
+
 struct RollerRuntime
 {
   uint32_t uiFlags;
@@ -116,12 +143,35 @@ RollerRuntime_ClearInputSource(RollerRuntime *pRuntime)
 eRollerRuntimeResult ROLLER_RUNTIME_CALL
 RollerRuntime_Step(RollerRuntime *pRuntime, uint32_t uiTicks)
 {
-  (void)uiTicks;
   if (!pRuntime)
     return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
-  runtime_set_error(pRuntime, "runtime stepping is not connected yet");
-  pRuntime->eStatus = ROLLER_RUNTIME_STATUS_FAILED;
-  return ROLLER_RUNTIME_RESULT_STEP_FAILED;
+  runtime_clear_error(pRuntime);
+  if (uiTicks == 0u) {
+    runtime_set_error(pRuntime, "step tick count must be greater than zero");
+    return ROLLER_RUNTIME_RESULT_INVALID_ARGUMENT;
+  }
+  if (!pRuntime->iHasInputSource) {
+    runtime_set_error(pRuntime, "runtime requires an input source before stepping");
+    return ROLLER_RUNTIME_RESULT_INVALID_STATE;
+  }
+
+  for (uint32_t i = 0; i < uiTicks; ++i) {
+    eRollerRuntimeResult eAdvance = pRuntime->InputSource.pfnAdvance(
+        pRuntime->InputSource.pUserData, i);
+    if (eAdvance != ROLLER_RUNTIME_RESULT_OK) {
+      runtime_set_error(pRuntime, "input source advance failed with result %u",
+                        (unsigned)eAdvance);
+      pRuntime->eStatus = ROLLER_RUNTIME_STATUS_FAILED;
+      return ROLLER_RUNTIME_RESULT_STEP_FAILED;
+    }
+    RUNTIME_TICK_CLOCK_STEP();
+    RUNTIME_CLEAR_PENDING_TICKS();
+    if (!RUNTIME_FRONTEND_ON())
+      RUNTIME_GAME_TICK_STEP();
+  }
+
+  pRuntime->eStatus = ROLLER_RUNTIME_STATUS_RUNNING;
+  return ROLLER_RUNTIME_RESULT_OK;
 }
 
 eRollerRuntimeStatus ROLLER_RUNTIME_CALL

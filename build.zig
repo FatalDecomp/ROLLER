@@ -320,6 +320,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     configureRollerRuntimeApiTests(b, target, optimize, c_flags, test_step);
+    configureRollerRuntimeStepTests(b, target, optimize, c_flags, test_step);
     configureRenderQueue3DTests(
         b, target, optimize, c_flags, python_checks, assets_path, test_step,
     );
@@ -356,6 +357,8 @@ fn configureRollerRuntimeApiTests(
             "tests/roller_runtime_api_test.c",
         },
     });
+    runtime_mod.addCMacro("ROLLER_RUNTIME_TEST_SEAMS", "1");
+    runtime_mod.addCMacro("ROLLER_RUNTIME_TEST_SEAMS_DEFAULTS", "1");
 
     const runtime_test = b.addExecutable(.{
         .name = "roller_runtime_api_test",
@@ -368,6 +371,41 @@ fn configureRollerRuntimeApiTests(
     );
     runtime_tests.dependOn(&run_runtime_test.step);
     test_step.dependOn(runtime_tests);
+}
+
+fn configureRollerRuntimeStepTests(
+    b: *Build,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+    c_flags: []const []const u8,
+    test_step: *Step,
+) void {
+    const runtime_step_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    runtime_step_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    runtime_step_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/roller_runtime.c",
+            "tests/roller_runtime_step_test.c",
+        },
+    });
+    runtime_step_mod.addCMacro("ROLLER_RUNTIME_TEST_SEAMS", "1");
+
+    const runtime_step_test = b.addExecutable(.{
+        .name = "roller_runtime_step_test",
+        .root_module = runtime_step_mod,
+    });
+    const run_runtime_step_test = b.addRunArtifact(runtime_step_test);
+    const runtime_step_tests = b.step(
+        "test-roller-runtime-step",
+        "Run RollerRuntime fixed-step adapter tests",
+    );
+    runtime_step_tests.dependOn(&run_runtime_step_test.step);
+    test_step.dependOn(runtime_step_tests);
 }
 
 fn configureRenderQueue3DTests(
