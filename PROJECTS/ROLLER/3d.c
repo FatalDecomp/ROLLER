@@ -23,6 +23,7 @@
 #include "crashdump.h"
 #include "snapshot.h"
 #include "snapshot_scenes.h"
+#include "roller_runtime.h"
 #include "rollerinput.h"
 #include "phone_ui.h"
 #include "touch_ui.h"
@@ -109,6 +110,8 @@ static int g_iDirectTrackMalformedCount = 0;
 static int g_iDirectTrackReloadCycles = 0;
 static uint32 g_uiDirectTrackSeedBeforeLoad = 0;
 static uint32 g_uiDirectTrackSeedAfterLoad = 0;
+static int g_bRuntimeSnapshotMode = 0;
+static RollerRuntime *g_pSnapshotRuntime = NULL;
 
 //-------------------------------------------------------------------------------------------------
 //symbols defined by ROLLER
@@ -604,6 +607,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
+  cli_fprintf(f, " --runtime-snapshot    drive replay snapshot ticks through RollerRuntime\n");
   cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
   cli_fprintf(f, " --frames N[,M,...]     replay-frame indices to capture (--snapshot only)\n");
   cli_fprintf(f, " --out DIR              output directory for snapshot PNGs (--snapshot only)\n");
@@ -1000,6 +1004,16 @@ static void main_loop_iteration_wrapper(void)
     emscripten_cancel_main_loop();
 }
 #endif
+
+//-------------------------------------------------------------------------------------------------
+
+static eRollerRuntimeResult ROLLER_RUNTIME_CALL RuntimeSnapshotAdvanceInput(
+    void *pUserData, uint32_t uiTickIndex)
+{
+  (void)pUserData;
+  (void)uiTickIndex;
+  return ROLLER_RUNTIME_RESULT_OK;
+}
 
 //-------------------------------------------------------------------------------------------------
 
@@ -1707,7 +1721,17 @@ void race_update(void)
     // iteration with no wall-clock pacing, and zero scrbuf so any
     // unredrawn region cannot leak from the previous frame.
     SnapshotZeroScreen();
-    SnapshotAdvanceTick();
+    if (g_pSnapshotRuntime) {
+      eRollerRuntimeResult runtimeResult = RollerRuntime_Step(g_pSnapshotRuntime, 1u);
+      if (runtimeResult != ROLLER_RUNTIME_RESULT_OK) {
+        SDL_Log("RollerRuntime snapshot step failed: %s",
+                RollerRuntime_GetLastError(g_pSnapshotRuntime));
+        quit_game = 1;
+        racing = 0;
+      }
+    } else {
+      SnapshotAdvanceTick();
+    }
   } else if (fadedin || replaytype == 2) {
     // Cap drained ticks per frame to prevent spiral-of-death: if a slow frame
     // backs up iTicksPending, catching up burns main-thread time and starves
@@ -2918,6 +2942,9 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--snapshot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--runtime-snapshot") == 0) {
+      g_bRuntimeSnapshotMode = 1;
+      consumed = 1;
     } else if (strcmp(argv[i], "--snapshot-scene") == 0) {
       if (i + 1 < argc) {
         SnapshotSetScene(argv[i + 1]);
@@ -3091,6 +3118,12 @@ int main(int argc, const char **argv, const char **envp)
     srand(0);
     ROLLERsrand(0);
   }
+  if (g_bRuntimeSnapshotMode) {
+    if (!g_bSnapshotMode || g_SnapshotConfig.eKind != SNAPSHOT_KIND_REPLAY) {
+      cli_fprintf(stderr, "ERROR: '--runtime-snapshot' requires replay '--snapshot' mode\n");
+      return 1;
+    }
+  }
 
   if (iCrashHandlerEnabled)
     InitCrashHandler(whiplash_root);
@@ -3256,7 +3289,33 @@ int main(int argc, const char **argv, const char **envp)
   winner_mode = 0;
   intro = -1;
   race_set_track(TrackLoad);                    // Start initial intro replay through the dispatcher.
+  if (g_bRuntimeSnapshotMode) {
+    tRollerRuntimeConfig runtimeConfig = {
+      .uiStructSize = sizeof(runtimeConfig),
+      .uiVersion = ROLLER_RUNTIME_API_VERSION,
+      .uiFlags = ROLLER_RUNTIME_FLAG_HEADLESS | ROLLER_RUNTIME_FLAG_DETERMINISTIC,
+    };
+    tRollerRuntimeInputSource inputSource = {
+      .uiStructSize = sizeof(inputSource),
+      .uiVersion = ROLLER_RUNTIME_API_VERSION,
+      .pUserData = NULL,
+      .pfnAdvance = RuntimeSnapshotAdvanceInput,
+    };
+    eRollerRuntimeResult runtimeResult = RollerRuntime_Create(
+      &runtimeConfig, &g_pSnapshotRuntime);
+    if (runtimeResult == ROLLER_RUNTIME_RESULT_OK)
+      runtimeResult = RollerRuntime_SetInputSource(g_pSnapshotRuntime, &inputSource);
+    if (runtimeResult != ROLLER_RUNTIME_RESULT_OK) {
+      cli_fprintf(stderr, "ERROR: failed to initialize RollerRuntime snapshot driver: %s\n",
+                  RollerRuntime_GetLastError(g_pSnapshotRuntime));
+      RollerRuntime_Destroy(g_pSnapshotRuntime);
+      g_pSnapshotRuntime = NULL;
+      return 1;
+    }
+  }
   frontend_run_game_loop(g_bSnapshotMode ? eFRONTEND_STATE_RACING : eFRONTEND_STATE_COPYRIGHT);
+  RollerRuntime_Destroy(g_pSnapshotRuntime);
+  g_pSnapshotRuntime = NULL;
   //__asm { int     10h; Reset video mode and exit game }// Reset video mode and exit game
   if (!frontend_shutdown_complete())
     doexit();
