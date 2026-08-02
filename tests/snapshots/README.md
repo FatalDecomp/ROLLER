@@ -57,7 +57,8 @@ same pixels.
 `test-snapshots` until scene rendering is wired to an explicit runtime-state
 view.
 
-On the canonical host (Apple Silicon macOS at the time of writing) this:
+On the canonical host (Apple Silicon macOS at the time of writing),
+`zig build test-snapshots`:
 
 1. Builds the `roller` binary if needed.
 2. Runs `roller --snapshot introN.gss --frames ... --out
@@ -65,6 +66,9 @@ On the canonical host (Apple Silicon macOS at the time of writing) this:
    runs `roller --snapshot-scene NAME --frames ... --out
    tests/snapshots/baselines/` once per named scene.
 3. Runs `git diff --exit-code --stat -- tests/snapshots/baselines/`.
+
+`zig build test-runtime-snapshots` follows the same baseline/diff flow for
+replay entries only, adding `--runtime-snapshot` to each replay capture.
 
 If the captures match HEAD, exit 0. If anything diverged, the build
 fails and `git status` shows you what changed.
