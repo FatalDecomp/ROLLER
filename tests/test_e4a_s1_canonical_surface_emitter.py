@@ -51,8 +51,12 @@ class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
         building = (ROLLER / "building.c").read_text(encoding="utf-8")
         tower = (ROLLER / "tower.c").read_text(encoding="utf-8")
 
-        # One definition plus thirteen track/roof emission sites.
-        self.assertGreaterEqual(draw.count("emit_track_surface_to_renderer("), 14)
+        # Rendering and camera-independent traversal share the track producer;
+        # both reach the canonical emitter through one conversion call site.
+        self.assertGreaterEqual(
+            draw.count("emit_track_chunk_surface_to_renderer("), 12
+        )
+        self.assertEqual(draw.count("ed_emit_surface("), 1)
         self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 1)
         self.assertEqual(building.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertEqual(tower.count("drawtrk3_emit_surface_to_renderer("), 1)

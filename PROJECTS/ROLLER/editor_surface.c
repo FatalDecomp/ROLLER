@@ -185,6 +185,20 @@ bool ed_surface_compute_render_uvs(
     return true;
 }
 
+bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
+                                   tEdVisitChunkFn pfnVisit,
+                                   void *pUserData)
+{
+    if (!pfnVisit)
+        return false;
+
+    for (uint32_t uiChunkId = 0; uiChunkId < uiLoadedChunkCount; uiChunkId++) {
+        if (!pfnVisit(uiChunkId, pUserData))
+            return false;
+    }
+    return true;
+}
+
 bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
                      const tEdSurfaceInfo *pInfo,
                      tEdMaterialTable *pMaterials,

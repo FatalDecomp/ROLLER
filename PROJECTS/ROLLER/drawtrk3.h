@@ -56,6 +56,9 @@ bool drawtrk3_emit_surface_to_renderer(
     GameRenderer *pRenderer,
     const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
     const tEdSurfaceInfo *pInfo);
+bool drawtrk3_emit_full_track(tEdMaterialTable *pMaterials,
+                              tEdEmitSurfaceFn pfnEmit,
+                              void *pUserData);
 void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
                                    uint32_t uiLastChunkId,
                                    uint16_t unSurfaceClass,

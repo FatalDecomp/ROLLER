@@ -92,6 +92,8 @@ typedef struct
 typedef void (*tEdEmitSurfaceFn)(const tEdSurfaceEmission *pSurface,
                                  void *pUserData);
 
+typedef bool (*tEdVisitChunkFn)(uint32_t uiChunkId, void *pUserData);
+
 typedef struct
 {
     uint32_t uiChunkId;
@@ -142,6 +144,10 @@ bool ed_surface_compute_render_uvs(
     bool bHalfResolution,
     int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT],
     int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT]);
+
+bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
+                                   tEdVisitChunkFn pfnVisit,
+                                   void *pUserData);
 
 bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
                      const tEdSurfaceInfo *pInfo,

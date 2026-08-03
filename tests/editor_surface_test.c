@@ -12,12 +12,31 @@ typedef struct
     int iCalls;
 } tEmissionCapture;
 
+typedef struct
+{
+    uint32_t auiChunkIds[16];
+    uint32_t uiCount;
+    uint32_t uiFailAt;
+    float fUnrelatedCameraPosition[3];
+} tChunkTraversalCapture;
+
 static void capture_emission(const tEdSurfaceEmission *pSurface,
                              void *pUserData)
 {
     tEmissionCapture *pCapture = pUserData;
     pCapture->Surface = *pSurface;
     pCapture->iCalls++;
+}
+
+static bool capture_chunk(uint32_t uiChunkId, void *pUserData)
+{
+    tChunkTraversalCapture *pCapture = pUserData;
+    if (uiChunkId == pCapture->uiFailAt)
+        return false;
+    assert(pCapture->uiCount
+           < sizeof(pCapture->auiChunkIds) / sizeof(pCapture->auiChunkIds[0]));
+    pCapture->auiChunkIds[pCapture->uiCount++] = uiChunkId;
+    return true;
 }
 
 static void assert_float_near(float fActual, float fExpected)
@@ -339,6 +358,36 @@ static void test_selection_uses_only_canonical_identity(void)
            == Surface.uiRenderFlags);
 }
 
+static void test_full_track_chunk_traversal_is_complete_and_camera_free(void)
+{
+    tChunkTraversalCapture CameraA = {
+        .uiFailAt = UINT32_MAX,
+        .fUnrelatedCameraPosition = { 1.0f, 2.0f, 3.0f }
+    };
+    tChunkTraversalCapture CameraB = {
+        .uiFailAt = UINT32_MAX,
+        .fUnrelatedCameraPosition = { -9000.0f, 0.0f, 4500.0f }
+    };
+    tChunkTraversalCapture StopsOnFailure = {
+        .uiFailAt = 2u
+    };
+
+    assert(ed_traverse_full_track_chunks(7u, capture_chunk, &CameraA));
+    assert(ed_traverse_full_track_chunks(7u, capture_chunk, &CameraB));
+    assert(CameraA.uiCount == 7u);
+    assert(CameraB.uiCount == 7u);
+    assert(memcmp(CameraA.auiChunkIds, CameraB.auiChunkIds,
+                  CameraA.uiCount * sizeof(CameraA.auiChunkIds[0])) == 0);
+    for (uint32_t i = 0; i < CameraA.uiCount; i++)
+        assert(CameraA.auiChunkIds[i] == i);
+
+    assert(ed_traverse_full_track_chunks(0u, capture_chunk, &CameraA));
+    assert(!ed_traverse_full_track_chunks(
+        5u, capture_chunk, &StopsOnFailure));
+    assert(StopsOnFailure.uiCount == 2u);
+    assert(!ed_traverse_full_track_chunks(1u, NULL, NULL));
+}
+
 int main(void)
 {
     test_exact_fixed_uvs_and_identity();
@@ -348,6 +397,7 @@ int main(void)
     test_export_mapping_uses_material_transform();
     test_generic_identity_layout_and_skip();
     test_selection_uses_only_canonical_identity();
+    test_full_track_chunk_traversal_is_complete_and_camera_free();
     puts("editor surface emission tests passed");
     return 0;
 }
