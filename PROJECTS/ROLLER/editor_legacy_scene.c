@@ -323,6 +323,9 @@ eRollerEdResult roller_ed_legacy_scene_render(
         game_render_set_viewport(g_pGameRenderer, 0, 0, winw, winh);
         game_render_begin_frame(g_pGameRenderer);
         draw_road(scrbuf, ViewType[0], (unsigned int)DriveView[0], 0, 0);
+        /* After the scene, so the helpers sit on top of the surfaces they
+         * describe and inherit the transform draw_road established. */
+        drawtrk3_editor_draw_helpers(g_pGameRenderer);
         if (!game_render_end_frame_software_readback(
                 g_pGameRenderer, scrbuf, uiNativeWidth,
                 uiNativeWidth, uiNativeHeight,
@@ -360,6 +363,9 @@ eRollerEdResult roller_ed_legacy_scene_render(
     /* draw_road is the scene-only path: the gameplay panel/HUD compositor is
      * intentionally not part of editor readback. */
     draw_road(scrbuf, ViewType[0], (unsigned int)DriveView[0], 0, 0);
+    /* After the scene, so the helpers sit on top of the surfaces they
+     * describe and inherit the transform draw_road established. */
+    drawtrk3_editor_draw_helpers(g_pGameRenderer);
     if (!scene_render_gpu_end_frame_readback(
             pGPU, pbyPixels, uiBufferSize, uiRowPitch, uiWidth, uiHeight)) {
         editor_scene_set_error(szError, uiErrorCapacity,

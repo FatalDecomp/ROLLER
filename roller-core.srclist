@@ -64,6 +64,7 @@ KEEP|PROJECTS/ROLLER/editor_camera.c
 KEEP|PROJECTS/ROLLER/editor_api.c
 KEEP|PROJECTS/ROLLER/editor_legacy_scene.c
 KEEP|PROJECTS/ROLLER/editor_overlay.c
+KEEP|PROJECTS/ROLLER/editor_helpers.c
 KEEP|PROJECTS/ROLLER/editor_reference_mesh.c
 KEEP|PROJECTS/ROLLER/editor_surface.c
 KEEP|PROJECTS/ROLLER/editor_track_loader.c

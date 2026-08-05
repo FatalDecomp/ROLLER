@@ -65,6 +65,7 @@ extern int cur_mapsect;
 extern float cur_TrackZ;
 extern float cur_mapsize;
 extern int TRAK_LEN;
+extern float TrackFloorHeight;
 extern int16 samplemin[MAX_SAMPLES];
 extern int cur_laps[6];
 extern uint8 fp_buf[512];

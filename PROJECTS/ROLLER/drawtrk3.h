@@ -72,6 +72,9 @@ void drawtrk3_editor_selection_clear(void);
 /* Syncs the renderer's selection from the facade overlay state; call once per
  * editor frame, before rendering. */
 void drawtrk3_editor_apply_overlay_selection(void);
+/* Draws the enabled E3A-S4 helper overlays. Editor render path only; the
+ * helpers are not track content and never reach the canonical emitter. */
+void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer);
 
 //-------------------------------------------------------------------------------------------------
 #endif

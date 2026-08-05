@@ -79,6 +79,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_legacy_scene.c",
             "PROJECTS/ROLLER/editor_overlay.c",
+            "PROJECTS/ROLLER/editor_helpers.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -526,6 +527,11 @@ fn configureRenderQueue3DTests(
         "Run selected-chunk highlight acceptance (retail assets)",
     );
     editor_selection_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_helper_overlay_tests = b.step(
+        "test-e3a-s4-helper-overlays",
+        "Run AI line/centre line/environment floor acceptance (retail assets)",
+    );
+    editor_helper_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
 
     const editor_buffers_mod = b.createModule(.{
         .target = target,
@@ -827,6 +833,28 @@ fn configureRenderQueue3DTests(
     });
     const run_editor_overlay = b.addRunArtifact(editor_overlay_exe);
     editor_api_tests.dependOn(&run_editor_overlay.step);
+
+    const editor_helpers_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_helpers_mod.addIncludePath(sdl.builder.path("include"));
+    editor_helpers_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_helpers_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_helpers.c",
+            "PROJECTS/ROLLER/editor_surface.c",
+            "tests/editor_helpers_test.c",
+        },
+    });
+    const editor_helpers_exe = b.addExecutable(.{
+        .name = "editor_helpers_test",
+        .root_module = editor_helpers_mod,
+    });
+    const run_editor_helpers = b.addRunArtifact(editor_helpers_exe);
+    editor_api_tests.dependOn(&run_editor_helpers.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{

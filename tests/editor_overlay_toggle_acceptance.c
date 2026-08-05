@@ -384,6 +384,61 @@ static int SDLCALL overlay_worker(void *pUserData)
                uiSelectionDifference);
     }
 
+    /*
+     * E3A-S4. Each helper is its own flag: switching one on must change the
+     * frame, and switching it off again must return to it exactly. The floor
+     * is a filled plane and the lines are ribbons, so the floor must cover
+     * more than either line does.
+     */
+    {
+        static const struct
+        {
+            uint32_t uiFlag;
+            const char *szName;
+        } aHelpers[] = {
+            { ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR, "environment floor" },
+            { ROLLER_ED_OVERLAY_SHOW_AI_LINES, "AI lines" },
+            { ROLLER_ED_OVERLAY_SHOW_CENTER_LINE, "centre line" }
+        };
+        size_t auiHelperDifference[3] = { 0, 0, 0 };
+
+        for (size_t i = 0; i < sizeof(aHelpers) / sizeof(aHelpers[0]); ++i) {
+            Overlay = make_overlay(
+                ROLLER_ED_OVERLAY_SHOW_SURFACES | aHelpers[i].uiFlag,
+                ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+            if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+                goto shutdown;
+            auiHelperDifference[i] =
+                differing_pixels(s_pFrame, s_pAllVisible);
+            if (auiHelperDifference[i] == 0u) {
+                acceptance_fail(pContext, "the %s helper drew nothing",
+                                aHelpers[i].szName);
+                goto shutdown;
+            }
+
+            Overlay.uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES;
+            if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+                goto shutdown;
+            if (memcmp(s_pFrame, s_pAllVisible, FRAME_BYTES) != 0) {
+                acceptance_fail(pContext,
+                                "clearing the %s helper left %zu pixels drawn",
+                                aHelpers[i].szName,
+                                differing_pixels(s_pFrame, s_pAllVisible));
+                goto shutdown;
+            }
+        }
+        if (auiHelperDifference[0] <= auiHelperDifference[2]) {
+            acceptance_fail(pContext,
+                            "the environment floor covered %zu pixels against "
+                            "the centre line's %zu -- it is not a filled plane",
+                            auiHelperDifference[0], auiHelperDifference[2]);
+            goto shutdown;
+        }
+        printf("helpers: floor %zu, AI lines %zu, centre line %zu pixels\n",
+               auiHelperDifference[0], auiHelperDifference[1],
+               auiHelperDifference[2]);
+    }
+
     /* AD-7d on the real facade: none of that touched authored geometry. */
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;

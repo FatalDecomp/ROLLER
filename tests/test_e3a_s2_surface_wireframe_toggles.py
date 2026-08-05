@@ -219,14 +219,23 @@ class RenderFilteringTests(unittest.TestCase):
             for name, gated in overlay_references(self.draw)
             if not gated
         ]
-        # The one deliberate exception: the once-per-frame selection sync is
-        # unconditional because editor_legacy_scene.c is in the game's source
-        # set, and the game never reaches the render path that calls it.
-        self.assertEqual(outside, ["roller_ed_overlay_selection_range"])
+        # The deliberate exceptions are the two entry points that
+        # editor_legacy_scene.c calls: it is in the game's source set, so they
+        # cannot be gated, and the game never reaches the render path that
+        # reaches them. Every such read must live inside one of the two.
         sync = function_body(
             self.draw, "void drawtrk3_editor_apply_overlay_selection("
         )
+        helpers = function_body(
+            self.draw, "void drawtrk3_editor_draw_helpers("
+        )
+        for name in outside:
+            self.assertTrue(
+                name in sync or name in helpers,
+                f"{name} is reachable from the game build",
+            )
         self.assertIn("roller_ed_overlay_selection_range", sync)
+        self.assertIn("roller_ed_overlay_enabled", helpers)
         self.assertIn('#include "editor_overlay.h"', self.draw)
 
     def test_wireframe_is_drawn_from_the_emitted_surface(self) -> None:

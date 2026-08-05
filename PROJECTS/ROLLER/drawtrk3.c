@@ -10,6 +10,7 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
+#include "editor_helpers.h"
 #include "editor_overlay.h"
 #include "editor_surface.h"
 #include "graphics.h"
@@ -226,6 +227,102 @@ static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
 }
 
 #endif
+
+/*
+ * E3A-S4 helper overlays. These are editor furniture, not track content: they
+ * never reach the canonical emitter, so no exporter can pick them up (AD-6d),
+ * and they carry no chunk identity for the same reason. They are flat-filled
+ * quads through the same world-quad path everything else uses.
+ */
+#define ED_CENTER_LINE_PALETTE_COLOUR 0xF0u
+#define ED_AI_LINE_PALETTE_COLOUR 0xC8u
+#define ED_ENVIRONMENT_FLOOR_PALETTE_COLOUR 0x18u
+
+static void draw_helper_quad(GameRenderer *pRenderer,
+                             const float afQuad[4][3],
+                             uint32_t uiPaletteColour)
+{
+    GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        aVertices[i].x = afQuad[i][0];
+        aVertices[i].y = afQuad[i][1];
+        aVertices[i].z = afQuad[i][2];
+        aVertices[i].u = 0.0f;
+        aVertices[i].v = 0.0f;
+        startsx[i] = 0;
+        startsy[i] = 0;
+    }
+    game_render_quad_world_subdivide_type(
+        pRenderer, aVertices, TEXTURE_HANDLE_INVALID,
+        (int)uiPaletteColour, 0, 0.0f);
+}
+
+/* Walks one helper line the whole way round the track, one ribbon per chunk
+ * pair. uiLine is an AI line index, or ED_HELPER_AI_LINE_COUNT for the centre
+ * line. */
+static void draw_helper_line(GameRenderer *pRenderer, uint32_t uiLine,
+                             uint32_t uiPaletteColour)
+{
+    const bool bCenterLine = uiLine >= ED_HELPER_AI_LINE_COUNT;
+
+    for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+        int iNextChunk = iChunk + 1 < TRAK_LEN ? iChunk + 1 : 0;
+        float afStart[3];
+        float afEnd[3];
+        float afQuad[4][3];
+        float fRoadWidth = ed_helper_road_width((uint32_t)iChunk);
+        bool bHaveSegment;
+
+        if (bCenterLine) {
+            bHaveSegment =
+                ed_helper_center_point((uint32_t)iChunk, afStart)
+                && ed_helper_center_point((uint32_t)iNextChunk, afEnd);
+        } else {
+            bHaveSegment =
+                ed_helper_ai_line_point((uint32_t)iChunk, uiLine, afStart)
+                && ed_helper_ai_line_point((uint32_t)iNextChunk, uiLine, afEnd);
+        }
+        if (!bHaveSegment || !(fRoadWidth > 0.0f))
+            continue;
+
+        /* Lift the line clear of the surface it describes so it is not lost
+         * to depth fighting with the road. */
+        afStart[ED_SURFACE_WORLD_UP_AXIS] +=
+            fRoadWidth * ED_HELPER_LINE_HEIGHT_RATIO;
+        afEnd[ED_SURFACE_WORLD_UP_AXIS] +=
+            fRoadWidth * ED_HELPER_LINE_HEIGHT_RATIO;
+        if (!ed_helper_segment_quad(
+                afStart, afEnd, fRoadWidth * ED_HELPER_LINE_WIDTH_RATIO,
+                afQuad))
+            continue;
+        draw_helper_quad(pRenderer, afQuad, uiPaletteColour);
+    }
+}
+
+void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
+{
+    if (!pRenderer)
+        return;
+
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR)) {
+        for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+            float afQuad[4][3];
+
+            if (ed_helper_environment_floor_quad((uint32_t)iChunk, afQuad))
+                draw_helper_quad(pRenderer, afQuad,
+                                 ED_ENVIRONMENT_FLOOR_PALETTE_COLOUR);
+        }
+    }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AI_LINES)) {
+        for (uint32_t uiLine = 0; uiLine < ED_HELPER_AI_LINE_COUNT; uiLine++)
+            draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR);
+    }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_CENTER_LINE)) {
+        draw_helper_line(pRenderer, ED_HELPER_AI_LINE_COUNT,
+                         ED_CENTER_LINE_PALETTE_COLOUR);
+    }
+}
 
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
                                  void *pUserData)

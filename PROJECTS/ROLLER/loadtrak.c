@@ -88,6 +88,7 @@ int cur_mapsect;            //00178044
 float cur_TrackZ;           //00178048
 float cur_mapsize;          //0017804C
 int TRAK_LEN;               //00178050
+float TrackFloorHeight;     // header origin Z; editor environment floor (E3A-S4)
 int16 samplemin[MAX_SAMPLES];       //001764B0
 int cur_laps[6];            //00176898
 uint8 fp_buf[512];          //001768B0
@@ -909,6 +910,10 @@ static eRollerEdResult loadtrack_internal(
   meof = 0;
   if (iTrackIdx_1 >= 0)
     readline2(&pCurrDataPtr, "iddd", &TRAK_LEN, &dWallCalc3, &dWallCalc2, &dWallCalc1);// Read track header: length and initial position
+    // The origin's up component doubles as the track's floor height: every
+    // point below is offset by it, and the editor's environment-floor helper
+    // (E3A-S4) draws a plane there. The game has no use for it after load.
+    TrackFloorHeight = (float)dWallCalc1;
   iChunkIdx = 0;
   TrackFlags = 0;
   if (TRAK_LEN > 0) {
