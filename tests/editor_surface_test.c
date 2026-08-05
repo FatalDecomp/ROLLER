@@ -44,6 +44,15 @@ static void assert_float_near(float fActual, float fExpected)
     assert(fabsf(fActual - fExpected) < 0.000001f);
 }
 
+static void assert_no_atlas_identity(const tEdMaterial *pMaterial)
+{
+    assert(pMaterial->uiTileIndex == 0u);
+    assert_float_near(pMaterial->fAtlasScale[0], 0.0f);
+    assert_float_near(pMaterial->fAtlasScale[1], 0.0f);
+    assert_float_near(pMaterial->fAtlasBias[0], 0.0f);
+    assert_float_near(pMaterial->fAtlasBias[1], 0.0f);
+}
+
 static tEdSurfaceInfo make_info(uint32_t uiFlags)
 {
     tEdSurfaceInfo Info = {
@@ -83,7 +92,9 @@ static void test_exact_fixed_uvs_and_identity(void)
     tEdMaterial aMaterials[2];
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
-    tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
     tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE
         | SURFACE_FLAG_TEXTURE_PAIR
@@ -137,7 +148,9 @@ static void test_low_resolution_fixed_uvs(void)
     tEdMaterial aMaterials[1];
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
-    tEdTextureAtlas Atlas = { 256u, 32u, 32u, 8u };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 32u, 32u, 8u
+    };
     tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR);
 
@@ -154,7 +167,9 @@ static void test_reverse_material_and_generated_back_face(void)
     tEdMaterial aMaterials[2];
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
-    tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
     tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK | 1u);
     Info.uiBackSurfaceFlags = 6u;
@@ -196,7 +211,9 @@ static void test_paired_mapping_in_both_directions(void)
     tEdMaterialTable ReverseTable;
     tEmissionCapture Forward = { 0 };
     tEmissionCapture Reverse = { 0 };
-    tEdTextureAtlas Atlas = { 256u, 128u, 64u, 8u };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
     tEdSurfaceInfo ForwardInfo = make_info(
         SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR);
     tEdSurfaceInfo ReverseInfo = make_info(
@@ -273,7 +290,9 @@ static void test_generic_identity_layout_and_skip(void)
     tEdMaterial aMaterials[1];
     tEdMaterialTable Table;
     tEmissionCapture Capture = { 0 };
-    tEdTextureAtlas Atlas = { 256u, 64u, 64u, 0u };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 64u, 64u, 0u
+    };
     tEdSurfaceInfo Info = make_info(
         SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_FLIP_BACKFACE | 5u);
     Info.uiChunkId = ROLLER_ED_INVALID_CHUNK_ID;
@@ -306,6 +325,556 @@ static void test_generic_identity_layout_and_skip(void)
     assert(ed_emit_surface(
         afWorld, &Info, &Table, capture_emission, &Capture));
     assert(Capture.iCalls == 0);
+}
+
+/*
+ * The main-track and building/sign banks have independent tile counts, so a
+ * single stream carrying both must resolve tile identity and the atlas
+ * transform against the surface's own set.
+ */
+static void test_separate_texture_sets_keep_their_own_tile_identity(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    tEdMaterial aMaterials[4];
+    tEdMaterialTable Table;
+    tEmissionCapture Track = { 0 };
+    tEmissionCapture Building = { 0 };
+    tEdTextureAtlas TrackAtlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdTextureAtlas BuildingAtlas = {
+        ROLLER_ED_TEXTURE_SET_BUILDING_SIGN, 256u, 256u, 64u, 15u
+    };
+    tEdSurfaceInfo TrackInfo = make_info(SURFACE_FLAG_APPLY_TEXTURE | 5u);
+    tEdSurfaceInfo BuildingInfo = make_info(SURFACE_FLAG_APPLY_TEXTURE | 5u);
+    TrackInfo.bPairTextureEnabled = false;
+    BuildingInfo.bPairTextureEnabled = false;
+    BuildingInfo.uiTextureSet = ROLLER_ED_TEXTURE_SET_BUILDING_SIGN;
+    BuildingInfo.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_BUILDING;
+    BuildingInfo.unContentClass = ROLLER_ED_CONTENT_AUTHORED_SCENERY;
+
+    assert(ed_material_table_init(&Table, aMaterials, 4u, TrackAtlas));
+    assert(ed_material_table_set_atlas(&Table, BuildingAtlas));
+    assert(ed_material_table_atlas(&Table, ROLLER_ED_TEXTURE_SET_TRACK));
+    assert(ed_material_table_atlas(
+        &Table, ROLLER_ED_TEXTURE_SET_BUILDING_SIGN));
+    assert(!ed_material_table_atlas(&Table, 3u));
+
+    assert(ed_emit_surface(
+        afWorld, &TrackInfo, &Table, capture_emission, &Track));
+    assert(ed_emit_surface(
+        afWorld, &BuildingInfo, &Table, capture_emission, &Building));
+
+    const tEdMaterial *pTrack = ed_material_table_get(
+        &Table, Track.Surface.uiFrontMaterialId);
+    const tEdMaterial *pBuilding = ed_material_table_get(
+        &Table, Building.Surface.uiFrontMaterialId);
+    assert(pTrack && pBuilding);
+    assert(Track.Surface.uiFrontMaterialId
+           != Building.Surface.uiFrontMaterialId);
+    assert(pTrack->uiTextureSet == ROLLER_ED_TEXTURE_SET_TRACK);
+    assert(pBuilding->uiTextureSet == ROLLER_ED_TEXTURE_SET_BUILDING_SIGN);
+    assert(pTrack->uiTileIndex == 5u && pBuilding->uiTileIndex == 5u);
+
+    /* Same tile index, different bank height: the V transform differs. */
+    assert_float_near(pTrack->fAtlasBias[0], 0.25f);
+    assert_float_near(pTrack->fAtlasBias[1], 0.5f);
+    assert_float_near(pTrack->fAtlasScale[1], 0.5f);
+    assert_float_near(pBuilding->fAtlasBias[0], 0.25f);
+    assert_float_near(pBuilding->fAtlasBias[1], 0.25f);
+    assert_float_near(pBuilding->fAtlasScale[1], 0.25f);
+
+    /* A textured surface in an unregistered set has no tile identity. */
+    tEdSurfaceInfo UnknownInfo = TrackInfo;
+    UnknownInfo.uiTextureSet = 3u;
+    assert(!ed_emit_surface(
+        afWorld, &UnknownInfo, &Table, capture_emission, &Track));
+
+    /* Atlases must agree on the globally selected legacy tile size. */
+    tEdTextureAtlas MismatchedAtlas = {
+        ROLLER_ED_TEXTURE_SET_BUILDING_SIGN, 256u, 128u, 32u, 15u
+    };
+    assert(!ed_material_table_set_atlas(&Table, MismatchedAtlas));
+}
+
+/*
+ * The renderer only has a pair texture while a following tile exists and
+ * falls back to the plain tile otherwise, so the emitted material kind and
+ * the render UV span must fall back together.
+ */
+static void test_pair_falls_back_when_the_atlas_has_no_successor(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    tEdMaterial aMaterials[4];
+    tEdMaterialTable Table;
+    tEmissionCapture Paired = { 0 };
+    tEmissionCapture LastTile = { 0 };
+    tEmissionCapture Wrapped = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo PairedInfo = make_info(
+        SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR | 1u);
+    tEdSurfaceInfo LastTileInfo = make_info(
+        SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR | 7u);
+    tEdSurfaceInfo WrappedInfo = make_info(
+        SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_TEXTURE_PAIR | 3u);
+
+    assert(ed_atlas_pair_available(&Atlas, 6u));
+    assert(!ed_atlas_pair_available(&Atlas, 7u));
+    assert(!ed_atlas_pair_wraps_row(&Atlas, 2u));
+    assert(ed_atlas_pair_wraps_row(&Atlas, 3u));
+
+    assert(ed_material_table_init(&Table, aMaterials, 4u, Atlas));
+    assert(ed_emit_surface(
+        afWorld, &PairedInfo, &Table, capture_emission, &Paired));
+    assert(ed_emit_surface(
+        afWorld, &LastTileInfo, &Table, capture_emission, &LastTile));
+    assert(ed_emit_surface(
+        afWorld, &WrappedInfo, &Table, capture_emission, &Wrapped));
+
+    const tEdMaterial *pPaired = ed_material_table_get(
+        &Table, Paired.Surface.uiFrontMaterialId);
+    const tEdMaterial *pLastTile = ed_material_table_get(
+        &Table, LastTile.Surface.uiFrontMaterialId);
+    const tEdMaterial *pWrapped = ed_material_table_get(
+        &Table, Wrapped.Surface.uiFrontMaterialId);
+    assert(pPaired && pLastTile && pWrapped);
+
+    assert(pPaired->uiKind == ROLLER_ED_MATERIAL_TEXTURED_PAIR);
+    assert_float_near(pPaired->fAtlasScale[0], 0.5f);
+    assert((Paired.Surface.unFlags
+            & ROLLER_ED_SURFACE_FLAG_PAIRED_TEXTURE) != 0);
+    assert(Paired.Surface.aVertices[0].iRenderU16_16 == 0x7FF000);
+    assert((pPaired->uiFlags
+            & ROLLER_ED_MATERIAL_FLAG_PAIR_WRAPS_ATLAS_ROW) == 0);
+
+    /* Tile 7 is the last tile: no pair texture exists for it. */
+    assert(pLastTile->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE);
+    assert_float_near(pLastTile->fAtlasScale[0], 0.25f);
+    assert((LastTile.Surface.unFlags
+            & ROLLER_ED_SURFACE_FLAG_PAIRED_TEXTURE) == 0);
+    assert(LastTile.Surface.aVertices[0].iRenderU16_16 == 0x3FF000);
+
+    /* Tile 3 ends its atlas row, so its pair's right half comes from the
+     * next row and the transform is flagged as an approximation. */
+    assert(pWrapped->uiKind == ROLLER_ED_MATERIAL_TEXTURED_PAIR);
+    assert((pWrapped->uiFlags
+            & ROLLER_ED_MATERIAL_FLAG_PAIR_WRAPS_ATLAS_ROW) != 0);
+}
+
+/*
+ * Back materials must reproduce the draw-time texture_back[] substitution,
+ * including the sentinel cases where no alternate reverse material exists.
+ */
+static void test_back_material_matches_the_draw_time_substitution(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    tEdMaterial aMaterials[4];
+    tEdMaterialTable Table;
+    tEmissionCapture Capture = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo Info = make_info(
+        SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK | 2u);
+    Info.bPairTextureEnabled = false;
+
+    assert(ed_material_table_init(&Table, aMaterials, 4u, Atlas));
+
+    /* Identical substitute tile: no alternate reverse material. */
+    Info.uiBackSurfaceFlags = 2u;
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    assert(Capture.Surface.uiBackMaterialId == ED_MATERIAL_ID_NONE);
+
+    /* Substitute tile past the bank's tile count: the renderer ignores it. */
+    Info.uiBackSurfaceFlags = 9u;
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    assert(Capture.Surface.uiBackMaterialId == ED_MATERIAL_ID_NONE);
+
+    /* No SURFACE_FLAG_BACK: the reverse side reuses the front material. */
+    Info.uiRenderFlags &= ~(uint32_t)SURFACE_FLAG_BACK;
+    Info.uiBackSurfaceFlags = 6u;
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    assert(Capture.Surface.uiBackMaterialId == ED_MATERIAL_ID_NONE);
+
+    /* A distinct in-range substitute keeps the front surface's other flags
+     * and only replaces the tile index. */
+    Info.uiRenderFlags |= SURFACE_FLAG_BACK;
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+    const tEdMaterial *pFront = ed_material_table_get(
+        &Table, Capture.Surface.uiFrontMaterialId);
+    const tEdMaterial *pBack = ed_material_table_get(
+        &Table, Capture.Surface.uiBackMaterialId);
+    assert(pFront && pBack);
+    assert(pFront->uiTileIndex == 2u && pBack->uiTileIndex == 6u);
+    assert(pBack->uiTextureSet == pFront->uiTextureSet);
+    assert(pBack->uiKind == pFront->uiKind);
+    assert(pBack->uiFlags == pFront->uiFlags);
+
+    /* An untextured surface has no tile to substitute. */
+    tEdSurfaceInfo FlatInfo = make_info(SURFACE_FLAG_BACK | 2u);
+    FlatInfo.bPairTextureEnabled = false;
+    FlatInfo.uiBackSurfaceFlags = 6u;
+    assert(ed_emit_surface(
+        afWorld, &FlatInfo, &Table, capture_emission, &Capture));
+    assert(Capture.Surface.uiBackMaterialId == ED_MATERIAL_ID_NONE);
+}
+
+/*
+ * Non-textured legacy surface paths must reach the export representation as
+ * an explicit material kind rather than as a texture nobody can resolve.
+ */
+static void test_non_textured_surfaces_carry_their_material_kind(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    tEdMaterial aMaterials[4];
+    tEdMaterialTable Table;
+    tEmissionCapture Flat = { 0 };
+    tEmissionCapture Darken = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo FlatInfo = make_info(231u);
+    tEdSurfaceInfo DarkenInfo = make_info(SURFACE_FLAG_TRANSPARENT | 3u);
+    FlatInfo.bPairTextureEnabled = false;
+    DarkenInfo.bPairTextureEnabled = false;
+    FlatInfo.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_TOWER;
+    FlatInfo.unContentClass = ROLLER_ED_CONTENT_RUNTIME_SCENERY;
+    FlatInfo.uiChunkId = ROLLER_ED_INVALID_CHUNK_ID;
+
+    assert(ed_material_table_init(&Table, aMaterials, 4u, Atlas));
+    assert(ed_emit_surface(
+        afWorld, &FlatInfo, &Table, capture_emission, &Flat));
+    assert(ed_emit_surface(
+        afWorld, &DarkenInfo, &Table, capture_emission, &Darken));
+
+    const tEdMaterial *pFlat = ed_material_table_get(
+        &Table, Flat.Surface.uiFrontMaterialId);
+    const tEdMaterial *pDarken = ed_material_table_get(
+        &Table, Darken.Surface.uiFrontMaterialId);
+    assert(pFlat && pDarken);
+
+    assert(pFlat->uiKind == ROLLER_ED_MATERIAL_FLAT_PALETTE_COLOR);
+    assert(pFlat->uiPaletteColour == 231u);
+    assert(pFlat->uiDarkenLevel == 0u);
+    assert(pDarken->uiKind == ROLLER_ED_MATERIAL_SCREEN_DARKEN);
+    assert(pDarken->uiDarkenLevel == 3u);
+    assert(pDarken->uiPaletteColour == 0u);
+
+    /* Neither kind claims tile identity or an atlas rectangle. */
+    assert_no_atlas_identity(pFlat);
+    assert_no_atlas_identity(pDarken);
+    assert((Flat.Surface.unFlags & ROLLER_ED_SURFACE_FLAG_TEXTURED) == 0);
+    assert((Darken.Surface.unFlags & ROLLER_ED_SURFACE_FLAG_ALPHA) != 0);
+}
+
+/* Identity is rejected outright rather than emitted as a misleading value. */
+static void test_invalid_identity_is_refused(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = { 0 };
+    tEdMaterial aMaterials[2];
+    tEdMaterialTable Table;
+    tEmissionCapture Capture = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo Valid = make_info(SURFACE_FLAG_APPLY_TEXTURE | 1u);
+    Valid.bPairTextureEnabled = false;
+
+    assert(ed_material_table_init(&Table, aMaterials, 2u, Atlas));
+    assert(ed_surface_identity_valid(&Valid));
+
+    tEdSurfaceInfo LastChunk = Valid;
+    LastChunk.uiChunkId = MAX_TRACK_CHUNKS - 1u;
+    assert(ed_surface_identity_valid(&LastChunk));
+
+    tEdSurfaceInfo NotChunkBound = Valid;
+    NotChunkBound.uiChunkId = ROLLER_ED_INVALID_CHUNK_ID;
+    assert(ed_surface_identity_valid(&NotChunkBound));
+
+    tEdSurfaceInfo OutOfRangeChunk = Valid;
+    OutOfRangeChunk.uiChunkId = MAX_TRACK_CHUNKS;
+    assert(!ed_surface_identity_valid(&OutOfRangeChunk));
+    assert(!ed_emit_surface(
+        afWorld, &OutOfRangeChunk, &Table, capture_emission, &Capture));
+
+    tEdSurfaceInfo BadContentClass = Valid;
+    BadContentClass.unContentClass =
+        (uint16_t)(ROLLER_ED_CONTENT_RUNTIME_SCENERY + 1u);
+    assert(!ed_surface_identity_valid(&BadContentClass));
+    assert(!ed_emit_surface(
+        afWorld, &BadContentClass, &Table, capture_emission, &Capture));
+
+    tEdSurfaceInfo BadSurfaceClass = Valid;
+    BadSurfaceClass.unSurfaceClass =
+        (uint16_t)(ROLLER_ED_SURFACE_CLASS_TOWER + 1u);
+    assert(!ed_surface_identity_valid(&BadSurfaceClass));
+    assert(!ed_emit_surface(
+        afWorld, &BadSurfaceClass, &Table, capture_emission, &Capture));
+
+    tEdSurfaceInfo BadTopology = Valid;
+    BadTopology.byTopology = (uint8_t)(ROLLER_ED_TOPOLOGY_QUAD + 1u);
+    assert(!ed_surface_identity_valid(&BadTopology));
+
+    tEdSurfaceInfo BadTile = Valid;
+    BadTile.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 8u;
+    assert(ed_surface_identity_valid(&BadTile));
+    assert(!ed_emit_surface(
+        afWorld, &BadTile, &Table, capture_emission, &Capture));
+
+    assert(Capture.iCalls == 0);
+}
+
+static void cross3(const float afLeft[3],
+                   const float afRight[3],
+                   float afOut[3])
+{
+    afOut[0] = afLeft[1] * afRight[2] - afLeft[2] * afRight[1];
+    afOut[1] = afLeft[2] * afRight[0] - afLeft[0] * afRight[2];
+    afOut[2] = afLeft[0] * afRight[1] - afLeft[1] * afRight[0];
+}
+
+static float dot3(const float afLeft[3], const float afRight[3])
+{
+    return afLeft[0] * afRight[0]
+         + afLeft[1] * afRight[1]
+         + afLeft[2] * afRight[2];
+}
+
+static void assert_unit_length(const float afVector[3])
+{
+    assert_float_near(sqrtf(dot3(afVector, afVector)), 1.0f);
+}
+
+/*
+ * The renderer decides front versus back with bnrm = (v1-v0) x (v3-v0)
+ * (scene_render_gpu.c), calling the surface front-facing when that vector
+ * points at the camera. The emitted normal must be that same direction, or
+ * exporters would generate reversed faces relative to the front material.
+ */
+static void test_normal_agrees_with_the_renderer_front_face_rule(void)
+{
+    /* A flat quad in the world XY plane, wound so its front faces +Z up. */
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = {
+        {   0.0f,   0.0f, 100.0f },
+        { 200.0f,   0.0f, 100.0f },
+        { 200.0f, 300.0f, 100.0f },
+        {   0.0f, 300.0f, 100.0f }
+    };
+    static const float afFrontCamera[3] = { 100.0f, 150.0f, 900.0f };
+    static const float afBackCamera[3] = { 100.0f, 150.0f, -900.0f };
+    tEdMaterial aMaterials[2];
+    tEdMaterialTable Table;
+    tEmissionCapture Capture = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo Info = make_info(SURFACE_FLAG_APPLY_TEXTURE | 1u);
+    float afEdgeNext[3];
+    float afEdgePrev[3];
+    float afRendererNormal[3];
+    float afToFront[3];
+    float afToBack[3];
+    Info.bPairTextureEnabled = false;
+
+    assert(ed_material_table_init(&Table, aMaterials, 2u, Atlas));
+    assert(ed_emit_surface(
+        afWorld, &Info, &Table, capture_emission, &Capture));
+
+    for (uint32_t i = 0; i < 3; i++) {
+        afEdgeNext[i] = afWorld[1][i] - afWorld[0][i];
+        afEdgePrev[i] = afWorld[3][i] - afWorld[0][i];
+        afToFront[i] = afFrontCamera[i] - afWorld[0][i];
+        afToBack[i] = afBackCamera[i] - afWorld[0][i];
+    }
+    cross3(afEdgeNext, afEdgePrev, afRendererNormal);
+
+    /* Same direction as the renderer's facing vector, and unit length. */
+    assert_unit_length(Capture.Surface.fNormal);
+    assert(dot3(Capture.Surface.fNormal, afRendererNormal) > 0.0f);
+    assert_float_near(Capture.Surface.fNormal[0], 0.0f);
+    assert_float_near(Capture.Surface.fNormal[1], 0.0f);
+    assert_float_near(Capture.Surface.fNormal[2], 1.0f);
+
+    /* Positive toward a camera the renderer would call front-facing, and
+     * negative toward one it would apply texture_back[] for. */
+    assert(dot3(Capture.Surface.fNormal, afToFront) > 0.0f);
+    assert(dot3(Capture.Surface.fNormal, afToBack) < 0.0f);
+
+    /* A flat quad's vertex normals all equal the surface normal. */
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        assert_unit_length(Capture.Surface.aVertices[i].fNormal);
+        for (uint32_t iAxis = 0; iAxis < 3; iAxis++)
+            assert_float_near(Capture.Surface.aVertices[i].fNormal[iAxis],
+                              Capture.Surface.fNormal[iAxis]);
+    }
+
+    /* Reversing the winding reverses the front face, and nothing else. */
+    float afReversed[ED_SURFACE_VERTEX_COUNT][3];
+    tEmissionCapture ReversedCapture = { 0 };
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++)
+        memcpy(afReversed[i],
+               afWorld[ED_SURFACE_VERTEX_COUNT - 1u - i],
+               sizeof(afReversed[i]));
+    assert(ed_emit_surface(
+        afReversed, &Info, &Table, capture_emission, &ReversedCapture));
+    assert_float_near(ReversedCapture.Surface.fNormal[2], -1.0f);
+}
+
+/*
+ * Track sections may twist, so a normal taken from three of four corners is
+ * not good enough: each vertex carries its own adjacent-edge normal.
+ */
+static void test_twisted_quads_get_per_vertex_normals(void)
+{
+    /* v2 lifted out of the plane of the other three. */
+    static const float afTwisted[ED_SURFACE_VERTEX_COUNT][3] = {
+        {   0.0f,   0.0f,   0.0f },
+        { 100.0f,   0.0f,   0.0f },
+        { 100.0f, 100.0f, 100.0f },
+        {   0.0f, 100.0f,   0.0f }
+    };
+    float afSurfaceNormal[3];
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3];
+
+    assert(ed_surface_compute_normals(
+        afTwisted, afSurfaceNormal, afVertexNormals));
+    assert_unit_length(afSurfaceNormal);
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        assert_unit_length(afVertexNormals[i]);
+        /* Every corner still faces the same hemisphere as the quad. */
+        assert(dot3(afVertexNormals[i], afSurfaceNormal) > 0.0f);
+    }
+    /* The lifted corner genuinely differs from the whole-quad normal, which
+     * is the whole reason for carrying per-vertex normals at all. */
+    assert(dot3(afVertexNormals[2], afSurfaceNormal) < 0.999f);
+}
+
+/*
+ * TRACK3 chunk 124's right shoulder pinches v0 onto v1 to within a unit at
+ * coordinates near 90000. The sliver triangle at those corners is nearly
+ * perpendicular to the quad, so its cross product is not a usable shading
+ * normal; those corners must take the whole-quad normal instead.
+ */
+static void test_pinched_corners_fall_back_to_the_quad_normal(void)
+{
+    static const float afPinched[ED_SURFACE_VERTEX_COUNT][3] = {
+        { -54661.0f,   -92631.8f, 19056.1f },
+        { -54660.3f,   -92632.3f, 19056.5f },
+        { -54148.5f,   -91660.8f, 20060.2f },
+        { -54499.6f,   -91889.7f, 20682.2f }
+    };
+    float afSurfaceNormal[3];
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3];
+
+    assert(ed_surface_compute_normals(
+        afPinched, afSurfaceNormal, afVertexNormals));
+    assert_unit_length(afSurfaceNormal);
+
+    /* The two pinched corners take the quad normal verbatim. */
+    for (uint32_t i = 0; i < 2u; i++) {
+        for (uint32_t iAxis = 0; iAxis < 3; iAxis++)
+            assert_float_near(afVertexNormals[i][iAxis],
+                              afSurfaceNormal[iAxis]);
+    }
+    /* The two well-formed corners keep their own, and still face the same
+     * hemisphere as the quad. */
+    for (uint32_t i = 2u; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        assert_unit_length(afVertexNormals[i]);
+        assert(dot3(afVertexNormals[i], afSurfaceNormal) > 0.0f);
+    }
+}
+
+/* Degenerate geometry publishes an absent normal, never a NaN. */
+static void test_degenerate_quads_publish_zero_normals(void)
+{
+    static const float afCollapsed[ED_SURFACE_VERTEX_COUNT][3] = {
+        { 5.0f, 6.0f, 7.0f },
+        { 5.0f, 6.0f, 7.0f },
+        { 5.0f, 6.0f, 7.0f },
+        { 5.0f, 6.0f, 7.0f }
+    };
+    /* All four corners collinear along X, so the quad encloses no area. */
+    static const float afSliver[ED_SURFACE_VERTEX_COUNT][3] = {
+        {   0.0f, 0.0f, 0.0f },
+        { 100.0f, 0.0f, 0.0f },
+        { 200.0f, 0.0f, 0.0f },
+        { 100.0f, 0.0f, 0.0f }
+    };
+    float afSurfaceNormal[3];
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3];
+
+    assert(!ed_surface_compute_normals(
+        afCollapsed, afSurfaceNormal, afVertexNormals));
+    for (uint32_t iAxis = 0; iAxis < 3; iAxis++)
+        assert(afSurfaceNormal[iAxis] == 0.0f);
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        for (uint32_t iAxis = 0; iAxis < 3; iAxis++)
+            assert(afVertexNormals[i][iAxis] == 0.0f);
+    }
+
+    assert(!ed_surface_compute_normals(
+        afSliver, afSurfaceNormal, afVertexNormals));
+    for (uint32_t iAxis = 0; iAxis < 3; iAxis++)
+        assert(afSurfaceNormal[iAxis] == 0.0f);
+
+    /* Per-vertex output is optional; a null destination is not an error. */
+    assert(!ed_surface_compute_normals(afSliver, afSurfaceNormal, NULL));
+    assert(!ed_surface_compute_normals(NULL, afSurfaceNormal, NULL));
+}
+
+/*
+ * World +Z is up and the emitter applies no scale or axis conversion: the
+ * positions it publishes are the ones the producer handed it.
+ */
+static void test_world_axes_and_scale_pass_through_unchanged(void)
+{
+    /* A wall standing upright: constant world Z along each edge pair, and a
+     * normal that lies flat in the XY plane because +Z is the up axis. */
+    static const float afWall[ED_SURFACE_VERTEX_COUNT][3] = {
+        {   0.0f, 0.0f, 500.0f },
+        { 400.0f, 0.0f, 500.0f },
+        { 400.0f, 0.0f,   0.0f },
+        {   0.0f, 0.0f,   0.0f }
+    };
+    tEdMaterial aMaterials[2];
+    tEdMaterialTable Table;
+    tEmissionCapture Capture = { 0 };
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo Info = make_info(SURFACE_FLAG_APPLY_TEXTURE | 1u);
+    Info.bPairTextureEnabled = false;
+
+    assert(ed_material_table_init(&Table, aMaterials, 2u, Atlas));
+    assert(ed_emit_surface(
+        afWall, &Info, &Table, capture_emission, &Capture));
+
+    /* Positions are byte-identical: no scale factor, no axis swap. */
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++)
+        assert(memcmp(Capture.Surface.aVertices[i].fPosition,
+                      afWall[i], sizeof(afWall[i])) == 0);
+
+    /* An upright wall's normal has no component along the up axis. */
+    assert_unit_length(Capture.Surface.fNormal);
+    assert_float_near(Capture.Surface.fNormal[ED_SURFACE_WORLD_UP_AXIS], 0.0f);
+
+    /* Vertices sharing a world-Z value are the ones sharing a V coordinate,
+     * which is what makes the UV origin the top-left corner. */
+    assert(afWall[0][ED_SURFACE_WORLD_UP_AXIS]
+           == afWall[1][ED_SURFACE_WORLD_UP_AXIS]);
+    assert_float_near(Capture.Surface.aVertices[0].fMaterialUV[1], 0.0f);
+    assert_float_near(Capture.Surface.aVertices[1].fMaterialUV[1], 0.0f);
+    assert(Capture.Surface.aVertices[2].fMaterialUV[1] > 0.9f);
+    assert(Capture.Surface.aVertices[3].fMaterialUV[1] > 0.9f);
+    /* U runs left to right: v1 is the left edge, v0 the right. */
+    assert(Capture.Surface.aVertices[1].fMaterialUV[0]
+           < Capture.Surface.aVertices[0].fMaterialUV[0]);
 }
 
 static void test_selection_uses_only_canonical_identity(void)
@@ -396,6 +965,16 @@ int main(void)
     test_paired_mapping_in_both_directions();
     test_export_mapping_uses_material_transform();
     test_generic_identity_layout_and_skip();
+    test_separate_texture_sets_keep_their_own_tile_identity();
+    test_pair_falls_back_when_the_atlas_has_no_successor();
+    test_back_material_matches_the_draw_time_substitution();
+    test_non_textured_surfaces_carry_their_material_kind();
+    test_invalid_identity_is_refused();
+    test_normal_agrees_with_the_renderer_front_face_rule();
+    test_twisted_quads_get_per_vertex_normals();
+    test_pinched_corners_fall_back_to_the_quad_normal();
+    test_degenerate_quads_publish_zero_normals();
+    test_world_axes_and_scale_pass_through_unchanged();
     test_selection_uses_only_canonical_identity();
     test_full_track_chunk_traversal_is_complete_and_camera_free();
     puts("editor surface emission tests passed");

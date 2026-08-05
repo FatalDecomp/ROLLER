@@ -121,7 +121,14 @@ enum
 enum
 {
     ROLLER_ED_MATERIAL_FLAG_ALPHA_BLEND = 1u << 0,
-    ROLLER_ED_MATERIAL_FLAG_PARTIAL_ALPHA = 1u << 1
+    ROLLER_ED_MATERIAL_FLAG_PARTIAL_ALPHA = 1u << 1,
+    /* TEXTURED_PAIR only. The pair's second tile is the first tile of the
+     * next atlas row, so fAtlasScale/fAtlasBias run past the right edge of
+     * the atlas. The legacy renderer composes that pair from a flat
+     * row-stride read rather than from the tile to the right, so a consumer
+     * that samples the transform directly reproduces the left tile exactly
+     * and only approximates the wrapped half. */
+    ROLLER_ED_MATERIAL_FLAG_PAIR_WRAPS_ATLAS_ROW = 1u << 2
 };
 
 /* These values intentionally match the legacy renderer texture banks. */
