@@ -56,8 +56,14 @@ typedef struct
     float fMaterialUV[2];
 } tEdSurfaceVertex;
 
+/* Main track, building/sign, and cargen are separate legacy texture banks with
+ * independent tile counts, so a canonical stream that mixes them needs one
+ * atlas description per set rather than a single global one. */
+#define ED_MATERIAL_MAX_TEXTURE_SETS 4u
+
 typedef struct
 {
+    uint32_t uiTextureSet;
     uint32_t uiWidth;
     uint32_t uiHeight;
     uint32_t uiTileSize;
@@ -69,7 +75,11 @@ typedef struct
     tEdMaterial *pMaterials;
     uint32_t uiCapacity;
     uint32_t uiCount;
-    tEdTextureAtlas Atlas;
+    tEdTextureAtlas aAtlases[ED_MATERIAL_MAX_TEXTURE_SETS];
+    uint32_t uiAtlasCount;
+    /* Every registered atlas shares this: the legacy tile size follows the
+     * global gfx_size, not the bank. */
+    uint32_t uiTileSize;
 } tEdMaterialTable;
 
 typedef struct
@@ -125,8 +135,22 @@ bool ed_material_table_init(tEdMaterialTable *pTable,
                             uint32_t uiCapacity,
                             tEdTextureAtlas Atlas);
 
+bool ed_material_table_set_atlas(tEdMaterialTable *pTable,
+                                 tEdTextureAtlas Atlas);
+
+const tEdTextureAtlas *ed_material_table_atlas(const tEdMaterialTable *pTable,
+                                               uint32_t uiTextureSet);
+
 const tEdMaterial *ed_material_table_get(const tEdMaterialTable *pTable,
                                          uint32_t uiMaterialId);
+
+bool ed_surface_identity_valid(const tEdSurfaceInfo *pInfo);
+
+bool ed_atlas_pair_available(const tEdTextureAtlas *pAtlas,
+                             uint32_t uiTileIndex);
+
+bool ed_atlas_pair_wraps_row(const tEdTextureAtlas *pAtlas,
+                             uint32_t uiTileIndex);
 
 void ed_material_resolve_uv(const tEdMaterial *pMaterial,
                             const float afMaterialUV[2],

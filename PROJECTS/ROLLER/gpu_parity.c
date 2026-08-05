@@ -213,7 +213,7 @@ static bool gpu_f_s5_metadata_check(void)
     tEdMaterial aReverseMaterials[2];
     tEdMaterialTable ReverseTable;
     tGpuEmissionCapture ReverseCapture = { 0 };
-    tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+    tEdTextureAtlas Atlas = { TEXTURE_BANK_TRACK, 128u, 64u, 64u, 2u };
     tEdSurfaceInfo ReverseInfo = {
         .uiChunkId = 73u,
         .uiRenderFlags =
@@ -505,7 +505,7 @@ static bool gpu_f_s5_render_fixture(SceneRendererGPU *pRenderer,
         float afWorld[ED_SURFACE_VERTEX_COUNT][3];
         tEdMaterial aMaterials[1];
         tEdMaterialTable MaterialTable;
-        tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+        tEdTextureAtlas Atlas = { TEXTURE_BANK_TRACK, 128u, 64u, 64u, 2u };
         tEdSurfaceInfo Info = {
             .uiChunkId = 91u,
             .uiRenderFlags =
@@ -614,7 +614,7 @@ static bool gpu_f_s4b_selected_surface_check(
     uint8 *pbyPixels = malloc(uiBufferSize);
     tEdMaterial aMaterials[1];
     tEdMaterialTable MaterialTable;
-    tEdTextureAtlas Atlas = { 128u, 64u, 64u, 2u };
+    tEdTextureAtlas Atlas = { TEXTURE_BANK_TRACK, 128u, 64u, 64u, 2u };
     tEdSurfaceSelection Selection = {
         .uiFirstChunkId = 10u,
         .uiLastChunkId = 11u,

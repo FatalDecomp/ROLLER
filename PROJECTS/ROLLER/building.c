@@ -772,18 +772,26 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             SurfaceInfo.uiTextureSet = TEXTURE_BANK_BUILDING;
             SurfaceInfo.fSubdivideThreshold =
               (float)BuildingSub[uiBuildingType] * subscale;
-            SurfaceInfo.bPairTextureEnabled =
-              (gpuSurfFlags & SURFACE_FLAG_TEXTURE_PAIR) != 0 && wide_on != 0;
+            /* Pair textures are a track-wall feature only: SW keeps the
+             * set_starts(0) tile span for every building quad, and the GPU
+             * path gates pairing on !isBuilding (scene_render_gpu.c). */
+            SurfaceInfo.bPairTextureEnabled = false;
             SurfaceInfo.unSurfaceClass = isRealSign
               ? ROLLER_ED_SURFACE_CLASS_SIGN
               : ROLLER_ED_SURFACE_CLASS_BUILDING;
+            /* Types 9, 10, and 15 are rotated to face the camera by worlddirn
+             * above, so their geometry is a runtime presentation artefact.
+             * Every other building plan is fixed authored scenery placed by
+             * the track file. Classifying here is what keeps exporters from
+             * having to re-derive object class from surface class. */
+            bool isBillboard = uiBuildingType >= 9
+              && (uiBuildingType <= 0xA || uiBuildingType == 15);
             SurfaceInfo.unContentClass = isRealSign
               ? ROLLER_ED_CONTENT_AUTHORED_SIGN
-              : ROLLER_ED_CONTENT_RUNTIME_SCENERY;
+              : (isBillboard ? ROLLER_ED_CONTENT_RUNTIME_SCENERY
+                             : ROLLER_ED_CONTENT_AUTHORED_SCENERY);
             SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
-            SurfaceInfo.byRenderUVLayout = SurfaceInfo.bPairTextureEnabled
-              ? ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
-              : ROLLER_ED_RENDER_UV_TILE;
+            SurfaceInfo.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
             SurfaceInfo.iRenderSubdivideType = subdivType;
             drawtrk3_emit_surface_to_renderer(
               g_pGameRenderer, verts, &SurfaceInfo);

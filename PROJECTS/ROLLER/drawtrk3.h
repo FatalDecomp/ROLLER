@@ -52,6 +52,11 @@ int facing_ok(float fX0, float fY0, float fZ0,
               float fX2, float fY2, float fZ2,
               float fX3, float fY3, float fZ3);
 void set_starts(unsigned int uiType);
+bool drawtrk3_editor_texture_atlas(uint32_t uiTextureSet,
+                                   tEdTextureAtlas *pAtlas);
+bool drawtrk3_init_editor_material_table(tEdMaterialTable *pTable,
+                                         tEdMaterial *pStorage,
+                                         uint32_t uiCapacity);
 bool drawtrk3_emit_surface_to_renderer(
     GameRenderer *pRenderer,
     const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],

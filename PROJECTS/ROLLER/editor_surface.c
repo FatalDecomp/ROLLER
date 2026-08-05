@@ -29,7 +29,31 @@ static bool ed_material_table_intern(tEdMaterialTable *pTable,
     return true;
 }
 
-static bool ed_build_material(const tEdMaterialTable *pTable,
+/* The renderer builds a pair texture for every tile that has a successor
+ * (scene_render_gpu.c creates pairTextures[n] for n + 1 < numTiles) and
+ * silently falls back to the plain tile when that pair is missing. */
+bool ed_atlas_pair_available(const tEdTextureAtlas *pAtlas,
+                             uint32_t uiTileIndex)
+{
+    return pAtlas && uiTileIndex + 1u < pAtlas->uiTileCount;
+}
+
+/* A pair whose left tile sits in the last atlas column takes its right half
+ * from the following row, so no single scale/bias rectangle describes it. */
+bool ed_atlas_pair_wraps_row(const tEdTextureAtlas *pAtlas,
+                             uint32_t uiTileIndex)
+{
+    uint32_t uiTilesPerRow;
+
+    if (!pAtlas || pAtlas->uiTileSize == 0)
+        return false;
+    uiTilesPerRow = pAtlas->uiWidth / pAtlas->uiTileSize;
+    if (uiTilesPerRow == 0)
+        return false;
+    return (uiTileIndex % uiTilesPerRow) + 1u >= uiTilesPerRow;
+}
+
+static bool ed_build_material(const tEdTextureAtlas *pAtlas,
                               uint32_t uiSurfaceFlags,
                               uint32_t uiTextureSet,
                               bool bPairTexture,
@@ -38,33 +62,45 @@ static bool ed_build_material(const tEdMaterialTable *pTable,
     uint32_t uiTileIndex = uiSurfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
     memset(pMaterial, 0, sizeof(*pMaterial));
     pMaterial->uiTextureSet = uiTextureSet;
-    pMaterial->uiTileIndex = uiTileIndex;
     if (uiSurfaceFlags & (SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_PARTIAL_TRANS))
         pMaterial->uiFlags |= ROLLER_ED_MATERIAL_FLAG_ALPHA_BLEND;
     if (uiSurfaceFlags & SURFACE_FLAG_PARTIAL_TRANS)
         pMaterial->uiFlags |= ROLLER_ED_MATERIAL_FLAG_PARTIAL_ALPHA;
 
     if (uiSurfaceFlags & SURFACE_FLAG_APPLY_TEXTURE) {
-        uint32_t uiTilesPerRow = pTable->Atlas.uiWidth
-                               / pTable->Atlas.uiTileSize;
-        if (uiTilesPerRow == 0 || uiTileIndex >= pTable->Atlas.uiTileCount)
+        uint32_t uiTilesPerRow;
+
+        if (!pAtlas || pAtlas->uiTileSize == 0)
+            return false;
+        uiTilesPerRow = pAtlas->uiWidth / pAtlas->uiTileSize;
+        if (uiTilesPerRow == 0 || uiTileIndex >= pAtlas->uiTileCount)
+            return false;
+        /* A caller must not ask for a pair the renderer would not build. */
+        if (bPairTexture && !ed_atlas_pair_available(pAtlas, uiTileIndex))
             return false;
 
+        pMaterial->uiTileIndex = uiTileIndex;
         pMaterial->uiKind = bPairTexture
             ? ROLLER_ED_MATERIAL_TEXTURED_PAIR
             : ROLLER_ED_MATERIAL_TEXTURED_TILE;
+        if (bPairTexture && ed_atlas_pair_wraps_row(pAtlas, uiTileIndex))
+            pMaterial->uiFlags |=
+                ROLLER_ED_MATERIAL_FLAG_PAIR_WRAPS_ATLAS_ROW;
         pMaterial->fAtlasScale[0] =
-            (float)(pTable->Atlas.uiTileSize * (bPairTexture ? 2u : 1u))
-            / (float)pTable->Atlas.uiWidth;
+            (float)(pAtlas->uiTileSize
+                    * (bPairTexture ? ROLLER_ED_PAIR_TEXTURE_TILE_SPAN : 1u))
+            / (float)pAtlas->uiWidth;
         pMaterial->fAtlasScale[1] =
-            (float)pTable->Atlas.uiTileSize / (float)pTable->Atlas.uiHeight;
+            (float)pAtlas->uiTileSize / (float)pAtlas->uiHeight;
         pMaterial->fAtlasBias[0] =
-            (float)((uiTileIndex % uiTilesPerRow) * pTable->Atlas.uiTileSize)
-            / (float)pTable->Atlas.uiWidth;
+            (float)((uiTileIndex % uiTilesPerRow) * pAtlas->uiTileSize)
+            / (float)pAtlas->uiWidth;
         pMaterial->fAtlasBias[1] =
-            (float)((uiTileIndex / uiTilesPerRow) * pTable->Atlas.uiTileSize)
-            / (float)pTable->Atlas.uiHeight;
+            (float)((uiTileIndex / uiTilesPerRow) * pAtlas->uiTileSize)
+            / (float)pAtlas->uiHeight;
     } else if (uiSurfaceFlags & SURFACE_FLAG_TRANSPARENT) {
+        /* No tile identity: the renderer darkens whatever is already in the
+         * framebuffer by the level the surface index selects. */
         pMaterial->uiKind = ROLLER_ED_MATERIAL_SCREEN_DARKEN;
         pMaterial->uiDarkenLevel = uiTileIndex;
     } else {
@@ -74,23 +110,71 @@ static bool ed_build_material(const tEdMaterialTable *pTable,
     return true;
 }
 
+static bool ed_atlas_valid(const tEdTextureAtlas *pAtlas)
+{
+    return pAtlas->uiWidth != 0 && pAtlas->uiHeight != 0
+        && pAtlas->uiTileSize != 0
+        && pAtlas->uiWidth % pAtlas->uiTileSize == 0
+        && pAtlas->uiHeight % pAtlas->uiTileSize == 0;
+}
+
 bool ed_material_table_init(tEdMaterialTable *pTable,
                             tEdMaterial *pStorage,
                             uint32_t uiCapacity,
                             tEdTextureAtlas Atlas)
 {
-    if (!pTable || !pStorage || uiCapacity == 0
-            || Atlas.uiWidth == 0 || Atlas.uiHeight == 0
-            || Atlas.uiTileSize == 0
-            || Atlas.uiWidth % Atlas.uiTileSize != 0
-            || Atlas.uiHeight % Atlas.uiTileSize != 0)
+    if (!pTable || !pStorage || uiCapacity == 0 || !ed_atlas_valid(&Atlas))
         return false;
 
     pTable->pMaterials = pStorage;
     pTable->uiCapacity = uiCapacity;
     pTable->uiCount = 0;
-    pTable->Atlas = Atlas;
+    pTable->uiAtlasCount = 0;
+    pTable->uiTileSize = Atlas.uiTileSize;
+    return ed_material_table_set_atlas(pTable, Atlas);
+}
+
+bool ed_material_table_set_atlas(tEdMaterialTable *pTable,
+                                 tEdTextureAtlas Atlas)
+{
+    if (!pTable || !ed_atlas_valid(&Atlas)
+            || Atlas.uiTileSize != pTable->uiTileSize)
+        return false;
+
+    for (uint32_t i = 0; i < pTable->uiAtlasCount; i++) {
+        if (pTable->aAtlases[i].uiTextureSet == Atlas.uiTextureSet) {
+            pTable->aAtlases[i] = Atlas;
+            return true;
+        }
+    }
+
+    if (pTable->uiAtlasCount >= ED_MATERIAL_MAX_TEXTURE_SETS)
+        return false;
+    pTable->aAtlases[pTable->uiAtlasCount++] = Atlas;
     return true;
+}
+
+const tEdTextureAtlas *ed_material_table_atlas(const tEdMaterialTable *pTable,
+                                               uint32_t uiTextureSet)
+{
+    if (!pTable)
+        return NULL;
+    for (uint32_t i = 0; i < pTable->uiAtlasCount; i++) {
+        if (pTable->aAtlases[i].uiTextureSet == uiTextureSet)
+            return &pTable->aAtlases[i];
+    }
+    return NULL;
+}
+
+bool ed_surface_identity_valid(const tEdSurfaceInfo *pInfo)
+{
+    return pInfo
+        && (pInfo->uiChunkId == ROLLER_ED_INVALID_CHUNK_ID
+            || pInfo->uiChunkId < (uint32_t)MAX_TRACK_CHUNKS)
+        && pInfo->unSurfaceClass <= ROLLER_ED_SURFACE_CLASS_TOWER
+        && pInfo->unContentClass <= ROLLER_ED_CONTENT_RUNTIME_SCENERY
+        && pInfo->byTopology == ROLLER_ED_TOPOLOGY_QUAD
+        && pInfo->byRenderUVLayout <= ROLLER_ED_RENDER_UV_PAIR_VERTICAL;
 }
 
 const tEdMaterial *ed_material_table_get(const tEdMaterialTable *pTable,
@@ -207,28 +291,53 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
 {
     tEdSurfaceEmission Surface;
     tEdMaterial FrontMaterial;
+    const tEdTextureAtlas *pAtlas;
+    uint32_t uiTileIndex;
     uint32_t uiTileSize;
     uint32_t uiRenderWidth;
     uint32_t uiRenderHeight;
+    uint8_t byRenderUVLayout;
+    bool bTextured;
+    bool bPairTexture;
     int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT];
     int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT];
 
-    if (!afWorldVertices || !pInfo || !pMaterials || !pfnEmit)
+    if (!afWorldVertices || !pInfo || !pMaterials || !pfnEmit
+            || !ed_surface_identity_valid(pInfo))
         return false;
     if (pInfo->uiRenderFlags & SURFACE_FLAG_SKIP_RENDER)
         return true;
 
-    uiTileSize = pMaterials->Atlas.uiTileSize;
+    /* Tile identity is resolved against the surface's own texture set, so a
+     * stream that mixes main-track and building/sign surfaces still gets the
+     * right tile count and atlas transform for each. */
+    pAtlas = ed_material_table_atlas(pMaterials, pInfo->uiTextureSet);
+    uiTileIndex = pInfo->uiRenderFlags & SURFACE_MASK_TEXTURE_INDEX;
+    bTextured = (pInfo->uiRenderFlags & SURFACE_FLAG_APPLY_TEXTURE) != 0;
+    if (bTextured && (!pAtlas || uiTileIndex >= pAtlas->uiTileCount))
+        return false;
+
+    /* Match the draw-time fallback: a requested pair that the atlas cannot
+     * supply degrades to the plain tile for both the material and the render
+     * UV span, so the two never disagree. */
+    bPairTexture = pInfo->bPairTextureEnabled && bTextured
+                && ed_atlas_pair_available(pAtlas, uiTileIndex);
+    byRenderUVLayout = pInfo->byRenderUVLayout;
+    if (byRenderUVLayout == ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL
+            && !bPairTexture)
+        byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
+
+    uiTileSize = pMaterials->uiTileSize;
     uiRenderWidth = uiTileSize
-                  * (pInfo->byRenderUVLayout
+                  * (byRenderUVLayout
                      == ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL ? 2u : 1u);
     uiRenderHeight = uiTileSize
-                   * (pInfo->byRenderUVLayout
+                   * (byRenderUVLayout
                       == ROLLER_ED_RENDER_UV_PAIR_VERTICAL ? 2u : 1u);
     if (uiRenderWidth > (uint32_t)(INT32_MAX >> 16)
             || uiRenderHeight > (uint32_t)(INT32_MAX >> 16)
             || !ed_surface_compute_render_uvs(
-                pInfo->byRenderUVLayout, uiTileSize == 32u,
+                byRenderUVLayout, uiTileSize == 32u,
                 aiRenderU16_16, aiRenderV16_16))
         return false;
 
@@ -251,7 +360,7 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_TWO_SIDED;
     if (pInfo->uiRenderFlags & SURFACE_FLAG_APPLY_TEXTURE)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_TEXTURED;
-    if (pInfo->bPairTextureEnabled)
+    if (bPairTexture)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_PAIRED_TEXTURE;
     if (pInfo->bHighVariant)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_HIGH_VARIANT;
@@ -290,28 +399,32 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
         Surface.aVertices[3].fMaterialUV[1] = fTemp;
     }
 
-    if (!ed_build_material(pMaterials, pInfo->uiRenderFlags,
+    if (!ed_build_material(pAtlas, pInfo->uiRenderFlags,
                            pInfo->uiTextureSet,
-                           pInfo->bPairTextureEnabled, &FrontMaterial)
+                           bPairTexture, &FrontMaterial)
             || !ed_material_table_intern(pMaterials, &FrontMaterial,
                                          &Surface.uiFrontMaterialId))
         return false;
 
-    if ((pInfo->uiRenderFlags & (SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK))
-            == (SURFACE_FLAG_APPLY_TEXTURE | SURFACE_FLAG_BACK)
+    /* The draw-time rule (polytex.c:578, scene_render_gpu.c:5521) substitutes
+     * texture_back[]'s tile index on a back-facing textured surface, keeping
+     * the surface's other flags and ignoring an out-of-range substitute. An
+     * identical or absent substitute leaves uiBackMaterialId as the
+     * "no alternate reverse material" sentinel. */
+    if (bTextured && (pInfo->uiRenderFlags & SURFACE_FLAG_BACK)
             && pInfo->uiBackSurfaceFlags != ED_MATERIAL_ID_NONE) {
         uint32_t uiBackTile =
             pInfo->uiBackSurfaceFlags & SURFACE_MASK_TEXTURE_INDEX;
-        uint32_t uiFrontTile =
-            pInfo->uiRenderFlags & SURFACE_MASK_TEXTURE_INDEX;
-        if (uiBackTile != uiFrontTile
-                && uiBackTile < pMaterials->Atlas.uiTileCount) {
+        if (uiBackTile != uiTileIndex && uiBackTile < pAtlas->uiTileCount) {
             tEdMaterial BackMaterial;
             uint32_t uiBackFlags =
                 (pInfo->uiRenderFlags & SURFACE_MASK_FLAGS) | uiBackTile;
-            if (!ed_build_material(pMaterials, uiBackFlags,
+            /* Pair availability is a property of the substituted tile. */
+            bool bBackPair = pInfo->bPairTextureEnabled
+                          && ed_atlas_pair_available(pAtlas, uiBackTile);
+            if (!ed_build_material(pAtlas, uiBackFlags,
                                    pInfo->uiTextureSet,
-                                   pInfo->bPairTextureEnabled, &BackMaterial)
+                                   bBackPair, &BackMaterial)
                     || !ed_material_table_intern(pMaterials, &BackMaterial,
                                                  &Surface.uiBackMaterialId))
                 return false;

@@ -222,6 +222,57 @@ static uint32_t editor_surface_texture_count(uint32_t uiTextureSet)
     return 0u;
 }
 
+bool drawtrk3_editor_texture_atlas(uint32_t uiTextureSet,
+                                   tEdTextureAtlas *pAtlas)
+{
+    uint32_t uiTileSize = gfx_size ? 32u : 64u;
+    uint32_t uiTilesPerRow = 256u / uiTileSize;
+    uint32_t uiTileCount;
+    uint32_t uiAtlasRows;
+
+    if (!pAtlas)
+        return false;
+
+    uiTileCount = editor_surface_texture_count(uiTextureSet);
+    uiAtlasRows = uiTileCount
+        ? (uiTileCount + uiTilesPerRow - 1u) / uiTilesPerRow
+        : 1u;
+    pAtlas->uiTextureSet = uiTextureSet;
+    pAtlas->uiWidth = 256u;
+    pAtlas->uiHeight = uiAtlasRows * uiTileSize;
+    pAtlas->uiTileSize = uiTileSize;
+    pAtlas->uiTileCount = uiTileCount;
+    return true;
+}
+
+/*
+ * Register every legacy texture bank the canonical stream can reference, so
+ * main-track and building/sign surfaces resolve tile identity against their
+ * own bank rather than sharing one atlas description.
+ */
+bool drawtrk3_init_editor_material_table(tEdMaterialTable *pTable,
+                                         tEdMaterial *pStorage,
+                                         uint32_t uiCapacity)
+{
+    static const uint32_t auiTextureSets[] = {
+        TEXTURE_BANK_BUILDING,
+        TEXTURE_BANK_CARGEN
+    };
+    tEdTextureAtlas Atlas;
+
+    if (!drawtrk3_editor_texture_atlas(TEXTURE_BANK_TRACK, &Atlas)
+            || !ed_material_table_init(pTable, pStorage, uiCapacity, Atlas))
+        return false;
+
+    for (uint32_t i = 0;
+            i < sizeof(auiTextureSets) / sizeof(auiTextureSets[0]); i++) {
+        if (!drawtrk3_editor_texture_atlas(auiTextureSets[i], &Atlas)
+                || !ed_material_table_set_atlas(pTable, Atlas))
+            return false;
+    }
+    return true;
+}
+
 static bool emit_surface_to_consumer(
     const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
     const tEdSurfaceInfo *pInfo,
@@ -263,26 +314,11 @@ bool drawtrk3_emit_surface_to_renderer(
     tEdMaterial aMaterials[2];
     tEdMaterialTable MaterialTable;
     tEdRenderSurfaceContext RenderContext;
-    uint32_t uiTileSize = gfx_size ? 32u : 64u;
-    uint32_t uiTilesPerRow = 256u / uiTileSize;
-    uint32_t uiTileCount;
-    uint32_t uiAtlasRows;
 
     if (!pRenderer || !aVertices || !pInfo)
         return false;
 
-    uiTileCount = editor_surface_texture_count(pInfo->uiTextureSet);
-    uiAtlasRows = uiTileCount
-        ? (uiTileCount + uiTilesPerRow - 1u) / uiTilesPerRow
-        : 1u;
-    tEdTextureAtlas Atlas = {
-        .uiWidth = 256u,
-        .uiHeight = uiAtlasRows * uiTileSize,
-        .uiTileSize = uiTileSize,
-        .uiTileCount = uiTileCount
-    };
-
-    if (!ed_material_table_init(&MaterialTable, aMaterials, 2u, Atlas))
+    if (!drawtrk3_init_editor_material_table(&MaterialTable, aMaterials, 2u))
         return false;
 
     RenderContext.pRenderer = pRenderer;
