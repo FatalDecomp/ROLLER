@@ -9,12 +9,25 @@
 static uint32_t s_uiFlags = ROLLER_ED_OVERLAY_DEFAULT_FLAGS;
 static uint32_t s_uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
 static uint32_t s_uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
+static uint32_t s_uiSurfaceClassMask =
+    ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK;
+static uint32_t s_uiWireframeClassMask =
+    ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK;
+
+static bool overlay_class_selected(uint32_t uiMask, uint16_t unSurfaceClass)
+{
+    if (unSurfaceClass >= ROLLER_ED_SURFACE_CLASS_COUNT)
+        return false;
+    return (uiMask & ROLLER_ED_OVERLAY_CLASS_BIT(unSurfaceClass)) != 0u;
+}
 
 void roller_ed_overlay_reset(void)
 {
     s_uiFlags = ROLLER_ED_OVERLAY_DEFAULT_FLAGS;
     s_uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
     s_uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
+    s_uiSurfaceClassMask = ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK;
+    s_uiWireframeClassMask = ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK;
 }
 
 void roller_ed_overlay_set(const tEdOverlayState *pState)
@@ -24,6 +37,10 @@ void roller_ed_overlay_set(const tEdOverlayState *pState)
     s_uiFlags = pState->uiFlags & (uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS;
     s_uiFirstSelectedChunk = pState->uiFirstSelectedChunk;
     s_uiLastSelectedChunk = pState->uiLastSelectedChunk;
+    s_uiSurfaceClassMask = pState->uiSurfaceClassMask
+        & (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES;
+    s_uiWireframeClassMask = pState->uiWireframeClassMask
+        & (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES;
 }
 
 void roller_ed_overlay_get(tEdOverlayState *pStateOut)
@@ -35,6 +52,20 @@ void roller_ed_overlay_get(tEdOverlayState *pStateOut)
     pStateOut->uiFlags = s_uiFlags;
     pStateOut->uiFirstSelectedChunk = s_uiFirstSelectedChunk;
     pStateOut->uiLastSelectedChunk = s_uiLastSelectedChunk;
+    pStateOut->uiSurfaceClassMask = s_uiSurfaceClassMask;
+    pStateOut->uiWireframeClassMask = s_uiWireframeClassMask;
+}
+
+bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass)
+{
+    return roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_SURFACES)
+        && overlay_class_selected(s_uiSurfaceClassMask, unSurfaceClass);
+}
+
+bool roller_ed_overlay_wireframe_class_visible(uint16_t unSurfaceClass)
+{
+    return roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_WIREFRAME)
+        && overlay_class_selected(s_uiWireframeClassMask, unSurfaceClass);
 }
 
 uint32_t roller_ed_overlay_flags(void)

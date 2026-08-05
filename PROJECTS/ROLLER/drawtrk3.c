@@ -10,6 +10,7 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
+#include "editor_overlay.h"
 #include "editor_surface.h"
 #include "graphics.h"
 #include <float.h>
@@ -164,6 +165,50 @@ typedef struct
     const tEdSurfaceSelection *pSelection;
 } tEdRenderSurfaceContext;
 
+#if defined(ROLLER_EDITOR_CORE)
+/*
+ * E3A-S2. The renderer offers no line primitive, so each edge is drawn as the
+ * thin front-facing ribbon ed_surface_wireframe_edge_quad() builds, flat-
+ * filled in one palette colour. Flat fill is the same mechanism the selection
+ * highlight uses: clear the texture bits, put the colour index in the low
+ * byte.
+ */
+#define ED_WIREFRAME_PALETTE_COLOUR 255u
+
+static void draw_emitted_surface_wireframe(
+    const tEdRenderSurfaceContext *pContext,
+    const tEdSurfaceEmission *pSurface)
+{
+    const int iWireflags = (int)((pSurface->uiRenderFlags
+                                  & (SURFACE_MASK_FLAGS
+                                     & ~(SURFACE_FLAG_APPLY_TEXTURE
+                                         | SURFACE_FLAG_TRANSPARENT
+                                         | SURFACE_FLAG_PARTIAL_TRANS)))
+                                 | ED_WIREFRAME_PALETTE_COLOUR);
+
+    for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++) {
+        float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+        GameRenderVertex aEdgeVertices[ED_SURFACE_VERTEX_COUNT];
+
+        if (!ed_surface_wireframe_edge_quad(pSurface, uiEdge, afEdgeQuad))
+            continue;
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            aEdgeVertices[i].x = afEdgeQuad[i][0];
+            aEdgeVertices[i].y = afEdgeQuad[i][1];
+            aEdgeVertices[i].z = afEdgeQuad[i][2];
+            aEdgeVertices[i].u = 0.0f;
+            aEdgeVertices[i].v = 0.0f;
+            startsx[i] = 0;
+            startsy[i] = 0;
+        }
+        game_render_quad_world_subdivide_type(
+            pContext->pRenderer, aEdgeVertices, TEXTURE_HANDLE_INVALID,
+            iWireflags, pSurface->iRenderSubdivideType,
+            pSurface->fSubdivideThreshold);
+    }
+}
+#endif
+
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
                                  void *pUserData)
 {
@@ -177,6 +222,20 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
     if (!pSurface || !pContext
             || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
         return;
+
+#if defined(ROLLER_EDITOR_CORE)
+    /*
+     * Overlay filtering keys on the canonical unSurfaceClass the emitter
+     * published (AD-8), never on anything reconstructed at draw time. The
+     * wireframe pass runs after the surface so it draws over its own fill.
+     */
+    if (!roller_ed_overlay_surface_class_visible(pSurface->unSurfaceClass)) {
+        if (roller_ed_overlay_wireframe_class_visible(
+                pSurface->unSurfaceClass))
+            draw_emitted_surface_wireframe(pContext, pSurface);
+        return;
+    }
+#endif
 
     pFrontMaterial = ed_material_table_get(
         pContext->pMaterials, pSurface->uiFrontMaterialId);
@@ -209,6 +268,11 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         pContext->pRenderer, aVertices, hTexture,
         (int)uiRenderFlags, pSurface->iRenderSubdivideType,
         pSurface->fSubdivideThreshold);
+
+#if defined(ROLLER_EDITOR_CORE)
+    if (roller_ed_overlay_wireframe_class_visible(pSurface->unSurfaceClass))
+        draw_emitted_surface_wireframe(pContext, pSurface);
+#endif
 }
 
 static uint32_t editor_surface_texture_count(uint32_t uiTextureSet)

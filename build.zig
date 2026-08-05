@@ -477,6 +477,51 @@ fn configureRenderQueue3DTests(
     );
     editor_geometry_tests.dependOn(&run_editor_geometry.step);
 
+    const editor_overlay_toggle_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_overlay_toggle_mod.sanitize_c = .off;
+    editor_overlay_toggle_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_overlay_toggle_mod.addIncludePath(sdl.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(
+        sdl_image_source.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(
+        libcdio.builder.path("zig-config"));
+    editor_overlay_toggle_mod.addIncludePath(
+        b.path("external/Nuklear-4.13.2"));
+    editor_overlay_toggle_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_overlay_toggle_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_overlay_toggle_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_overlay_toggle_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_overlay_toggle_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_overlay_toggle_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_overlay_toggle_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_overlay_toggle_acceptance.c",
+        },
+    });
+    const editor_overlay_toggle_exe = b.addExecutable(.{
+        .name = "editor_overlay_toggle_acceptance",
+        .root_module = editor_overlay_toggle_mod,
+    });
+    const run_editor_overlay_toggle =
+        b.addRunArtifact(editor_overlay_toggle_exe);
+    run_editor_overlay_toggle.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_overlay_toggle.addDirectoryArg(assets_path);
+    const editor_overlay_toggle_tests = b.step(
+        "test-e3a-s2-overlay-toggles",
+        "Run surface/wireframe overlay toggle acceptance (retail assets)",
+    );
+    editor_overlay_toggle_tests.dependOn(&run_editor_overlay_toggle.step);
+
     const editor_buffers_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

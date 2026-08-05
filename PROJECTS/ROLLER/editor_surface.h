@@ -33,23 +33,9 @@
  */
 #define ED_SURFACE_WORLD_UP_AXIS 2u
 
-typedef enum
-{
-    ROLLER_ED_SURFACE_CLASS_CENTER = 0,
-    ROLLER_ED_SURFACE_CLASS_LEFT_SHOULDER,
-    ROLLER_ED_SURFACE_CLASS_RIGHT_SHOULDER,
-    ROLLER_ED_SURFACE_CLASS_LEFT_WALL,
-    ROLLER_ED_SURFACE_CLASS_RIGHT_WALL,
-    ROLLER_ED_SURFACE_CLASS_ROOF,
-    ROLLER_ED_SURFACE_CLASS_OUTER_WALL_FLOOR,
-    ROLLER_ED_SURFACE_CLASS_LEFT_LOWER_OUTER_WALL,
-    ROLLER_ED_SURFACE_CLASS_RIGHT_LOWER_OUTER_WALL,
-    ROLLER_ED_SURFACE_CLASS_LEFT_UPPER_OUTER_WALL,
-    ROLLER_ED_SURFACE_CLASS_RIGHT_UPPER_OUTER_WALL,
-    ROLLER_ED_SURFACE_CLASS_SIGN,
-    ROLLER_ED_SURFACE_CLASS_BUILDING,
-    ROLLER_ED_SURFACE_CLASS_TOWER
-} eRollerEdSurfaceClass;
+/* eRollerEdSurfaceClass moved to editor_api.h in E3A-S2: the values are
+ * published through tEdPrimitive.unSurfaceClass and index the overlay class
+ * masks, so they belong to the public ABI rather than to the emitter. */
 
 typedef enum
 {
@@ -200,6 +186,18 @@ bool ed_surface_compute_render_uvs(
     bool bHalfResolution,
     int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT],
     int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT]);
+
+/*
+ * Builds one edge of a surface as a thin front-facing ribbon in the surface's
+ * own plane, biased toward the front face so it wins the depth test. uiEdge
+ * selects the edge from vertex uiEdge to vertex (uiEdge + 1) % 4. Returns
+ * false for a degenerate edge, which is drawn as nothing rather than as a
+ * NaN.
+ */
+bool ed_surface_wireframe_edge_quad(
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3]);
 
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
                                    tEdVisitChunkFn pfnVisit,

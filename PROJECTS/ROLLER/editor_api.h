@@ -95,6 +95,32 @@ enum
     ROLLER_ED_CONTENT_RUNTIME_SCENERY = 3u
 };
 
+/*
+ * What a surface looks like, as opposed to what object it belongs to -- see
+ * unContentClass for that. These values are published through
+ * tEdPrimitive.unSurfaceClass and index the overlay class masks, so they are
+ * part of the ABI and only ever grow at the end.
+ */
+typedef uint16_t eRollerEdSurfaceClass;
+enum
+{
+    ROLLER_ED_SURFACE_CLASS_CENTER = 0u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_SHOULDER = 1u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_SHOULDER = 2u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_WALL = 3u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_WALL = 4u,
+    ROLLER_ED_SURFACE_CLASS_ROOF = 5u,
+    ROLLER_ED_SURFACE_CLASS_OUTER_WALL_FLOOR = 6u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_LOWER_OUTER_WALL = 7u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_LOWER_OUTER_WALL = 8u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_UPPER_OUTER_WALL = 9u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_UPPER_OUTER_WALL = 10u,
+    ROLLER_ED_SURFACE_CLASS_SIGN = 11u,
+    ROLLER_ED_SURFACE_CLASS_BUILDING = 12u,
+    ROLLER_ED_SURFACE_CLASS_TOWER = 13u,
+    ROLLER_ED_SURFACE_CLASS_COUNT = 14u
+};
+
 typedef uint32_t eRollerEdMaterialKind;
 enum
 {
@@ -156,6 +182,17 @@ enum
     ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH = 1u << 9
 };
 
+/*
+ * Overlay class masks. SHOW_SURFACES and SHOW_WIREFRAME are master switches;
+ * each mask then selects which surface classes that switch applies to, one bit
+ * per eRollerEdSurfaceClass value. A class is drawn only when both agree, so
+ * the host can blank the view without losing its per-class choices.
+ */
+#define ROLLER_ED_OVERLAY_CLASS_BIT(surface_class) \
+    (1u << (uint32_t)(surface_class))
+#define ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES \
+    ((1u << (uint32_t)ROLLER_ED_SURFACE_CLASS_COUNT) - 1u)
+
 enum
 {
     ROLLER_ED_REFERENCE_HAS_NORMALS = 1u << 0,
@@ -163,12 +200,18 @@ enum
     ROLLER_ED_REFERENCE_TWO_SIDED = 1u << 2
 };
 
-#define ROLLER_ED_BOOTSTRAP_INFO_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_INIT_INFO_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_CAMERA_STATE_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_OVERLAY_STATE_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_REFERENCE_MESH_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_GEOMETRY_SIZES_VERSION ROLLER_ED_API_VERSION
+/*
+ * Per-struct versions (AD-12). These start equal to the API version but are
+ * deliberately independent of it: a struct that gains a field bumps its own
+ * version, and every other call keeps working unchanged. tEdOverlayState is
+ * at 2 because E3A-S2 added the per-class masks.
+ */
+#define ROLLER_ED_BOOTSTRAP_INFO_VERSION 1u
+#define ROLLER_ED_INIT_INFO_VERSION 1u
+#define ROLLER_ED_CAMERA_STATE_VERSION 1u
+#define ROLLER_ED_OVERLAY_STATE_VERSION 2u
+#define ROLLER_ED_REFERENCE_MESH_VERSION 1u
+#define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
 
 #if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
 #  pragma pack(push, 8)
@@ -206,6 +249,10 @@ typedef struct
     uint32_t uiFlags; /* OR of ROLLER_ED_OVERLAY_* flags. */
     uint32_t uiFirstSelectedChunk;
     uint32_t uiLastSelectedChunk;
+    /* v2. One bit per eRollerEdSurfaceClass; gated by SHOW_SURFACES and
+     * SHOW_WIREFRAME respectively. */
+    uint32_t uiSurfaceClassMask;
+    uint32_t uiWireframeClassMask;
 } tEdOverlayState;
 
 typedef struct
@@ -316,13 +363,19 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPosition) == 8u,
                         "camera position offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPitchDegrees) == 24u,
                         "camera pitch offset");
-ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 20u, "overlay size");
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 28u, "overlay size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdOverlayState) == 4u,
                         "overlay alignment");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiFlags) == 8u,
                         "overlay mask offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiLastSelectedChunk) == 16u,
                         "overlay selection offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiSurfaceClassMask) == 20u,
+                        "overlay surface class mask offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiWireframeClassMask) == 24u,
+                        "overlay wireframe class mask offset");
+ROLLER_ED_STATIC_ASSERT(ROLLER_ED_SURFACE_CLASS_COUNT <= 32u,
+                        "surface classes must fit an overlay class mask");
 ROLLER_ED_STATIC_ASSERT(sizeof(tEdReferenceVertex) == 32u, "reference vertex size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdReferenceVertex) == 4u,
                         "reference vertex alignment");

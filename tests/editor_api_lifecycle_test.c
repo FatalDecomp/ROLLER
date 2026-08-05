@@ -346,10 +346,14 @@ static int SDLCALL lifecycle_worker(void *pUserData)
             .uiStructSize = sizeof(Overlay),
             .uiVersion = ROLLER_ED_OVERLAY_STATE_VERSION,
             .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+                | ROLLER_ED_OVERLAY_SHOW_WIREFRAME
                 | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION
                 | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
             .uiFirstSelectedChunk = 31u,
-            .uiLastSelectedChunk = 12u
+            .uiLastSelectedChunk = 12u,
+            .uiSurfaceClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
+            .uiWireframeClassMask =
+                ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_ROOF)
         };
         tEdOverlayState InvalidOverlay = Overlay;
 
@@ -371,6 +375,29 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         InvalidOverlay.uiVersion++;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
                      == ROLLER_ED_RESULT_INVALID_VERSION);
+        /* E3A-S2 bumped only this struct's version. A host still sending the
+         * v1 overlay state has no class masks, so it is refused rather than
+         * silently given whatever its shorter allocation happened to hold. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiVersion = 1u;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        /* Every other struct kept version 1 through that bump. */
+        CHECK_WORKER(ROLLER_ED_CAMERA_STATE_VERSION == 1u);
+        CHECK_WORKER(ROLLER_ED_GEOMETRY_SIZES_VERSION == 1u);
+        CHECK_WORKER(ROLLER_ED_OVERLAY_STATE_VERSION == 2u);
+        /* A class mask past the last defined surface class is refused whole,
+         * exactly like an undefined flag bit. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiSurfaceClassMask =
+            ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_COUNT);
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiWireframeClassMask = 0xffffffffu;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "class") != NULL);
         InvalidOverlay = Overlay;
         InvalidOverlay.uiStructSize = sizeof(InvalidOverlay) - 1u;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
@@ -472,7 +499,11 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                 .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
                     | ROLLER_ED_OVERLAY_SHOW_WIREFRAME,
                 .uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID,
-                .uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID
+                .uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID,
+                .uiSurfaceClassMask =
+                    ROLLER_ED_OVERLAY_CLASS_BIT(
+                        ROLLER_ED_SURFACE_CLASS_CENTER),
+                .uiWireframeClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES
             };
 
             CHECK_WORKER(RollerEd_SetOverlayState(&Overlay)

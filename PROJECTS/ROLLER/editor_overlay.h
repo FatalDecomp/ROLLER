@@ -36,11 +36,15 @@
      | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH)
 
 /*
- * The default reproduces the E1-S6 track-only view exactly: surfaces are drawn
- * and nothing else is, so a host that never calls RollerEd_SetOverlayState
- * keeps the frame it had before this story existed.
+ * The defaults reproduce the E1-S6 track-only view exactly: every surface
+ * class is drawn solid, nothing is drawn as wireframe, and no other overlay is
+ * active -- so a host that never calls RollerEd_SetOverlayState keeps the
+ * frame it had before this story existed.
  */
 #define ROLLER_ED_OVERLAY_DEFAULT_FLAGS ROLLER_ED_OVERLAY_SHOW_SURFACES
+#define ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK \
+    ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES
+#define ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK 0u
 
 void roller_ed_overlay_reset(void);
 void roller_ed_overlay_set(const tEdOverlayState *pState);
@@ -62,5 +66,15 @@ bool roller_ed_overlay_enabled(uint32_t uiFlag);
  */
 bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
                                        uint32_t *puiLastChunk);
+
+/*
+ * E3A-S2. Both queries are the master flag AND the class's mask bit, so a host
+ * can blank the whole view without losing its per-class choices. A class value
+ * at or beyond ROLLER_ED_SURFACE_CLASS_COUNT is never drawn either way: the
+ * emitter refuses those identities, so seeing one here means something already
+ * went wrong upstream.
+ */
+bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass);
+bool roller_ed_overlay_wireframe_class_visible(uint16_t unSurfaceClass);
 
 #endif

@@ -376,6 +376,98 @@ bool ed_surface_compute_render_uvs(
     return true;
 }
 
+/*
+ * E3A-S2 wireframe. The renderer has no line primitive -- world-space quads
+ * are the only geometry it accepts (game_render.h) -- so an edge is drawn as a
+ * thin ribbon lying in the surface's own plane, nudged toward the front face
+ * so it wins the depth test against the surface it outlines.
+ *
+ * The ribbon width is a fraction of the quad's longest edge rather than an
+ * absolute distance, because legacy track units span four orders of magnitude
+ * between a sign panel and an outer wall; one constant width would be
+ * invisible on one and a slab on the other. It is therefore thicker in world
+ * space on a big quad, which is what keeps it a roughly constant thickness on
+ * screen for the surface it belongs to.
+ */
+#define ED_WIREFRAME_WIDTH_RATIO 0.012f
+/* Enough to clear coplanar depth without visibly floating off the surface. */
+#define ED_WIREFRAME_DEPTH_BIAS_RATIO 0.5f
+
+static void ed_subtract3(const float afLeft[3],
+                         const float afRight[3],
+                         float afOut[3])
+{
+    afOut[0] = afLeft[0] - afRight[0];
+    afOut[1] = afLeft[1] - afRight[1];
+    afOut[2] = afLeft[2] - afRight[2];
+}
+
+bool ed_surface_wireframe_edge_quad(
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3])
+{
+    const float *pfStart;
+    const float *pfEnd;
+    float afDirection[3];
+    float afSideways[3];
+    float afWidth[3];
+    float afBias[3];
+    float fWidth;
+    double dLongestEdge = 0.0;
+
+    if (!pSurface || !afEdgeQuad || uiEdge >= ED_SURFACE_VERTEX_COUNT
+            || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+        return false;
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        float afEdge[3];
+        double dLength;
+
+        ed_subtract3(pSurface->aVertices[(i + 1u) % ED_SURFACE_VERTEX_COUNT]
+                         .fPosition,
+                     pSurface->aVertices[i].fPosition, afEdge);
+        dLength = ed_length3(afEdge);
+        if (dLength > dLongestEdge)
+            dLongestEdge = dLength;
+    }
+    if (!(dLongestEdge > 0.0))
+        return false;
+
+    pfStart = pSurface->aVertices[uiEdge].fPosition;
+    pfEnd = pSurface->aVertices[(uiEdge + 1u) % ED_SURFACE_VERTEX_COUNT]
+                .fPosition;
+    ed_subtract3(pfEnd, pfStart, afDirection);
+    if (!ed_normalize(afDirection))
+        return false;
+
+    /* In-plane perpendicular: normal x direction. A pinched corner can leave
+     * an edge parallel to the quad normal, which has no ribbon to draw. */
+    ed_cross(pSurface->fNormal, afDirection, afSideways);
+    if (!ed_normalize(afSideways))
+        return false;
+
+    fWidth = (float)(dLongestEdge * ED_WIREFRAME_WIDTH_RATIO);
+    for (uint32_t i = 0; i < 3u; i++) {
+        afWidth[i] = afSideways[i] * fWidth;
+        afBias[i] = pSurface->fNormal[i] * fWidth
+            * ED_WIREFRAME_DEPTH_BIAS_RATIO;
+    }
+
+    /*
+     * v0..v3 wound so the right-hand-rule normal matches the surface normal --
+     * the same front face E4A-S4 recorded, so the renderer's facing test keeps
+     * the ribbon visible from exactly the side the surface is visible from.
+     */
+    for (uint32_t i = 0; i < 3u; i++) {
+        afEdgeQuad[0][i] = pfStart[i] - afWidth[i] + afBias[i];
+        afEdgeQuad[1][i] = pfEnd[i] - afWidth[i] + afBias[i];
+        afEdgeQuad[2][i] = pfEnd[i] + afWidth[i] + afBias[i];
+        afEdgeQuad[3][i] = pfStart[i] + afWidth[i] + afBias[i];
+    }
+    return true;
+}
+
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
                                    tEdVisitChunkFn pfnVisit,
                                    void *pUserData)

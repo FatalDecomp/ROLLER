@@ -17,9 +17,11 @@ static int check(int bCondition, int iLine)
             return iResult; \
     } while (0)
 
-static tEdOverlayState make_state(uint32_t uiFlags,
-                                  uint32_t uiFirstChunk,
-                                  uint32_t uiLastChunk)
+static tEdOverlayState make_masked_state(uint32_t uiFlags,
+                                         uint32_t uiFirstChunk,
+                                         uint32_t uiLastChunk,
+                                         uint32_t uiSurfaceClassMask,
+                                         uint32_t uiWireframeClassMask)
 {
     tEdOverlayState State;
 
@@ -29,7 +31,21 @@ static tEdOverlayState make_state(uint32_t uiFlags,
     State.uiFlags = uiFlags;
     State.uiFirstSelectedChunk = uiFirstChunk;
     State.uiLastSelectedChunk = uiLastChunk;
+    State.uiSurfaceClassMask = uiSurfaceClassMask;
+    State.uiWireframeClassMask = uiWireframeClassMask;
     return State;
+}
+
+/* Class masks at their defaults, so the flag and selection cases below stay
+ * about flags and selection. */
+static tEdOverlayState make_state(uint32_t uiFlags,
+                                  uint32_t uiFirstChunk,
+                                  uint32_t uiLastChunk)
+{
+    return make_masked_state(
+        uiFlags, uiFirstChunk, uiLastChunk,
+        ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK,
+        ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK);
 }
 
 int main(void)
@@ -62,8 +78,16 @@ int main(void)
         CHECK((uiKnownFlags & (1u << 10)) == 0u);
     }
 
-    /* Defaults reproduce the E1-S6 track-only view. */
+    /* Defaults reproduce the E1-S6 track-only view: every class solid, no
+     * wireframe anywhere. */
     roller_ed_overlay_reset();
+    for (uint32_t uiClass = 0u; uiClass < ROLLER_ED_SURFACE_CLASS_COUNT;
+         uiClass++) {
+        CHECK(roller_ed_overlay_surface_class_visible((uint16_t)uiClass));
+        CHECK(!roller_ed_overlay_wireframe_class_visible((uint16_t)uiClass));
+    }
+    CHECK(!roller_ed_overlay_surface_class_visible(
+              (uint16_t)ROLLER_ED_SURFACE_CLASS_COUNT));
     CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_DEFAULT_FLAGS);
     CHECK(roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_SURFACES));
     CHECK(!roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_WIREFRAME));
@@ -179,17 +203,101 @@ int main(void)
         CHECK(!roller_ed_overlay_enabled(0u));
     }
 
+    /* E3A-S2: per-class surface and wireframe selection, keyed on the
+     * canonical surface class. */
+    {
+        const uint32_t uiSurfaceOnly =
+            ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_CENTER)
+            | ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_ROOF);
+        const uint32_t uiWireOnly =
+            ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_ROOF)
+            | ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_TOWER);
+        tEdOverlayState Masked = make_masked_state(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | ROLLER_ED_OVERLAY_SHOW_WIREFRAME,
+            0u, 0u, uiSurfaceOnly, uiWireOnly);
+
+        roller_ed_overlay_set(&Masked);
+        for (uint32_t uiClass = 0u; uiClass < ROLLER_ED_SURFACE_CLASS_COUNT;
+             uiClass++) {
+            uint32_t uiBit = ROLLER_ED_OVERLAY_CLASS_BIT(uiClass);
+
+            CHECK(roller_ed_overlay_surface_class_visible((uint16_t)uiClass)
+                  == ((uiSurfaceOnly & uiBit) != 0u));
+            CHECK(roller_ed_overlay_wireframe_class_visible((uint16_t)uiClass)
+                  == ((uiWireOnly & uiBit) != 0u));
+        }
+        /* The two are independent: ROOF is both, CENTER is surface only,
+         * TOWER is wireframe only, and a wall is neither. */
+        CHECK(roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_ROOF));
+        CHECK(roller_ed_overlay_wireframe_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_ROOF));
+        CHECK(!roller_ed_overlay_wireframe_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_CENTER));
+        CHECK(roller_ed_overlay_wireframe_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_TOWER));
+        CHECK(!roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_TOWER));
+        CHECK(!roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_LEFT_WALL));
+        CHECK(!roller_ed_overlay_wireframe_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_LEFT_WALL));
+        roller_ed_overlay_get(&State);
+        CHECK(State.uiSurfaceClassMask == uiSurfaceOnly);
+        CHECK(State.uiWireframeClassMask == uiWireOnly);
+    }
+
+    /* The master switch blanks the view without losing the per-class choice,
+     * which is what lets the editor restore the checkboxes on re-enable. */
+    {
+        const uint32_t uiAll = (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES;
+        tEdOverlayState NoMasters = make_masked_state(0u, 0u, 0u, uiAll, uiAll);
+
+        roller_ed_overlay_set(&NoMasters);
+        for (uint32_t uiClass = 0u; uiClass < ROLLER_ED_SURFACE_CLASS_COUNT;
+             uiClass++) {
+            CHECK(!roller_ed_overlay_surface_class_visible((uint16_t)uiClass));
+            CHECK(!roller_ed_overlay_wireframe_class_visible(
+                      (uint16_t)uiClass));
+        }
+        roller_ed_overlay_get(&State);
+        CHECK(State.uiSurfaceClassMask == uiAll);
+        CHECK(State.uiWireframeClassMask == uiAll);
+    }
+
+    /* Bits past the last class are dropped rather than stored, matching the
+     * flag rule; the facade refuses them outright before this point. */
+    {
+        tEdOverlayState Beyond = make_masked_state(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES, 0u, 0u, 0xffffffffu, 0xffffffffu);
+
+        roller_ed_overlay_set(&Beyond);
+        roller_ed_overlay_get(&State);
+        CHECK(State.uiSurfaceClassMask
+              == (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES);
+        CHECK(State.uiWireframeClassMask
+              == (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES);
+        CHECK(!roller_ed_overlay_surface_class_visible(
+                  (uint16_t)ROLLER_ED_SURFACE_CLASS_COUNT));
+        CHECK(!roller_ed_overlay_surface_class_visible(0xffffu));
+    }
+
     /* NULL is ignored rather than clearing state. */
     roller_ed_overlay_set(NULL);
-    CHECK(roller_ed_overlay_flags()
-          == (ROLLER_ED_OVERLAY_SHOW_SURFACES
-              | ROLLER_ED_OVERLAY_SHOW_TEST_CAR));
+    CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);
+    roller_ed_overlay_get(&State);
+    CHECK(State.uiSurfaceClassMask
+          == (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES);
     roller_ed_overlay_get(NULL);
 
     /* Worker shutdown returns the defaults. */
     roller_ed_overlay_reset();
     CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_DEFAULT_FLAGS);
     CHECK(!roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk));
+    CHECK(roller_ed_overlay_surface_class_visible(
+              ROLLER_ED_SURFACE_CLASS_CENTER));
+    CHECK(!roller_ed_overlay_wireframe_class_visible(
+              ROLLER_ED_SURFACE_CLASS_CENTER));
 
     puts("editor overlay state round-trip and selection tests passed");
     return 0;

@@ -7,6 +7,20 @@ ROOT = Path(__file__).resolve().parents[1]
 ROLLER = ROOT / "PROJECTS" / "ROLLER"
 
 
+def function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"unterminated function: {signature}")
+
+
 class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
     def test_neutral_callback_carries_complete_surface_state(self):
         header = (ROLLER / "editor_surface.h").read_text(encoding="utf-8")
@@ -57,7 +71,24 @@ class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
             draw.count("emit_track_chunk_surface_to_renderer("), 12
         )
         self.assertEqual(draw.count("ed_emit_surface("), 1)
-        self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 1)
+
+        # A surface becomes a draw in exactly one place. E3A-S2 added a second
+        # call site, but it is the editor-only wireframe pass drawing ribbons
+        # derived from an emission that already went through the consumer --
+        # not a producer reaching the renderer on its own.
+        self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 2)
+        self.assertEqual(
+            function_body(
+                draw, "static void draw_emitted_surface(const tEdSurfaceEmission"
+            ).count("game_render_quad_world_subdivide_type("),
+            1,
+        )
+        wireframe = function_body(draw, "static void draw_emitted_surface_wireframe(")
+        self.assertEqual(
+            wireframe.count("game_render_quad_world_subdivide_type("), 1
+        )
+        self.assertIn("ed_surface_wireframe_edge_quad(pSurface,", wireframe)
+
         self.assertEqual(building.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertEqual(tower.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertNotIn("game_render_quad_world_subdivide_type(", building)
