@@ -39,7 +39,26 @@ files from there, same as a normal `zig build run`.
 zig build test-snapshots
 ```
 
-On the canonical host (Apple Silicon macOS at the time of writing) this:
+### Runtime-driven replay snapshots
+
+```bash
+zig build test-runtime-snapshots
+```
+
+This runs the replay snapshot list through `RollerRuntime` using the same
+VCS-managed PNG baselines as `zig build test-snapshots`. Replay file loading
+remains part of the existing snapshot/replay setup; runtime owns fixed stepping
+only. This is a parallel migration gate: the legacy snapshot harness remains
+authoritative while the runtime-driven replay path proves it can reproduce the
+same pixels.
+
+`test-runtime-snapshots` currently covers replay entries from
+`build.zig`'s `snapshot_replays` table. Named scene snapshots remain covered by
+`test-snapshots` until scene rendering is wired to an explicit runtime-state
+view.
+
+On the canonical host (Apple Silicon macOS at the time of writing),
+`zig build test-snapshots`:
 
 1. Builds the `roller` binary if needed.
 2. Runs `roller --snapshot introN.gss --frames ... --out
@@ -47,6 +66,9 @@ On the canonical host (Apple Silicon macOS at the time of writing) this:
    runs `roller --snapshot-scene NAME --frames ... --out
    tests/snapshots/baselines/` once per named scene.
 3. Runs `git diff --exit-code --stat -- tests/snapshots/baselines/`.
+
+`zig build test-runtime-snapshots` follows the same baseline/diff flow for
+replay entries only, adding `--runtime-snapshot` to each replay capture.
 
 If the captures match HEAD, exit 0. If anything diverged, the build
 fails and `git status` shows you what changed.
@@ -104,6 +126,7 @@ tracked separately in a future ADR.
 | (none) | Run captures into `tests/snapshots/baselines/`, then `git diff --exit-code` against HEAD. Fail on divergence. |
 | `-Dscratch` | Run captures into `zig-out/snapshot-scratch/` and skip the diff check. Working tree stays clean. |
 | `-Dassets-path=PATH` | Use `PATH` instead of `./fatdata` as the data root. |
+| `test-runtime-snapshots` | Build step that drives replay snapshots through `RollerRuntime` and compares against the same checked-in baselines. |
 
 The list of replays and which frames are captured per replay live in
 `build.zig`'s `snapshot_replays` table.
