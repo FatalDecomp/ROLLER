@@ -435,6 +435,47 @@ fn configureRenderQueue3DTests(
     );
     editor_visibility_tests.dependOn(&run_editor_track_only.step);
 
+    const editor_geometry_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_geometry_mod.sanitize_c = .off;
+    editor_geometry_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_geometry_mod.addIncludePath(sdl.builder.path("include"));
+    editor_geometry_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_geometry_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_geometry_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_geometry_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_geometry_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_geometry_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_geometry_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_geometry_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_geometry_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_geometry_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_geometry_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_geometry_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_geometry_conventions_acceptance.c",
+        },
+    });
+    const editor_geometry_exe = b.addExecutable(.{
+        .name = "editor_geometry_conventions_acceptance",
+        .root_module = editor_geometry_mod,
+    });
+    const run_editor_geometry = b.addRunArtifact(editor_geometry_exe);
+    run_editor_geometry.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_geometry.addDirectoryArg(assets_path);
+    const editor_geometry_tests = b.step(
+        "test-e4a-s4-geometry-conventions",
+        "Run full-track normal/winding convention acceptance (retail assets)",
+    );
+    editor_geometry_tests.dependOn(&run_editor_geometry.step);
+
     const editor_software_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

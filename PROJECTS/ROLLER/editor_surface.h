@@ -9,6 +9,30 @@
 #define ED_SURFACE_VERTEX_COUNT 4u
 #define ED_MATERIAL_ID_NONE ROLLER_ED_INVALID_MATERIAL_ID
 
+/*
+ * Canonical geometry conventions (E4A-S4). The authoritative prose lives in
+ * docs/adr/0003-canonical-geometry-conventions.md; this is the summary the
+ * emitter implements and tests/editor_surface_test.c asserts.
+ *
+ * Coordinate system: legacy ROLLER world space, unchanged. Axes satisfy the
+ *   algebraic right-hand rule (X cross Y == Z) and world +Z is up. A heading
+ *   of zero looks along world +X, and increasing heading rotates toward +Y.
+ *   View space is left-handed (x right, y up, z into the screen); the emitter
+ *   never enters view space.
+ * Scale: none. World positions pass through verbatim from TrakPt/GroundPt in
+ *   legacy track units. Unit conversion belongs to exporters, not here.
+ * Winding: the producer's vertex order v0..v3 is preserved exactly. Its
+ *   right-hand-rule normal is the front face -- the same side the renderer's
+ *   facing test calls front-facing, and the side uiFrontMaterialId describes.
+ * Normals: generated here, because the render vertex carries position and UV
+ *   only. fNormal on the emission is the whole-quad (Newell) normal; each
+ *   vertex also carries its own adjacent-edge normal so twisted quads stay
+ *   correct. All are unit length, or exactly zero for degenerate geometry.
+ * UV origin: top-left. v0/v1 sit on V=0 and v2/v3 on V=1; U runs left to
+ *   right across the tile, or across both tiles of a pair.
+ */
+#define ED_SURFACE_WORLD_UP_AXIS 2u
+
 typedef enum
 {
     ROLLER_ED_SURFACE_CLASS_CENTER = 0,
@@ -51,6 +75,7 @@ enum
 typedef struct
 {
     float fPosition[3];
+    float fNormal[3];
     int32_t iRenderU16_16;
     int32_t iRenderV16_16;
     float fMaterialUV[2];
@@ -85,6 +110,8 @@ typedef struct
 typedef struct
 {
     tEdSurfaceVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+    /* Whole-quad front-face normal; unit length, or zero when degenerate. */
+    float fNormal[3];
     uint32_t uiVertexCount;
     uint32_t uiFrontMaterialId;
     uint32_t uiBackMaterialId;
@@ -162,6 +189,11 @@ bool ed_surface_selection_matches(const tEdSurfaceSelection *pSelection,
 uint32_t ed_surface_selection_render_flags(
     const tEdSurfaceSelection *pSelection,
     const tEdSurfaceEmission *pSurface);
+
+bool ed_surface_compute_normals(
+    const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
+    float afSurfaceNormal[3],
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3]);
 
 bool ed_surface_compute_render_uvs(
     uint8_t byRenderUVLayout,

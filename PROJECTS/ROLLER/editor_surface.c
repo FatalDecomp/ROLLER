@@ -2,6 +2,7 @@
 
 #include "types.h"
 
+#include <math.h>
 #include <string.h>
 
 static bool ed_material_equal(const tEdMaterial *pLeft,
@@ -234,6 +235,112 @@ uint32_t ed_surface_selection_render_flags(
         | pSelection->byHighlightColour;
 }
 
+static void ed_cross(const float afLeft[3],
+                     const float afRight[3],
+                     float afOut[3])
+{
+    afOut[0] = afLeft[1] * afRight[2] - afLeft[2] * afRight[1];
+    afOut[1] = afLeft[2] * afRight[0] - afLeft[0] * afRight[2];
+    afOut[2] = afLeft[0] * afRight[1] - afLeft[1] * afRight[0];
+}
+
+/*
+ * Both magnitudes below are twice an area: a corner's cross product measures
+ * its own triangle, Newell's measures the whole quad. On a healthy quad the
+ * ratio sits near one half. A pinched corner -- TRACK3 chunk 124's right
+ * shoulder collapses to a sub-unit edge at coordinates near 90000 -- drops to
+ * roughly 0.0015, and the sliver triangle it does describe is near
+ * perpendicular to the quad, so it is worthless as a shading normal. This
+ * threshold sits an order of magnitude either side of both cases.
+ */
+#define ED_NORMAL_DEGENERATE_RATIO (1.0 / 64.0)
+
+static double ed_length3(const float afVector[3])
+{
+    return sqrt((double)afVector[0] * afVector[0]
+              + (double)afVector[1] * afVector[1]
+              + (double)afVector[2] * afVector[2]);
+}
+
+/* Returns false and zeroes the vector when the input is degenerate, so a
+ * collapsed quad publishes an obviously absent normal rather than a NaN. */
+static bool ed_normalize(float afVector[3])
+{
+    double dLength = ed_length3(afVector);
+
+    if (!(dLength > 0.0)) {
+        afVector[0] = 0.0f;
+        afVector[1] = 0.0f;
+        afVector[2] = 0.0f;
+        return false;
+    }
+    afVector[0] = (float)((double)afVector[0] / dLength);
+    afVector[1] = (float)((double)afVector[1] / dLength);
+    afVector[2] = (float)((double)afVector[2] / dLength);
+    return true;
+}
+
+/*
+ * The surface normal uses Newell's method over all four corners, so a twisted
+ * quad is not reduced to a normal taken from three of them. Each vertex also
+ * gets its own adjacent-edge normal, which equals the surface normal on a flat
+ * quad and follows the local slope on a corkscrew. Both follow the right-hand
+ * rule for the producer's v0..v3 order, which is the renderer's front face.
+ */
+bool ed_surface_compute_normals(
+    const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
+    float afSurfaceNormal[3],
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3])
+{
+    float afNewell[3] = { 0.0f, 0.0f, 0.0f };
+    double dNewellLength;
+    bool bSurfaceValid;
+
+    if (!afWorldVertices || !afSurfaceNormal)
+        return false;
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        const float *pfCurrent = afWorldVertices[i];
+        const float *pfNext =
+            afWorldVertices[(i + 1u) % ED_SURFACE_VERTEX_COUNT];
+        afNewell[0] += (pfCurrent[1] - pfNext[1]) * (pfCurrent[2] + pfNext[2]);
+        afNewell[1] += (pfCurrent[2] - pfNext[2]) * (pfCurrent[0] + pfNext[0]);
+        afNewell[2] += (pfCurrent[0] - pfNext[0]) * (pfCurrent[1] + pfNext[1]);
+    }
+    dNewellLength = ed_length3(afNewell);
+    memcpy(afSurfaceNormal, afNewell, sizeof(afNewell));
+    bSurfaceValid = ed_normalize(afSurfaceNormal);
+
+    if (afVertexNormals) {
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            const float *pfCurrent = afWorldVertices[i];
+            const float *pfNext =
+                afWorldVertices[(i + 1u) % ED_SURFACE_VERTEX_COUNT];
+            const float *pfPrev =
+                afWorldVertices[(i + ED_SURFACE_VERTEX_COUNT - 1u)
+                                % ED_SURFACE_VERTEX_COUNT];
+            float afToNext[3];
+            float afToPrev[3];
+
+            for (uint32_t iAxis = 0; iAxis < 3; iAxis++) {
+                afToNext[iAxis] = pfNext[iAxis] - pfCurrent[iAxis];
+                afToPrev[iAxis] = pfPrev[iAxis] - pfCurrent[iAxis];
+            }
+            ed_cross(afToNext, afToPrev, afVertexNormals[i]);
+            /* A collinear, duplicated, or pinched corner has no local normal
+             * of its own; the whole-quad normal is the only meaningful
+             * answer. Judged against the quad's own size, because absolute
+             * magnitudes here scale with the track's world coordinates. */
+            if (ed_length3(afVertexNormals[i])
+                    <= dNewellLength * ED_NORMAL_DEGENERATE_RATIO
+                    || !ed_normalize(afVertexNormals[i]))
+                memcpy(afVertexNormals[i], afSurfaceNormal,
+                       sizeof(afVertexNormals[i]));
+        }
+    }
+    return bSurfaceValid;
+}
+
 bool ed_surface_compute_render_uvs(
     uint8_t byRenderUVLayout,
     bool bHalfResolution,
@@ -301,6 +408,7 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
     bool bPairTexture;
     int32_t aiRenderU16_16[ED_SURFACE_VERTEX_COUNT];
     int32_t aiRenderV16_16[ED_SURFACE_VERTEX_COUNT];
+    float afVertexNormals[ED_SURFACE_VERTEX_COUNT][3];
 
     if (!afWorldVertices || !pInfo || !pMaterials || !pfnEmit
             || !ed_surface_identity_valid(pInfo))
@@ -356,7 +464,15 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
     if (pInfo->uiRenderFlags
             & (SURFACE_FLAG_TRANSPARENT | SURFACE_FLAG_PARTIAL_TRANS))
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_ALPHA;
-    if (pInfo->uiRenderFlags & SURFACE_FLAG_FLIP_BACKFACE)
+    /* Both legacy flags mean the renderer will not cull this surface by
+     * facing: FLIP_BACKFACE draws the reverse side, and CONCAVE bypasses the
+     * facing test outright (drawtrk3.c:3001 and its three siblings). The
+     * outer-wall sections that carry CONCAVE are not consistently wound in
+     * the source data, which is exactly why the renderer stopped trusting
+     * their winding -- so an exporter must treat them as two-sided rather
+     * than reading a front face off the normal. */
+    if (pInfo->uiRenderFlags
+            & (SURFACE_FLAG_FLIP_BACKFACE | SURFACE_FLAG_CONCAVE))
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_TWO_SIDED;
     if (pInfo->uiRenderFlags & SURFACE_FLAG_APPLY_TEXTURE)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_TEXTURED;
@@ -365,9 +481,16 @@ bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
     if (pInfo->bHighVariant)
         Surface.unFlags |= ROLLER_ED_SURFACE_FLAG_HIGH_VARIANT;
 
+    /* Positions pass through unscaled and in the producer's winding, so the
+     * generated normals describe the same front face the renderer draws. */
+    ed_surface_compute_normals(
+        afWorldVertices, Surface.fNormal, afVertexNormals);
+
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         memcpy(Surface.aVertices[i].fPosition, afWorldVertices[i],
                sizeof(Surface.aVertices[i].fPosition));
+        memcpy(Surface.aVertices[i].fNormal, afVertexNormals[i],
+               sizeof(Surface.aVertices[i].fNormal));
         Surface.aVertices[i].iRenderU16_16 = aiRenderU16_16[i];
         Surface.aVertices[i].iRenderV16_16 = aiRenderV16_16[i];
         Surface.aVertices[i].fMaterialUV[0] =
