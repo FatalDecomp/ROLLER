@@ -78,6 +78,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/editor_camera.c",
             "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_legacy_scene.c",
+            "PROJECTS/ROLLER/editor_overlay.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -729,7 +730,7 @@ fn configureRenderQueue3DTests(
 
     const editor_api_tests = b.step(
         "test-editor-api",
-        "Run facade lifecycle, camera, error-boundary, and ABI tests",
+        "Run facade lifecycle, camera, overlay, error-boundary, and ABI tests",
     );
     editor_api_tests.dependOn(&run_editor_api.step);
     editor_api_tests.dependOn(&run_editor_api_cpp.step);
@@ -755,6 +756,27 @@ fn configureRenderQueue3DTests(
     });
     const run_editor_camera = b.addRunArtifact(editor_camera_exe);
     editor_api_tests.dependOn(&run_editor_camera.step);
+
+    const editor_overlay_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_overlay_mod.addIncludePath(sdl.builder.path("include"));
+    editor_overlay_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_overlay_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_overlay.c",
+            "tests/editor_overlay_test.c",
+        },
+    });
+    const editor_overlay_exe = b.addExecutable(.{
+        .name = "editor_overlay_test",
+        .root_module = editor_overlay_mod,
+    });
+    const run_editor_overlay = b.addRunArtifact(editor_overlay_exe);
+    editor_api_tests.dependOn(&run_editor_overlay.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{

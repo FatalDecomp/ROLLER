@@ -4,6 +4,7 @@
 #include "car.h"
 #include "drawtrk3.h"
 #include "editor_camera.h"
+#include "editor_overlay.h"
 #include "editor_surface.h"
 #include "game_render.h"
 #include "loadtrak.h"
@@ -261,6 +262,26 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     roller_ed_camera_set(pCamera);
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
+/*
+ * Overlay state reaches the renderer the same way the camera does, and like
+ * the camera it touches no loaded geometry: nothing here advances the geometry
+ * epoch or the track generation (AD-7d).
+ */
+eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
+    const tEdOverlayState *pState,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pState) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "editor overlay state is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    roller_ed_overlay_set(pState);
     editor_scene_set_error(szError, uiErrorCapacity, "");
     return ROLLER_ED_RESULT_OK;
 }
@@ -582,6 +603,7 @@ void roller_ed_legacy_scene_unload(void)
 void roller_ed_legacy_scene_shutdown(void)
 {
     roller_ed_camera_reset();
+    roller_ed_overlay_reset();
     if (g_pGameRenderer) {
         game_render_destroy(g_pGameRenderer);
         g_pGameRenderer = NULL;

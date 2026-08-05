@@ -25,12 +25,14 @@ static int s_iThreadAssertionCount;
 static int s_iLegacyInstallCount;
 static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
+static int s_iLegacySetOverlayCount;
 static eRollerEdRenderer s_eLastPreferredRenderer;
 static uint32_t s_uiLastAllowSoftwareFallback;
 static uint32_t s_uiStubAvailableRenderers =
     ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU;
 static eRollerEdRenderer s_eStubActiveRenderer;
 static tEdCameraState s_LastLegacyCamera;
+static tEdOverlayState s_LastLegacyOverlay;
 static uint32_t s_uiStubQuadCount;
 static int s_iStubExtractCount;
 
@@ -90,6 +92,22 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
     }
     s_LastLegacyCamera = *pCamera;
     s_iLegacySetCameraCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
+    const tEdOverlayState *pState,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pState) {
+        snprintf(szError, uiErrorCapacity, "overlay state is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyOverlay = *pState;
+    s_iLegacySetOverlayCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -321,6 +339,54 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(s_iLegacySetCameraCount == 1);
     }
     {
+        /* E3A-S1: overlay state is settable before any scene exists, exactly
+         * like the camera, and a reversed selection range reaches the core
+         * verbatim rather than being normalized at the boundary. */
+        tEdOverlayState Overlay = {
+            .uiStructSize = sizeof(Overlay),
+            .uiVersion = ROLLER_ED_OVERLAY_STATE_VERSION,
+            .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+                | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION
+                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
+            .uiFirstSelectedChunk = 31u,
+            .uiLastSelectedChunk = 12u
+        };
+        tEdOverlayState InvalidOverlay = Overlay;
+
+        CHECK_WORKER(RollerEd_SetOverlayState(&Overlay)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetOverlayCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
+                     == 0);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiGeometryEpoch == uiInitialEpoch);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiInitialGeneration);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
+
+        CHECK_WORKER(RollerEd_SetOverlayState(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidOverlay.uiVersion++;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiStructSize = sizeof(InvalidOverlay) - 1u;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        /* A bit this API version does not define is refused whole rather than
+         * quietly dropped, so the host never believes it enabled something. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiFlags |= 1u << 10;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);
+        CHECK_WORKER(s_iLegacySetOverlayCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
+                     == 0);
+    }
+    {
         tEdGeometrySizes InvalidSizes;
         tEdGeometrySizes Before;
 
@@ -394,6 +460,33 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiVertexStride == sizeof(tEdVertex));
         CHECK_WORKER(Sizes.uiPrimitiveStride == sizeof(tEdPrimitive));
         CHECK_WORKER(Sizes.uiMaterialStride == sizeof(tEdMaterial));
+        {
+            /* AD-7d with a scene loaded: toggling an overlay must not advance
+             * the geometry epoch, and must not drop the per-epoch extraction
+             * E4A-S5 caches -- an overlay toggle that forced re-extraction
+             * would defeat the cache on every menu click. */
+            int iExtractCount = s_iStubExtractCount;
+            tEdOverlayState Overlay = {
+                .uiStructSize = sizeof(Overlay),
+                .uiVersion = ROLLER_ED_OVERLAY_STATE_VERSION,
+                .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+                    | ROLLER_ED_OVERLAY_SHOW_WIREFRAME,
+                .uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID,
+                .uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID
+            };
+
+            CHECK_WORKER(RollerEd_SetOverlayState(&Overlay)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(s_iLegacySetOverlayCount == 2);
+            Sizes.uiStructSize = sizeof(Sizes);
+            Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+            CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(Sizes.uiGeometryEpoch == uiReadyEpoch);
+            CHECK_WORKER(Sizes.uiTrackGeneration == uiReadyGeneration);
+            CHECK_WORKER(Sizes.uiPrimitiveCount == 1u);
+            CHECK_WORKER(s_iStubExtractCount == iExtractCount);
+        }
         {
             tEdVertex aVertices[4];
             uint32_t auiIndices[6];
@@ -731,6 +824,7 @@ int main(int argc, char **argv)
     CHECK_MAIN(s_iLegacyInstallCount == 5);
     CHECK_MAIN(s_iLegacyRenderCount == 1);
     CHECK_MAIN(s_iLegacySetCameraCount == 1);
+    CHECK_MAIN(s_iLegacySetOverlayCount == 2);
 
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);

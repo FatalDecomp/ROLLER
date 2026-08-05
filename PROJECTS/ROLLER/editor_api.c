@@ -1,5 +1,6 @@
 #include "editor_api.h"
 #include "editor_legacy_scene.h"
+#include "editor_overlay.h"
 #include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -530,8 +531,20 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetOverlayState(
         "tEdOverlayState");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade overlay state is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    if ((pState->uiFlags & ~(uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS) != 0u) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiFlags 0x%08x sets bits API version %u does not "
+            "define", pState->uiFlags, (unsigned)ROLLER_ED_API_VERSION);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    /*
+     * AD-7d: overlays are a view setting over the same authored geometry, so
+     * this deliberately advances neither the geometry epoch nor the track
+     * generation.  Doing either would throw away E4A-S5's per-epoch extraction
+     * on every toggle.
+     */
+    return roller_ed_legacy_scene_set_overlay_state(
+        pState, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_SetReferenceMesh(
