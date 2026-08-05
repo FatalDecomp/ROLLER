@@ -35,6 +35,16 @@ static uint32_t s_uiTrackGeneration;
 static eRollerEdSceneState s_eSceneState = ROLLER_ED_SCENE_EMPTY;
 static tEdTrackStage s_TrackStage;
 static char s_szLastError[512];
+/*
+ * Authored geometry is camera-independent (AD-6b) and only the geometry epoch
+ * invalidates it (AD-7d), so one extraction per epoch serves every query and
+ * fill. Callers are always given copies; this never escapes.
+ */
+static tEdGeometryExtract s_GeometryExtract;
+static uint32_t s_uiGeometryExtractEpoch;
+static bool s_bGeometryExtractValid;
+
+static void roller_ed_release_geometry_cache(void);
 
 static void roller_ed_clear_error(void)
 {
@@ -56,6 +66,38 @@ static void roller_ed_advance_geometry_epoch(void)
     s_uiGeometryEpoch++;
     if (s_uiGeometryEpoch == 0u)
         s_uiGeometryEpoch = 1u;
+    /* Everything that advances the epoch has invalidated the extraction by
+     * definition, so releasing here means no caller of the epoch helper has
+     * to remember to. */
+    roller_ed_release_geometry_cache();
+}
+
+static void roller_ed_release_geometry_cache(void)
+{
+    roller_ed_legacy_scene_release_geometry(&s_GeometryExtract);
+    s_uiGeometryExtractEpoch = 0u;
+    s_bGeometryExtractValid = false;
+}
+
+/* Extracts once per geometry epoch; a no-op while the cache is current. */
+static eRollerEdResult roller_ed_sync_geometry_cache(void)
+{
+    eRollerEdResult eResult;
+
+    if (s_bGeometryExtractValid
+            && s_uiGeometryExtractEpoch == s_uiGeometryEpoch)
+        return ROLLER_ED_RESULT_OK;
+
+    roller_ed_release_geometry_cache();
+    eResult = roller_ed_legacy_scene_extract_geometry(
+        &s_GeometryExtract, s_szLastError, sizeof(s_szLastError));
+    if (eResult != ROLLER_ED_RESULT_OK) {
+        roller_ed_legacy_scene_release_geometry(&s_GeometryExtract);
+        return eResult;
+    }
+    s_uiGeometryExtractEpoch = s_uiGeometryEpoch;
+    s_bGeometryExtractValid = true;
+    return ROLLER_ED_RESULT_OK;
 }
 
 static void roller_ed_advance_track_generation(void)
@@ -146,6 +188,7 @@ static eRollerEdResult roller_ed_require_worker(void)
 static void roller_ed_release_worker_resources(void)
 {
     roller_ed_legacy_scene_shutdown();
+    roller_ed_release_geometry_cache();
     free(s_szAssetRoot);
     s_szAssetRoot = NULL;
     s_ePreferredRenderer = ROLLER_ED_RENDERER_GPU;
@@ -538,6 +581,19 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(
     Sizes.uiVertexStride = sizeof(tEdVertex);
     Sizes.uiPrimitiveStride = sizeof(tEdPrimitive);
     Sizes.uiMaterialStride = sizeof(tEdMaterial);
+    /*
+     * AD-7d: EMPTY and FAILED publish zero counts, and the call still returns
+     * OK either way so uiSceneState is always readable. A failed extraction
+     * is reported the same way, with the reason left in the error text --
+     * refusing the query would hide the very field the caller needs.
+     */
+    if (s_eSceneState == ROLLER_ED_SCENE_READY
+            && roller_ed_sync_geometry_cache() == ROLLER_ED_RESULT_OK) {
+        Sizes.uiVertexCount = s_GeometryExtract.uiVertexCount;
+        Sizes.uiIndexCount = s_GeometryExtract.uiIndexCount;
+        Sizes.uiPrimitiveCount = s_GeometryExtract.uiPrimitiveCount;
+        Sizes.uiMaterialCount = s_GeometryExtract.uiMaterialCount;
+    }
     *pSizesOut = Sizes;
     return ROLLER_ED_RESULT_OK;
 }
@@ -551,28 +607,63 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_FillGeometry(
 {
     eRollerEdResult eResult = roller_ed_require_worker();
 
-    (void)pVerts;
-    (void)uiVertexCapacity;
-    (void)puiIndices;
-    (void)uiIndexCapacity;
-    (void)pPrims;
-    (void)uiPrimitiveCapacity;
-    (void)pMats;
-    (void)uiMaterialCapacity;
-
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
     if (s_eSceneState != ROLLER_ED_SCENE_READY) {
         roller_ed_set_error("there is no geometry scene");
         return ROLLER_ED_RESULT_NO_SCENE;
     }
+    /*
+     * The epoch is checked before the capacities and both before any write,
+     * so a reload or a failed load between query and fill can never leave the
+     * caller with a partly overwritten buffer sized for the previous track
+     * (AD-7a). A failed load clears the scene without touching the track
+     * generation, which is why this validates the epoch (AD-7d).
+     */
     if (uiExpectedGeometryEpoch != s_uiGeometryEpoch) {
         roller_ed_set_error("geometry epoch %u is stale; current epoch is %u",
                             uiExpectedGeometryEpoch, s_uiGeometryEpoch);
         return ROLLER_ED_RESULT_STALE;
     }
-    roller_ed_set_error("facade geometry extraction is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    eResult = roller_ed_sync_geometry_cache();
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+
+    if ((s_GeometryExtract.uiVertexCount != 0u && !pVerts)
+            || (s_GeometryExtract.uiIndexCount != 0u && !puiIndices)
+            || (s_GeometryExtract.uiPrimitiveCount != 0u && !pPrims)
+            || (s_GeometryExtract.uiMaterialCount != 0u && !pMats)) {
+        roller_ed_set_error(
+            "RollerEd_FillGeometry requires every buffer the scene needs");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (uiVertexCapacity < s_GeometryExtract.uiVertexCount
+            || uiIndexCapacity < s_GeometryExtract.uiIndexCount
+            || uiPrimitiveCapacity < s_GeometryExtract.uiPrimitiveCount
+            || uiMaterialCapacity < s_GeometryExtract.uiMaterialCount) {
+        roller_ed_set_error(
+            "geometry needs %u vertices, %u indices, %u primitives, and %u "
+            "materials",
+            s_GeometryExtract.uiVertexCount, s_GeometryExtract.uiIndexCount,
+            s_GeometryExtract.uiPrimitiveCount,
+            s_GeometryExtract.uiMaterialCount);
+        return ROLLER_ED_RESULT_BUFFER_TOO_SMALL;
+    }
+
+    /* Copies only: the cache stays core-owned. */
+    if (s_GeometryExtract.uiVertexCount != 0u)
+        memcpy(pVerts, s_GeometryExtract.pVertices,
+               (size_t)s_GeometryExtract.uiVertexCount * sizeof(*pVerts));
+    if (s_GeometryExtract.uiIndexCount != 0u)
+        memcpy(puiIndices, s_GeometryExtract.puiIndices,
+               (size_t)s_GeometryExtract.uiIndexCount * sizeof(*puiIndices));
+    if (s_GeometryExtract.uiPrimitiveCount != 0u)
+        memcpy(pPrims, s_GeometryExtract.pPrimitives,
+               (size_t)s_GeometryExtract.uiPrimitiveCount * sizeof(*pPrims));
+    if (s_GeometryExtract.uiMaterialCount != 0u)
+        memcpy(pMats, s_GeometryExtract.pMaterials,
+               (size_t)s_GeometryExtract.uiMaterialCount * sizeof(*pMats));
+    return ROLLER_ED_RESULT_OK;
 }
 
 const char *ROLLER_ED_CALL RollerEd_GetLastError(void)

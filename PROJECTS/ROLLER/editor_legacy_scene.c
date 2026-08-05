@@ -2,16 +2,20 @@
 
 #include "3d.h"
 #include "car.h"
+#include "drawtrk3.h"
 #include "editor_camera.h"
+#include "editor_surface.h"
 #include "game_render.h"
 #include "loadtrak.h"
 #include "scene_render_gpu.h"
+#include "types.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define EDITOR_GPU_SHADER_FORMATS \
@@ -341,6 +345,231 @@ eRollerEdResult roller_ed_legacy_scene_render(
     editor_scene_set_error(szError, uiErrorCapacity, "");
     return ROLLER_ED_RESULT_OK;
 #endif
+}
+
+/*
+ * Materials are interned as the traversal runs, so the count is not known in
+ * advance. Start small and grow; the ceiling only has to exceed what a track
+ * can address, which is 256 tiles across three banks plus their non-textured
+ * and paired variants.
+ */
+#define EDITOR_GEOMETRY_MIN_MATERIALS 256u
+#define EDITOR_GEOMETRY_MAX_MATERIALS 16384u
+#define EDITOR_GEOMETRY_INDICES_PER_QUAD 6u
+#define EDITOR_GEOMETRY_MAX_SURFACES (MAX_TRACK_CHUNKS * 32u)
+
+typedef struct
+{
+    tEdGeometryExtract *pExtract;
+    uint32_t uiPrimitiveIndex;
+} tEdGeometryFillContext;
+
+static bool editor_geometry_surface_usable(const tEdSurfaceEmission *pSurface)
+{
+    return pSurface
+        && pSurface->uiVertexCount == ED_SURFACE_VERTEX_COUNT
+        && pSurface->byTopology == ROLLER_ED_TOPOLOGY_QUAD;
+}
+
+static void editor_geometry_count_surface(const tEdSurfaceEmission *pSurface,
+                                          void *pUserData)
+{
+    if (editor_geometry_surface_usable(pSurface))
+        (*(uint32_t *)pUserData)++;
+}
+
+static void editor_geometry_fill_surface(const tEdSurfaceEmission *pSurface,
+                                         void *pUserData)
+{
+    tEdGeometryFillContext *pContext = pUserData;
+    tEdGeometryExtract *pExtract = pContext->pExtract;
+    uint32_t uiPrimitive = pContext->uiPrimitiveIndex;
+    uint32_t uiBaseVertex;
+    uint32_t uiBaseIndex;
+    tEdPrimitive *pPrimitive;
+
+    if (!editor_geometry_surface_usable(pSurface)
+            || uiPrimitive >= pExtract->uiPrimitiveCount)
+        return;
+    pContext->uiPrimitiveIndex++;
+    uiBaseVertex = uiPrimitive * ED_SURFACE_VERTEX_COUNT;
+    uiBaseIndex = uiPrimitive * EDITOR_GEOMETRY_INDICES_PER_QUAD;
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        tEdVertex *pVertex = &pExtract->pVertices[uiBaseVertex + i];
+        const tEdSurfaceVertex *pSource = &pSurface->aVertices[i];
+
+        memcpy(pVertex->fPosition, pSource->fPosition,
+               sizeof(pVertex->fPosition));
+        memcpy(pVertex->fNormal, pSource->fNormal, sizeof(pVertex->fNormal));
+        /* Material-local UV (AD-7b); the exporter resolves it through the
+         * selected material's atlas transform. */
+        memcpy(pVertex->fUV, pSource->fMaterialUV, sizeof(pVertex->fUV));
+    }
+
+    /* Both triangles keep the emitter's v0..v3 winding, so the front face
+     * survives triangulation (docs/adr/0003-canonical-geometry-conventions). */
+    pExtract->puiIndices[uiBaseIndex + 0u] = uiBaseVertex + 0u;
+    pExtract->puiIndices[uiBaseIndex + 1u] = uiBaseVertex + 1u;
+    pExtract->puiIndices[uiBaseIndex + 2u] = uiBaseVertex + 2u;
+    pExtract->puiIndices[uiBaseIndex + 3u] = uiBaseVertex + 0u;
+    pExtract->puiIndices[uiBaseIndex + 4u] = uiBaseVertex + 2u;
+    pExtract->puiIndices[uiBaseIndex + 5u] = uiBaseVertex + 3u;
+
+    pPrimitive = &pExtract->pPrimitives[uiPrimitive];
+    memset(pPrimitive, 0, sizeof(*pPrimitive));
+    pPrimitive->uiFirstIndex = uiBaseIndex;
+    pPrimitive->uiIndexCount = EDITOR_GEOMETRY_INDICES_PER_QUAD;
+    pPrimitive->uiChunkId = pSurface->uiChunkId;
+    pPrimitive->uiFrontMaterialId = pSurface->uiFrontMaterialId;
+    pPrimitive->uiBackMaterialId = pSurface->uiBackMaterialId;
+    pPrimitive->unSurfaceClass = pSurface->unSurfaceClass;
+    pPrimitive->unContentClass = pSurface->unContentClass;
+    /* The internal and public flag sets are separate vocabularies. */
+    if (pSurface->unFlags & ROLLER_ED_SURFACE_FLAG_ALPHA)
+        pPrimitive->unFlags |= (uint16_t)ROLLER_ED_PRIMITIVE_FLAG_ALPHA_BLEND;
+    if (pSurface->unFlags & ROLLER_ED_SURFACE_FLAG_TWO_SIDED)
+        pPrimitive->unFlags |= (uint16_t)ROLLER_ED_PRIMITIVE_FLAG_TWO_SIDED;
+    pPrimitive->byTopology = ROLLER_ED_TOPOLOGY_TRIANGLE_LIST;
+}
+
+/* Counts surfaces and materials, growing the material table until the whole
+ * track interns. Returns false if the traversal fails for any other reason. */
+static bool editor_geometry_probe(uint32_t *puiSurfaceCount,
+                                  uint32_t *puiMaterialCount,
+                                  char *szError,
+                                  size_t uiErrorCapacity)
+{
+    uint32_t uiCapacity = EDITOR_GEOMETRY_MIN_MATERIALS;
+    tEdMaterial *pMaterials = NULL;
+
+    for (;;) {
+        tEdMaterialTable Table;
+        tEdMaterial *pGrown =
+            realloc(pMaterials, (size_t)uiCapacity * sizeof(*pGrown));
+        uint32_t uiSurfaceCount = 0u;
+
+        if (!pGrown) {
+            free(pMaterials);
+            editor_scene_set_error(szError, uiErrorCapacity,
+                                   "out of memory sizing track geometry");
+            return false;
+        }
+        pMaterials = pGrown;
+        if (!drawtrk3_init_editor_material_table(
+                &Table, pMaterials, uiCapacity)) {
+            free(pMaterials);
+            editor_scene_set_error(szError, uiErrorCapacity,
+                                   "editor material table is unavailable");
+            return false;
+        }
+        if (drawtrk3_emit_full_track(
+                &Table, editor_geometry_count_surface, &uiSurfaceCount)) {
+            *puiSurfaceCount = uiSurfaceCount;
+            *puiMaterialCount = Table.uiCount;
+            free(pMaterials);
+            return true;
+        }
+        /* A full table is the one failure worth retrying. */
+        if (Table.uiCount < Table.uiCapacity
+                || uiCapacity >= EDITOR_GEOMETRY_MAX_MATERIALS) {
+            free(pMaterials);
+            editor_scene_set_error(
+                szError, uiErrorCapacity,
+                "canonical traversal could not emit the loaded track");
+            return false;
+        }
+        uiCapacity *= 2u;
+    }
+}
+
+eRollerEdResult roller_ed_legacy_scene_extract_geometry(
+    tEdGeometryExtract *pExtract,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    tEdMaterialTable Table;
+    tEdGeometryFillContext Fill;
+    uint32_t uiSurfaceCount = 0u;
+    uint32_t uiMaterialCount = 0u;
+
+    if (!pExtract) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "geometry extraction requires an output");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    memset(pExtract, 0, sizeof(*pExtract));
+
+    if (!editor_geometry_probe(&uiSurfaceCount, &uiMaterialCount,
+                               szError, uiErrorCapacity))
+        return ROLLER_ED_RESULT_INTERNAL_ERROR;
+    if (uiSurfaceCount == 0u || uiMaterialCount == 0u) {
+        /* Nothing to publish; the caller still sees a READY empty extract. */
+        return ROLLER_ED_RESULT_OK;
+    }
+    if (uiSurfaceCount > EDITOR_GEOMETRY_MAX_SURFACES) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "loaded track emitted %u surfaces, above the "
+                               "%u the geometry API supports",
+                               uiSurfaceCount,
+                               (uint32_t)EDITOR_GEOMETRY_MAX_SURFACES);
+        return ROLLER_ED_RESULT_INTERNAL_ERROR;
+    }
+
+    pExtract->uiPrimitiveCount = uiSurfaceCount;
+    pExtract->uiVertexCount = uiSurfaceCount * ED_SURFACE_VERTEX_COUNT;
+    pExtract->uiIndexCount = uiSurfaceCount * EDITOR_GEOMETRY_INDICES_PER_QUAD;
+    pExtract->uiMaterialCount = uiMaterialCount;
+    pExtract->pVertices = calloc(pExtract->uiVertexCount,
+                                 sizeof(*pExtract->pVertices));
+    pExtract->puiIndices = calloc(pExtract->uiIndexCount,
+                                  sizeof(*pExtract->puiIndices));
+    pExtract->pPrimitives = calloc(pExtract->uiPrimitiveCount,
+                                   sizeof(*pExtract->pPrimitives));
+    pExtract->pMaterials = calloc(pExtract->uiMaterialCount,
+                                  sizeof(*pExtract->pMaterials));
+    if (!pExtract->pVertices || !pExtract->puiIndices
+            || !pExtract->pPrimitives || !pExtract->pMaterials) {
+        roller_ed_legacy_scene_release_geometry(pExtract);
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "out of memory extracting track geometry");
+        return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+    }
+
+    /* The output material array is the interning table, so the ids the
+     * primitives carry index it directly. */
+    if (!drawtrk3_init_editor_material_table(
+            &Table, pExtract->pMaterials, uiMaterialCount)) {
+        roller_ed_legacy_scene_release_geometry(pExtract);
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "editor material table is unavailable");
+        return ROLLER_ED_RESULT_INTERNAL_ERROR;
+    }
+    Fill.pExtract = pExtract;
+    Fill.uiPrimitiveIndex = 0u;
+    if (!drawtrk3_emit_full_track(&Table, editor_geometry_fill_surface, &Fill)
+            || Fill.uiPrimitiveIndex != uiSurfaceCount
+            || Table.uiCount != uiMaterialCount) {
+        /* The traversal is camera-independent and deterministic by
+         * construction, so a second pass that disagrees with the first is a
+         * defect rather than a condition to paper over. */
+        roller_ed_legacy_scene_release_geometry(pExtract);
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "canonical traversal was not deterministic");
+        return ROLLER_ED_RESULT_INTERNAL_ERROR;
+    }
+    return ROLLER_ED_RESULT_OK;
+}
+
+void roller_ed_legacy_scene_release_geometry(tEdGeometryExtract *pExtract)
+{
+    if (!pExtract)
+        return;
+    free(pExtract->pVertices);
+    free(pExtract->puiIndices);
+    free(pExtract->pPrimitives);
+    free(pExtract->pMaterials);
+    memset(pExtract, 0, sizeof(*pExtract));
 }
 
 void roller_ed_legacy_scene_unload(void)

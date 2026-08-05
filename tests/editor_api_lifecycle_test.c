@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct
@@ -16,6 +17,7 @@ typedef struct
     SDL_Semaphore *pContinue;
     const char *szValidTrack;
     const char *szMalformedTrack;
+    const char *szLargeTrack;
     int iFailureLine;
 } tLifecycleTestContext;
 
@@ -29,6 +31,8 @@ static uint32_t s_uiStubAvailableRenderers =
     ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU;
 static eRollerEdRenderer s_eStubActiveRenderer;
 static tEdCameraState s_LastLegacyCamera;
+static uint32_t s_uiStubQuadCount;
+static int s_iStubExtractCount;
 
 eRollerEdResult roller_ed_legacy_scene_install(
     const char *szTrackPath,
@@ -48,6 +52,9 @@ eRollerEdResult roller_ed_legacy_scene_install(
     s_eLastPreferredRenderer = ePreferredRenderer;
     s_uiLastAllowSoftwareFallback = uiAllowSoftwareFallback;
     s_eStubActiveRenderer = ePreferredRenderer;
+    /* One synthetic quad per staged chunk, so a larger track really does
+     * produce a larger extract and the stale path has something to protect. */
+    s_uiStubQuadCount = pStage->uiChunkCount;
     s_iLegacyInstallCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
@@ -106,6 +113,88 @@ eRollerEdResult roller_ed_legacy_scene_select_renderer(
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
+}
+
+/*
+ * Stands in for the canonical traversal: one quad per staged chunk, with
+ * recognisable contents so the facade's copy-out can be checked field by
+ * field without linking the renderer.
+ */
+eRollerEdResult roller_ed_legacy_scene_extract_geometry(
+    tEdGeometryExtract *pExtract,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    uint32_t uiQuads = s_uiStubQuadCount;
+
+    if (!pExtract) {
+        snprintf(szError, uiErrorCapacity, "extract output is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    memset(pExtract, 0, sizeof(*pExtract));
+    s_iStubExtractCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    if (uiQuads == 0u)
+        return ROLLER_ED_RESULT_OK;
+
+    pExtract->uiPrimitiveCount = uiQuads;
+    pExtract->uiVertexCount = uiQuads * 4u;
+    pExtract->uiIndexCount = uiQuads * 6u;
+    pExtract->uiMaterialCount = 1u;
+    pExtract->pVertices = calloc(pExtract->uiVertexCount,
+                                 sizeof(*pExtract->pVertices));
+    pExtract->puiIndices = calloc(pExtract->uiIndexCount,
+                                  sizeof(*pExtract->puiIndices));
+    pExtract->pPrimitives = calloc(pExtract->uiPrimitiveCount,
+                                   sizeof(*pExtract->pPrimitives));
+    pExtract->pMaterials = calloc(pExtract->uiMaterialCount,
+                                  sizeof(*pExtract->pMaterials));
+    if (!pExtract->pVertices || !pExtract->puiIndices
+            || !pExtract->pPrimitives || !pExtract->pMaterials) {
+        roller_ed_legacy_scene_release_geometry(pExtract);
+        snprintf(szError, uiErrorCapacity, "stub extraction ran out of memory");
+        return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+    }
+
+    for (uint32_t uiQuad = 0u; uiQuad < uiQuads; uiQuad++) {
+        uint32_t uiBaseVertex = uiQuad * 4u;
+        uint32_t uiBaseIndex = uiQuad * 6u;
+        static const uint32_t auiCorner[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+
+        for (uint32_t i = 0u; i < 4u; i++) {
+            tEdVertex *pVertex = &pExtract->pVertices[uiBaseVertex + i];
+            pVertex->fPosition[0] = (float)uiQuad;
+            pVertex->fPosition[1] = (float)i;
+            pVertex->fNormal[2] = 1.0f;
+            pVertex->fUV[0] = (i == 1u || i == 2u) ? 0.0f : 1.0f;
+        }
+        for (uint32_t i = 0u; i < 6u; i++)
+            pExtract->puiIndices[uiBaseIndex + i] = uiBaseVertex + auiCorner[i];
+        pExtract->pPrimitives[uiQuad].uiFirstIndex = uiBaseIndex;
+        pExtract->pPrimitives[uiQuad].uiIndexCount = 6u;
+        pExtract->pPrimitives[uiQuad].uiChunkId = uiQuad;
+        pExtract->pPrimitives[uiQuad].uiBackMaterialId =
+            ROLLER_ED_INVALID_MATERIAL_ID;
+        pExtract->pPrimitives[uiQuad].unContentClass =
+            ROLLER_ED_CONTENT_AUTHORED_TRACK;
+        pExtract->pPrimitives[uiQuad].byTopology =
+            ROLLER_ED_TOPOLOGY_TRIANGLE_LIST;
+    }
+    pExtract->pMaterials[0].uiKind = ROLLER_ED_MATERIAL_TEXTURED_TILE;
+    pExtract->pMaterials[0].fAtlasScale[0] = 0.25f;
+    return ROLLER_ED_RESULT_OK;
+}
+
+void roller_ed_legacy_scene_release_geometry(tEdGeometryExtract *pExtract)
+{
+    if (!pExtract)
+        return;
+    free(pExtract->pVertices);
+    free(pExtract->puiIndices);
+    free(pExtract->pPrimitives);
+    free(pExtract->pMaterials);
+    memset(pExtract, 0, sizeof(*pExtract));
 }
 
 void roller_ed_legacy_scene_unload(void)
@@ -297,6 +386,133 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         uiReadyEpoch = Sizes.uiGeometryEpoch;
         uiReadyGeneration = Sizes.uiTrackGeneration;
 
+        /* The one-chunk fixture stages one quad. */
+        CHECK_WORKER(Sizes.uiVertexCount == 4u);
+        CHECK_WORKER(Sizes.uiIndexCount == 6u);
+        CHECK_WORKER(Sizes.uiPrimitiveCount == 1u);
+        CHECK_WORKER(Sizes.uiMaterialCount == 1u);
+        CHECK_WORKER(Sizes.uiVertexStride == sizeof(tEdVertex));
+        CHECK_WORKER(Sizes.uiPrimitiveStride == sizeof(tEdPrimitive));
+        CHECK_WORKER(Sizes.uiMaterialStride == sizeof(tEdMaterial));
+        {
+            tEdVertex aVertices[4];
+            uint32_t auiIndices[6];
+            tEdPrimitive Primitive;
+            tEdMaterial Material;
+            tEdVertex aBeforeVertices[4];
+
+            memset(aVertices, 0x11, sizeof(aVertices));
+            memcpy(aBeforeVertices, aVertices, sizeof(aBeforeVertices));
+
+            /* Every capacity is validated before any buffer is touched, so a
+             * caller that under-sizes one array keeps all of them intact. */
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 3u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_BUFFER_TOO_SMALL);
+            CHECK_WORKER(memcmp(aVertices, aBeforeVertices,
+                                sizeof(aBeforeVertices)) == 0);
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 4u,
+                             auiIndices, 5u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_BUFFER_TOO_SMALL);
+            CHECK_WORKER(memcmp(aVertices, aBeforeVertices,
+                                sizeof(aBeforeVertices)) == 0);
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 4u,
+                             auiIndices, 6u, &Primitive, 0u, &Material, 1u)
+                         == ROLLER_ED_RESULT_BUFFER_TOO_SMALL);
+            CHECK_WORKER(memcmp(aVertices, aBeforeVertices,
+                                sizeof(aBeforeVertices)) == 0);
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 4u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 0u)
+                         == ROLLER_ED_RESULT_BUFFER_TOO_SMALL);
+            CHECK_WORKER(memcmp(aVertices, aBeforeVertices,
+                                sizeof(aBeforeVertices)) == 0);
+
+            /* A required buffer that is missing entirely is a caller bug, not
+             * a sizing problem. */
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, NULL, 4u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+
+            memset(&Primitive, 0x22, sizeof(Primitive));
+            memset(&Material, 0x22, sizeof(Material));
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 4u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(auiIndices[0] == 0u && auiIndices[1] == 1u
+                         && auiIndices[2] == 2u && auiIndices[3] == 0u
+                         && auiIndices[4] == 2u && auiIndices[5] == 3u);
+            CHECK_WORKER(Primitive.uiFirstIndex == 0u
+                         && Primitive.uiIndexCount == 6u);
+            CHECK_WORKER(Primitive.byTopology
+                         == ROLLER_ED_TOPOLOGY_TRIANGLE_LIST);
+            CHECK_WORKER(Primitive.uiBackMaterialId
+                         == ROLLER_ED_INVALID_MATERIAL_ID);
+            CHECK_WORKER(Primitive.unContentClass
+                         == ROLLER_ED_CONTENT_AUTHORED_TRACK);
+            CHECK_WORKER(aVertices[0].fNormal[2] == 1.0f);
+            CHECK_WORKER(Material.uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE);
+
+            /* Extraction is cached per epoch: repeated queries and fills at
+             * the same epoch must not re-extract. */
+            {
+                int iExtractCount = s_iStubExtractCount;
+
+                Sizes.uiStructSize = sizeof(Sizes);
+                Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+                CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                             == ROLLER_ED_RESULT_OK);
+                CHECK_WORKER(RollerEd_FillGeometry(
+                                 Sizes.uiGeometryEpoch, aVertices, 4u,
+                                 auiIndices, 6u, &Primitive, 1u,
+                                 &Material, 1u) == ROLLER_ED_RESULT_OK);
+                CHECK_WORKER(s_iStubExtractCount == iExtractCount);
+            }
+
+            /* AD-7a: a caller that sized its buffers against the one-chunk
+             * track and then lost the race to a larger load must be refused,
+             * not allowed to overflow into buffers sized for the old track. */
+            CHECK_WORKER(RollerEd_LoadTrackFile(
+                             pContext->szLargeTrack, "facade-test-assets")
+                         == ROLLER_ED_RESULT_OK);
+            memset(aVertices, 0x33, sizeof(aVertices));
+            memcpy(aBeforeVertices, aVertices, sizeof(aBeforeVertices));
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             uiReadyEpoch, aVertices, 4u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_STALE);
+            CHECK_WORKER(memcmp(aVertices, aBeforeVertices,
+                                sizeof(aBeforeVertices)) == 0);
+
+            Sizes.uiStructSize = sizeof(Sizes);
+            Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+            CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(Sizes.uiPrimitiveCount == 4u);
+            CHECK_WORKER(Sizes.uiVertexCount == 16u);
+            CHECK_WORKER(Sizes.uiIndexCount == 24u);
+            /* Re-querying really does re-extract once the epoch moved. */
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             Sizes.uiGeometryEpoch, aVertices, 4u,
+                             auiIndices, 6u, &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_BUFFER_TOO_SMALL);
+
+            CHECK_WORKER(RollerEd_LoadTrackFile(
+                             pContext->szValidTrack, "facade-test-assets")
+                         == ROLLER_ED_RESULT_OK);
+            Sizes.uiStructSize = sizeof(Sizes);
+            Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+            CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                         == ROLLER_ED_RESULT_OK);
+            uiReadyEpoch = Sizes.uiGeometryEpoch;
+            uiReadyGeneration = Sizes.uiTrackGeneration;
+        }
+
         CHECK_WORKER(RollerEd_LoadTrackFile(
                          pContext->szMalformedTrack, "facade-test-assets")
                      == ROLLER_ED_RESULT_LOAD_FAILED);
@@ -317,6 +533,11 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         {
             tEdVertex Vertex;
             tEdVertex Before;
+            tEdVertex aVertices[4];
+            uint32_t auiIndices[6];
+            tEdPrimitive Primitive;
+            tEdMaterial Material;
+            tEdVertex aBefore[4];
 
             memset(&Vertex, 0xc3, sizeof(Vertex));
             Before = Vertex;
@@ -325,6 +546,24 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                              NULL, 0u, NULL, 0u, NULL, 0u)
                          == ROLLER_ED_RESULT_NO_SCENE);
             CHECK_WORKER(memcmp(&Vertex, &Before, sizeof(Before)) == 0);
+
+            /*
+             * AD-7d's v5 hole: the failed load cleared the scene without
+             * advancing the track generation, so a caller holding the
+             * pre-failure generation would have passed a generation check and
+             * written into a cleared scene. The geometry epoch did move, and
+             * the buffers below are exactly the size the pre-failure query
+             * reported -- so this refusal is the epoch and scene state doing
+             * the work, not a capacity check.
+             */
+            CHECK_WORKER(uiReadyGeneration == Sizes.uiTrackGeneration);
+            memset(aVertices, 0x44, sizeof(aVertices));
+            memcpy(aBefore, aVertices, sizeof(aBefore));
+            CHECK_WORKER(RollerEd_FillGeometry(
+                             uiReadyEpoch, aVertices, 4u, auiIndices, 6u,
+                             &Primitive, 1u, &Material, 1u)
+                         == ROLLER_ED_RESULT_NO_SCENE);
+            CHECK_WORKER(memcmp(aVertices, aBefore, sizeof(aBefore)) == 0);
         }
 
         CHECK_WORKER(RollerEd_LoadTrackFile(
@@ -419,7 +658,7 @@ int main(int argc, char **argv)
     int iThreadResult = 0;
     int iMainFailure = 0;
 
-    CHECK_MAIN(argc == 3);
+    CHECK_MAIN(argc == 4);
     SDL_SetMainReady();
     SDL_SetAssertionHandler(count_thread_assertion, NULL);
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
@@ -446,6 +685,7 @@ int main(int argc, char **argv)
     Context.pContinue = SDL_CreateSemaphore(0u);
     Context.szValidTrack = argv[1];
     Context.szMalformedTrack = argv[2];
+    Context.szLargeTrack = argv[3];
     Context.iFailureLine = 0;
     CHECK_MAIN(Context.pReady != NULL && Context.pContinue != NULL);
     pThread = SDL_CreateThread(lifecycle_worker, "facade-render-worker", &Context);
@@ -486,7 +726,9 @@ int main(int argc, char **argv)
         return iMainFailure;
     CHECK_MAIN(iThreadResult == 0 && Context.iFailureLine == 0);
     CHECK_MAIN(s_iThreadAssertionCount >= 3);
-    CHECK_MAIN(s_iLegacyInstallCount == 3);
+    /* Three original successful installs plus the larger-track reload and the
+     * return to the one-chunk track that E4A-S5's stale coverage needs. */
+    CHECK_MAIN(s_iLegacyInstallCount == 5);
     CHECK_MAIN(s_iLegacyRenderCount == 1);
     CHECK_MAIN(s_iLegacySetCameraCount == 1);
 
