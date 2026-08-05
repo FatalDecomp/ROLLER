@@ -1,16 +1,19 @@
 /*
- * E3A-S2 acceptance. Crosses the real facade and renderer with retail assets
- * and checks that the surface and wireframe toggles actually change the frame.
+ * E3A-S2 and E3A-S3 acceptance. Crosses the real facade and renderer with
+ * retail assets and checks that the surface, wireframe, and selection toggles
+ * actually change the frame.
  *
  * Every assertion here is camera-independent, because there is no camera from
- * which all fourteen surface classes are visible and no way to pick one that
- * stays right as the track data changes:
+ * which all fourteen surface classes and every chunk are visible, and no way
+ * to pick one that stays right as the track data changes:
  *
- *   - hiding classes one at a time can only ever make more pixels differ from
- *     the all-visible frame, never fewer, whatever is in front of what;
+ *   - hiding classes one at a time, or growing the selected chunk range, can
+ *     only ever make more pixels differ from the all-visible frame, never
+ *     fewer, whatever is in front of what;
  *   - hiding every class must reach exactly the frame with both masters off;
- *   - a wireframe outline must cover less than the solid fill it replaces;
- *   - restoring the defaults must reproduce the original frame byte for byte,
+ *   - wireframe and selection outlines must cover less than the solid fill
+ *     they sit on, which is what distinguishes an outline from a recolour;
+ *   - clearing a toggle must reproduce the original frame byte for byte,
  *     because overlay state is the only thing that changed.
  */
 #include "3d.h"
@@ -304,6 +307,83 @@ static int SDLCALL overlay_worker(void *pUserData)
         goto shutdown;
     }
 
+    /*
+     * E3A-S3. Same camera-independent shape as the class masks: growing the
+     * selected chunk range can only ever outline more, never less.
+     */
+    {
+        size_t uiSelectionDifference = 0;
+        size_t uiPreviousSelection = 0;
+
+        for (uint32_t uiLastChunk = 0u; uiLastChunk < (uint32_t)TRAK_LEN;
+             uiLastChunk += 60u) {
+            size_t uiDifference;
+
+            Overlay = make_overlay(
+                ROLLER_ED_OVERLAY_SHOW_SURFACES
+                    | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION,
+                ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+            Overlay.uiFirstSelectedChunk = 0u;
+            Overlay.uiLastSelectedChunk = uiLastChunk;
+            if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+                goto shutdown;
+            uiDifference = differing_pixels(s_pFrame, s_pAllVisible);
+            if (uiDifference < uiPreviousSelection) {
+                acceptance_fail(pContext,
+                                "extending the selection to chunk %u removed "
+                                "%zu outlined pixels",
+                                uiLastChunk, uiPreviousSelection - uiDifference);
+                goto shutdown;
+            }
+            uiPreviousSelection = uiDifference;
+        }
+        uiSelectionDifference = uiPreviousSelection;
+        if (uiSelectionDifference == 0u) {
+            acceptance_fail(pContext, "the selection highlight drew nothing");
+            goto shutdown;
+        }
+        /* Outlines, not a recolour: the highlight must cover far less than
+         * the surfaces it sits on. */
+        if (uiSelectionDifference >= uiSolidDifference) {
+            acceptance_fail(pContext,
+                            "the selection covered %zu pixels against the "
+                            "surfaces' %zu -- it is filling, not outlining",
+                            uiSelectionDifference, uiSolidDifference);
+            goto shutdown;
+        }
+
+        /* The flag governs: the same range with the highlight off, and the
+         * sentinel range with it on, both return exactly to the base frame. */
+        Overlay.uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pAllVisible, FRAME_BYTES) != 0) {
+            acceptance_fail(pContext,
+                            "clearing HIGHLIGHT_SELECTION left %zu pixels "
+                            "outlined",
+                            differing_pixels(s_pFrame, s_pAllVisible));
+            goto shutdown;
+        }
+        Overlay.uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+            | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION;
+        Overlay.uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
+        Overlay.uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pAllVisible, FRAME_BYTES) != 0) {
+            acceptance_fail(pContext,
+                            "an empty selection outlined %zu pixels",
+                            differing_pixels(s_pFrame, s_pAllVisible));
+            goto shutdown;
+        }
+
+        /* A selected chunk keeps its texture: the fill is untouched, so
+         * hiding the surfaces must remove strictly more than the outline
+         * added. */
+        printf("selection outlined %zu pixels over the solid view\n",
+               uiSelectionDifference);
+    }
+
     /* AD-7d on the real facade: none of that touched authored geometry. */
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
@@ -376,8 +456,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "E3A-S2 acceptance failed: %s\n", Context.szError);
         return 1;
     }
-    puts("E3A-S2 PASS: per-class surface toggles hide monotonically, hiding "
-         "every class matches the master switch, wireframe outlines draw "
-         "thinner than solid fills, and restoring defaults is exact");
+    puts("E3A-S2/S3 PASS: per-class surface toggles hide monotonically, "
+         "hiding every class matches the master switch, wireframe and "
+         "selection outlines draw thinner than solid fills, growing the "
+         "selection only ever outlines more, and clearing either returns to "
+         "the original frame exactly");
     return 0;
 }

@@ -73,9 +73,10 @@ class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
         self.assertEqual(draw.count("ed_emit_surface("), 1)
 
         # A surface becomes a draw in exactly one place. E3A-S2 added a second
-        # call site, but it is the editor-only wireframe pass drawing ribbons
-        # derived from an emission that already went through the consumer --
-        # not a producer reaching the renderer on its own.
+        # call site, but it is the editor-only edge pass (wireframe in E3A-S2,
+        # selection outlines in E3A-S3) drawing ribbons derived from an
+        # emission that already went through the consumer -- not a producer
+        # reaching the renderer on its own.
         self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 2)
         self.assertEqual(
             function_body(
@@ -83,11 +84,9 @@ class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
             ).count("game_render_quad_world_subdivide_type("),
             1,
         )
-        wireframe = function_body(draw, "static void draw_emitted_surface_wireframe(")
-        self.assertEqual(
-            wireframe.count("game_render_quad_world_subdivide_type("), 1
-        )
-        self.assertIn("ed_surface_wireframe_edge_quad(pSurface,", wireframe)
+        edges = function_body(draw, "static void draw_emitted_surface_edges(")
+        self.assertEqual(edges.count("game_render_quad_world_subdivide_type("), 1)
+        self.assertIn("ed_surface_wireframe_edge_quad(pSurface,", edges)
 
         self.assertEqual(building.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertEqual(tower.count("drawtrk3_emit_surface_to_renderer("), 1)

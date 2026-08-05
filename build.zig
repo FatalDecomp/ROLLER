@@ -521,6 +521,11 @@ fn configureRenderQueue3DTests(
         "Run surface/wireframe overlay toggle acceptance (retail assets)",
     );
     editor_overlay_toggle_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_selection_tests = b.step(
+        "test-e3a-s3-selection-highlight",
+        "Run selected-chunk highlight acceptance (retail assets)",
+    );
+    editor_selection_tests.dependOn(&run_editor_overlay_toggle.step);
 
     const editor_buffers_mod = b.createModule(.{
         .target = target,

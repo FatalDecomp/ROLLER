@@ -301,6 +301,10 @@ eRollerEdResult roller_ed_legacy_scene_render(
         return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     }
 
+    /* Overlay state is host input; the renderer reads it through its own
+     * globals, so publish it once here rather than per surface. */
+    drawtrk3_editor_apply_overlay_selection();
+
     if (s_eActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE) {
         uint32_t uiNativeWidth = XMAX > 0 ? (uint32_t)XMAX : 320u;
         uint32_t uiNativeHeight = YMAX > 0 ? (uint32_t)YMAX : 200u;

@@ -40,6 +40,23 @@ def function_body(source: str, signature: str) -> str:
     raise AssertionError(f"unterminated function: {signature}")
 
 
+def overlay_references(source: str):
+    """Yields (symbol, is_inside_a_ROLLER_EDITOR_CORE_block) for each call."""
+    stack = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#if"):
+            stack.append("ROLLER_EDITOR_CORE" in stripped)
+        elif stripped.startswith("#elif"):
+            if stack:
+                stack[-1] = "ROLLER_EDITOR_CORE" in stripped
+        elif stripped.startswith("#endif"):
+            if stack:
+                stack.pop()
+        for match in re.finditer(r"roller_ed_overlay_\w+", line):
+            yield match.group(0), any(stack)
+
+
 def without_comments(source: str) -> str:
     source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
     return re.sub(r"//.*", "", source)
@@ -193,30 +210,40 @@ class RenderFilteringTests(unittest.TestCase):
         self.assertNotIn("renderChunkIdx", body)
 
     def test_the_game_build_is_not_affected(self) -> None:
-        # Every overlay read sits inside a ROLLER_EDITOR_CORE block, so the
-        # game's per-surface path is unchanged.
-        for match in re.finditer(r"roller_ed_overlay_\w+", self.draw):
-            prefix = self.draw[: match.start()]
-            opens = prefix.count("#if defined(ROLLER_EDITOR_CORE)")
-            closes = prefix.count("#endif")
-            self.assertGreater(
-                opens,
-                closes - 1,
-                f"{match.group(0)} is reachable from the game build",
-            )
+        # Every per-surface overlay read sits inside a ROLLER_EDITOR_CORE
+        # block, so the game's draw path is unchanged. Nesting is tracked
+        # properly rather than by counting #endif, which any other conditional
+        # in the file would throw off.
+        outside = [
+            name
+            for name, gated in overlay_references(self.draw)
+            if not gated
+        ]
+        # The one deliberate exception: the once-per-frame selection sync is
+        # unconditional because editor_legacy_scene.c is in the game's source
+        # set, and the game never reaches the render path that calls it.
+        self.assertEqual(outside, ["roller_ed_overlay_selection_range"])
+        sync = function_body(
+            self.draw, "void drawtrk3_editor_apply_overlay_selection("
+        )
+        self.assertIn("roller_ed_overlay_selection_range", sync)
         self.assertIn('#include "editor_overlay.h"', self.draw)
 
     def test_wireframe_is_drawn_from_the_emitted_surface(self) -> None:
         body = function_body(
-            self.draw, "static void draw_emitted_surface_wireframe("
+            self.draw, "static void draw_emitted_surface_edges("
         )
         self.assertIn("ed_surface_wireframe_edge_quad(pSurface, uiEdge,", body)
         self.assertIn("ED_SURFACE_VERTEX_COUNT", body)
+        self.assertIn("TEXTURE_HANDLE_INVALID", body)
         # Flat fill, same mechanism as the selection highlight: texture bits
         # cleared, palette colour in the low byte.
-        self.assertIn("SURFACE_FLAG_APPLY_TEXTURE", body)
-        self.assertIn("ED_WIREFRAME_PALETTE_COLOUR", body)
-        self.assertIn("TEXTURE_HANDLE_INVALID", body)
+        flags = function_body(
+            self.draw, "static uint32_t editor_edge_flags("
+        )
+        self.assertIn("SURFACE_FLAG_APPLY_TEXTURE", flags)
+        self.assertIn("SURFACE_MASK_FLAGS", flags)
+        self.assertIn("ED_WIREFRAME_PALETTE_COLOUR", self.draw)
 
     def test_a_hidden_surface_can_still_show_its_wireframe(self) -> None:
         body = without_comments(
@@ -226,7 +253,8 @@ class RenderFilteringTests(unittest.TestCase):
             )
         )
         hidden = body[: body.index("pFrontMaterial = ed_material_table_get(")]
-        self.assertIn("draw_emitted_surface_wireframe(pContext, pSurface)", hidden)
+        self.assertIn("draw_emitted_surface_edges(", hidden)
+        self.assertIn("ED_WIREFRAME_PALETTE_COLOUR", hidden)
         self.assertIn("return;", hidden)
 
 

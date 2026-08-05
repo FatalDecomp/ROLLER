@@ -1083,6 +1083,64 @@ static void test_wireframe_refuses_degenerate_edges(void)
         assert(!ed_surface_wireframe_edge_quad(&Surface, uiEdge, afEdgeQuad));
 }
 
+/*
+ * E3A-S3. The editor selects a chunk range, not a class, so the range has to
+ * cover every class in it. F-S4b's original single-class form still works for
+ * a caller that wants one.
+ */
+static void test_chunk_range_selection_covers_every_class(void)
+{
+    tEdSurfaceSelection Selection = {
+        .uiFirstChunkId = 40u,
+        .uiLastChunkId = 12u, /* deliberately reversed */
+        .unSurfaceClass = ED_SURFACE_SELECTION_ANY_CLASS,
+        .byHighlightColour = 0xDAu,
+        .bEnabled = true
+    };
+    tEdSurfaceEmission Surface;
+
+    memset(&Surface, 0, sizeof(Surface));
+    Surface.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 3u;
+
+    for (uint16_t unClass = 0; unClass < ROLLER_ED_SURFACE_CLASS_COUNT;
+         unClass++) {
+        Surface.unSurfaceClass = unClass;
+        Surface.uiChunkId = 11u;
+        assert(!ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 12u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 26u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 40u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 41u;
+        assert(!ed_surface_selection_matches(&Selection, &Surface));
+    }
+
+    /* The outline takes its flags from the same helper the flat highlight
+     * used: texture bits cleared, the highlight colour in the low byte. */
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_ROOF;
+    Surface.uiChunkId = 20u;
+    {
+        uint32_t uiFlags =
+            ed_surface_selection_render_flags(&Selection, &Surface);
+
+        assert((uiFlags & SURFACE_FLAG_APPLY_TEXTURE) == 0);
+        assert((uiFlags & SURFACE_MASK_TEXTURE_INDEX) == 0xDAu);
+    }
+
+    /* A single-class selection still excludes the others. */
+    Selection.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_ROOF;
+    assert(ed_surface_selection_matches(&Selection, &Surface));
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_CENTER;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+
+    /* Disabled beats everything. */
+    Selection.unSurfaceClass = ED_SURFACE_SELECTION_ANY_CLASS;
+    Selection.bEnabled = false;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+}
+
 int main(void)
 {
     test_exact_fixed_uvs_and_identity();
@@ -1102,6 +1160,7 @@ int main(void)
     test_degenerate_quads_publish_zero_normals();
     test_world_axes_and_scale_pass_through_unchanged();
     test_selection_uses_only_canonical_identity();
+    test_chunk_range_selection_covers_every_class();
     test_full_track_chunk_traversal_is_complete_and_camera_free();
     test_wireframe_edges_trace_the_surface_front_face();
     test_wireframe_refuses_degenerate_edges();

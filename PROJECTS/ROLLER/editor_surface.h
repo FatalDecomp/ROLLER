@@ -134,10 +134,16 @@ typedef struct
     int32_t iRenderSubdivideType;
 } tEdSurfaceInfo;
 
+/* A chunk-range selection covers every class in the range, which is what the
+ * editor's From/To chunk selection means. F-S4b's original single-class form
+ * is still available for a caller that wants one class. */
+#define ED_SURFACE_SELECTION_ANY_CLASS 0xFFFFu
+
 typedef struct
 {
     uint32_t uiFirstChunkId;
     uint32_t uiLastChunkId;
+    /* A specific class, or ED_SURFACE_SELECTION_ANY_CLASS. */
     uint16_t unSurfaceClass;
     uint8_t byHighlightColour;
     bool bEnabled;

@@ -52,6 +52,14 @@ int small_poly;     //001446AC
 
 static tEdSurfaceSelection g_EditorSurfaceSelection;
 
+/*
+ * E3A-S3. The colour the pre-modernization editor outlined selected chunks in
+ * (WhipLib ShapeFactory::MakeSelectedChunks used GL_LINES at palette 0xDA).
+ * Keeping it means a selection looks the way editors of this track format
+ * expect it to look.
+ */
+#define ED_SELECTION_HIGHLIGHT_PALETTE_COLOUR 0xDAu
+
 //-------------------------------------------------------------------------------------------------
 static int remap_surface_to_flat(int surfaceFlags)
 {
@@ -175,16 +183,12 @@ typedef struct
  */
 #define ED_WIREFRAME_PALETTE_COLOUR 255u
 
-static void draw_emitted_surface_wireframe(
+static void draw_emitted_surface_edges(
     const tEdRenderSurfaceContext *pContext,
-    const tEdSurfaceEmission *pSurface)
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdgeFlags)
 {
-    const int iWireflags = (int)((pSurface->uiRenderFlags
-                                  & (SURFACE_MASK_FLAGS
-                                     & ~(SURFACE_FLAG_APPLY_TEXTURE
-                                         | SURFACE_FLAG_TRANSPARENT
-                                         | SURFACE_FLAG_PARTIAL_TRANS)))
-                                 | ED_WIREFRAME_PALETTE_COLOUR);
+    const int iWireflags = (int)uiEdgeFlags;
 
     for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++) {
         float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
@@ -207,6 +211,20 @@ static void draw_emitted_surface_wireframe(
             pSurface->fSubdivideThreshold);
     }
 }
+
+/* Texture bits cleared, palette colour in the low byte -- the same flat-fill
+ * shape F-S4b's ed_surface_selection_render_flags() produces. */
+static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
+                                  uint32_t uiPaletteColour)
+{
+    return (pSurface->uiRenderFlags
+            & (SURFACE_MASK_FLAGS
+               & ~(SURFACE_FLAG_APPLY_TEXTURE
+                   | SURFACE_FLAG_TRANSPARENT
+                   | SURFACE_FLAG_PARTIAL_TRANS)))
+        | uiPaletteColour;
+}
+
 #endif
 
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
@@ -223,17 +241,37 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
             || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
         return;
 
+    bSelected = ed_surface_selection_matches(
+        pContext->pSelection, pSurface);
+
 #if defined(ROLLER_EDITOR_CORE)
     /*
      * Overlay filtering keys on the canonical unSurfaceClass the emitter
      * published (AD-8), never on anything reconstructed at draw time. The
-     * wireframe pass runs after the surface so it draws over its own fill.
+     * edge passes run after the surface so they draw over their own fill.
+     *
+     * E3A-S3: a selected surface is outlined in the highlight colour instead
+     * of its usual wireframe colour, so the two passes never fight over the
+     * same coincident ribbon, and the selection wins.
      */
-    if (!roller_ed_overlay_surface_class_visible(pSurface->unSurfaceClass)) {
-        if (roller_ed_overlay_wireframe_class_visible(
-                pSurface->unSurfaceClass))
-            draw_emitted_surface_wireframe(pContext, pSurface);
-        return;
+    {
+        const bool bSurfaceVisible =
+            roller_ed_overlay_surface_class_visible(pSurface->unSurfaceClass);
+        const bool bWireframeVisible =
+            roller_ed_overlay_wireframe_class_visible(pSurface->unSurfaceClass);
+
+        if (!bSurfaceVisible) {
+            if (bSelected)
+                draw_emitted_surface_edges(
+                    pContext, pSurface,
+                    ed_surface_selection_render_flags(
+                        pContext->pSelection, pSurface));
+            else if (bWireframeVisible)
+                draw_emitted_surface_edges(
+                    pContext, pSurface,
+                    editor_edge_flags(pSurface, ED_WIREFRAME_PALETTE_COLOUR));
+            return;
+        }
     }
 #endif
 
@@ -241,10 +279,12 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         pContext->pMaterials, pSurface->uiFrontMaterialId);
     if (!pFrontMaterial)
         return;
-    bSelected = ed_surface_selection_matches(
-        pContext->pSelection, pSurface);
-    uiRenderFlags = ed_surface_selection_render_flags(
-        pContext->pSelection, pSurface);
+    /*
+     * E3A-S3 outlines the selection rather than flat-filling it, so the fill
+     * keeps its own flags and its texture: the maintainer edits against those
+     * textures, and Select All would otherwise flatten the whole track.
+     */
+    uiRenderFlags = pSurface->uiRenderFlags;
 
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         aVertices[i].x = pSurface->aVertices[i].fPosition[0];
@@ -256,10 +296,8 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         startsy[i] = pSurface->aVertices[i].iRenderV16_16;
     }
 
-    if (!bSelected
-            && (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
-                || pFrontMaterial->uiKind
-                    == ROLLER_ED_MATERIAL_TEXTURED_PAIR)) {
+    if (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
+            || pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_PAIR) {
         hTexture = game_render_get_texture_handle(
             pContext->pRenderer, (int)pFrontMaterial->uiTextureSet);
     }
@@ -270,8 +308,17 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         pSurface->fSubdivideThreshold);
 
 #if defined(ROLLER_EDITOR_CORE)
-    if (roller_ed_overlay_wireframe_class_visible(pSurface->unSurfaceClass))
-        draw_emitted_surface_wireframe(pContext, pSurface);
+    if (bSelected)
+        draw_emitted_surface_edges(
+            pContext, pSurface,
+            ed_surface_selection_render_flags(pContext->pSelection, pSurface));
+    else if (roller_ed_overlay_wireframe_class_visible(
+                 pSurface->unSurfaceClass))
+        draw_emitted_surface_edges(
+            pContext, pSurface,
+            editor_edge_flags(pSurface, ED_WIREFRAME_PALETTE_COLOUR));
+#else
+    (void)bSelected;
 #endif
 }
 
@@ -408,6 +455,30 @@ void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
 void drawtrk3_editor_selection_clear(void)
 {
     g_EditorSurfaceSelection.bEnabled = false;
+}
+
+/*
+ * Publishes the facade's selection range to the renderer once per frame. The
+ * range is a chunk range, so it covers every surface class in it; the match
+ * itself is made per surface against the canonical uiChunkId the emitter
+ * published (AD-8), never against anything reconstructed from a draw command.
+ *
+ * Unconditional rather than editor-only: editor_legacy_scene.c is in the
+ * game's source set, and the game never reaches the render path that calls
+ * this. Overlay defaults leave the selection disabled either way.
+ */
+void drawtrk3_editor_apply_overlay_selection(void)
+{
+    uint32_t uiFirstChunk;
+    uint32_t uiLastChunk;
+
+    if (roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk)) {
+        drawtrk3_editor_selection_set(
+            uiFirstChunk, uiLastChunk, ED_SURFACE_SELECTION_ANY_CLASS,
+            ED_SELECTION_HIGHLIGHT_PALETTE_COLOUR);
+    } else {
+        drawtrk3_editor_selection_clear();
+    }
 }
 
 // Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source

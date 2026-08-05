@@ -69,6 +69,9 @@ void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
                                    uint16_t unSurfaceClass,
                                    uint8_t byHighlightColour);
 void drawtrk3_editor_selection_clear(void);
+/* Syncs the renderer's selection from the facade overlay state; call once per
+ * editor frame, before rendering. */
+void drawtrk3_editor_apply_overlay_selection(void);
 
 //-------------------------------------------------------------------------------------------------
 #endif

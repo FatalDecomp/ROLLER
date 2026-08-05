@@ -204,8 +204,10 @@ bool ed_surface_selection_matches(const tEdSurfaceSelection *pSelection,
     uint32_t uiFirstChunkId;
     uint32_t uiLastChunkId;
 
-    if (!pSelection || !pSurface || !pSelection->bEnabled
-            || pSurface->unSurfaceClass != pSelection->unSurfaceClass)
+    if (!pSelection || !pSurface || !pSelection->bEnabled)
+        return false;
+    if (pSelection->unSurfaceClass != ED_SURFACE_SELECTION_ANY_CLASS
+            && pSurface->unSurfaceClass != pSelection->unSurfaceClass)
         return false;
 
     uiFirstChunkId = pSelection->uiFirstChunkId;
