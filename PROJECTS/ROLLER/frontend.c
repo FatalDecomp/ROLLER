@@ -4,12 +4,17 @@
 
 //-------------------------------------------------------------------------------------------------
 
+typedef void (*tFrontendEnterFn)(void);
+typedef void (*tFrontendUpdateFn)(void);
+typedef void (*tFrontendDrawFn)(void);
+typedef void (*tFrontendExitFn)(void);
+
 typedef struct {
-  void (*enter)(void);
-  void (*update)(void);
-  void (*draw)(void);
-  void (*exit)(void);
-} FrontendScreen;
+  tFrontendEnterFn pfnEnter;
+  tFrontendUpdateFn pfnUpdate;
+  tFrontendDrawFn pfnDraw;
+  tFrontendExitFn pfnExit;
+} tFrontendScreen;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -18,12 +23,12 @@ eFrontendState eFrontendNextState = eFRONTEND_STATE_NONE;
 
 #define OVERLAY_STACK_DEPTH 4
 
-static void frontend_fsm_enter(void *context);
-static void frontend_fsm_update(void *context);
-static void frontend_fsm_draw(void *context);
-static void frontend_fsm_exit(void *context);
+static void frontend_fsm_enter(void *pContext);
+static void frontend_fsm_update(void *pContext);
+static void frontend_fsm_draw(void *pContext);
+static void frontend_fsm_exit(void *pContext);
 
-static const FrontendScreen frontend_screens[eFRONTEND_STATE_QUIT + 1] = {
+static const tFrontendScreen aScreens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_COPYRIGHT] = {
     frontend_copy_screens_enter, frontend_copy_screens_update, NULL, frontend_copy_screens_exit },
   [eFRONTEND_STATE_TITLE] = { frontend_title_enter, frontend_title_update, NULL, frontend_title_exit },
@@ -70,10 +75,10 @@ static const FrontendScreen frontend_screens[eFRONTEND_STATE_QUIT + 1] = {
   [eFRONTEND_STATE_SHUTDOWN] = { frontend_shutdown_enter, frontend_shutdown_update, NULL, NULL },
 };
 
-#define FRONTEND_STATE_COUNT ((int)(sizeof(frontend_screens) / sizeof(frontend_screens[0])))
+#define FRONTEND_STATE_COUNT ((int)(sizeof(aScreens) / sizeof(aScreens[0])))
 
-static int frontend_overlay_storage[OVERLAY_STACK_DEPTH];
-static FsmMachine frontend_machine = {
+static int aOverlayStack[OVERLAY_STACK_DEPTH];
+static FsmMachine sFrontendMachine = {
   NULL,
   { frontend_fsm_enter, frontend_fsm_update, frontend_fsm_draw, frontend_fsm_exit },
   FRONTEND_STATE_COUNT,
@@ -81,127 +86,127 @@ static FsmMachine frontend_machine = {
   eFRONTEND_STATE_NONE,
   NULL
 };
-static FsmStack frontend_overlay_stack = {
-  &frontend_machine,
-  frontend_overlay_storage,
+static FsmStack sFrontendOverlayStack = {
+  &sFrontendMachine,
+  aOverlayStack,
   OVERLAY_STACK_DEPTH,
   0
 };
 
 //-------------------------------------------------------------------------------------------------
 
-static int frontend_state_is_valid(eFrontendState state)
+static int frontend_state_is_valid(eFrontendState eState)
 {
-  return state >= eFRONTEND_STATE_NONE &&
-         state < (eFrontendState)FRONTEND_STATE_COUNT;
+  return eState >= eFRONTEND_STATE_NONE &&
+         eState < (eFrontendState)FRONTEND_STATE_COUNT;
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static eFrontendState frontend_resolve_state(eFrontendState state)
+static eFrontendState frontend_resolve_state(eFrontendState eState)
 {
-  if (!frontend_state_is_valid(state))
+  if (!frontend_state_is_valid(eState))
     return eFRONTEND_STATE_NONE;
 
-  if (state == eFRONTEND_STATE_QUIT && !frontend_shutdown_complete())
+  if (eState == eFRONTEND_STATE_QUIT && !frontend_shutdown_complete())
     return eFRONTEND_STATE_SHUTDOWN;
 
-  return state;
+  return eState;
 }
 
 //-------------------------------------------------------------------------------------------------
 
 static void frontend_sync_legacy_globals(void)
 {
-  eFrontendCurrentState = (eFrontendState)fsm_current(&frontend_machine);
-  eFrontendNextState = (eFrontendState)fsm_pending(&frontend_machine);
+  eFrontendCurrentState = (eFrontendState)fsm_current(&sFrontendMachine);
+  eFrontendNextState = (eFrontendState)fsm_pending(&sFrontendMachine);
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static const FrontendScreen *frontend_current_screen(void)
+static const tFrontendScreen *frontend_current_screen(void)
 {
-  eFrontendState state = (eFrontendState)fsm_current(&frontend_machine);
+  eFrontendState eState = (eFrontendState)fsm_current(&sFrontendMachine);
 
-  if (!frontend_state_is_valid(state))
+  if (!frontend_state_is_valid(eState))
     return NULL;
 
-  return &frontend_screens[state];
+  return &aScreens[eState];
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_fsm_enter(void *context)
+static void frontend_fsm_enter(void *pContext)
 {
-  const FrontendScreen *screen;
-  (void)context;
+  const tFrontendScreen *pScreen;
+  (void)pContext;
 
   frontend_sync_legacy_globals();
-  screen = frontend_current_screen();
-  if (screen && screen->enter)
-    screen->enter();
+  pScreen = frontend_current_screen();
+  if (pScreen && pScreen->pfnEnter)
+    pScreen->pfnEnter();
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_fsm_update(void *context)
+static void frontend_fsm_update(void *pContext)
 {
-  const FrontendScreen *screen;
-  eFrontendState requested_state;
-  (void)context;
+  const tFrontendScreen *pScreen;
+  eFrontendState eRequestedState;
+  (void)pContext;
 
   frontend_sync_legacy_globals();
-  screen = frontend_current_screen();
-  if (screen && screen->update)
-    screen->update();
+  pScreen = frontend_current_screen();
+  if (pScreen && pScreen->pfnUpdate)
+    pScreen->pfnUpdate();
 
-  requested_state = frontend_resolve_state(eFrontendNextState);
-  if (requested_state != (eFrontendState)fsm_pending(&frontend_machine))
-    (void)fsm_request(&frontend_machine, requested_state);
+  eRequestedState = frontend_resolve_state(eFrontendNextState);
+  if (eRequestedState != (eFrontendState)fsm_pending(&sFrontendMachine))
+    (void)fsm_request(&sFrontendMachine, eRequestedState);
   frontend_sync_legacy_globals();
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_fsm_draw(void *context)
+static void frontend_fsm_draw(void *pContext)
 {
-  const FrontendScreen *screen;
-  (void)context;
+  const tFrontendScreen *pScreen;
+  (void)pContext;
 
   frontend_sync_legacy_globals();
-  screen = frontend_current_screen();
-  if (screen && screen->draw)
-    screen->draw();
+  pScreen = frontend_current_screen();
+  if (pScreen && pScreen->pfnDraw)
+    pScreen->pfnDraw();
 }
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_fsm_exit(void *context)
+static void frontend_fsm_exit(void *pContext)
 {
-  const FrontendScreen *screen;
-  (void)context;
+  const tFrontendScreen *pScreen;
+  (void)pContext;
 
   frontend_sync_legacy_globals();
-  screen = frontend_current_screen();
-  if (screen && screen->exit)
-    screen->exit();
+  pScreen = frontend_current_screen();
+  if (pScreen && pScreen->pfnExit)
+    pScreen->pfnExit();
 }
 
 //-------------------------------------------------------------------------------------------------
 
-void frontend_set_state(eFrontendState state)
+void frontend_set_state(eFrontendState eState)
 {
-  state = frontend_resolve_state(state);
+  eState = frontend_resolve_state(eState);
 
-  if (state == (eFrontendState)fsm_current(&frontend_machine)) {
-    (void)fsm_request(&frontend_machine, state);
+  if (eState == (eFrontendState)fsm_current(&sFrontendMachine)) {
+    (void)fsm_request(&sFrontendMachine, eState);
     frontend_sync_legacy_globals();
     return;
   }
 
-  while (fsm_stack_count(&frontend_overlay_stack) > 0)
-    (void)fsm_stack_pop(&frontend_overlay_stack);
-  (void)fsm_transition(&frontend_machine, state);
+  while (fsm_stack_count(&sFrontendOverlayStack) > 0)
+    (void)fsm_stack_pop(&sFrontendOverlayStack);
+  (void)fsm_transition(&sFrontendMachine, eState);
   frontend_sync_legacy_globals();
 }
 
@@ -209,24 +214,24 @@ void frontend_set_state(eFrontendState state)
 
 void frontend_update(void)
 {
-  eFrontendState requested_state;
+  eFrontendState eRequestedState;
 
-  requested_state = frontend_resolve_state(eFrontendNextState);
-  if (requested_state != (eFrontendState)fsm_pending(&frontend_machine))
-    (void)fsm_request(&frontend_machine, requested_state);
+  eRequestedState = frontend_resolve_state(eFrontendNextState);
+  if (eRequestedState != (eFrontendState)fsm_pending(&sFrontendMachine))
+    (void)fsm_request(&sFrontendMachine, eRequestedState);
 
-  (void)fsm_step(&frontend_machine);
+  (void)fsm_step(&sFrontendMachine);
   frontend_sync_legacy_globals();
 }
 
 //-------------------------------------------------------------------------------------------------
 
-void push_overlay(eFrontendState overlay)
+void push_overlay(eFrontendState eOverlay)
 {
-  if (!frontend_state_is_valid(overlay))
+  if (!frontend_state_is_valid(eOverlay))
     return;
 
-  if (fsm_stack_push(&frontend_overlay_stack, overlay) == FSM_OK)
+  if (fsm_stack_push(&sFrontendOverlayStack, eOverlay) == FSM_OK)
     frontend_sync_legacy_globals();
 }
 
@@ -234,7 +239,7 @@ void push_overlay(eFrontendState overlay)
 
 void pop_overlay(void)
 {
-  if (fsm_stack_pop(&frontend_overlay_stack) == FSM_OK)
+  if (fsm_stack_pop(&sFrontendOverlayStack) == FSM_OK)
     frontend_sync_legacy_globals();
 }
 
