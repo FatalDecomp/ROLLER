@@ -110,11 +110,14 @@ class CMakeRollerCoreTests(unittest.TestCase):
             source_names = {
                 Path(source["path"]).name for source in core_target["sources"]
             }
-            self.assertEqual(len(source_names), 72)
+            self.assertEqual(len(source_names), 74)
             self.assertIn("editor_camera.c", source_names)
             self.assertIn("editor_api.c", source_names)
             self.assertIn("editor_legacy_scene.c", source_names)
             self.assertIn("editor_core_host.c", source_names)
+
+            self.assertIn("fsm.c", source_names)
+            self.assertIn("fsm_stack.c", source_names)
             self.assertIn("frontend.c", source_names)
             self.assertIn("network.c", source_names)
             self.assertIn("roller_core_error.c", source_names)

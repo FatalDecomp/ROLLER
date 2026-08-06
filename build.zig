@@ -74,6 +74,8 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/comms.c",
             "PROJECTS/ROLLER/control.c",
             "PROJECTS/ROLLER/date.c",
+            "PROJECTS/ROLLER/fsm.c",
+            "PROJECTS/ROLLER/fsm_stack.c",
             "PROJECTS/ROLLER/drawtrk3.c",
             "PROJECTS/ROLLER/editor_camera.c",
             "PROJECTS/ROLLER/editor_api.c",
@@ -374,6 +376,32 @@ fn configureRenderQueue3DTests(
     );
     render_queue_tests.dependOn(&run_unit.step);
 
+    const fsm_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    fsm_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    fsm_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/fsm.c",
+            "PROJECTS/ROLLER/fsm_stack.c",
+            "tests/fsm_test.c",
+        },
+    });
+    const fsm_exe = b.addExecutable(.{
+        .name = "fsm_test",
+        .root_module = fsm_mod,
+    });
+    const run_fsm = b.addRunArtifact(fsm_exe);
+
+    const fsm_tests = b.step(
+        "test-fsm",
+        "Run canonical FSM runner and stack tests",
+    );
+    fsm_tests.dependOn(&run_fsm.step);
+
     const sdl_image = b.dependency("SDL_image", .{
         .target = target,
         .optimize = optimize,
@@ -630,6 +658,7 @@ fn configureRenderQueue3DTests(
 
     const test_step = b.step("test", "Run focused unit tests and optional seam checks");
     test_step.dependOn(render_queue_tests);
+    test_step.dependOn(fsm_tests);
     test_step.dependOn(tick_clock_tests);
 
     const roller_core_manifest_check = b.addSystemCommand(&.{
