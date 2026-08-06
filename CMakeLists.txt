@@ -28,6 +28,8 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/comms.c
     PROJECTS/ROLLER/control.c
     PROJECTS/ROLLER/date.c
+    PROJECTS/ROLLER/fsm.c
+    PROJECTS/ROLLER/fsm_stack.c
     PROJECTS/ROLLER/drawtrk3.c
     PROJECTS/ROLLER/editor_camera.c
     PROJECTS/ROLLER/editor_api.c
