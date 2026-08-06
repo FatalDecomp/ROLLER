@@ -1,0 +1,39 @@
+name: Lint Markdown
+
+on:
+  push:
+    paths:
+      - "CONTEXT.md"
+      - "docs/**/*.md"
+      - ".mdformat.toml"
+      - "mise.toml"
+      - ".github/workflows/markdown-lint.yml"
+  pull_request:
+    paths:
+      - "CONTEXT.md"
+      - "docs/**/*.md"
+      - ".mdformat.toml"
+      - "mise.toml"
+      - ".github/workflows/markdown-lint.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-markdown:
+    name: Check architecture Markdown
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Check Markdown formatting
+        run: mise run lint-markdown
