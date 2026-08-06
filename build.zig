@@ -80,6 +80,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/editor_legacy_scene.c",
             "PROJECTS/ROLLER/editor_overlay.c",
             "PROJECTS/ROLLER/editor_helpers.c",
+            "PROJECTS/ROLLER/editor_test_car.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -537,6 +538,11 @@ fn configureRenderQueue3DTests(
         "Run audio/stunt marker overlay acceptance (retail assets)",
     );
     editor_marker_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_test_car_tests = b.step(
+        "test-e3a-s6-test-car",
+        "Run configurable test car acceptance (retail assets)",
+    );
+    editor_test_car_tests.dependOn(&run_editor_overlay_toggle.step);
 
     const editor_buffers_mod = b.createModule(.{
         .target = target,

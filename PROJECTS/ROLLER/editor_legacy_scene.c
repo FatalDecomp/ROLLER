@@ -6,6 +6,7 @@
 #include "editor_camera.h"
 #include "editor_overlay.h"
 #include "editor_surface.h"
+#include "editor_test_car.h"
 #include "game_render.h"
 #include "loadtrak.h"
 #include "scene_render_gpu.h"
@@ -326,6 +327,9 @@ eRollerEdResult roller_ed_legacy_scene_render(
         /* After the scene, so the helpers sit on top of the surfaces they
          * describe and inherit the transform draw_road established. */
         drawtrk3_editor_draw_helpers(g_pGameRenderer);
+        /* The test car goes in last: it stands on the helpers rather than
+         * under them, and it is the only overlay that is a real model. */
+        ed_test_car_draw(g_pGameRenderer);
         if (!game_render_end_frame_software_readback(
                 g_pGameRenderer, scrbuf, uiNativeWidth,
                 uiNativeWidth, uiNativeHeight,
@@ -366,6 +370,9 @@ eRollerEdResult roller_ed_legacy_scene_render(
     /* After the scene, so the helpers sit on top of the surfaces they
      * describe and inherit the transform draw_road established. */
     drawtrk3_editor_draw_helpers(g_pGameRenderer);
+    /* The test car goes in last: it stands on the helpers rather than under
+     * them, and it is the only overlay that is a real model. */
+    ed_test_car_draw(g_pGameRenderer);
     if (!scene_render_gpu_end_frame_readback(
             pGPU, pbyPixels, uiBufferSize, uiRowPitch, uiWidth, uiHeight)) {
         editor_scene_set_error(szError, uiErrorCapacity,
@@ -614,6 +621,9 @@ void roller_ed_legacy_scene_shutdown(void)
 {
     roller_ed_camera_reset();
     roller_ed_overlay_reset();
+    /* Before the renderer goes: the prepared design is only meaningful while
+     * the texture bank it registered still exists. */
+    ed_test_car_reset();
     if (g_pGameRenderer) {
         game_render_destroy(g_pGameRenderer);
         g_pGameRenderer = NULL;

@@ -60,7 +60,8 @@ int main(void)
         ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS,
         ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
         ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
-        ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH
+        ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH,
+        ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS
     };
     const uint32_t uiKnownFlags = (uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS;
     tEdOverlayState State;
@@ -75,7 +76,8 @@ int main(void)
         for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i)
             uiUnion |= auiFlags[i];
         CHECK(uiUnion == uiKnownFlags);
-        CHECK((uiKnownFlags & (1u << 10)) == 0u);
+        /* Bit 11 is the first undefined one since E3A-S6 took 10. */
+        CHECK((uiKnownFlags & (1u << 11)) == 0u);
     }
 
     /* Defaults reproduce the E1-S6 track-only view: every class solid, no
@@ -181,7 +183,7 @@ int main(void)
      * does not define is never stored. */
     {
         tEdOverlayState Unknown = make_state(
-            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 10) | (1u << 31), 1u, 2u);
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 11) | (1u << 31), 1u, 2u);
 
         roller_ed_overlay_set(&Unknown);
         CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);
@@ -282,7 +284,74 @@ int main(void)
         CHECK(!roller_ed_overlay_surface_class_visible(0xffffu));
     }
 
+    /*
+     * E3A-S6 test-car selection. It is only published while SHOW_TEST_CAR is
+     * set, and its chunk is the selection's first endpoint whether or not the
+     * highlight itself is on -- the legacy editor drew the car on m_iSelFrom
+     * regardless.
+     */
+    {
+        uint32_t uiDesign = 0xFFFFFFFFu;
+        uint32_t uiAiLine = 0xFFFFFFFFu;
+        uint32_t uiChunk = 0xFFFFFFFFu;
+        bool bMillionPlus = true;
+
+        State = make_state(ROLLER_ED_OVERLAY_SHOW_SURFACES, 12u, 20u);
+        State.uiTestCarDesign = 5u;
+        State.uiTestCarAiLine = 2u;
+        roller_ed_overlay_set(&State);
+        CHECK(!roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
+                                          &bMillionPlus));
+        /* Refused means untouched: nothing was written. */
+        CHECK(uiDesign == 0xFFFFFFFFu && bMillionPlus);
+
+        /* Stored across the toggle, so ticking the box does not reset it. */
+        State.uiFlags |= ROLLER_ED_OVERLAY_SHOW_TEST_CAR;
+        roller_ed_overlay_set(&State);
+        CHECK(roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
+                                         &bMillionPlus));
+        CHECK(uiDesign == 5u);
+        CHECK(uiAiLine == 2u);
+        CHECK(uiChunk == 12u);
+        CHECK(!bMillionPlus);
+
+        /* The highlight flag governs the outline, not the car. */
+        State.uiFlags |= ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION;
+        roller_ed_overlay_set(&State);
+        CHECK(roller_ed_overlay_test_car(NULL, NULL, &uiChunk, NULL));
+        CHECK(uiChunk == 12u);
+
+        /* Nothing selected puts the car on chunk zero rather than on the
+         * invalid sentinel. */
+        State = make_state(ROLLER_ED_OVERLAY_SHOW_SURFACES
+                               | ROLLER_ED_OVERLAY_SHOW_TEST_CAR
+                               | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS,
+                           ROLLER_ED_INVALID_CHUNK_ID,
+                           ROLLER_ED_INVALID_CHUNK_ID);
+        State.uiTestCarDesign = 13u;
+        State.uiTestCarAiLine = 3u;
+        roller_ed_overlay_set(&State);
+        CHECK(roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
+                                         &bMillionPlus));
+        CHECK(uiChunk == 0u);
+        CHECK(uiDesign == 13u);
+        CHECK(uiAiLine == 3u);
+        CHECK(bMillionPlus);
+
+        /* Round trip publishes both fields under this build's version. */
+        roller_ed_overlay_get(&State);
+        CHECK(State.uiVersion == ROLLER_ED_OVERLAY_STATE_VERSION);
+        CHECK(State.uiStructSize == (uint32_t)sizeof(State));
+        CHECK(State.uiTestCarDesign == 13u);
+        CHECK(State.uiTestCarAiLine == 3u);
+
+        /* Every output pointer is optional. */
+        CHECK(roller_ed_overlay_test_car(NULL, NULL, NULL, NULL));
+    }
+
     /* NULL is ignored rather than clearing state. */
+    State = make_state(ROLLER_ED_OVERLAY_SHOW_SURFACES, 0u, 0u);
+    roller_ed_overlay_set(&State);
     roller_ed_overlay_set(NULL);
     CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);
     roller_ed_overlay_get(&State);
@@ -294,6 +363,10 @@ int main(void)
     roller_ed_overlay_reset();
     CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_DEFAULT_FLAGS);
     CHECK(!roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk));
+    CHECK(!roller_ed_overlay_test_car(NULL, NULL, NULL, NULL));
+    roller_ed_overlay_get(&State);
+    CHECK(State.uiTestCarDesign == ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_DESIGN);
+    CHECK(State.uiTestCarAiLine == ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_AI_LINE);
     CHECK(roller_ed_overlay_surface_class_visible(
               ROLLER_ED_SURFACE_CLASS_CENTER));
     CHECK(!roller_ed_overlay_wireframe_class_visible(

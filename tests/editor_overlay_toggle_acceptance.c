@@ -17,6 +17,7 @@
  *     because overlay state is the only thing that changed.
  */
 #include "3d.h"
+#include "car.h"
 #include "drawtrk3.h"
 #include "editor_api.h"
 #include "editor_helpers.h"
@@ -181,19 +182,16 @@ static int find_camera_showing_track(tOverlayContext *pContext)
  * in front of it; the sweep only decides *where* to look from, never whether
  * the marker had to appear -- the caller still fails if nothing ever drew.
  */
-static int marker_visible_from_its_chunk(tOverlayContext *pContext,
-                                         uint32_t uiChunkId,
-                                         uint32_t uiFlag,
-                                         size_t *puiDifference)
+static int overlay_visible_from_chunk(tOverlayContext *pContext,
+                                      uint32_t uiChunkId,
+                                      const tEdOverlayState *pBaseState,
+                                      const tEdOverlayState *pMarkedState,
+                                      size_t *puiDifference)
 {
     static const float afPitch[] = { -25.0f, -10.0f, 0.0f, 10.0f, 25.0f };
     static const float afDistance[] = { 4.0f, 8.0f };
-    tEdOverlayState Base = make_overlay(ROLLER_ED_OVERLAY_SHOW_SURFACES,
-                                        ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
-                                        0u);
-    tEdOverlayState Marked = make_overlay(
-        ROLLER_ED_OVERLAY_SHOW_SURFACES | uiFlag,
-        ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+    tEdOverlayState Base = *pBaseState;
+    tEdOverlayState Marked = *pMarkedState;
     float afTarget[3];
     float afBehind[3];
     float fRoadWidth = ed_helper_road_width(uiChunkId);
@@ -251,7 +249,7 @@ static int marker_visible_from_its_chunk(tOverlayContext *pContext,
                 return 0;
             if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
                 acceptance_fail(pContext,
-                                "clearing the marker on chunk %u left %zu "
+                                "clearing the overlay on chunk %u left %zu "
                                 "pixels drawn",
                                 uiChunkId,
                                 differing_pixels(s_pFrame, s_pMarkerBase));
@@ -613,10 +611,20 @@ static int SDLCALL overlay_worker(void *pUserData)
                                 aMarkers[i].uiPlaced, aMarkers[i].szName);
                 goto shutdown;
             }
-            if (!marker_visible_from_its_chunk(pContext, aMarkers[i].uiChunkId,
-                                               aMarkers[i].uiFlag,
-                                               &auiMarkerDifference[i]))
-                goto shutdown;
+            {
+                tEdOverlayState MarkerBase = make_overlay(
+                    ROLLER_ED_OVERLAY_SHOW_SURFACES,
+                    ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+                tEdOverlayState Marked = make_overlay(
+                    ROLLER_ED_OVERLAY_SHOW_SURFACES | aMarkers[i].uiFlag,
+                    ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+
+                if (!overlay_visible_from_chunk(pContext,
+                                                aMarkers[i].uiChunkId,
+                                                &MarkerBase, &Marked,
+                                                &auiMarkerDifference[i]))
+                    goto shutdown;
+            }
             if (auiMarkerDifference[i] == 0u) {
                 acceptance_fail(pContext,
                                 "the %s marker on chunk %u drew nothing from "
@@ -630,6 +638,105 @@ static int SDLCALL overlay_worker(void *pUserData)
                "(chunk %u -> %zu pixels)\n",
                uiAudioChunks, uiFirstAudioChunk, auiMarkerDifference[0],
                uiStunts, uiFirstStuntChunk, auiMarkerDifference[1]);
+    }
+
+    /*
+     * E3A-S6. The test car stands on the selection's first chunk, so it is
+     * aimed at the same way a marker is. Two things beyond "it draws": every
+     * design has to be selectable, and the car must not move -- rendering the
+     * same overlay twice has to give the same frame, which is the cheapest
+     * direct evidence that no simulation is running behind it.
+     */
+    {
+        static const uint32_t auiTestChunk[] = { 0u, 40u };
+        uint32_t uiCarChunk = auiTestChunk[0];
+        size_t uiCarDifference = 0;
+        size_t uiFlippedDifference = 0;
+        uint32_t uiDrawnDesigns = 0u;
+
+        if ((uint32_t)TRAK_LEN > auiTestChunk[1])
+            uiCarChunk = auiTestChunk[1];
+
+        for (uint32_t uiDesign = 0u;
+             uiDesign < ROLLER_ED_TEST_CAR_DESIGN_COUNT; uiDesign++) {
+            tEdOverlayState CarBase = make_overlay(
+                ROLLER_ED_OVERLAY_SHOW_SURFACES,
+                ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+            tEdOverlayState WithCar = make_overlay(
+                ROLLER_ED_OVERLAY_SHOW_SURFACES
+                    | ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
+                ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+            size_t uiDifference = 0;
+
+            /* The car's chunk is the selection's first endpoint, whether or
+             * not the highlight itself is switched on. */
+            CarBase.uiFirstSelectedChunk = uiCarChunk;
+            CarBase.uiLastSelectedChunk = uiCarChunk;
+            WithCar.uiFirstSelectedChunk = uiCarChunk;
+            WithCar.uiLastSelectedChunk = uiCarChunk;
+            WithCar.uiTestCarDesign = uiDesign;
+            WithCar.uiTestCarAiLine = uiDesign % ROLLER_ED_TEST_CAR_AI_LINE_COUNT;
+
+            if (!overlay_visible_from_chunk(pContext, uiCarChunk, &CarBase,
+                                            &WithCar, &uiDifference))
+                goto shutdown;
+            if (uiDifference == 0u) {
+                acceptance_fail(pContext,
+                                "test car design %u drew nothing from any "
+                                "camera aimed at chunk %u",
+                                uiDesign, uiCarChunk);
+                goto shutdown;
+            }
+            uiDrawnDesigns++;
+            if (uiDesign == 0u)
+                uiCarDifference = uiDifference;
+        }
+
+        /*
+         * The camera is wherever the last search left it. Render the same
+         * state twice: a car that is being simulated would have moved, and a
+         * car that is not cannot.
+         */
+        Overlay = make_overlay(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
+            ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+        Overlay.uiFirstSelectedChunk = uiCarChunk;
+        Overlay.uiLastSelectedChunk = uiCarChunk;
+        if (!render_with_overlay(pContext, &Overlay, s_pMarkerBase))
+            goto shutdown;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+            acceptance_fail(pContext,
+                            "the test car moved between two identical frames "
+                            "(%zu pixels differ) -- something is stepping it",
+                            differing_pixels(s_pFrame, s_pMarkerBase));
+            goto shutdown;
+        }
+        if (numcars != 0) {
+            acceptance_fail(pContext,
+                            "drawing the test car raised numcars to %d; E1-S6 "
+                            "requires it to stay zero",
+                            numcars);
+            goto shutdown;
+        }
+
+        /* Million Plus turns the car around, so it must change the frame
+         * without changing whether the car is there at all. */
+        Overlay.uiFlags |= ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        uiFlippedDifference = differing_pixels(s_pFrame, s_pMarkerBase);
+        if (uiFlippedDifference == 0u) {
+            acceptance_fail(pContext,
+                            "Million Plus did not change the test car");
+            goto shutdown;
+        }
+
+        printf("test car: %u/%u designs drew on chunk %u (design 0 covered "
+               "%zu pixels; Million Plus moved %zu), numcars=%d\n",
+               uiDrawnDesigns, (unsigned)ROLLER_ED_TEST_CAR_DESIGN_COUNT,
+               uiCarChunk, uiCarDifference, uiFlippedDifference, numcars);
     }
 
     /* AD-7d on the real facade: none of that touched authored geometry. */

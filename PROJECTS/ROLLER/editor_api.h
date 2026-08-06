@@ -179,8 +179,25 @@ enum
     ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS = 1u << 6,
     ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS = 1u << 7,
     ROLLER_ED_OVERLAY_SHOW_TEST_CAR = 1u << 8,
-    ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH = 1u << 9
+    ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH = 1u << 9,
+    /*
+     * v3. The legacy editor's "million plus" toggle: it rotates the test car
+     * the opposite way, because the Million-and-later plans were authored
+     * facing the other direction. It is a modifier on SHOW_TEST_CAR, not an
+     * overlay of its own, which is why it is a flag rather than a field.
+     */
+    ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS = 1u << 10
 };
+
+/*
+ * Test-car selection (E3A-S6). The design index is ROLLER's own
+ * CAR_DESIGN_* numbering, not the editor's model enum -- the host translates
+ * at the boundary, exactly as it does for the legacy SHOW_* mask. The AI line
+ * index matches localdata[].fAILine1..4, the same lines the AI-line overlay
+ * draws.
+ */
+#define ROLLER_ED_TEST_CAR_DESIGN_COUNT 14u
+#define ROLLER_ED_TEST_CAR_AI_LINE_COUNT 4u
 
 /*
  * Overlay class masks. SHOW_SURFACES and SHOW_WIREFRAME are master switches;
@@ -204,12 +221,12 @@ enum
  * Per-struct versions (AD-12). These start equal to the API version but are
  * deliberately independent of it: a struct that gains a field bumps its own
  * version, and every other call keeps working unchanged. tEdOverlayState is
- * at 2 because E3A-S2 added the per-class masks.
+ * at 3: E3A-S2 added the per-class masks, E3A-S6 the test-car selection.
  */
 #define ROLLER_ED_BOOTSTRAP_INFO_VERSION 1u
 #define ROLLER_ED_INIT_INFO_VERSION 1u
 #define ROLLER_ED_CAMERA_STATE_VERSION 1u
-#define ROLLER_ED_OVERLAY_STATE_VERSION 2u
+#define ROLLER_ED_OVERLAY_STATE_VERSION 3u
 #define ROLLER_ED_REFERENCE_MESH_VERSION 1u
 #define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
 
@@ -253,6 +270,11 @@ typedef struct
      * SHOW_WIREFRAME respectively. */
     uint32_t uiSurfaceClassMask;
     uint32_t uiWireframeClassMask;
+    /* v3. Read only when SHOW_TEST_CAR is set. The car stands on
+     * uiFirstSelectedChunk, which is where the legacy editor put it, so no
+     * separate chunk field is needed. */
+    uint32_t uiTestCarDesign;  /* < ROLLER_ED_TEST_CAR_DESIGN_COUNT */
+    uint32_t uiTestCarAiLine;  /* < ROLLER_ED_TEST_CAR_AI_LINE_COUNT */
 } tEdOverlayState;
 
 typedef struct
@@ -363,7 +385,7 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPosition) == 8u,
                         "camera position offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPitchDegrees) == 24u,
                         "camera pitch offset");
-ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 28u, "overlay size");
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 36u, "overlay size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdOverlayState) == 4u,
                         "overlay alignment");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiFlags) == 8u,
@@ -374,6 +396,10 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiSurfaceClassMask) == 20u,
                         "overlay surface class mask offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiWireframeClassMask) == 24u,
                         "overlay wireframe class mask offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiTestCarDesign) == 28u,
+                        "overlay test car design offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiTestCarAiLine) == 32u,
+                        "overlay test car ai line offset");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_SURFACE_CLASS_COUNT <= 32u,
                         "surface classes must fit an overlay class mask");
 ROLLER_ED_STATIC_ASSERT(sizeof(tEdReferenceVertex) == 32u, "reference vertex size");

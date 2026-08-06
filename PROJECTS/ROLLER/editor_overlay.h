@@ -33,7 +33,8 @@
      | ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS \
      | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS \
      | ROLLER_ED_OVERLAY_SHOW_TEST_CAR \
-     | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH)
+     | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH \
+     | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS)
 
 /*
  * The defaults reproduce the E1-S6 track-only view exactly: every surface
@@ -45,6 +46,10 @@
 #define ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK \
     ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES
 #define ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK 0u
+/* E3A-S6. Only read when SHOW_TEST_CAR is set, which it is not by default,
+ * so these merely have to be in range. Design 0 is CAR_DESIGN_AUTO. */
+#define ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_DESIGN 0u
+#define ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_AI_LINE 0u
 
 void roller_ed_overlay_reset(void);
 void roller_ed_overlay_set(const tEdOverlayState *pState);
@@ -76,5 +81,15 @@ bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
  */
 bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass);
 bool roller_ed_overlay_wireframe_class_visible(uint16_t unSurfaceClass);
+
+/*
+ * E3A-S6. False unless SHOW_TEST_CAR is set, in which case the stored design,
+ * AI line, chunk, and million-plus modifier are published. The chunk is the
+ * selection's first endpoint -- where the legacy editor drew the car -- and
+ * falls back to zero when nothing is selected. Range validation happens at
+ * the facade, so what comes out here is already in range.
+ */
+bool roller_ed_overlay_test_car(uint32_t *puiDesign, uint32_t *puiAiLine,
+                                uint32_t *puiChunk, bool *pbMillionPlus);
 
 #endif

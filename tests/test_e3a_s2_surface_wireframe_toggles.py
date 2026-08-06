@@ -86,8 +86,11 @@ class OverlayClassMaskAbiTests(unittest.TestCase):
         ]
         self.assertIn("uint32_t uiSurfaceClassMask;", overlay)
         self.assertIn("uint32_t uiWireframeClassMask;", overlay)
+        # 36 since E3A-S6 appended the test-car selection. What this story
+        # owns is that its two masks keep the offsets it gave them, which the
+        # loop below still checks; the total only has to stay asserted.
         self.assertIn(
-            "ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 28u", self.header
+            "ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 36u", self.header
         )
         for field, offset in (
             ("uiSurfaceClassMask", 20),
@@ -98,7 +101,11 @@ class OverlayClassMaskAbiTests(unittest.TestCase):
             )
 
     def test_only_the_overlay_struct_version_moved(self) -> None:
-        self.assertIn("#define ROLLER_ED_OVERLAY_STATE_VERSION 2u", self.header)
+        # 3 since E3A-S6. The point of this test is not the number but that
+        # tEdOverlayState is the *only* struct that has ever moved off 1: the
+        # per-struct versions are independent of each other and of the API
+        # version, which is what lets one struct gain a field cheaply.
+        self.assertIn("#define ROLLER_ED_OVERLAY_STATE_VERSION 3u", self.header)
         for name in (
             "ROLLER_ED_BOOTSTRAP_INFO_VERSION",
             "ROLLER_ED_INIT_INFO_VERSION",

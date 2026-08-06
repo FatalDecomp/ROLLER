@@ -13,6 +13,8 @@ static uint32_t s_uiSurfaceClassMask =
     ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK;
 static uint32_t s_uiWireframeClassMask =
     ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK;
+static uint32_t s_uiTestCarDesign = ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_DESIGN;
+static uint32_t s_uiTestCarAiLine = ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_AI_LINE;
 
 static bool overlay_class_selected(uint32_t uiMask, uint16_t unSurfaceClass)
 {
@@ -28,6 +30,8 @@ void roller_ed_overlay_reset(void)
     s_uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
     s_uiSurfaceClassMask = ROLLER_ED_OVERLAY_DEFAULT_SURFACE_CLASS_MASK;
     s_uiWireframeClassMask = ROLLER_ED_OVERLAY_DEFAULT_WIREFRAME_CLASS_MASK;
+    s_uiTestCarDesign = ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_DESIGN;
+    s_uiTestCarAiLine = ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_AI_LINE;
 }
 
 void roller_ed_overlay_set(const tEdOverlayState *pState)
@@ -41,6 +45,8 @@ void roller_ed_overlay_set(const tEdOverlayState *pState)
         & (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES;
     s_uiWireframeClassMask = pState->uiWireframeClassMask
         & (uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES;
+    s_uiTestCarDesign = pState->uiTestCarDesign;
+    s_uiTestCarAiLine = pState->uiTestCarAiLine;
 }
 
 void roller_ed_overlay_get(tEdOverlayState *pStateOut)
@@ -54,6 +60,8 @@ void roller_ed_overlay_get(tEdOverlayState *pStateOut)
     pStateOut->uiLastSelectedChunk = s_uiLastSelectedChunk;
     pStateOut->uiSurfaceClassMask = s_uiSurfaceClassMask;
     pStateOut->uiWireframeClassMask = s_uiWireframeClassMask;
+    pStateOut->uiTestCarDesign = s_uiTestCarDesign;
+    pStateOut->uiTestCarAiLine = s_uiTestCarAiLine;
 }
 
 bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass)
@@ -97,5 +105,34 @@ bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
         *puiFirstChunk = uiFirstChunk;
     if (puiLastChunk)
         *puiLastChunk = uiLastChunk;
+    return true;
+}
+
+bool roller_ed_overlay_test_car(uint32_t *puiDesign, uint32_t *puiAiLine,
+                                uint32_t *puiChunk, bool *pbMillionPlus)
+{
+    if (!roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_TEST_CAR))
+        return false;
+    if (puiDesign)
+        *puiDesign = s_uiTestCarDesign;
+    if (puiAiLine)
+        *puiAiLine = s_uiTestCarAiLine;
+    /*
+     * The legacy editor drew the car on m_iSelFrom, so the selection's first
+     * endpoint is the car's chunk. It is read directly rather than through
+     * roller_ed_overlay_selection_range(), because the car does not depend on
+     * the highlight being switched on -- the editor publishes the endpoint
+     * either way, and "nothing selected" simply means chunk zero, which is
+     * where the legacy editor's own default left it.
+     */
+    if (puiChunk) {
+        *puiChunk = s_uiFirstSelectedChunk == ROLLER_ED_INVALID_CHUNK_ID
+            ? 0u
+            : s_uiFirstSelectedChunk;
+    }
+    if (pbMillionPlus) {
+        *pbMillionPlus = roller_ed_overlay_enabled(
+            ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS);
+    }
     return true;
 }

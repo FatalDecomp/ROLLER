@@ -556,6 +556,27 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetOverlayState(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     /*
+     * E3A-S6. The test-car selection is validated whether or not SHOW_TEST_CAR
+     * is set, for the same reason the flag bits are: silently storing an
+     * out-of-range design and only failing once the host ticks the box would
+     * report the error against the wrong call. Both index fixed tables, so
+     * out of range is a host bug, not a preference.
+     */
+    if (pState->uiTestCarDesign >= ROLLER_ED_TEST_CAR_DESIGN_COUNT) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiTestCarDesign %u is not below %u",
+            pState->uiTestCarDesign,
+            (unsigned)ROLLER_ED_TEST_CAR_DESIGN_COUNT);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (pState->uiTestCarAiLine >= ROLLER_ED_TEST_CAR_AI_LINE_COUNT) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiTestCarAiLine %u is not below %u",
+            pState->uiTestCarAiLine,
+            (unsigned)ROLLER_ED_TEST_CAR_AI_LINE_COUNT);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    /*
      * AD-7d: overlays are a view setting over the same authored geometry, so
      * this deliberately advances neither the geometry epoch nor the track
      * generation.  Doing either would throw away E4A-S5's per-epoch extraction

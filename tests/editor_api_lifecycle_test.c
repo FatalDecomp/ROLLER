@@ -385,7 +385,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         /* Every other struct kept version 1 through that bump. */
         CHECK_WORKER(ROLLER_ED_CAMERA_STATE_VERSION == 1u);
         CHECK_WORKER(ROLLER_ED_GEOMETRY_SIZES_VERSION == 1u);
-        CHECK_WORKER(ROLLER_ED_OVERLAY_STATE_VERSION == 2u);
+        CHECK_WORKER(ROLLER_ED_OVERLAY_STATE_VERSION == 3u);
         /* A class mask past the last defined surface class is refused whole,
          * exactly like an undefined flag bit. */
         InvalidOverlay = Overlay;
@@ -405,10 +405,23 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         /* A bit this API version does not define is refused whole rather than
          * quietly dropped, so the host never believes it enabled something. */
         InvalidOverlay = Overlay;
-        InvalidOverlay.uiFlags |= 1u << 10;
+        InvalidOverlay.uiFlags |= 1u << 11;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
                      == ROLLER_ED_RESULT_INVALID_ARGUMENT);
         CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);
+        /* E3A-S6: the test-car selection indexes fixed tables, so it is
+         * range-checked on the way in whether or not the car is switched on --
+         * failing later would report against the wrong call. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiTestCarDesign = ROLLER_ED_TEST_CAR_DESIGN_COUNT;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiTestCarDesign") != NULL);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiTestCarAiLine = ROLLER_ED_TEST_CAR_AI_LINE_COUNT;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiTestCarAiLine") != NULL);
         CHECK_WORKER(s_iLegacySetOverlayCount == 1);
         CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
                      == 0);
