@@ -237,6 +237,11 @@ static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
 #define ED_CENTER_LINE_PALETTE_COLOUR 0xF0u
 #define ED_AI_LINE_PALETTE_COLOUR 0xC8u
 #define ED_ENVIRONMENT_FLOOR_PALETTE_COLOUR 0x18u
+/* E3A-S5's two are the legacy editor's own marker colours, unlike the three
+ * above, which had to be chosen because the GL renderer that drew those
+ * helpers is gone. */
+#define ED_AUDIO_MARKER_PALETTE_COLOUR 0x8Fu
+#define ED_STUNT_MARKER_PALETTE_COLOUR 0xFFu
 
 static void draw_helper_quad(GameRenderer *pRenderer,
                              const float afQuad[4][3],
@@ -300,6 +305,31 @@ static void draw_helper_line(GameRenderer *pRenderer, uint32_t uiLine,
     }
 }
 
+/*
+ * E3A-S5. A marker is a flat icon standing across the track, so it is only
+ * ever face-on from one end of it. The legacy editor solved that by emitting
+ * every marker triangle twice with reversed indices; the same trick applies
+ * here, one extra quad per quad, and it costs nothing because only the chunks
+ * that actually carry a trigger or a ramp draw anything at all.
+ */
+static void draw_helper_marker(GameRenderer *pRenderer, uint32_t uiChunkId,
+                               eEdHelperMarker eMarker, uint32_t uiPaletteColour)
+{
+    for (uint32_t uiQuad = 0; uiQuad < ED_HELPER_MARKER_QUAD_COUNT; uiQuad++) {
+        float afQuad[4][3];
+        float afReversed[4][3];
+
+        if (!ed_helper_marker_quad(uiChunkId, eMarker, uiQuad, afQuad))
+            continue;
+        draw_helper_quad(pRenderer, afQuad, uiPaletteColour);
+        for (uint32_t uiVertex = 0; uiVertex < 4u; uiVertex++) {
+            for (uint32_t i = 0; i < 3u; i++)
+                afReversed[uiVertex][i] = afQuad[3u - uiVertex][i];
+        }
+        draw_helper_quad(pRenderer, afReversed, uiPaletteColour);
+    }
+}
+
 void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
 {
     if (!pRenderer)
@@ -321,6 +351,27 @@ void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
     if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_CENTER_LINE)) {
         draw_helper_line(pRenderer, ED_HELPER_AI_LINE_COUNT,
                          ED_CENTER_LINE_PALETTE_COLOUR);
+    }
+    /* Markers last, so they read against the lines and floor under them. */
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS)) {
+        for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+            if (ed_helper_chunk_has_audio((uint32_t)iChunk))
+                draw_helper_marker(pRenderer, (uint32_t)iChunk,
+                                   ED_HELPER_MARKER_AUDIO,
+                                   ED_AUDIO_MARKER_PALETTE_COLOUR);
+        }
+    }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS)) {
+        const uint32_t uiStuntCount = ed_helper_stunt_count();
+
+        for (uint32_t uiStunt = 0; uiStunt < uiStuntCount; uiStunt++) {
+            uint32_t uiChunkId;
+
+            if (ed_helper_stunt_chunk(uiStunt, &uiChunkId))
+                draw_helper_marker(pRenderer, uiChunkId,
+                                   ED_HELPER_MARKER_STUNT,
+                                   ED_STUNT_MARKER_PALETTE_COLOUR);
+        }
     }
 }
 

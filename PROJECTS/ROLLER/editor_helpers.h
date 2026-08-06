@@ -7,13 +7,15 @@
 #include <stdint.h>
 
 /*
- * E3A-S4. World-space geometry for the editor's helper overlays: the four AI
- * racing lines, the track centre line, and the environment floor.
+ * E3A-S4 and E3A-S5. World-space geometry for the editor's helper overlays:
+ * the four AI racing lines, the track centre line, the environment floor, and
+ * the audio and stunt markers.
  *
  * None of this is track content -- no exporter should ever see it (AD-6d) --
  * but it is derived here rather than in the editor because geometry authority
  * is ROLLER's (AD-6a). Everything comes from the loaded legacy arrays
- * (TrakPt, localdata) so the lines land exactly where the game's AI drives,
+ * (TrakPt, localdata, samplespeed, ramp) so the lines land exactly where the
+ * game's AI drives and a marker stands on exactly the chunk the game triggers,
  * instead of being re-derived from scalar chunk rows and drifting.
  */
 
@@ -68,5 +70,53 @@ bool ed_helper_environment_floor_quad(uint32_t uiChunkId,
 
 /* Road width at a chunk, which the ratios above are taken against. */
 float ed_helper_road_width(uint32_t uiChunkId);
+
+/*
+ * E3A-S5 markers.
+ *
+ * Both legacy icons -- the audio speaker and the stunt arrow -- were built as
+ * triangle pairs sharing a diagonal, so each is exactly two quads and nothing
+ * is lost expressing them for a renderer that has no other primitive. Their
+ * silhouettes are the pre-modernization editor's, scaled to the chunk rather
+ * than fixed in absolute track units.
+ */
+#define ED_HELPER_MARKER_QUAD_COUNT 2u
+
+/*
+ * Icon size and hover height as a fraction of the chunk's road width, for the
+ * same reason the line ribbons scale: the legacy editor sized these in
+ * absolute units, which only reads correctly on a track built to the retail
+ * scale.
+ */
+#define ED_HELPER_MARKER_SIZE_RATIO 0.5f
+#define ED_HELPER_MARKER_HOVER_RATIO 0.5f
+
+typedef enum
+{
+    ED_HELPER_MARKER_AUDIO = 0,
+    ED_HELPER_MARKER_STUNT = 1
+} eEdHelperMarker;
+
+/*
+ * True when the chunk carries an audio trigger. samplespeed[] is the loader's
+ * name for the editor's iAudioTriggerSpeed, and a zero trigger speed is how
+ * both of them say "this chunk plays nothing".
+ */
+bool ed_helper_chunk_has_audio(uint32_t uiChunkId);
+
+/*
+ * The loaded stunts, and the chunk each one is anchored to. That chunk is the
+ * ramp's tStuntData.iGeometryIdx -- its apex, the same chunk the legacy editor
+ * keyed its stunt map on -- not the first chunk of the ramp's span.
+ */
+uint32_t ed_helper_stunt_count(void);
+bool ed_helper_stunt_chunk(uint32_t uiStuntIndex, uint32_t *puiChunkOut);
+
+/*
+ * One quad of a marker icon, in world space, hovering over the chunk's road
+ * centre in the plane that runs across the track and faces along it.
+ */
+bool ed_helper_marker_quad(uint32_t uiChunkId, eEdHelperMarker eMarker,
+                           uint32_t uiQuad, float afQuadOut[4][3]);
 
 #endif

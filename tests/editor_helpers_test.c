@@ -3,6 +3,7 @@
 
 #include "3d.h"
 #include "loadtrak.h"
+#include "moving.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -14,6 +15,9 @@ tGroundPt TrakPt[MAX_TRACK_CHUNKS];
 tData localdata[MAX_TRACK_CHUNKS];
 int TRAK_LEN;
 float TrackFloorHeight;
+int16 samplespeed[MAX_SAMPLES];
+tStuntData *ramp[50];
+int totalramps;
 
 static int check(int bCondition, int iLine)
 {
@@ -50,6 +54,9 @@ static void build_straight_track(void)
 {
     memset(TrakPt, 0, sizeof(TrakPt));
     memset(localdata, 0, sizeof(localdata));
+    memset(samplespeed, 0, sizeof(samplespeed));
+    memset(ramp, 0, sizeof(ramp));
+    totalramps = 0;
     TRAK_LEN = 2;
     TrackFloorHeight = 20.0f;
 
@@ -158,12 +165,119 @@ int main(int argc, const char **argv, const char **envp)
     CHECK(near(afQuad[0][0], 0.0f, 0.001f));
     CHECK(!ed_helper_environment_floor_quad(2u, afQuad));
 
+    /*
+     * E3A-S5. A chunk carries an audio marker when its trigger speed is
+     * non-zero, which is the same test the legacy editor made.
+     */
+    CHECK(!ed_helper_chunk_has_audio(0u));
+    samplespeed[0] = 60;
+    CHECK(ed_helper_chunk_has_audio(0u));
+    CHECK(!ed_helper_chunk_has_audio(1u));
+    CHECK(!ed_helper_chunk_has_audio(2u));
+
+    /* Stunt markers come from the loaded ramps, anchored on each ramp's apex
+     * chunk rather than the first chunk of its span. */
+    {
+        static tStuntData Stunt;
+        uint32_t uiChunkId = 0xFFFFFFFFu;
+
+        CHECK(ed_helper_stunt_count() == 0u);
+        CHECK(!ed_helper_stunt_chunk(0u, &uiChunkId));
+
+        Stunt.iGeometryIdx = 1;
+        Stunt.iChunkCount = 1;
+        ramp[0] = &Stunt;
+        totalramps = 1;
+        CHECK(ed_helper_stunt_count() == 1u);
+        CHECK(ed_helper_stunt_chunk(0u, &uiChunkId));
+        CHECK(uiChunkId == 1u);
+        CHECK(!ed_helper_stunt_chunk(1u, &uiChunkId));
+        CHECK(!ed_helper_stunt_chunk(0u, NULL));
+
+        /* A ramp naming a chunk the loaded track does not have draws nothing
+         * rather than reading past the arrays. */
+        Stunt.iGeometryIdx = 7;
+        CHECK(!ed_helper_stunt_chunk(0u, &uiChunkId));
+        Stunt.iGeometryIdx = -1;
+        CHECK(!ed_helper_stunt_chunk(0u, &uiChunkId));
+
+        /* A null ramp slot inside the count is skipped, not dereferenced. */
+        ramp[0] = NULL;
+        CHECK(!ed_helper_stunt_chunk(0u, &uiChunkId));
+
+        Stunt.iGeometryIdx = 1;
+        ramp[0] = &Stunt;
+    }
+
+    /*
+     * A marker is two quads standing across the track, hovering over the road
+     * centre. On this flat straight track the plane is the world YZ plane at
+     * the chunk's own X, so every marker vertex shares that X and the icon
+     * spans the road laterally.
+     */
+    {
+        static const float afIconMinX[2] = { 0.0f, -0.5f };
+        static const float afIconMaxX[2] = { 0.5f, 0.0f };
+        const float fSize = 200.0f * ED_HELPER_MARKER_SIZE_RATIO;
+        const float fHover = 500.0f + 200.0f * ED_HELPER_MARKER_HOVER_RATIO;
+
+        for (uint32_t uiQuad = 0; uiQuad < ED_HELPER_MARKER_QUAD_COUNT;
+             uiQuad++) {
+            float fMinY = 1.0e30f;
+            float fMaxY = -1.0e30f;
+
+            CHECK(ed_helper_marker_quad(0u, ED_HELPER_MARKER_AUDIO, uiQuad,
+                                        afQuad));
+            for (uint32_t i = 0; i < 4u; i++) {
+                /* Facing along the track: the icon plane holds no forward
+                 * component, so it never leans down the road. */
+                CHECK(near(afQuad[i][0], 0.0f, 0.001f));
+                if (afQuad[i][1] < fMinY)
+                    fMinY = afQuad[i][1];
+                if (afQuad[i][1] > fMaxY)
+                    fMaxY = afQuad[i][1];
+            }
+            /* Left is +Y, and the icon's local +x runs to the right, so the
+             * legacy silhouette arrives mirrored into world Y. */
+            CHECK(near(fMinY, -afIconMaxX[uiQuad] * fSize, 0.001f));
+            CHECK(near(fMaxY, -afIconMinX[uiQuad] * fSize, 0.001f));
+        }
+
+        /* The speaker box is a square of the marker size' half, sitting on the
+         * hover point rather than centred on it. */
+        CHECK(ed_helper_marker_quad(0u, ED_HELPER_MARKER_AUDIO, 0u, afQuad));
+        CHECK(near(afQuad[1][2], fHover, 0.001f));
+        CHECK(near(afQuad[3][2], fHover + 0.5f * fSize, 0.001f));
+
+        /*
+         * The stunt arrow hangs below its anchor, which is how legacy drew
+         * it. Chunk 1 is the last one here, so its forward wraps backwards
+         * onto chunk 0 and the frame is flipped upright -- the marker still
+         * hangs above the road, which is the point of the flip.
+         */
+        CHECK(ed_helper_marker_quad(1u, ED_HELPER_MARKER_STUNT, 0u, afQuad));
+        CHECK(near(afQuad[0][2], fHover - 0.1f * fSize, 0.001f));
+        CHECK(near(afQuad[1][2], fHover - 0.4f * fSize, 0.001f));
+        /* Chunk 1 is the second chunk, so the whole icon stands at its X. */
+        for (uint32_t i = 0; i < 4u; i++)
+            CHECK(near(afQuad[i][0], 1000.0f, 0.001f));
+
+        /* Out-of-range chunks, quads, and markers are refused. */
+        CHECK(!ed_helper_marker_quad(2u, ED_HELPER_MARKER_AUDIO, 0u, afQuad));
+        CHECK(!ed_helper_marker_quad(
+            0u, ED_HELPER_MARKER_AUDIO, ED_HELPER_MARKER_QUAD_COUNT, afQuad));
+        CHECK(!ed_helper_marker_quad(0u, (eEdHelperMarker)7, 0u, afQuad));
+        CHECK(!ed_helper_marker_quad(0u, ED_HELPER_MARKER_AUDIO, 0u, NULL));
+    }
+
     /* Nothing is derived before a track is loaded. */
     TRAK_LEN = 0;
     CHECK(!ed_helper_center_point(0u, afPoint));
     CHECK(!ed_helper_environment_floor_quad(0u, afQuad));
     CHECK(ed_helper_road_width(0u) == 0.0f);
+    CHECK(!ed_helper_chunk_has_audio(0u));
+    CHECK(!ed_helper_marker_quad(0u, ED_HELPER_MARKER_AUDIO, 0u, afQuad));
 
-    puts("editor helper line and floor geometry tests passed");
+    puts("editor helper line, floor, and marker geometry tests passed");
     return 0;
 }

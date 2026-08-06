@@ -532,6 +532,11 @@ fn configureRenderQueue3DTests(
         "Run AI line/centre line/environment floor acceptance (retail assets)",
     );
     editor_helper_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_marker_overlay_tests = b.step(
+        "test-e3a-s5-marker-overlays",
+        "Run audio/stunt marker overlay acceptance (retail assets)",
+    );
+    editor_marker_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
 
     const editor_buffers_mod = b.createModule(.{
         .target = target,

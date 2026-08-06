@@ -106,7 +106,8 @@ class HelperRenderingTests(unittest.TestCase):
             "ROLLER_ED_OVERLAY_SHOW_CENTER_LINE",
         ):
             self.assertIn(flag, body)
-        self.assertEqual(body.count("roller_ed_overlay_enabled("), 3)
+        # Three here plus E3A-S5's two markers; every helper is its own flag.
+        self.assertEqual(body.count("roller_ed_overlay_enabled("), 5)
 
     def test_all_four_ai_lines_are_drawn(self) -> None:
         body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")

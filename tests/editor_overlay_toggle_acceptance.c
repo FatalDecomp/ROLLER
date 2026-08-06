@@ -19,12 +19,14 @@
 #include "3d.h"
 #include "drawtrk3.h"
 #include "editor_api.h"
+#include "editor_helpers.h"
 #include "loadtrak.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -45,6 +47,7 @@ typedef struct
 static uint8_t *s_pFrame;
 static uint8_t *s_pAllVisible;
 static uint8_t *s_pNothingVisible;
+static uint8_t *s_pMarkerBase;
 
 static void acceptance_error(tOverlayContext *pContext, const char *szMessage)
 {
@@ -170,6 +173,96 @@ static int find_camera_showing_track(tOverlayContext *pContext)
     return 0;
 }
 
+/*
+ * E3A-S5. Looks for a camera aimed at uiChunkId from which enabling uiFlag
+ * changes the frame, and checks that clearing it again restores that camera's
+ * own base frame byte for byte. The pitch sweep is there because a marker
+ * hovers above its chunk and one fixed angle can leave it behind the geometry
+ * in front of it; the sweep only decides *where* to look from, never whether
+ * the marker had to appear -- the caller still fails if nothing ever drew.
+ */
+static int marker_visible_from_its_chunk(tOverlayContext *pContext,
+                                         uint32_t uiChunkId,
+                                         uint32_t uiFlag,
+                                         size_t *puiDifference)
+{
+    static const float afPitch[] = { -25.0f, -10.0f, 0.0f, 10.0f, 25.0f };
+    static const float afDistance[] = { 4.0f, 8.0f };
+    tEdOverlayState Base = make_overlay(ROLLER_ED_OVERLAY_SHOW_SURFACES,
+                                        ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
+                                        0u);
+    tEdOverlayState Marked = make_overlay(
+        ROLLER_ED_OVERLAY_SHOW_SURFACES | uiFlag,
+        ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+    float afTarget[3];
+    float afBehind[3];
+    float fRoadWidth = ed_helper_road_width(uiChunkId);
+    uint32_t uiPreviousChunk =
+        uiChunkId == 0u ? (uint32_t)TRAK_LEN - 1u : uiChunkId - 1u;
+
+    *puiDifference = 0;
+    if (!ed_helper_center_point(uiChunkId, afTarget)
+            || !ed_helper_center_point(uiPreviousChunk, afBehind)
+            || !(fRoadWidth > 0.0f)) {
+        acceptance_fail(pContext, "chunk %u has no derivable centre",
+                        uiChunkId);
+        return 0;
+    }
+
+    for (size_t iDistance = 0;
+         iDistance < sizeof(afDistance) / sizeof(afDistance[0]); ++iDistance) {
+        for (size_t iPitch = 0;
+             iPitch < sizeof(afPitch) / sizeof(afPitch[0]); ++iPitch) {
+            tEdCameraState Camera = {
+                .uiStructSize = sizeof(Camera),
+                .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION
+            };
+            float fScale = fRoadWidth * afDistance[iDistance];
+            float fDeltaX = afTarget[0] - afBehind[0];
+            float fDeltaY = afTarget[1] - afBehind[1];
+            float fLength = sqrtf(fDeltaX * fDeltaX + fDeltaY * fDeltaY);
+
+            if (!(fLength > 0.0f))
+                continue;
+            /* Stand back down the track from the marked chunk and look at
+             * it, which is the view the editor's user would drive into. */
+            Camera.fPosition[0] = afTarget[0] - fDeltaX / fLength * fScale;
+            Camera.fPosition[1] = afTarget[1] - fDeltaY / fLength * fScale;
+            Camera.fPosition[2] = afTarget[2] + fRoadWidth;
+            Camera.fYawDegrees =
+                atan2f(fDeltaY, fDeltaX) * 180.0f / 3.14159265358979f;
+            Camera.fPitchDegrees = afPitch[iPitch];
+            if (RollerEd_SetCamera(&Camera) != ROLLER_ED_RESULT_OK) {
+                acceptance_error(pContext, "RollerEd_SetCamera failed");
+                return 0;
+            }
+
+            if (!render_with_overlay(pContext, &Base, s_pMarkerBase))
+                return 0;
+            if (!render_with_overlay(pContext, &Marked, s_pFrame))
+                return 0;
+            *puiDifference = differing_pixels(s_pFrame, s_pMarkerBase);
+            if (*puiDifference == 0u)
+                continue;
+
+            /* Clearing the flag is the only change, so the frame must come
+             * back exactly. */
+            if (!render_with_overlay(pContext, &Base, s_pFrame))
+                return 0;
+            if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+                acceptance_fail(pContext,
+                                "clearing the marker on chunk %u left %zu "
+                                "pixels drawn",
+                                uiChunkId,
+                                differing_pixels(s_pFrame, s_pMarkerBase));
+                return 0;
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
 static int SDLCALL overlay_worker(void *pUserData)
 {
     tOverlayContext *pContext = (tOverlayContext *)pUserData;
@@ -212,7 +305,8 @@ static int SDLCALL overlay_worker(void *pUserData)
     s_pFrame = (uint8_t *)malloc(FRAME_BYTES);
     s_pAllVisible = (uint8_t *)malloc(FRAME_BYTES);
     s_pNothingVisible = (uint8_t *)malloc(FRAME_BYTES);
-    if (!s_pFrame || !s_pAllVisible || !s_pNothingVisible) {
+    s_pMarkerBase = (uint8_t *)malloc(FRAME_BYTES);
+    if (!s_pFrame || !s_pAllVisible || !s_pNothingVisible || !s_pMarkerBase) {
         acceptance_fail(pContext, "frame allocation failed");
         goto shutdown;
     }
@@ -439,6 +533,105 @@ static int SDLCALL overlay_worker(void *pUserData)
                auiHelperDifference[2]);
     }
 
+    /*
+     * E3A-S5. Unlike the lines and the floor, markers exist only on the
+     * handful of chunks the track data marks, so the fixed camera above is
+     * the wrong instrument: seven ramps on a 491-chunk track are usually
+     * nowhere near it, and a "nothing drew" result would say more about the
+     * camera than about the overlay. The camera is therefore aimed at a
+     * marked chunk, which is what the story actually asks to be shown, and
+     * the assertions stay data-driven: a flag whose data is absent must draw
+     * nothing at all, a flag whose data is present must draw something from
+     * a camera looking at it, and clearing it must be exact either way.
+     */
+    {
+        size_t uiAudioChunks = 0;
+        uint32_t uiFirstAudioChunk = ROLLER_ED_INVALID_CHUNK_ID;
+        uint32_t uiFirstStuntChunk = ROLLER_ED_INVALID_CHUNK_ID;
+        size_t uiStunts = (size_t)ed_helper_stunt_count();
+        size_t auiMarkerDifference[2] = { 0, 0 };
+        struct
+        {
+            uint32_t uiFlag;
+            const char *szName;
+            size_t uiPlaced;
+            uint32_t uiChunkId;
+        } aMarkers[2];
+
+        for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+            if (!ed_helper_chunk_has_audio((uint32_t)iChunk))
+                continue;
+            if (uiAudioChunks == 0u)
+                uiFirstAudioChunk = (uint32_t)iChunk;
+            uiAudioChunks++;
+        }
+        for (uint32_t uiStunt = 0; uiStunt < (uint32_t)uiStunts; uiStunt++) {
+            if (ed_helper_stunt_chunk(uiStunt, &uiFirstStuntChunk))
+                break;
+        }
+        aMarkers[0].uiFlag = ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS;
+        aMarkers[0].szName = "audio";
+        aMarkers[0].uiPlaced = uiAudioChunks;
+        aMarkers[0].uiChunkId = uiFirstAudioChunk;
+        aMarkers[1].uiFlag = ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS;
+        aMarkers[1].szName = "stunt";
+        aMarkers[1].uiPlaced = uiStunts;
+        aMarkers[1].uiChunkId = uiFirstStuntChunk;
+
+        for (size_t i = 0; i < 2u; ++i) {
+            if (aMarkers[i].uiPlaced == 0u) {
+                /*
+                 * No data, so the flag must be inert. Both frames are taken
+                 * at whatever camera is current rather than against
+                 * s_pAllVisible, because a previous marker's search will have
+                 * moved the camera and the comparison has to be of two frames
+                 * that differ only in the flag.
+                 */
+                Overlay = make_overlay(
+                    ROLLER_ED_OVERLAY_SHOW_SURFACES,
+                    ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+                if (!render_with_overlay(pContext, &Overlay, s_pMarkerBase))
+                    goto shutdown;
+                Overlay.uiFlags =
+                    ROLLER_ED_OVERLAY_SHOW_SURFACES | aMarkers[i].uiFlag;
+                if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+                    goto shutdown;
+                if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+                    acceptance_fail(pContext,
+                                    "the track carries no %s markers but the "
+                                    "flag changed %zu pixels",
+                                    aMarkers[i].szName,
+                                    differing_pixels(s_pFrame, s_pMarkerBase));
+                    goto shutdown;
+                }
+                continue;
+            }
+            if (aMarkers[i].uiChunkId == ROLLER_ED_INVALID_CHUNK_ID) {
+                acceptance_fail(pContext,
+                                "the track carries %zu %s marker(s) but none "
+                                "named a loaded chunk",
+                                aMarkers[i].uiPlaced, aMarkers[i].szName);
+                goto shutdown;
+            }
+            if (!marker_visible_from_its_chunk(pContext, aMarkers[i].uiChunkId,
+                                               aMarkers[i].uiFlag,
+                                               &auiMarkerDifference[i]))
+                goto shutdown;
+            if (auiMarkerDifference[i] == 0u) {
+                acceptance_fail(pContext,
+                                "the %s marker on chunk %u drew nothing from "
+                                "any camera aimed at that chunk",
+                                aMarkers[i].szName, aMarkers[i].uiChunkId);
+                goto shutdown;
+            }
+        }
+
+        printf("markers: %zu audio chunks (chunk %u -> %zu pixels), %zu ramps "
+               "(chunk %u -> %zu pixels)\n",
+               uiAudioChunks, uiFirstAudioChunk, auiMarkerDifference[0],
+               uiStunts, uiFirstStuntChunk, auiMarkerDifference[1]);
+    }
+
     /* AD-7d on the real facade: none of that touched authored geometry. */
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
@@ -464,6 +657,7 @@ shutdown:
     free(s_pFrame);
     free(s_pAllVisible);
     free(s_pNothingVisible);
+    free(s_pMarkerBase);
     if (RollerEd_Shutdown() != ROLLER_ED_RESULT_OK && !pContext->iResult)
         acceptance_error(pContext, "RollerEd_Shutdown failed");
     return pContext->iResult;
