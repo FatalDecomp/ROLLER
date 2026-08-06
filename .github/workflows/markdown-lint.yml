@@ -5,14 +5,14 @@ on:
     paths:
       - "CONTEXT.md"
       - "docs/**/*.md"
-      - ".rumdl.toml"
+      - ".mdformat.toml"
       - "mise.toml"
       - ".github/workflows/markdown-lint.yml"
   pull_request:
     paths:
       - "CONTEXT.md"
       - "docs/**/*.md"
-      - ".rumdl.toml"
+      - ".mdformat.toml"
       - "mise.toml"
       - ".github/workflows/markdown-lint.yml"
 
@@ -28,10 +28,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Run rumdl
-        uses: rvben/rumdl@v0
+      - name: Setup mise
+        uses: jdx/mise-action@v4
         with:
-          version: "0.2.50"
-          path: .
-          config: .rumdl.toml
-          report-type: annotations
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Check Markdown formatting
+        run: mise run lint-markdown
