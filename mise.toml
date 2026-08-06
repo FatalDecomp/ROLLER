@@ -5,6 +5,7 @@ python = "3"
 rumdl = "0.2.50"
 "ubi:zigtools/zls" = "0.15.0"
 usage = "latest"
+uv = "0.12.2"
 zig = "0.15.2"
 
 [env]
@@ -30,6 +31,15 @@ run = "rm -rf zig-out .zig-cache"
 [tasks.test]
 description = "Run tests"
 run = "zig build test"
+
+[tasks.format-markdown]
+description = "Format architecture Markdown"
+run = """
+uvx --from mdformat==1.0.0 \
+  --with mdformat-gfm==1.0.0 \
+  --with mdformat-frontmatter==2.1.2 \
+  mdformat CONTEXT.md docs/adr/0002-canonical-state-machines.md
+"""
 
 [tasks.lint-markdown]
 description = "Lint architecture Markdown"

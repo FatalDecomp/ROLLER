@@ -102,14 +102,14 @@ command stream must produce network-equivalent authoritative behavior across
 supported platforms. State transitions, semantic events, race results, and
 normalized network-relevant state must agree.
 
-This requirement keeps the simulation theoretically compatible with the
-original game when both expose the same features and inputs. It does not require
+This requirement keeps the simulation theoretically compatible with the original
+game when both expose the same features and inputs. It does not require
 wire-protocol compatibility with an original executable or identical rendering.
 
-Network-visible behavior must use fixed ticks, explicit random state, fixed-width
-data, canonical serialization, and defined arithmetic. Platform-specific clocks,
-input identifiers, byte order, and presentation behavior remain outside the
-simulation boundary.
+Network-visible behavior must use fixed ticks, explicit random state,
+fixed-width data, canonical serialization, and defined arithmetic.
+Platform-specific clocks, input identifiers, byte order, and presentation
+behavior remain outside the simulation boundary.
 
 ### Model Race Session simulation separately from hosting
 
@@ -207,5 +207,5 @@ must therefore complement, rather than depend on, ADR 0001 snapshots.
 - The existing race loop will remain mixed until a separately planned extraction
   migrates it incrementally.
 - This ADR does not require a portable library, stable ABI, cross-process
-  protocol, original wire-protocol compatibility, or cross-platform pixel
-  parity to be implemented now.
+  protocol, original wire-protocol compatibility, or cross-platform pixel parity
+  to be implemented now.
