@@ -603,8 +603,18 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetReferenceMesh(
         "tEdReferenceMesh");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade reference meshes are not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    /*
+     * AD-7d again: a reference mesh is scenery the host owns, not authored
+     * track geometry, so this advances neither the geometry epoch nor the
+     * track generation and E4A-S5's cached extraction stays valid.
+     *
+     * Vertex and texture data are both copied during this call; nothing the
+     * caller passed is retained (AD-13). A NULL vertex pointer or a zero
+     * vertex count clears the mesh, and a failed replacement leaves the
+     * previous one intact.
+     */
+    return roller_ed_legacy_scene_set_reference_mesh(
+        pMesh, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(

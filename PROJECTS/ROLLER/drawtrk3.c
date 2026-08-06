@@ -12,6 +12,7 @@
 #include "render_queue_3d.h"
 #include "editor_helpers.h"
 #include "editor_overlay.h"
+#include "editor_reference_mesh.h"
 #include "editor_surface.h"
 #include "graphics.h"
 #include <float.h>
@@ -327,6 +328,87 @@ static void draw_helper_marker(GameRenderer *pRenderer, uint32_t uiChunkId,
                 afReversed[uiVertex][i] = afQuad[3u - uiVertex][i];
         }
         draw_helper_quad(pRenderer, afReversed, uiPaletteColour);
+    }
+}
+
+/*
+ * E3A-S7. The reference mesh, flat-filled in the legacy editor's own colour.
+ *
+ * The pre-modernization editor overwrote every reference-model vertex's
+ * texture coordinate with GetColorCenterCoordinates(0x8c) -- light grey -- so
+ * it was already drawn as one flat colour rather than textured. AD-13 still
+ * requires the host's texture to be copied during the call, and it is; nothing
+ * has ever drawn it, and matching the editor's behaviour means not starting.
+ */
+#define ED_REFERENCE_MESH_PALETTE_COLOUR 0x8Cu
+
+/* The renderer takes quads and nothing else, so a triangle is a quad whose
+ * last two corners coincide -- the same degenerate form the legacy quad path
+ * already tolerates everywhere else. */
+static void draw_reference_triangle(GameRenderer *pRenderer,
+                                    const float afTriangle[3][3])
+{
+    float afQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+    for (uint32_t i = 0; i < 3u; i++) {
+        for (uint32_t j = 0; j < 3u; j++)
+            afQuad[i][j] = afTriangle[i][j];
+    }
+    for (uint32_t j = 0; j < 3u; j++)
+        afQuad[3][j] = afTriangle[2][j];
+    draw_helper_quad(pRenderer, afQuad, ED_REFERENCE_MESH_PALETTE_COLOUR);
+}
+
+void drawtrk3_editor_draw_reference_mesh(GameRenderer *pRenderer)
+{
+    uint32_t uiTriangles;
+    bool bWireframe;
+
+    if (!pRenderer
+            || !roller_ed_overlay_enabled(
+                   ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH))
+        return;
+    uiTriangles = ed_reference_mesh_triangle_count();
+    bWireframe = ed_reference_mesh_wireframe();
+
+    for (uint32_t uiTriangle = 0; uiTriangle < uiTriangles; uiTriangle++) {
+        float afTriangle[3][3];
+
+        if (!ed_reference_mesh_world_triangle(uiTriangle, afTriangle))
+            continue;
+        if (!bWireframe) {
+            draw_reference_triangle(pRenderer, afTriangle);
+            continue;
+        }
+        /* Wireframe reuses E3A-S2's ribbon: the renderer still has no line
+         * primitive, and an edge of a reference triangle is no different from
+         * an edge of a track surface. The ribbon needs the triangle's plane,
+         * so the quad form is fed the third corner twice -- its Newell normal
+         * is the triangle's. */
+        {
+            float afQuad[ED_SURFACE_VERTEX_COUNT][3];
+            float afNormal[3];
+
+            for (uint32_t i = 0; i < 3u; i++) {
+                for (uint32_t j = 0; j < 3u; j++)
+                    afQuad[i][j] = afTriangle[i][j];
+            }
+            for (uint32_t j = 0; j < 3u; j++)
+                afQuad[3][j] = afTriangle[2][j];
+            if (!ed_surface_compute_normals((const float (*)[3])afQuad,
+                                            afNormal, NULL))
+                continue;
+            for (uint32_t uiEdge = 0; uiEdge < 3u; uiEdge++) {
+                float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+                if (!ed_surface_wireframe_edge_quad_points(
+                        (const float (*)[3])afTriangle, 3u, afNormal, uiEdge,
+                        afEdgeQuad))
+                    continue;
+                draw_helper_quad(pRenderer, afEdgeQuad,
+                                 ED_REFERENCE_MESH_PALETTE_COLOUR);
+            }
+        }
     }
 }
 

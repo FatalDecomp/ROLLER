@@ -2,9 +2,13 @@
 
 #include <errno.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* M_PI is not in standard C; the reference transform needs degrees only. */
+#define ED_REFERENCE_DEGREES_TO_RADIANS 0.017453292519943295
 
 typedef struct
 {
@@ -550,4 +554,117 @@ const char *ed_reference_mesh_result_name(eEdReferenceMeshResult eResult)
             >= sizeof(aszNames) / sizeof(aszNames[0]))
         return "unknown";
     return aszNames[eResult];
+}
+
+/*
+ * E3A-S7. The facade owns exactly one reference mesh, so it lives here beside
+ * the copy layer that fills it rather than in a separate module.
+ */
+static tEdReferenceMeshState s_Current;
+static bool s_bCurrentInitialized;
+
+static void reference_mesh_ensure_initialized(void)
+{
+    if (s_bCurrentInitialized)
+        return;
+    ed_reference_mesh_state_init(&s_Current);
+    s_bCurrentInitialized = true;
+}
+
+eEdReferenceMeshResult ed_reference_mesh_set_current(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    reference_mesh_ensure_initialized();
+    return ed_reference_mesh_replace(&s_Current, pMesh, szError,
+                                     uiErrorCapacity);
+}
+
+void ed_reference_mesh_reset_current(void)
+{
+    if (!s_bCurrentInitialized)
+        return;
+    ed_reference_mesh_state_dispose(&s_Current);
+    ed_reference_mesh_state_init(&s_Current);
+}
+
+uint32_t ed_reference_mesh_triangle_count(void)
+{
+    if (!s_bCurrentInitialized || !s_Current.puiIndices)
+        return 0u;
+    /* The copy layer synthesizes indices for a non-indexed mesh and refuses a
+     * count that is not a multiple of three, so this division is exact. */
+    return s_Current.uiIndexCount / 3u;
+}
+
+bool ed_reference_mesh_wireframe(void)
+{
+    return s_bCurrentInitialized
+        && (s_Current.uiFlags & ROLLER_ED_REFERENCE_WIREFRAME) != 0u;
+}
+
+bool ed_reference_mesh_world_triangle(uint32_t uiTriangle,
+                                      float afTriangleOut[3][3])
+{
+    float fYaw;
+    float fPitch;
+    float fRoll;
+    float afRotation[3][3];
+
+    if (!afTriangleOut || uiTriangle >= ed_reference_mesh_triangle_count())
+        return false;
+
+    /*
+     * Scale, then rotate, then translate (AD-13). The rotation is yaw, then
+     * pitch, then roll -- the order the legacy editor composed its matrices
+     * in (TrackPreview's translate * roll * pitch * yaw * scale), carried over
+     * to ROLLER's axes: world +Z is up, so yaw turns about Z, pitch tilts
+     * about Y, and roll banks about X (ADR 0003). The editor's Y-up
+     * yaw-about-Y / pitch-about-X / roll-about-Z is the same three rotations
+     * against the same three body axes.
+     */
+    fYaw = s_Current.fRotation[0] * (float)ED_REFERENCE_DEGREES_TO_RADIANS;
+    fPitch = s_Current.fRotation[1] * (float)ED_REFERENCE_DEGREES_TO_RADIANS;
+    fRoll = s_Current.fRotation[2] * (float)ED_REFERENCE_DEGREES_TO_RADIANS;
+    {
+        const float fCosYaw = cosf(fYaw);
+        const float fSinYaw = sinf(fYaw);
+        const float fCosPitch = cosf(fPitch);
+        const float fSinPitch = sinf(fPitch);
+        const float fCosRoll = cosf(fRoll);
+        const float fSinRoll = sinf(fRoll);
+
+        /* Rx(roll) * Ry(pitch) * Rz(yaw), written out so the composition is
+         * readable rather than three matrix multiplies. */
+        afRotation[0][0] = fCosPitch * fCosYaw;
+        afRotation[0][1] = -fCosPitch * fSinYaw;
+        afRotation[0][2] = fSinPitch;
+        afRotation[1][0] = fSinRoll * fSinPitch * fCosYaw + fCosRoll * fSinYaw;
+        afRotation[1][1] = -fSinRoll * fSinPitch * fSinYaw + fCosRoll * fCosYaw;
+        afRotation[1][2] = -fSinRoll * fCosPitch;
+        afRotation[2][0] = -fCosRoll * fSinPitch * fCosYaw + fSinRoll * fSinYaw;
+        afRotation[2][1] = fCosRoll * fSinPitch * fSinYaw + fSinRoll * fCosYaw;
+        afRotation[2][2] = fCosRoll * fCosPitch;
+    }
+
+    for (uint32_t uiCorner = 0u; uiCorner < 3u; uiCorner++) {
+        const uint32_t uiIndex =
+            s_Current.puiIndices[uiTriangle * 3u + uiCorner];
+        const float *pfLocal;
+        float afScaled[3];
+
+        if (uiIndex >= s_Current.uiVertexCount)
+            return false;
+        pfLocal = s_Current.pVertices[uiIndex].fPosition;
+        for (uint32_t i = 0; i < 3u; i++)
+            afScaled[i] = pfLocal[i] * s_Current.fScale[i];
+        for (uint32_t i = 0; i < 3u; i++) {
+            afTriangleOut[uiCorner][i] = s_Current.fPosition[i]
+                + afRotation[i][0] * afScaled[0]
+                + afRotation[i][1] * afScaled[1]
+                + afRotation[i][2] * afScaled[2];
+        }
+    }
+    return true;
 }

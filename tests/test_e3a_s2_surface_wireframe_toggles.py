@@ -280,12 +280,22 @@ class WireframeGeometryTests(unittest.TestCase):
         source = (ROLLER / "editor_surface.c").read_text(encoding="utf-8")
 
         self.assertIn("bool ed_surface_wireframe_edge_quad(", header)
-        body = without_comments(
+        # E3A-S7 extracted the ribbon math so a bare reference-mesh triangle
+        # gets the identical width, bias, and winding; the surface entry point
+        # is now a thin wrapper over it. The property this story owns is that
+        # the ribbon is built here rather than by the renderer.
+        wrapper = without_comments(
             function_body(source, "bool ed_surface_wireframe_edge_quad(")
+        )
+        self.assertIn("pSurface->fNormal", wrapper)
+        self.assertIn("ed_surface_wireframe_edge_quad_points(", wrapper)
+
+        body = without_comments(
+            function_body(source, "bool ed_surface_wireframe_edge_quad_points(")
         )
         # In-plane ribbon: normal x direction, biased along the normal so it
         # wins the depth test against the surface it outlines.
-        self.assertIn("ed_cross(pSurface->fNormal, afDirection, afSideways)", body)
+        self.assertIn("ed_cross(afNormal, afDirection, afSideways)", body)
         self.assertIn("ED_WIREFRAME_WIDTH_RATIO", body)
         self.assertIn("ED_WIREFRAME_DEPTH_BIAS_RATIO", body)
         self.assertIn("ed_normalize(afDirection)", body)

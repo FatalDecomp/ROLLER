@@ -205,6 +205,18 @@ bool ed_surface_wireframe_edge_quad(
     uint32_t uiEdge,
     float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3]);
 
+/*
+ * The same ribbon over a bare polygon rather than an emitted surface, so
+ * E3A-S7's reference-mesh triangles use the identical width ratio, depth bias,
+ * and winding rule the surface wireframe uses. uiPointCount is 3 or 4.
+ */
+bool ed_surface_wireframe_edge_quad_points(
+    const float (*afPoints)[3],
+    uint32_t uiPointCount,
+    const float afNormal[3],
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3]);
+
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
                                    tEdVisitChunkFn pfnVisit,
                                    void *pUserData);

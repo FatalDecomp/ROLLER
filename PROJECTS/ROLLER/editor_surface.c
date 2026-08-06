@@ -404,8 +404,10 @@ static void ed_subtract3(const float afLeft[3],
     afOut[2] = afLeft[2] - afRight[2];
 }
 
-bool ed_surface_wireframe_edge_quad(
-    const tEdSurfaceEmission *pSurface,
+bool ed_surface_wireframe_edge_quad_points(
+    const float (*afPoints)[3],
+    uint32_t uiPointCount,
+    const float afNormal[3],
     uint32_t uiEdge,
     float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3])
 {
@@ -418,17 +420,15 @@ bool ed_surface_wireframe_edge_quad(
     float fWidth;
     double dLongestEdge = 0.0;
 
-    if (!pSurface || !afEdgeQuad || uiEdge >= ED_SURFACE_VERTEX_COUNT
-            || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+    if (!afPoints || !afNormal || !afEdgeQuad || uiPointCount < 3u
+            || uiEdge >= uiPointCount)
         return false;
 
-    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+    for (uint32_t i = 0; i < uiPointCount; i++) {
         float afEdge[3];
         double dLength;
 
-        ed_subtract3(pSurface->aVertices[(i + 1u) % ED_SURFACE_VERTEX_COUNT]
-                         .fPosition,
-                     pSurface->aVertices[i].fPosition, afEdge);
+        ed_subtract3(afPoints[(i + 1u) % uiPointCount], afPoints[i], afEdge);
         dLength = ed_length3(afEdge);
         if (dLength > dLongestEdge)
             dLongestEdge = dLength;
@@ -436,24 +436,22 @@ bool ed_surface_wireframe_edge_quad(
     if (!(dLongestEdge > 0.0))
         return false;
 
-    pfStart = pSurface->aVertices[uiEdge].fPosition;
-    pfEnd = pSurface->aVertices[(uiEdge + 1u) % ED_SURFACE_VERTEX_COUNT]
-                .fPosition;
+    pfStart = afPoints[uiEdge];
+    pfEnd = afPoints[(uiEdge + 1u) % uiPointCount];
     ed_subtract3(pfEnd, pfStart, afDirection);
     if (!ed_normalize(afDirection))
         return false;
 
     /* In-plane perpendicular: normal x direction. A pinched corner can leave
      * an edge parallel to the quad normal, which has no ribbon to draw. */
-    ed_cross(pSurface->fNormal, afDirection, afSideways);
+    ed_cross(afNormal, afDirection, afSideways);
     if (!ed_normalize(afSideways))
         return false;
 
     fWidth = (float)(dLongestEdge * ED_WIREFRAME_WIDTH_RATIO);
     for (uint32_t i = 0; i < 3u; i++) {
         afWidth[i] = afSideways[i] * fWidth;
-        afBias[i] = pSurface->fNormal[i] * fWidth
-            * ED_WIREFRAME_DEPTH_BIAS_RATIO;
+        afBias[i] = afNormal[i] * fWidth * ED_WIREFRAME_DEPTH_BIAS_RATIO;
     }
 
     /*
@@ -468,6 +466,24 @@ bool ed_surface_wireframe_edge_quad(
         afEdgeQuad[3][i] = pfStart[i] + afWidth[i] + afBias[i];
     }
     return true;
+}
+
+bool ed_surface_wireframe_edge_quad(
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3])
+{
+    float afPoints[ED_SURFACE_VERTEX_COUNT][3];
+
+    if (!pSurface || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+        return false;
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        for (uint32_t j = 0; j < 3u; j++)
+            afPoints[i][j] = pSurface->aVertices[i].fPosition[j];
+    }
+    return ed_surface_wireframe_edge_quad_points(
+        (const float (*)[3])afPoints, ED_SURFACE_VERTEX_COUNT,
+        pSurface->fNormal, uiEdge, afEdgeQuad);
 }
 
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,

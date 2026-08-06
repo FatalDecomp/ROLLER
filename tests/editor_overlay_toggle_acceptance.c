@@ -739,6 +739,112 @@ static int SDLCALL overlay_worker(void *pUserData)
                uiCarChunk, uiCarDifference, uiFlippedDifference, numcars);
     }
 
+    /*
+     * E3A-S7. A reference mesh the host supplies, placed on the track by its
+     * own transform. Like the markers it is aimed at rather than hoped for:
+     * the mesh is built around a known chunk's centre so a camera looking at
+     * that chunk is looking at the mesh.
+     */
+    {
+        static tEdReferenceVertex aVertices[3];
+        tEdReferenceMesh Mesh;
+        tEdOverlayState MeshBase = make_overlay(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES,
+            ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+        tEdOverlayState WithMesh = make_overlay(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES
+                | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH,
+            ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES, 0u);
+        uint32_t uiMeshChunk = (uint32_t)TRAK_LEN > 40u ? 40u : 0u;
+        float afCentre[3];
+        float fRoadWidth;
+        size_t uiSolidMesh = 0;
+        size_t uiWireMesh = 0;
+
+        if (!ed_helper_center_point(uiMeshChunk, afCentre)) {
+            acceptance_fail(pContext, "chunk %u has no centre", uiMeshChunk);
+            goto shutdown;
+        }
+        fRoadWidth = ed_helper_road_width(uiMeshChunk);
+
+        /* A triangle a road-width across, lying flat above the chunk. Its
+         * local coordinates are unit-scale so the mesh's own fScale is doing
+         * real work rather than being 1. */
+        memset(aVertices, 0, sizeof(aVertices));
+        aVertices[0].fPosition[0] = -0.5f;
+        aVertices[1].fPosition[0] = 0.5f;
+        aVertices[2].fPosition[1] = 1.0f;
+        for (size_t i = 0; i < 3u; ++i)
+            aVertices[i].fNormal[2] = 1.0f;
+
+        memset(&Mesh, 0, sizeof(Mesh));
+        Mesh.uiStructSize = sizeof(Mesh);
+        Mesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION;
+        Mesh.pVertices = aVertices;
+        Mesh.uiVertexCount = 3u;
+        Mesh.fPosition[0] = afCentre[0];
+        Mesh.fPosition[1] = afCentre[1];
+        Mesh.fPosition[2] = afCentre[2] + fRoadWidth * 0.5f;
+        Mesh.fScale[0] = fRoadWidth;
+        Mesh.fScale[1] = fRoadWidth;
+        Mesh.fScale[2] = fRoadWidth;
+        Mesh.uiFlags = ROLLER_ED_REFERENCE_HAS_NORMALS;
+
+        if (RollerEd_SetReferenceMesh(&Mesh) != ROLLER_ED_RESULT_OK) {
+            acceptance_error(pContext, "RollerEd_SetReferenceMesh failed");
+            goto shutdown;
+        }
+        if (!overlay_visible_from_chunk(pContext, uiMeshChunk, &MeshBase,
+                                        &WithMesh, &uiSolidMesh))
+            goto shutdown;
+        if (uiSolidMesh == 0u) {
+            acceptance_fail(pContext,
+                            "the reference mesh drew nothing from any camera "
+                            "aimed at chunk %u", uiMeshChunk);
+            goto shutdown;
+        }
+
+        /* Wireframe is the same mesh as edges, so it must cover strictly less
+         * than the filled triangle -- the same property the surface wireframe
+         * and the selection outline are held to. */
+        Mesh.uiFlags |= ROLLER_ED_REFERENCE_WIREFRAME;
+        if (RollerEd_SetReferenceMesh(&Mesh) != ROLLER_ED_RESULT_OK) {
+            acceptance_error(pContext, "RollerEd_SetReferenceMesh failed");
+            goto shutdown;
+        }
+        if (!render_with_overlay(pContext, &MeshBase, s_pMarkerBase))
+            goto shutdown;
+        if (!render_with_overlay(pContext, &WithMesh, s_pFrame))
+            goto shutdown;
+        uiWireMesh = differing_pixels(s_pFrame, s_pMarkerBase);
+        if (uiWireMesh == 0u || uiWireMesh >= uiSolidMesh) {
+            acceptance_fail(pContext,
+                            "the reference wireframe covered %zu pixels "
+                            "against the solid mesh's %zu",
+                            uiWireMesh, uiSolidMesh);
+            goto shutdown;
+        }
+
+        /* A zero-vertex mesh clears it (AD-13), and the flag then draws
+         * nothing at all. */
+        Mesh.pVertices = NULL;
+        Mesh.uiVertexCount = 0u;
+        if (RollerEd_SetReferenceMesh(&Mesh) != ROLLER_ED_RESULT_OK) {
+            acceptance_error(pContext, "clearing the reference mesh failed");
+            goto shutdown;
+        }
+        if (!render_with_overlay(pContext, &WithMesh, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+            acceptance_fail(pContext,
+                            "a cleared reference mesh still drew %zu pixels",
+                            differing_pixels(s_pFrame, s_pMarkerBase));
+            goto shutdown;
+        }
+        printf("reference mesh: solid %zu, wireframe %zu pixels on chunk %u\n",
+               uiSolidMesh, uiWireMesh, uiMeshChunk);
+    }
+
     /* AD-7d on the real facade: none of that touched authored geometry. */
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;

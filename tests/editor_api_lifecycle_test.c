@@ -113,6 +113,34 @@ eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
     return ROLLER_ED_RESULT_OK;
 }
 
+/*
+ * E3A-S7. Stands in for the copy layer: it records what the facade forwarded
+ * and refuses a mesh whose vertex count is odd, so the lifecycle test can
+ * check that a refusal is reported without linking the real allocator.
+ */
+static int s_iLegacySetReferenceMeshCount;
+static tEdReferenceMesh s_LastLegacyReferenceMesh;
+
+eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pMesh) {
+        snprintf(szError, uiErrorCapacity, "reference mesh is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (pMesh->uiVertexCount == 1u) {
+        snprintf(szError, uiErrorCapacity, "stub refuses a one-vertex mesh");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyReferenceMesh = *pMesh;
+    s_iLegacySetReferenceMeshCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
 uint32_t roller_ed_legacy_scene_get_available_renderers(void)
 {
     return s_uiStubAvailableRenderers;
@@ -425,6 +453,66 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(s_iLegacySetOverlayCount == 1);
         CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
                      == 0);
+    }
+    {
+        /*
+         * E3A-S7. RollerEd_SetReferenceMesh reached the seam at last: it used
+         * to validate the header and then return UNSUPPORTED.
+         */
+        static tEdReferenceVertex aVertices[3];
+        tEdReferenceMesh Mesh;
+        tEdReferenceMesh InvalidMesh;
+        tEdGeometrySizes Before;
+        tEdGeometrySizes After;
+
+        memset(aVertices, 0, sizeof(aVertices));
+        aVertices[1].fPosition[0] = 1.0f;
+        aVertices[2].fPosition[1] = 1.0f;
+        memset(&Mesh, 0, sizeof(Mesh));
+        Mesh.uiStructSize = sizeof(Mesh);
+        Mesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION;
+        Mesh.pVertices = aVertices;
+        Mesh.uiVertexCount = 3u;
+        Mesh.fScale[0] = 1.0f;
+        Mesh.fScale[1] = 1.0f;
+        Mesh.fScale[2] = 1.0f;
+
+        Before.uiStructSize = sizeof(Before);
+        Before.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Before)
+                     == ROLLER_ED_RESULT_OK);
+
+        CHECK_WORKER(RollerEd_SetReferenceMesh(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidMesh = Mesh;
+        InvalidMesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION + 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        InvalidMesh = Mesh;
+        InvalidMesh.uiStructSize = sizeof(InvalidMesh) - 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 0);
+
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&Mesh) == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 1);
+        CHECK_WORKER(s_LastLegacyReferenceMesh.uiVertexCount == 3u);
+
+        /* A seam refusal is reported and does not count as a replacement. */
+        InvalidMesh = Mesh;
+        InvalidMesh.uiVertexCount = 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 1);
+
+        /* AD-7d: a reference mesh is the host's scenery, not authored track
+         * geometry, so it moves neither counter. */
+        After.uiStructSize = sizeof(After);
+        After.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&After)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(After.uiGeometryEpoch == Before.uiGeometryEpoch);
+        CHECK_WORKER(After.uiTrackGeneration == Before.uiTrackGeneration);
     }
     {
         tEdGeometrySizes InvalidSizes;

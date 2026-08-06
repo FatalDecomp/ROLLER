@@ -76,5 +76,13 @@ void drawtrk3_editor_apply_overlay_selection(void);
  * helpers are not track content and never reach the canonical emitter. */
 void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer);
 
+/*
+ * E3A-S7. Draws the facade's reference mesh, if one is set and
+ * SHOW_REFERENCE_MESH is on. It goes through the same world-quad path the
+ * track uses, so the renderer depth-composes it against the scene rather than
+ * pasting it over the top.
+ */
+void drawtrk3_editor_draw_reference_mesh(GameRenderer *pRenderer);
+
 //-------------------------------------------------------------------------------------------------
 #endif

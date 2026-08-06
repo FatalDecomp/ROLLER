@@ -543,6 +543,11 @@ fn configureRenderQueue3DTests(
         "Run configurable test car acceptance (retail assets)",
     );
     editor_test_car_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_reference_render_tests = b.step(
+        "test-e3a-s7-reference-mesh",
+        "Run reference mesh rendering acceptance (retail assets)",
+    );
+    editor_reference_render_tests.dependOn(&run_editor_overlay_toggle.step);
 
     const editor_buffers_mod = b.createModule(.{
         .target = target,

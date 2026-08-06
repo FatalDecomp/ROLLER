@@ -3,6 +3,7 @@
 
 #include "editor_api.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -73,5 +74,34 @@ void ed_reference_mesh_import_init(tEdReferenceMeshImport *pImport);
 void ed_reference_mesh_import_dispose(tEdReferenceMeshImport *pImport);
 
 const char *ed_reference_mesh_result_name(eEdReferenceMeshResult eResult);
+
+/*
+ * E3A-S7. The one reference mesh the facade owns, and its world-space
+ * geometry.
+ *
+ * The mesh is editor furniture like the helpers: it never reaches the
+ * canonical emitter, so no exporter can see it (AD-6d), and it carries no
+ * chunk identity. It is drawn through the same world-quad path the track uses,
+ * which is what depth-composes it against the scene -- a Qt overlay painted on
+ * top is explicitly not acceptable, and this is why.
+ */
+
+/*
+ * Replaces the current mesh, or clears it when pMesh has no vertices. A failed
+ * replacement leaves the previous mesh intact (AD-13), because the copy is
+ * staged before anything is freed.
+ */
+eEdReferenceMeshResult ed_reference_mesh_set_current(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity);
+void ed_reference_mesh_reset_current(void);
+
+/* Triangles after the mesh's own transform, ready to draw. */
+uint32_t ed_reference_mesh_triangle_count(void);
+bool ed_reference_mesh_world_triangle(uint32_t uiTriangle,
+                                      float afTriangleOut[3][3]);
+/* True when the host asked for the mesh to be drawn as edges. */
+bool ed_reference_mesh_wireframe(void);
 
 #endif
