@@ -1594,7 +1594,7 @@ static int InputMenuAnyButtonContext(void)
   if (intro || winner_mode)
     return 1;
 
-  switch (eFrontendCurrentState) {
+  switch (frontend_current_state()) {
     case eFRONTEND_STATE_WINNER_SCREEN:
     case eFRONTEND_STATE_RESULT_ROUNDUP:
     case eFRONTEND_STATE_RACE_RESULT:

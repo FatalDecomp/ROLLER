@@ -431,7 +431,7 @@ static void frontend_track_select_black_palette(void)
 static void frontend_track_select_request_exit(void)
 {
   iFrontendTrackExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT) {
+  if (frontend_current_state() == eFRONTEND_STATE_TRACK_SELECT) {
     MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
     iFrontendTrackExitFading = 1;
@@ -958,7 +958,7 @@ void frontend_track_select_update(void)
     MenuRenderer *mr = GetMenuRenderer();
     if (!menu_render_fade_active(mr)) {
       iFrontendTrackExitFading = 0;
-      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+      frontend_request_state(eFRONTEND_STATE_MAIN_MENU);
     }
     return;
   }
@@ -994,7 +994,7 @@ void frontend_track_select_exit(void)
   front_vga[3] = (tBlockHeader *)load_picture("carnames.bm");
   remove_frontendspeech();
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_TRACK_SELECT)
+  if (frontend_current_state() == eFRONTEND_STATE_TRACK_SELECT)
     frontend_menu_resume_from_child();
 }
 

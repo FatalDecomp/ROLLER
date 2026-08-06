@@ -559,9 +559,9 @@ static int frontend_main_menu_update_network_wait(void)
       no_clear = 0;
       if (!quit_game && !intro) {
         check_cars();
-        eFrontendNextState = eFRONTEND_STATE_LOBBY;
+        frontend_request_state(eFRONTEND_STATE_LOBBY);
       } else {
-        eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+        frontend_request_state(quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING);
       }
       return -1;
 
@@ -1483,14 +1483,14 @@ static void frontend_main_menu_handle_input(void)
     byKey = fatgetch();
     if (iFrontendMainMenuQuitConfirmed) {
       frontend_main_menu_handle_quit_confirmation(byKey);
-      if (eFrontendNextState != eFrontendCurrentState)
+      if (frontend_pending_state() != frontend_current_state())
         return;
       continue;
     }
     if (byKey) {
       if (byKey == 13) {
         frontend_main_menu_handle_enter();
-        if (eFrontendNextState != eFrontendCurrentState)
+        if (frontend_pending_state() != frontend_current_state())
           return;
       }
     } else {
@@ -1558,7 +1558,7 @@ static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
       frontend_main_menu_free_selected_car_textures();
       frontend_main_menu_free_preview_title_assets();
       iFrontendMainMenuResumeFromChild = -1;
-      eFrontendNextState = eFrontendMainMenuPendingChildState;
+      frontend_request_state(eFrontendMainMenuPendingChildState);
       eFrontendMainMenuPendingChildState = eFRONTEND_STATE_NONE;
       break;
     case eMAIN_MENU_FADE_OUT_START_SOUND:
@@ -1587,7 +1587,7 @@ static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
         if (network_on && iFrontendMainMenuSelection == 8 && !intro) {
           iFrontendMainMenuInitialized = 0;
           iFrontendMainMenuStartDelayTarget = 0;
-          eFrontendNextState = eFRONTEND_STATE_LOBBY;
+          frontend_request_state(eFRONTEND_STATE_LOBBY);
           break;
         }
       }
@@ -1601,7 +1601,7 @@ static int frontend_main_menu_update_fade_out(MenuRenderer *mr)
         frontend_main_menu_prepare_race_start();
       iFrontendMainMenuInitialized = 0;
       iFrontendMainMenuStartDelayTarget = 0;
-      eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING;
+      frontend_request_state(quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_LOADING);
       break;
     default:
       break;
@@ -1721,7 +1721,7 @@ void frontend_menu_update(void)
 
   frontend_main_menu_handle_mouse();
   frontend_main_menu_handle_input();
-  if (eFrontendNextState != eFrontendCurrentState)
+  if (frontend_pending_state() != frontend_current_state())
     return;
   frontend_main_menu_update_rotation(nFrames);
 }

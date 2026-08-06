@@ -285,7 +285,7 @@ static void frontend_type_select_black_palette(void)
 static void frontend_type_select_finish_exit(void)
 {
   iFrontendTypeExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT) {
+  if (frontend_current_state() == eFRONTEND_STATE_TYPE_SELECT) {
     MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
     iFrontendTypeExitFading = 1;
@@ -1108,7 +1108,7 @@ void frontend_type_select_update(void)
     MenuRenderer *mr = GetMenuRenderer();
     if (!menu_render_fade_active(mr)) {
       iFrontendTypeExitFading = 0;
-      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+      frontend_request_state(eFRONTEND_STATE_MAIN_MENU);
     }
     return;
   }
@@ -1129,7 +1129,7 @@ void frontend_type_select_exit(void)
   fre((void **)&front_vga[14]);
   front_fade = 0;
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_TYPE_SELECT)
+  if (frontend_current_state() == eFRONTEND_STATE_TYPE_SELECT)
     frontend_menu_resume_from_child();
 }
 

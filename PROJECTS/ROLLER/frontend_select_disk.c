@@ -56,7 +56,7 @@ static void frontend_disk_select_black_palette(void)
 static void frontend_disk_select_request_exit(void)
 {
   iFrontendDiskExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT) {
+  if (frontend_current_state() == eFRONTEND_STATE_DISK_SELECT) {
     MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
     iFrontendDiskExitFading = 1;
@@ -495,7 +495,7 @@ void frontend_disk_select_update(void)
     MenuRenderer *mr = GetMenuRenderer();
     if (!menu_render_fade_active(mr)) {
       iFrontendDiskExitFading = 0;
-      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+      frontend_request_state(eFRONTEND_STATE_MAIN_MENU);
     }
     return;
   }
@@ -517,7 +517,7 @@ void frontend_disk_select_exit(void)
     frontend_disk_select_black_palette();
   front_fade = 0;
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_DISK_SELECT)
+  if (frontend_current_state() == eFRONTEND_STATE_DISK_SELECT)
     frontend_menu_resume_from_child();
 }
 

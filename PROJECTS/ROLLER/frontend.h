@@ -57,9 +57,9 @@ typedef enum {
   eFRONTEND_STATE_QUIT
 } eFrontendState;
 
-extern eFrontendState eFrontendCurrentState;
-extern eFrontendState eFrontendNextState;
-
+eFrontendState frontend_current_state(void);
+eFrontendState frontend_pending_state(void);
+void frontend_request_state(eFrontendState eState);
 void frontend_set_state(eFrontendState eState);
 void frontend_update(void);
 void push_overlay(eFrontendState eOverlay);
