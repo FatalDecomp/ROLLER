@@ -446,7 +446,7 @@ void frontend_shutdown_enter(void)
 void frontend_shutdown_request(void)
 {
   frontend_shutdown_begin();
-  eFrontendNextState = iFrontendShutdownComplete ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_SHUTDOWN;
+  frontend_request_state(iFrontendShutdownComplete ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_SHUTDOWN);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -454,7 +454,7 @@ void frontend_shutdown_request(void)
 void frontend_shutdown_update(void)
 {
   if (frontend_shutdown_pump())
-    eFrontendNextState = eFRONTEND_STATE_QUIT;
+    frontend_request_state(eFRONTEND_STATE_QUIT);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -872,8 +872,8 @@ void champion_race_enter(void)
 int champion_race_update(void)
 {
   race_update();
-  if (eFrontendNextState == eFRONTEND_STATE_RESULTS) {
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+  if (frontend_pending_state() == eFRONTEND_STATE_RESULTS) {
+    frontend_request_state(eFRONTEND_STATE_CHAMPIONSHIP_OVER);
     return -1;
   }
   return 0;
@@ -925,7 +925,7 @@ static void frontend_finish_post_race_sequence(void)
   iFrontendTimeTrialCarIdx = 0;
   iFrontendTimeTrialScreenActive = 0;
   iFrontendTimeTrialScreenActive = 0;
-  eFrontendNextState = quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU;
+  frontend_request_state(quit_game ? eFRONTEND_STATE_QUIT : eFRONTEND_STATE_MAIN_MENU);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -933,9 +933,9 @@ static void frontend_finish_post_race_sequence(void)
 static void frontend_after_single_result_screens(void)
 {
   if ((cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+    frontend_request_state(eFRONTEND_STATE_CHAMPIONSHIP_OVER);
   } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
-    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+    frontend_request_state(eFRONTEND_STATE_CREDITS);
   } else {
     frontend_finish_post_race_sequence();
   }
@@ -948,9 +948,9 @@ static void frontend_after_championship_lap_records(void)
   ++Race;
   TrackLoad = prev_track + 1;
   if (Race == 8 || (cheat_mode & CHEAT_MODE_END_SEQUENCE) != 0) {
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_OVER;
+    frontend_request_state(eFRONTEND_STATE_CHAMPIONSHIP_OVER);
   } else if ((cheat_mode & CHEAT_MODE_CREDITS) != 0) {
-    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+    frontend_request_state(eFRONTEND_STATE_CREDITS);
   } else {
     frontend_finish_post_race_sequence();
   }
@@ -965,12 +965,12 @@ static void frontend_run_game_loop(eFrontendState eInitialState);
 int main_loop_iteration(void)
 {
   if (quit_game &&
-      eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
-      eFrontendCurrentState != eFRONTEND_STATE_QUIT)
-    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+      frontend_current_state() != eFRONTEND_STATE_SHUTDOWN &&
+      frontend_current_state() != eFRONTEND_STATE_QUIT)
+    frontend_request_state(eFRONTEND_STATE_SHUTDOWN);
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_QUIT &&
-      eFrontendNextState == eFRONTEND_STATE_QUIT)
+  if (frontend_current_state() == eFRONTEND_STATE_QUIT &&
+      frontend_pending_state() == eFRONTEND_STATE_QUIT)
     return 0;
 
   UpdateSDL();
@@ -983,12 +983,12 @@ int main_loop_iteration(void)
 #endif
 
   if (quit_game &&
-      eFrontendCurrentState != eFRONTEND_STATE_SHUTDOWN &&
-      eFrontendCurrentState != eFRONTEND_STATE_QUIT)
-    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+      frontend_current_state() != eFRONTEND_STATE_SHUTDOWN &&
+      frontend_current_state() != eFRONTEND_STATE_QUIT)
+    frontend_request_state(eFRONTEND_STATE_SHUTDOWN);
 
   frontend_update();
-  return eFrontendCurrentState != eFRONTEND_STATE_QUIT;
+  return frontend_current_state() != eFRONTEND_STATE_QUIT;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1030,7 +1030,7 @@ void frontend_copy_screens_enter(void)
 void frontend_copy_screens_update(void)
 {
   if (CopyScreensUpdate())
-    eFrontendNextState = eFRONTEND_STATE_TITLE;
+    frontend_request_state(eFRONTEND_STATE_TITLE);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1057,15 +1057,15 @@ void frontend_loading_enter(void)
 void frontend_loading_update(void)
 {
   if (quit_game) {
-    eFrontendNextState = eFRONTEND_STATE_QUIT;
+    frontend_request_state(eFRONTEND_STATE_QUIT);
   } else if (game_type < 3) {
-    eFrontendNextState = eFRONTEND_STATE_TITLE;
+    frontend_request_state(eFRONTEND_STATE_TITLE);
   } else if (game_type == 3) {
     eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_STANDALONE_CHAMPIONSHIP;
     iFrontendPostRaceCleanup = 0;
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+    frontend_request_state(eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS);
   } else {
-    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    frontend_request_state(eFRONTEND_STATE_RESULTS);
   }
 }
 
@@ -1091,7 +1091,7 @@ void frontend_title_update(void)
   net_quit = 0;
   prev_track = TrackLoad;
   race_set_track(TrackLoad);
-  eFrontendNextState = eFRONTEND_STATE_RACING;
+  frontend_request_state(eFRONTEND_STATE_RACING);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1111,7 +1111,7 @@ void frontend_results_update(void)
 
   if (game_type >= 3) {
     eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_RECORDS;
-    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+    frontend_request_state(eFRONTEND_STATE_LAP_RECORDS);
     return;
   }
 
@@ -1121,7 +1121,7 @@ void frontend_results_update(void)
   if (network_buggered && !iFrontendNetworkErrorHandled) {
     iFrontendGameFlags = 0;
     iFrontendNetworkErrorHandled = -1;
-    eFrontendNextState = eFRONTEND_STATE_NETWORK_ERROR;
+    frontend_request_state(eFRONTEND_STATE_NETWORK_ERROR);
     return;
   }
   if (net_quit || network_buggered) {
@@ -1135,7 +1135,7 @@ void frontend_results_update(void)
   }
   if (cd_error) {
     iFrontendGameFlags = 0;
-    eFrontendNextState = eFRONTEND_STATE_NO_CD_ERROR;
+    frontend_request_state(eFRONTEND_STATE_NO_CD_ERROR);
     return;
   }
   VIEWDIST = 270;
@@ -1147,7 +1147,7 @@ void frontend_results_update(void)
         if (game_type == 2) {
           StoreResult();
           eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_TIME_TRIAL;
-          eFrontendNextState = eFRONTEND_STATE_TIME_TRIAL_RESULTS;
+          frontend_request_state(eFRONTEND_STATE_TIME_TRIAL_RESULTS);
           return;
         }
         frontend_finish_post_race_sequence();
@@ -1156,18 +1156,18 @@ void frontend_results_update(void)
       eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_CHAMPIONSHIP;
       finish_race();                            // Championship mode - handle race completion
       StoreResult();
-      eFrontendNextState = frontend_should_show_winner_screen()
+      frontend_request_state(frontend_should_show_winner_screen()
         ? eFRONTEND_STATE_WINNER_SCREEN
-        : eFRONTEND_STATE_RESULT_ROUNDUP;
+        : eFRONTEND_STATE_RESULT_ROUNDUP);
       return;
     }
     eFrontendPostRaceCurrentFlow = eFRONTEND_POST_RACE_SINGLE;
     if (!gave_up) {
       finish_race();
       StoreResult();
-      eFrontendNextState = frontend_should_show_winner_screen()
+      frontend_request_state(frontend_should_show_winner_screen()
         ? eFRONTEND_STATE_WINNER_SCREEN
-        : eFRONTEND_STATE_RESULT_ROUNDUP;
+        : eFRONTEND_STATE_RESULT_ROUNDUP);
       return;
     }
     frontend_after_single_result_screens();
@@ -1189,7 +1189,7 @@ void frontend_network_error_enter(void)
 void frontend_network_error_update(void)
 {
   if (NetworkFuckedUpdate())
-    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    frontend_request_state(eFRONTEND_STATE_RESULTS);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1212,7 +1212,7 @@ void frontend_no_cd_update(void)
 {
   if (NoCdUpdate()) {
     quit_game = -1;
-    eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+    frontend_request_state(eFRONTEND_STATE_SHUTDOWN);
   }
 }
 
@@ -1230,9 +1230,9 @@ void frontend_winner_screen_update(void)
   if (!WinnerScreenUpdate())
     return;
   if (WinnerScreenResult())
-    eFrontendNextState = eFRONTEND_STATE_WINNER_RACE;
+    frontend_request_state(eFRONTEND_STATE_WINNER_RACE);
   else
-    eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+    frontend_request_state(eFRONTEND_STATE_RESULT_ROUNDUP);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1263,8 +1263,8 @@ void frontend_winner_race_enter(void)
 void frontend_winner_race_update(void)
 {
   race_update();
-  if (eFrontendNextState == eFRONTEND_STATE_RESULTS)
-    eFrontendNextState = eFRONTEND_STATE_RESULT_ROUNDUP;
+  if (frontend_pending_state() == eFRONTEND_STATE_RESULTS)
+    frontend_request_state(eFRONTEND_STATE_RESULT_ROUNDUP);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1288,7 +1288,7 @@ void frontend_result_roundup_update(void)
 {
   if (!ResultRoundUpUpdate())
     return;
-  eFrontendNextState = eFRONTEND_STATE_RACE_RESULT;
+  frontend_request_state(eFRONTEND_STATE_RACE_RESULT);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1312,9 +1312,9 @@ void frontend_race_result_update(void)
   if (!RaceResultUpdate())
     return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP)
-    eFrontendNextState = eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS;
+    frontend_request_state(eFRONTEND_STATE_CHAMPIONSHIP_STANDINGS);
   else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE)
-    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+    frontend_request_state(eFRONTEND_STATE_LAP_RECORDS);
   else
     frontend_finish_post_race_sequence();
 }
@@ -1333,9 +1333,9 @@ void frontend_championship_standings_update(void)
   if (!ChampionshipStandingsUpdate())
     return;
   if (frontend_should_show_team_standings()) {
-    eFrontendNextState = eFRONTEND_STATE_TEAM_STANDINGS;
+    frontend_request_state(eFRONTEND_STATE_TEAM_STANDINGS);
   } else if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
-    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+    frontend_request_state(eFRONTEND_STATE_LAP_RECORDS);
   } else {
     dontrestart = -1;
     frontend_finish_post_race_sequence();
@@ -1363,7 +1363,7 @@ void frontend_team_standings_update(void)
   if (!TeamStandingsUpdate())
     return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_CHAMPIONSHIP) {
-    eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+    frontend_request_state(eFRONTEND_STATE_LAP_RECORDS);
   } else {
     dontrestart = -1;
     frontend_finish_post_race_sequence();
@@ -1440,7 +1440,7 @@ void frontend_time_trial_results_update(void)
       return;
     }
   }
-  eFrontendNextState = eFRONTEND_STATE_LAP_RECORDS;
+  frontend_request_state(eFRONTEND_STATE_LAP_RECORDS);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1468,7 +1468,7 @@ void frontend_championship_over_update(void)
     return;
   if (eFrontendPostRaceCurrentFlow == eFRONTEND_POST_RACE_SINGLE &&
       (cheat_mode & CHEAT_MODE_CREDITS) != 0)
-    eFrontendNextState = eFRONTEND_STATE_CREDITS;
+    frontend_request_state(eFRONTEND_STATE_CREDITS);
   else
     frontend_finish_post_race_sequence();
 }
@@ -1637,7 +1637,7 @@ void race_update(void)
       return;
 
     iFrontendRaceFadeOutPending = 0;
-    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    frontend_request_state(eFRONTEND_STATE_RESULTS);
     return;
   }
 
@@ -1648,7 +1648,7 @@ void race_update(void)
       return;
     }
 
-    eFrontendNextState = eFRONTEND_STATE_RESULTS;
+    frontend_request_state(eFRONTEND_STATE_RESULTS);
     return;
   }
 
@@ -2224,11 +2224,11 @@ void doexit()
   frontend_shutdown_request();
 
   if (!frontend_shutdown_complete() &&
-      (eFrontendCurrentState == eFRONTEND_STATE_NONE ||
-       eFrontendCurrentState == eFRONTEND_STATE_QUIT))
+      (frontend_current_state() == eFRONTEND_STATE_NONE ||
+       frontend_current_state() == eFRONTEND_STATE_QUIT))
     frontend_set_state(eFRONTEND_STATE_SHUTDOWN);
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_SHUTDOWN)
+  if (frontend_current_state() == eFRONTEND_STATE_SHUTDOWN)
     frontend_shutdown_update();
 
 #ifndef __EMSCRIPTEN__

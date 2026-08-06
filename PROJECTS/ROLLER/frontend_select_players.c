@@ -610,7 +610,7 @@ static int frontend_players_net_slot_update(void)
 static void frontend_players_select_request_exit(void)
 {
   iFrontendPlayersExitFlag = -1;
-  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT) {
+  if (frontend_current_state() == eFRONTEND_STATE_PLAYERS_SELECT) {
     MenuRenderer *mr = GetMenuRenderer();
     menu_render_begin_fade(mr, 0, 32);
     iFrontendPlayersExitFading = 1;
@@ -810,7 +810,7 @@ void frontend_players_select_update(void)
     MenuRenderer *mr = GetMenuRenderer();
     if (!menu_render_fade_active(mr)) {
       iFrontendPlayersExitFading = 0;
-      eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+      frontend_request_state(eFRONTEND_STATE_MAIN_MENU);
     }
     return;
   }
@@ -953,7 +953,7 @@ void frontend_players_select_exit(void)
   }
   front_fade = 0;
 
-  if (eFrontendCurrentState == eFRONTEND_STATE_PLAYERS_SELECT)
+  if (frontend_current_state() == eFRONTEND_STATE_PLAYERS_SELECT)
     frontend_menu_resume_from_child();
 }
 

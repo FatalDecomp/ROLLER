@@ -2100,7 +2100,7 @@ void frontend_config_update(void)
         if (iFrontendConfigExitFading) {
           if (!menu_render_fade_active(mr)) {
             iFrontendConfigExitFading = 0;
-            eFrontendNextState = eFRONTEND_STATE_MAIN_MENU;
+            frontend_request_state(eFRONTEND_STATE_MAIN_MENU);
           }
           return;
         }

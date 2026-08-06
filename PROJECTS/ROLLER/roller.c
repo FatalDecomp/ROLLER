@@ -1885,7 +1885,7 @@ void UpdateSDL()
     UpdateSDLAudioEvents(e);
     if (e.type == SDL_EVENT_QUIT) {
       quit_game = 1;
-      eFrontendNextState = eFRONTEND_STATE_SHUTDOWN;
+      frontend_request_state(eFRONTEND_STATE_SHUTDOWN);
       continue;
     }
 #if defined(IS_WASM)
@@ -2205,7 +2205,7 @@ void UpdateSDL()
       (SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_MINIMIZED) != 0;
   bool bDebugOverlayVisible = debug_overlay_visible(s_pDebugOverlay);
   bool bApplyBgCap = g_iFpsBackground > 0 &&
-      (eFrontendCurrentState == eFRONTEND_STATE_PAUSE_OVERLAY ||
+      (frontend_current_state() == eFRONTEND_STATE_PAUSE_OVERLAY ||
        g_bShiftFrozen || bWindowMinimized || bDebugOverlayVisible);
   if (bApplyBgCap) {
     uint64 frameMs = 1000u / (uint64)g_iFpsBackground;

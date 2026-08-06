@@ -381,7 +381,7 @@ static int lobby_update_exit_fade(void)
   lobby_draw_frame();
   if (!menu_render_fade_active(GetMenuRenderer())) {
     iLobbyExitFading = 0;
-    eFrontendNextState = eLobbyExitTarget;
+    frontend_request_state(eLobbyExitTarget);
     eLobbyExitTarget = eFRONTEND_STATE_NONE;
   }
   return -1;

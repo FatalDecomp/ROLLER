@@ -39,7 +39,7 @@ static int touch_ui_race_buttons_visible(void)
 #if defined(IS_ANDROID) || defined(IS_WASM)
   if (!ROLLERPhoneUIActive() || g_bSnapshotMode)
     return 0;
-  if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
+  if (frontend_current_state() != eFRONTEND_STATE_RACING)
     return 0;
   if (frontend_on || game_req || intro || winner_mode || replaytype == 2)
     return 0;
@@ -59,7 +59,7 @@ static int touch_ui_esc_button_visible(void)
 #if defined(IS_ANDROID) || defined(IS_WASM)
   if (!ROLLERPhoneUIActive() || g_bSnapshotMode)
     return 0;
-  if (eFrontendCurrentState != eFRONTEND_STATE_RACING)
+  if (frontend_current_state() != eFRONTEND_STATE_RACING)
     return 0;
   if (frontend_on || game_req || intro || winner_mode)
     return 0;

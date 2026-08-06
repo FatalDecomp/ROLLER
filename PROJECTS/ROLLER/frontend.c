@@ -18,9 +18,6 @@ typedef struct {
 
 //-------------------------------------------------------------------------------------------------
 
-eFrontendState eFrontendCurrentState = eFRONTEND_STATE_NONE;
-eFrontendState eFrontendNextState = eFRONTEND_STATE_NONE;
-
 #define OVERLAY_STACK_DEPTH 4
 
 static void frontend_fsm_enter(void *pContext);
@@ -116,17 +113,9 @@ static eFrontendState frontend_resolve_state(eFrontendState eState)
 
 //-------------------------------------------------------------------------------------------------
 
-static void frontend_sync_legacy_globals(void)
-{
-  eFrontendCurrentState = (eFrontendState)fsm_current(&sFrontendMachine);
-  eFrontendNextState = (eFrontendState)fsm_pending(&sFrontendMachine);
-}
-
-//-------------------------------------------------------------------------------------------------
-
 static const tFrontendScreen *frontend_current_screen(void)
 {
-  eFrontendState eState = (eFrontendState)fsm_current(&sFrontendMachine);
+  eFrontendState eState = frontend_current_state();
 
   if (!frontend_state_is_valid(eState))
     return NULL;
@@ -141,7 +130,6 @@ static void frontend_fsm_enter(void *pContext)
   const tFrontendScreen *pScreen;
   (void)pContext;
 
-  frontend_sync_legacy_globals();
   pScreen = frontend_current_screen();
   if (pScreen && pScreen->pfnEnter)
     pScreen->pfnEnter();
@@ -152,18 +140,11 @@ static void frontend_fsm_enter(void *pContext)
 static void frontend_fsm_update(void *pContext)
 {
   const tFrontendScreen *pScreen;
-  eFrontendState eRequestedState;
   (void)pContext;
 
-  frontend_sync_legacy_globals();
   pScreen = frontend_current_screen();
   if (pScreen && pScreen->pfnUpdate)
     pScreen->pfnUpdate();
-
-  eRequestedState = frontend_resolve_state(eFrontendNextState);
-  if (eRequestedState != (eFrontendState)fsm_pending(&sFrontendMachine))
-    (void)fsm_request(&sFrontendMachine, eRequestedState);
-  frontend_sync_legacy_globals();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -173,7 +154,6 @@ static void frontend_fsm_draw(void *pContext)
   const tFrontendScreen *pScreen;
   (void)pContext;
 
-  frontend_sync_legacy_globals();
   pScreen = frontend_current_screen();
   if (pScreen && pScreen->pfnDraw)
     pScreen->pfnDraw();
@@ -186,10 +166,30 @@ static void frontend_fsm_exit(void *pContext)
   const tFrontendScreen *pScreen;
   (void)pContext;
 
-  frontend_sync_legacy_globals();
   pScreen = frontend_current_screen();
   if (pScreen && pScreen->pfnExit)
     pScreen->pfnExit();
+}
+
+//-------------------------------------------------------------------------------------------------
+
+eFrontendState frontend_current_state(void)
+{
+  return (eFrontendState)fsm_current(&sFrontendMachine);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+eFrontendState frontend_pending_state(void)
+{
+  return (eFrontendState)fsm_pending(&sFrontendMachine);
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void frontend_request_state(eFrontendState eState)
+{
+  (void)fsm_request(&sFrontendMachine, frontend_resolve_state(eState));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -198,30 +198,21 @@ void frontend_set_state(eFrontendState eState)
 {
   eState = frontend_resolve_state(eState);
 
-  if (eState == (eFrontendState)fsm_current(&sFrontendMachine)) {
-    (void)fsm_request(&sFrontendMachine, eState);
-    frontend_sync_legacy_globals();
+  if (eState == frontend_current_state()) {
+    frontend_request_state(eState);
     return;
   }
 
   while (fsm_stack_count(&sFrontendOverlayStack) > 0)
     (void)fsm_stack_pop(&sFrontendOverlayStack);
   (void)fsm_transition(&sFrontendMachine, eState);
-  frontend_sync_legacy_globals();
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void frontend_update(void)
 {
-  eFrontendState eRequestedState;
-
-  eRequestedState = frontend_resolve_state(eFrontendNextState);
-  if (eRequestedState != (eFrontendState)fsm_pending(&sFrontendMachine))
-    (void)fsm_request(&sFrontendMachine, eRequestedState);
-
   (void)fsm_step(&sFrontendMachine);
-  frontend_sync_legacy_globals();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -231,16 +222,14 @@ void push_overlay(eFrontendState eOverlay)
   if (!frontend_state_is_valid(eOverlay))
     return;
 
-  if (fsm_stack_push(&sFrontendOverlayStack, eOverlay) == FSM_OK)
-    frontend_sync_legacy_globals();
+  (void)fsm_stack_push(&sFrontendOverlayStack, eOverlay);
 }
 
 //-------------------------------------------------------------------------------------------------
 
 void pop_overlay(void)
 {
-  if (fsm_stack_pop(&sFrontendOverlayStack) == FSM_OK)
-    frontend_sync_legacy_globals();
+  (void)fsm_stack_pop(&sFrontendOverlayStack);
 }
 
 //-------------------------------------------------------------------------------------------------
