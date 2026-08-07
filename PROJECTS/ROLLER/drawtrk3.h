@@ -64,6 +64,17 @@ bool drawtrk3_emit_surface_to_renderer(
 bool drawtrk3_emit_full_track(tEdMaterialTable *pMaterials,
                               tEdEmitSurfaceFn pfnEmit,
                               void *pUserData);
+/*
+ * E4A-S6. The scenery half of the canonical stream: every placed building and
+ * advert panel, walked by building index with no camera, visible set, depth
+ * sort, or backface cull, at the yaw the track file recorded rather than the
+ * viewer-facing one the renderer uses for billboards. Surfaces E4A-S3
+ * classifies ROLLER_ED_CONTENT_RUNTIME_SCENERY are not emitted, so an exporter
+ * never sees one. Conventions: ADR 0005.
+ */
+bool drawtrk3_emit_full_scenery(tEdMaterialTable *pMaterials,
+                                tEdEmitSurfaceFn pfnEmit,
+                                void *pUserData);
 void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
                                    uint32_t uiLastChunkId,
                                    uint16_t unSurfaceClass,

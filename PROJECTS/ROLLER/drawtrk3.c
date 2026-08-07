@@ -7,6 +7,7 @@
 #include "moving.h"
 #include "transfrm.h"
 #include "building.h"
+#include "plans.h"
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
@@ -1038,19 +1039,21 @@ static bool emit_track_chunk_surface(uint32_t uiChunkId,
     }
 }
 
+/* Shared by both canonical producers -- the full-track chunk walk and the
+ * full-scenery object walk -- so they intern materials into the same table. */
 typedef struct
 {
     tEdMaterialTable *pMaterials;
     tEdEmitSurfaceFn pfnEmit;
     void *pUserData;
-} tEdFullTrackSurfaceContext;
+} tEdCanonicalEmitContext;
 
-static bool emit_full_track_raw_surface(
+static bool emit_canonical_raw_surface(
     const GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT],
     const tEdSurfaceInfo *pInfo,
     void *pUserData)
 {
-    tEdFullTrackSurfaceContext *pContext = pUserData;
+    tEdCanonicalEmitContext *pContext = pUserData;
     return emit_surface_to_consumer(
         aVertices, pInfo, pContext->pMaterials,
         pContext->pfnEmit, pContext->pUserData);
@@ -1077,7 +1080,7 @@ static bool emit_full_track_chunk(uint32_t uiChunkId, void *pUserData)
             i++) {
         if (!emit_track_chunk_surface(
                 uiChunkId, aunSurfaceClasses[i], false,
-                emit_full_track_raw_surface, pUserData))
+                emit_canonical_raw_surface, pUserData))
             return false;
     }
     return true;
@@ -1087,7 +1090,7 @@ bool drawtrk3_emit_full_track(tEdMaterialTable *pMaterials,
                               tEdEmitSurfaceFn pfnEmit,
                               void *pUserData)
 {
-    tEdFullTrackSurfaceContext Context;
+    tEdCanonicalEmitContext Context;
 
     if (!pMaterials || !pfnEmit
             || TRAK_LEN <= 0 || TRAK_LEN > MAX_TRACK_CHUNKS)
@@ -1097,6 +1100,91 @@ bool drawtrk3_emit_full_track(tEdMaterialTable *pMaterials,
     Context.pUserData = pUserData;
     return ed_traverse_full_track_chunks(
         (uint32_t)TRAK_LEN, emit_full_track_chunk, &Context);
+}
+
+/*
+ * E4A-S6. The scenery counterpart of emit_full_track_chunk: every polygon of
+ * one placed building, in the plan's own order and its authored vertex order,
+ * placed at the yaw/pitch/roll the track file recorded.
+ *
+ * Two draw-time decisions are deliberately not made here, both because they
+ * need a viewer. building.c reverses the vertex order of a back-facing
+ * FLIP_BACKFACE quad; the authored order is canonical instead, and
+ * FLIP_BACKFACE already publishes ROLLER_ED_SURFACE_FLAG_TWO_SIDED, so an
+ * exporter draws those quads from both sides and loses nothing. building.c
+ * also turns billboard plans to face the viewer through worlddirn; the
+ * authored yaw is canonical instead. ADR 0005 records both.
+ */
+static bool emit_full_scenery_object(uint32_t uiBuildingIdx, void *pUserData)
+{
+    const tEdCanonicalEmitContext *pContext = pUserData;
+    tVec3 aWorld[BUILDING_MAX_PLAN_COORDS];
+    const tBuildingPlan *pPlan;
+    unsigned int uiBuildingType;
+    uint32_t uiCoordCount;
+
+    uiBuildingType = (unsigned int)BuildingBase[uiBuildingIdx][0];
+    /* InitBuildings placed nothing for an out-of-range plan, so BuildingX/Y/Z
+     * hold no position for it. Skipping matches what the renderer draws. */
+    if (uiBuildingType >= BUILDING_PLAN_COUNT)
+        return true;
+
+    uiCoordCount = building_transform_plan_coords(
+        (int)uiBuildingIdx, BUILDING_YAW_AUTHORED, aWorld);
+    if (!uiCoordCount)
+        return true;
+
+    pPlan = &BuildingPlans[uiBuildingType];
+    for (uint32_t i = 0; i < (uint32_t)pPlan->byNumPols; i++) {
+        const tPolygon *pPolygon = &pPlan->pPols[i];
+        GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+        tEdSurfaceInfo Info;
+
+        if (!building_polygon_surface_info(
+                (int)uiBuildingIdx, pPolygon, false, &Info))
+            return false;
+        /* The canonical stream is authored content only. E4A-S3's
+         * classification is the authority on which surfaces those are, and it
+         * is made per polygon, not per plan: a billboard whose polygon is a
+         * real advert panel is AUTHORED_SIGN and does travel. */
+        if (Info.unContentClass == ROLLER_ED_CONTENT_RUNTIME_SCENERY)
+            continue;
+        /* Retail TRACK5 names an advert tile past the end of its building
+         * bank. The renderer drops that quad; so does this, rather than
+         * failing the whole extraction over one bad advert entry. */
+        if (!ed_surface_material_resolvable(pContext->pMaterials, &Info))
+            continue;
+        for (uint32_t v = 0; v < ED_SURFACE_VERTEX_COUNT; v++) {
+            uint32_t uiCoord = pPolygon->verts[v];
+
+            if (uiCoord >= uiCoordCount)
+                return false;
+            aVertices[v].x = aWorld[uiCoord].fX;
+            aVertices[v].y = aWorld[uiCoord].fY;
+            aVertices[v].z = aWorld[uiCoord].fZ;
+            aVertices[v].u = 0.0f;
+            aVertices[v].v = 0.0f;
+        }
+        if (!emit_canonical_raw_surface(aVertices, &Info, pUserData))
+            return false;
+    }
+    return true;
+}
+
+bool drawtrk3_emit_full_scenery(tEdMaterialTable *pMaterials,
+                                tEdEmitSurfaceFn pfnEmit,
+                                void *pUserData)
+{
+    tEdCanonicalEmitContext Context;
+
+    if (!pMaterials || !pfnEmit
+            || NumBuildings < 0 || NumBuildings > MAX_VISIBLE_BUILDINGS)
+        return false;
+    Context.pMaterials = pMaterials;
+    Context.pfnEmit = pfnEmit;
+    Context.pUserData = pUserData;
+    return ed_traverse_full_scenery_objects(
+        (uint32_t)NumBuildings, emit_full_scenery_object, &Context);
 }
 
 typedef struct

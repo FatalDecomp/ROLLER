@@ -1,6 +1,7 @@
 #include "editor_legacy_scene.h"
 
 #include "3d.h"
+#include "building.h"
 #include "car.h"
 #include "drawtrk3.h"
 #include "editor_camera.h"
@@ -432,7 +433,20 @@ eRollerEdResult roller_ed_legacy_scene_render(
 #define EDITOR_GEOMETRY_MIN_MATERIALS 256u
 #define EDITOR_GEOMETRY_MAX_MATERIALS 16384u
 #define EDITOR_GEOMETRY_INDICES_PER_QUAD 6u
-#define EDITOR_GEOMETRY_MAX_SURFACES (MAX_TRACK_CHUNKS * 32u)
+/* Track chunks emit up to ~32 surfaces each; scenery adds at most
+ * MAX_VISIBLE_BUILDINGS placed objects of at most 20 polygons apiece. */
+#define EDITOR_GEOMETRY_MAX_SURFACES \
+    (MAX_TRACK_CHUNKS * 32u + MAX_VISIBLE_BUILDINGS * 32u)
+
+/* Both canonical producers, in the fixed order the probe and the fill must
+ * agree on: track chunks first, then scenery. */
+static bool editor_geometry_emit_all(tEdMaterialTable *pTable,
+                                     tEdEmitSurfaceFn pfnEmit,
+                                     void *pUserData)
+{
+    return drawtrk3_emit_full_track(pTable, pfnEmit, pUserData)
+        && drawtrk3_emit_full_scenery(pTable, pfnEmit, pUserData);
+}
 
 typedef struct
 {
@@ -539,7 +553,7 @@ static bool editor_geometry_probe(uint32_t *puiSurfaceCount,
                                    "editor material table is unavailable");
             return false;
         }
-        if (drawtrk3_emit_full_track(
+        if (editor_geometry_emit_all(
                 &Table, editor_geometry_count_surface, &uiSurfaceCount)) {
             *puiSurfaceCount = uiSurfaceCount;
             *puiMaterialCount = Table.uiCount;
@@ -623,7 +637,7 @@ eRollerEdResult roller_ed_legacy_scene_extract_geometry(
     }
     Fill.pExtract = pExtract;
     Fill.uiPrimitiveIndex = 0u;
-    if (!drawtrk3_emit_full_track(&Table, editor_geometry_fill_surface, &Fill)
+    if (!editor_geometry_emit_all(&Table, editor_geometry_fill_surface, &Fill)
             || Fill.uiPrimitiveIndex != uiSurfaceCount
             || Table.uiCount != uiMaterialCount) {
         /* The traversal is camera-independent and deterministic by

@@ -115,7 +115,11 @@ typedef struct
 typedef void (*tEdEmitSurfaceFn)(const tEdSurfaceEmission *pSurface,
                                  void *pUserData);
 
-typedef bool (*tEdVisitChunkFn)(uint32_t uiChunkId, void *pUserData);
+/* A canonical traversal visitor: it receives an index and returns false to
+ * abort the whole traversal. tEdVisitChunkFn is the track-chunk spelling of
+ * the same signature. */
+typedef bool (*tEdVisitIndexFn)(uint32_t uiIndex, void *pUserData);
+typedef tEdVisitIndexFn tEdVisitChunkFn;
 
 typedef struct
 {
@@ -164,6 +168,15 @@ const tEdMaterial *ed_material_table_get(const tEdMaterialTable *pTable,
                                          uint32_t uiMaterialId);
 
 bool ed_surface_identity_valid(const tEdSurfaceInfo *pInfo);
+
+/*
+ * True when the table can build a material for this surface. False only for a
+ * textured surface whose tile is not in its bank -- which ed_emit_surface
+ * refuses and the render path silently drops, so a producer that skips it
+ * matches what is on screen. Every other ed_emit_surface refusal stays fatal.
+ */
+bool ed_surface_material_resolvable(const tEdMaterialTable *pTable,
+                                    const tEdSurfaceInfo *pInfo);
 
 bool ed_atlas_pair_available(const tEdTextureAtlas *pAtlas,
                              uint32_t uiTileIndex);
@@ -220,6 +233,15 @@ bool ed_surface_wireframe_edge_quad_points(
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
                                    tEdVisitChunkFn pfnVisit,
                                    void *pUserData);
+
+/*
+ * The scenery counterpart (E4A-S6): visits every placed object index in order,
+ * reading no visible set, camera, or render queue. drawtrk3_emit_full_scenery
+ * drives it, exactly as drawtrk3_emit_full_track drives the chunk walk.
+ */
+bool ed_traverse_full_scenery_objects(uint32_t uiPlacedObjectCount,
+                                      tEdVisitIndexFn pfnVisit,
+                                      void *pUserData);
 
 bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],
                      const tEdSurfaceInfo *pInfo,
