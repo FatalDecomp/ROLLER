@@ -34,11 +34,11 @@ run = "zig build test"
 
 [tasks.format-markdown]
 description = "Format Markdown"
-run = "git ls-files -z '*.md' | xargs -0 mdformat"
+run = "git ls-files -z '*.md' ':!:LICENSE.md' | xargs -0 mdformat"
 
 [tasks.lint-markdown]
 description = "Check Markdown formatting"
-run = "git ls-files -z '*.md' | xargs -0 mdformat --check"
+run = "git ls-files -z '*.md' ':!:LICENSE.md' | xargs -0 mdformat --check"
 
 [tasks.install-emsdk]
 description = "Install the pinned Emscripten SDK"
