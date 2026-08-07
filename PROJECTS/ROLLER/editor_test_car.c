@@ -12,6 +12,7 @@
 #include "roller_core_error.h"
 #endif
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -26,7 +27,9 @@
 
 /* The legacy 14-bit angle circle every ROLLER heading uses. */
 #define ED_TEST_CAR_ANGLE_MASK 0x3FFF
+#define ED_TEST_CAR_ANGLE_COUNT 16384.0
 #define ED_TEST_CAR_HALF_TURN 0x2000
+#define ED_TEST_CAR_PI 3.14159265358979323846
 
 /* Nothing prepared yet. A real design index is always < 14. */
 #define ED_TEST_CAR_NO_DESIGN 0xFFFFFFFFu
@@ -139,6 +142,37 @@ bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign)
     return true;
 }
 
+/*
+ * The chunk's world heading in the legacy 14-bit circle, taken from the
+ * direction to the next chunk's road centre. Heading zero looks along world
+ * +X and increases toward +Y (ADR 0003), which is exactly what tsin/tcos are
+ * indexed by, so the conversion is a plain scaling of atan2.
+ */
+static bool ed_test_car_heading(uint32_t uiChunkId, int32_t *piYaw)
+{
+    float afCentre[3];
+    float afNextCentre[3];
+    uint32_t uiNextChunk;
+    double dHeading;
+
+    if (TRAK_LEN <= 0)
+        return false;
+    uiNextChunk = uiChunkId + 1u;
+    if (uiNextChunk >= (uint32_t)TRAK_LEN)
+        uiNextChunk = 0u;
+    if (!ed_helper_center_point(uiChunkId, afCentre)
+            || !ed_helper_center_point(uiNextChunk, afNextCentre))
+        return false;
+
+    dHeading = atan2((double)(afNextCentre[1] - afCentre[1]),
+                     (double)(afNextCentre[0] - afCentre[0]));
+    if (piYaw) {
+        *piYaw = (int32_t)(dHeading * ED_TEST_CAR_ANGLE_COUNT
+                           / (2.0 * ED_TEST_CAR_PI));
+    }
+    return true;
+}
+
 bool ed_test_car_pose(uint32_t uiChunkId, uint32_t uiAiLine, bool bMillionPlus,
                       float afPositionOut[3], int32_t *piYaw, int32_t *piPitch,
                       int32_t *piRoll)
@@ -155,10 +189,17 @@ bool ed_test_car_pose(uint32_t uiChunkId, uint32_t uiAiLine, bool bMillionPlus,
         return false;
 
     /*
-     * The chunk's own orientation, which is what the legacy editor rebuilt as
-     * its yaw/pitch/roll matrices before multiplying the car into them.
+     * Heading comes from the geometry, not from localdata[].iYaw.
+     *
+     * The track file's per-chunk pitch and roll are that chunk's slope and
+     * banking -- genuinely the attitude of a car sitting on it -- but its yaw
+     * is a *turn rate*, not a heading: transfrm.c stores the per-chunk delta
+     * angle and wraps it to a signed half circle. Feeding that in pointed the
+     * car along world +X on every straight, which read as a fixed rotation
+     * away from the track. The direction to the next chunk is the heading.
      */
-    iYaw = localdata[uiChunkId].iYaw;
+    if (!ed_test_car_heading(uiChunkId, &iYaw))
+        return false;
     /*
      * "Million Plus" turns the car around. The legacy editor flipped the sign
      * of both of its model-correction rotations for it, and persisted the

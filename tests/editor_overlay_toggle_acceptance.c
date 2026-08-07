@@ -478,9 +478,8 @@ static int SDLCALL overlay_worker(void *pUserData)
 
     /*
      * E3A-S4. Each helper is its own flag: switching one on must change the
-     * frame, and switching it off again must return to it exactly. The floor
-     * is a filled plane and the lines are ribbons, so the floor must cover
-     * more than either line does.
+     * frame, and switching it off again must return to it exactly. Four AI
+     * lines cover more ground than the one centre line.
      */
     {
         static const struct
@@ -488,11 +487,10 @@ static int SDLCALL overlay_worker(void *pUserData)
             uint32_t uiFlag;
             const char *szName;
         } aHelpers[] = {
-            { ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR, "environment floor" },
             { ROLLER_ED_OVERLAY_SHOW_AI_LINES, "AI lines" },
             { ROLLER_ED_OVERLAY_SHOW_CENTER_LINE, "centre line" }
         };
-        size_t auiHelperDifference[3] = { 0, 0, 0 };
+        size_t auiHelperDifference[2] = { 0, 0 };
 
         for (size_t i = 0; i < sizeof(aHelpers) / sizeof(aHelpers[0]); ++i) {
             Overlay = make_overlay(
@@ -519,16 +517,16 @@ static int SDLCALL overlay_worker(void *pUserData)
                 goto shutdown;
             }
         }
-        if (auiHelperDifference[0] <= auiHelperDifference[2]) {
+        /* Four AI lines cover more ground than the single centre line. */
+        if (auiHelperDifference[0] <= auiHelperDifference[1]) {
             acceptance_fail(pContext,
-                            "the environment floor covered %zu pixels against "
-                            "the centre line's %zu -- it is not a filled plane",
-                            auiHelperDifference[0], auiHelperDifference[2]);
+                            "the four AI lines covered %zu pixels against the "
+                            "centre line's %zu",
+                            auiHelperDifference[0], auiHelperDifference[1]);
             goto shutdown;
         }
-        printf("helpers: floor %zu, AI lines %zu, centre line %zu pixels\n",
-               auiHelperDifference[0], auiHelperDifference[1],
-               auiHelperDifference[2]);
+        printf("helpers: AI lines %zu, centre line %zu pixels\n",
+               auiHelperDifference[0], auiHelperDifference[1]);
     }
 
     /*

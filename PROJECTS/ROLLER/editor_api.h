@@ -175,7 +175,11 @@ enum
     ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION = 1u << 2,
     ROLLER_ED_OVERLAY_SHOW_AI_LINES = 1u << 3,
     ROLLER_ED_OVERLAY_SHOW_CENTER_LINE = 1u << 4,
-    ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR = 1u << 5,
+    /* Bit 5 was SHOW_ENVIRONMENT_FLOOR (E3A-S4), the green plane under the
+     * track. It was retired once the preview drew the real horizon. The bit
+     * stays reserved rather than reused, so a host built against the older
+     * header is refused outright instead of silently switching something
+     * else on. */
     ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS = 1u << 6,
     ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS = 1u << 7,
     ROLLER_ED_OVERLAY_SHOW_TEST_CAR = 1u << 8,

@@ -8,8 +8,13 @@
 
 /*
  * E3A-S4 and E3A-S5. World-space geometry for the editor's helper overlays:
- * the four AI racing lines, the track centre line, the environment floor, and
- * the audio and stunt markers.
+ * the four AI racing lines, the track centre line, and the audio and stunt
+ * markers.
+ *
+ * There was an environment floor here too -- the green plane under the track,
+ * inherited from the pre-modernization editor. It was removed once the
+ * modern preview drew the real horizon, which fills that space properly; a
+ * flat slab underneath no longer described anything.
  *
  * None of this is track content -- no exporter should ever see it (AD-6d) --
  * but it is derived here rather than in the editor because geometry authority
@@ -59,15 +64,6 @@ bool ed_helper_segment_quad(const float afStart[3],
                             float fWidth,
                             float afQuadOut[4][3]);
 
-/*
- * The environment floor under one chunk: the span between the outer shoulder
- * edges of this chunk and the next, dropped to the track's floor height. That
- * height is the origin component the track header carries, which the editor
- * has always called the floor depth.
- */
-bool ed_helper_environment_floor_quad(uint32_t uiChunkId,
-                                      float afQuadOut[4][3]);
-
 /* Road width at a chunk, which the ratios above are taken against. */
 float ed_helper_road_width(uint32_t uiChunkId);
 
@@ -88,8 +84,8 @@ float ed_helper_road_width(uint32_t uiChunkId);
  * absolute units, which only reads correctly on a track built to the retail
  * scale.
  */
-#define ED_HELPER_MARKER_SIZE_RATIO 0.5f
-#define ED_HELPER_MARKER_HOVER_RATIO 0.5f
+#define ED_HELPER_MARKER_SIZE_RATIO 0.12f
+#define ED_HELPER_MARKER_HOVER_RATIO 0.25f
 
 typedef enum
 {

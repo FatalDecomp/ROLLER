@@ -136,9 +136,27 @@ class TestCarModuleTests(unittest.TestCase):
         # AD-6a: one derivation, shared with E3A-S4's AI-line overlay, so the
         # car cannot drift away from the line the editor is showing.
         self.assertIn("ed_helper_ai_line_point", body)
-        self.assertIn("localdata[uiChunkId].iYaw", body)
+        # The chunk's own slope and banking are its attitude, so they come
+        # straight from localdata.
         self.assertIn("localdata[uiChunkId].iPitch", body)
         self.assertIn("localdata[uiChunkId].iRoll", body)
+
+    def test_the_heading_comes_from_geometry_not_from_localdata(self) -> None:
+        # localdata[].iYaw is a per-chunk *turn rate*, not a heading:
+        # transfrm.c stores the delta angle and wraps it to a signed half
+        # circle. Using it pointed the car along world +X on every straight.
+        pose = without_comments(
+            function_body(self.source, "bool ed_test_car_pose(")
+        )
+        self.assertNotIn("localdata[uiChunkId].iYaw", pose)
+        self.assertIn("ed_test_car_heading", pose)
+
+        heading = without_comments(
+            function_body(self.source, "static bool ed_test_car_heading(")
+        )
+        self.assertIn("ed_helper_center_point", heading)
+        self.assertIn("atan2", heading)
+        self.assertIn("ED_TEST_CAR_ANGLE_COUNT", heading)
 
     def test_million_plus_is_a_half_turn(self) -> None:
         body = without_comments(

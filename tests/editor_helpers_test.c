@@ -14,7 +14,6 @@
 tGroundPt TrakPt[MAX_TRACK_CHUNKS];
 tData localdata[MAX_TRACK_CHUNKS];
 int TRAK_LEN;
-float TrackFloorHeight;
 int16 samplespeed[MAX_SAMPLES];
 tStuntData *ramp[50];
 int totalramps;
@@ -58,7 +57,6 @@ static void build_straight_track(void)
     memset(ramp, 0, sizeof(ramp));
     totalramps = 0;
     TRAK_LEN = 2;
-    TrackFloorHeight = 20.0f;
 
     for (int iChunk = 0; iChunk < 2; iChunk++) {
         float fX = (float)iChunk * 1000.0f;
@@ -149,21 +147,6 @@ int main(int argc, const char **argv, const char **envp)
         CHECK(!ed_helper_segment_quad(afStart, afStart, 10.0f, afQuad));
         CHECK(!ed_helper_segment_quad(afStart, afEnd, 0.0f, afQuad));
     }
-
-    /* The environment floor spans the outer edges of a chunk and its
-     * successor, flattened to the track's floor height. */
-    CHECK(ed_helper_environment_floor_quad(0u, afQuad));
-    for (uint32_t i = 0; i < 4u; i++)
-        CHECK(near(afQuad[i][ED_SURFACE_WORLD_UP_AXIS], 20.0f, 0.001f));
-    CHECK(near(afQuad[1][1], 200.0f, 0.001f));
-    CHECK(near(afQuad[2][1], -200.0f, 0.001f));
-    CHECK(near(afQuad[1][0], 0.0f, 0.001f));
-    CHECK(near(afQuad[0][0], 1000.0f, 0.001f));
-
-    /* The last chunk wraps to the first, so the floor closes the loop. */
-    CHECK(ed_helper_environment_floor_quad(1u, afQuad));
-    CHECK(near(afQuad[0][0], 0.0f, 0.001f));
-    CHECK(!ed_helper_environment_floor_quad(2u, afQuad));
 
     /*
      * E3A-S5. A chunk carries an audio marker when its trigger speed is
@@ -273,11 +256,10 @@ int main(int argc, const char **argv, const char **envp)
     /* Nothing is derived before a track is loaded. */
     TRAK_LEN = 0;
     CHECK(!ed_helper_center_point(0u, afPoint));
-    CHECK(!ed_helper_environment_floor_quad(0u, afQuad));
     CHECK(ed_helper_road_width(0u) == 0.0f);
     CHECK(!ed_helper_chunk_has_audio(0u));
     CHECK(!ed_helper_marker_quad(0u, ED_HELPER_MARKER_AUDIO, 0u, afQuad));
 
-    puts("editor helper line, floor, and marker geometry tests passed");
+    puts("editor helper line and marker geometry tests passed");
     return 0;
 }

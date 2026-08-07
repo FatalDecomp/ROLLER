@@ -56,7 +56,6 @@ int main(void)
         ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION,
         ROLLER_ED_OVERLAY_SHOW_AI_LINES,
         ROLLER_ED_OVERLAY_SHOW_CENTER_LINE,
-        ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR,
         ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS,
         ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
         ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
@@ -76,8 +75,11 @@ int main(void)
         for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i)
             uiUnion |= auiFlags[i];
         CHECK(uiUnion == uiKnownFlags);
-        /* Bit 11 is the first undefined one since E3A-S6 took 10. */
+        /* Bit 11 is the first undefined one since E3A-S6 took 10, and bit 5
+         * is reserved: it was the retired environment floor and must stay
+         * refused rather than being quietly reused. */
         CHECK((uiKnownFlags & (1u << 11)) == 0u);
+        CHECK((uiKnownFlags & (1u << 5)) == 0u);
     }
 
     /* Defaults reproduce the E1-S6 track-only view: every class solid, no

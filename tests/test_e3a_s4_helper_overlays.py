@@ -67,28 +67,17 @@ class HelperGeometryTests(unittest.TestCase):
         for name in (
             "bool ed_helper_center_point(",
             "bool ed_helper_ai_line_point(",
-            "bool ed_helper_environment_floor_quad(",
         ):
             body = function_body(self.source, name)
             self.assertIn("helper_chunk_valid", body)
 
-    def test_the_floor_uses_the_height_the_loader_kept(self) -> None:
-        body = function_body(
-            self.source, "bool ed_helper_environment_floor_quad("
-        )
-        self.assertIn("TrackFloorHeight", body)
-        self.assertIn("ED_SURFACE_WORLD_UP_AXIS", body)
-
-
-class LoaderTests(unittest.TestCase):
-    def test_the_header_floor_height_is_retained(self) -> None:
-        source = (ROLLER / "loadtrak.c").read_text(encoding="utf-8")
-        header = (ROLLER / "loadtrak.h").read_text(encoding="utf-8")
-
-        # The value was already parsed as the origin's up component and then
-        # discarded; the editor has always called it the floor depth.
-        self.assertIn("TrackFloorHeight = (float)dWallCalc1;", source)
-        self.assertIn("extern float TrackFloorHeight;", header)
+    def test_the_environment_floor_is_gone(self) -> None:
+        # It was the green plane under the track, inherited from the
+        # pre-modernization editor. The modern preview draws the real horizon
+        # there, so a flat slab underneath described nothing.
+        combined = self.header + self.source
+        self.assertNotIn("ed_helper_environment_floor_quad", combined)
+        self.assertNotIn("ENVIRONMENT_FLOOR", combined)
 
 
 class HelperRenderingTests(unittest.TestCase):
@@ -101,13 +90,12 @@ class HelperRenderingTests(unittest.TestCase):
             function_body(self.draw, "void drawtrk3_editor_draw_helpers(")
         )
         for flag in (
-            "ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR",
             "ROLLER_ED_OVERLAY_SHOW_AI_LINES",
             "ROLLER_ED_OVERLAY_SHOW_CENTER_LINE",
         ):
             self.assertIn(flag, body)
-        # Three here plus E3A-S5's two markers; every helper is its own flag.
-        self.assertEqual(body.count("roller_ed_overlay_enabled("), 5)
+        # Two here plus E3A-S5's two markers; every helper is its own flag.
+        self.assertEqual(body.count("roller_ed_overlay_enabled("), 4)
 
     def test_all_four_ai_lines_are_drawn(self) -> None:
         body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")

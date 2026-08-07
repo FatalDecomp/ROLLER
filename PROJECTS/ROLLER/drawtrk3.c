@@ -237,7 +237,6 @@ static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
  */
 #define ED_CENTER_LINE_PALETTE_COLOUR 0xF0u
 #define ED_AI_LINE_PALETTE_COLOUR 0xC8u
-#define ED_ENVIRONMENT_FLOOR_PALETTE_COLOUR 0x18u
 /* E3A-S5's two are the legacy editor's own marker colours, unlike the three
  * above, which had to be chosen because the GL renderer that drew those
  * helpers is gone. */
@@ -417,15 +416,6 @@ void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
     if (!pRenderer)
         return;
 
-    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR)) {
-        for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
-            float afQuad[4][3];
-
-            if (ed_helper_environment_floor_quad((uint32_t)iChunk, afQuad))
-                draw_helper_quad(pRenderer, afQuad,
-                                 ED_ENVIRONMENT_FLOOR_PALETTE_COLOUR);
-        }
-    }
     if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AI_LINES)) {
         for (uint32_t uiLine = 0; uiLine < ED_HELPER_AI_LINE_COUNT; uiLine++)
             draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR);

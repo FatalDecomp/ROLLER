@@ -190,28 +190,6 @@ bool ed_helper_segment_quad(const float afStart[3],
     return true;
 }
 
-bool ed_helper_environment_floor_quad(uint32_t uiChunkId,
-                                      float afQuadOut[4][3])
-{
-    uint32_t uiNextChunk;
-
-    if (!afQuadOut || !helper_chunk_valid(uiChunkId))
-        return false;
-    uiNextChunk = helper_next_chunk(uiChunkId);
-
-    helper_copy(&TrakPt[uiNextChunk].pointAy[ED_HELPER_POINT_LEFT_OUTER],
-                afQuadOut[0]);
-    helper_copy(&TrakPt[uiChunkId].pointAy[ED_HELPER_POINT_LEFT_OUTER],
-                afQuadOut[1]);
-    helper_copy(&TrakPt[uiChunkId].pointAy[ED_HELPER_POINT_RIGHT_OUTER],
-                afQuadOut[2]);
-    helper_copy(&TrakPt[uiNextChunk].pointAy[ED_HELPER_POINT_RIGHT_OUTER],
-                afQuadOut[3]);
-    for (uint32_t i = 0; i < 4u; i++)
-        afQuadOut[i][ED_SURFACE_WORLD_UP_AXIS] = TrackFloorHeight;
-    return true;
-}
-
 bool ed_helper_chunk_has_audio(uint32_t uiChunkId)
 {
     if (!helper_chunk_valid(uiChunkId))
