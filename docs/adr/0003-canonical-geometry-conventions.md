@@ -4,7 +4,9 @@
 - **Date:** 2026-08-05
 - **Drives:** Track Editor Modernization spec v8.6, EPIC 4A story E4A-S4
 - **Supersedes:** none
-- **Superseded by:** none
+- **Superseded by:** [ADR 0005](0005-camera-independent-scenery-traversal.md),
+  for the "Known limitation" paragraph under *Winding* only. Every other
+  convention in this document stands.
 
 ## Context
 
@@ -93,13 +95,20 @@ panel legitimately faces inward at one chunk and outward at the next — retail
 is why the acceptance test asserts neighbour consistency only for the road body.
 An exporter must not assume a globally coherent outside for the skirt.
 
-**Known limitation:** building and sign surfaces reach the emitter only through
-the camera-driven render path, and `building.c` reverses its vertex order for
-back-facing quads at draw time. Their winding, and therefore their normals,
-follow that draw-time decision. The canonical full-track traversal
-(`drawtrk3_emit_full_track`, E4A-S2) covers track chunks only and is
-camera-independent, so this does not affect it. A camera-independent building
-traversal is out of scope until an export story needs one.
+**Known limitation — superseded by ADR 0005.** *(Original text, retained because
+ADR 0003 is the record of what was decided in E4A-S4:)* building and sign
+surfaces reach the emitter only through the camera-driven render path, and
+`building.c` reverses its vertex order for back-facing quads at draw time. Their
+winding, and therefore their normals, follow that draw-time decision. The
+canonical full-track traversal (`drawtrk3_emit_full_track`, E4A-S2) covers track
+chunks only and is camera-independent, so this does not affect it. A
+camera-independent building traversal is out of scope until an export story
+needs one.
+
+E4A-S6 built that traversal. `drawtrk3_emit_full_scenery` emits scenery in the
+plan's authored vertex order and at the authored yaw, so scenery winding no
+longer follows any draw-time decision and the rest of this section applies to it
+unchanged. See ADR 0005.
 
 ### Normals
 

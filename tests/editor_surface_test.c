@@ -958,6 +958,86 @@ static void test_full_track_chunk_traversal_is_complete_and_camera_free(void)
 }
 
 /*
+ * E4A-S6. The scenery walk is the same ordered, camera-free, stop-on-refusal
+ * traversal over placed object indices, so it gets the same guarantees.
+ */
+static void test_full_scenery_traversal_is_complete_and_camera_free(void)
+{
+    tChunkTraversalCapture CameraA = {
+        .uiFailAt = UINT32_MAX,
+        .fUnrelatedCameraPosition = { 1.0f, 2.0f, 3.0f }
+    };
+    tChunkTraversalCapture CameraB = {
+        .uiFailAt = UINT32_MAX,
+        .fUnrelatedCameraPosition = { -9000.0f, 0.0f, 4500.0f }
+    };
+    tChunkTraversalCapture StopsOnFailure = {
+        .uiFailAt = 3u
+    };
+
+    assert(ed_traverse_full_scenery_objects(5u, capture_chunk, &CameraA));
+    assert(ed_traverse_full_scenery_objects(5u, capture_chunk, &CameraB));
+    assert(CameraA.uiCount == 5u);
+    assert(CameraB.uiCount == 5u);
+    assert(memcmp(CameraA.auiChunkIds, CameraB.auiChunkIds,
+                  CameraA.uiCount * sizeof(CameraA.auiChunkIds[0])) == 0);
+    for (uint32_t i = 0; i < CameraA.uiCount; i++)
+        assert(CameraA.auiChunkIds[i] == i);
+
+    /* A track with no placed scenery is an ordinary, successful traversal. */
+    assert(ed_traverse_full_scenery_objects(0u, capture_chunk, &CameraA));
+    assert(!ed_traverse_full_scenery_objects(
+        9u, capture_chunk, &StopsOnFailure));
+    assert(StopsOnFailure.uiCount == 3u);
+    assert(!ed_traverse_full_scenery_objects(1u, NULL, NULL));
+}
+
+/*
+ * E4A-S6. The one refusal a producer is allowed to swallow: a textured surface
+ * whose tile is not in its bank. The renderer already drops such a quad, and
+ * retail TRACK5's advert list contains one, so failing the whole extraction
+ * over it would make that track unexportable.
+ */
+static void test_unresolvable_texture_is_distinguishable_from_other_refusals(
+    void)
+{
+    tEdMaterial aStorage[8];
+    tEdMaterialTable Table;
+    tEdTextureAtlas Atlas = {
+        ROLLER_ED_TEXTURE_SET_TRACK, 256u, 128u, 64u, 8u
+    };
+    tEdSurfaceInfo Info;
+
+    assert(ed_material_table_init(&Table, aStorage, 8u, Atlas));
+
+    memset(&Info, 0, sizeof(Info));
+    Info.uiChunkId = 3u;
+    Info.uiTextureSet = ROLLER_ED_TEXTURE_SET_TRACK;
+    Info.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_BUILDING;
+    Info.unContentClass = ROLLER_ED_CONTENT_AUTHORED_SIGN;
+    Info.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+    Info.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
+
+    /* Last tile in the bank resolves; one past the end does not. */
+    Info.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 7u;
+    assert(ed_surface_material_resolvable(&Table, &Info));
+    Info.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 8u;
+    assert(!ed_surface_material_resolvable(&Table, &Info));
+
+    /* An untextured surface has no tile to resolve, whatever the low byte
+     * happens to hold -- it is a palette colour or a darken level. */
+    Info.uiRenderFlags = 200u;
+    assert(ed_surface_material_resolvable(&Table, &Info));
+
+    /* A bank the table never registered cannot resolve anything. */
+    Info.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 1u;
+    Info.uiTextureSet = ROLLER_ED_TEXTURE_SET_TRACK + 3u;
+    assert(!ed_surface_material_resolvable(&Table, &Info));
+    assert(!ed_surface_material_resolvable(NULL, &Info));
+    assert(!ed_surface_material_resolvable(&Table, NULL));
+}
+
+/*
  * E3A-S2. The wireframe ribbon has to satisfy three things the renderer cares
  * about: it lies in the surface's plane (so it traces the edge rather than
  * cutting through neighbours), it is wound front-face-out by the same
@@ -1162,6 +1242,8 @@ int main(void)
     test_selection_uses_only_canonical_identity();
     test_chunk_range_selection_covers_every_class();
     test_full_track_chunk_traversal_is_complete_and_camera_free();
+    test_full_scenery_traversal_is_complete_and_camera_free();
+    test_unresolvable_texture_is_distinguishable_from_other_refusals();
     test_wireframe_edges_trace_the_surface_front_face();
     test_wireframe_refuses_degenerate_edges();
     puts("editor surface emission tests passed");

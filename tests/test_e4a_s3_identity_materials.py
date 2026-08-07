@@ -196,13 +196,15 @@ class MaterialResolutionContractTests(unittest.TestCase):
 
         # Pair textures are a track-wall feature; the GPU path gates them on
         # !isBuilding and SW keeps building quads on the plain tile span.
-        info = building[
-            building.index("tEdSurfaceInfo SurfaceInfo;") : building.index(
-                "drawtrk3_emit_surface_to_renderer("
-            )
-        ]
-        self.assertIn("SurfaceInfo.bPairTextureEnabled = false;", info)
+        # E4A-S6 moved this out of DrawBuilding so the canonical scenery
+        # traversal cannot disagree with the renderer about it.
+        info = without_comments(
+            function_body(building, "bool building_polygon_surface_info(")
+        )
+        self.assertIn("pInfo->bPairTextureEnabled = false;", info)
         self.assertNotIn("ROLLER_ED_RENDER_UV_PAIR_HORIZONTAL", info)
+        self.assertNotIn("bPairTextureEnabled", function_body(
+            building, "void DrawBuilding("))
 
     def test_wrapped_pair_transforms_are_flagged_not_silently_wrong(self) -> None:
         api = (ROLLER / "editor_api.h").read_text(encoding="utf-8")

@@ -38,12 +38,17 @@ class FullTrackTraversalContractTests(unittest.TestCase):
             "        (uint32_t)TRAK_LEN, emit_full_track_chunk, &Context)",
             draw,
         )
-        traversal = function_body(
-            surface, "bool ed_traverse_full_track_chunks("
+        # E4A-S6 gave the scenery walk the same shape, so the ordered
+        # stop-on-refusal loop lives in one place and both inherit it.
+        self.assertIn(
+            "ed_traverse_indices(uiLoadedChunkCount, pfnVisit, pUserData)",
+            function_body(surface, "bool ed_traverse_full_track_chunks("),
         )
-        self.assertIn("uiChunkId = 0", traversal)
-        self.assertIn("uiChunkId < uiLoadedChunkCount", traversal)
-        self.assertIn("uiChunkId++", traversal)
+        traversal = function_body(surface, "static bool ed_traverse_indices(")
+        self.assertIn("uiIndex = 0", traversal)
+        self.assertIn("uiIndex < uiCount", traversal)
+        self.assertIn("uiIndex++", traversal)
+        self.assertIn("return false", traversal)
 
     def test_full_track_path_is_camera_visibility_and_batch_independent(self) -> None:
         draw = (ROLLER / "drawtrk3.c").read_text(encoding="utf-8")

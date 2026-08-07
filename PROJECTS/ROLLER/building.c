@@ -43,6 +43,209 @@ static int remap_building_surface_to_flat(int surfaceFlags)
 }
 
 //-------------------------------------------------------------------------------------------------
+bool building_type_is_billboard(unsigned int uiBuildingType)
+{
+  return uiBuildingType >= 9
+      && (uiBuildingType <= 0xA || uiBuildingType == 15);
+}
+
+//-------------------------------------------------------------------------------------------------
+// Rotates the plan's coordinate list by the building's angles and translates it
+// onto the placed origin InitBuildings computed at load time. Every input but
+// the billboard yaw comes from the track file, so BUILDING_YAW_AUTHORED makes
+// the whole transform camera-independent — which is what lets the canonical
+// scenery traversal run without a viewer.
+uint32 building_transform_plan_coords(int iBuildingIdx,
+                                      eBuildingYawSource eYawSource,
+                                      tVec3 aWorld[BUILDING_MAX_PLAN_COORDS])
+{
+  unsigned int uiBuildingType;
+  const tBuildingPlan *pPlan;
+  const tVec3 *pCoords;
+  uint32 uiCoordCount;
+  double dCosYaw;
+  double dCosPitch;
+  double dCosRoll;
+  double dSinYaw;
+  double dSinPitch;
+  double dSinRoll;
+  float fYawAngle;
+  float fPitchAngle;
+  float fRollAngle;
+  float fBuildingX;
+  float fBuildingY;
+  float fBuildingZ;
+
+  if (!aWorld || iBuildingIdx < 0 || iBuildingIdx >= MAX_VISIBLE_BUILDINGS)
+    return 0;
+  uiBuildingType = (unsigned int)BuildingBase[iBuildingIdx][0];
+  if (uiBuildingType >= BUILDING_PLAN_COUNT)     // Same guard InitBuildings uses
+    return 0;
+  pPlan = &BuildingPlans[uiBuildingType];
+  uiCoordCount = pPlan->byNumCoords;
+  if (uiCoordCount == 0 || uiCoordCount > BUILDING_MAX_PLAN_COORDS)
+    return 0;
+  pCoords = pPlan->pCoords;
+
+  if (eYawSource == BUILDING_YAW_RENDER
+      && building_type_is_billboard(uiBuildingType))// Buildings 9, 10, and 15 turn to face the world direction
+    fYawAngle = (float)(360 * worlddirn / 0x3FFF);
+  else
+    fYawAngle = BuildingAngles[3 * iBuildingIdx];
+  fPitchAngle = BuildingAngles[3 * iBuildingIdx + 1];
+  fRollAngle = BuildingAngles[3 * iBuildingIdx + 2];
+
+  {
+    float fYawRad = fYawAngle * 0.0174532925199f;// Convert rotation angles from degrees to radians
+    float fPitchRad = fPitchAngle * 0.0174532925199f;
+    float fRollRad = 0.0174532925199f * fRollAngle;
+
+    dCosYaw = cos(fYawRad);                     // Calculate sine and cosine for 3D rotation matrix
+    dCosPitch = cos(fPitchRad);
+    dSinYaw = sin(fYawRad);
+    dSinPitch = sin(fPitchRad);
+    dSinRoll = sin(fRollRad);
+    dCosRoll = cos(fRollRad);
+  }
+  fBuildingX = BuildingX[iBuildingIdx];
+  fBuildingY = BuildingY[iBuildingIdx];
+  fBuildingZ = BuildingZ[iBuildingIdx];
+
+  for (uint32 i = 0; i < uiCoordCount; ++i) {
+    float fX;
+    float fCoordY;
+    float fCoordZ;
+    float fMatrix00, fMatrix01, fMatrix02;
+    float fMatrix10, fMatrix11, fMatrix12;
+    float fMatrix20, fMatrix21, fMatrix22;
+
+    if ((cheat_mode & CHEAT_MODE_DOUBLE_TRACK) != 0)// Scale coordinates 2x if cheat mode enabled
+    {
+      fX = pCoords[i].fX * 2.0f;
+      fCoordY = pCoords[i].fY * 2.0f;
+      fCoordZ = 2.0f * pCoords[i].fZ;
+    } else {
+      fX = pCoords[i].fX;
+      fCoordY = pCoords[i].fY;
+      fCoordZ = pCoords[i].fZ;
+    }
+    fMatrix00 = (float)(dCosYaw * dCosPitch);   // Build 3x3 rotation matrix elements from yaw/pitch/roll
+    fMatrix01 = (float)(dCosYaw * dSinPitch * dSinRoll - dSinYaw * dCosRoll);
+    fMatrix02 = (float)(-dCosYaw * dSinPitch * dCosRoll - dSinYaw * dSinRoll);
+    fMatrix10 = (float)(dSinYaw * dCosPitch);
+    fMatrix11 = (float)(dSinYaw * dSinPitch * dSinRoll + dCosYaw * dCosRoll);
+    fMatrix12 = (float)(-dSinYaw * dSinPitch * dCosRoll + dCosYaw * dSinRoll);
+    fMatrix20 = (float)dSinPitch;
+    fMatrix21 = (float)(-dSinRoll * dCosPitch);
+    fMatrix22 = (float)(dCosPitch * dCosRoll);
+    aWorld[i].fX = fX * fMatrix00 + fCoordY * fMatrix01 + fCoordZ * fMatrix02 + fBuildingX;
+    aWorld[i].fY = fX * fMatrix10 + fCoordY * fMatrix11 + fCoordZ * fMatrix12 + fBuildingY;
+    aWorld[i].fZ = fX * fMatrix20 + fCoordY * fMatrix21 + fCoordZ * fMatrix22 + fBuildingZ;
+  }
+  return uiCoordCount;
+}
+
+//-------------------------------------------------------------------------------------------------
+// The texture, subdivision, and canonical identity one plan polygon carries.
+// Camera-independent by construction: the only draw-time input is
+// bApplyRenderToggles, which the render path passes true so the building
+// texture toggle still works and the export traversal passes false so a view
+// setting cannot change exported materials (the same rule
+// emit_track_chunk_surface follows for track surfaces).
+bool building_polygon_surface_info(int iBuildingIdx,
+                                   const tPolygon *pPolygon,
+                                   bool bApplyRenderToggles,
+                                   tEdSurfaceInfo *pInfo)
+{
+  unsigned int uiBuildingType;
+  int uiTex;
+  int subdivType;
+  int gpuSurfFlags;
+  bool isRealSign;
+  bool isSign;
+  bool isBillboard;
+
+  if (!pPolygon || !pInfo
+      || iBuildingIdx < 0 || iBuildingIdx >= MAX_VISIBLE_BUILDINGS)
+    return false;
+  uiBuildingType = (unsigned int)BuildingBase[iBuildingIdx][0];
+  if (uiBuildingType >= BUILDING_PLAN_COUNT)
+    return false;
+
+  // Handle special textures (advertisements, building remapping)
+  uiTex = pPolygon->uiTex;
+  isRealSign = (uiTex & 0x2200) == 0x2200; // FLIP_BACKFACE+NO_EXTRAS: real advert panel
+  isSign = (uiTex & 0x200) != 0;
+  bool isTwoSided = (pPolygon->uiTex & SURFACE_FLAG_FLIP_BACKFACE) != 0;
+  if (isSign) {
+    uiTex = advert_list[iBuildingIdx];
+    /* Strip PARTIAL_TRANS: the sign pipeline handles depth itself; routing
+     * to the blend pipeline would break depth ordering against the wall. */
+    uiTex &= ~SURFACE_FLAG_PARTIAL_TRANS;
+  }
+  if (bApplyRenderToggles
+      && (textures_off & TEX_OFF_BUILDING_TEXTURES) != 0
+      && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
+    uiTex = remap_building_surface_to_flat(uiTex);
+
+  /* All sign-type polygons use GAME_RENDER_SUBDIVIDE_TYPE_SIGN so the GPU
+   * renderer knows to bypass the normal backface-cull and depth routing.
+   * SURFACE_FLAG_GPU_IS_SIGN (bit 20) is ORed in for real advert panels only;
+   * the GPU renderer uses it to route real signs to the depth-check pipeline
+   * while background buildings (flag absent) fall to the building pipeline.
+   * The SW renderer never checks bit 20 for building quads — no effect there. */
+  subdivType = isSign ? GAME_RENDER_SUBDIVIDE_TYPE_SIGN
+                      : GAME_RENDER_SUBDIVIDE_TYPE_BUILDING;
+  gpuSurfFlags = (int)(uint16)uiTex;
+  if (isRealSign) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_SIGN;
+  /* Building types 9, 10, 15 rotate using worlddirn (camera-facing billboards = trees).
+   * Mark them so the GPU renderer can draw them without depth testing, matching
+   * the SW painter's algorithm where trees are always visible. */
+  if (uiBuildingType == 10) /* SIGN_TREE: fixed tree texture, never advert_list */
+    gpuSurfFlags |= SURFACE_FLAG_GPU_IS_TREE;
+  isBillboard = building_type_is_billboard(uiBuildingType);
+
+  memset(pInfo, 0, sizeof(*pInfo));
+  pInfo->uiChunkId = BuildingBase[iBuildingIdx][1] >= 0
+    ? (uint32_t)BuildingBase[iBuildingIdx][1]
+    : ROLLER_ED_INVALID_CHUNK_ID;
+  pInfo->uiRenderFlags = (uint32_t)gpuSurfFlags;
+  pInfo->uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
+  pInfo->uiTextureSet = TEXTURE_BANK_BUILDING;
+  pInfo->fSubdivideThreshold = (float)BuildingSub[uiBuildingType] * subscale;
+  /* Pair textures are a track-wall feature only: SW keeps the
+   * set_starts(0) tile span for every building quad, and the GPU
+   * path gates pairing on !isBuilding (scene_render_gpu.c). */
+  pInfo->bPairTextureEnabled = false;
+  pInfo->unSurfaceClass = isRealSign
+    ? ROLLER_ED_SURFACE_CLASS_SIGN
+    : ROLLER_ED_SURFACE_CLASS_BUILDING;
+  /* Types 9, 10, and 15 are rotated to face the camera by worlddirn
+   * above, so their geometry is a runtime presentation artefact.
+   * Every other building plan is fixed authored scenery placed by
+   * the track file. Classifying here is what keeps exporters from
+   * having to re-derive object class from surface class. */
+  pInfo->unContentClass = isRealSign
+    ? ROLLER_ED_CONTENT_AUTHORED_SIGN
+    : (isBillboard ? ROLLER_ED_CONTENT_RUNTIME_SCENERY
+                   : ROLLER_ED_CONTENT_AUTHORED_SCENERY);
+  pInfo->byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+  pInfo->byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
+  pInfo->iRenderSubdivideType = subdivType;
+  /* Two-sidedness is decided by the *plan's* flags, not by the substituted
+   * advert flags: DrawBuilding's cull test reads pPolygon->uiTex, so a panel
+   * whose plan carries FLIP_BACKFACE is drawn from both sides however the
+   * advert entry is flagged. Publishing it here rather than through
+   * uiRenderFlags keeps the renderer's own contract untouched — nothing in
+   * the render path reads unFlags, so this is additive information for
+   * exporters only (ADR 0003 makes the same argument for CONCAVE). Without
+   * it every advert balloon exports single-sided and vanishes from behind. */
+  if (isTwoSided)
+    pInfo->unFlags |= ROLLER_ED_SURFACE_FLAG_TWO_SIDED;
+  return true;
+}
+
+//-------------------------------------------------------------------------------------------------
 //000691B0
 void InitBuildings()
 {
@@ -387,14 +590,7 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
   tBuildingCoord *pScreenPt; // esi
   tVec3 *pBuildingView; // ecx
   tPolygon *pPols; // ebx
-  tVec3 *pCoords; // edi
   int iClipped; // ebp
-  float *p_fZ; // eax
-  double dTransformedX; // st5
-  double dTempX; // rt1
-  double dTransformedY; // st5
-  double dTempY; // rt2
-  double dTransformedZ; // st5
   double dViewX; // st4
   double dViewY; // st4
   double dViewZ; // st7
@@ -435,63 +631,34 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
   float fClosestZ2; // eax
   float fClosestZ; // eax
   int iZOrderOffset; // ebp
-  double dCosYaw; // [esp+48h] [ebp-190h]
-  double dCosRoll; // [esp+58h] [ebp-180h]
-  double dSinYaw; // [esp+70h] [ebp-168h]
-  double dSinPitch; // [esp+78h] [ebp-160h]
-  double dCosPitch; // [esp+80h] [ebp-158h]
-  double dSinRoll; // [esp+88h] [ebp-150h]
-  float fCoordY; // [esp+90h] [ebp-148h]
-  float fBuildingZ; // [esp+94h] [ebp-144h]
   int iViewY; // [esp+98h] [ebp-140h]
-  float fBuildingX; // [esp+9Ch] [ebp-13Ch]
-  float fX; // [esp+A0h] [ebp-138h]
-  float fCoordZ; // [esp+A4h] [ebp-134h]
-  float fBuildingY; // [esp+A8h] [ebp-130h]
   int iViewX; // [esp+ACh] [ebp-12Ch]
   float fVert1X; // [esp+B0h] [ebp-128h]
   float fVert1Y; // [esp+B0h] [ebp-128h]
   float fVert2Z; // [esp+B4h] [ebp-124h]
   float fDeltaZ1; // [esp+B4h] [ebp-124h]
   int iViewZ; // [esp+B8h] [ebp-120h]
-  float fVert2X; // [esp+BCh] [ebp-11Ch]
   float fVert2Y; // [esp+C0h] [ebp-118h]
   float fDeltaY1; // [esp+C0h] [ebp-118h]
   float v75; // [esp+C4h] [ebp-114h]
   float fDeltaX2; // [esp+C4h] [ebp-114h]
   float fVert0Y; // [esp+C8h] [ebp-110h]
-  float fMatrix01; // [esp+CCh] [ebp-10Ch]
-  float fMatrix20; // [esp+D0h] [ebp-108h]
-  float fMatrix10; // [esp+D4h] [ebp-104h]
-  float fMatrix00; // [esp+D8h] [ebp-100h]
   float fZDepth; // [esp+E0h] [ebp-F8h]
   float fNormalDot; // [esp+F8h] [ebp-E0h]
-  float fRollAngle; // [esp+104h] [ebp-D4h]
-  float fRollRad; // [esp+104h] [ebp-D4h]
   int iBestZOrderIdx; // [esp+108h] [ebp-D0h]
-  float fPitchAngle; // [esp+10Ch] [ebp-CCh]
-  float fPitchRad; // [esp+10Ch] [ebp-CCh]
   float fDeltaY2; // [esp+118h] [ebp-C0h]
-  float fMatrix12; // [esp+11Ch] [ebp-BCh]
-  float fMatrix02; // [esp+120h] [ebp-B8h]
   float fVert0Z; // [esp+124h] [ebp-B4h]
-  float fMatrix11; // [esp+128h] [ebp-B0h]
   float fVert1Z; // [esp+13Ch] [ebp-9Ch]
   float fDeltaZ2; // [esp+13Ch] [ebp-9Ch]
   float fTempZ; // [esp+140h] [ebp-98h]
   float fTempZ2; // [esp+154h] [ebp-84h]
   float fTempClosestZ; // [esp+170h] [ebp-68h]
   int iCurrentZOrderIdx; // [esp+184h] [ebp-54h]
-  float *p_fY; // [esp+188h] [ebp-50h]
   int j; // [esp+190h] [ebp-48h]
   int iFoundPolygonLink; // [esp+194h] [ebp-44h]
   unsigned int uiBuildingType; // [esp+198h] [ebp-40h]
   int uiTex; // [esp+1A0h] [ebp-38h]
-  float fYawAngle; // [esp+1A4h] [ebp-34h]
-  float fYawRad; // [esp+1A4h] [ebp-34h]
-  float v109; // [esp+1ACh] [ebp-2Ch]
   int i; // [esp+1B0h] [ebp-28h]
-  float fMatrix21; // [esp+1B4h] [ebp-24h]
   uint8 byNumPols; // [esp+1BCh] [ebp-1Ch]
   uint8 byNumCoords; // [esp+1C0h] [ebp-18h]
   tVec3 worldCoords[32];
@@ -510,72 +677,21 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
   uiBuildingType = BuildingBase[iBuildingIdx][0];// Get building plan data (polygons, coordinates, etc.)
   byNumPols = BuildingPlans[uiBuildingType].byNumPols;
   pPols = BuildingPlans[uiBuildingType].pPols;
-  byNumCoords = BuildingPlans[uiBuildingType].byNumCoords;
-  pCoords = BuildingPlans[uiBuildingType].pCoords;
-  if (uiBuildingType >= 9 && (uiBuildingType <= 0xA || uiBuildingType == 15))// Special rotation for buildings 9, 10, and 15 based on world direction
-  {
-    fPitchAngle = BuildingAngles[3 * iBuildingIdx + 1];
-    fRollAngle = BuildingAngles[3 * iBuildingIdx + 2];
-    fYawAngle = (float)(360 * worlddirn / 0x3FFF);
-  } else {
-    fYawAngle = BuildingAngles[3 * iBuildingIdx];
-    fPitchAngle = BuildingAngles[3 * iBuildingIdx + 1];
-    fRollAngle = BuildingAngles[3 * iBuildingIdx + 2];
-  }
-  fYawRad = fYawAngle * 0.0174532925199f;        // Convert rotation angles from degrees to radians
-  fPitchRad = fPitchAngle * 0.0174532925199f;
-  fRollRad = 0.0174532925199f * fRollAngle;
-  fBuildingX = BuildingX[iBuildingIdx];
-  fBuildingZ = BuildingZ[iBuildingIdx];
-  dCosYaw = cos(fYawRad);                       // Calculate sine and cosine for 3D rotation matrix
-  dCosPitch = cos(fPitchRad);
-  dSinYaw = sin(fYawRad);
-  dSinPitch = sin(fPitchRad);
-  dSinRoll = sin(fRollRad);
-  dCosRoll = cos(fRollRad);
-  fBuildingY = BuildingY[iBuildingIdx];
+  // Store raw (un-floored, un-translated) world coords for game_render_quad_world.
+  // sw_quad_world performs floor(world − viewer) and the view-matrix multiply
+  // itself, matching legacy precision. The transform is shared with the
+  // camera-independent scenery traversal so the two cannot drift apart.
+  byNumCoords = (uint8)building_transform_plan_coords(
+    iBuildingIdx, BUILDING_YAW_RENDER, worldCoords);
+  if (byNumCoords == 0)                         // Plan index out of range: nothing placed
+    return;
   for (i = 0; byNumCoords > i; ++i) {
-    p_fY = &pCoords->fY;
-    p_fZ = &pCoords->fZ;
-    // CHEAT_MODE_DOUBLE_TRACK
-    if ((cheat_mode & 0x1000) != 0)           // Scale coordinates 2x if cheat mode enabled
-    {
-      fX = pCoords->fX * 2.0f;
-      fCoordY = *p_fY * 2.0f;
-      ++pCoords;
-      v109 = 2.0f * *p_fZ;
-    } else {
-      fX = pCoords->fX;
-      ++pCoords;
-      v109 = *p_fZ;
-      fCoordY = *p_fY;
-    }
-    fMatrix01 = (float)(dCosYaw * dSinPitch * dSinRoll - dSinYaw * dCosRoll);// Build 3x3 rotation matrix elements from yaw/pitch/roll
-    fMatrix00 = (float)(dCosYaw * dCosPitch);
-    fMatrix02 = (float)(-dCosYaw * dSinPitch * dCosRoll - dSinYaw * dSinRoll);
-    dTransformedX = fX * fMatrix00 + fCoordY * fMatrix01 + v109 * fMatrix02 + fBuildingX;// Apply 3D rotation and translation to building coordinates
-    dTempX = dTransformedX;
-    fMatrix10 = (float)(dSinYaw * dCosPitch);
-    fMatrix12 = (float)(-dSinYaw * dSinPitch * dCosRoll + dCosYaw * dSinRoll);
-    fMatrix11 = (float)(dSinYaw * dSinPitch * dSinRoll + dCosYaw * dCosRoll);
-    dTransformedY = fX * fMatrix10 + fCoordY * fMatrix11 + v109 * fMatrix12 + fBuildingY;
-    dTempY = dTransformedY;
-    fVert2X = (float)(dCosPitch * dCosRoll);
-    fMatrix20 = (float)dSinPitch;
-    fMatrix21 = (float)(-dSinRoll * dCosPitch);
-    dTransformedZ = fX * fMatrix20 + fCoordY * fMatrix21 + v109 * fVert2X + fBuildingZ;
-    // Store raw (un-floored, un-translated) world coords for game_render_quad_world.
-    // sw_quad_world performs floor(world − viewer) and the view-matrix multiply
-    // itself, matching legacy precision.
-    worldCoords[i].fX = (float)dTempX;
-    worldCoords[i].fY = (float)dTempY;
-    worldCoords[i].fZ = (float)dTransformedZ;
     // Bit-exact mirror of legacy view-space transform: subtract viewer in
     // double, floor, matrix-multiply, integer-truncate.
     {
-      double dx = floor(dTempX - viewx);
-      double dy = floor(dTempY - viewy);
-      double dz = floor(dTransformedZ - viewz);
+      double dx = floor((double)worldCoords[i].fX - viewx);
+      double dy = floor((double)worldCoords[i].fY - viewy);
+      double dz = floor((double)worldCoords[i].fZ - viewz);
       viewIntX[i] = (int)(dx * vk1 + dy * vk4 + dz * vk7);
       viewIntY[i] = (int)(dx * vk2 + dy * vk5 + dz * vk8);
       viewIntZ[i] = (int)(dx * vk3 + dy * vk6 + dz * vk9);
@@ -707,17 +823,13 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
           if (iProjectedSum >= 4)
             goto skip_polygon;
 
-          // Handle special textures (advertisements, building remapping)
-          bool isRealSign = (uiTex & 0x2200) == 0x2200; // FLIP_BACKFACE+NO_EXTRAS: real advert panel
-          bool isSign = (uiTex & 0x200) != 0;
-          if (isSign) {
-            uiTex = advert_list[iBuildingIdx];
-            /* Strip PARTIAL_TRANS: the sign pipeline handles depth itself; routing
-             * to the blend pipeline would break depth ordering against the wall. */
-            uiTex &= ~SURFACE_FLAG_PARTIAL_TRANS;
-          }
-          if ((textures_off & TEX_OFF_BUILDING_TEXTURES) != 0 && (uiTex & SURFACE_FLAG_APPLY_TEXTURE) != 0)
-            uiTex = remap_building_surface_to_flat(uiTex);
+          // Texture selection and canonical identity are shared with the
+          // camera-independent scenery traversal; only the winding below is a
+          // draw-time decision.
+          tEdSurfaceInfo SurfaceInfo;
+          if (!building_polygon_surface_info(iBuildingIdx, pPolygon, true,
+                                             &SurfaceInfo))
+            goto skip_polygon;
 
           // Vertex order: forward for front-facing, reversed for the
           // back-facing SURFACE_FLAG_FLIP_BACKFACE case so texture mapping stays correct.
@@ -746,56 +858,8 @@ void DrawBuilding(int iBuildingIdx, uint8 *pScrPtr)
             verts[vi].u = 0.0f;
             verts[vi].v = 0.0f;
           }
-          /* All sign-type polygons use GAME_RENDER_SUBDIVIDE_TYPE_SIGN so the GPU
-           * renderer knows to bypass the normal backface-cull and depth routing.
-           * SURFACE_FLAG_GPU_IS_SIGN (bit 20) is ORed in for real advert panels only;
-           * the GPU renderer uses it to route real signs to the depth-check pipeline
-           * while background buildings (flag absent) fall to the building pipeline.
-           * The SW renderer never checks bit 20 for building quads — no effect there. */
-          int subdivType = isSign ? GAME_RENDER_SUBDIVIDE_TYPE_SIGN
-                                  : GAME_RENDER_SUBDIVIDE_TYPE_BUILDING;
-          int gpuSurfFlags = (int)(uint16)uiTex;
-          if (isRealSign) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_SIGN;
-          /* Building types 9, 10, 15 rotate using worlddirn (camera-facing billboards = trees).
-           * Mark them so the GPU renderer can draw them without depth testing, matching
-           * the SW painter's algorithm where trees are always visible. */
-          bool isTree = (uiBuildingType == 10); /* SIGN_TREE: fixed tree texture, never advert_list */
-          if (isTree) gpuSurfFlags |= SURFACE_FLAG_GPU_IS_TREE;
-          {
-            tEdSurfaceInfo SurfaceInfo;
-            memset(&SurfaceInfo, 0, sizeof(SurfaceInfo));
-            SurfaceInfo.uiChunkId = BuildingBase[iBuildingIdx][1] >= 0
-              ? (uint32_t)BuildingBase[iBuildingIdx][1]
-              : ROLLER_ED_INVALID_CHUNK_ID;
-            SurfaceInfo.uiRenderFlags = (uint32_t)gpuSurfFlags;
-            SurfaceInfo.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
-            SurfaceInfo.uiTextureSet = TEXTURE_BANK_BUILDING;
-            SurfaceInfo.fSubdivideThreshold =
-              (float)BuildingSub[uiBuildingType] * subscale;
-            /* Pair textures are a track-wall feature only: SW keeps the
-             * set_starts(0) tile span for every building quad, and the GPU
-             * path gates pairing on !isBuilding (scene_render_gpu.c). */
-            SurfaceInfo.bPairTextureEnabled = false;
-            SurfaceInfo.unSurfaceClass = isRealSign
-              ? ROLLER_ED_SURFACE_CLASS_SIGN
-              : ROLLER_ED_SURFACE_CLASS_BUILDING;
-            /* Types 9, 10, and 15 are rotated to face the camera by worlddirn
-             * above, so their geometry is a runtime presentation artefact.
-             * Every other building plan is fixed authored scenery placed by
-             * the track file. Classifying here is what keeps exporters from
-             * having to re-derive object class from surface class. */
-            bool isBillboard = uiBuildingType >= 9
-              && (uiBuildingType <= 0xA || uiBuildingType == 15);
-            SurfaceInfo.unContentClass = isRealSign
-              ? ROLLER_ED_CONTENT_AUTHORED_SIGN
-              : (isBillboard ? ROLLER_ED_CONTENT_RUNTIME_SCENERY
-                             : ROLLER_ED_CONTENT_AUTHORED_SCENERY);
-            SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
-            SurfaceInfo.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
-            SurfaceInfo.iRenderSubdivideType = subdivType;
-            drawtrk3_emit_surface_to_renderer(
-              g_pGameRenderer, verts, &SurfaceInfo);
-          }
+          drawtrk3_emit_surface_to_renderer(
+            g_pGameRenderer, verts, &SurfaceInfo);
         }
         skip_polygon:;
         iZOrderOffset = iCurrentZOrderIdx * 12 + 12;

@@ -178,6 +178,34 @@ bool ed_surface_identity_valid(const tEdSurfaceInfo *pInfo)
         && pInfo->byRenderUVLayout <= ROLLER_ED_RENDER_UV_PAIR_VERTICAL;
 }
 
+/*
+ * Whether the table can describe this surface's texture at all. A textured
+ * surface whose tile is not in its bank is refused by ed_emit_surface, and the
+ * render path already lets that refusal drop the quad -- DrawBuilding ignores
+ * the return of drawtrk3_emit_surface_to_renderer, so the surface is simply
+ * not on screen. Retail TRACK5's advert list names tile 45 of a 45-tile
+ * building bank, so this is real data, not a hypothetical.
+ *
+ * A producer uses this to skip such a surface deliberately instead of aborting
+ * a whole traversal, while leaving every other ed_emit_surface refusal -- a
+ * full material table, invalid identity -- fatal, which is what E4A-S5's
+ * probe/fill agreement depends on.
+ */
+bool ed_surface_material_resolvable(const tEdMaterialTable *pTable,
+                                    const tEdSurfaceInfo *pInfo)
+{
+    const tEdTextureAtlas *pAtlas;
+
+    if (!pTable || !pInfo)
+        return false;
+    if (!(pInfo->uiRenderFlags & SURFACE_FLAG_APPLY_TEXTURE))
+        return true;
+    pAtlas = ed_material_table_atlas(pTable, pInfo->uiTextureSet);
+    return pAtlas
+        && (pInfo->uiRenderFlags & SURFACE_MASK_TEXTURE_INDEX)
+            < pAtlas->uiTileCount;
+}
+
 const tEdMaterial *ed_material_table_get(const tEdMaterialTable *pTable,
                                          uint32_t uiMaterialId)
 {
@@ -486,18 +514,35 @@ bool ed_surface_wireframe_edge_quad(
         pSurface->fNormal, uiEdge, afEdgeQuad);
 }
 
-bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
-                                   tEdVisitChunkFn pfnVisit,
-                                   void *pUserData)
+/* The canonical traversals are both "visit 0..N-1 in index order, stop on the
+ * first refusal". Keeping the walk in one place is what makes the order a
+ * property of the emitter rather than of each producer. */
+static bool ed_traverse_indices(uint32_t uiCount,
+                                tEdVisitIndexFn pfnVisit,
+                                void *pUserData)
 {
     if (!pfnVisit)
         return false;
 
-    for (uint32_t uiChunkId = 0; uiChunkId < uiLoadedChunkCount; uiChunkId++) {
-        if (!pfnVisit(uiChunkId, pUserData))
+    for (uint32_t uiIndex = 0; uiIndex < uiCount; uiIndex++) {
+        if (!pfnVisit(uiIndex, pUserData))
             return false;
     }
     return true;
+}
+
+bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,
+                                   tEdVisitChunkFn pfnVisit,
+                                   void *pUserData)
+{
+    return ed_traverse_indices(uiLoadedChunkCount, pfnVisit, pUserData);
+}
+
+bool ed_traverse_full_scenery_objects(uint32_t uiPlacedObjectCount,
+                                      tEdVisitIndexFn pfnVisit,
+                                      void *pUserData)
+{
+    return ed_traverse_indices(uiPlacedObjectCount, pfnVisit, pUserData);
 }
 
 bool ed_emit_surface(const float afWorldVertices[ED_SURFACE_VERTEX_COUNT][3],

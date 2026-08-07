@@ -138,9 +138,16 @@ class ExtractionContractTests(unittest.TestCase):
         body = without_comments(
             function_body(source, "eRollerEdResult roller_ed_legacy_scene_extract_geometry(")
         )
-        # E4A-S2's traversal is the only geometry producer; extraction must
-        # not grow a second one.
-        self.assertIn("drawtrk3_emit_full_track(", body)
+        # The canonical producers are the only geometry source, and both
+        # passes reach them through one helper so they cannot diverge
+        # (E4A-S6 added the scenery half beside E4A-S2's track walk).
+        emit_all = without_comments(
+            function_body(source, "static bool editor_geometry_emit_all(")
+        )
+        self.assertIn("drawtrk3_emit_full_track(", emit_all)
+        self.assertIn("drawtrk3_emit_full_scenery(", emit_all)
+        self.assertIn("editor_geometry_emit_all(", body)
+        self.assertNotIn("drawtrk3_emit_full", body)
         self.assertIn("editor_geometry_probe(", body)
         # A second pass that disagrees with the sizing pass is a defect.
         self.assertIn("Fill.uiPrimitiveIndex != uiSurfaceCount", body)
