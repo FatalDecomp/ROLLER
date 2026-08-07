@@ -60,7 +60,8 @@ int main(void)
         ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
         ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
         ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH,
-        ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS
+        ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS,
+        ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED
     };
     const uint32_t uiKnownFlags = (uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS;
     tEdOverlayState State;
@@ -75,10 +76,10 @@ int main(void)
         for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i)
             uiUnion |= auiFlags[i];
         CHECK(uiUnion == uiKnownFlags);
-        /* Bit 11 is the first undefined one since E3A-S6 took 10, and bit 5
-         * is reserved: it was the retired environment floor and must stay
-         * refused rather than being quietly reused. */
-        CHECK((uiKnownFlags & (1u << 11)) == 0u);
+        /* Bit 12 is the first undefined one; bit 5 is reserved, having been
+         * the retired environment floor, and must stay refused rather than
+         * being quietly reused. */
+        CHECK((uiKnownFlags & (1u << 12)) == 0u);
         CHECK((uiKnownFlags & (1u << 5)) == 0u);
     }
 
@@ -185,7 +186,7 @@ int main(void)
      * does not define is never stored. */
     {
         tEdOverlayState Unknown = make_state(
-            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 11) | (1u << 31), 1u, 2u);
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 12) | (1u << 31), 1u, 2u);
 
         roller_ed_overlay_set(&Unknown);
         CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);
@@ -303,7 +304,7 @@ int main(void)
         State.uiTestCarAiLine = 2u;
         roller_ed_overlay_set(&State);
         CHECK(!roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
-                                          &bMillionPlus));
+                                          &bMillionPlus, NULL));
         /* Refused means untouched: nothing was written. */
         CHECK(uiDesign == 0xFFFFFFFFu && bMillionPlus);
 
@@ -311,7 +312,7 @@ int main(void)
         State.uiFlags |= ROLLER_ED_OVERLAY_SHOW_TEST_CAR;
         roller_ed_overlay_set(&State);
         CHECK(roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
-                                         &bMillionPlus));
+                                         &bMillionPlus, NULL));
         CHECK(uiDesign == 5u);
         CHECK(uiAiLine == 2u);
         CHECK(uiChunk == 12u);
@@ -320,7 +321,7 @@ int main(void)
         /* The highlight flag governs the outline, not the car. */
         State.uiFlags |= ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION;
         roller_ed_overlay_set(&State);
-        CHECK(roller_ed_overlay_test_car(NULL, NULL, &uiChunk, NULL));
+        CHECK(roller_ed_overlay_test_car(NULL, NULL, &uiChunk, NULL, NULL));
         CHECK(uiChunk == 12u);
 
         /* Nothing selected puts the car on chunk zero rather than on the
@@ -334,7 +335,7 @@ int main(void)
         State.uiTestCarAiLine = 3u;
         roller_ed_overlay_set(&State);
         CHECK(roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunk,
-                                         &bMillionPlus));
+                                         &bMillionPlus, NULL));
         CHECK(uiChunk == 0u);
         CHECK(uiDesign == 13u);
         CHECK(uiAiLine == 3u);
@@ -348,7 +349,7 @@ int main(void)
         CHECK(State.uiTestCarAiLine == 3u);
 
         /* Every output pointer is optional. */
-        CHECK(roller_ed_overlay_test_car(NULL, NULL, NULL, NULL));
+        CHECK(roller_ed_overlay_test_car(NULL, NULL, NULL, NULL, NULL));
     }
 
     /* NULL is ignored rather than clearing state. */
@@ -365,7 +366,7 @@ int main(void)
     roller_ed_overlay_reset();
     CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_DEFAULT_FLAGS);
     CHECK(!roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk));
-    CHECK(!roller_ed_overlay_test_car(NULL, NULL, NULL, NULL));
+    CHECK(!roller_ed_overlay_test_car(NULL, NULL, NULL, NULL, NULL));
     roller_ed_overlay_get(&State);
     CHECK(State.uiTestCarDesign == ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_DESIGN);
     CHECK(State.uiTestCarAiLine == ROLLER_ED_OVERLAY_DEFAULT_TEST_CAR_AI_LINE);

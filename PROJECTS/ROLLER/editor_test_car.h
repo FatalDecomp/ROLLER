@@ -39,12 +39,21 @@ void ed_test_car_reset(void);
 /*
  * Makes uiDesign drawable: computes the shared car hitbox/size tables on
  * first use, loads the design's texture bank if a different one is current,
- * and registers it with the renderer. Returns false and leaves the previous
+ * and registers it with the renderer.
+ *
+ * bAdvanced selects ROLLER's advanced-cars skin -- the `y*.bm` bank plus the
+ * palette remap that recolours parts like the mirrors -- which the editor
+ * spells as its Y model variants. The plan is identical either way, so this
+ * is a skin rather than a design; it is still part of what "prepared" means,
+ * because switching it reloads a different bank.
+ *
+ * Returns false and leaves the previous
  * design intact if the texture cannot be loaded -- the legacy loader reports
  * that through the recoverable core-error boundary rather than exiting
  * (E0-S7), and this is where that is turned back into a plain failure.
  */
-bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign);
+bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign,
+                         bool bAdvanced);
 
 /*
  * World placement for the car on uiAiLine at uiChunkId. Position comes from

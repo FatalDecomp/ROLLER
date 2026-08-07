@@ -33,7 +33,8 @@
      | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS \
      | ROLLER_ED_OVERLAY_SHOW_TEST_CAR \
      | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH \
-     | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS)
+     | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS \
+     | ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED)
 
 /*
  * The defaults reproduce the E1-S6 track-only view exactly: every surface
@@ -83,12 +84,15 @@ bool roller_ed_overlay_wireframe_class_visible(uint16_t unSurfaceClass);
 
 /*
  * E3A-S6. False unless SHOW_TEST_CAR is set, in which case the stored design,
- * AI line, chunk, and million-plus modifier are published. The chunk is the
+ * AI line, chunk, million-plus, and advanced-cars modifiers are published.
+ * "Advanced" is the editor's Y model variant: the same plan drawn with the
+ * second texture bank and the mirror palette remap. The chunk is the
  * selection's first endpoint -- where the legacy editor drew the car -- and
  * falls back to zero when nothing is selected. Range validation happens at
  * the facade, so what comes out here is already in range.
  */
 bool roller_ed_overlay_test_car(uint32_t *puiDesign, uint32_t *puiAiLine,
-                                uint32_t *puiChunk, bool *pbMillionPlus);
+                                uint32_t *puiChunk, bool *pbMillionPlus,
+                                bool *pbAdvanced);
 
 #endif

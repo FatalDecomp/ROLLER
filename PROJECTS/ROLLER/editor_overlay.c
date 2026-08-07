@@ -109,7 +109,8 @@ bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
 }
 
 bool roller_ed_overlay_test_car(uint32_t *puiDesign, uint32_t *puiAiLine,
-                                uint32_t *puiChunk, bool *pbMillionPlus)
+                                uint32_t *puiChunk, bool *pbMillionPlus,
+                                bool *pbAdvanced)
 {
     if (!roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_TEST_CAR))
         return false;
@@ -133,6 +134,10 @@ bool roller_ed_overlay_test_car(uint32_t *puiDesign, uint32_t *puiAiLine,
     if (pbMillionPlus) {
         *pbMillionPlus = roller_ed_overlay_enabled(
             ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS);
+    }
+    if (pbAdvanced) {
+        *pbAdvanced = roller_ed_overlay_enabled(
+            ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED);
     }
     return true;
 }

@@ -190,7 +190,17 @@ enum
      * facing the other direction. It is a modifier on SHOW_TEST_CAR, not an
      * overlay of its own, which is why it is a flag rather than a field.
      */
-    ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS = 1u << 10
+    ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS = 1u << 10,
+    /*
+     * The "advanced cars" set: ROLLER's second texture bank for the eight
+     * cars that have one (`y*.bm` rather than `x*.bm`), plus the palette
+     * remap that recolours parts like the mirrors. The editor's model list
+     * spells these as its Y variants. Geometry is unchanged -- this selects a
+     * skin for a design, which is why it is a flag beside uiTestCarDesign
+     * rather than a design of its own. F1WACK and DEATH have no Y variant and
+     * ignore it, exactly as the game does.
+     */
+    ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED = 1u << 11
 };
 
 /*

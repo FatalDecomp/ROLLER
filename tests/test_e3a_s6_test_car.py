@@ -63,6 +63,12 @@ class OverlayAbiTests(unittest.TestCase):
         self.assertIn(
             "ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS = 1u << 10", self.header
         )
+        # The advanced-cars skin is a flag too: the Y model variants share
+        # their twin's plan and differ only by texture bank and palette remap,
+        # so it modifies a design rather than being one.
+        self.assertIn(
+            "ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED = 1u << 11", self.header
+        )
         self.assertIn("#define ROLLER_ED_TEST_CAR_DESIGN_COUNT 14u", self.header)
         self.assertIn("#define ROLLER_ED_TEST_CAR_AI_LINE_COUNT 4u", self.header)
 
@@ -176,6 +182,34 @@ class TestCarModuleTests(unittest.TestCase):
         self.assertIn("ROLLER_ED_TEST_CAR_DESIGN_COUNT", prepare)
         self.assertIn("ROLLER_ED_TEST_CAR_AI_LINE_COUNT", pose)
         self.assertIn("TRAK_LEN", pose)
+
+    def test_the_advanced_skin_loads_its_own_texture_bank(self) -> None:
+        # ROLLER's advanced set is the same file name with a leading 'y'.
+        # LoadCarTexture makes that substitution in place on the first byte of
+        # the name buffer, which cannot be left to it here: the buffer holds an
+        # absolute path by then, so the swap would rewrite its drive letter.
+        body = without_comments(
+            function_body(self.source, "static bool ed_test_car_load_texture(")
+        )
+        self.assertIn("bAdvanced", body)
+        self.assertIn("'y'", body)
+        self.assertIn("TEX_OFF_ADVANCED_CARS", body)
+        # Restored, so the game's own view of the flag is untouched.
+        self.assertIn("textures_off = iSavedTexturesOff;", body)
+
+    def test_the_skin_is_part_of_what_was_prepared(self) -> None:
+        # The same design has two banks, so switching X to Y has to reload.
+        body = without_comments(
+            function_body(self.source, "bool ed_test_car_prepare(")
+        )
+        self.assertIn("bAdvanced == s_bPreparedAdvanced", body)
+
+    def test_the_draw_holds_the_flag_for_the_frame(self) -> None:
+        # Both renderers read textures_off every frame: the GPU keys its
+        # cached car mesh on it, and both apply the mirror remap through it.
+        body = without_comments(function_body(self.source, "void ed_test_car_draw("))
+        self.assertIn("TEX_OFF_ADVANCED_CARS", body)
+        self.assertIn("bAdvanced", body)
 
     def test_a_missing_car_bank_is_recoverable(self) -> None:
         # Working rule: no library path may call ErrorBoxExit or exit. E0-S7's

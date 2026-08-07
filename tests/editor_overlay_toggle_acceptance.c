@@ -735,6 +735,31 @@ static int SDLCALL overlay_worker(void *pUserData)
             goto shutdown;
         }
 
+        /*
+         * The advanced-cars skin is the editor's Y model variant: the same
+         * plan drawn from the `y*.bm` bank with the mirror palette remap. It
+         * must change the picture without changing the design.
+         */
+        Overlay.uiFlags |= ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) == 0) {
+            acceptance_fail(pContext,
+                            "the advanced-cars skin did not change the test "
+                            "car -- the Y variant is drawing the X texture");
+            goto shutdown;
+        }
+        Overlay.uiFlags &= ~(uint32_t)ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED;
+        if (!render_with_overlay(pContext, &Overlay, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+            acceptance_fail(pContext,
+                            "clearing the advanced-cars skin left %zu pixels "
+                            "changed",
+                            differing_pixels(s_pFrame, s_pMarkerBase));
+            goto shutdown;
+        }
+
         /* Million Plus turns the car around, so it must change the frame
          * without changing whether the car is there at all. */
         Overlay.uiFlags |= ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS;

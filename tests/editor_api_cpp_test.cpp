@@ -27,6 +27,7 @@ int main()
                == (1u << 13)
         && ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES == 0x3fffu
         && ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS == (1u << 10)
+        && ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED == (1u << 11)
         && ROLLER_ED_TEST_CAR_DESIGN_COUNT == 14u
         && ROLLER_ED_TEST_CAR_AI_LINE_COUNT == 4u
         && ROLLER_ED_OVERLAY_STATE_VERSION == 3u

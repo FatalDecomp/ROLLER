@@ -433,7 +433,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         /* A bit this API version does not define is refused whole rather than
          * quietly dropped, so the host never believes it enabled something. */
         InvalidOverlay = Overlay;
-        InvalidOverlay.uiFlags |= 1u << 11;
+        InvalidOverlay.uiFlags |= 1u << 12;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
                      == ROLLER_ED_RESULT_INVALID_ARGUMENT);
         CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);

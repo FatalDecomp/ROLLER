@@ -35,11 +35,13 @@
 #define ED_TEST_CAR_NO_DESIGN 0xFFFFFFFFu
 
 static uint32_t s_uiPreparedDesign = ED_TEST_CAR_NO_DESIGN;
+static bool s_bPreparedAdvanced = false;
 static bool s_bCarSizesReady = false;
 
 void ed_test_car_reset(void)
 {
     s_uiPreparedDesign = ED_TEST_CAR_NO_DESIGN;
+    s_bPreparedAdvanced = false;
     /*
      * CalcCarSizes() only reads the static car plans, so what it computed
      * stays valid across a reload and does not need recomputing. The design
@@ -55,17 +57,42 @@ void ed_test_car_reset(void)
  * trick applies here, and the table is restored afterwards so the game build
  * still sees the names it expects.
  */
-static bool ed_test_car_load_texture(eCarType CarType)
+static bool ed_test_car_load_texture(eCarType CarType, bool bAdvanced)
 {
     char szOriginal[sizeof(car_texture_names[0])];
+    char szWanted[sizeof(car_texture_names[0])];
     char szResolved[ROLLER_MAX_PATH];
+    const int iSavedTexturesOff = textures_off;
     bool bLoaded;
 
     snprintf(szOriginal, sizeof(szOriginal), "%s", car_texture_names[CarType]);
-    if (loadtrack_resolve_editor_asset(szOriginal, szResolved)) {
+    snprintf(szWanted, sizeof(szWanted), "%s", szOriginal);
+
+    /*
+     * The advanced set is the same file name with a leading 'y' instead of
+     * 'x' -- LoadCarTexture does that substitution itself, in place, on the
+     * first character of the name buffer. That cannot be left to it here,
+     * because the buffer is about to hold an absolute path and the swap would
+     * rewrite its drive letter. Do it on the bare name instead, resolve
+     * *that*, and clear the flag across the call so the loader leaves the
+     * path alone.
+     *
+     * Only carTypes 1..8 have a Y variant; F1WACK and DEATH do not, which is
+     * the same range the loader guards and the same set the editor offers X/Y
+     * pairs for.
+     */
+    if (bAdvanced && CarType >= CAR_AUTO && CarType <= CAR_REISE
+            && (szWanted[0] == 'x' || szWanted[0] == 'X'))
+        szWanted[0] = (szWanted[0] == 'X') ? 'Y' : 'y';
+
+    if (loadtrack_resolve_editor_asset(szWanted, szResolved)) {
         snprintf(car_texture_names[CarType],
                  sizeof(car_texture_names[CarType]), "%s", szResolved);
+    } else {
+        snprintf(car_texture_names[CarType],
+                 sizeof(car_texture_names[CarType]), "%s", szWanted);
     }
+    textures_off &= ~TEX_OFF_ADVANCED_CARS;
 
     /*
      * LoadCarTexture allocates a fresh bank and overwrites the slot without
@@ -94,17 +121,21 @@ static bool ed_test_car_load_texture(eCarType CarType)
 
     snprintf(car_texture_names[CarType],
              sizeof(car_texture_names[CarType]), "%s", szOriginal);
+    textures_off = iSavedTexturesOff;
     return bLoaded;
 }
 
-bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign)
+bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign,
+                         bool bAdvanced)
 {
     eCarType CarType;
     int iTextureHeight;
 
     if (!pRenderer || uiDesign >= ROLLER_ED_TEST_CAR_DESIGN_COUNT)
         return false;
-    if (uiDesign == s_uiPreparedDesign)
+    /* The skin is part of what was prepared: switching X to Y reloads a
+     * different texture bank even though the design is unchanged. */
+    if (uiDesign == s_uiPreparedDesign && bAdvanced == s_bPreparedAdvanced)
         return true;
 
     /*
@@ -120,7 +151,7 @@ bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign)
     }
 
     CarType = CarDesigns[uiDesign].carType;
-    if (!ed_test_car_load_texture(CarType))
+    if (!ed_test_car_load_texture(CarType, bAdvanced))
         return false;
 
     /* car_texmap is indexed by car slot, not by design -- placecars fills it
@@ -149,6 +180,7 @@ bool ed_test_car_prepare(GameRenderer *pRenderer, uint32_t uiDesign)
     Car[ED_TEST_CAR_SLOT].iLastValidChunk = 0;
 
     s_uiPreparedDesign = uiDesign;
+    s_bPreparedAdvanced = bAdvanced;
     return true;
 }
 
@@ -235,6 +267,7 @@ void ed_test_car_draw(GameRenderer *pRenderer)
     uint32_t uiAiLine = 0u;
     uint32_t uiChunkId = 0u;
     bool bMillionPlus = false;
+    bool bAdvanced = false;
     float afPosition[3];
     int32_t iYaw = 0;
     int32_t iPitch = 0;
@@ -245,13 +278,23 @@ void ed_test_car_draw(GameRenderer *pRenderer)
     if (!pRenderer)
         return;
     if (!roller_ed_overlay_test_car(&uiDesign, &uiAiLine, &uiChunkId,
-                                    &bMillionPlus))
+                                    &bMillionPlus, &bAdvanced))
         return;
     if (!ed_test_car_pose(uiChunkId, uiAiLine, bMillionPlus, afPosition, &iYaw,
                           &iPitch, &iRoll))
         return;
-    if (!ed_test_car_prepare(pRenderer, uiDesign))
+    if (!ed_test_car_prepare(pRenderer, uiDesign, bAdvanced))
         return;
+
+    /*
+     * Both renderers read textures_off every frame -- the GPU keys its cached
+     * car mesh on it, and both apply the mirror palette remap through it -- so
+     * the flag has to hold for the draw, not just for the texture load.
+     */
+    if (bAdvanced)
+        textures_off |= TEX_OFF_ADVANCED_CARS;
+    else
+        textures_off &= ~TEX_OFF_ADVANCED_CARS;
 
     /* The chunk under the car is what its shadow and lighting read. */
     Car[ED_TEST_CAR_SLOT].iLastValidChunk = (int)uiChunkId;
