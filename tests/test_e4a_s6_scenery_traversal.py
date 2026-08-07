@@ -141,6 +141,35 @@ class SceneryTraversalContractTests(unittest.TestCase):
         # ...while the render path keeps the flip it has always had.
         self.assertIn("iOrder[0] = iV3;", building)
 
+    def test_two_sidedness_survives_the_advert_texture_substitution(
+        self,
+    ) -> None:
+        building = (ROLLER / "building.c").read_text(encoding="utf-8")
+        identity = without_comments(
+            function_body(building, "bool building_polygon_surface_info(")
+        )
+
+        # The cull test reads the plan's uiTex, so the plan's flag is what
+        # decides. Reading it after the advert substitution would call every
+        # retail balloon single-sided.
+        self.assertIn(
+            "isTwoSided = (pPolygon->uiTex & SURFACE_FLAG_FLIP_BACKFACE) != 0",
+            identity,
+        )
+        self.assertLess(
+            identity.index("isTwoSided ="),
+            identity.index("uiTex = advert_list[iBuildingIdx]"),
+        )
+        # Published as additive information, never by putting the flag back
+        # into the renderer's own word.
+        self.assertIn(
+            "pInfo->unFlags |= ROLLER_ED_SURFACE_FLAG_TWO_SIDED", identity
+        )
+        self.assertNotIn("uiTex |= SURFACE_FLAG_FLIP_BACKFACE", identity)
+        self.assertNotIn(
+            "gpuSurfFlags |= SURFACE_FLAG_FLIP_BACKFACE", identity
+        )
+
     def test_an_unresolvable_tile_drops_one_surface_not_the_traversal(
         self,
     ) -> None:

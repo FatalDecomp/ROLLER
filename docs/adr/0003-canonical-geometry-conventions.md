@@ -95,9 +95,9 @@ panel legitimately faces inward at one chunk and outward at the next — retail
 is why the acceptance test asserts neighbour consistency only for the road body.
 An exporter must not assume a globally coherent outside for the skirt.
 
-**Known limitation — superseded by ADR 0005.** *(Original text, retained
-because ADR 0003 is the record of what was decided in E4A-S4:)* building and
-sign surfaces reach the emitter only through the camera-driven render path, and
+**Known limitation — superseded by ADR 0005.** *(Original text, retained because
+ADR 0003 is the record of what was decided in E4A-S4:)* building and sign
+surfaces reach the emitter only through the camera-driven render path, and
 `building.c` reverses its vertex order for back-facing quads at draw time. Their
 winding, and therefore their normals, follow that draw-time decision. The
 canonical full-track traversal (`drawtrk3_emit_full_track`, E4A-S2) covers track

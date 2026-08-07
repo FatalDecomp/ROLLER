@@ -11,36 +11,35 @@ cmake -S . -B build/roller-core -G Ninja \
 cmake --build build/roller-core --target roller-core
 ```
 
-The core-only configuration finds SDL3 and SDL3_image. It does not find or
-link WildMidi or libcdio. The pinned compatibility floor matches
-`build.zig.zon`:
+The core-only configuration finds SDL3 and SDL3_image. It does not find or link
+WildMidi or libcdio. The pinned compatibility floor matches `build.zig.zon`:
 
 - SDL 3.2.22
 - SDL_image 3.2.4
 - CMake 3.30.2
 - Ninja 1.12.0
 
-Newer compatible SDL packages are accepted so system package security updates
-do not require a source change. The Zig game build continues to use the exact
+Newer compatible SDL packages are accepted so system package security updates do
+not require a source change. The Zig game build continues to use the exact
 repository revisions and hashes in `build.zig.zon`.
 
 ## Dependency provisioning
 
-SDL must be installed independently of Qt. Use dynamic development packages
-that provide `SDL3Config.cmake`, `SDL3ConfigVersion.cmake`,
-`SDL3_imageConfig.cmake`, and `SDL3_imageConfigVersion.cmake`.
+SDL must be installed independently of Qt. Use dynamic development packages that
+provide `SDL3Config.cmake`, `SDL3ConfigVersion.cmake`, `SDL3_imageConfig.cmake`,
+and `SDL3_imageConfigVersion.cmake`.
 
 ### Windows
 
-Install the official SDL3 and SDL3_image Visual C++ development packages for
-the versions above. Add their CMake package directories to `CMAKE_PREFIX_PATH`,
-or pass `SDL3_DIR` and `SDL3_image_DIR` when configuring. Keep the matching DLLs
+Install the official SDL3 and SDL3_image Visual C++ development packages for the
+versions above. Add their CMake package directories to `CMAKE_PREFIX_PATH`, or
+pass `SDL3_DIR` and `SDL3_image_DIR` when configuring. Keep the matching DLLs
 beside the eventual editor executable.
 
 ### Linux
 
-Install the distribution's SDL3 and SDL3_image runtime and development
-packages. If they are installed under a non-system prefix, add that prefix to
+Install the distribution's SDL3 and SDL3_image runtime and development packages.
+If they are installed under a non-system prefix, add that prefix to
 `CMAKE_PREFIX_PATH`. The packages must expose the `SDL3::SDL3` and
 `SDL3_image::SDL3_image` CMake targets.
 
@@ -51,8 +50,8 @@ then add the package prefix reported by the package manager to
 `CMAKE_PREFIX_PATH`. Framework-only installs that do not provide CMake package
 configuration files are not sufficient for this build.
 
-TrackEditor can consume the checkout as a subdirectory without enabling the
-game or its dependencies:
+TrackEditor can consume the checkout as a subdirectory without enabling the game
+or its dependencies:
 
 ```cmake
 set(ROLLER_BUILD_GAME OFF CACHE BOOL "" FORCE)

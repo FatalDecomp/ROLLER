@@ -28,15 +28,15 @@ needed a decision rather than a port:
 1. **The visible set.** `CalcVisibleBuildings()` walks `TrackSize` sections from
    `start_sect` and caps at `MAX_VISIBLE_BUILDINGS`. This is the direct analogue
    of what `ed_traverse_full_track_chunks` replaced for chunks.
-2. **Winding.** `DrawBuilding` backface-culls, then reverses `v0..v3` for a
+1. **Winding.** `DrawBuilding` backface-culls, then reverses `v0..v3` for a
    back-facing `SURFACE_FLAG_FLIP_BACKFACE` quad so its texture stays the right
    way round. Which order a quad gets therefore depends on where the viewer is.
-3. **Billboard yaw.** Building plans 9 (`balloon`), 10 (`tree`), and 15
+1. **Billboard yaw.** Building plans 9 (`balloon`), 10 (`tree`), and 15
    (`balloon2`) take their yaw from `worlddirn` — the view heading — instead of
    the yaw the track file recorded, so they always face the viewer.
 
-Point 3 turned out to matter far more than the prior analysis assumed. That
-analysis expected billboards to be a scope *reduction*: classify them
+The billboard yaw turned out to matter far more than the prior analysis assumed.
+That analysis expected billboards to be a scope *reduction*: classify them
 `RUNTIME_SCENERY`, skip them, and export the rest. In fact `balloon` and
 `balloon2` polygons carry `uiTex == 0x2200` (`FLIP_BACKFACE | NO_EXTRAS`), which
 is exactly the test E4A-S3 uses for a real advert panel. **They are the signs.**
@@ -74,11 +74,11 @@ those quads from both sides, so which of the two orders it received never
 mattered.
 
 For a quad *without* `FLIP_BACKFACE`, the authored order is unambiguously the
-front face. `DrawBuilding`'s cull test computes
-`((v2-v0) x (v1-v3)) · v0` in view space and culls when that is non-negative,
-which is the same determinant `facing_ok()` evaluates for track surfaces — for a
-planar quad, `(v2-v0) x (v1-v3) = -2 · ((v1-v0) x (v3-v0))`. Buildings and track
-surfaces therefore obey one facing rule, and ADR 0003's statement that the
+front face. `DrawBuilding`'s cull test computes `((v2-v0) x (v1-v3)) · v0` in
+view space and culls when that is non-negative, which is the same determinant
+`facing_ok()` evaluates for track surfaces — for a planar quad,
+`(v2-v0) x (v1-v3) = -2 · ((v1-v0) x (v3-v0))`. Buildings and track surfaces
+therefore obey one facing rule, and ADR 0003's statement that the
 right-hand-rule normal of `v0..v3` is the front face holds for scenery
 unchanged. Nothing in ADR 0003's *Winding* section needs a different reading;
 only its "Known limitation" paragraph, which said scenery winding follows the
@@ -99,9 +99,9 @@ chunks 426–451.
 
 The consequence is deliberate and worth stating plainly: **the editor viewport
 and an exported mesh disagree about billboard facing.** The viewport still turns
-them toward the camera, because `DrawBuilding` still uses `worlddirn`; the export
-freezes them at the authored yaw. That is inherent to exporting a billboard, not
-a defect in either path.
+them toward the camera, because `DrawBuilding` still uses `worlddirn`; the
+export freezes them at the authored yaw. That is inherent to exporting a
+billboard, not a defect in either path.
 
 ### Content class decides what travels, per polygon
 
@@ -121,6 +121,26 @@ quad from the view basis vectors (`vk1`, `vk2`, `vk4`, `vk5`, `vk7`, `vk8`) at a
 size derived from the clamped view-space depth: there is no authored geometry
 underneath to recover, only a screen-space sprite. E4A-S3 already classifies
 towers `RUNTIME_SCENERY`, which is now also the rule that excludes them.
+
+### Two-sidedness comes from the plan, not from the advert texture
+
+An advert panel's polygon is replaced at draw time by the texture
+`advert_list[]` names for that building. That substitution carries the advert
+entry's flags, and retail advert entries do not set `FLIP_BACKFACE` — but
+`DrawBuilding`'s cull test reads the *plan's* `uiTex`, which does. The renderer
+therefore draws every panel from both sides while the substituted flags say
+single-sided.
+
+`ROLLER_ED_SURFACE_FLAG_TWO_SIDED` is set from the plan's flags, so the emission
+agrees with what is on screen. It is published through `tEdSurfaceInfo.unFlags`
+rather than by putting `FLIP_BACKFACE` back into `uiRenderFlags`, because
+`unFlags` is additive information no render path reads — the same argument ADR
+0003 makes for `SURFACE_FLAG_CONCAVE` — and the renderer's own flag word stays
+exactly what it was.
+
+This was found by exporting retail `TRACK3` end to end rather than by reading
+the code: all 66 balloons came out single-sided and would have vanished from
+behind in any importer that honours backface culling.
 
 ### An unresolvable texture drops one surface, not the traversal
 

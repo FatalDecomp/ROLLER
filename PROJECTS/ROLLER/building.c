@@ -176,6 +176,7 @@ bool building_polygon_surface_info(int iBuildingIdx,
   uiTex = pPolygon->uiTex;
   isRealSign = (uiTex & 0x2200) == 0x2200; // FLIP_BACKFACE+NO_EXTRAS: real advert panel
   isSign = (uiTex & 0x200) != 0;
+  bool isTwoSided = (pPolygon->uiTex & SURFACE_FLAG_FLIP_BACKFACE) != 0;
   if (isSign) {
     uiTex = advert_list[iBuildingIdx];
     /* Strip PARTIAL_TRANS: the sign pipeline handles depth itself; routing
@@ -231,6 +232,16 @@ bool building_polygon_surface_info(int iBuildingIdx,
   pInfo->byTopology = ROLLER_ED_TOPOLOGY_QUAD;
   pInfo->byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
   pInfo->iRenderSubdivideType = subdivType;
+  /* Two-sidedness is decided by the *plan's* flags, not by the substituted
+   * advert flags: DrawBuilding's cull test reads pPolygon->uiTex, so a panel
+   * whose plan carries FLIP_BACKFACE is drawn from both sides however the
+   * advert entry is flagged. Publishing it here rather than through
+   * uiRenderFlags keeps the renderer's own contract untouched — nothing in
+   * the render path reads unFlags, so this is additive information for
+   * exporters only (ADR 0003 makes the same argument for CONCAVE). Without
+   * it every advert balloon exports single-sided and vanishes from behind. */
+  if (isTwoSided)
+    pInfo->unFlags |= ROLLER_ED_SURFACE_FLAG_TWO_SIDED;
   return true;
 }
 

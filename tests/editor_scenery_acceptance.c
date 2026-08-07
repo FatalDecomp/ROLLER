@@ -310,6 +310,7 @@ static bool scenery_checks(tContext *pContext)
     uint32_t uiSecondMaterialCount = 0;
     uint32_t uiSigns = 0;
     uint32_t uiScenery = 0;
+    uint32_t uiTwoSidedSigns = 0;
     bool bOk = false;
 
     memset(&First, 0, sizeof(First));
@@ -338,6 +339,25 @@ static bool scenery_checks(tContext *pContext)
     }
     if (!check_scenery_identity(pContext, &First, &uiSigns, &uiScenery))
         goto done;
+
+    /* An advert panel's plan carries FLIP_BACKFACE, which is what
+     * DrawBuilding's cull test reads, so the renderer draws it from both
+     * sides. The advert texture that replaces the plan's own is not flagged
+     * that way, and an emission that took its two-sidedness from the
+     * substituted flags would export every balloon single-sided -- invisible
+     * from behind in any importer that honours backface culling. */
+    for (uint32_t i = 0; i < First.uiCount; i++) {
+        const tEdSurfaceEmission *pSurface = &First.pSurfaces[i];
+        if (pSurface->unContentClass == ROLLER_ED_CONTENT_AUTHORED_SIGN
+                && (pSurface->unFlags & ROLLER_ED_SURFACE_FLAG_TWO_SIDED))
+            uiTwoSidedSigns++;
+    }
+    if (uiTwoSidedSigns != uiSigns) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "only %u of %u advert panels published TWO_SIDED",
+                 uiTwoSidedSigns, uiSigns);
+        goto done;
+    }
 
     /* The whole point of the story: a second camera, nothing like the first,
      * must produce the identical stream. */
@@ -374,9 +394,11 @@ static bool scenery_checks(tContext *pContext)
                 iTrees++;
         }
         printf("scenery traversal emitted %u surfaces from %d placed buildings "
-               "(%d runtime-billboard trees skipped): %u sign, %u scenery; "
+               "(%d runtime-billboard trees skipped): %u sign (%u two-sided), "
+               "%u scenery; "
                "%u materials, identical across two cameras\n",
-               First.uiCount, NumBuildings, iTrees, uiSigns, uiScenery,
+               First.uiCount, NumBuildings, iTrees, uiSigns, uiTwoSidedSigns,
+               uiScenery,
                uiFirstMaterialCount);
     }
     bOk = true;

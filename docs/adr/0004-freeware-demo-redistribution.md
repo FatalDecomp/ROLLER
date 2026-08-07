@@ -17,7 +17,7 @@ mirror it, transform it, or distribute it with the web port.
 E3.S1 therefore has two separate questions:
 
 1. Is the selected archive an authentic publisher-distributed Whiplash demo?
-2. Do the available terms authorize ROLLER to rehost or publicly serve its
+1. Do the available terms authorize ROLLER to rehost or publicly serve its
    extracted data?
 
 This ADR is a project risk decision based on the sources below, not legal
@@ -30,21 +30,21 @@ Whiplash is the US title of Fatal Racing. The package is English-language and
 uses the US data names (`CONFIG.USA`, `INGAME.USA`, and `SELECT.USA`). The
 archive and bundled documentation do not state a semantic version number.
 
-| Field | Value |
-| --- | --- |
-| Original filename | `whipdemo.zip` |
-| Bundled title | `Whiplash Playable Demo` |
-| Developer | Gremlin Interactive Ltd. |
-| Publisher and distributor named by the package | Interplay Productions |
-| Release description | Revised playable demo; finished game released in February 1996 |
-| Archive size | 5,398,262 bytes |
-| SHA-256 | `eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c` |
-| SHA-1 | `2c6a61f395dd064c8b749d93299393e48fecce0d` |
-| MD5 | `eee3fb1c75e44e3d7515d2f3634d7b87` |
-| ZIP contents | 206 files, 8,192,779 uncompressed bytes |
-| Demo data | 190 files under `FATDATA`; `TRACK5.TRK` present and `TRACK1.TRK` absent |
-| Bundled rights file | `READ.ME`, 5,805 bytes |
-| `READ.ME` SHA-256 | `273828c141673a636fa7a879fc4899d171cf20796a05e121e07b101df98a0f72` |
+| Field                                          | Value                                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------------------- |
+| Original filename                              | `whipdemo.zip`                                                          |
+| Bundled title                                  | `Whiplash Playable Demo`                                                |
+| Developer                                      | Gremlin Interactive Ltd.                                                |
+| Publisher and distributor named by the package | Interplay Productions                                                   |
+| Release description                            | Revised playable demo; finished game released in February 1996          |
+| Archive size                                   | 5,398,262 bytes                                                         |
+| SHA-256                                        | `eca6da4f64b97a400016ec8bd43fba713dcd237274d58f167d93e4149528414c`      |
+| SHA-1                                          | `2c6a61f395dd064c8b749d93299393e48fecce0d`                              |
+| MD5                                            | `eee3fb1c75e44e3d7515d2f3634d7b87`                                      |
+| ZIP contents                                   | 206 files, 8,192,779 uncompressed bytes                                 |
+| Demo data                                      | 190 files under `FATDATA`; `TRACK5.TRK` present and `TRACK1.TRK` absent |
+| Bundled rights file                            | `READ.ME`, 5,805 bytes                                                  |
+| `READ.ME` SHA-256                              | `273828c141673a636fa7a879fc4899d171cf20796a05e121e07b101df98a0f72`      |
 
 The stable candidate source and mirror of record is:
 
@@ -66,7 +66,8 @@ calculated locally because the item metadata does not provide one.
 
 ## Provenance evidence
 
-An [archived Interplay Whiplash product page](https://web.archive.org/web/19970415011215/http://www.interplay.com/games/whiplash.html)
+An
+[archived Interplay Whiplash product page](https://web.archive.org/web/19970415011215/http://www.interplay.com/games/whiplash.html)
 linked the same filename from Interplay's own FTP service at:
 
 ```text
@@ -88,16 +89,16 @@ and displayed size. They corroborate availability but do not add rights:
 - [DOSGames.com](https://www.dosgames.com/game/whiplash/)
 - [PCGamingWiki community file](https://community.pcgamingwiki.com/files/file/3445-whiplash-us-fatal-racing-eu-official-demo/)
 
-No separate fatal.racing rights memorandum was found in the local
-`fatal-racing` repository or the supplied planning documents. This ADR does not
-claim that such approval exists.
+No separate fatal.racing rights memorandum was found in the local `fatal-racing`
+repository or the supplied planning documents. This ADR does not claim that such
+approval exists.
 
 ## Rights assessment
 
 The bundled `READ.ME` is the controlling evidence available with the artifact.
-It describes a revocable, nonassignable license for personal, noncommercial
-home entertainment. It permits no-cost copies to "friends and acquaintances."
-It separately says public display of derivative works must be specifically
+It describes a revocable, nonassignable license for personal, noncommercial home
+entertainment. It permits no-cost copies to "friends and acquaintances." It
+separately says public display of derivative works must be specifically
 authorized by Interplay in writing, reserves all ungranted rights, and says the
 permissions can be withdrawn.
 
@@ -111,10 +112,10 @@ shareware release. It does not clearly authorize any of these planned actions:
 - publicly displaying the game through a modified engine; or
 - distributing the data alongside another product or service.
 
-Interplay's historical public download proves authorized original
-distribution, but it does not broaden the license text. The Internet Archive
-and other third-party mirrors likewise do not supply authorization from the
-rights holders.
+Interplay's historical public download proves authorized original distribution,
+but it does not broaden the license text. The Internet Archive and other
+third-party mirrors likewise do not supply authorization from the rights
+holders.
 
 ## Decision
 
@@ -166,13 +167,13 @@ as additional permission.
 ## Update procedure
 
 1. Preserve this artifact identity; never overwrite it in place.
-2. Record any written rights authorization, objection, or withdrawal and
-   confirm its effect on every item in the Decision section.
-3. If the artifact changes, inspect the new archive and bundled terms, compare
+1. Record any written rights authorization, objection, or withdrawal and confirm
+   its effect on every item in the Decision section.
+1. If the artifact changes, inspect the new archive and bundled terms, compare
    its manifest with this revision, and assign a new immutable identity.
-4. Review and accept a new or superseding ADR before changing build or deploy
+1. Review and accept a new or superseding ADR before changing build or deploy
    inputs.
-5. Keep all downloaded archives and extracted game data outside tracked source.
+1. Keep all downloaded archives and extracted game data outside tracked source.
 
 ## Consequences
 
