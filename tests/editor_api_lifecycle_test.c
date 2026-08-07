@@ -25,12 +25,14 @@ static int s_iThreadAssertionCount;
 static int s_iLegacyInstallCount;
 static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
+static int s_iLegacySetOverlayCount;
 static eRollerEdRenderer s_eLastPreferredRenderer;
 static uint32_t s_uiLastAllowSoftwareFallback;
 static uint32_t s_uiStubAvailableRenderers =
     ROLLER_ED_RENDERER_SOFTWARE | ROLLER_ED_RENDERER_GPU;
 static eRollerEdRenderer s_eStubActiveRenderer;
 static tEdCameraState s_LastLegacyCamera;
+static tEdOverlayState s_LastLegacyOverlay;
 static uint32_t s_uiStubQuadCount;
 static int s_iStubExtractCount;
 
@@ -90,6 +92,50 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
     }
     s_LastLegacyCamera = *pCamera;
     s_iLegacySetCameraCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
+    const tEdOverlayState *pState,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pState) {
+        snprintf(szError, uiErrorCapacity, "overlay state is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyOverlay = *pState;
+    s_iLegacySetOverlayCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+/*
+ * E3A-S7. Stands in for the copy layer: it records what the facade forwarded
+ * and refuses a mesh whose vertex count is odd, so the lifecycle test can
+ * check that a refusal is reported without linking the real allocator.
+ */
+static int s_iLegacySetReferenceMeshCount;
+static tEdReferenceMesh s_LastLegacyReferenceMesh;
+
+eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pMesh) {
+        snprintf(szError, uiErrorCapacity, "reference mesh is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (pMesh->uiVertexCount == 1u) {
+        snprintf(szError, uiErrorCapacity, "stub refuses a one-vertex mesh");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    s_LastLegacyReferenceMesh = *pMesh;
+    s_iLegacySetReferenceMeshCount++;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -321,6 +367,154 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(s_iLegacySetCameraCount == 1);
     }
     {
+        /* E3A-S1: overlay state is settable before any scene exists, exactly
+         * like the camera, and a reversed selection range reaches the core
+         * verbatim rather than being normalized at the boundary. */
+        tEdOverlayState Overlay = {
+            .uiStructSize = sizeof(Overlay),
+            .uiVersion = ROLLER_ED_OVERLAY_STATE_VERSION,
+            .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+                | ROLLER_ED_OVERLAY_SHOW_WIREFRAME
+                | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION
+                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
+            .uiFirstSelectedChunk = 31u,
+            .uiLastSelectedChunk = 12u,
+            .uiSurfaceClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
+            .uiWireframeClassMask =
+                ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_ROOF)
+        };
+        tEdOverlayState InvalidOverlay = Overlay;
+
+        CHECK_WORKER(RollerEd_SetOverlayState(&Overlay)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetOverlayCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
+                     == 0);
+        Sizes.uiStructSize = sizeof(Sizes);
+        Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(Sizes.uiGeometryEpoch == uiInitialEpoch);
+        CHECK_WORKER(Sizes.uiTrackGeneration == uiInitialGeneration);
+        CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
+
+        CHECK_WORKER(RollerEd_SetOverlayState(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidOverlay.uiVersion++;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        /* E3A-S2 bumped only this struct's version. A host still sending the
+         * v1 overlay state has no class masks, so it is refused rather than
+         * silently given whatever its shorter allocation happened to hold. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiVersion = 1u;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        /* Every other struct kept version 1 through that bump. */
+        CHECK_WORKER(ROLLER_ED_CAMERA_STATE_VERSION == 1u);
+        CHECK_WORKER(ROLLER_ED_GEOMETRY_SIZES_VERSION == 1u);
+        CHECK_WORKER(ROLLER_ED_OVERLAY_STATE_VERSION == 3u);
+        /* A class mask past the last defined surface class is refused whole,
+         * exactly like an undefined flag bit. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiSurfaceClassMask =
+            ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_COUNT);
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiWireframeClassMask = 0xffffffffu;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "class") != NULL);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiStructSize = sizeof(InvalidOverlay) - 1u;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        /* A bit this API version does not define is refused whole rather than
+         * quietly dropped, so the host never believes it enabled something. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiFlags |= 1u << 12;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);
+        /* E3A-S6: the test-car selection indexes fixed tables, so it is
+         * range-checked on the way in whether or not the car is switched on --
+         * failing later would report against the wrong call. */
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiTestCarDesign = ROLLER_ED_TEST_CAR_DESIGN_COUNT;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiTestCarDesign") != NULL);
+        InvalidOverlay = Overlay;
+        InvalidOverlay.uiTestCarAiLine = ROLLER_ED_TEST_CAR_AI_LINE_COUNT;
+        CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiTestCarAiLine") != NULL);
+        CHECK_WORKER(s_iLegacySetOverlayCount == 1);
+        CHECK_WORKER(memcmp(&s_LastLegacyOverlay, &Overlay, sizeof(Overlay))
+                     == 0);
+    }
+    {
+        /*
+         * E3A-S7. RollerEd_SetReferenceMesh reached the seam at last: it used
+         * to validate the header and then return UNSUPPORTED.
+         */
+        static tEdReferenceVertex aVertices[3];
+        tEdReferenceMesh Mesh;
+        tEdReferenceMesh InvalidMesh;
+        tEdGeometrySizes Before;
+        tEdGeometrySizes After;
+
+        memset(aVertices, 0, sizeof(aVertices));
+        aVertices[1].fPosition[0] = 1.0f;
+        aVertices[2].fPosition[1] = 1.0f;
+        memset(&Mesh, 0, sizeof(Mesh));
+        Mesh.uiStructSize = sizeof(Mesh);
+        Mesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION;
+        Mesh.pVertices = aVertices;
+        Mesh.uiVertexCount = 3u;
+        Mesh.fScale[0] = 1.0f;
+        Mesh.fScale[1] = 1.0f;
+        Mesh.fScale[2] = 1.0f;
+
+        Before.uiStructSize = sizeof(Before);
+        Before.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&Before)
+                     == ROLLER_ED_RESULT_OK);
+
+        CHECK_WORKER(RollerEd_SetReferenceMesh(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        InvalidMesh = Mesh;
+        InvalidMesh.uiVersion = ROLLER_ED_REFERENCE_MESH_VERSION + 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        InvalidMesh = Mesh;
+        InvalidMesh.uiStructSize = sizeof(InvalidMesh) - 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 0);
+
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&Mesh) == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 1);
+        CHECK_WORKER(s_LastLegacyReferenceMesh.uiVertexCount == 3u);
+
+        /* A seam refusal is reported and does not count as a replacement. */
+        InvalidMesh = Mesh;
+        InvalidMesh.uiVertexCount = 1u;
+        CHECK_WORKER(RollerEd_SetReferenceMesh(&InvalidMesh)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetReferenceMeshCount == 1);
+
+        /* AD-7d: a reference mesh is the host's scenery, not authored track
+         * geometry, so it moves neither counter. */
+        After.uiStructSize = sizeof(After);
+        After.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+        CHECK_WORKER(RollerEd_QueryGeometrySizes(&After)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(After.uiGeometryEpoch == Before.uiGeometryEpoch);
+        CHECK_WORKER(After.uiTrackGeneration == Before.uiTrackGeneration);
+    }
+    {
         tEdGeometrySizes InvalidSizes;
         tEdGeometrySizes Before;
 
@@ -394,6 +588,37 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiVertexStride == sizeof(tEdVertex));
         CHECK_WORKER(Sizes.uiPrimitiveStride == sizeof(tEdPrimitive));
         CHECK_WORKER(Sizes.uiMaterialStride == sizeof(tEdMaterial));
+        {
+            /* AD-7d with a scene loaded: toggling an overlay must not advance
+             * the geometry epoch, and must not drop the per-epoch extraction
+             * E4A-S5 caches -- an overlay toggle that forced re-extraction
+             * would defeat the cache on every menu click. */
+            int iExtractCount = s_iStubExtractCount;
+            tEdOverlayState Overlay = {
+                .uiStructSize = sizeof(Overlay),
+                .uiVersion = ROLLER_ED_OVERLAY_STATE_VERSION,
+                .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
+                    | ROLLER_ED_OVERLAY_SHOW_WIREFRAME,
+                .uiFirstSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID,
+                .uiLastSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID,
+                .uiSurfaceClassMask =
+                    ROLLER_ED_OVERLAY_CLASS_BIT(
+                        ROLLER_ED_SURFACE_CLASS_CENTER),
+                .uiWireframeClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES
+            };
+
+            CHECK_WORKER(RollerEd_SetOverlayState(&Overlay)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(s_iLegacySetOverlayCount == 2);
+            Sizes.uiStructSize = sizeof(Sizes);
+            Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+            CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(Sizes.uiGeometryEpoch == uiReadyEpoch);
+            CHECK_WORKER(Sizes.uiTrackGeneration == uiReadyGeneration);
+            CHECK_WORKER(Sizes.uiPrimitiveCount == 1u);
+            CHECK_WORKER(s_iStubExtractCount == iExtractCount);
+        }
         {
             tEdVertex aVertices[4];
             uint32_t auiIndices[6];
@@ -731,6 +956,7 @@ int main(int argc, char **argv)
     CHECK_MAIN(s_iLegacyInstallCount == 5);
     CHECK_MAIN(s_iLegacyRenderCount == 1);
     CHECK_MAIN(s_iLegacySetCameraCount == 1);
+    CHECK_MAIN(s_iLegacySetOverlayCount == 2);
 
     CHECK_MAIN(RollerEd_Teardown() == ROLLER_ED_RESULT_OK);
     CHECK_MAIN((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0u);

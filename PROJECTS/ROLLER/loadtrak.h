@@ -65,6 +65,7 @@ extern int cur_mapsect;
 extern float cur_TrackZ;
 extern float cur_mapsize;
 extern int TRAK_LEN;
+extern float TrackFloorHeight;
 extern int16 samplemin[MAX_SAMPLES];
 extern int cur_laps[6];
 extern uint8 fp_buf[512];
@@ -137,6 +138,16 @@ eRollerEdResult loadtrack_from_stage_with_assets_editor_ex(
     char *szError,
     size_t uiErrorCapacity);
 int roller_ed_track_only_active(void);
+/*
+ * E3A-S6. Resolves a bare legacy asset name against the roots the last editor
+ * load used -- document first, then the configured FATDATA root -- so an
+ * editor-only asset loaded after the track (the test car's texture bank) is
+ * found the same way the track's own textures were. Returns non-zero and
+ * writes an existing path on success. In the game, where no editor roots were
+ * ever recorded, this is just the bare name.
+ */
+int loadtrack_resolve_editor_asset(const char *szAsset,
+                                   char szResolved[ROLLER_MAX_PATH]);
 void read_backs(uint8 **ppTrackData);
 void read_texturemap(uint8 **ppTrackData);
 void read_bldmap(uint8 **ppTrackData);

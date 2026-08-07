@@ -7,6 +7,20 @@ ROOT = Path(__file__).resolve().parents[1]
 ROLLER = ROOT / "PROJECTS" / "ROLLER"
 
 
+def function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"unterminated function: {signature}")
+
+
 class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
     def test_neutral_callback_carries_complete_surface_state(self):
         header = (ROLLER / "editor_surface.h").read_text(encoding="utf-8")
@@ -57,7 +71,35 @@ class CanonicalSurfaceEmitterContractTests(unittest.TestCase):
             draw.count("emit_track_chunk_surface_to_renderer("), 12
         )
         self.assertEqual(draw.count("ed_emit_surface("), 1)
-        self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 1)
+
+        # A track surface becomes a draw in exactly one place. The other two
+        # call sites are editor overlays, and neither is a track-surface
+        # producer: the edge pass (wireframe in E3A-S2, selection outlines in
+        # E3A-S3) draws ribbons derived from an emission that already went
+        # through the consumer, and the E3A-S4 helper pass draws editor
+        # furniture that is not track content at all.
+        self.assertEqual(draw.count("game_render_quad_world_subdivide_type("), 3)
+        self.assertEqual(
+            function_body(
+                draw, "static void draw_emitted_surface(const tEdSurfaceEmission"
+            ).count("game_render_quad_world_subdivide_type("),
+            1,
+        )
+        edges = function_body(draw, "static void draw_emitted_surface_edges(")
+        self.assertEqual(edges.count("game_render_quad_world_subdivide_type("), 1)
+        self.assertIn("ed_surface_wireframe_edge_quad(pSurface,", edges)
+        helper = function_body(draw, "static void draw_helper_quad(")
+        self.assertEqual(helper.count("game_render_quad_world_subdivide_type("), 1)
+
+        # AD-6d: helper overlays must never reach the canonical emitter, or an
+        # exporter would pick up editor furniture as track content.
+        helpers_source = (
+            (ROLLER / "editor_helpers.c").read_text(encoding="utf-8")
+            + (ROLLER / "editor_helpers.h").read_text(encoding="utf-8")
+        )
+        self.assertNotIn("ed_emit_surface", helpers_source)
+        self.assertNotIn("tEdSurfaceEmission", helpers_source)
+
         self.assertEqual(building.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertEqual(tower.count("drawtrk3_emit_surface_to_renderer("), 1)
         self.assertNotIn("game_render_quad_world_subdivide_type(", building)

@@ -32,6 +32,9 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/editor_camera.c
     PROJECTS/ROLLER/editor_api.c
     PROJECTS/ROLLER/editor_legacy_scene.c
+    PROJECTS/ROLLER/editor_overlay.c
+    PROJECTS/ROLLER/editor_helpers.c
+    PROJECTS/ROLLER/editor_test_car.c
     PROJECTS/ROLLER/editor_reference_mesh.c
     PROJECTS/ROLLER/editor_surface.c
     PROJECTS/ROLLER/editor_track_loader.c

@@ -88,6 +88,7 @@ int cur_mapsect;            //00178044
 float cur_TrackZ;           //00178048
 float cur_mapsize;          //0017804C
 int TRAK_LEN;               //00178050
+float TrackFloorHeight;     // header origin Z; editor environment floor (E3A-S4)
 int16 samplemin[MAX_SAMPLES];       //001764B0
 int cur_laps[6];            //00176898
 uint8 fp_buf[512];          //001768B0
@@ -108,6 +109,14 @@ int g_iTrackLoadGeneration = 0;
 /* Committed load mode for the current legacy scene. Normal game loads never
  * enable it; the editor facade opts in through its dedicated staged seam. */
 static int s_bEditorTrackOnly;
+/*
+ * E3A-S6. The roots the last editor load resolved its assets against, kept so
+ * a later editor-only asset -- the test car's texture bank -- can follow the
+ * same document-first order (E1-S4) instead of falling back to the process
+ * working directory, which is not the editor's document.
+ */
+static char s_szEditorDocumentAssetRoot[ROLLER_MAX_PATH];
+static char s_szEditorFallbackAssetRoot[ROLLER_MAX_PATH];
 static char g_szCommunityTrackDir[16] = "../TRACKS";
 static int g_iStockTrackAvailabilityScanned = 0;
 static uint32 g_uiStockTrackAvailabilityMask = 0;
@@ -909,6 +918,10 @@ static eRollerEdResult loadtrack_internal(
   meof = 0;
   if (iTrackIdx_1 >= 0)
     readline2(&pCurrDataPtr, "iddd", &TRAK_LEN, &dWallCalc3, &dWallCalc2, &dWallCalc1);// Read track header: length and initial position
+    // The origin's up component doubles as the track's floor height: every
+    // point below is offset by it, and the editor's environment-floor helper
+    // (E3A-S4) draws a plane there. The game has no use for it after load.
+    TrackFloorHeight = (float)dWallCalc1;
   iChunkIdx = 0;
   TrackFlags = 0;
   if (TRAK_LEN > 0) {
@@ -1690,6 +1703,15 @@ static eRollerEdResult loadtrack_from_stage_with_assets_mode_ex(
     return ROLLER_ED_RESULT_INVALID_ARGUMENT;
   }
 
+  /* Remembered before the first resolve so the editor's own later assets see
+   * exactly the roots this load used, whether or not it succeeds. */
+  if (szDocumentAssetRoot && szFallbackAssetRoot) {
+    snprintf(s_szEditorDocumentAssetRoot,
+             sizeof(s_szEditorDocumentAssetRoot), "%s", szDocumentAssetRoot);
+    snprintf(s_szEditorFallbackAssetRoot,
+             sizeof(s_szEditorFallbackAssetRoot), "%s", szFallbackAssetRoot);
+  }
+
   ed_track_stage_init(&AssetStage);
   if (!iPreviewMode) {
     const char *aszAssets[2] = {
@@ -1783,6 +1805,30 @@ eRollerEdResult loadtrack_from_stage_with_assets_editor_ex(
 int roller_ed_track_only_active(void)
 {
   return s_bEditorTrackOnly;
+}
+
+int loadtrack_resolve_editor_asset(const char *szAsset,
+                                   char szResolved[ROLLER_MAX_PATH])
+{
+  char szCandidate[ROLLER_MAX_PATH];
+
+  if (!szAsset || !szAsset[0] || !szResolved)
+    return 0;
+  /* Document root first, then the configured FATDATA root -- the same order
+   * and the same reason as every other editor asset (E1-S4). */
+  if (s_szEditorDocumentAssetRoot[0]
+      && loadtrack_join_asset_path(szCandidate, s_szEditorDocumentAssetRoot,
+                                   szAsset)
+      && loadtrack_copy_existing_path(szResolved, szCandidate))
+    return -1;
+  if (s_szEditorFallbackAssetRoot[0]
+      && loadtrack_join_asset_path(szCandidate, s_szEditorFallbackAssetRoot,
+                                   szAsset)
+      && loadtrack_copy_existing_path(szResolved, szCandidate))
+    return -1;
+  /* No editor roots recorded: this is the game, where the working directory
+   * is the data directory and the bare name is already right. */
+  return loadtrack_copy_existing_path(szResolved, szAsset);
 }
 
 eRollerEdResult loadtrack_from_path(const char *szTrackPath, int iPreviewMode)

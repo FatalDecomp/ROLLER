@@ -10,6 +10,9 @@
 #include "tower.h"
 #include "roller.h"
 #include "render_queue_3d.h"
+#include "editor_helpers.h"
+#include "editor_overlay.h"
+#include "editor_reference_mesh.h"
 #include "editor_surface.h"
 #include "graphics.h"
 #include <float.h>
@@ -50,6 +53,14 @@ int num_pols;       //001446A8
 int small_poly;     //001446AC
 
 static tEdSurfaceSelection g_EditorSurfaceSelection;
+
+/*
+ * E3A-S3. The colour the pre-modernization editor outlined selected chunks in
+ * (WhipLib ShapeFactory::MakeSelectedChunks used GL_LINES at palette 0xDA).
+ * Keeping it means a selection looks the way editors of this track format
+ * expect it to look.
+ */
+#define ED_SELECTION_HIGHLIGHT_PALETTE_COLOUR 0xDAu
 
 //-------------------------------------------------------------------------------------------------
 static int remap_surface_to_flat(int surfaceFlags)
@@ -164,6 +175,278 @@ typedef struct
     const tEdSurfaceSelection *pSelection;
 } tEdRenderSurfaceContext;
 
+#if defined(ROLLER_EDITOR_CORE)
+/*
+ * E3A-S2. The renderer offers no line primitive, so each edge is drawn as the
+ * thin front-facing ribbon ed_surface_wireframe_edge_quad() builds, flat-
+ * filled in one palette colour. Flat fill is the same mechanism the selection
+ * highlight uses: clear the texture bits, put the colour index in the low
+ * byte.
+ */
+#define ED_WIREFRAME_PALETTE_COLOUR 255u
+
+static void draw_emitted_surface_edges(
+    const tEdRenderSurfaceContext *pContext,
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdgeFlags)
+{
+    const int iWireflags = (int)uiEdgeFlags;
+
+    for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++) {
+        float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+        GameRenderVertex aEdgeVertices[ED_SURFACE_VERTEX_COUNT];
+
+        if (!ed_surface_wireframe_edge_quad(pSurface, uiEdge, afEdgeQuad))
+            continue;
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            aEdgeVertices[i].x = afEdgeQuad[i][0];
+            aEdgeVertices[i].y = afEdgeQuad[i][1];
+            aEdgeVertices[i].z = afEdgeQuad[i][2];
+            aEdgeVertices[i].u = 0.0f;
+            aEdgeVertices[i].v = 0.0f;
+            startsx[i] = 0;
+            startsy[i] = 0;
+        }
+        game_render_quad_world_subdivide_type(
+            pContext->pRenderer, aEdgeVertices, TEXTURE_HANDLE_INVALID,
+            iWireflags, pSurface->iRenderSubdivideType,
+            pSurface->fSubdivideThreshold);
+    }
+}
+
+/* Texture bits cleared, palette colour in the low byte -- the same flat-fill
+ * shape F-S4b's ed_surface_selection_render_flags() produces. */
+static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
+                                  uint32_t uiPaletteColour)
+{
+    return (pSurface->uiRenderFlags
+            & (SURFACE_MASK_FLAGS
+               & ~(SURFACE_FLAG_APPLY_TEXTURE
+                   | SURFACE_FLAG_TRANSPARENT
+                   | SURFACE_FLAG_PARTIAL_TRANS)))
+        | uiPaletteColour;
+}
+
+#endif
+
+/*
+ * E3A-S4 helper overlays. These are editor furniture, not track content: they
+ * never reach the canonical emitter, so no exporter can pick them up (AD-6d),
+ * and they carry no chunk identity for the same reason. They are flat-filled
+ * quads through the same world-quad path everything else uses.
+ */
+#define ED_CENTER_LINE_PALETTE_COLOUR 0xF0u
+#define ED_AI_LINE_PALETTE_COLOUR 0xC8u
+/* E3A-S5's two are the legacy editor's own marker colours, unlike the three
+ * above, which had to be chosen because the GL renderer that drew those
+ * helpers is gone. */
+#define ED_AUDIO_MARKER_PALETTE_COLOUR 0x8Fu
+#define ED_STUNT_MARKER_PALETTE_COLOUR 0xFFu
+
+static void draw_helper_quad(GameRenderer *pRenderer,
+                             const float afQuad[4][3],
+                             uint32_t uiPaletteColour)
+{
+    GameRenderVertex aVertices[ED_SURFACE_VERTEX_COUNT];
+
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        aVertices[i].x = afQuad[i][0];
+        aVertices[i].y = afQuad[i][1];
+        aVertices[i].z = afQuad[i][2];
+        aVertices[i].u = 0.0f;
+        aVertices[i].v = 0.0f;
+        startsx[i] = 0;
+        startsy[i] = 0;
+    }
+    game_render_quad_world_subdivide_type(
+        pRenderer, aVertices, TEXTURE_HANDLE_INVALID,
+        (int)uiPaletteColour, 0, 0.0f);
+}
+
+/* Walks one helper line the whole way round the track, one ribbon per chunk
+ * pair. uiLine is an AI line index, or ED_HELPER_AI_LINE_COUNT for the centre
+ * line. */
+static void draw_helper_line(GameRenderer *pRenderer, uint32_t uiLine,
+                             uint32_t uiPaletteColour)
+{
+    const bool bCenterLine = uiLine >= ED_HELPER_AI_LINE_COUNT;
+
+    for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+        int iNextChunk = iChunk + 1 < TRAK_LEN ? iChunk + 1 : 0;
+        float afStart[3];
+        float afEnd[3];
+        float afQuad[4][3];
+        float fRoadWidth = ed_helper_road_width((uint32_t)iChunk);
+        bool bHaveSegment;
+
+        if (bCenterLine) {
+            bHaveSegment =
+                ed_helper_center_point((uint32_t)iChunk, afStart)
+                && ed_helper_center_point((uint32_t)iNextChunk, afEnd);
+        } else {
+            bHaveSegment =
+                ed_helper_ai_line_point((uint32_t)iChunk, uiLine, afStart)
+                && ed_helper_ai_line_point((uint32_t)iNextChunk, uiLine, afEnd);
+        }
+        if (!bHaveSegment || !(fRoadWidth > 0.0f))
+            continue;
+
+        /* Lift the line clear of the surface it describes so it is not lost
+         * to depth fighting with the road. */
+        afStart[ED_SURFACE_WORLD_UP_AXIS] +=
+            fRoadWidth * ED_HELPER_LINE_HEIGHT_RATIO;
+        afEnd[ED_SURFACE_WORLD_UP_AXIS] +=
+            fRoadWidth * ED_HELPER_LINE_HEIGHT_RATIO;
+        if (!ed_helper_segment_quad(
+                afStart, afEnd, fRoadWidth * ED_HELPER_LINE_WIDTH_RATIO,
+                afQuad))
+            continue;
+        draw_helper_quad(pRenderer, afQuad, uiPaletteColour);
+    }
+}
+
+/*
+ * E3A-S5. A marker is a flat icon standing across the track, so it is only
+ * ever face-on from one end of it. The legacy editor solved that by emitting
+ * every marker triangle twice with reversed indices; the same trick applies
+ * here, one extra quad per quad, and it costs nothing because only the chunks
+ * that actually carry a trigger or a ramp draw anything at all.
+ */
+static void draw_helper_marker(GameRenderer *pRenderer, uint32_t uiChunkId,
+                               eEdHelperMarker eMarker, uint32_t uiPaletteColour)
+{
+    for (uint32_t uiQuad = 0; uiQuad < ED_HELPER_MARKER_QUAD_COUNT; uiQuad++) {
+        float afQuad[4][3];
+        float afReversed[4][3];
+
+        if (!ed_helper_marker_quad(uiChunkId, eMarker, uiQuad, afQuad))
+            continue;
+        draw_helper_quad(pRenderer, afQuad, uiPaletteColour);
+        for (uint32_t uiVertex = 0; uiVertex < 4u; uiVertex++) {
+            for (uint32_t i = 0; i < 3u; i++)
+                afReversed[uiVertex][i] = afQuad[3u - uiVertex][i];
+        }
+        draw_helper_quad(pRenderer, afReversed, uiPaletteColour);
+    }
+}
+
+/*
+ * E3A-S7. The reference mesh, flat-filled in the legacy editor's own colour.
+ *
+ * The pre-modernization editor overwrote every reference-model vertex's
+ * texture coordinate with GetColorCenterCoordinates(0x8c) -- light grey -- so
+ * it was already drawn as one flat colour rather than textured. AD-13 still
+ * requires the host's texture to be copied during the call, and it is; nothing
+ * has ever drawn it, and matching the editor's behaviour means not starting.
+ */
+#define ED_REFERENCE_MESH_PALETTE_COLOUR 0x8Cu
+
+/* The renderer takes quads and nothing else, so a triangle is a quad whose
+ * last two corners coincide -- the same degenerate form the legacy quad path
+ * already tolerates everywhere else. */
+static void draw_reference_triangle(GameRenderer *pRenderer,
+                                    const float afTriangle[3][3])
+{
+    float afQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+    for (uint32_t i = 0; i < 3u; i++) {
+        for (uint32_t j = 0; j < 3u; j++)
+            afQuad[i][j] = afTriangle[i][j];
+    }
+    for (uint32_t j = 0; j < 3u; j++)
+        afQuad[3][j] = afTriangle[2][j];
+    draw_helper_quad(pRenderer, afQuad, ED_REFERENCE_MESH_PALETTE_COLOUR);
+}
+
+void drawtrk3_editor_draw_reference_mesh(GameRenderer *pRenderer)
+{
+    uint32_t uiTriangles;
+    bool bWireframe;
+
+    if (!pRenderer
+            || !roller_ed_overlay_enabled(
+                   ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH))
+        return;
+    uiTriangles = ed_reference_mesh_triangle_count();
+    bWireframe = ed_reference_mesh_wireframe();
+
+    for (uint32_t uiTriangle = 0; uiTriangle < uiTriangles; uiTriangle++) {
+        float afTriangle[3][3];
+
+        if (!ed_reference_mesh_world_triangle(uiTriangle, afTriangle))
+            continue;
+        if (!bWireframe) {
+            draw_reference_triangle(pRenderer, afTriangle);
+            continue;
+        }
+        /* Wireframe reuses E3A-S2's ribbon: the renderer still has no line
+         * primitive, and an edge of a reference triangle is no different from
+         * an edge of a track surface. The ribbon needs the triangle's plane,
+         * so the quad form is fed the third corner twice -- its Newell normal
+         * is the triangle's. */
+        {
+            float afQuad[ED_SURFACE_VERTEX_COUNT][3];
+            float afNormal[3];
+
+            for (uint32_t i = 0; i < 3u; i++) {
+                for (uint32_t j = 0; j < 3u; j++)
+                    afQuad[i][j] = afTriangle[i][j];
+            }
+            for (uint32_t j = 0; j < 3u; j++)
+                afQuad[3][j] = afTriangle[2][j];
+            if (!ed_surface_compute_normals((const float (*)[3])afQuad,
+                                            afNormal, NULL))
+                continue;
+            for (uint32_t uiEdge = 0; uiEdge < 3u; uiEdge++) {
+                float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+                if (!ed_surface_wireframe_edge_quad_points(
+                        (const float (*)[3])afTriangle, 3u, afNormal, uiEdge,
+                        afEdgeQuad))
+                    continue;
+                draw_helper_quad(pRenderer, afEdgeQuad,
+                                 ED_REFERENCE_MESH_PALETTE_COLOUR);
+            }
+        }
+    }
+}
+
+void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
+{
+    if (!pRenderer)
+        return;
+
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AI_LINES)) {
+        for (uint32_t uiLine = 0; uiLine < ED_HELPER_AI_LINE_COUNT; uiLine++)
+            draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR);
+    }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_CENTER_LINE)) {
+        draw_helper_line(pRenderer, ED_HELPER_AI_LINE_COUNT,
+                         ED_CENTER_LINE_PALETTE_COLOUR);
+    }
+    /* Markers last, so they read against the lines and floor under them. */
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS)) {
+        for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+            if (ed_helper_chunk_has_audio((uint32_t)iChunk))
+                draw_helper_marker(pRenderer, (uint32_t)iChunk,
+                                   ED_HELPER_MARKER_AUDIO,
+                                   ED_AUDIO_MARKER_PALETTE_COLOUR);
+        }
+    }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS)) {
+        const uint32_t uiStuntCount = ed_helper_stunt_count();
+
+        for (uint32_t uiStunt = 0; uiStunt < uiStuntCount; uiStunt++) {
+            uint32_t uiChunkId;
+
+            if (ed_helper_stunt_chunk(uiStunt, &uiChunkId))
+                draw_helper_marker(pRenderer, uiChunkId,
+                                   ED_HELPER_MARKER_STUNT,
+                                   ED_STUNT_MARKER_PALETTE_COLOUR);
+        }
+    }
+}
+
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
                                  void *pUserData)
 {
@@ -178,14 +461,50 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
             || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
         return;
 
+    bSelected = ed_surface_selection_matches(
+        pContext->pSelection, pSurface);
+
+#if defined(ROLLER_EDITOR_CORE)
+    /*
+     * Overlay filtering keys on the canonical unSurfaceClass the emitter
+     * published (AD-8), never on anything reconstructed at draw time. The
+     * edge passes run after the surface so they draw over their own fill.
+     *
+     * E3A-S3: a selected surface is outlined in the highlight colour instead
+     * of its usual wireframe colour, so the two passes never fight over the
+     * same coincident ribbon, and the selection wins.
+     */
+    {
+        const bool bSurfaceVisible =
+            roller_ed_overlay_surface_class_visible(pSurface->unSurfaceClass);
+        const bool bWireframeVisible =
+            roller_ed_overlay_wireframe_class_visible(pSurface->unSurfaceClass);
+
+        if (!bSurfaceVisible) {
+            if (bSelected)
+                draw_emitted_surface_edges(
+                    pContext, pSurface,
+                    ed_surface_selection_render_flags(
+                        pContext->pSelection, pSurface));
+            else if (bWireframeVisible)
+                draw_emitted_surface_edges(
+                    pContext, pSurface,
+                    editor_edge_flags(pSurface, ED_WIREFRAME_PALETTE_COLOUR));
+            return;
+        }
+    }
+#endif
+
     pFrontMaterial = ed_material_table_get(
         pContext->pMaterials, pSurface->uiFrontMaterialId);
     if (!pFrontMaterial)
         return;
-    bSelected = ed_surface_selection_matches(
-        pContext->pSelection, pSurface);
-    uiRenderFlags = ed_surface_selection_render_flags(
-        pContext->pSelection, pSurface);
+    /*
+     * E3A-S3 outlines the selection rather than flat-filling it, so the fill
+     * keeps its own flags and its texture: the maintainer edits against those
+     * textures, and Select All would otherwise flatten the whole track.
+     */
+    uiRenderFlags = pSurface->uiRenderFlags;
 
     for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
         aVertices[i].x = pSurface->aVertices[i].fPosition[0];
@@ -197,10 +516,8 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         startsy[i] = pSurface->aVertices[i].iRenderV16_16;
     }
 
-    if (!bSelected
-            && (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
-                || pFrontMaterial->uiKind
-                    == ROLLER_ED_MATERIAL_TEXTURED_PAIR)) {
+    if (pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_TILE
+            || pFrontMaterial->uiKind == ROLLER_ED_MATERIAL_TEXTURED_PAIR) {
         hTexture = game_render_get_texture_handle(
             pContext->pRenderer, (int)pFrontMaterial->uiTextureSet);
     }
@@ -209,6 +526,20 @@ static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,
         pContext->pRenderer, aVertices, hTexture,
         (int)uiRenderFlags, pSurface->iRenderSubdivideType,
         pSurface->fSubdivideThreshold);
+
+#if defined(ROLLER_EDITOR_CORE)
+    if (bSelected)
+        draw_emitted_surface_edges(
+            pContext, pSurface,
+            ed_surface_selection_render_flags(pContext->pSelection, pSurface));
+    else if (roller_ed_overlay_wireframe_class_visible(
+                 pSurface->unSurfaceClass))
+        draw_emitted_surface_edges(
+            pContext, pSurface,
+            editor_edge_flags(pSurface, ED_WIREFRAME_PALETTE_COLOUR));
+#else
+    (void)bSelected;
+#endif
 }
 
 static uint32_t editor_surface_texture_count(uint32_t uiTextureSet)
@@ -344,6 +675,30 @@ void drawtrk3_editor_selection_set(uint32_t uiFirstChunkId,
 void drawtrk3_editor_selection_clear(void)
 {
     g_EditorSurfaceSelection.bEnabled = false;
+}
+
+/*
+ * Publishes the facade's selection range to the renderer once per frame. The
+ * range is a chunk range, so it covers every surface class in it; the match
+ * itself is made per surface against the canonical uiChunkId the emitter
+ * published (AD-8), never against anything reconstructed from a draw command.
+ *
+ * Unconditional rather than editor-only: editor_legacy_scene.c is in the
+ * game's source set, and the game never reaches the render path that calls
+ * this. Overlay defaults leave the selection disabled either way.
+ */
+void drawtrk3_editor_apply_overlay_selection(void)
+{
+    uint32_t uiFirstChunk;
+    uint32_t uiLastChunk;
+
+    if (roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk)) {
+        drawtrk3_editor_selection_set(
+            uiFirstChunk, uiLastChunk, ED_SURFACE_SELECTION_ANY_CLASS,
+            ED_SELECTION_HIGHLIGHT_PALETTE_COLOUR);
+    } else {
+        drawtrk3_editor_selection_clear();
+    }
 }
 
 // Symmetric to left_wall_top_pt_idx — selects screenPtAy[5]'s world-space source

@@ -204,8 +204,10 @@ bool ed_surface_selection_matches(const tEdSurfaceSelection *pSelection,
     uint32_t uiFirstChunkId;
     uint32_t uiLastChunkId;
 
-    if (!pSelection || !pSurface || !pSelection->bEnabled
-            || pSurface->unSurfaceClass != pSelection->unSurfaceClass)
+    if (!pSelection || !pSurface || !pSelection->bEnabled)
+        return false;
+    if (pSelection->unSurfaceClass != ED_SURFACE_SELECTION_ANY_CLASS
+            && pSurface->unSurfaceClass != pSelection->unSurfaceClass)
         return false;
 
     uiFirstChunkId = pSelection->uiFirstChunkId;
@@ -374,6 +376,114 @@ bool ed_surface_compute_render_uvs(
         aiRenderV16_16[i] = aiVCorner[i] ? iMaxV : 0;
     }
     return true;
+}
+
+/*
+ * E3A-S2 wireframe. The renderer has no line primitive -- world-space quads
+ * are the only geometry it accepts (game_render.h) -- so an edge is drawn as a
+ * thin ribbon lying in the surface's own plane, nudged toward the front face
+ * so it wins the depth test against the surface it outlines.
+ *
+ * The ribbon width is a fraction of the quad's longest edge rather than an
+ * absolute distance, because legacy track units span four orders of magnitude
+ * between a sign panel and an outer wall; one constant width would be
+ * invisible on one and a slab on the other. It is therefore thicker in world
+ * space on a big quad, which is what keeps it a roughly constant thickness on
+ * screen for the surface it belongs to.
+ */
+#define ED_WIREFRAME_WIDTH_RATIO 0.012f
+/* Enough to clear coplanar depth without visibly floating off the surface. */
+#define ED_WIREFRAME_DEPTH_BIAS_RATIO 0.5f
+
+static void ed_subtract3(const float afLeft[3],
+                         const float afRight[3],
+                         float afOut[3])
+{
+    afOut[0] = afLeft[0] - afRight[0];
+    afOut[1] = afLeft[1] - afRight[1];
+    afOut[2] = afLeft[2] - afRight[2];
+}
+
+bool ed_surface_wireframe_edge_quad_points(
+    const float (*afPoints)[3],
+    uint32_t uiPointCount,
+    const float afNormal[3],
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3])
+{
+    const float *pfStart;
+    const float *pfEnd;
+    float afDirection[3];
+    float afSideways[3];
+    float afWidth[3];
+    float afBias[3];
+    float fWidth;
+    double dLongestEdge = 0.0;
+
+    if (!afPoints || !afNormal || !afEdgeQuad || uiPointCount < 3u
+            || uiEdge >= uiPointCount)
+        return false;
+
+    for (uint32_t i = 0; i < uiPointCount; i++) {
+        float afEdge[3];
+        double dLength;
+
+        ed_subtract3(afPoints[(i + 1u) % uiPointCount], afPoints[i], afEdge);
+        dLength = ed_length3(afEdge);
+        if (dLength > dLongestEdge)
+            dLongestEdge = dLength;
+    }
+    if (!(dLongestEdge > 0.0))
+        return false;
+
+    pfStart = afPoints[uiEdge];
+    pfEnd = afPoints[(uiEdge + 1u) % uiPointCount];
+    ed_subtract3(pfEnd, pfStart, afDirection);
+    if (!ed_normalize(afDirection))
+        return false;
+
+    /* In-plane perpendicular: normal x direction. A pinched corner can leave
+     * an edge parallel to the quad normal, which has no ribbon to draw. */
+    ed_cross(afNormal, afDirection, afSideways);
+    if (!ed_normalize(afSideways))
+        return false;
+
+    fWidth = (float)(dLongestEdge * ED_WIREFRAME_WIDTH_RATIO);
+    for (uint32_t i = 0; i < 3u; i++) {
+        afWidth[i] = afSideways[i] * fWidth;
+        afBias[i] = afNormal[i] * fWidth * ED_WIREFRAME_DEPTH_BIAS_RATIO;
+    }
+
+    /*
+     * v0..v3 wound so the right-hand-rule normal matches the surface normal --
+     * the same front face E4A-S4 recorded, so the renderer's facing test keeps
+     * the ribbon visible from exactly the side the surface is visible from.
+     */
+    for (uint32_t i = 0; i < 3u; i++) {
+        afEdgeQuad[0][i] = pfStart[i] - afWidth[i] + afBias[i];
+        afEdgeQuad[1][i] = pfEnd[i] - afWidth[i] + afBias[i];
+        afEdgeQuad[2][i] = pfEnd[i] + afWidth[i] + afBias[i];
+        afEdgeQuad[3][i] = pfStart[i] + afWidth[i] + afBias[i];
+    }
+    return true;
+}
+
+bool ed_surface_wireframe_edge_quad(
+    const tEdSurfaceEmission *pSurface,
+    uint32_t uiEdge,
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3])
+{
+    float afPoints[ED_SURFACE_VERTEX_COUNT][3];
+
+    if (!pSurface || pSurface->uiVertexCount != ED_SURFACE_VERTEX_COUNT)
+        return false;
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        for (uint32_t j = 0; j < 3u; j++)
+            afPoints[i][j] = pSurface->aVertices[i].fPosition[j];
+    }
+    return ed_surface_wireframe_edge_quad_points(
+        (const float (*)[3])afPoints, ED_SURFACE_VERTEX_COUNT,
+        pSurface->fNormal, uiEdge, afEdgeQuad);
 }
 
 bool ed_traverse_full_track_chunks(uint32_t uiLoadedChunkCount,

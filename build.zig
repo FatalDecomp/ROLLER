@@ -78,6 +78,9 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/editor_camera.c",
             "PROJECTS/ROLLER/editor_api.c",
             "PROJECTS/ROLLER/editor_legacy_scene.c",
+            "PROJECTS/ROLLER/editor_overlay.c",
+            "PROJECTS/ROLLER/editor_helpers.c",
+            "PROJECTS/ROLLER/editor_test_car.c",
             "PROJECTS/ROLLER/editor_reference_mesh.c",
             "PROJECTS/ROLLER/editor_surface.c",
             "PROJECTS/ROLLER/editor_track_loader.c",
@@ -476,6 +479,76 @@ fn configureRenderQueue3DTests(
     );
     editor_geometry_tests.dependOn(&run_editor_geometry.step);
 
+    const editor_overlay_toggle_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_overlay_toggle_mod.sanitize_c = .off;
+    editor_overlay_toggle_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_overlay_toggle_mod.addIncludePath(sdl.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(
+        sdl_image_source.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(
+        libcdio.builder.path("zig-config"));
+    editor_overlay_toggle_mod.addIncludePath(
+        b.path("external/Nuklear-4.13.2"));
+    editor_overlay_toggle_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_overlay_toggle_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_overlay_toggle_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_overlay_toggle_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_overlay_toggle_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_overlay_toggle_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_overlay_toggle_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_overlay_toggle_acceptance.c",
+        },
+    });
+    const editor_overlay_toggle_exe = b.addExecutable(.{
+        .name = "editor_overlay_toggle_acceptance",
+        .root_module = editor_overlay_toggle_mod,
+    });
+    const run_editor_overlay_toggle =
+        b.addRunArtifact(editor_overlay_toggle_exe);
+    run_editor_overlay_toggle.addFileArg(b.path("FATDATA/TRACK3.TRK"));
+    run_editor_overlay_toggle.addDirectoryArg(assets_path);
+    const editor_overlay_toggle_tests = b.step(
+        "test-e3a-s2-overlay-toggles",
+        "Run surface/wireframe overlay toggle acceptance (retail assets)",
+    );
+    editor_overlay_toggle_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_selection_tests = b.step(
+        "test-e3a-s3-selection-highlight",
+        "Run selected-chunk highlight acceptance (retail assets)",
+    );
+    editor_selection_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_helper_overlay_tests = b.step(
+        "test-e3a-s4-helper-overlays",
+        "Run AI line/centre line/environment floor acceptance (retail assets)",
+    );
+    editor_helper_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_marker_overlay_tests = b.step(
+        "test-e3a-s5-marker-overlays",
+        "Run audio/stunt marker overlay acceptance (retail assets)",
+    );
+    editor_marker_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_test_car_tests = b.step(
+        "test-e3a-s6-test-car",
+        "Run configurable test car acceptance (retail assets)",
+    );
+    editor_test_car_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_reference_render_tests = b.step(
+        "test-e3a-s7-reference-mesh",
+        "Run reference mesh rendering acceptance (retail assets)",
+    );
+    editor_reference_render_tests.dependOn(&run_editor_overlay_toggle.step);
+
     const editor_buffers_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -729,7 +802,7 @@ fn configureRenderQueue3DTests(
 
     const editor_api_tests = b.step(
         "test-editor-api",
-        "Run facade lifecycle, camera, error-boundary, and ABI tests",
+        "Run facade lifecycle, camera, overlay, error-boundary, and ABI tests",
     );
     editor_api_tests.dependOn(&run_editor_api.step);
     editor_api_tests.dependOn(&run_editor_api_cpp.step);
@@ -755,6 +828,49 @@ fn configureRenderQueue3DTests(
     });
     const run_editor_camera = b.addRunArtifact(editor_camera_exe);
     editor_api_tests.dependOn(&run_editor_camera.step);
+
+    const editor_overlay_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_overlay_mod.addIncludePath(sdl.builder.path("include"));
+    editor_overlay_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_overlay_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_overlay.c",
+            "tests/editor_overlay_test.c",
+        },
+    });
+    const editor_overlay_exe = b.addExecutable(.{
+        .name = "editor_overlay_test",
+        .root_module = editor_overlay_mod,
+    });
+    const run_editor_overlay = b.addRunArtifact(editor_overlay_exe);
+    editor_api_tests.dependOn(&run_editor_overlay.step);
+
+    const editor_helpers_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_helpers_mod.addIncludePath(sdl.builder.path("include"));
+    editor_helpers_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_helpers_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/editor_helpers.c",
+            "PROJECTS/ROLLER/editor_surface.c",
+            "tests/editor_helpers_test.c",
+        },
+    });
+    const editor_helpers_exe = b.addExecutable(.{
+        .name = "editor_helpers_test",
+        .root_module = editor_helpers_mod,
+    });
+    const run_editor_helpers = b.addRunArtifact(editor_helpers_exe);
+    editor_api_tests.dependOn(&run_editor_helpers.step);
     test_step.dependOn(editor_api_tests);
 
     const sound_stub_mod = b.createModule(.{

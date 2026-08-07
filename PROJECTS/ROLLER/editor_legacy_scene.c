@@ -4,7 +4,10 @@
 #include "car.h"
 #include "drawtrk3.h"
 #include "editor_camera.h"
+#include "editor_overlay.h"
+#include "editor_reference_mesh.h"
 #include "editor_surface.h"
+#include "editor_test_car.h"
 #include "game_render.h"
 #include "loadtrak.h"
 #include "scene_render_gpu.h"
@@ -265,6 +268,61 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
     return ROLLER_ED_RESULT_OK;
 }
 
+/*
+ * Overlay state reaches the renderer the same way the camera does, and like
+ * the camera it touches no loaded geometry: nothing here advances the geometry
+ * epoch or the track generation (AD-7d).
+ */
+eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
+    const tEdOverlayState *pState,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    if (!pState) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "editor overlay state is required");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    roller_ed_overlay_set(pState);
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
+/*
+ * E3A-S7. The reference mesh is a view setting too: like the camera and the
+ * overlay it never touches loaded geometry, so it advances neither the
+ * geometry epoch nor the track generation (AD-7d) and E4A-S5's per-epoch
+ * extraction survives every replacement.
+ */
+eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    char szMeshError[256];
+    eEdReferenceMeshResult eResult;
+
+    szMeshError[0] = '\0';
+    eResult = ed_reference_mesh_set_current(pMesh, szMeshError,
+                                            sizeof(szMeshError));
+    if (eResult != ED_REFERENCE_MESH_OK) {
+        editor_scene_set_error(szError, uiErrorCapacity,
+                               "reference mesh replacement failed: %s%s%s",
+                               ed_reference_mesh_result_name(eResult),
+                               szMeshError[0] ? ": " : "", szMeshError);
+        switch (eResult) {
+            case ED_REFERENCE_MESH_OUT_OF_MEMORY:
+                return ROLLER_ED_RESULT_OUT_OF_MEMORY;
+            case ED_REFERENCE_MESH_INVALID_VERSION:
+                return ROLLER_ED_RESULT_INVALID_VERSION;
+            default:
+                return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+        }
+    }
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
 eRollerEdResult roller_ed_legacy_scene_render(
     uint8_t *pbyPixels,
     uint32_t uiBufferSize,
@@ -279,6 +337,10 @@ eRollerEdResult roller_ed_legacy_scene_render(
                                "legacy renderer is not initialized");
         return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     }
+
+    /* Overlay state is host input; the renderer reads it through its own
+     * globals, so publish it once here rather than per surface. */
+    drawtrk3_editor_apply_overlay_selection();
 
     if (s_eActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE) {
         uint32_t uiNativeWidth = XMAX > 0 ? (uint32_t)XMAX : 320u;
@@ -298,6 +360,13 @@ eRollerEdResult roller_ed_legacy_scene_render(
         game_render_set_viewport(g_pGameRenderer, 0, 0, winw, winh);
         game_render_begin_frame(g_pGameRenderer);
         draw_road(scrbuf, ViewType[0], (unsigned int)DriveView[0], 0, 0);
+        /* After the scene, so the helpers sit on top of the surfaces they
+         * describe and inherit the transform draw_road established. */
+        drawtrk3_editor_draw_helpers(g_pGameRenderer);
+        /* The test car goes in last: it stands on the helpers rather than
+         * under them, and it is the only overlay that is a real model. */
+        ed_test_car_draw(g_pGameRenderer);
+        drawtrk3_editor_draw_reference_mesh(g_pGameRenderer);
         if (!game_render_end_frame_software_readback(
                 g_pGameRenderer, scrbuf, uiNativeWidth,
                 uiNativeWidth, uiNativeHeight,
@@ -335,6 +404,13 @@ eRollerEdResult roller_ed_legacy_scene_render(
     /* draw_road is the scene-only path: the gameplay panel/HUD compositor is
      * intentionally not part of editor readback. */
     draw_road(scrbuf, ViewType[0], (unsigned int)DriveView[0], 0, 0);
+    /* After the scene, so the helpers sit on top of the surfaces they
+     * describe and inherit the transform draw_road established. */
+    drawtrk3_editor_draw_helpers(g_pGameRenderer);
+    /* The test car goes in last: it stands on the helpers rather than under
+     * them, and it is the only overlay that is a real model. */
+    ed_test_car_draw(g_pGameRenderer);
+    drawtrk3_editor_draw_reference_mesh(g_pGameRenderer);
     if (!scene_render_gpu_end_frame_readback(
             pGPU, pbyPixels, uiBufferSize, uiRowPitch, uiWidth, uiHeight)) {
         editor_scene_set_error(szError, uiErrorCapacity,
@@ -582,6 +658,11 @@ void roller_ed_legacy_scene_unload(void)
 void roller_ed_legacy_scene_shutdown(void)
 {
     roller_ed_camera_reset();
+    roller_ed_overlay_reset();
+    /* Before the renderer goes: the prepared design is only meaningful while
+     * the texture bank it registered still exists. */
+    ed_test_car_reset();
+    ed_reference_mesh_reset_current();
     if (g_pGameRenderer) {
         game_render_destroy(g_pGameRenderer);
         g_pGameRenderer = NULL;

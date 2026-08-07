@@ -25,6 +25,18 @@ eRollerEdResult roller_ed_legacy_scene_set_camera(
     char *szError,
     size_t uiErrorCapacity);
 
+eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
+    const tEdOverlayState *pState,
+    char *szError,
+    size_t uiErrorCapacity);
+
+/* E3A-S7. Copies the mesh into the core's single reference-mesh slot. A
+ * failed replacement leaves the previous mesh intact (AD-13). */
+eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(
+    const tEdReferenceMesh *pMesh,
+    char *szError,
+    size_t uiErrorCapacity);
+
 eRollerEdResult roller_ed_legacy_scene_render(
     uint8_t *pbyPixels,
     uint32_t uiBufferSize,

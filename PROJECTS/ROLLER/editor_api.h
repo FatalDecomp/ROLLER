@@ -95,6 +95,32 @@ enum
     ROLLER_ED_CONTENT_RUNTIME_SCENERY = 3u
 };
 
+/*
+ * What a surface looks like, as opposed to what object it belongs to -- see
+ * unContentClass for that. These values are published through
+ * tEdPrimitive.unSurfaceClass and index the overlay class masks, so they are
+ * part of the ABI and only ever grow at the end.
+ */
+typedef uint16_t eRollerEdSurfaceClass;
+enum
+{
+    ROLLER_ED_SURFACE_CLASS_CENTER = 0u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_SHOULDER = 1u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_SHOULDER = 2u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_WALL = 3u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_WALL = 4u,
+    ROLLER_ED_SURFACE_CLASS_ROOF = 5u,
+    ROLLER_ED_SURFACE_CLASS_OUTER_WALL_FLOOR = 6u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_LOWER_OUTER_WALL = 7u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_LOWER_OUTER_WALL = 8u,
+    ROLLER_ED_SURFACE_CLASS_LEFT_UPPER_OUTER_WALL = 9u,
+    ROLLER_ED_SURFACE_CLASS_RIGHT_UPPER_OUTER_WALL = 10u,
+    ROLLER_ED_SURFACE_CLASS_SIGN = 11u,
+    ROLLER_ED_SURFACE_CLASS_BUILDING = 12u,
+    ROLLER_ED_SURFACE_CLASS_TOWER = 13u,
+    ROLLER_ED_SURFACE_CLASS_COUNT = 14u
+};
+
 typedef uint32_t eRollerEdMaterialKind;
 enum
 {
@@ -149,12 +175,54 @@ enum
     ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION = 1u << 2,
     ROLLER_ED_OVERLAY_SHOW_AI_LINES = 1u << 3,
     ROLLER_ED_OVERLAY_SHOW_CENTER_LINE = 1u << 4,
-    ROLLER_ED_OVERLAY_SHOW_ENVIRONMENT_FLOOR = 1u << 5,
+    /* Bit 5 was SHOW_ENVIRONMENT_FLOOR (E3A-S4), the green plane under the
+     * track. It was retired once the preview drew the real horizon. The bit
+     * stays reserved rather than reused, so a host built against the older
+     * header is refused outright instead of silently switching something
+     * else on. */
     ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS = 1u << 6,
     ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS = 1u << 7,
     ROLLER_ED_OVERLAY_SHOW_TEST_CAR = 1u << 8,
-    ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH = 1u << 9
+    ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH = 1u << 9,
+    /*
+     * v3. The legacy editor's "million plus" toggle: it rotates the test car
+     * the opposite way, because the Million-and-later plans were authored
+     * facing the other direction. It is a modifier on SHOW_TEST_CAR, not an
+     * overlay of its own, which is why it is a flag rather than a field.
+     */
+    ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS = 1u << 10,
+    /*
+     * The "advanced cars" set: ROLLER's second texture bank for the eight
+     * cars that have one (`y*.bm` rather than `x*.bm`), plus the palette
+     * remap that recolours parts like the mirrors. The editor's model list
+     * spells these as its Y variants. Geometry is unchanged -- this selects a
+     * skin for a design, which is why it is a flag beside uiTestCarDesign
+     * rather than a design of its own. F1WACK and DEATH have no Y variant and
+     * ignore it, exactly as the game does.
+     */
+    ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED = 1u << 11
 };
+
+/*
+ * Test-car selection (E3A-S6). The design index is ROLLER's own
+ * CAR_DESIGN_* numbering, not the editor's model enum -- the host translates
+ * at the boundary, exactly as it does for the legacy SHOW_* mask. The AI line
+ * index matches localdata[].fAILine1..4, the same lines the AI-line overlay
+ * draws.
+ */
+#define ROLLER_ED_TEST_CAR_DESIGN_COUNT 14u
+#define ROLLER_ED_TEST_CAR_AI_LINE_COUNT 4u
+
+/*
+ * Overlay class masks. SHOW_SURFACES and SHOW_WIREFRAME are master switches;
+ * each mask then selects which surface classes that switch applies to, one bit
+ * per eRollerEdSurfaceClass value. A class is drawn only when both agree, so
+ * the host can blank the view without losing its per-class choices.
+ */
+#define ROLLER_ED_OVERLAY_CLASS_BIT(surface_class) \
+    (1u << (uint32_t)(surface_class))
+#define ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES \
+    ((1u << (uint32_t)ROLLER_ED_SURFACE_CLASS_COUNT) - 1u)
 
 enum
 {
@@ -163,12 +231,18 @@ enum
     ROLLER_ED_REFERENCE_TWO_SIDED = 1u << 2
 };
 
-#define ROLLER_ED_BOOTSTRAP_INFO_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_INIT_INFO_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_CAMERA_STATE_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_OVERLAY_STATE_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_REFERENCE_MESH_VERSION ROLLER_ED_API_VERSION
-#define ROLLER_ED_GEOMETRY_SIZES_VERSION ROLLER_ED_API_VERSION
+/*
+ * Per-struct versions (AD-12). These start equal to the API version but are
+ * deliberately independent of it: a struct that gains a field bumps its own
+ * version, and every other call keeps working unchanged. tEdOverlayState is
+ * at 3: E3A-S2 added the per-class masks, E3A-S6 the test-car selection.
+ */
+#define ROLLER_ED_BOOTSTRAP_INFO_VERSION 1u
+#define ROLLER_ED_INIT_INFO_VERSION 1u
+#define ROLLER_ED_CAMERA_STATE_VERSION 1u
+#define ROLLER_ED_OVERLAY_STATE_VERSION 3u
+#define ROLLER_ED_REFERENCE_MESH_VERSION 1u
+#define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
 
 #if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
 #  pragma pack(push, 8)
@@ -206,6 +280,15 @@ typedef struct
     uint32_t uiFlags; /* OR of ROLLER_ED_OVERLAY_* flags. */
     uint32_t uiFirstSelectedChunk;
     uint32_t uiLastSelectedChunk;
+    /* v2. One bit per eRollerEdSurfaceClass; gated by SHOW_SURFACES and
+     * SHOW_WIREFRAME respectively. */
+    uint32_t uiSurfaceClassMask;
+    uint32_t uiWireframeClassMask;
+    /* v3. Read only when SHOW_TEST_CAR is set. The car stands on
+     * uiFirstSelectedChunk, which is where the legacy editor put it, so no
+     * separate chunk field is needed. */
+    uint32_t uiTestCarDesign;  /* < ROLLER_ED_TEST_CAR_DESIGN_COUNT */
+    uint32_t uiTestCarAiLine;  /* < ROLLER_ED_TEST_CAR_AI_LINE_COUNT */
 } tEdOverlayState;
 
 typedef struct
@@ -316,13 +399,23 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPosition) == 8u,
                         "camera position offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPitchDegrees) == 24u,
                         "camera pitch offset");
-ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 20u, "overlay size");
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 36u, "overlay size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdOverlayState) == 4u,
                         "overlay alignment");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiFlags) == 8u,
                         "overlay mask offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiLastSelectedChunk) == 16u,
                         "overlay selection offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiSurfaceClassMask) == 20u,
+                        "overlay surface class mask offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiWireframeClassMask) == 24u,
+                        "overlay wireframe class mask offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiTestCarDesign) == 28u,
+                        "overlay test car design offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdOverlayState, uiTestCarAiLine) == 32u,
+                        "overlay test car ai line offset");
+ROLLER_ED_STATIC_ASSERT(ROLLER_ED_SURFACE_CLASS_COUNT <= 32u,
+                        "surface classes must fit an overlay class mask");
 ROLLER_ED_STATIC_ASSERT(sizeof(tEdReferenceVertex) == 32u, "reference vertex size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdReferenceVertex) == 4u,
                         "reference vertex alignment");

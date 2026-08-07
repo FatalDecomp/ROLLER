@@ -1,5 +1,6 @@
 #include "editor_api.h"
 #include "editor_legacy_scene.h"
+#include "editor_overlay.h"
 #include "editor_track_loader.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -150,18 +151,25 @@ static bool roller_ed_is_worker_owner(void)
         && SDL_GetCurrentThreadID() == s_ullWorkerThreadId;
 }
 
+/*
+ * AD-12: each top-level struct carries its own version, so a struct that gains
+ * a field (tEdOverlayState did, in E3A-S2) bumps only its own and leaves every
+ * other call alone. The expected version is therefore a parameter rather than
+ * the API version.
+ */
 static eRollerEdResult roller_ed_validate_struct(
-    uint32_t uiStructSize, uint32_t uiVersion, uint32_t uiRequiredSize,
-    const char *szStructName)
+    uint32_t uiStructSize, uint32_t uiVersion, uint32_t uiExpectedVersion,
+    uint32_t uiRequiredSize, const char *szStructName)
 {
-    if (uiVersion != ROLLER_ED_API_VERSION) {
-        roller_ed_set_error("%s version %u is unsupported", szStructName,
-                            uiVersion);
+    if (uiVersion != uiExpectedVersion) {
+        roller_ed_set_error("%s version %u is unsupported; this core expects %u",
+                            szStructName, uiVersion, uiExpectedVersion);
         return ROLLER_ED_RESULT_INVALID_VERSION;
     }
     if (uiStructSize < uiRequiredSize) {
-        roller_ed_set_error("%s size %u is smaller than v1 size %u",
-                            szStructName, uiStructSize, uiRequiredSize);
+        roller_ed_set_error("%s size %u is smaller than the v%u size %u",
+                            szStructName, uiStructSize, uiExpectedVersion,
+                            uiRequiredSize);
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     return ROLLER_ED_RESULT_OK;
@@ -214,7 +222,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_Bootstrap(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pInfo->uiStructSize, pInfo->uiVersion, sizeof(*pInfo),
+        pInfo->uiStructSize, pInfo->uiVersion,
+        ROLLER_ED_BOOTSTRAP_INFO_VERSION, sizeof(*pInfo),
         "tRollerEdBootstrapInfo");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
@@ -307,7 +316,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_Init(const tRollerEdInitInfo *pInfo)
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pInfo->uiStructSize, pInfo->uiVersion, sizeof(*pInfo),
+        pInfo->uiStructSize, pInfo->uiVersion,
+        ROLLER_ED_INIT_INFO_VERSION, sizeof(*pInfo),
         "tRollerEdInitInfo");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
@@ -472,7 +482,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(const tEdCameraState *pCam)
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pCam->uiStructSize, pCam->uiVersion, sizeof(*pCam),
+        pCam->uiStructSize, pCam->uiVersion,
+        ROLLER_ED_CAMERA_STATE_VERSION, sizeof(*pCam),
         "tEdCameraState");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
@@ -526,12 +537,53 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetOverlayState(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pState->uiStructSize, pState->uiVersion, sizeof(*pState),
+        pState->uiStructSize, pState->uiVersion,
+        ROLLER_ED_OVERLAY_STATE_VERSION, sizeof(*pState),
         "tEdOverlayState");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade overlay state is not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    if ((pState->uiFlags & ~(uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS) != 0u) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiFlags 0x%08x sets bits API version %u does not "
+            "define", pState->uiFlags, (unsigned)ROLLER_ED_API_VERSION);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (((pState->uiSurfaceClassMask | pState->uiWireframeClassMask)
+            & ~(uint32_t)ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES) != 0u) {
+        roller_ed_set_error(
+            "tEdOverlayState class masks select surface classes beyond %u",
+            (unsigned)ROLLER_ED_SURFACE_CLASS_COUNT);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    /*
+     * E3A-S6. The test-car selection is validated whether or not SHOW_TEST_CAR
+     * is set, for the same reason the flag bits are: silently storing an
+     * out-of-range design and only failing once the host ticks the box would
+     * report the error against the wrong call. Both index fixed tables, so
+     * out of range is a host bug, not a preference.
+     */
+    if (pState->uiTestCarDesign >= ROLLER_ED_TEST_CAR_DESIGN_COUNT) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiTestCarDesign %u is not below %u",
+            pState->uiTestCarDesign,
+            (unsigned)ROLLER_ED_TEST_CAR_DESIGN_COUNT);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (pState->uiTestCarAiLine >= ROLLER_ED_TEST_CAR_AI_LINE_COUNT) {
+        roller_ed_set_error(
+            "tEdOverlayState.uiTestCarAiLine %u is not below %u",
+            pState->uiTestCarAiLine,
+            (unsigned)ROLLER_ED_TEST_CAR_AI_LINE_COUNT);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    /*
+     * AD-7d: overlays are a view setting over the same authored geometry, so
+     * this deliberately advances neither the geometry epoch nor the track
+     * generation.  Doing either would throw away E4A-S5's per-epoch extraction
+     * on every toggle.
+     */
+    return roller_ed_legacy_scene_set_overlay_state(
+        pState, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_SetReferenceMesh(
@@ -546,12 +598,23 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetReferenceMesh(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pMesh->uiStructSize, pMesh->uiVersion, sizeof(*pMesh),
+        pMesh->uiStructSize, pMesh->uiVersion,
+        ROLLER_ED_REFERENCE_MESH_VERSION, sizeof(*pMesh),
         "tEdReferenceMesh");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    roller_ed_set_error("facade reference meshes are not implemented yet");
-    return ROLLER_ED_RESULT_UNSUPPORTED;
+    /*
+     * AD-7d again: a reference mesh is scenery the host owns, not authored
+     * track geometry, so this advances neither the geometry epoch nor the
+     * track generation and E4A-S5's cached extraction stays valid.
+     *
+     * Vertex and texture data are both copied during this call; nothing the
+     * caller passed is retained (AD-13). A NULL vertex pointer or a zero
+     * vertex count clears the mesh, and a failed replacement leaves the
+     * previous one intact.
+     */
+    return roller_ed_legacy_scene_set_reference_mesh(
+        pMesh, s_szLastError, sizeof(s_szLastError));
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(
@@ -567,7 +630,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
     eResult = roller_ed_validate_struct(
-        pSizesOut->uiStructSize, pSizesOut->uiVersion, sizeof(*pSizesOut),
+        pSizesOut->uiStructSize, pSizesOut->uiVersion,
+        ROLLER_ED_GEOMETRY_SIZES_VERSION, sizeof(*pSizesOut),
         "tEdGeometrySizes");
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;

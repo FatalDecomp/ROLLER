@@ -957,6 +957,190 @@ static void test_full_track_chunk_traversal_is_complete_and_camera_free(void)
     assert(!ed_traverse_full_track_chunks(1u, NULL, NULL));
 }
 
+/*
+ * E3A-S2. The wireframe ribbon has to satisfy three things the renderer cares
+ * about: it lies in the surface's plane (so it traces the edge rather than
+ * cutting through neighbours), it is wound front-face-out by the same
+ * right-hand rule E4A-S4 recorded (so the facing test does not cull it), and
+ * it is biased toward the front (so it wins the depth test against its own
+ * surface).
+ */
+/* Ribbon corners are sums of track-scale coordinates, where a float's own
+ * resolution is already coarser than assert_float_near's fixed tolerance. */
+static void assert_float_within(float fActual, float fExpected,
+                                float fTolerance)
+{
+    assert(fabsf(fActual - fExpected) <= fTolerance);
+}
+
+static void test_wireframe_edges_trace_the_surface_front_face(void)
+{
+    static const float afWorld[ED_SURFACE_VERTEX_COUNT][3] = {
+        {   0.0f,   0.0f, 100.0f },
+        { 200.0f,   0.0f, 100.0f },
+        { 200.0f, 300.0f, 100.0f },
+        {   0.0f, 300.0f, 100.0f }
+    };
+    tEdSurfaceEmission Surface;
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+    memset(&Surface, 0, sizeof(Surface));
+    Surface.uiVertexCount = ED_SURFACE_VERTEX_COUNT;
+    for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+        Surface.aVertices[i].fPosition[0] = afWorld[i][0];
+        Surface.aVertices[i].fPosition[1] = afWorld[i][1];
+        Surface.aVertices[i].fPosition[2] = afWorld[i][2];
+    }
+    assert(ed_surface_compute_normals(afWorld, Surface.fNormal, NULL));
+    /* Wound counter-clockwise seen from +Z, so the front face is +Z up. */
+    assert_float_near(Surface.fNormal[2], 1.0f);
+
+    for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++) {
+        const float *pfStart = Surface.aVertices[uiEdge].fPosition;
+        const float *pfEnd =
+            Surface.aVertices[(uiEdge + 1u) % ED_SURFACE_VERTEX_COUNT]
+                .fPosition;
+        float afEdgeNormal[3];
+        float afCentre[3] = { 0.0f, 0.0f, 0.0f };
+
+        assert(ed_surface_wireframe_edge_quad(&Surface, uiEdge, afEdgeQuad));
+        assert(ed_surface_compute_normals(
+            (const float (*)[3])afEdgeQuad, afEdgeNormal, NULL));
+        /* Same front face as the surface it outlines. */
+        assert_float_within(afEdgeNormal[0], Surface.fNormal[0], 0.00001f);
+        assert_float_within(afEdgeNormal[1], Surface.fNormal[1], 0.00001f);
+        assert_float_within(afEdgeNormal[2], Surface.fNormal[2], 0.00001f);
+
+        for (uint32_t i = 0; i < ED_SURFACE_VERTEX_COUNT; i++) {
+            /* In the surface plane apart from the depth bias, which is
+             * strictly toward the front. */
+            assert(afEdgeQuad[i][2] > 100.0f);
+            assert(afEdgeQuad[i][2] < 102.0f);
+            for (uint32_t iAxis = 0; iAxis < 3u; iAxis++)
+                afCentre[iAxis] += afEdgeQuad[i][iAxis] * 0.25f;
+        }
+        /* The ribbon straddles its edge: its centre is the edge midpoint. */
+        assert_float_within(afCentre[0], (pfStart[0] + pfEnd[0]) * 0.5f,
+                            0.01f);
+        assert_float_within(afCentre[1], (pfStart[1] + pfEnd[1]) * 0.5f,
+                            0.01f);
+    }
+
+    /* Width scales with the quad, not with the individual edge, so all four
+     * ribbons on one surface are the same thickness. */
+    {
+        float afWidths[ED_SURFACE_VERTEX_COUNT];
+
+        for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT;
+             uiEdge++) {
+            assert(ed_surface_wireframe_edge_quad(
+                &Surface, uiEdge, afEdgeQuad));
+            afWidths[uiEdge] = sqrtf(
+                (afEdgeQuad[3][0] - afEdgeQuad[0][0])
+                    * (afEdgeQuad[3][0] - afEdgeQuad[0][0])
+                + (afEdgeQuad[3][1] - afEdgeQuad[0][1])
+                    * (afEdgeQuad[3][1] - afEdgeQuad[0][1]));
+        }
+        for (uint32_t uiEdge = 1; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++)
+            assert_float_within(afWidths[uiEdge], afWidths[0], 0.001f);
+        /* 2 * 0.012 * 300, the longest edge. */
+        assert(afWidths[0] > 7.1f && afWidths[0] < 7.3f);
+    }
+
+    /* Out-of-range edges and malformed emissions draw nothing rather than
+     * NaN geometry. */
+    assert(!ed_surface_wireframe_edge_quad(
+        &Surface, ED_SURFACE_VERTEX_COUNT, afEdgeQuad));
+    assert(!ed_surface_wireframe_edge_quad(&Surface, 0u, NULL));
+    assert(!ed_surface_wireframe_edge_quad(NULL, 0u, afEdgeQuad));
+    Surface.uiVertexCount = 3u;
+    assert(!ed_surface_wireframe_edge_quad(&Surface, 0u, afEdgeQuad));
+}
+
+static void test_wireframe_refuses_degenerate_edges(void)
+{
+    tEdSurfaceEmission Surface;
+    float afEdgeQuad[ED_SURFACE_VERTEX_COUNT][3];
+
+    memset(&Surface, 0, sizeof(Surface));
+    Surface.uiVertexCount = ED_SURFACE_VERTEX_COUNT;
+    Surface.fNormal[2] = 1.0f;
+    /* v0 and v1 coincide: a zero-length edge has no direction and no ribbon,
+     * but its neighbours still do. */
+    Surface.aVertices[1].fPosition[0] = 0.0f;
+    Surface.aVertices[2].fPosition[0] = 100.0f;
+    Surface.aVertices[3].fPosition[0] = 100.0f;
+    Surface.aVertices[2].fPosition[1] = 50.0f;
+    Surface.aVertices[3].fPosition[1] = 0.0f;
+
+    assert(!ed_surface_wireframe_edge_quad(&Surface, 0u, afEdgeQuad));
+    assert(ed_surface_wireframe_edge_quad(&Surface, 1u, afEdgeQuad));
+
+    /* A fully collapsed quad has no longest edge at all. */
+    memset(&Surface.aVertices, 0, sizeof(Surface.aVertices));
+    Surface.uiVertexCount = ED_SURFACE_VERTEX_COUNT;
+    for (uint32_t uiEdge = 0; uiEdge < ED_SURFACE_VERTEX_COUNT; uiEdge++)
+        assert(!ed_surface_wireframe_edge_quad(&Surface, uiEdge, afEdgeQuad));
+}
+
+/*
+ * E3A-S3. The editor selects a chunk range, not a class, so the range has to
+ * cover every class in it. F-S4b's original single-class form still works for
+ * a caller that wants one.
+ */
+static void test_chunk_range_selection_covers_every_class(void)
+{
+    tEdSurfaceSelection Selection = {
+        .uiFirstChunkId = 40u,
+        .uiLastChunkId = 12u, /* deliberately reversed */
+        .unSurfaceClass = ED_SURFACE_SELECTION_ANY_CLASS,
+        .byHighlightColour = 0xDAu,
+        .bEnabled = true
+    };
+    tEdSurfaceEmission Surface;
+
+    memset(&Surface, 0, sizeof(Surface));
+    Surface.uiRenderFlags = SURFACE_FLAG_APPLY_TEXTURE | 3u;
+
+    for (uint16_t unClass = 0; unClass < ROLLER_ED_SURFACE_CLASS_COUNT;
+         unClass++) {
+        Surface.unSurfaceClass = unClass;
+        Surface.uiChunkId = 11u;
+        assert(!ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 12u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 26u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 40u;
+        assert(ed_surface_selection_matches(&Selection, &Surface));
+        Surface.uiChunkId = 41u;
+        assert(!ed_surface_selection_matches(&Selection, &Surface));
+    }
+
+    /* The outline takes its flags from the same helper the flat highlight
+     * used: texture bits cleared, the highlight colour in the low byte. */
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_ROOF;
+    Surface.uiChunkId = 20u;
+    {
+        uint32_t uiFlags =
+            ed_surface_selection_render_flags(&Selection, &Surface);
+
+        assert((uiFlags & SURFACE_FLAG_APPLY_TEXTURE) == 0);
+        assert((uiFlags & SURFACE_MASK_TEXTURE_INDEX) == 0xDAu);
+    }
+
+    /* A single-class selection still excludes the others. */
+    Selection.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_ROOF;
+    assert(ed_surface_selection_matches(&Selection, &Surface));
+    Surface.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_CENTER;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+
+    /* Disabled beats everything. */
+    Selection.unSurfaceClass = ED_SURFACE_SELECTION_ANY_CLASS;
+    Selection.bEnabled = false;
+    assert(!ed_surface_selection_matches(&Selection, &Surface));
+}
+
 int main(void)
 {
     test_exact_fixed_uvs_and_identity();
@@ -976,7 +1160,10 @@ int main(void)
     test_degenerate_quads_publish_zero_normals();
     test_world_axes_and_scale_pass_through_unchanged();
     test_selection_uses_only_canonical_identity();
+    test_chunk_range_selection_covers_every_class();
     test_full_track_chunk_traversal_is_complete_and_camera_free();
+    test_wireframe_edges_trace_the_surface_front_face();
+    test_wireframe_refuses_degenerate_edges();
     puts("editor surface emission tests passed");
     return 0;
 }

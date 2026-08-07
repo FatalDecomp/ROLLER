@@ -58,6 +58,11 @@ typedef struct {
     int             bodyIndexCount;
     bool            built;
     bool            advancedCars; /* TEX_OFF_ADVANCED_CARS state when built */
+    /* Car[carIdx].byCarDesignIdx when built. A race never changes a slot's
+     * design, so this cache used to be correct by circumstance; the editor's
+     * test car (E3A-S6) reuses one slot for every design the user picks, and
+     * without this the mesh stayed whichever design was chosen first. */
+    int             designIdx;
 } GRHWCarMesh;
 
 struct GameRendererHardware {
@@ -561,7 +566,9 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
 
     GRHWCarMesh *mesh = &r->meshes[carIdx];
     bool wantAdvanced = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
-    if (mesh->built && mesh->advancedCars != wantAdvanced) {
+    int wantDesign = (int)Car[carIdx].byCarDesignIdx;
+    if (mesh->built
+        && (mesh->advancedCars != wantAdvanced || mesh->designIdx != wantDesign)) {
         for (int f = 0; f < GRHW_ANIM_FRAMES; f++) {
             if (mesh->vertexBufs[f]) { SDL_ReleaseGPUBuffer(r->device, mesh->vertexBufs[f]); mesh->vertexBufs[f] = NULL; }
         }
@@ -575,6 +582,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
         else
             return;
         mesh->advancedCars = wantAdvanced;
+        mesh->designIdx = wantDesign;
     }
     if (mesh->indexCount <= 0) return;
 
