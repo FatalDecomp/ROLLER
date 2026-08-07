@@ -67,6 +67,16 @@ static bool ed_test_car_load_texture(eCarType CarType)
                  sizeof(car_texture_names[CarType]), "%s", szResolved);
     }
 
+    /*
+     * LoadCarTexture allocates a fresh bank and overwrites the slot without
+     * freeing what was there. In the game that happens once per texture at
+     * load time, so it never mattered; the editor reloads this one slot every
+     * time the user picks a different car, which would leak a bank per
+     * change. Release it first, the same way the frontend does when it swaps
+     * its preview car (frontend_screens.c).
+     */
+    fre((void **)&cartex_vga[ED_TEST_CAR_TEXTURE_SLOT - 1u]);
+
 #if defined(ROLLER_EDITOR_CORE)
     /* E0-S7 turned the loader's fatal dialog into a recorded error, so a
      * missing car bank is recoverable here. The check is gated because

@@ -49,6 +49,7 @@ static uint8_t *s_pFrame;
 static uint8_t *s_pAllVisible;
 static uint8_t *s_pNothingVisible;
 static uint8_t *s_pMarkerBase;
+static uint8_t *s_pFirstDesign;
 
 static void acceptance_error(tOverlayContext *pContext, const char *szMessage)
 {
@@ -304,7 +305,9 @@ static int SDLCALL overlay_worker(void *pUserData)
     s_pAllVisible = (uint8_t *)malloc(FRAME_BYTES);
     s_pNothingVisible = (uint8_t *)malloc(FRAME_BYTES);
     s_pMarkerBase = (uint8_t *)malloc(FRAME_BYTES);
-    if (!s_pFrame || !s_pAllVisible || !s_pNothingVisible || !s_pMarkerBase) {
+    s_pFirstDesign = (uint8_t *)malloc(FRAME_BYTES);
+    if (!s_pFrame || !s_pAllVisible || !s_pNothingVisible || !s_pMarkerBase
+            || !s_pFirstDesign) {
         acceptance_fail(pContext, "frame allocation failed");
         goto shutdown;
     }
@@ -651,6 +654,7 @@ static int SDLCALL overlay_worker(void *pUserData)
         size_t uiCarDifference = 0;
         size_t uiFlippedDifference = 0;
         uint32_t uiDrawnDesigns = 0u;
+        uint32_t uiDesignsUnlikeTheFirst = 0u;
 
         if ((uint32_t)TRAK_LEN > auiTestChunk[1])
             uiCarChunk = auiTestChunk[1];
@@ -686,8 +690,20 @@ static int SDLCALL overlay_worker(void *pUserData)
                 goto shutdown;
             }
             uiDrawnDesigns++;
-            if (uiDesign == 0u)
+            /*
+             * overlay_visible_from_chunk leaves the *base* frame in s_pFrame,
+             * because the last thing it does is check that clearing the flag
+             * restores it exactly. Re-render the car at the camera it settled
+             * on to get the frame this design actually produced.
+             */
+            if (!render_with_overlay(pContext, &WithCar, s_pFrame))
+                goto shutdown;
+            if (uiDesign == 0u) {
                 uiCarDifference = uiDifference;
+                memcpy(s_pFirstDesign, s_pFrame, FRAME_BYTES);
+            } else if (memcmp(s_pFrame, s_pFirstDesign, FRAME_BYTES) != 0) {
+                uiDesignsUnlikeTheFirst++;
+            }
         }
 
         /*
@@ -731,10 +747,35 @@ static int SDLCALL overlay_worker(void *pUserData)
             goto shutdown;
         }
 
-        printf("test car: %u/%u designs drew on chunk %u (design 0 covered "
-               "%zu pixels; Million Plus moved %zu), numcars=%d\n",
+        /*
+         * Picking a different car has to draw a different car. The GPU caches
+         * one mesh per car slot, and a race never changes a slot's design, so
+         * that cache was correct only by circumstance until the editor began
+         * reusing one slot for every design the user picks.
+         */
+        if (uiDesignsUnlikeTheFirst != ROLLER_ED_TEST_CAR_DESIGN_COUNT - 1u) {
+            /*
+             * Every design has its own plan, and the camera is aimed at the
+             * car, so all of them must differ. "Most of them" is the exact
+             * shape of the cached-mesh bug: the body stays whichever design
+             * was picked first while the per-design shadow, hitbox, and
+             * colour remap still vary, so a weaker assertion passes.
+             */
+            acceptance_fail(pContext,
+                            "only %u of %u test car designs rendered unlike "
+                            "design 0 -- the car mesh is cached across a "
+                            "design change",
+                            uiDesignsUnlikeTheFirst,
+                            (unsigned)ROLLER_ED_TEST_CAR_DESIGN_COUNT - 1u);
+            goto shutdown;
+        }
+
+        printf("test car: %u/%u designs drew on chunk %u, %u unlike design 0 "
+               "(design 0 covered %zu pixels; Million Plus moved %zu), "
+               "numcars=%d\n",
                uiDrawnDesigns, (unsigned)ROLLER_ED_TEST_CAR_DESIGN_COUNT,
-               uiCarChunk, uiCarDifference, uiFlippedDifference, numcars);
+               uiCarChunk, uiDesignsUnlikeTheFirst, uiCarDifference,
+               uiFlippedDifference, numcars);
     }
 
     /*
@@ -869,6 +910,7 @@ shutdown:
     free(s_pAllVisible);
     free(s_pNothingVisible);
     free(s_pMarkerBase);
+    free(s_pFirstDesign);
     if (RollerEd_Shutdown() != ROLLER_ED_RESULT_OK && !pContext->iResult)
         acceptance_error(pContext, "RollerEd_Shutdown failed");
     return pContext->iResult;
