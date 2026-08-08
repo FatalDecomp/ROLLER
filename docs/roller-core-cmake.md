@@ -87,3 +87,23 @@ invisible until somebody moved the pin.
 
 `ROLLER_WARNINGS_AS_ERRORS` is deliberately left off in that job: the legacy
 sources are not warning-clean, and making them so is a separate piece of work.
+
+## Sanitizer soak
+
+E6-S5. The `soak-sanitizer` job in the same workflow runs
+`zig build test-editor-api -Dvalgrind` on Linux. `-Dvalgrind` is a build option
+that wraps the load/render/reload test executables in Valgrind with
+`--error-exitcode=1`, so a memory error fails the step rather than being buried
+in the log. It is off by default and off for pushes and pull requests, because
+Valgrind is slow; `nightly-build.yml` passes `run_soak: true`.
+
+The job lives inside the reusable build workflow on purpose. The nightly release
+job depends on that whole workflow, so a memory error fails the workflow and the
+release is never created. A standalone scheduled workflow would report the
+failure and publish the nightly anyway.
+
+The specification describes this as running E1-S9's reload soak. **E1-S9 has not
+been written**, so what runs today is the E0-S7 facade lifecycle suite: init,
+load, render, unload, and shutdown across valid, malformed, and oversized
+tracks. That is the right surface but not yet a long soak. When E1-S9 lands it
+belongs behind the same `-Dvalgrind` flag and in this same job.

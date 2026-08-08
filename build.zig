@@ -9,6 +9,15 @@ pub fn build(b: *std.Build) void {
     // defaults to ./fatdata
     const assets_path = b.option(std.Build.LazyPath, "assets-path", "Path to assets") orelse b.path("fatdata");
 
+    // E6-S5. Runs the load/render/reload test executables under Valgrind
+    // instead of directly. Off by default because Valgrind is Linux-only and
+    // slow; the scheduled soak job in CI turns it on.
+    const under_valgrind = b.option(
+        bool,
+        "valgrind",
+        "Run the load/render/reload test executables under Valgrind",
+    ) orelse false;
+
     const target = b.standardTargetOptions(.{});
     const bWasm = target.result.os.tag == .emscripten;
     const optimize = if (bWasm)
@@ -321,7 +330,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&wildmidi_config_install.step);
 
     configureRenderQueue3DTests(
-        b, target, optimize, c_flags, python_checks, assets_path,
+        b, target, optimize, c_flags, python_checks, assets_path, under_valgrind,
     );
 
     // Snapshot regression harness: drive the snapshot binary serially across
@@ -336,6 +345,22 @@ pub fn build(b: *std.Build) void {
     configureE1S4DocumentAssetTests(b, exe, assets_path);
 }
 
+// E6-S5. Wraps a test executable in Valgrind when the scheduled soak job asks
+// for it. --error-exitcode makes a memory error fail the step rather than being
+// buried in the log, which is what lets the soak block a release.
+fn runArtifact(b: *Build, exe: *Compile, under_valgrind: bool) *Step.Run {
+    if (!under_valgrind) return b.addRunArtifact(exe);
+    const run = b.addSystemCommand(&.{
+        "valgrind",
+        "--error-exitcode=1",
+        "--leak-check=full",
+        "--errors-for-leak-kinds=definite",
+        "--track-origins=yes",
+    });
+    run.addArtifactArg(exe);
+    return run;
+}
+
 fn configureRenderQueue3DTests(
     b: *Build,
     target: ResolvedTarget,
@@ -343,6 +368,7 @@ fn configureRenderQueue3DTests(
     c_flags: []const []const u8,
     python_checks: bool,
     assets_path: LazyPath,
+    under_valgrind: bool,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -790,6 +816,17 @@ fn configureRenderQueue3DTests(
     core_cmake_ci_tests.dependOn(&core_cmake_ci_check.step);
     test_step.dependOn(core_cmake_ci_tests);
 
+    const soak_sanitizer_ci_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_soak_sanitizer_ci.py",
+    });
+    const soak_sanitizer_ci_tests = b.step(
+        "check-soak-sanitizer-ci",
+        "Validate the E6-S5 sanitizer soak job and its release gate",
+    );
+    soak_sanitizer_ci_tests.dependOn(&soak_sanitizer_ci_check.step);
+    test_step.dependOn(soak_sanitizer_ci_tests);
+
     const editor_api_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -810,7 +847,7 @@ fn configureRenderQueue3DTests(
         .name = "editor_api_lifecycle_test",
         .root_module = editor_api_mod,
     });
-    const run_editor_api = b.addRunArtifact(editor_api_exe);
+    const run_editor_api = runArtifact(b, editor_api_exe, under_valgrind);
     run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_valid.trk"));
     run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_malformed.trk"));
     run_editor_api.addFileArg(b.path("tests/fixtures/e0_s7_large.trk"));
@@ -830,7 +867,7 @@ fn configureRenderQueue3DTests(
         .name = "editor_api_cpp_test",
         .root_module = editor_api_cpp_mod,
     });
-    const run_editor_api_cpp = b.addRunArtifact(editor_api_cpp_exe);
+    const run_editor_api_cpp = runArtifact(b, editor_api_cpp_exe, under_valgrind);
 
     const core_error_mod = b.createModule(.{
         .target = target,
@@ -850,7 +887,7 @@ fn configureRenderQueue3DTests(
         .name = "roller_core_error_test",
         .root_module = core_error_mod,
     });
-    const run_core_error = b.addRunArtifact(core_error_exe);
+    const run_core_error = runArtifact(b, core_error_exe, under_valgrind);
 
     const editor_api_tests = b.step(
         "test-editor-api",
@@ -1002,7 +1039,7 @@ fn configureRenderQueue3DTests(
         .root_module = editor_track_loader_mod,
     });
     const run_editor_track_loader =
-        b.addRunArtifact(editor_track_loader_exe);
+        runArtifact(b, editor_track_loader_exe, under_valgrind);
     run_editor_track_loader.addFileArg(b.path("FATDATA/TRACK3.TRK"));
     run_editor_track_loader.addArg(
         b.pathJoin(&.{ b.build_root.path orelse ".", "zig-out" }),

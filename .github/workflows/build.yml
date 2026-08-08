@@ -28,6 +28,14 @@ on:
         type: boolean
         default: false
         description: "Build with nightly/dev crash debugging settings"
+      run_soak:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          E6-S5. Run the load/render/reload soak under Valgrind. Off for pushes
+          and pull requests because it is slow; the nightly turns it on, and a
+          failure there blocks the nightly release.
 
 jobs:
   validate-game-targets:
@@ -46,6 +54,9 @@ jobs:
 
       - name: Validate the roller-core CMake job and its SDL pins
         run: python tools/check_core_cmake_ci.py
+
+      - name: Validate the sanitizer soak job and its release gate
+        run: python tools/check_soak_sanitizer_ci.py
 
   # E6-S4. Until now ROLLER CI validated the CMake *source lists* and nothing
   # else: check_source_set_drift.py can be perfectly happy while the CMake build
@@ -121,6 +132,43 @@ jobs:
       - name: Link and run a consumer of ROLLER::core
         shell: bash
         run: ./${{ matrix.link-test }}
+
+  # E6-S5. The sanitizer half of E1-S9. This job lives in the reusable workflow
+  # rather than in a standalone scheduled one for a specific reason: the nightly
+  # release job depends on this whole workflow, so a memory error found here
+  # fails the workflow and the release is never created. A separate scheduled
+  # workflow would report the failure and publish the release anyway.
+  soak-sanitizer:
+    name: Soak under Valgrind
+    if: inputs.run_soak
+    needs: validate-game-targets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          install: true
+          experimental: true
+          cache: true
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      # The facade lifecycle tests drive init -> load -> render -> unload ->
+      # shutdown across valid, malformed, and oversized tracks, which is the
+      # load/render/reload surface E1-S9 will lengthen. ReleaseSafe matches the
+      # configuration ci.yml already runs these under; Debug would give sharper
+      # traces but has a known SDL3_image UBSan link problem.
+      - name: Run the load/render/reload soak under Valgrind
+        run: zig build test-editor-api -Dvalgrind -Doptimize=ReleaseSafe
 
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}

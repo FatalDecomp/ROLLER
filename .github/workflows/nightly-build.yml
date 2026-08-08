@@ -112,6 +112,9 @@ jobs:
       short_hash: ${{ needs.check-new-commits.outputs.short_hash }}
       build_date: ${{ needs.check-new-commits.outputs.build_date }}
       dev_build: true
+      # E6-S5. A memory error in the soak fails this workflow, and the release
+      # job below needs it, so the nightly is never published.
+      run_soak: true
 
   release:
     name: Create nightly release
