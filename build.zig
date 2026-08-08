@@ -779,6 +779,17 @@ fn configureRenderQueue3DTests(
     source_set_drift_tests.dependOn(&source_set_drift_check.step);
     test_step.dependOn(source_set_drift_tests);
 
+    const core_cmake_ci_check = b.addSystemCommand(&.{
+        pythonExe(),
+        "tools/check_core_cmake_ci.py",
+    });
+    const core_cmake_ci_tests = b.step(
+        "check-core-cmake-ci",
+        "Validate the E6-S4 roller-core CMake job and its SDL pins",
+    );
+    core_cmake_ci_tests.dependOn(&core_cmake_ci_check.step);
+    test_step.dependOn(core_cmake_ci_tests);
+
     const editor_api_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,

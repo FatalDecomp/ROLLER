@@ -44,6 +44,84 @@ jobs:
       - name: Validate Zig and CMake source sets
         run: python tools/check_source_set_drift.py
 
+      - name: Validate the roller-core CMake job and its SDL pins
+        run: python tools/check_core_cmake_ci.py
+
+  # E6-S4. Until now ROLLER CI validated the CMake *source lists* and nothing
+  # else: check_source_set_drift.py can be perfectly happy while the CMake build
+  # is broken outright. The only thing that actually compiled roller-core was
+  # TrackEditor's CI, and that builds the pinned submodule commit rather than
+  # ROLLER master -- so a break here stayed invisible until somebody moved the
+  # pin. This job closes that.
+  roller-core-cmake:
+    name: roller-core CMake (${{ matrix.name }})
+    needs: validate-game-targets
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+    strategy:
+      # One platform's compiler disagreeing is exactly what this job exists to
+      # surface, so never hide the other two behind it.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            # 26.04 is the release that carries binary SDL3 packages; this
+            # matches the label TrackEditor's own CI settled on.
+            runs-on: ubuntu-26.04
+            generator-args: '-G Ninja'
+            link-test: build-core/editor-core-link-test
+          - name: macOS
+            runs-on: macos-15
+            generator-args: '-G Ninja'
+            link-test: build-core/editor-core-link-test
+          - name: Windows
+            runs-on: windows-2022
+            generator-args: '-G "Visual Studio 17 2022" -A x64'
+            link-test: build-core/Release/editor-core-link-test.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install SDL (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl3-dev libsdl3-image-dev ninja-build
+
+      - name: Install SDL (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --force-bottle sdl3 sdl3_image ninja
+
+      - name: Install SDL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\install-sdl-windows.ps1 -Destination "$env:RUNNER_TEMP\sdl"
+
+      # Core-only, which is how TrackEditor consumes it: no game, and therefore
+      # no WildMidi and no libcdio. ROLLER_WARNINGS_AS_ERRORS stays off -- the
+      # legacy sources are not warning-clean, and making them so is not this
+      # story's business.
+      - name: Configure roller-core only
+        shell: bash
+        run: >-
+          cmake -S . -B build-core
+          ${{ matrix.generator-args }}
+          -DCMAKE_BUILD_TYPE=Release
+          -DROLLER_BUILD_EDITOR_CORE=ON
+          -DROLLER_BUILD_GAME=OFF
+
+      - name: Build roller-core
+        shell: bash
+        run: cmake --build build-core --config Release --parallel
+
+      # Compiling is not enough: ed0dd05 made ROLLER::core consumer-linkable,
+      # and a missing symbol only shows up when something links it.
+      - name: Link and run a consumer of ROLLER::core
+        shell: bash
+        run: ./${{ matrix.link-test }}
+
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}
     needs: validate-game-targets
