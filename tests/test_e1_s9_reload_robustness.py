@@ -148,6 +148,20 @@ class LeakDetectionTests(unittest.TestCase):
         self.assertIn("ullSoftwareChecksum", body)
         self.assertIn("bSoftware = eRenderer == ROLLER_ED_RENDERER_SOFTWARE", body)
 
+    def test_bootstrap_falls_back_to_the_dummy_video_driver(self) -> None:
+        source = read(SOAK)
+        body = function_body(source, "int main(")
+
+        # A hosted runner has no video device and the soak needs no window.
+        # The fallback is what makes this runnable in CI at all -- and it is
+        # after a real driver has been refused, so a developer machine keeps
+        # the GPU phase.
+        self.assertIn('SDL_HINT_VIDEO_DRIVER, "dummy"', body)
+        self.assertIn("SDL_HINT_OVERRIDE", body)
+        first, _, rest = body.partition("SDL_HINT_VIDEO_DRIVER")
+        self.assertIn("RollerEd_Bootstrap(&BootstrapInfo)", first)
+        self.assertIn("RollerEd_Bootstrap(&BootstrapInfo)", rest)
+
     def test_the_gpu_phase_skips_rather_than_fails_on_a_hostless_runner(self) -> None:
         body = function_body(read(SOAK), "static int SDLCALL soak_worker(")
 
