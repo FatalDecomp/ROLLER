@@ -237,7 +237,7 @@ static uint32_t editor_edge_flags(const tEdSurfaceEmission *pSurface,
  * quads through the same world-quad path everything else uses.
  */
 #define ED_CENTER_LINE_PALETTE_COLOUR 0xF0u
-#define ED_AI_LINE_PALETTE_COLOUR 0xC8u
+#define ED_AI_LINE_PALETTE_COLOUR 0xE7u
 /* E3A-S5's two are the legacy editor's own marker colours, unlike the three
  * above, which had to be chosen because the GL renderer that drew those
  * helpers is gone. */

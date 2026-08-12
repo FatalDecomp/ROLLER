@@ -38,7 +38,7 @@
 /* Ribbon width and height bias, both as a fraction of the chunk's road
  * width, for the same reason E3A-S2's wireframe scales with its quad: legacy
  * track units differ by orders of magnitude between tracks. */
-#define ED_HELPER_LINE_WIDTH_RATIO 0.02f
+#define ED_HELPER_LINE_WIDTH_RATIO 0.005f
 #define ED_HELPER_LINE_HEIGHT_RATIO 0.02f
 
 /* Centre of the road surface at a chunk: the midpoint of its lane edges. */

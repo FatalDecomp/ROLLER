@@ -84,6 +84,7 @@ class HelperRenderingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.draw = (ROLLER / "drawtrk3.c").read_text(encoding="utf-8")
+        cls.helpers = (ROLLER / "editor_helpers.h").read_text(encoding="utf-8")
 
     def test_each_helper_has_its_own_flag(self) -> None:
         body = without_comments(
@@ -100,6 +101,25 @@ class HelperRenderingTests(unittest.TestCase):
     def test_all_four_ai_lines_are_drawn(self) -> None:
         body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")
         self.assertIn("ED_HELPER_AI_LINE_COUNT", body)
+
+    def test_ai_lines_use_the_red_palette_entry(self) -> None:
+        self.assertIn("#define ED_AI_LINE_PALETTE_COLOUR 0xE7u", self.draw)
+        body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")
+        self.assertIn(
+            "draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR)",
+            without_comments(body).replace("\n", " ").replace("  ", " "),
+        )
+
+    def test_ai_and_center_lines_share_the_thin_ribbon_width(self) -> None:
+        self.assertIn("#define ED_HELPER_LINE_WIDTH_RATIO 0.005f", self.helpers)
+        self.assertNotIn("ED_HELPER_AI_LINE_WIDTH_RATIO", self.helpers)
+        body = without_comments(
+            function_body(self.draw, "static void draw_helper_line(")
+        )
+        self.assertIn(
+            "fRoadWidth * ED_HELPER_LINE_WIDTH_RATIO",
+            body.replace("\n", " ").replace("  ", " "),
+        )
 
     def test_the_helper_pass_runs_after_the_scene(self) -> None:
         scene = (ROLLER / "editor_legacy_scene.c").read_text(encoding="utf-8")
