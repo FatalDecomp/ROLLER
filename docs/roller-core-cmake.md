@@ -111,8 +111,16 @@ needs a track and its textures, which the repository does not carry, so the job
 provisions the freeware demo assets first and passes
 `-Dassets-path=zig-out/fatdata-demo -Dsoak-track=TRACK5.TRK`.
 
+Both steps also pass **`-Dcpu=baseline`**, and that is not a tuning knob. The
+build otherwise targets the runner's native CPU; `ubuntu-latest` lands on Ice
+Lake Xeons, and `editor_surface.c` compiled for one emits `vpermt2ps`,
+`vpcmpltud`, `vpmovm2d`, and `vcvtudq2ps` — AVX-512 that **Valgrind 3.22 cannot
+decode**. It raises SIGILL inside `ed_emit_surface`, which reads like a wild
+jump in ROLLER and is nothing of the kind. Baseline costs throughput the
+instrumentation has already spent.
+
 `tools/check_soak_sanitizer_ci.py` (`zig build check-soak-sanitizer-ci`) fails
-if either step loses `-Dvalgrind`, if the job stops being gated on `run_soak`,
-if the nightly release stops depending on it, if a standalone sanitizer workflow
-appears, or if the soak's cycle count drops below the "hundreds" the
-specification asks for.
+if either step loses `-Dvalgrind` or `-Dcpu`, if the job stops being gated on
+`run_soak`, if the nightly release stops depending on it, if a standalone
+sanitizer workflow appears, or if the soak's cycle count drops below the
+"hundreds" the specification asks for.

@@ -70,6 +70,19 @@ def validate_job(workflow: str) -> None:
                 f"{JOB_NAME} does not run `{step}`; without -Dvalgrind the job "
                 "passes without sanitizing anything"
             )
+
+    # Every Valgrind step must pin a decodable CPU. The build otherwise targets
+    # the runner's native CPU, and an ubuntu-latest Ice Lake Xeon gets AVX-512
+    # that Valgrind 3.22 cannot decode -- it raises SIGILL inside
+    # ed_emit_surface, which reads like a wild jump in ROLLER and is nothing of
+    # the kind.
+    for step in block.split("- name:"):
+        if "-Dvalgrind" in step and "-Dcpu=" not in step:
+            title = step.strip().splitlines()[0]
+            raise SoakCiError(
+                f"the `{title}` step runs Valgrind without pinning -Dcpu; a "
+                "native-CPU build can emit instructions Valgrind cannot decode"
+            )
     if "install -y valgrind" not in block:
         raise SoakCiError(f"{JOB_NAME} never installs Valgrind")
     if "if: inputs.run_soak" not in block:

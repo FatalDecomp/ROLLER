@@ -168,8 +168,15 @@ jobs:
       # accumulates when they repeat. ReleaseSafe matches the configuration
       # ci.yml already runs these under; Debug would give sharper traces but has
       # a known SDL3_image UBSan link problem.
+      # -Dcpu=baseline is not optional here. The build otherwise targets the
+      # runner's native CPU, and ubuntu-latest lands on Ice Lake Xeons with
+      # AVX-512: `editor_surface.c` compiled for one emits vpermt2ps,
+      # vpcmpltud, vpmovm2d and vcvtudq2ps, none of which Valgrind 3.22 can
+      # decode. It raises SIGILL inside ed_emit_surface -- which reads as a
+      # wild jump and is nothing of the kind. Baseline costs speed the
+      # instrumentation has already spent.
       - name: Run the facade lifecycle boundary under Valgrind
-        run: zig build test-editor-api -Dvalgrind -Doptimize=ReleaseSafe
+        run: zig build test-editor-api -Dvalgrind -Doptimize=ReleaseSafe -Dcpu=baseline
 
       # The soak needs a real track and its textures. The retail FATDATA tree
       # is not redistributable; the freeware demo assets ADR 0004 covers are,
@@ -184,6 +191,7 @@ jobs:
         run: >-
           zig build test-e1-s9-reload-soak -Dvalgrind
           -Doptimize=ReleaseSafe
+          -Dcpu=baseline
           -Dassets-path=zig-out/fatdata-demo
           -Dsoak-track=TRACK5.TRK
           -Dsoak-cycles=250

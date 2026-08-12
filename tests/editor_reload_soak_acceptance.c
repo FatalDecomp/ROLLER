@@ -613,6 +613,11 @@ static int soak_run_phase(tSoakContext *pContext, eRollerEdRenderer eRenderer,
             if (!pContext->bHaveSoftwareChecksum) {
                 pContext->ullSoftwareChecksum = ullChecksum;
                 pContext->bHaveSoftwareChecksum = 1;
+                /* Printed, not just held: it is the cheapest pixel-level
+                 * regression check this repository has for a change to the
+                 * track loader, and it costs one line of output. */
+                printf("  %s: software frame checksum %016llx\n", szPhase,
+                       (unsigned long long)ullChecksum);
             } else if (ullChecksum != pContext->ullSoftwareChecksum) {
                 soak_fail(pContext,
                           "%s cycle %d: software frame changed after a reload "

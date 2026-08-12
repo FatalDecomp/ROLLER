@@ -2237,6 +2237,15 @@ uint8 *memgets(uint8 *pDst, uint8 **ppSrc)
       ++pDst2;
     } while (*(ppSrcNext - 1) > 13u && !iEof);
   } while (*pDst <= 13u);
+  /*
+   * E1-S9. The original routine copies the line's terminator byte and stops,
+   * leaving the destination with no NUL at all. Every strtok() in readline2
+   * then scanned past the end of the line into uninitialised stack -- which is
+   * what the Valgrind soak reported 22,478 times across 86 contexts, all of
+   * them here. Terminate *after* the CR/LF rather than over it: read_texturemap
+   * scans forward for the 13/10 itself and would run off the end without it.
+   */
+  *pDst2 = '\0';
   meof = iEof;
   return pDst2;
 }
