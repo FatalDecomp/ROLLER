@@ -18,6 +18,21 @@ pub fn build(b: *std.Build) void {
         "Run the load/render/reload test executables under Valgrind",
     ) orelse false;
 
+    // E1-S9. The reload soak is the one acceptance that has to run on hosted
+    // CI, where the retail FATDATA tree does not exist and the freeware demo
+    // assets do. Both the track name inside -Dassets-path and the cycle count
+    // are therefore options rather than constants.
+    const soak_track = b.option(
+        []const u8,
+        "soak-track",
+        "Track file inside -Dassets-path for the E1-S9 reload soak",
+    ) orelse "TRACK3.TRK";
+    const soak_cycles = b.option(
+        u32,
+        "soak-cycles",
+        "Load/render/reload cycles per phase for the E1-S9 soak",
+    ) orelse 250;
+
     const target = b.standardTargetOptions(.{});
     const bWasm = target.result.os.tag == .emscripten;
     const optimize = if (bWasm)
@@ -330,7 +345,8 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&wildmidi_config_install.step);
 
     configureRenderQueue3DTests(
-        b, target, optimize, c_flags, python_checks, assets_path, under_valgrind,
+        b, target, optimize, c_flags, python_checks, assets_path,
+        under_valgrind, soak_track, soak_cycles,
     );
 
     // Snapshot regression harness: drive the snapshot binary serially across
@@ -369,6 +385,8 @@ fn configureRenderQueue3DTests(
     python_checks: bool,
     assets_path: LazyPath,
     under_valgrind: bool,
+    soak_track: []const u8,
+    soak_cycles: u32,
 ) void {
     const test_mod = b.createModule(.{
         .target = target,
@@ -738,6 +756,60 @@ fn configureRenderQueue3DTests(
         "Run loaded-scene software/GPU renderer-switch acceptance (retail assets)",
     );
     editor_renderer_switch_tests.dependOn(&run_editor_renderer_switch.step);
+
+    // E1-S9. The reload robustness soak. It is a retail acceptance like its
+    // E1-S6..S8 siblings, but unlike them it also has to run on hosted CI, so
+    // its track comes from -Dassets-path/-Dsoak-track rather than a fixed
+    // FATDATA path, and it is wrapped by -Dvalgrind: this is the soak E6-S5's
+    // scheduled job exists to run.
+    const editor_reload_soak_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    editor_reload_soak_mod.sanitize_c = .off;
+    editor_reload_soak_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    editor_reload_soak_mod.addIncludePath(sdl.builder.path("include"));
+    editor_reload_soak_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    editor_reload_soak_mod.addIncludePath(wildmidi.builder.path("include"));
+    editor_reload_soak_mod.addIncludePath(libcdio.builder.path("include"));
+    editor_reload_soak_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_reload_soak_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    editor_reload_soak_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    editor_reload_soak_mod.linkLibrary(sdl.artifact("SDL3"));
+    editor_reload_soak_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    editor_reload_soak_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    editor_reload_soak_mod.linkLibrary(libcdio.artifact("cdio"));
+    editor_reload_soak_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    editor_reload_soak_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/editor_reload_soak_acceptance.c",
+        },
+    });
+    const editor_reload_soak_exe = b.addExecutable(.{
+        .name = "editor_reload_soak_acceptance",
+        .root_module = editor_reload_soak_mod,
+    });
+    const run_editor_reload_soak =
+        runArtifact(b, editor_reload_soak_exe, under_valgrind);
+    run_editor_reload_soak.addFileArg(assets_path.path(b, soak_track));
+    run_editor_reload_soak.addDirectoryArg(assets_path);
+    run_editor_reload_soak.addArg(
+        b.pathJoin(&.{ b.build_root.path orelse ".", "zig-out", "e1-s9-soak" }),
+    );
+    run_editor_reload_soak.addArg(b.fmt("{d}", .{soak_cycles}));
+    // The soak writes its malformed inputs into that scratch directory, and
+    // the whole point is to run it again after nothing changed.
+    run_editor_reload_soak.has_side_effects = true;
+    const editor_reload_soak_tests = b.step(
+        "test-e1-s9-reload-soak",
+        "Run the load/render/reload robustness soak (assets required)",
+    );
+    editor_reload_soak_tests.dependOn(&run_editor_reload_soak.step);
 
     if (python_checks) {
         const seam_check = b.addSystemCommand(&.{

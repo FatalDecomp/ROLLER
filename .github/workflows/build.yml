@@ -163,12 +163,30 @@ jobs:
           sudo apt-get install -y valgrind
 
       # The facade lifecycle tests drive init -> load -> render -> unload ->
-      # shutdown across valid, malformed, and oversized tracks, which is the
-      # load/render/reload surface E1-S9 will lengthen. ReleaseSafe matches the
-      # configuration ci.yml already runs these under; Debug would give sharper
-      # traces but has a known SDL3_image UBSan link problem.
-      - name: Run the load/render/reload soak under Valgrind
+      # shutdown across valid, malformed, and oversized tracks. They prove each
+      # transition is correct once; E1-S9's soak below proves nothing
+      # accumulates when they repeat. ReleaseSafe matches the configuration
+      # ci.yml already runs these under; Debug would give sharper traces but has
+      # a known SDL3_image UBSan link problem.
+      - name: Run the facade lifecycle boundary under Valgrind
         run: zig build test-editor-api -Dvalgrind -Doptimize=ReleaseSafe
+
+      # The soak needs a real track and its textures. The retail FATDATA tree
+      # is not redistributable; the freeware demo assets ADR 0004 covers are,
+      # and ci.yml already builds F-S2/F-S3 on them.
+      - name: Prepare verified freeware demo assets
+        run: python scripts/fetch_demo_assets.py
+
+      # E1-S9 proper: hundreds of load/render/reload cycles against a real
+      # track with a malformed file in every one of them. This is the soak this
+      # job was built to run.
+      - name: Run the E1-S9 reload soak under Valgrind
+        run: >-
+          zig build test-e1-s9-reload-soak -Dvalgrind
+          -Doptimize=ReleaseSafe
+          -Dassets-path=zig-out/fatdata-demo
+          -Dsoak-track=TRACK5.TRK
+          -Dsoak-cycles=250
 
   build:
     name: Build for ${{ matrix.os }} ${{ matrix.arch }}

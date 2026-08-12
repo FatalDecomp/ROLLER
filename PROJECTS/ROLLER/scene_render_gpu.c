@@ -4497,6 +4497,33 @@ void scene_render_gpu_free_texture(SceneRendererGPU *r, SceneTextureHandle handl
     memset(s, 0, sizeof(*s));
 }
 
+int scene_render_gpu_texture_slots_in_use(const SceneRendererGPU *r)
+{
+    int count = 0;
+
+    if (!r) return 0;
+    for (int i = 1; i < SCENE_GPU_MAX_TEXTURE_SLOTS; i++) {
+        if (r->texSlots[i].in_use) count++;
+    }
+    return count;
+}
+
+int scene_render_gpu_textures_resident(const SceneRendererGPU *r)
+{
+    int count = 0;
+
+    if (!r) return 0;
+    for (int i = 1; i < SCENE_GPU_MAX_TEXTURE_SLOTS; i++) {
+        const SceneGPUTextureSlot *s = &r->texSlots[i];
+        if (!s->in_use) continue;
+        for (int t = 0; t < s->numTiles; t++) {
+            if (s->tileTextures[t]) count++;
+            if (s->pairTextures[t]) count++;
+        }
+    }
+    return count;
+}
+
 SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r, int tex_idx)
 {
     if (!r || tex_idx < 0 || tex_idx >= 32) return SCENE_TEXTURE_HANDLE_INVALID;

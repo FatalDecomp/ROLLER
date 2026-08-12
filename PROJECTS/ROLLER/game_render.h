@@ -238,6 +238,12 @@ void game_render_free_texture(GameRenderer *renderer,
 TextureHandle game_render_get_texture_handle(GameRenderer *renderer,
                                              int tex_idx);
 
+// E1-S9. Live renderer-owned texture resources, for a reload soak that has to
+// tell "the loader replaced the previous track's textures" from "the loader
+// leaked them". Every field counts entries in a bounded table.
+void game_render_get_texture_counts(const GameRenderer *renderer,
+                                    SceneRenderTextureCounts *counts);
+
 // Asset loading — sprite blocks (HUD)
 TextureHandle game_render_load_blocks(GameRenderer *renderer, int slot,
                                       tBlockHeader *blocks,

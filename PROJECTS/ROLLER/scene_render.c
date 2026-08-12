@@ -255,6 +255,22 @@ void scene_render_free_texture(SceneRenderer *renderer,
 #endif
 }
 
+void scene_render_get_texture_counts(const SceneRenderer *renderer,
+                                     SceneRenderTextureCounts *counts) {
+    if (!counts)
+        return;
+    counts->softwareSlots = 0;
+    counts->gpuSlots = 0;
+    counts->gpuTextures = 0;
+    if (!renderer)
+        return;
+    counts->softwareSlots = scene_render_sw_texture_slots_in_use(renderer->sw);
+#if !defined(IS_WASM)
+    counts->gpuSlots = scene_render_gpu_texture_slots_in_use(renderer->gpu);
+    counts->gpuTextures = scene_render_gpu_textures_resident(renderer->gpu);
+#endif
+}
+
 SceneTextureHandle scene_render_get_texture_handle(SceneRenderer *renderer,
                                                    int tex_idx) {
     if (!renderer)

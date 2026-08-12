@@ -90,20 +90,29 @@ sources are not warning-clean, and making them so is a separate piece of work.
 
 ## Sanitizer soak
 
-E6-S5. The `soak-sanitizer` job in the same workflow runs
-`zig build test-editor-api -Dvalgrind` on Linux. `-Dvalgrind` is a build option
-that wraps the load/render/reload test executables in Valgrind with
-`--error-exitcode=1`, so a memory error fails the step rather than being buried
-in the log. It is off by default and off for pushes and pull requests, because
-Valgrind is slow; `nightly-build.yml` passes `run_soak: true`.
+E6-S5. The `soak-sanitizer` job in the same workflow runs two steps on Linux,
+both under `-Dvalgrind`: `zig build test-editor-api`, the E0-S7 facade lifecycle
+suite, and `zig build test-e1-s9-reload-soak`, E1-S9's reload soak. `-Dvalgrind`
+is a build option that wraps the load/render/reload test executables in Valgrind
+with `--error-exitcode=1`, so a memory error fails the step rather than being
+buried in the log. It is off by default and off for pushes and pull requests,
+because Valgrind is slow; `nightly-build.yml` passes `run_soak: true`.
 
 The job lives inside the reusable build workflow on purpose. The nightly release
 job depends on that whole workflow, so a memory error fails the workflow and the
 release is never created. A standalone scheduled workflow would report the
 failure and publish the nightly anyway.
 
-The specification describes this as running E1-S9's reload soak. **E1-S9 has not
-been written**, so what runs today is the E0-S7 facade lifecycle suite: init,
-load, render, unload, and shutdown across valid, malformed, and oversized
-tracks. That is the right surface but not yet a long soak. When E1-S9 lands it
-belongs behind the same `-Dvalgrind` flag and in this same job.
+The two steps are complementary rather than redundant: the lifecycle suite
+proves each transition — init, load, render, unload, shutdown across valid,
+malformed, and oversized tracks — is correct once, and the soak proves nothing
+accumulates when they repeat hundreds of times against a real track. The soak
+needs a track and its textures, which the repository does not carry, so the job
+provisions the freeware demo assets first and passes
+`-Dassets-path=zig-out/fatdata-demo -Dsoak-track=TRACK5.TRK`.
+
+`tools/check_soak_sanitizer_ci.py` (`zig build check-soak-sanitizer-ci`) fails
+if either step loses `-Dvalgrind`, if the job stops being gated on `run_soak`,
+if the nightly release stops depending on it, if a standalone sanitizer workflow
+appears, or if the soak's cycle count drops below the "hundreds" the
+specification asks for.

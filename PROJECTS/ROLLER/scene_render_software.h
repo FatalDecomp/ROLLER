@@ -27,6 +27,10 @@ void scene_render_sw_free_texture(SceneRendererSoftware *sw,
                                   SceneTextureHandle handle);
 SceneTextureHandle scene_render_sw_get_texture_handle(SceneRendererSoftware *sw,
                                                       int tex_idx);
+/* E1-S9. Live slot occupancy. The slot table is bounded, so a reload that
+ * failed to release its predecessor's textures shows up here as a count that
+ * climbs instead of returning to the same steady state. */
+int scene_render_sw_texture_slots_in_use(const SceneRendererSoftware *sw);
 
 typedef void (*SceneRenderSwTextureCallback)(void *ctx, uint8 *pixels,
                                              int width, int height,

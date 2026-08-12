@@ -786,6 +786,13 @@ TextureHandle game_render_load_texture(GameRenderer *renderer,
     return game_render_texture_handle_from_index(tex_idx);
 }
 
+void game_render_get_texture_counts(const GameRenderer *renderer,
+                                    SceneRenderTextureCounts *counts) {
+    if (!counts)
+        return;
+    scene_render_get_texture_counts(renderer ? renderer->scene : NULL, counts);
+}
+
 void game_render_free_texture(GameRenderer *renderer,
                               TextureHandle handle) {
     if (!renderer)
