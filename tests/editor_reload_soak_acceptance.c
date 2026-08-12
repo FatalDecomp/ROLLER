@@ -820,9 +820,30 @@ int main(int argc, char **argv)
         return 1;
     }
     if (RollerEd_Bootstrap(&BootstrapInfo) != ROLLER_ED_RESULT_OK) {
-        fprintf(stderr, "RollerEd_Bootstrap failed: %s\n",
-                RollerEd_GetLastError());
-        return 1;
+        /*
+         * A hosted runner has no video device, and the soak needs no window:
+         * software rendering completes into a caller buffer and the GPU path
+         * is windowless too. So fall back to SDL's dummy driver, which is what
+         * the E0-S7 lifecycle test asks for outright. Asking for it only
+         * *after* a real driver has been refused is the difference that
+         * matters -- on a developer machine the real driver answers, and the
+         * GPU phase, the only place stale GPU resources are observable, still
+         * runs. Bootstrap failed before it took ownership of anything, so the
+         * retry starts from the same state the first call did.
+         */
+        printf("bootstrap falling back to the dummy video driver (%s)\n",
+               RollerEd_GetLastError());
+        /* OVERRIDE, not SDL_SetHint: SDL_GetHint prefers the environment
+         * variable over a normal-priority hint, so a host with a stale
+         * SDL_VIDEODRIVER set would otherwise fail the retry the same way it
+         * failed the first attempt. */
+        SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy",
+                                SDL_HINT_OVERRIDE);
+        if (RollerEd_Bootstrap(&BootstrapInfo) != ROLLER_ED_RESULT_OK) {
+            fprintf(stderr, "RollerEd_Bootstrap failed: %s\n",
+                    RollerEd_GetLastError());
+            return 1;
+        }
     }
     printf("E1-S9 soak: %d load/render/reload cycles per software phase\n",
            Context.iCycles);
