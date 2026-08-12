@@ -27,6 +27,10 @@ void line(uint8 *pScrBuf, int iX0, int iY0, int iX1, int iY1, uint8 byColor);
 void LoadPanel();
 void InitRemaps();
 void LoadGenericCarTextures();
+/* Editor-core callers resolve assets against the document/fallback roots
+ * before entering the legacy loader. The game wrapper above keeps using the
+ * original gencartex_name global. */
+void LoadGenericCarTexturesFromFile(const char *szTextureFile);
 void LoadCarTexture(int iCartexIdx, uint8 byTexSlotIdx);
 void LoadBldTextures();
 void LoadTextures();

@@ -42,6 +42,8 @@
 #include "3d.h"
 #include "editor_api.h"
 #include "game_render.h"
+#include "graphics.h"
+#include "horizon.h"
 #include "scene_render.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -377,6 +379,33 @@ static void soak_texture_counts(SceneRenderTextureCounts *pCounts)
     game_render_get_texture_counts(g_pGameRenderer, pCounts);
 }
 
+/* Clouds are part of the editor frame, not extracted track geometry. Assert
+ * both halves of their lifecycle seam after every reload: GENTEX.DRH owns
+ * texture-bank slot 18, and initclouds() populated all 40 sky quads once. */
+static int soak_clouds_ready(tSoakContext *pContext, const char *szPhase)
+{
+    if (num_textures[18] < 13
+            || game_render_get_texture_handle(g_pGameRenderer, 18)
+                == TEXTURE_HANDLE_INVALID) {
+        soak_fail(pContext, "%s: generic cloud texture bank is unavailable",
+                  szPhase);
+        return 0;
+    }
+    for (int iCloud = 0; iCloud < 40; ++iCloud) {
+        const int iTile = cloud[iCloud].iSurfaceType
+            & SURFACE_MASK_TEXTURE_INDEX;
+        if (cloud[iCloud].fRadius < 1000000.0f
+                || cloud[iCloud].fRadius > 1800000.0f
+                || iTile < 8 || iTile > 12) {
+            soak_fail(pContext,
+                      "%s: cloud %d was not initialized (radius %.1f, tile %d)",
+                      szPhase, iCloud, cloud[iCloud].fRadius, iTile);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int soak_counts_match(const SceneRenderTextureCounts *pLeft,
                              const SceneRenderTextureCounts *pRight)
 {
@@ -594,6 +623,8 @@ static int soak_run_phase(tSoakContext *pContext, eRollerEdRenderer eRenderer,
                 szPhase))
             return 0;
         if (!soak_load_valid(pContext, szPhase, &Sizes))
+            return 0;
+        if (!soak_clouds_ready(pContext, szPhase))
             return 0;
 
         if (iCycle == 0)

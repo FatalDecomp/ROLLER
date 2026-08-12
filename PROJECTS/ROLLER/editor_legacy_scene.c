@@ -10,7 +10,10 @@
 #include "editor_surface.h"
 #include "editor_test_car.h"
 #include "game_render.h"
+#include "graphics.h"
+#include "horizon.h"
 #include "loadtrak.h"
+#include "roller_core_error.h"
 #include "scene_render_gpu.h"
 #include "types.h"
 
@@ -29,7 +32,65 @@
 static SDL_GPUDevice *s_pEditorGPUDevice;
 static int s_bEditorOwnsGPUDevice;
 static int s_bLegacyInitialized;
+static int s_bEditorCloudsAttempted;
+static int s_bEditorCloudsReady;
 static eRollerEdRenderer s_eActiveRenderer;
+
+/*
+ * draw_road already renders the real horizon and calls displayclouds(), but
+ * the game normally prepares its generic texture bank and cloud transforms
+ * later in race startup. The editor deliberately skips that gameplay setup,
+ * so prepare just those two atmosphere dependencies here. This runs once per
+ * facade lifecycle: serialized edit reloads therefore keep a stable sky
+ * instead of consuming more random numbers and moving every cloud.
+ *
+ * Clouds are optional scenery. A minimal asset tree that was sufficient for
+ * the editor before this feature must still load a track; when GENTEX.DRH is
+ * absent or rejected, leave the texture-off bit set and preserve the scene.
+ */
+static void editor_scene_prepare_clouds(void)
+{
+    char szResolved[ROLLER_MAX_PATH];
+    int bLoadFailed;
+
+    if (s_bEditorCloudsAttempted) {
+        if (s_bEditorCloudsReady)
+            textures_off &= ~TEX_OFF_CLOUDS;
+        else
+            textures_off |= TEX_OFF_CLOUDS;
+        return;
+    }
+    s_bEditorCloudsAttempted = -1;
+    s_bEditorCloudsReady = 0;
+
+    if (!loadtrack_resolve_editor_asset(gencartex_name, szResolved)) {
+        textures_off |= TEX_OFF_CLOUDS;
+        return;
+    }
+
+#if defined(ROLLER_EDITOR_CORE)
+    roller_core_error_clear();
+#endif
+    LoadGenericCarTexturesFromFile(szResolved);
+    bLoadFailed = !cargen_vga
+            || num_textures[18] < 13
+            || game_render_get_texture_handle(g_pGameRenderer, 18)
+                == TEXTURE_HANDLE_INVALID;
+#if defined(ROLLER_EDITOR_CORE)
+    bLoadFailed = bLoadFailed || roller_core_error_pending();
+#endif
+    if (bLoadFailed) {
+        textures_off |= TEX_OFF_CLOUDS;
+#if defined(ROLLER_EDITOR_CORE)
+        roller_core_error_clear();
+#endif
+        return;
+    }
+
+    initclouds();
+    textures_off &= ~TEX_OFF_CLOUDS;
+    s_bEditorCloudsReady = -1;
+}
 
 static void editor_scene_set_error(char *szError, size_t uiErrorCapacity,
                                    const char *szFormat, ...)
@@ -249,9 +310,12 @@ eRollerEdResult roller_ed_legacy_scene_install(
 
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
-    return loadtrack_from_stage_with_assets_editor_ex(
+    eResult = loadtrack_from_stage_with_assets_editor_ex(
         szTrackPath, pStage, szDocumentAssetRoot, szFallbackAssetRoot, 0,
         szError, uiErrorCapacity);
+    if (eResult == ROLLER_ED_RESULT_OK)
+        editor_scene_prepare_clouds();
+    return eResult;
 }
 
 eRollerEdResult roller_ed_legacy_scene_set_camera(
@@ -688,5 +752,7 @@ void roller_ed_legacy_scene_shutdown(void)
         s_pEditorGPUDevice = NULL;
     }
     s_bEditorOwnsGPUDevice = 0;
+    s_bEditorCloudsAttempted = 0;
+    s_bEditorCloudsReady = 0;
     s_eActiveRenderer = 0;
 }
