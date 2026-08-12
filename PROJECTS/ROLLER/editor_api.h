@@ -42,6 +42,7 @@
 /* Public sentinels. A missing back material does not imply single-sidedness. */
 #define ROLLER_ED_INVALID_CHUNK_ID UINT32_MAX
 #define ROLLER_ED_INVALID_MATERIAL_ID UINT32_MAX
+#define ROLLER_ED_MAX_STUNT_TICKS_PER_CALL 256u
 
 /* Fixed-width enum ABI: public enum-shaped types are uint32_t or uint8_t. */
 typedef uint32_t eRollerEdResult;
@@ -575,6 +576,15 @@ ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void);
 /* Camera and overlay inputs are copied during the call and are not retained. */
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(
     const tEdCameraState *pCam);
+/*
+ * Advances the loaded track's moving-stunt simulation by uiTicks fixed game
+ * ticks. This is preview-only runtime state: it moves neither the authored
+ * geometry epoch nor the track generation, and canonical extraction remains
+ * the pre-animation geometry for the current load. Zero ticks is a no-op;
+ * values above ROLLER_ED_MAX_STUNT_TICKS_PER_CALL are rejected.
+ */
+ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_AdvanceStunts(
+    uint32_t uiTicks);
 /*
  * Completes synchronously into top-left, straight-alpha RGBA8 device pixels.
  * Software mode renders at its native internal size, then aspect-preserving

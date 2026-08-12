@@ -30,6 +30,11 @@ eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
     char *szError,
     size_t uiErrorCapacity);
 
+eRollerEdResult roller_ed_legacy_scene_advance_stunts(
+    uint32_t uiTicks,
+    char *szError,
+    size_t uiErrorCapacity);
+
 /* E3A-S7. Copies the mesh into the core's single reference-mesh slot. A
  * failed replacement leaves the previous mesh intact (AD-13). */
 eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(

@@ -27,6 +27,7 @@ static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
 static int s_iLegacySetOverlayCount;
 static int s_iLegacySetGraphicsCount;
+static uint32_t s_uiLegacyStuntTicks;
 static eRollerEdRenderer s_eLastPreferredRenderer;
 static uint32_t s_uiLastAllowSoftwareFallback;
 static uint32_t s_uiStubAvailableRenderers =
@@ -110,6 +111,17 @@ eRollerEdResult roller_ed_legacy_scene_set_overlay_state(
     }
     s_LastLegacyOverlay = *pState;
     s_iLegacySetOverlayCount++;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_advance_stunts(
+    uint32_t uiTicks,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    s_uiLegacyStuntTicks += uiTicks;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -552,6 +564,9 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                          ROLLER_ED_PIXEL_RGBA8)
                      == ROLLER_ED_RESULT_NO_SCENE);
         CHECK_WORKER(memcmp(abyPixels, abyBefore, sizeof(abyPixels)) == 0);
+        CHECK_WORKER(RollerEd_AdvanceStunts(1u)
+                     == ROLLER_ED_RESULT_NO_SCENE);
+        CHECK_WORKER(s_uiLegacyStuntTicks == 0u);
     }
     {
         tEdVertex Vertex;
@@ -581,6 +596,29 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
         CHECK_WORKER(Sizes.uiTrackGeneration != uiInitialGeneration);
         CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
+        {
+            const uint32_t uiEpochBeforeStunts = Sizes.uiGeometryEpoch;
+            const uint32_t uiGenerationBeforeStunts =
+                Sizes.uiTrackGeneration;
+
+            CHECK_WORKER(RollerEd_AdvanceStunts(0u)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(s_uiLegacyStuntTicks == 0u);
+            CHECK_WORKER(RollerEd_AdvanceStunts(
+                             ROLLER_ED_MAX_STUNT_TICKS_PER_CALL + 1u)
+                         == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+            CHECK_WORKER(s_uiLegacyStuntTicks == 0u);
+            CHECK_WORKER(RollerEd_AdvanceStunts(3u)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(s_uiLegacyStuntTicks == 3u);
+            Sizes.uiStructSize = sizeof(Sizes);
+            Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
+            CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(Sizes.uiGeometryEpoch == uiEpochBeforeStunts);
+            CHECK_WORKER(Sizes.uiTrackGeneration
+                         == uiGenerationBeforeStunts);
+        }
         {
             uint8_t abyPixels[64];
 
@@ -855,6 +893,9 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
     CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_EMPTY);
+    CHECK_WORKER(RollerEd_AdvanceStunts(1u)
+                 == ROLLER_ED_RESULT_NO_SCENE);
+    CHECK_WORKER(s_uiLegacyStuntTicks == 3u);
     uint32_t uiSwitchEpoch = Sizes.uiGeometryEpoch;
     uint32_t uiSwitchGeneration = Sizes.uiTrackGeneration;
     CHECK_WORKER(RollerEd_SelectRenderer(4u)

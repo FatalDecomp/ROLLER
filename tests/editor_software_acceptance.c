@@ -1,6 +1,7 @@
 #include "3d.h"
 #include "editor_api.h"
 #include "game_render.h"
+#include "moving.h"
 #include "render_queue_3d.h"
 #include "sound.h"
 
@@ -17,6 +18,7 @@ typedef struct
 {
     const char *szTrackPath;
     const char *szAssetRoot;
+    int bRequireStuntAnimation;
     char szError[512];
     int iResult;
 } tSoftwareContext;
@@ -66,6 +68,60 @@ static int shade_palette_has_content(void)
         if (shade_palette[i] != 0u)
             return -1;
     }
+    return 0;
+}
+
+static int verify_stunt_animation(tSoftwareContext *pContext)
+{
+    tGroundPt *pBefore;
+    uint32_t uiTicksToTry = 1u;
+
+    if (totalramps <= 0) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "track has no moving stunts to animate");
+        pContext->iResult = 1;
+        return 0;
+    }
+    for (int iRamp = 0; iRamp < totalramps; ++iRamp) {
+        const tStuntData *pStunt = ramp[iRamp];
+        uint64_t ullCycle;
+
+        if (!pStunt)
+            continue;
+        ullCycle = (uint64_t)(pStunt->iNumTicks > 0
+                                 ? pStunt->iNumTicks : 0) * 2u
+            + (uint64_t)(pStunt->iTimeBulging > 0
+                             ? pStunt->iTimeBulging : 0)
+            + (uint64_t)(pStunt->iTimeFlat > 0
+                             ? pStunt->iTimeFlat : 0)
+            + 2u;
+        if (ullCycle > uiTicksToTry)
+            uiTicksToTry = ullCycle > 4096u ? 4096u : (uint32_t)ullCycle;
+    }
+
+    pBefore = (tGroundPt *)malloc(sizeof(TrakPt));
+    if (!pBefore) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "could not allocate stunt animation comparison");
+        pContext->iResult = 1;
+        return 0;
+    }
+    memcpy(pBefore, TrakPt, sizeof(TrakPt));
+    for (uint32_t uiTick = 0; uiTick < uiTicksToTry; ++uiTick) {
+        if (RollerEd_AdvanceStunts(1u) != ROLLER_ED_RESULT_OK) {
+            free(pBefore);
+            acceptance_error(pContext, "RollerEd_AdvanceStunts failed");
+            return 0;
+        }
+        if (memcmp(pBefore, TrakPt, sizeof(TrakPt)) != 0) {
+            free(pBefore);
+            return -1;
+        }
+    }
+    free(pBefore);
+    snprintf(pContext->szError, sizeof(pContext->szError),
+             "stunt ticks did not change legacy track geometry");
+    pContext->iResult = 1;
     return 0;
 }
 
@@ -231,6 +287,9 @@ static int SDLCALL software_worker(void *pUserData)
         pContext->iResult = 1;
         goto shutdown;
     }
+    if (pContext->bRequireStuntAnimation
+            && !verify_stunt_animation(pContext))
+        goto shutdown;
 
     uiNativeWidth = XMAX > 0 ? (uint32_t)XMAX : 320u;
     uiNativeHeight = YMAX > 0 ? (uint32_t)YMAX : 200u;
@@ -333,14 +392,21 @@ int main(int argc, char **argv)
     SDL_Thread *pWorker;
     int iWorkerResult = 1;
 
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s ABSOLUTE_TRACK_PATH ABSOLUTE_ASSET_ROOT\n",
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "usage: %s ABSOLUTE_TRACK_PATH ABSOLUTE_ASSET_ROOT "
+                        "[--require-stunt-animation]\n",
                 argv[0]);
         return 2;
     }
     memset(&Context, 0, sizeof(Context));
     Context.szTrackPath = argv[1];
     Context.szAssetRoot = argv[2];
+    Context.bRequireStuntAnimation = argc == 4
+        && strcmp(argv[3], "--require-stunt-animation") == 0;
+    if (argc == 4 && !Context.bRequireStuntAnimation) {
+        fprintf(stderr, "unknown option: %s\n", argv[3]);
+        return 2;
+    }
 
     SDL_SetMainReady();
     if (RollerEd_Bootstrap(&BootstrapInfo) != ROLLER_ED_RESULT_OK) {
@@ -362,6 +428,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "E1-S7 acceptance failed: %s\n", Context.szError);
         return 1;
     }
-    puts("E1-S7 PASS: GPU-free software rendering produced exact native RGBA8 and nearest-neighbour opaque-black letterboxing");
+    if (Context.bRequireStuntAnimation)
+        puts("PASS: Track 7 moving stunts changed ROLLER's live editor geometry");
+    else
+        puts("E1-S7 PASS: GPU-free software rendering produced exact native RGBA8 and nearest-neighbour opaque-black letterboxing");
     return 0;
 }

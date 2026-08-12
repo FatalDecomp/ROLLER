@@ -542,6 +542,35 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(const tEdCameraState *pCam)
         pCam, s_szLastError, sizeof(s_szLastError));
 }
 
+eRollerEdResult ROLLER_ED_CALL RollerEd_AdvanceStunts(uint32_t uiTicks)
+{
+    eRollerEdResult eResult = roller_ed_require_worker();
+
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if (s_eSceneState != ROLLER_ED_SCENE_READY) {
+        roller_ed_set_error("there is no stunt scene to advance");
+        return ROLLER_ED_RESULT_NO_SCENE;
+    }
+    if (uiTicks > ROLLER_ED_MAX_STUNT_TICKS_PER_CALL) {
+        roller_ed_set_error("stunt tick count %u exceeds the per-call limit %u",
+                            uiTicks, ROLLER_ED_MAX_STUNT_TICKS_PER_CALL);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (uiTicks == 0u)
+        return ROLLER_ED_RESULT_OK;
+
+    /* The live legacy arrays are what stunt animation mutates. Materialize
+     * the authored extraction before the first tick so OBJ/glTF export and
+     * epoch-based callers keep seeing the document geometry, not whichever
+     * animation frame happened to be on screen. */
+    eResult = roller_ed_sync_geometry_cache();
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    return roller_ed_legacy_scene_advance_stunts(
+        uiTicks, s_szLastError, sizeof(s_szLastError));
+}
+
 eRollerEdResult ROLLER_ED_CALL RollerEd_RenderFrame(
     uint8_t *pbyPixels, uint32_t uiBufferSize, uint32_t uiRowPitch,
     uint32_t uiWidth, uint32_t uiHeight, eRollerEdPixelFormat eFormat)

@@ -64,6 +64,7 @@ class EditorApiContractTests(unittest.TestCase):
             "RollerEd_LoadTrackFile",
             "RollerEd_UnloadTrack",
             "RollerEd_SetCamera",
+            "RollerEd_AdvanceStunts",
             "RollerEd_RenderFrame",
             "RollerEd_SetOverlayState",
             "RollerEd_SetReferenceMesh",

@@ -715,6 +715,17 @@ fn configureRenderQueue3DTests(
         "Run GPU-free software RGBA8 scaling/letterbox acceptance (retail assets)",
     );
     editor_software_tests.dependOn(&run_editor_software.step);
+    const run_editor_stunt_animation = b.addRunArtifact(editor_software_exe);
+    run_editor_stunt_animation.addFileArg(b.path("FATDATA/TRACK7.TRK"));
+    run_editor_stunt_animation.addDirectoryArg(assets_path);
+    run_editor_stunt_animation.addArg("--require-stunt-animation");
+    const editor_stunt_animation_tests = b.step(
+        "test-editor-stunt-animation",
+        "Run real Track 7 moving-stunt editor preview acceptance",
+    );
+    editor_stunt_animation_tests.dependOn(
+        &run_editor_stunt_animation.step,
+    );
 
     const editor_renderer_switch_mod = b.createModule(.{
         .target = target,

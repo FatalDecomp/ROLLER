@@ -15,6 +15,7 @@
 #include "graphics.h"
 #include "horizon.h"
 #include "loadtrak.h"
+#include "moving.h"
 #include "roller.h"
 #include "roller_core_error.h"
 #include "scene_render_gpu.h"
@@ -457,6 +458,17 @@ eRollerEdResult roller_ed_legacy_scene_set_reference_mesh(
                 return ROLLER_ED_RESULT_INVALID_ARGUMENT;
         }
     }
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_advance_stunts(
+    uint32_t uiTicks,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    for (uint32_t uiTick = 0; uiTick < uiTicks; ++uiTick)
+        updatestunts();
     editor_scene_set_error(szError, uiErrorCapacity, "");
     return ROLLER_ED_RESULT_OK;
 }
