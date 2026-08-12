@@ -35,6 +35,20 @@ void scene_render_free_texture(SceneRenderer *renderer,
 SceneTextureHandle scene_render_get_texture_handle(SceneRenderer *renderer,
                                                    int tex_idx);
 
+/* E1-S9. A snapshot of the renderer-owned texture resources that are live
+ * right now. Every count comes from a bounded table, so reload robustness is
+ * directly observable: repeated loads must return to the same steady state
+ * rather than climbing towards exhaustion. gpu* stay zero while the renderer
+ * is software-only. */
+typedef struct SceneRenderTextureCounts {
+    int softwareSlots;
+    int gpuSlots;
+    int gpuTextures;
+} SceneRenderTextureCounts;
+
+void scene_render_get_texture_counts(const SceneRenderer *renderer,
+                                     SceneRenderTextureCounts *counts);
+
 void scene_render_quad_world_legacy(SceneRenderer *renderer,
                                     const SceneRenderVertex verts[4],
                                     SceneTextureHandle texture,

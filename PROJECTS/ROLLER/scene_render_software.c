@@ -1510,6 +1510,18 @@ void scene_render_sw_free_texture(SceneRendererSoftware *sw,
     memset(&sw->texSlots[handle], 0, sizeof(SceneTextureSlot));
 }
 
+int scene_render_sw_texture_slots_in_use(const SceneRendererSoftware *sw) {
+    int count = 0;
+
+    if (!sw)
+        return 0;
+    for (int i = 1; i < SCENE_RENDER_MAX_TEXTURE_SLOTS; i++) {
+        if (sw->texSlots[i].in_use)
+            count++;
+    }
+    return count;
+}
+
 SceneTextureHandle scene_render_sw_get_texture_handle(SceneRendererSoftware *sw,
                                                       int tex_idx) {
     if (!sw)

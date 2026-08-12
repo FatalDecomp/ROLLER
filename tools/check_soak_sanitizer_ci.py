@@ -13,12 +13,18 @@ while quietly failing "failures block release".
 The second is that ``-Dvalgrind`` must actually reach the run steps. Without it
 the job still passes -- it just stops being a sanitizer job.
 
-**Scope, recorded honestly:** the specification says "run E1-S9's reload soak".
-E1-S9 has not been written, so what runs today is the E0-S7 facade lifecycle
-suite -- init, load, render, unload, shutdown across valid, malformed, and
-oversized tracks. That is the right surface, but not yet the long soak. When
-E1-S9 lands it goes behind the same ``-Dvalgrind`` flag and this same job, and
-this check should grow to require it.
+**Scope.** E6-S5 landed before E1-S9 existed, so for a while this job ran only
+the E0-S7 facade lifecycle suite -- the right surface, but not a long soak.
+E1-S9 has since been written, and this check now requires both: the lifecycle
+suite, which proves each transition is correct once, and
+``test-e1-s9-reload-soak``, which proves nothing accumulates when they repeat
+hundreds of times against a real track. Dropping either from the job would
+leave a green sanitizer run that no longer sanitizes what it claims to.
+
+The soak needs a real track, so the job also has to provision the freeware demo
+assets and point ``-Dassets-path`` at them; without that step the soak step
+fails on a missing file, which is loud, but a job that quietly stopped passing
+``-Dassets-path`` would be soaking the wrong tree.
 """
 
 from __future__ import annotations
@@ -35,7 +41,11 @@ NIGHTLY_WORKFLOW = WORKFLOWS / "nightly-build.yml"
 BUILD_ZIG = REPOSITORY_ROOT / "build.zig"
 
 JOB_NAME = "soak-sanitizer"
-SOAK_STEP = "zig build test-editor-api -Dvalgrind"
+LIFECYCLE_STEP = "zig build test-editor-api -Dvalgrind"
+SOAK_STEP = "zig build test-e1-s9-reload-soak -Dvalgrind"
+SOAK_SOURCE = REPOSITORY_ROOT / "tests" / "editor_reload_soak_acceptance.c"
+# E1-S9's acceptance criterion is "hundreds of load/render/load cycles".
+MINIMUM_SOAK_CYCLES = 200
 
 
 class SoakCiError(Exception):
@@ -54,16 +64,37 @@ def job_block(workflow: str, name: str) -> str:
 def validate_job(workflow: str) -> None:
     block = job_block(workflow, JOB_NAME)
 
-    if SOAK_STEP not in block:
-        raise SoakCiError(
-            f"{JOB_NAME} does not run `{SOAK_STEP}`; without -Dvalgrind the job "
-            "passes without sanitizing anything"
-        )
+    for step in (LIFECYCLE_STEP, SOAK_STEP):
+        if step not in block:
+            raise SoakCiError(
+                f"{JOB_NAME} does not run `{step}`; without -Dvalgrind the job "
+                "passes without sanitizing anything"
+            )
     if "install -y valgrind" not in block:
         raise SoakCiError(f"{JOB_NAME} never installs Valgrind")
     if "if: inputs.run_soak" not in block:
         raise SoakCiError(
             f"{JOB_NAME} is not gated on run_soak; it would run on every push"
+        )
+
+    # The soak renders a real track, which the repository does not carry.
+    if "fetch_demo_assets.py" not in block:
+        raise SoakCiError(
+            f"{JOB_NAME} never provisions the freeware demo assets the soak "
+            "loads"
+        )
+    if "-Dassets-path=" not in block:
+        raise SoakCiError(
+            f"{JOB_NAME} does not point the soak at the assets it provisioned"
+        )
+
+    cycles = re.search(r"-Dsoak-cycles=(\d+)", block)
+    if cycles is None:
+        raise SoakCiError(f"{JOB_NAME} does not pin the soak's cycle count")
+    if int(cycles.group(1)) < MINIMUM_SOAK_CYCLES:
+        raise SoakCiError(
+            f"{JOB_NAME} soaks for {cycles.group(1)} cycles; E1-S9 asks for "
+            f"hundreds, so at least {MINIMUM_SOAK_CYCLES}"
         )
 
 
@@ -110,6 +141,15 @@ def validate_build_option(build_zig: str) -> None:
     wrapped = len(re.findall(r"runArtifact\(b,\s*\w+,\s*under_valgrind\)", build_zig))
     if wrapped == 0:
         raise SoakCiError("no test executable is wrapped by the Valgrind runner")
+    if not re.search(
+        r"runArtifact\(b,\s*editor_reload_soak_exe,\s*under_valgrind\)", build_zig
+    ):
+        raise SoakCiError(
+            "the E1-S9 soak executable is not wrapped by the Valgrind runner, so "
+            "the scheduled job would run it unsanitized"
+        )
+    if not SOAK_SOURCE.exists():
+        raise SoakCiError(f"{SOAK_SOURCE.name} is missing")
     return wrapped
 
 

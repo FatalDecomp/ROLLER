@@ -73,6 +73,12 @@ void               scene_render_gpu_free_texture(SceneRendererGPU *r,
                                                  SceneTextureHandle handle);
 SceneTextureHandle scene_render_gpu_get_texture_handle(const SceneRendererGPU *r,
                                                        int tex_idx);
+/* E1-S9. Live slot occupancy and the number of SDL_GPUTexture objects those
+ * slots still own. Both are bounded, so a reload that leaked its predecessor's
+ * atlas shows up as a count that climbs instead of returning to the same
+ * steady state. */
+int scene_render_gpu_texture_slots_in_use(const SceneRendererGPU *r);
+int scene_render_gpu_textures_resident(const SceneRendererGPU *r);
 
 void scene_render_gpu_quad_world_legacy(SceneRendererGPU *r,
                                         const SceneRenderVertex verts[4],
