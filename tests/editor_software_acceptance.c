@@ -60,6 +60,15 @@ static int queue_has_track(const RenderQueue3D *pQueue)
     return 0;
 }
 
+static int shade_palette_has_content(void)
+{
+    for (size_t i = 1; i < 5u * 256u; ++i) {
+        if (shade_palette[i] != 0u)
+            return -1;
+    }
+    return 0;
+}
+
 static int pixel_matches_palette(const uint8_t *pRGBA, uint8_t byIndex)
 {
     const tColor *pColour = &pal_addr[byIndex];
@@ -213,6 +222,12 @@ static int SDLCALL software_worker(void *pUserData)
             || game_render_get_gpu(g_pGameRenderer)) {
         snprintf(pContext->szError, sizeof(pContext->szError),
                  "software editor path created or required a GPU device");
+        pContext->iResult = 1;
+        goto shutdown;
+    }
+    if (!shade_palette_has_content()) {
+        snprintf(pContext->szError, sizeof(pContext->szError),
+                 "software transparency shade palette was not initialized");
         pContext->iResult = 1;
         goto shutdown;
     }

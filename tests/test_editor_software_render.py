@@ -67,6 +67,19 @@ class EditorSoftwareRenderTests(unittest.TestCase):
         self.assertIn("uiNativeHeight = YMAX", render)
         self.assertIn("game_render_end_frame_software_readback", render)
 
+    def test_editor_builds_software_transparency_shades_after_palette_load(self) -> None:
+        install = extract_function(
+            self.adapter, "roller_ed_legacy_scene_install"
+        )
+        self.assertLess(
+            install.index("loadtrack_from_stage_with_assets_editor_ex"),
+            install.index("FindShades()"),
+        )
+        self.assertLess(
+            install.index("FindShades()"),
+            install.index("editor_scene_prepare_clouds()"),
+        )
+
     def test_init_preference_and_fallback_reach_scene_install(self) -> None:
         load = extract_function(self.facade, "RollerEd_LoadTrackFile")
         ensure = extract_function(self.adapter, "editor_scene_ensure_renderer")

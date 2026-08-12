@@ -9,6 +9,7 @@
 #include "editor_reference_mesh.h"
 #include "editor_surface.h"
 #include "editor_test_car.h"
+#include "func2.h"
 #include "game_render.h"
 #include "game_render_hw.h"
 #include "graphics.h"
@@ -379,8 +380,14 @@ eRollerEdResult roller_ed_legacy_scene_install(
     eResult = loadtrack_from_stage_with_assets_editor_ex(
         szTrackPath, pStage, szDocumentAssetRoot, szFallbackAssetRoot, 0,
         szError, uiErrorCapacity);
-    if (eResult == ROLLER_ED_RESULT_OK)
+    if (eResult == ROLLER_ED_RESULT_OK) {
+        /* Race startup derives the five software transparency/shadow lookup
+         * tables immediately after loading PALETTE.PAL. The editor skips race
+         * startup, so build them here after every successful document palette
+         * load; an all-zero shade_palette turns glass/loop surfaces black. */
+        FindShades();
         editor_scene_prepare_clouds();
+    }
     return eResult;
 }
 
