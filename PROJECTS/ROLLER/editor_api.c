@@ -438,6 +438,8 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetGraphicsSettings(
                 > ROLLER_ED_TEXTURE_FILTER_ANISOTROPIC
             || pSettings->uiTrilinear > 1u
             || pSettings->uiEmulateTransparentBorders > 1u
+            || pSettings->eSoftwareDisplay
+                > ROLLER_ED_SOFTWARE_DISPLAY_SVGA
             || !isfinite(pSettings->fDrawDistanceFraction)
             || pSettings->fDrawDistanceFraction < 0.0f
             || pSettings->fDrawDistanceFraction > 1.0f

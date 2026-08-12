@@ -1641,9 +1641,9 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 //-------------------------------------------------------------------------------------------------
 // Editor visibility has no car anchor. Find the closest section to the
 // explicit facade camera across the complete track, then initialize a
-// gap-free legacy range in the direction the camera faces. The editor's draw
-// distance is a direct fraction of the circuit: 0 selects only the anchor and
-// 1 preserves the historical whole-track preview.
+// gap-free legacy range in the direction the camera faces. As in the game,
+// draw distance 0 preserves the track-authored normal visibility window and
+// higher values interpolate from there toward the whole circuit.
 int CalcVisibleTrackEditor(unsigned int uiViewMode)
 {
   double dMinDistanceSquared = DBL_MAX;
@@ -1652,8 +1652,8 @@ int CalcVisibleTrackEditor(unsigned int uiViewMode)
   double dTrackLengthSquared = 0.0;
   float fViewAlignment = 1.0f;
   int iCurrChunk = -1;
+  int iViewOffset;
 
-  (void)uiViewMode;
   set_starts(0);
 
   if (TRAK_LEN <= 0 || TRAK_LEN > MAX_TRACK_CHUNKS) {
@@ -1708,7 +1708,42 @@ int CalcVisibleTrackEditor(unsigned int uiViewMode)
   }
 
   backwards = fViewAlignment < 0.0f ? -1 : 0;
-  TrackSize = (int)(g_fDrawDistanceFraction * (float)(TRAK_LEN - 1));
+  switch (uiViewMode) {
+    case 2u: iViewOffset = -4; break;
+    case 3u: iViewOffset = -8; break;
+    case 4u: iViewOffset = -16; break;
+    case 6u: iViewOffset = -4; break;
+    default: iViewOffset = -1; break;
+  }
+
+  if (fViewAlignment < 0.3f && fViewAlignment >= -0.3f
+      && ((TrakColour[iCurrChunk][TRAK_COLOUR_LEFT_LANE]
+              & SURFACE_FLAG_SKIP_RENDER) == 0
+          || (TrakColour[iCurrChunk][TRAK_COLOUR_CENTER]
+              & SURFACE_FLAG_SKIP_RENDER) == 0
+          || (TrakColour[iCurrChunk][TRAK_COLOUR_RIGHT_LANE]
+              & SURFACE_FLAG_SKIP_RENDER) == 0)) {
+    if (uiViewMode == 3u || uiViewMode == 6u)
+      TrackSize = 48;
+    else
+      TrackSize = 24;
+  } else if (backwards) {
+    TrackSize = TrakView[iCurrChunk].byBackwardMainChunks - iViewOffset;
+  } else {
+    TrackSize = TrakView[iCurrChunk].byForwardMainChunks - iViewOffset;
+  }
+
+  if (TrackSize < 0)
+    TrackSize = 0;
+  if (TrackSize > TRAK_LEN - 1)
+    TrackSize = TRAK_LEN - 1;
+  if (g_fDrawDistanceFraction >= 1.0f) {
+    TrackSize = TRAK_LEN - 1;
+  } else if (g_fDrawDistanceFraction > 0.0f
+             && TrackSize < TRAK_LEN - 1) {
+    TrackSize += (int)(g_fDrawDistanceFraction
+        * (float)((TRAK_LEN - 1) - TrackSize));
+  }
   first_size = TrackSize;
   gap_size = 6 * TRAK_LEN;
   next_front = -1;

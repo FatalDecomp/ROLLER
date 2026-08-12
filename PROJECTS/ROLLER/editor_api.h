@@ -72,6 +72,13 @@ enum
     ROLLER_ED_RENDERER_GPU = 2u
 };
 
+typedef uint32_t eRollerEdSoftwareDisplay;
+enum
+{
+    ROLLER_ED_SOFTWARE_DISPLAY_VGA = 0u,
+    ROLLER_ED_SOFTWARE_DISPLAY_SVGA = 1u
+};
+
 typedef uint32_t eRollerEdPixelFormat;
 enum
 {
@@ -262,11 +269,12 @@ enum
  * deliberately independent of it: a struct that gains a field bumps its own
  * version, and every other call keeps working unchanged. tEdOverlayState is
  * at 3: E3A-S2 added the per-class masks, E3A-S6 the test-car selection.
+ * tEdGraphicsSettings is at 2 after adding the software VGA/SVGA display.
  */
 #define ROLLER_ED_BOOTSTRAP_INFO_VERSION 1u
 #define ROLLER_ED_INIT_INFO_VERSION 1u
 #define ROLLER_ED_CAMERA_STATE_VERSION 1u
-#define ROLLER_ED_GRAPHICS_SETTINGS_VERSION 1u
+#define ROLLER_ED_GRAPHICS_SETTINGS_VERSION 2u
 #define ROLLER_ED_OVERLAY_STATE_VERSION 3u
 #define ROLLER_ED_REFERENCE_MESH_VERSION 1u
 #define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
@@ -312,6 +320,7 @@ typedef struct
     uint32_t uiEmulateTransparentBorders; /* 0 or 1 only. */
     float fDrawDistanceFraction; /* 0.0 = anchor only, 1.0 = whole track. */
     float fLodBias; /* Valid range is -4.0 through 4.0. */
+    eRollerEdSoftwareDisplay eSoftwareDisplay;
 } tEdGraphicsSettings;
 
 typedef struct
@@ -440,7 +449,7 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPosition) == 8u,
                         "camera position offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPitchDegrees) == 24u,
                         "camera pitch offset");
-ROLLER_ED_STATIC_ASSERT(sizeof(tEdGraphicsSettings) == 40u,
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdGraphicsSettings) == 44u,
                         "graphics settings size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdGraphicsSettings) == 4u,
                         "graphics settings alignment");
@@ -451,6 +460,8 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, fDrawDistanceFraction)
                         "graphics draw distance offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, fLodBias) == 36u,
                         "graphics LOD bias offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, eSoftwareDisplay) == 40u,
+                        "graphics software display offset");
 ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 36u, "overlay size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdOverlayState) == 4u,
                         "overlay alignment");

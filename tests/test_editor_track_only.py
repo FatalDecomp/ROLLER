@@ -81,7 +81,9 @@ class EditorTrackOnlyTests(unittest.TestCase):
         self.assertNotIn("Car[", visibility)
         self.assertNotIn("numcars", visibility)
         self.assertIn("g_fDrawDistanceFraction", visibility)
-        self.assertIn("(float)(TRAK_LEN - 1)", visibility)
+        self.assertIn("TrakView[iCurrChunk].byForwardMainChunks", visibility)
+        self.assertIn("TrakView[iCurrChunk].byBackwardMainChunks", visibility)
+        self.assertIn("(TRAK_LEN - 1) - TrackSize", visibility)
         self.assertIn("first_size = TrackSize", visibility)
         self.assertIn("gap_size = 6 * TRAK_LEN", visibility)
 

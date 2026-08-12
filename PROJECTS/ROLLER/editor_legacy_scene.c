@@ -38,6 +38,24 @@ static int s_bEditorCloudsAttempted;
 static int s_bEditorCloudsReady;
 static eRollerEdRenderer s_eActiveRenderer;
 
+static void editor_scene_set_legacy_display(
+    eRollerEdSoftwareDisplay eDisplay)
+{
+    int bSvga = eDisplay == ROLLER_ED_SOFTWARE_DISPLAY_SVGA;
+
+    game_svga = bSvga ? -1 : 0;
+    SVGA_ON = game_svga;
+    current_mode = game_svga;
+    game_size = bSvga ? 128 : 64;
+    scr_size = game_size;
+    XMAX = bSvga ? 640 : 320;
+    YMAX = bSvga ? 400 : 200;
+    winx = 0;
+    winy = 0;
+    winw = XMAX;
+    winh = YMAX;
+}
+
 /*
  * draw_road already renders the real horizon and calls displayclouds(), but
  * the game normally prepares its generic texture bank and cloud transforms
@@ -314,6 +332,14 @@ eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
     }
     if (eResult != ROLLER_ED_RESULT_OK)
         return eResult;
+
+    /* VGA/SVGA controls the software renderer's native framebuffer. Keep the
+     * GPU path on the editor's SVGA logical canvas so this software-only
+     * preference cannot change GPU projection or track detail. */
+    editor_scene_set_legacy_display(
+        pSettings->eRenderer == ROLLER_ED_RENDERER_SOFTWARE
+            ? pSettings->eSoftwareDisplay
+            : ROLLER_ED_SOFTWARE_DISPLAY_SVGA);
 
     g_fDrawDistanceFraction = pSettings->fDrawDistanceFraction;
     g_iAntiAliasing = (int)pSettings->eAntiAliasing;

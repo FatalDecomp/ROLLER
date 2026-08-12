@@ -883,7 +883,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
             .uiTrilinear = 1u,
             .uiEmulateTransparentBorders = 0u,
             .fDrawDistanceFraction = 0.5f,
-            .fLodBias = -1.25f
+            .fLodBias = -1.25f,
+            .eSoftwareDisplay = ROLLER_ED_SOFTWARE_DISPLAY_VGA
         };
 
         CHECK_WORKER(RollerEd_SetGraphicsSettings(NULL)
@@ -893,6 +894,11 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                      == ROLLER_ED_RESULT_INVALID_ARGUMENT);
         CHECK_WORKER(s_iLegacySetGraphicsCount == 0);
         Graphics.uiTrilinear = 1u;
+        Graphics.eSoftwareDisplay = ROLLER_ED_SOFTWARE_DISPLAY_SVGA + 1u;
+        CHECK_WORKER(RollerEd_SetGraphicsSettings(&Graphics)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetGraphicsCount == 0);
+        Graphics.eSoftwareDisplay = ROLLER_ED_SOFTWARE_DISPLAY_VGA;
         CHECK_WORKER(RollerEd_SetGraphicsSettings(&Graphics)
                      == ROLLER_ED_RESULT_OK);
         CHECK_WORKER(s_iLegacySetGraphicsCount == 1);
@@ -905,6 +911,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
                      == ROLLER_ED_TEXTURE_FILTER_BILINEAR);
         CHECK_WORKER(s_LastLegacyGraphics.fDrawDistanceFraction == 0.5f);
         CHECK_WORKER(s_LastLegacyGraphics.fLodBias == -1.25f);
+        CHECK_WORKER(s_LastLegacyGraphics.eSoftwareDisplay
+                     == ROLLER_ED_SOFTWARE_DISPLAY_VGA);
     }
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
