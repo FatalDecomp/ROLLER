@@ -78,6 +78,32 @@ enum
     ROLLER_ED_PIXEL_RGBA8 = 0u
 };
 
+typedef uint32_t eRollerEdTextureFilter;
+enum
+{
+    ROLLER_ED_TEXTURE_FILTER_NEAREST = 0u,
+    ROLLER_ED_TEXTURE_FILTER_BILINEAR = 1u,
+    ROLLER_ED_TEXTURE_FILTER_ANISOTROPIC = 2u
+};
+
+typedef uint32_t eRollerEdAnisotropy;
+enum
+{
+    ROLLER_ED_ANISOTROPY_2X = 0u,
+    ROLLER_ED_ANISOTROPY_4X = 1u,
+    ROLLER_ED_ANISOTROPY_8X = 2u,
+    ROLLER_ED_ANISOTROPY_16X = 3u
+};
+
+typedef uint32_t eRollerEdAntiAliasing;
+enum
+{
+    ROLLER_ED_ANTI_ALIASING_OFF = 0u,
+    ROLLER_ED_ANTI_ALIASING_2X = 1u,
+    ROLLER_ED_ANTI_ALIASING_4X = 2u,
+    ROLLER_ED_ANTI_ALIASING_8X = 3u
+};
+
 typedef uint32_t eRollerEdSceneState;
 enum
 {
@@ -240,6 +266,7 @@ enum
 #define ROLLER_ED_BOOTSTRAP_INFO_VERSION 1u
 #define ROLLER_ED_INIT_INFO_VERSION 1u
 #define ROLLER_ED_CAMERA_STATE_VERSION 1u
+#define ROLLER_ED_GRAPHICS_SETTINGS_VERSION 1u
 #define ROLLER_ED_OVERLAY_STATE_VERSION 3u
 #define ROLLER_ED_REFERENCE_MESH_VERSION 1u
 #define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
@@ -272,6 +299,20 @@ typedef struct
     float fYawDegrees;
     float fPitchDegrees;
 } tEdCameraState;
+
+typedef struct
+{
+    uint32_t uiStructSize;
+    uint32_t uiVersion;
+    eRollerEdRenderer eRenderer;
+    eRollerEdAntiAliasing eAntiAliasing;
+    eRollerEdAnisotropy eAnisotropy;
+    eRollerEdTextureFilter eTextureFilter;
+    uint32_t uiTrilinear; /* 0 or 1 only. */
+    uint32_t uiEmulateTransparentBorders; /* 0 or 1 only. */
+    float fDrawDistanceFraction; /* 0.0 = anchor only, 1.0 = whole track. */
+    float fLodBias; /* Valid range is -4.0 through 4.0. */
+} tEdGraphicsSettings;
 
 typedef struct
 {
@@ -399,6 +440,17 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPosition) == 8u,
                         "camera position offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdCameraState, fPitchDegrees) == 24u,
                         "camera pitch offset");
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdGraphicsSettings) == 40u,
+                        "graphics settings size");
+ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdGraphicsSettings) == 4u,
+                        "graphics settings alignment");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, eRenderer) == 8u,
+                        "graphics renderer offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, fDrawDistanceFraction)
+                            == 32u,
+                        "graphics draw distance offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdGraphicsSettings, fLodBias) == 36u,
+                        "graphics LOD bias offset");
 ROLLER_ED_STATIC_ASSERT(sizeof(tEdOverlayState) == 36u, "overlay size");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdOverlayState) == 4u,
                         "overlay alignment");
@@ -492,6 +544,13 @@ ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_Shutdown(void);
 ROLLER_ED_API uint32_t ROLLER_ED_CALL RollerEd_GetAvailableRenderers(void);
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(
     eRollerEdRenderer eKind);
+/*
+ * Applies preview-only graphics state on the render worker. Values are copied
+ * during the call and move neither the geometry epoch nor track generation.
+ * A requested GPU renderer falls back to software when no GPU is available.
+ */
+ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetGraphicsSettings(
+    const tEdGraphicsSettings *pSettings);
 
 /*
  * Both paths are consumed synchronously and never retained. A successful

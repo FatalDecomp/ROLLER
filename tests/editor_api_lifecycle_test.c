@@ -26,6 +26,7 @@ static int s_iLegacyInstallCount;
 static int s_iLegacyRenderCount;
 static int s_iLegacySetCameraCount;
 static int s_iLegacySetOverlayCount;
+static int s_iLegacySetGraphicsCount;
 static eRollerEdRenderer s_eLastPreferredRenderer;
 static uint32_t s_uiLastAllowSoftwareFallback;
 static uint32_t s_uiStubAvailableRenderers =
@@ -33,6 +34,7 @@ static uint32_t s_uiStubAvailableRenderers =
 static eRollerEdRenderer s_eStubActiveRenderer;
 static tEdCameraState s_LastLegacyCamera;
 static tEdOverlayState s_LastLegacyOverlay;
+static tEdGraphicsSettings s_LastLegacyGraphics;
 static uint32_t s_uiStubQuadCount;
 static int s_iStubExtractCount;
 
@@ -156,6 +158,19 @@ eRollerEdResult roller_ed_legacy_scene_select_renderer(
         return ROLLER_ED_RESULT_RENDERER_UNAVAILABLE;
     }
     s_eStubActiveRenderer = eKind;
+    if (uiErrorCapacity)
+        szError[0] = '\0';
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
+    const tEdGraphicsSettings *pSettings,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    s_LastLegacyGraphics = *pSettings;
+    s_eStubActiveRenderer = pSettings->eRenderer;
+    ++s_iLegacySetGraphicsCount;
     if (uiErrorCapacity)
         szError[0] = '\0';
     return ROLLER_ED_RESULT_OK;
@@ -857,6 +872,40 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(RollerEd_SelectRenderer(ROLLER_ED_RENDERER_GPU)
                  == ROLLER_ED_RESULT_OK);
     CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_GPU);
+    {
+        tEdGraphicsSettings Graphics = {
+            .uiStructSize = sizeof(Graphics),
+            .uiVersion = ROLLER_ED_GRAPHICS_SETTINGS_VERSION,
+            .eRenderer = ROLLER_ED_RENDERER_SOFTWARE,
+            .eAntiAliasing = ROLLER_ED_ANTI_ALIASING_4X,
+            .eAnisotropy = ROLLER_ED_ANISOTROPY_8X,
+            .eTextureFilter = ROLLER_ED_TEXTURE_FILTER_BILINEAR,
+            .uiTrilinear = 1u,
+            .uiEmulateTransparentBorders = 0u,
+            .fDrawDistanceFraction = 0.5f,
+            .fLodBias = -1.25f
+        };
+
+        CHECK_WORKER(RollerEd_SetGraphicsSettings(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        Graphics.uiTrilinear = 2u;
+        CHECK_WORKER(RollerEd_SetGraphicsSettings(&Graphics)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(s_iLegacySetGraphicsCount == 0);
+        Graphics.uiTrilinear = 1u;
+        CHECK_WORKER(RollerEd_SetGraphicsSettings(&Graphics)
+                     == ROLLER_ED_RESULT_OK);
+        CHECK_WORKER(s_iLegacySetGraphicsCount == 1);
+        CHECK_WORKER(s_eStubActiveRenderer == ROLLER_ED_RENDERER_SOFTWARE);
+        CHECK_WORKER(s_LastLegacyGraphics.eAntiAliasing
+                     == ROLLER_ED_ANTI_ALIASING_4X);
+        CHECK_WORKER(s_LastLegacyGraphics.eAnisotropy
+                     == ROLLER_ED_ANISOTROPY_8X);
+        CHECK_WORKER(s_LastLegacyGraphics.eTextureFilter
+                     == ROLLER_ED_TEXTURE_FILTER_BILINEAR);
+        CHECK_WORKER(s_LastLegacyGraphics.fDrawDistanceFraction == 0.5f);
+        CHECK_WORKER(s_LastLegacyGraphics.fLodBias == -1.25f);
+    }
     Sizes.uiStructSize = sizeof(Sizes);
     Sizes.uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION;
     CHECK_WORKER(RollerEd_QueryGeometrySizes(&Sizes) == ROLLER_ED_RESULT_OK);

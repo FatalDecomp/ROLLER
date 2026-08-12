@@ -51,6 +51,10 @@ eRollerEdResult roller_ed_legacy_scene_select_renderer(
     eRollerEdRenderer eKind,
     char *szError,
     size_t uiErrorCapacity);
+eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
+    const tEdGraphicsSettings *pSettings,
+    char *szError,
+    size_t uiErrorCapacity);
 
 /*
  * One extraction of the loaded scene's authored geometry, owned by whoever

@@ -413,6 +413,47 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SelectRenderer(eRollerEdRenderer eKind)
     return eResult;
 }
 
+eRollerEdResult ROLLER_ED_CALL RollerEd_SetGraphicsSettings(
+    const tEdGraphicsSettings *pSettings)
+{
+    eRollerEdResult eResult = roller_ed_require_worker();
+
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if (!pSettings) {
+        roller_ed_set_error("RollerEd_SetGraphicsSettings requires pSettings");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    eResult = roller_ed_validate_struct(
+        pSettings->uiStructSize, pSettings->uiVersion,
+        ROLLER_ED_GRAPHICS_SETTINGS_VERSION, sizeof(*pSettings),
+        "tEdGraphicsSettings");
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if ((pSettings->eRenderer != ROLLER_ED_RENDERER_SOFTWARE
+            && pSettings->eRenderer != ROLLER_ED_RENDERER_GPU)
+            || pSettings->eAntiAliasing > ROLLER_ED_ANTI_ALIASING_8X
+            || pSettings->eAnisotropy > ROLLER_ED_ANISOTROPY_16X
+            || pSettings->eTextureFilter
+                > ROLLER_ED_TEXTURE_FILTER_ANISOTROPIC
+            || pSettings->uiTrilinear > 1u
+            || pSettings->uiEmulateTransparentBorders > 1u
+            || !isfinite(pSettings->fDrawDistanceFraction)
+            || pSettings->fDrawDistanceFraction < 0.0f
+            || pSettings->fDrawDistanceFraction > 1.0f
+            || !isfinite(pSettings->fLodBias)
+            || pSettings->fLodBias < -4.0f
+            || pSettings->fLodBias > 4.0f) {
+        roller_ed_set_error("invalid editor graphics settings");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    eResult = roller_ed_legacy_scene_set_graphics_settings(
+        pSettings, s_szLastError, sizeof(s_szLastError));
+    if (eResult == ROLLER_ED_RESULT_OK)
+        s_ePreferredRenderer = pSettings->eRenderer;
+    return eResult;
+}
+
 eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     const char *szTrackPath, const char *szDocumentAssetRoot)
 {

@@ -1641,9 +1641,9 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
 //-------------------------------------------------------------------------------------------------
 // Editor visibility has no car anchor. Find the closest section to the
 // explicit facade camera across the complete track, then initialize a
-// gap-free legacy range. Rendering the full track is intentional here: an
-// editor camera may be arbitrarily far from the circuit and must never lose
-// sections because a gameplay draw-distance window was selected elsewhere.
+// gap-free legacy range in the direction the camera faces. The editor's draw
+// distance is a direct fraction of the circuit: 0 selects only the anchor and
+// 1 preserves the historical whole-track preview.
 int CalcVisibleTrackEditor(unsigned int uiViewMode)
 {
   double dMinDistanceSquared = DBL_MAX;
@@ -1708,25 +1708,25 @@ int CalcVisibleTrackEditor(unsigned int uiViewMode)
   }
 
   backwards = fViewAlignment < 0.0f ? -1 : 0;
-  TrackSize = TRAK_LEN - 1;
+  TrackSize = (int)(g_fDrawDistanceFraction * (float)(TRAK_LEN - 1));
   first_size = TrackSize;
   gap_size = 6 * TRAK_LEN;
   next_front = -1;
   mid_sec = -1;
-  alltrackflag = -1;
+  alltrackflag = g_fDrawDistanceFraction >= 1.0f ? -1 : 0;
   test_y1 = iCurrChunk;
 
   if (backwards) {
     front_sec = iCurrChunk;
-    back_sec = iCurrChunk + 1;
-    if (back_sec >= TRAK_LEN)
-      back_sec = 0;
+    back_sec = iCurrChunk - TrackSize;
+    if (back_sec < 0)
+      back_sec += TRAK_LEN;
     start_sect = back_sec;
   } else {
     front_sec = iCurrChunk;
-    back_sec = iCurrChunk - 1;
-    if (back_sec < 0)
-      back_sec = TRAK_LEN - 1;
+    back_sec = iCurrChunk + TrackSize;
+    if (back_sec >= TRAK_LEN)
+      back_sec -= TRAK_LEN;
     start_sect = front_sec;
   }
 

@@ -80,7 +80,8 @@ class EditorTrackOnlyTests(unittest.TestCase):
         self.assertIn("viewz", visibility)
         self.assertNotIn("Car[", visibility)
         self.assertNotIn("numcars", visibility)
-        self.assertIn("TrackSize = TRAK_LEN - 1", visibility)
+        self.assertIn("g_fDrawDistanceFraction", visibility)
+        self.assertIn("(float)(TRAK_LEN - 1)", visibility)
         self.assertIn("first_size = TrackSize", visibility)
         self.assertIn("gap_size = 6 * TRAK_LEN", visibility)
 

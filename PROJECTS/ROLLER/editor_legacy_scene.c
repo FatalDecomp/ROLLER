@@ -10,9 +10,11 @@
 #include "editor_surface.h"
 #include "editor_test_car.h"
 #include "game_render.h"
+#include "game_render_hw.h"
 #include "graphics.h"
 #include "horizon.h"
 #include "loadtrak.h"
+#include "roller.h"
 #include "roller_core_error.h"
 #include "scene_render_gpu.h"
 #include "types.h"
@@ -291,6 +293,44 @@ eRollerEdResult roller_ed_legacy_scene_select_renderer(
     game_render_set_force_gpu_load(g_pGameRenderer, true);
     game_render_set_mode(g_pGameRenderer, GAME_RENDER_GPU);
     s_eActiveRenderer = ROLLER_ED_RENDERER_GPU;
+    editor_scene_set_error(szError, uiErrorCapacity, "");
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
+    const tEdGraphicsSettings *pSettings,
+    char *szError,
+    size_t uiErrorCapacity)
+{
+    eRollerEdResult eResult = roller_ed_legacy_scene_select_renderer(
+        pSettings->eRenderer, szError, uiErrorCapacity);
+
+    /* Match editor initialization: a requested GPU is preferred, but an
+     * unavailable windowless backend must not make the preview unusable. */
+    if (eResult != ROLLER_ED_RESULT_OK
+            && pSettings->eRenderer == ROLLER_ED_RENDERER_GPU) {
+        eResult = roller_ed_legacy_scene_select_renderer(
+            ROLLER_ED_RENDERER_SOFTWARE, szError, uiErrorCapacity);
+    }
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+
+    g_fDrawDistanceFraction = pSettings->fDrawDistanceFraction;
+    g_iAntiAliasing = (int)pSettings->eAntiAliasing;
+    g_iAnisotropyLevel = (int)pSettings->eAnisotropy;
+    g_iTextureFilter = (int)pSettings->eTextureFilter;
+    g_bTrilinear = pSettings->uiTrilinear != 0u;
+    g_fLodBias = pSettings->fLodBias;
+    g_bEmulateSoftwareTrackBorders =
+        pSettings->uiEmulateTransparentBorders != 0u;
+
+    game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
+    game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
+    game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
+    game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
+    game_render_set_lod_bias(g_pGameRenderer, g_fLodBias);
+    game_render_set_emulate_software_track_borders(
+        g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
     editor_scene_set_error(szError, uiErrorCapacity, "");
     return ROLLER_ED_RESULT_OK;
 }

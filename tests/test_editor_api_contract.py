@@ -60,6 +60,7 @@ class EditorApiContractTests(unittest.TestCase):
             "RollerEd_Init",
             "RollerEd_Shutdown",
             "RollerEd_SelectRenderer",
+            "RollerEd_SetGraphicsSettings",
             "RollerEd_LoadTrackFile",
             "RollerEd_UnloadTrack",
             "RollerEd_SetCamera",
