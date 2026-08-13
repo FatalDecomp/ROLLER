@@ -9,10 +9,10 @@
 //-------------------------------------------------------------------------------------------------
 
 int TowerSect[MAX_TRACK_CHUNKS]; //001A1FA0
-float TowerX[32];         //001A2770
-float TowerY[32];         //001A27F0
-float TowerZ[32];         //001A2870
-tTowerBase TowerBase[32]; //001A28F0
+float TowerX[MAX_TOWERS];         //001A2770
+float TowerY[MAX_TOWERS];         //001A27F0
+float TowerZ[MAX_TOWERS];         //001A2870
+tTowerBase TowerBase[MAX_TOWERS]; //001A28F0
 tPolyParams TowerPol;     //001A2B70
 int NumTowers;            //001A2B9C
 

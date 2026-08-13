@@ -41,10 +41,12 @@
 
 #include "3d.h"
 #include "editor_api.h"
+#include "editor_track_loader.h"
 #include "game_render.h"
 #include "graphics.h"
 #include "horizon.h"
 #include "scene_render.h"
+#include "tower.h"
 
 #define SDL_MAIN_HANDLED 1
 #include <SDL3/SDL.h>
@@ -63,6 +65,7 @@ enum {
     SOAK_BUFFER_SIZE = SOAK_ROW_PITCH * SOAK_HEIGHT,
     SOAK_DEFAULT_CYCLES = 250,
     SOAK_MALFORMED_COUNT = 4,
+    SOAK_TOWER_INPUT_COUNT = MAX_TOWERS + 2,
     /* Full geometry extraction is two whole-track traversals, so it rides
      * along periodically rather than every cycle. */
     SOAK_FILL_INTERVAL = 8,
@@ -76,6 +79,7 @@ typedef struct
     char szScratchDir[1024];
     int iCycles;
     char szMalformed[SOAK_MALFORMED_COUNT][1024];
+    char szTowerLimitTrack[1024];
     char szError[512];
     int iResult;
 
@@ -311,6 +315,238 @@ static int soak_build_malformed_inputs(tSoakContext *pContext)
 done:
     free(pBytes);
     return bOk;
+}
+
+static int soak_take_text_line(const uint8_t **ppbyCursor,
+                               const uint8_t *pbyEnd,
+                               const uint8_t **ppbyLine,
+                               size_t *puiLineLength)
+{
+    const uint8_t *pbyCursor = *ppbyCursor;
+    const uint8_t *pbyLine = pbyCursor;
+
+    if (pbyCursor >= pbyEnd)
+        return 0;
+    while (pbyCursor < pbyEnd && *pbyCursor != '\r'
+            && *pbyCursor != '\n' && *pbyCursor != 0x1au)
+        ++pbyCursor;
+    *ppbyLine = pbyLine;
+    *puiLineLength = (size_t)(pbyCursor - pbyLine);
+    while (pbyCursor < pbyEnd
+            && (*pbyCursor == '\r' || *pbyCursor == '\n'))
+        ++pbyCursor;
+    *ppbyCursor = pbyCursor;
+    return 1;
+}
+
+static int soak_take_data_line(const uint8_t **ppbyCursor,
+                               const uint8_t *pbyEnd,
+                               const uint8_t **ppbyLine,
+                               size_t *puiLineLength)
+{
+    while (soak_take_text_line(ppbyCursor, pbyEnd,
+                               ppbyLine, puiLineLength)) {
+        size_t uiFirst = 0u;
+
+        while (uiFirst < *puiLineLength
+                && ((*ppbyLine)[uiFirst] == ' '
+                    || (*ppbyLine)[uiFirst] == '\t'))
+            ++uiFirst;
+        if (uiFirst == *puiLineLength || (*ppbyLine)[uiFirst] == ';'
+                || (uiFirst + 1u < *puiLineLength
+                    && (*ppbyLine)[uiFirst] == '/'
+                    && (*ppbyLine)[uiFirst + 1u] == '/'))
+            continue;
+        return 1;
+    }
+    return 0;
+}
+
+static int soak_write_text_line(FILE *pFile, const uint8_t *pbyLine,
+                                size_t uiLineLength)
+{
+    return fwrite(pbyLine, 1u, uiLineLength, pFile) == uiLineLength
+        && fputs("\r\n", pFile) != EOF;
+}
+
+static int soak_write_tower_surface_record(FILE *pFile,
+                                           const uint8_t *pbyLine,
+                                           size_t uiLineLength,
+                                           int iChunk)
+{
+    const uint8_t *apbyField[18];
+    size_t auiFieldLength[18];
+    size_t uiCursor = 0u;
+
+    for (int iField = 0; iField < 18; ++iField) {
+        size_t uiStart;
+
+        while (uiCursor < uiLineLength
+                && (pbyLine[uiCursor] == ' '
+                    || pbyLine[uiCursor] == '\t'))
+            ++uiCursor;
+        uiStart = uiCursor;
+        while (uiCursor < uiLineLength
+                && pbyLine[uiCursor] != ' '
+                && pbyLine[uiCursor] != '\t')
+            ++uiCursor;
+        if (uiCursor == uiStart)
+            return 0;
+        apbyField[iField] = pbyLine + uiStart;
+        auiFieldLength[iField] = uiCursor - uiStart;
+    }
+    for (int iField = 0; iField < 18; ++iField) {
+        if (iField != 0 && fputc(' ', pFile) == EOF)
+            return 0;
+        if (iField == 12) {
+            if (fputs("256", pFile) == EOF)
+                return 0;
+        } else if (iField == 13) {
+            if (fprintf(pFile, "%d", iChunk) < 0)
+                return 0;
+        } else if (iField == 14) {
+            if (fprintf(pFile, "%d", -iChunk) < 0)
+                return 0;
+        } else if (fwrite(apbyField[iField], 1u, auiFieldLength[iField], pFile)
+                != auiFieldLength[iField]) {
+            return 0;
+        }
+    }
+    return fputs("\r\n", pFile) != EOF;
+}
+
+/*
+ * E7-S1. Build this at runtime so the Valgrind soak exercises the real
+ * staged-loader and facade path with more authored towers than the legacy
+ * fixed table can hold. The two tower-authored chunks past capacity remain
+ * valid track data; only their decoded runtime towers are omitted.
+ */
+static int soak_build_tower_limit_input(tSoakContext *pContext)
+{
+    tEdTrackStage Stage;
+    char szStageError[256];
+    const uint8_t *pbyCursor;
+    const uint8_t *pbyEnd;
+    const uint8_t *pbyLine;
+    size_t uiLineLength;
+    FILE *pFile = NULL;
+    int bOk = 1;
+
+    ed_track_stage_init(&Stage);
+    if (ed_track_file_stage(pContext->szTrackPath, &Stage,
+                            szStageError, sizeof(szStageError))
+            != ED_TRACK_LOAD_OK) {
+        soak_fail(pContext, "could not stage tower-limit source: %s",
+                  szStageError);
+        return 0;
+    }
+    if (Stage.uiChunkCount < SOAK_TOWER_INPUT_COUNT) {
+        soak_fail(pContext,
+                  "tower-limit source has only %u chunks; need at least %d",
+                  Stage.uiChunkCount, SOAK_TOWER_INPUT_COUNT);
+        ed_track_stage_dispose(&Stage);
+        return 0;
+    }
+
+    snprintf(pContext->szTowerLimitTrack,
+             sizeof(pContext->szTowerLimitTrack),
+             "%s/e7_s1_tower_limit.trk", pContext->szScratchDir);
+    pFile = fopen(pContext->szTowerLimitTrack, "wb");
+    if (!pFile) {
+        soak_fail(pContext, "could not create %s",
+                  pContext->szTowerLimitTrack);
+        ed_track_stage_dispose(&Stage);
+        return 0;
+    }
+
+    pbyCursor = Stage.pbyData;
+    pbyEnd = Stage.pbyData + Stage.uiDataLength;
+    if (!soak_take_data_line(&pbyCursor, pbyEnd,
+                             &pbyLine, &uiLineLength)) {
+        bOk = 0;
+    } else {
+        size_t uiLeadingWhitespace = 0u;
+
+        while (uiLeadingWhitespace < uiLineLength
+                && (pbyLine[uiLeadingWhitespace] == ' '
+                    || pbyLine[uiLeadingWhitespace] == '\t'))
+            ++uiLeadingWhitespace;
+        bOk = fputs("  ", pFile) != EOF
+           && soak_write_text_line(
+               pFile, pbyLine + uiLeadingWhitespace,
+               uiLineLength - uiLeadingWhitespace);
+    }
+    for (uint32_t uiChunk = 0u; uiChunk < Stage.uiChunkCount && bOk;
+         ++uiChunk) {
+        bOk = soak_take_data_line(&pbyCursor, pbyEnd,
+                                  &pbyLine, &uiLineLength)
+           && soak_write_text_line(pFile, pbyLine, uiLineLength)
+           && soak_take_data_line(&pbyCursor, pbyEnd,
+                                  &pbyLine, &uiLineLength);
+        if (bOk && uiChunk < SOAK_TOWER_INPUT_COUNT) {
+            bOk = soak_write_tower_surface_record(
+                pFile, pbyLine, uiLineLength, (int)uiChunk);
+        } else if (bOk) {
+            bOk = soak_write_text_line(pFile, pbyLine, uiLineLength);
+        }
+        bOk = bOk
+           && soak_take_data_line(&pbyCursor, pbyEnd,
+                                  &pbyLine, &uiLineLength)
+           && soak_write_text_line(pFile, pbyLine, uiLineLength);
+    }
+    if (bOk && fwrite(pbyCursor, 1u, (size_t)(pbyEnd - pbyCursor), pFile)
+            != (size_t)(pbyEnd - pbyCursor))
+        bOk = 0;
+    if (fclose(pFile) != 0)
+        bOk = 0;
+    ed_track_stage_dispose(&Stage);
+    if (!bOk) {
+        soak_fail(pContext, "could not write %s",
+                  pContext->szTowerLimitTrack);
+        return 0;
+    }
+    return 1;
+}
+
+static int soak_verify_tower_limit(tSoakContext *pContext)
+{
+    if (RollerEd_LoadTrackFile(pContext->szTowerLimitTrack,
+                               pContext->szAssetRoot)
+            != ROLLER_ED_RESULT_OK) {
+        soak_fail(pContext, "tower-limit track load failed: %s",
+                  RollerEd_GetLastError());
+        return 0;
+    }
+    if (NumTowers != MAX_TOWERS) {
+        soak_fail(pContext, "tower-limit track decoded %d towers; expected %d",
+                  NumTowers, MAX_TOWERS);
+        return 0;
+    }
+    for (int iTower = 0; iTower < MAX_TOWERS; ++iTower) {
+        if (TowerBase[iTower].iChunkIdx != iTower
+                || TowerBase[iTower].iHOffset != iTower
+                || TowerBase[iTower].iVOffset != -iTower
+                || TowerBase[iTower].iEnabled != -1
+                || TowerBase[iTower].iTowerType != 0
+                || TowerSect[iTower] != iTower) {
+            soak_fail(pContext,
+                      "tower %d did not preserve its decoded fields",
+                      iTower);
+            return 0;
+        }
+    }
+    for (int iChunk = MAX_TOWERS;
+         iChunk < SOAK_TOWER_INPUT_COUNT; ++iChunk) {
+        if (TowerSect[iChunk] != -1) {
+            soak_fail(pContext,
+                      "overflow tower on chunk %d entered the runtime table",
+                      iChunk);
+            return 0;
+        }
+    }
+    printf("  E7-S1: retained the first %d of %d authored towers\n",
+           NumTowers, SOAK_TOWER_INPUT_COUNT);
+    return 1;
 }
 
 static int soak_query(tSoakContext *pContext, tEdGeometrySizes *pSizes,
@@ -735,7 +971,8 @@ static int SDLCALL soak_worker(void *pUserData)
     uint32_t uiAvailable;
     int iGPUCycles;
 
-    if (!soak_build_malformed_inputs(pContext))
+    if (!soak_build_malformed_inputs(pContext)
+            || !soak_build_tower_limit_input(pContext))
         return pContext->iResult;
 
     pContext->pPixels = (uint8_t *)malloc(SOAK_BUFFER_SIZE);
@@ -748,6 +985,8 @@ static int SDLCALL soak_worker(void *pUserData)
         soak_fail(pContext, "RollerEd_Init failed: %s", RollerEd_GetLastError());
         goto done;
     }
+    if (!soak_verify_tower_limit(pContext))
+        goto shutdown;
     uiAvailable = RollerEd_GetAvailableRenderers();
 
     if (!soak_run_phase(pContext, ROLLER_ED_RENDERER_SOFTWARE,
