@@ -28,6 +28,7 @@ extern int NumTowers;
 //-------------------------------------------------------------------------------------------------
 
 void InitTowers();
+void tower_emit_marker(int iTowerIdx, float fScale);
 void DrawTower(int iTowerIdx, uint8 *pScrBuf);
 
 //-------------------------------------------------------------------------------------------------

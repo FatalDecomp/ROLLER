@@ -262,6 +262,77 @@ static int overlay_visible_from_chunk(tOverlayContext *pContext,
     return -1;
 }
 
+/* E7-S3. Tower placement is core-authoritative, so aim directly at the world
+ * position E7-S2 reports rather than reconstructing it from the chunk. The
+ * base view deliberately has SHOW_SURFACES off and empty class masks: any
+ * changed pixel therefore proves the tower-class visibility exception made
+ * the marker independently visible. */
+static int tower_marker_visible_from_position(
+    tOverlayContext *pContext,
+    const tEdTowerInfo *pTower,
+    const tEdOverlayState *pBaseState,
+    const tEdOverlayState *pMarkedState,
+    size_t *puiDifference)
+{
+    static const float afYaw[] = { 0.0f, 90.0f, 180.0f, 270.0f };
+    static const float afPitch[] = { -35.0f, -20.0f, 0.0f, 20.0f };
+    static const float afDistance[] = { 1000.0f, 4000.0f };
+    const float fRadiansPerDegree = 3.14159265358979f / 180.0f;
+
+    *puiDifference = 0u;
+    for (size_t iDistance = 0;
+         iDistance < sizeof(afDistance) / sizeof(afDistance[0]);
+         iDistance++) {
+        for (size_t iYaw = 0; iYaw < sizeof(afYaw) / sizeof(afYaw[0]);
+             iYaw++) {
+            float fRadians = afYaw[iYaw] * fRadiansPerDegree;
+
+            for (size_t iPitch = 0;
+                 iPitch < sizeof(afPitch) / sizeof(afPitch[0]); iPitch++) {
+                tEdCameraState Camera = {
+                    .uiStructSize = sizeof(Camera),
+                    .uiVersion = ROLLER_ED_CAMERA_STATE_VERSION,
+                    .fPosition = {
+                        pTower->fWorldPosition[0]
+                            - cosf(fRadians) * afDistance[iDistance],
+                        pTower->fWorldPosition[1]
+                            - sinf(fRadians) * afDistance[iDistance],
+                        pTower->fWorldPosition[2]
+                            + afDistance[iDistance] * 0.25f
+                    },
+                    .fYawDegrees = afYaw[iYaw],
+                    .fPitchDegrees = afPitch[iPitch]
+                };
+
+                if (RollerEd_SetCamera(&Camera) != ROLLER_ED_RESULT_OK) {
+                    acceptance_error(pContext, "RollerEd_SetCamera failed");
+                    return 0;
+                }
+                if (!render_with_overlay(pContext, pBaseState, s_pMarkerBase)
+                        || !render_with_overlay(
+                            pContext, pMarkedState, s_pFrame))
+                    return 0;
+                *puiDifference = differing_pixels(s_pFrame, s_pMarkerBase);
+                if (*puiDifference == 0u)
+                    continue;
+                if (!render_with_overlay(pContext, pBaseState, s_pFrame))
+                    return 0;
+                if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+                    acceptance_fail(
+                        pContext,
+                        "clearing the tower marker on chunk %u left %zu "
+                        "pixels drawn",
+                        pTower->uiChunkId,
+                        differing_pixels(s_pFrame, s_pMarkerBase));
+                    return 0;
+                }
+                return -1;
+            }
+        }
+    }
+    return -1;
+}
+
 static int SDLCALL overlay_worker(void *pUserData)
 {
     tOverlayContext *pContext = (tOverlayContext *)pUserData;
@@ -639,6 +710,87 @@ static int SDLCALL overlay_worker(void *pUserData)
                "(chunk %u -> %zu pixels)\n",
                uiAudioChunks, uiFirstAudioChunk, auiMarkerDifference[0],
                uiStunts, uiFirstStuntChunk, auiMarkerDifference[1]);
+    }
+
+    /*
+     * E7-S3. Every loaded tower is aimed at by the E7-S2-reported world
+     * position, including modes the game would suppress with iEnabled <= -1.
+     * The base has no surfaces and no class bits, proving the new flag alone
+     * owns visibility. The last marker is then selected by its anchor chunk;
+     * its outline must change the marker without any track surface present.
+     */
+    {
+        uint32_t uiTowerCount = 0u;
+        uint32_t uiSelectedChunk = ROLLER_ED_INVALID_CHUNK_ID;
+        size_t uiSelectedMarkerPixels = 0u;
+        tEdOverlayState TowerBase = make_overlay(0u, 0u, 0u);
+        tEdOverlayState TowerMarkers = make_overlay(
+            ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS, 0u, 0u);
+
+        if (RollerEd_QueryTowerCount(&uiTowerCount) != ROLLER_ED_RESULT_OK) {
+            acceptance_error(pContext, "RollerEd_QueryTowerCount failed");
+            goto shutdown;
+        }
+        if (uiTowerCount == 0u) {
+            acceptance_fail(pContext,
+                            "the E7-S3 retail fixture contains no towers");
+            goto shutdown;
+        }
+        for (uint32_t uiTower = 0u; uiTower < uiTowerCount; uiTower++) {
+            tEdTowerInfo Info = {
+                .uiStructSize = sizeof(Info),
+                .uiVersion = ROLLER_ED_TOWER_INFO_VERSION
+            };
+            size_t uiDifference = 0u;
+
+            if (RollerEd_QueryTower(uiTower, &Info) != ROLLER_ED_RESULT_OK) {
+                acceptance_error(pContext, "RollerEd_QueryTower failed");
+                goto shutdown;
+            }
+            if (!tower_marker_visible_from_position(
+                    pContext, &Info, &TowerBase, &TowerMarkers,
+                    &uiDifference))
+                goto shutdown;
+            if (uiDifference == 0u) {
+                acceptance_fail(
+                    pContext,
+                    "tower %u on chunk %u drew nothing at its queried "
+                    "position",
+                    uiTower, Info.uiChunkId);
+                goto shutdown;
+            }
+            uiSelectedChunk = Info.uiChunkId;
+            uiSelectedMarkerPixels = uiDifference;
+        }
+
+        if (!render_with_overlay(pContext, &TowerMarkers, s_pMarkerBase))
+            goto shutdown;
+        TowerMarkers.uiFlags |= ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION;
+        TowerMarkers.uiFirstSelectedChunk = uiSelectedChunk;
+        TowerMarkers.uiLastSelectedChunk = uiSelectedChunk;
+        if (!render_with_overlay(pContext, &TowerMarkers, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) == 0) {
+            acceptance_fail(
+                pContext,
+                "selecting tower chunk %u did not highlight its marker",
+                uiSelectedChunk);
+            goto shutdown;
+        }
+        TowerMarkers.uiFlags &=
+            ~(uint32_t)ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION;
+        if (!render_with_overlay(pContext, &TowerMarkers, s_pFrame))
+            goto shutdown;
+        if (memcmp(s_pFrame, s_pMarkerBase, FRAME_BYTES) != 0) {
+            acceptance_fail(
+                pContext,
+                "clearing the tower selection left %zu pixels highlighted",
+                differing_pixels(s_pFrame, s_pMarkerBase));
+            goto shutdown;
+        }
+        printf("tower markers: %u queried positions rendered; chunk %u "
+               "covered %zu pixels and highlighted\n",
+               uiTowerCount, uiSelectedChunk, uiSelectedMarkerPixels);
     }
 
     /*

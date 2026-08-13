@@ -61,7 +61,8 @@ int main(void)
         ROLLER_ED_OVERLAY_SHOW_TEST_CAR,
         ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH,
         ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS,
-        ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED
+        ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED,
+        ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS
     };
     const uint32_t uiKnownFlags = (uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS;
     tEdOverlayState State;
@@ -76,10 +77,10 @@ int main(void)
         for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i)
             uiUnion |= auiFlags[i];
         CHECK(uiUnion == uiKnownFlags);
-        /* Bit 12 is the first undefined one; bit 5 is reserved, having been
+        /* Bit 13 is the first undefined one; bit 5 is reserved, having been
          * the retired environment floor, and must stay refused rather than
          * being quietly reused. */
-        CHECK((uiKnownFlags & (1u << 12)) == 0u);
+        CHECK((uiKnownFlags & (1u << 13)) == 0u);
         CHECK((uiKnownFlags & (1u << 5)) == 0u);
     }
 
@@ -88,7 +89,8 @@ int main(void)
     roller_ed_overlay_reset();
     for (uint32_t uiClass = 0u; uiClass < ROLLER_ED_SURFACE_CLASS_COUNT;
          uiClass++) {
-        CHECK(roller_ed_overlay_surface_class_visible((uint16_t)uiClass));
+        CHECK(roller_ed_overlay_surface_class_visible((uint16_t)uiClass)
+              == (uiClass != ROLLER_ED_SURFACE_CLASS_TOWER));
         CHECK(!roller_ed_overlay_wireframe_class_visible((uint16_t)uiClass));
     }
     CHECK(!roller_ed_overlay_surface_class_visible(
@@ -186,10 +188,34 @@ int main(void)
      * does not define is never stored. */
     {
         tEdOverlayState Unknown = make_state(
-            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 12) | (1u << 31), 1u, 2u);
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 13) | (1u << 31), 1u, 2u);
 
         roller_ed_overlay_set(&Unknown);
         CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);
+    }
+
+    /* E7-S3: tower markers are editor furniture. Their surface emission is
+     * visible solely under the marker flag, even in a surface-free view with
+     * every class-mask bit clear. Other classes keep the E3A-S2 master/mask
+     * contract unchanged. */
+    {
+        tEdOverlayState TowersOnly = make_masked_state(
+            ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS, 0u, 0u, 0u, 0u);
+
+        roller_ed_overlay_set(&TowersOnly);
+        CHECK(roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_TOWER));
+        CHECK(!roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_CENTER));
+        CHECK(!roller_ed_overlay_wireframe_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_TOWER));
+
+        TowersOnly.uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES;
+        TowersOnly.uiSurfaceClassMask =
+            ROLLER_ED_OVERLAY_CLASS_BIT(ROLLER_ED_SURFACE_CLASS_TOWER);
+        roller_ed_overlay_set(&TowersOnly);
+        CHECK(!roller_ed_overlay_surface_class_visible(
+                  ROLLER_ED_SURFACE_CLASS_TOWER));
     }
 
     /* A partial match is not a match, and no flag at all is never enabled. */

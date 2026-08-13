@@ -50,6 +50,7 @@ class EditorApiContractTests(unittest.TestCase):
             "fAtlasBias",
             "ROLLER_ED_OVERLAY_SHOW_SURFACES",
             "ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH",
+            "ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS",
         ):
             self.assertIn(name, self.header)
 

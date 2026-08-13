@@ -66,6 +66,10 @@ void roller_ed_overlay_get(tEdOverlayState *pStateOut)
 
 bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass)
 {
+    if (unSurfaceClass == ROLLER_ED_SURFACE_CLASS_TOWER) {
+        return roller_ed_overlay_enabled(
+            ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS);
+    }
     return roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_SURFACES)
         && overlay_class_selected(s_uiSurfaceClassMask, unSurfaceClass);
 }

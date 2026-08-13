@@ -369,6 +369,25 @@ static int soak_write_text_line(FILE *pFile, const uint8_t *pbyLine,
         && fputs("\r\n", pFile) != EOF;
 }
 
+static int soak_tower_zoom(int iChunk)
+{
+    return (iChunk % 25) / 5;
+}
+
+static int soak_tower_mode_nibble(int iChunk)
+{
+    static const int aiModeNibbles[] = { 0, 1, 3, 4, 5 };
+
+    return aiModeNibbles[iChunk % 5];
+}
+
+static int soak_tower_enabled(int iChunk)
+{
+    static const int aiEnabledModes[] = { -1, -4, -2, -5, -3 };
+
+    return aiEnabledModes[iChunk % 5];
+}
+
 static int soak_write_tower_surface_record(FILE *pFile,
                                            const uint8_t *pbyLine,
                                            size_t uiLineLength,
@@ -399,7 +418,10 @@ static int soak_write_tower_surface_record(FILE *pFile,
         if (iField != 0 && fputc(' ', pFile) == EOF)
             return 0;
         if (iField == 12) {
-            if (fputs("256", pFile) == EOF)
+            int iSignType = 256 + 16 * soak_tower_zoom(iChunk)
+                          + soak_tower_mode_nibble(iChunk);
+
+            if (fprintf(pFile, "%d", iSignType) < 0)
                 return 0;
         } else if (iField == 13) {
             if (fprintf(pFile, "%d", iChunk) < 0)
@@ -419,7 +441,9 @@ static int soak_write_tower_surface_record(FILE *pFile,
  * E7-S1. Build this at runtime so the Valgrind soak exercises the real
  * staged-loader and facade path with more authored towers than the legacy
  * fixed table can hold. The two tower-authored chunks past capacity remain
- * valid track data; only their decoded runtime towers are omitted.
+ * valid track data; only their decoded runtime towers are omitted. The first
+ * 25 entries cover every E7-S3 camera-mode/zoom combination while retaining
+ * the same 34-tower overflow boundary.
  */
 static int soak_build_tower_limit_input(tSoakContext *pContext)
 {
@@ -541,8 +565,8 @@ static int soak_verify_tower_limit(tSoakContext *pContext)
         if (TowerBase[iTower].iChunkIdx != iTower
                 || TowerBase[iTower].iHOffset != iTower
                 || TowerBase[iTower].iVOffset != -iTower
-                || TowerBase[iTower].iEnabled != -1
-                || TowerBase[iTower].iTowerType != 0
+                || TowerBase[iTower].iEnabled != soak_tower_enabled(iTower)
+                || TowerBase[iTower].iTowerType != soak_tower_zoom(iTower)
                 || TowerSect[iTower] != iTower) {
             soak_fail(pContext,
                       "tower %d did not preserve its decoded fields",
@@ -594,7 +618,8 @@ static int soak_verify_tower_limit(tSoakContext *pContext)
             return 0;
         }
     }
-    printf("  E7-S1/S2: queried the first %d of %d authored towers\n",
+    printf("  E7-S1/S2/S3: queried the first %d of %d authored towers "
+           "across all 25 mode/zoom combinations\n",
            NumTowers, SOAK_TOWER_INPUT_COUNT);
     return 1;
 }

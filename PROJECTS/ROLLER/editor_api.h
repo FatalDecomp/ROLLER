@@ -234,7 +234,14 @@ enum
      * rather than a design of its own. F1WACK and DEATH have no Y variant and
      * ignore it, exactly as the game does.
      */
-    ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED = 1u << 11
+    ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED = 1u << 11,
+    /*
+     * E7-S3. Camera-tower markers reuse the game's constant-screen-size
+     * DrawTower billboard. They are editor furniture rather than authored
+     * export geometry, and their visibility is independent of the surface
+     * master and per-class masks.
+     */
+    ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS = 1u << 12
 };
 
 /*
@@ -251,7 +258,9 @@ enum
  * Overlay class masks. SHOW_SURFACES and SHOW_WIREFRAME are master switches;
  * each mask then selects which surface classes that switch applies to, one bit
  * per eRollerEdSurfaceClass value. A class is drawn only when both agree, so
- * the host can blank the view without losing its per-class choices.
+ * the host can blank the view without losing its per-class choices. The tower
+ * marker is editor furniture and is the sole exception: its solid visibility
+ * follows ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS regardless of these masks.
  */
 #define ROLLER_ED_OVERLAY_CLASS_BIT(surface_class) \
     (1u << (uint32_t)(surface_class))

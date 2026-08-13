@@ -623,6 +623,11 @@ fn configureRenderQueue3DTests(
         "Run audio/stunt marker overlay acceptance (retail assets)",
     );
     editor_marker_overlay_tests.dependOn(&run_editor_overlay_toggle.step);
+    const editor_tower_marker_tests = b.step(
+        "test-e7-s3-tower-markers",
+        "Run tower billboard marker overlay acceptance (retail assets)",
+    );
+    editor_tower_marker_tests.dependOn(&run_editor_overlay_toggle.step);
     const editor_test_car_tests = b.step(
         "test-e3a-s6-test-car",
         "Run configurable test car acceptance (retail assets)",
@@ -1021,6 +1026,27 @@ fn configureRenderQueue3DTests(
     });
     const run_editor_overlay = b.addRunArtifact(editor_overlay_exe);
     editor_api_tests.dependOn(&run_editor_overlay.step);
+
+    const tower_marker_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    tower_marker_mod.addIncludePath(sdl.builder.path("include"));
+    tower_marker_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    tower_marker_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/tower.c",
+            "tests/tower_marker_test.c",
+        },
+    });
+    const tower_marker_exe = b.addExecutable(.{
+        .name = "tower_marker_test",
+        .root_module = tower_marker_mod,
+    });
+    const run_tower_marker = b.addRunArtifact(tower_marker_exe);
+    editor_api_tests.dependOn(&run_tower_marker.step);
 
     const editor_helpers_mod = b.createModule(.{
         .target = target,

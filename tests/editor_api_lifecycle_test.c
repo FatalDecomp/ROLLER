@@ -452,7 +452,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
             .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
                 | ROLLER_ED_OVERLAY_SHOW_WIREFRAME
                 | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION
-                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
+                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS
+                | ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS,
             .uiFirstSelectedChunk = 31u,
             .uiLastSelectedChunk = 12u,
             .uiSurfaceClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
@@ -509,7 +510,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         /* A bit this API version does not define is refused whole rather than
          * quietly dropped, so the host never believes it enabled something. */
         InvalidOverlay = Overlay;
-        InvalidOverlay.uiFlags |= 1u << 12;
+        InvalidOverlay.uiFlags |= 1u << 13;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
                      == ROLLER_ED_RESULT_INVALID_ARGUMENT);
         CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);

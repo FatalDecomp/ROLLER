@@ -34,7 +34,8 @@
      | ROLLER_ED_OVERLAY_SHOW_TEST_CAR \
      | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH \
      | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS \
-     | ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED)
+     | ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED \
+     | ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS)
 
 /*
  * The defaults reproduce the E1-S6 track-only view exactly: every surface
@@ -74,10 +75,12 @@ bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
 
 /*
  * E3A-S2. Both queries are the master flag AND the class's mask bit, so a host
- * can blank the whole view without losing its per-class choices. A class value
- * at or beyond ROLLER_ED_SURFACE_CLASS_COUNT is never drawn either way: the
- * emitter refuses those identities, so seeing one here means something already
- * went wrong upstream.
+ * can blank the whole view without losing its per-class choices. E7-S3's tower
+ * marker is the one surface-class exception: its solid visibility follows only
+ * SHOW_TOWER_MARKERS, allowing editor furniture to remain in a surface-free
+ * wireframe view. A class value at or beyond ROLLER_ED_SURFACE_CLASS_COUNT is
+ * never drawn either way: the emitter refuses those identities, so seeing one
+ * here means something already went wrong upstream.
  */
 bool roller_ed_overlay_surface_class_visible(uint16_t unSurfaceClass);
 bool roller_ed_overlay_wireframe_class_visible(uint16_t unSurfaceClass);
