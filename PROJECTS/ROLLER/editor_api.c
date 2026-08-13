@@ -734,6 +734,67 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(
     return ROLLER_ED_RESULT_OK;
 }
 
+eRollerEdResult ROLLER_ED_CALL RollerEd_QueryTowerCount(
+    uint32_t *puiCountOut)
+{
+    eRollerEdResult eResult = roller_ed_require_worker();
+    uint32_t uiCount;
+
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if (!puiCountOut) {
+        roller_ed_set_error("RollerEd_QueryTowerCount requires puiCountOut");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    if (s_eSceneState != ROLLER_ED_SCENE_READY) {
+        roller_ed_set_error("there is no tower scene");
+        return ROLLER_ED_RESULT_NO_SCENE;
+    }
+
+    uiCount = roller_ed_legacy_scene_tower_count();
+    *puiCountOut = uiCount;
+    return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult ROLLER_ED_CALL RollerEd_QueryTower(
+    uint32_t uiTowerIndex, tEdTowerInfo *pInfoOut)
+{
+    eRollerEdResult eResult = roller_ed_require_worker();
+    tEdTowerInfo Info;
+    uint32_t uiCount;
+
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if (!pInfoOut) {
+        roller_ed_set_error("RollerEd_QueryTower requires pInfoOut");
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+    eResult = roller_ed_validate_struct(
+        pInfoOut->uiStructSize, pInfoOut->uiVersion,
+        ROLLER_ED_TOWER_INFO_VERSION, sizeof(*pInfoOut),
+        "tEdTowerInfo");
+    if (eResult != ROLLER_ED_RESULT_OK)
+        return eResult;
+    if (s_eSceneState != ROLLER_ED_SCENE_READY) {
+        roller_ed_set_error("there is no tower scene");
+        return ROLLER_ED_RESULT_NO_SCENE;
+    }
+
+    uiCount = roller_ed_legacy_scene_tower_count();
+    if (uiTowerIndex >= uiCount) {
+        roller_ed_set_error("tower index %u is not below tower count %u",
+                            uiTowerIndex, uiCount);
+        return ROLLER_ED_RESULT_INVALID_ARGUMENT;
+    }
+
+    memset(&Info, 0, sizeof(Info));
+    Info.uiStructSize = sizeof(Info);
+    Info.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+    roller_ed_legacy_scene_query_tower(uiTowerIndex, &Info);
+    *pInfoOut = Info;
+    return ROLLER_ED_RESULT_OK;
+}
+
 eRollerEdResult ROLLER_ED_CALL RollerEd_FillGeometry(
     uint32_t uiExpectedGeometryEpoch,
     tEdVertex *pVerts, uint32_t uiVertexCapacity,

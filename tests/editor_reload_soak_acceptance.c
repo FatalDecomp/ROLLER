@@ -510,6 +510,8 @@ static int soak_build_tower_limit_input(tSoakContext *pContext)
 
 static int soak_verify_tower_limit(tSoakContext *pContext)
 {
+    uint32_t uiTowerCount = 0u;
+
     if (RollerEd_LoadTrackFile(pContext->szTowerLimitTrack,
                                pContext->szAssetRoot)
             != ROLLER_ED_RESULT_OK) {
@@ -522,7 +524,20 @@ static int soak_verify_tower_limit(tSoakContext *pContext)
                   NumTowers, MAX_TOWERS);
         return 0;
     }
+    if (RollerEd_QueryTowerCount(&uiTowerCount) != ROLLER_ED_RESULT_OK
+            || uiTowerCount != MAX_TOWERS) {
+        soak_fail(pContext,
+                  "tower query returned %u entries; expected %d: %s",
+                  uiTowerCount, MAX_TOWERS, RollerEd_GetLastError());
+        return 0;
+    }
     for (int iTower = 0; iTower < MAX_TOWERS; ++iTower) {
+        tEdTowerInfo Info = {
+            .uiStructSize = sizeof(Info),
+            .uiVersion = ROLLER_ED_TOWER_INFO_VERSION
+        };
+        int iChunkIdx = TowerBase[iTower].iChunkIdx;
+
         if (TowerBase[iTower].iChunkIdx != iTower
                 || TowerBase[iTower].iHOffset != iTower
                 || TowerBase[iTower].iVOffset != -iTower
@@ -531,6 +546,25 @@ static int soak_verify_tower_limit(tSoakContext *pContext)
                 || TowerSect[iTower] != iTower) {
             soak_fail(pContext,
                       "tower %d did not preserve its decoded fields",
+                      iTower);
+            return 0;
+        }
+        if (RollerEd_QueryTower((uint32_t)iTower, &Info)
+                != ROLLER_ED_RESULT_OK
+                || Info.uiStructSize != sizeof(Info)
+                || Info.uiVersion != ROLLER_ED_TOWER_INFO_VERSION
+                || Info.uiChunkId != (uint32_t)iChunkIdx
+                || Info.fWorldPosition[0] != TowerX[iTower]
+                || Info.fWorldPosition[1] != TowerY[iTower]
+                || Info.fWorldPosition[2] != TowerZ[iTower]
+                || Info.fAnchorPosition[0]
+                    != -localdata[iChunkIdx].pointAy[3].fX
+                || Info.fAnchorPosition[1]
+                    != -localdata[iChunkIdx].pointAy[3].fY
+                || Info.fAnchorPosition[2]
+                    != -localdata[iChunkIdx].pointAy[3].fZ) {
+            soak_fail(pContext,
+                      "tower query %d disagreed with InitTowers output",
                       iTower);
             return 0;
         }
@@ -544,7 +578,23 @@ static int soak_verify_tower_limit(tSoakContext *pContext)
             return 0;
         }
     }
-    printf("  E7-S1: retained the first %d of %d authored towers\n",
+    {
+        tEdTowerInfo Info;
+        tEdTowerInfo Before;
+
+        memset(&Info, 0xc7, sizeof(Info));
+        Info.uiStructSize = sizeof(Info);
+        Info.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+        Before = Info;
+        if (RollerEd_QueryTower(uiTowerCount, &Info)
+                != ROLLER_ED_RESULT_INVALID_ARGUMENT
+                || memcmp(&Info, &Before, sizeof(Before)) != 0) {
+            soak_fail(pContext,
+                      "out-of-range tower query changed caller output");
+            return 0;
+        }
+    }
+    printf("  E7-S1/S2: queried the first %d of %d authored towers\n",
            NumTowers, SOAK_TOWER_INPUT_COUNT);
     return 1;
 }

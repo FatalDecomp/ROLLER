@@ -19,6 +19,7 @@
 #include "roller.h"
 #include "roller_core_error.h"
 #include "scene_render_gpu.h"
+#include "tower.h"
 #include "types.h"
 
 #define SDL_MAIN_HANDLED 1
@@ -361,6 +362,29 @@ eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
         g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
     editor_scene_set_error(szError, uiErrorCapacity, "");
     return ROLLER_ED_RESULT_OK;
+}
+
+uint32_t roller_ed_legacy_scene_tower_count(void)
+{
+    if (NumTowers <= 0)
+        return 0u;
+    if (NumTowers > MAX_TOWERS)
+        return MAX_TOWERS;
+    return (uint32_t)NumTowers;
+}
+
+void roller_ed_legacy_scene_query_tower(
+    uint32_t uiTowerIndex, tEdTowerInfo *pInfoOut)
+{
+    int iChunkIdx = TowerBase[uiTowerIndex].iChunkIdx;
+
+    pInfoOut->uiChunkId = (uint32_t)iChunkIdx;
+    pInfoOut->fWorldPosition[0] = TowerX[uiTowerIndex];
+    pInfoOut->fWorldPosition[1] = TowerY[uiTowerIndex];
+    pInfoOut->fWorldPosition[2] = TowerZ[uiTowerIndex];
+    pInfoOut->fAnchorPosition[0] = -localdata[iChunkIdx].pointAy[3].fX;
+    pInfoOut->fAnchorPosition[1] = -localdata[iChunkIdx].pointAy[3].fY;
+    pInfoOut->fAnchorPosition[2] = -localdata[iChunkIdx].pointAy[3].fZ;
 }
 
 eRollerEdResult roller_ed_legacy_scene_install(

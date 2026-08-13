@@ -68,6 +68,8 @@ class EditorApiContractTests(unittest.TestCase):
             "RollerEd_RenderFrame",
             "RollerEd_SetOverlayState",
             "RollerEd_SetReferenceMesh",
+            "RollerEd_QueryTowerCount",
+            "RollerEd_QueryTower",
             "RollerEd_QueryGeometrySizes",
             "RollerEd_FillGeometry",
         ):

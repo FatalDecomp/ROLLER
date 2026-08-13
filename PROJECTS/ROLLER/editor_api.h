@@ -279,6 +279,7 @@ enum
 #define ROLLER_ED_OVERLAY_STATE_VERSION 3u
 #define ROLLER_ED_REFERENCE_MESH_VERSION 1u
 #define ROLLER_ED_GEOMETRY_SIZES_VERSION 1u
+#define ROLLER_ED_TOWER_INFO_VERSION 1u
 
 #if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
 #  pragma pack(push, 8)
@@ -421,6 +422,15 @@ typedef struct
     uint32_t uiMaterialStride;
 } tEdGeometrySizes;
 
+typedef struct
+{
+    uint32_t uiStructSize;
+    uint32_t uiVersion;
+    uint32_t uiChunkId;
+    float fWorldPosition[3];
+    float fAnchorPosition[3];
+} tEdTowerInfo;
+
 #if defined(_MSC_VER) || defined(__GNUC__) || defined(__clang__)
 #  pragma pack(pop)
 #endif
@@ -524,6 +534,15 @@ ROLLER_ED_STATIC_ASSERT(offsetof(tEdGeometrySizes, uiGeometryEpoch) == 8u,
                         "geometry epoch offset");
 ROLLER_ED_STATIC_ASSERT(offsetof(tEdGeometrySizes, uiVertexStride) == 36u,
                         "geometry stride offset");
+ROLLER_ED_STATIC_ASSERT(sizeof(tEdTowerInfo) == 36u, "tower info size");
+ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdTowerInfo) == 4u,
+                        "tower info alignment");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdTowerInfo, uiChunkId) == 8u,
+                        "tower chunk offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdTowerInfo, fWorldPosition) == 12u,
+                        "tower world position offset");
+ROLLER_ED_STATIC_ASSERT(offsetof(tEdTowerInfo, fAnchorPosition) == 24u,
+                        "tower anchor position offset");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdVertex) == 4u, "vertex alignment");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdPrimitive) == 4u, "primitive alignment");
 ROLLER_ED_STATIC_ASSERT(ROLLER_ED_ALIGNOF(tEdMaterial) == 4u, "material alignment");
@@ -607,6 +626,16 @@ ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetOverlayState(
  */
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetReferenceMesh(
     const tEdReferenceMesh *pMesh);
+
+/*
+ * Tower results are copied from the committed scene during the call; no
+ * pointer is retained. Both calls require a READY scene on the render worker.
+ * pInfoOut must carry sizeof(tEdTowerInfo) and TOWER_INFO_VERSION on entry.
+ */
+ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_QueryTowerCount(
+    uint32_t *puiCountOut);
+ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_QueryTower(
+    uint32_t uiTowerIndex, tEdTowerInfo *pInfoOut);
 
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_QueryGeometrySizes(
     tEdGeometrySizes *pSizesOut);

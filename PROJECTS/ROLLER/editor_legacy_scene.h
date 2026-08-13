@@ -61,6 +61,11 @@ eRollerEdResult roller_ed_legacy_scene_set_graphics_settings(
     char *szError,
     size_t uiErrorCapacity);
 
+/* Copies authoritative InitTowers results and their loaded chunk anchors. */
+uint32_t roller_ed_legacy_scene_tower_count(void);
+void roller_ed_legacy_scene_query_tower(
+    uint32_t uiTowerIndex, tEdTowerInfo *pInfoOut);
+
 /*
  * One extraction of the loaded scene's authored geometry, owned by whoever
  * called extract and released through the matching call. The facade caches

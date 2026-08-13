@@ -12,6 +12,8 @@ static_assert(std::is_standard_layout<tEdGeometrySizes>::value,
               "geometry sizes must be standard layout");
 static_assert(std::is_standard_layout<tEdOverlayState>::value,
               "overlay state must be standard layout");
+static_assert(std::is_standard_layout<tEdTowerInfo>::value,
+              "tower info must be standard layout");
 
 int main()
 {
@@ -33,5 +35,6 @@ int main()
         && ROLLER_ED_OVERLAY_STATE_VERSION == 3u
         && ROLLER_ED_CAMERA_STATE_VERSION == 1u
         && ROLLER_ED_REFERENCE_MESH_VERSION == 1u
+        && ROLLER_ED_TOWER_INFO_VERSION == 1u
         ? 0 : 1;
 }
