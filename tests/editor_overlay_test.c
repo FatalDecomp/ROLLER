@@ -62,7 +62,8 @@ int main(void)
         ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH,
         ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS,
         ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED,
-        ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS
+        ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS,
+        ROLLER_ED_OVERLAY_DETACH_LAST
     };
     const uint32_t uiKnownFlags = (uint32_t)ROLLER_ED_OVERLAY_KNOWN_FLAGS;
     tEdOverlayState State;
@@ -77,10 +78,10 @@ int main(void)
         for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i)
             uiUnion |= auiFlags[i];
         CHECK(uiUnion == uiKnownFlags);
-        /* Bit 13 is the first undefined one; bit 5 is reserved, having been
+        /* Bit 14 is the first undefined one; bit 5 is reserved, having been
          * the retired environment floor, and must stay refused rather than
          * being quietly reused. */
-        CHECK((uiKnownFlags & (1u << 13)) == 0u);
+        CHECK((uiKnownFlags & (1u << 14)) == 0u);
         CHECK((uiKnownFlags & (1u << 5)) == 0u);
     }
 
@@ -101,12 +102,33 @@ int main(void)
     CHECK(!roller_ed_overlay_enabled(
               ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION));
     CHECK(!roller_ed_overlay_selection_range(&uiFirstChunk, &uiLastChunk));
+    CHECK(roller_ed_overlay_track_segment_visible(0u, 4u));
+    CHECK(roller_ed_overlay_track_segment_visible(3u, 4u));
     roller_ed_overlay_get(&State);
     CHECK(State.uiStructSize == sizeof(State));
     CHECK(State.uiVersion == ROLLER_ED_OVERLAY_STATE_VERSION);
     CHECK(State.uiFlags == ROLLER_ED_OVERLAY_DEFAULT_FLAGS);
     CHECK(State.uiFirstSelectedChunk == ROLLER_ED_INVALID_CHUNK_ID);
     CHECK(State.uiLastSelectedChunk == ROLLER_ED_INVALID_CHUNK_ID);
+
+    /* DETACH_LAST affects only the closing segment. Invalid ids do not name
+     * visible segments, whether or not the flag is enabled. */
+    {
+        tEdOverlayState Open = make_state(
+            ROLLER_ED_OVERLAY_SHOW_SURFACES
+                | ROLLER_ED_OVERLAY_DETACH_LAST, 0u, 0u);
+
+        roller_ed_overlay_set(&Open);
+        CHECK(roller_ed_overlay_track_segment_visible(0u, 4u));
+        CHECK(roller_ed_overlay_track_segment_visible(2u, 4u));
+        CHECK(!roller_ed_overlay_track_segment_visible(3u, 4u));
+        CHECK(!roller_ed_overlay_track_segment_visible(4u, 4u));
+        CHECK(!roller_ed_overlay_track_segment_visible(0u, 0u));
+
+        Open.uiFlags &= ~ROLLER_ED_OVERLAY_DETACH_LAST;
+        roller_ed_overlay_set(&Open);
+        CHECK(roller_ed_overlay_track_segment_visible(3u, 4u));
+    }
 
     /* Every flag round-trips on its own and is reported on its own. */
     for (size_t i = 0; i < sizeof(auiFlags) / sizeof(auiFlags[0]); ++i) {
@@ -188,7 +210,7 @@ int main(void)
      * does not define is never stored. */
     {
         tEdOverlayState Unknown = make_state(
-            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 13) | (1u << 31), 1u, 2u);
+            ROLLER_ED_OVERLAY_SHOW_SURFACES | (1u << 14) | (1u << 31), 1u, 2u);
 
         roller_ed_overlay_set(&Unknown);
         CHECK(roller_ed_overlay_flags() == ROLLER_ED_OVERLAY_SHOW_SURFACES);

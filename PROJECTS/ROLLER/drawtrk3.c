@@ -268,11 +268,13 @@ static void draw_helper_quad(GameRenderer *pRenderer,
  * pair. uiLine is an AI line index, or ED_HELPER_AI_LINE_COUNT for the centre
  * line. */
 static void draw_helper_line(GameRenderer *pRenderer, uint32_t uiLine,
-                             uint32_t uiPaletteColour)
+                             uint32_t uiPaletteColour, bool bAttachLast)
 {
     const bool bCenterLine = uiLine >= ED_HELPER_AI_LINE_COUNT;
 
     for (int iChunk = 0; iChunk < TRAK_LEN; iChunk++) {
+        if (!bAttachLast && iChunk == TRAK_LEN - 1)
+            continue;
         int iNextChunk = iChunk + 1 < TRAK_LEN ? iChunk + 1 : 0;
         float afStart[3];
         float afEnd[3];
@@ -414,16 +416,20 @@ void drawtrk3_editor_draw_reference_mesh(GameRenderer *pRenderer)
 
 void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
 {
+    bool bAttachLast;
+
     if (!pRenderer)
         return;
+    bAttachLast = !roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_DETACH_LAST);
 
     if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AI_LINES)) {
         for (uint32_t uiLine = 0; uiLine < ED_HELPER_AI_LINE_COUNT; uiLine++)
-            draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR);
+            draw_helper_line(
+                pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR, bAttachLast);
     }
     if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_CENTER_LINE)) {
         draw_helper_line(pRenderer, ED_HELPER_AI_LINE_COUNT,
-                         ED_CENTER_LINE_PALETTE_COLOUR);
+                         ED_CENTER_LINE_PALETTE_COLOUR, bAttachLast);
     }
     /* Markers last, so they read against the lines and floor under them. */
     if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_AUDIO_MARKERS)) {
@@ -1212,6 +1218,11 @@ static bool emit_track_chunk_surface_to_renderer(
     uint16_t unSurfaceClass)
 {
     tEdTrackRenderContext Context;
+#if defined(ROLLER_EDITOR_CORE)
+    if (!roller_ed_overlay_track_segment_visible(
+            uiChunkId, (uint32_t)TRAK_LEN))
+        return true;
+#endif
     Context.pRenderer = pRenderer;
     return emit_track_chunk_surface(
         uiChunkId, unSurfaceClass, true,

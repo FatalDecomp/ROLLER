@@ -241,7 +241,14 @@ enum
      * export geometry, and their visibility is independent of the surface
      * master and per-class masks.
      */
-    ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS = 1u << 12
+    ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS = 1u << 12,
+    /*
+     * Hide the final track segment, which joins the last authored chunk back
+     * to chunk zero. This is preview-only: it leaves an open track for editing
+     * without changing the loaded or canonically exported geometry. Absence
+     * preserves the traditional closed view for older hosts.
+     */
+    ROLLER_ED_OVERLAY_DETACH_LAST = 1u << 13
 };
 
 /*

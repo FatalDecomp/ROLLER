@@ -90,6 +90,15 @@ bool roller_ed_overlay_enabled(uint32_t uiFlag)
     return uiFlag != 0u && (s_uiFlags & uiFlag) == uiFlag;
 }
 
+bool roller_ed_overlay_track_segment_visible(uint32_t uiChunkId,
+                                             uint32_t uiChunkCount)
+{
+    if (uiChunkCount == 0u || uiChunkId >= uiChunkCount)
+        return false;
+    return uiChunkId != uiChunkCount - 1u
+        || !roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_DETACH_LAST);
+}
+
 bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
                                        uint32_t *puiLastChunk)
 {

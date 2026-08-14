@@ -95,9 +95,10 @@ class HelperRenderingTests(unittest.TestCase):
             "ROLLER_ED_OVERLAY_SHOW_CENTER_LINE",
         ):
             self.assertIn(flag, body)
-        # Two here, E3A-S5's two markers, and E7-S3's tower markers; every
-        # helper remains independently gated.
-        self.assertEqual(body.count("roller_ed_overlay_enabled("), 5)
+        # Two here, E3A-S5's two markers, E7-S3's tower markers, and the
+        # Detach Last modifier shared by both line types. Every helper remains
+        # independently gated.
+        self.assertEqual(body.count("roller_ed_overlay_enabled("), 6)
 
     def test_all_four_ai_lines_are_drawn(self) -> None:
         body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")
@@ -106,9 +107,11 @@ class HelperRenderingTests(unittest.TestCase):
     def test_ai_lines_use_the_red_palette_entry(self) -> None:
         self.assertIn("#define ED_AI_LINE_PALETTE_COLOUR 0xE7u", self.draw)
         body = function_body(self.draw, "void drawtrk3_editor_draw_helpers(")
+        compact = re.sub(r"\s+", " ", without_comments(body))
+        self.assertIn("draw_helper_line(", compact)
         self.assertIn(
-            "draw_helper_line(pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR)",
-            without_comments(body).replace("\n", " ").replace("  ", " "),
+            "pRenderer, uiLine, ED_AI_LINE_PALETTE_COLOUR, bAttachLast",
+            compact,
         )
 
     def test_ai_and_center_lines_share_the_thin_ribbon_width(self) -> None:

@@ -18,6 +18,7 @@ OVERLAY_FLAGS = (
     "ROLLER_ED_OVERLAY_SHOW_TEST_CAR",
     "ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH",
     "ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS",
+    "ROLLER_ED_OVERLAY_DETACH_LAST",
 )
 
 
@@ -99,6 +100,7 @@ class OverlayModuleTests(unittest.TestCase):
             "roller_ed_overlay_flags",
             "roller_ed_overlay_enabled",
             "roller_ed_overlay_selection_range",
+            "roller_ed_overlay_track_segment_visible",
         ):
             self.assertIn(symbol, self.header)
             self.assertIn(symbol, self.source)
@@ -134,6 +136,30 @@ class OverlayModuleTests(unittest.TestCase):
         self.assertIn("ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION", body)
         self.assertIn("ROLLER_ED_INVALID_CHUNK_ID", body)
         self.assertIn("uiFirstChunk > uiLastChunk", body)
+
+
+class AttachLastRenderTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.draw = (ROLLER / "drawtrk3.c").read_text(encoding="utf-8")
+
+    def test_the_closing_track_surface_and_helper_ribbons_share_the_filter(self) -> None:
+        surface = function_body(
+            self.draw, "static bool emit_track_chunk_surface_to_renderer("
+        )
+        helpers = function_body(
+            self.draw, "void drawtrk3_editor_draw_helpers("
+        )
+        helper_line = function_body(self.draw, "static void draw_helper_line(")
+        self.assertIn("roller_ed_overlay_track_segment_visible(", surface)
+        self.assertIn("ROLLER_ED_OVERLAY_DETACH_LAST", helpers)
+        self.assertIn("bAttachLast", helper_line)
+        self.assertIn("iChunk == TRAK_LEN - 1", helper_line)
+
+    def test_canonical_export_geometry_remains_closed(self) -> None:
+        canonical = function_body(self.draw, "bool drawtrk3_emit_full_track(")
+        self.assertNotIn("roller_ed_overlay", canonical)
+        self.assertIn("ed_traverse_full_track_chunks(", canonical)
 
 
 class SeamAndLifecycleTests(unittest.TestCase):

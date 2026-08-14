@@ -35,7 +35,8 @@
      | ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH \
      | ROLLER_ED_OVERLAY_TEST_CAR_MILLION_PLUS \
      | ROLLER_ED_OVERLAY_TEST_CAR_ADVANCED \
-     | ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS)
+     | ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS \
+     | ROLLER_ED_OVERLAY_DETACH_LAST)
 
 /*
  * The defaults reproduce the E1-S6 track-only view exactly: every surface
@@ -72,6 +73,14 @@ bool roller_ed_overlay_enabled(uint32_t uiFlag);
  */
 bool roller_ed_overlay_selection_range(uint32_t *puiFirstChunk,
                                        uint32_t *puiLastChunk);
+
+/*
+ * A canonical track segment belongs to its starting chunk. The final one
+ * joins chunk (count - 1) to chunk zero and follows DETACH_LAST; every other
+ * in-range segment remains visible. Invalid ids never describe a segment.
+ */
+bool roller_ed_overlay_track_segment_visible(uint32_t uiChunkId,
+                                             uint32_t uiChunkCount);
 
 /*
  * E3A-S2. Both queries are the master flag AND the class's mask bit, so a host
