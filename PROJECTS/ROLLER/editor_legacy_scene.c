@@ -39,6 +39,7 @@ static int s_bEditorOwnsGPUDevice;
 static int s_bLegacyInitialized;
 static int s_bEditorCloudsAttempted;
 static int s_bEditorCloudsReady;
+static char s_szEditorCloudAsset[ROLLER_MAX_PATH];
 static eRollerEdRenderer s_eActiveRenderer;
 
 static void editor_scene_set_legacy_display(
@@ -76,20 +77,27 @@ static void editor_scene_prepare_clouds(void)
     char szResolved[ROLLER_MAX_PATH];
     int bLoadFailed;
 
-    if (s_bEditorCloudsAttempted) {
-        if (s_bEditorCloudsReady)
-            textures_off &= ~TEX_OFF_CLOUDS;
-        else
-            textures_off |= TEX_OFF_CLOUDS;
-        return;
-    }
-    s_bEditorCloudsAttempted = -1;
-    s_bEditorCloudsReady = 0;
-
     if (!loadtrack_resolve_editor_asset(gencartex_name, szResolved)) {
+        s_bEditorCloudsAttempted = -1;
+        s_bEditorCloudsReady = 0;
+        s_szEditorCloudAsset[0] = '\0';
         textures_off |= TEX_OFF_CLOUDS;
         return;
     }
+
+    if (s_bEditorCloudsAttempted) {
+        if (strcmp(s_szEditorCloudAsset, szResolved) == 0) {
+            if (s_bEditorCloudsReady)
+                textures_off &= ~TEX_OFF_CLOUDS;
+            else
+                textures_off |= TEX_OFF_CLOUDS;
+            return;
+        }
+    }
+    s_bEditorCloudsAttempted = -1;
+    s_bEditorCloudsReady = 0;
+    snprintf(s_szEditorCloudAsset, sizeof(s_szEditorCloudAsset),
+             "%s", szResolved);
 
 #if defined(ROLLER_EDITOR_CORE)
     roller_core_error_clear();
@@ -863,5 +871,6 @@ void roller_ed_legacy_scene_shutdown(void)
     s_bEditorOwnsGPUDevice = 0;
     s_bEditorCloudsAttempted = 0;
     s_bEditorCloudsReady = 0;
+    s_szEditorCloudAsset[0] = '\0';
     s_eActiveRenderer = 0;
 }

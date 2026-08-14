@@ -22,8 +22,10 @@ class EditorErrorBoundaryTests(unittest.TestCase):
         cls.game = (sources / "3d.c").read_text(encoding="utf-8")
 
     def test_facade_commits_only_successful_staged_loads(self) -> None:
-        load_body = self.api.split("RollerEd_LoadTrackFile", 1)[1].split(
-            "RollerEd_UnloadTrack", 1
+        load_body = self.api.split(
+            "static eRollerEdResult roller_ed_load_track_file(", 1
+        )[1].split(
+            "eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(", 1
         )[0]
         self.assertIn("ed_track_file_stage", load_body)
         self.assertIn("ROLLER_ED_SCENE_FAILED", load_body)

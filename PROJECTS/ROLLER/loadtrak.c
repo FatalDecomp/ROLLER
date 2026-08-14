@@ -599,6 +599,48 @@ static eRollerEdResult loadtrack_resolve_document_asset(
   return ROLLER_ED_RESULT_IO_FAILED;
 }
 
+/* Normal game loads keep the working directory at FATDATA.  Community
+ * tracks live beside their authored TEX/BLD files, so resolve those names
+ * relative to the TRK first and then let the bare-name lookup reach FATDATA.
+ * Direct/editor loads use the explicit document/fallback path above. */
+static int loadtrack_resolve_track_asset(
+    const char *szTrackPath, const char *szAsset,
+    char szResolved[ROLLER_MAX_PATH])
+{
+  char szTrackDirectory[ROLLER_MAX_PATH];
+  const char *szSlash;
+  size_t uiDirectoryLength;
+  char szCandidate[ROLLER_MAX_PATH];
+
+  if (!szTrackPath || !szTrackPath[0] || !szAsset || !szAsset[0]
+      || !szResolved)
+    return 0;
+
+  szSlash = strrchr(szTrackPath, '/');
+  {
+    const char *szBackslash = strrchr(szTrackPath, '\\');
+    if (!szSlash || (szBackslash && szBackslash > szSlash))
+      szSlash = szBackslash;
+  }
+  if (szSlash) {
+    uiDirectoryLength = (size_t)(szSlash - szTrackPath);
+    if (uiDirectoryLength == 0u)
+      uiDirectoryLength = 1u;
+    if (uiDirectoryLength >= sizeof(szTrackDirectory))
+      return 0;
+    memcpy(szTrackDirectory, szTrackPath, uiDirectoryLength);
+    szTrackDirectory[uiDirectoryLength] = '\0';
+  } else {
+    snprintf(szTrackDirectory, sizeof(szTrackDirectory), ".");
+  }
+
+  if (loadtrack_join_asset_path(
+          szCandidate, szTrackDirectory, szAsset)
+      && loadtrack_copy_existing_path(szResolved, szCandidate))
+    return -1;
+  return loadtrack_copy_existing_path(szResolved, szAsset);
+}
+
 static eRollerEdResult loadtrack_validate_palette(
     const char *szPalettePath, char *szError, size_t uiErrorCapacity)
 {
@@ -1529,6 +1571,11 @@ static eRollerEdResult loadtrack_internal(
       readstuntdata(&pCurrDataPtr);
       read_texturemap(&pCurrDataPtr);
       read_bldmap(&pCurrDataPtr);
+      if (!szDirectTexturePath)
+        loadtrack_resolve_track_asset(szTrackFile, texture_file, texture_file);
+      if (!szDirectBuildingTexturePath)
+        loadtrack_resolve_track_asset(
+            szTrackFile, bldtex_file, bldtex_file);
       if (szDirectTexturePath) {
         strncpy(texture_file, szDirectTexturePath, sizeof(texture_file) - 1u);
         texture_file[sizeof(texture_file) - 1u] = '\0';
@@ -1945,7 +1992,7 @@ void read_bldmap(uint8 **ppTrackData)
     } while (*pszFilenamePtr != 13 && *pszFilenamePtr != 10);
     bldtex_file[iIndex] = 0;                    // Null-terminate the building texture filename
   } else {
-    strcpy((char *)fp_buf, "building.drh");     // Use default building texture if no BLD entry found
+    strcpy(bldtex_file, "building.drh");       // Use default building texture if no BLD entry found
   }
   *ppTrackData = pbyOriginalTrackData;          // Restore original track data pointer
 }

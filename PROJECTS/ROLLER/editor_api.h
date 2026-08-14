@@ -600,6 +600,15 @@ ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetGraphicsSettings(
  */
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     const char *szTrackPath, const char *szDocumentAssetRoot);
+/*
+ * Loads a track using the document directory first and an optional explicit
+ * fallback root second.  A null or empty fallback means that only the
+ * document directory is searched.  The two roots are copied/consumed during
+ * the call and are never retained by the facade.
+ */
+ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFileEx(
+    const char *szTrackPath, const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot);
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void);
 /* Camera and overlay inputs are copied during the call and are not retained. */
 ROLLER_ED_API eRollerEdResult ROLLER_ED_CALL RollerEd_SetCamera(

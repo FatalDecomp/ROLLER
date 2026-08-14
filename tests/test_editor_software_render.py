@@ -81,7 +81,7 @@ class EditorSoftwareRenderTests(unittest.TestCase):
         )
 
     def test_init_preference_and_fallback_reach_scene_install(self) -> None:
-        load = extract_function(self.facade, "RollerEd_LoadTrackFile")
+        load = extract_function(self.facade, "roller_ed_load_track_file")
         ensure = extract_function(self.adapter, "editor_scene_ensure_renderer")
         self.assertRegex(
             load,

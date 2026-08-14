@@ -456,8 +456,9 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_SetGraphicsSettings(
     return eResult;
 }
 
-eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
-    const char *szTrackPath, const char *szDocumentAssetRoot)
+static eRollerEdResult roller_ed_load_track_file(
+    const char *szTrackPath, const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot)
 {
     eRollerEdResult eResult = roller_ed_require_worker();
     eEdTrackLoadResult eLoadResult;
@@ -471,6 +472,12 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
         return ROLLER_ED_RESULT_INVALID_ARGUMENT;
     }
 
+    /* The staged loader requires a pair of roots.  Treat an omitted fallback
+     * as document-only rather than silently using the application directory
+     * or the worker's current directory. */
+    if (!szFallbackAssetRoot || !szFallbackAssetRoot[0])
+        szFallbackAssetRoot = szDocumentAssetRoot;
+
     ed_track_stage_init(&Staged);
     eLoadResult = ed_track_file_stage(
         szTrackPath, &Staged, s_szLastError, sizeof(s_szLastError));
@@ -483,7 +490,7 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     }
 
     eResult = roller_ed_legacy_scene_install(
-        szTrackPath, &Staged, szDocumentAssetRoot, s_szAssetRoot,
+        szTrackPath, &Staged, szDocumentAssetRoot, szFallbackAssetRoot,
         s_ePreferredRenderer, s_uiAllowSoftwareFallback,
         s_szLastError, sizeof(s_szLastError));
     if (eResult != ROLLER_ED_RESULT_OK) {
@@ -500,6 +507,21 @@ eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
     roller_ed_advance_geometry_epoch();
     roller_ed_advance_track_generation();
     return ROLLER_ED_RESULT_OK;
+}
+
+eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFile(
+    const char *szTrackPath, const char *szDocumentAssetRoot)
+{
+    return roller_ed_load_track_file(
+        szTrackPath, szDocumentAssetRoot, s_szAssetRoot);
+}
+
+eRollerEdResult ROLLER_ED_CALL RollerEd_LoadTrackFileEx(
+    const char *szTrackPath, const char *szDocumentAssetRoot,
+    const char *szFallbackAssetRoot)
+{
+    return roller_ed_load_track_file(
+        szTrackPath, szDocumentAssetRoot, szFallbackAssetRoot);
 }
 
 eRollerEdResult ROLLER_ED_CALL RollerEd_UnloadTrack(void)
