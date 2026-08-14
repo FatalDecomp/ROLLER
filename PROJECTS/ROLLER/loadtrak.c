@@ -1190,7 +1190,7 @@ static eRollerEdResult loadtrack_internal(
           ++NumBuildings;
           p_fBuildingAnglesBase = p_fBuildingAngles + 2;
           p_fBuildingAngles[1] = (float)iSignRoll;
-        } else {
+        } else if (NumTowers < MAX_TOWERS) {
           *pTowerBasePtr++ = iChunkIdx;
           pTowerBase = pTowerBasePtr;
           *pTowerBasePtr = iSignHOffset;

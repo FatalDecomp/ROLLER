@@ -9,10 +9,10 @@
 //-------------------------------------------------------------------------------------------------
 
 int TowerSect[MAX_TRACK_CHUNKS]; //001A1FA0
-float TowerX[32];         //001A2770
-float TowerY[32];         //001A27F0
-float TowerZ[32];         //001A2870
-tTowerBase TowerBase[32]; //001A28F0
+float TowerX[MAX_TOWERS];         //001A2770
+float TowerY[MAX_TOWERS];         //001A27F0
+float TowerZ[MAX_TOWERS];         //001A2870
+tTowerBase TowerBase[MAX_TOWERS]; //001A28F0
 tPolyParams TowerPol;     //001A2B70
 int NumTowers;            //001A2B9C
 
@@ -79,6 +79,80 @@ void InitTowers()
 }
 
 //-------------------------------------------------------------------------------------------------
+/*
+ * E7-S3. Shared camera-facing, constant-screen-size tower marker. DrawTower
+ * retains the legacy gates and visibility heuristic around this seam, while
+ * the editor calls it directly for every loaded tower so authored camera
+ * modes, NearTow, and the game-only screen heuristic cannot suppress one.
+ */
+void tower_emit_marker(int iTowerIdx, float fScale)
+{
+  double TowerMinusViewX;
+  double TowerMinusViewY;
+  double TowerMinusViewZ;
+  double dTransformed3DZ;
+  float fClampedZ;
+  GameRenderVertex verts[4];
+  float fHalfPixelSize;
+  float viewOffsetX[4];
+  float viewOffsetY[4];
+
+  if (iTowerIdx < 0 || iTowerIdx >= NumTowers || iTowerIdx >= MAX_TOWERS
+      || !g_pGameRenderer || !(fScale > 0.0f) || !isfinite(fScale))
+    return;
+
+  TowerMinusViewX = TowerX[iTowerIdx] - viewx;
+  TowerMinusViewY = TowerY[iTowerIdx] - viewy;
+  TowerMinusViewZ = TowerZ[iTowerIdx] - viewz;
+  dTransformed3DZ = (float)TowerMinusViewX * vk3
+                  + (float)TowerMinusViewY * vk6
+                  + (float)TowerMinusViewZ * vk9;
+  fClampedZ = (float)dTransformed3DZ;
+  if (dTransformed3DZ < 80.0)
+    fClampedZ = 80.0f;
+
+  fHalfPixelSize = fClampedZ * 3.0f * 64.0f
+                 / ((float)scr_size * (float)VIEWDIST);
+  fHalfPixelSize *= fScale;
+  viewOffsetX[0] = fHalfPixelSize;
+  viewOffsetX[1] = -fHalfPixelSize;
+  viewOffsetX[2] = -fHalfPixelSize;
+  viewOffsetX[3] = fHalfPixelSize;
+  viewOffsetY[0] = fHalfPixelSize;
+  viewOffsetY[1] = fHalfPixelSize;
+  viewOffsetY[2] = -fHalfPixelSize;
+  viewOffsetY[3] = -fHalfPixelSize;
+
+  for (int vi = 0; vi < 4; vi++) {
+    verts[vi].x = TowerX[iTowerIdx]
+                + viewOffsetX[vi] * vk1 + viewOffsetY[vi] * vk2;
+    verts[vi].y = TowerY[iTowerIdx]
+                + viewOffsetX[vi] * vk4 + viewOffsetY[vi] * vk5;
+    verts[vi].z = TowerZ[iTowerIdx]
+                + viewOffsetX[vi] * vk7 + viewOffsetY[vi] * vk8;
+    verts[vi].u = 0.0f;
+    verts[vi].v = 0.0f;
+  }
+  {
+    tEdSurfaceInfo SurfaceInfo;
+    memset(&SurfaceInfo, 0, sizeof(SurfaceInfo));
+    SurfaceInfo.uiChunkId = TowerBase[iTowerIdx].iChunkIdx >= 0
+      ? (uint32_t)TowerBase[iTowerIdx].iChunkIdx
+      : ROLLER_ED_INVALID_CHUNK_ID;
+    SurfaceInfo.uiRenderFlags = SURFACE_FLAG_FLIP_BACKFACE | 0xE7;
+    SurfaceInfo.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
+    SurfaceInfo.uiTextureSet = TEXTURE_BANK_TRACK;
+    SurfaceInfo.fSubdivideThreshold = 1.0f;
+    SurfaceInfo.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_TOWER;
+    SurfaceInfo.unContentClass = ROLLER_ED_CONTENT_RUNTIME_SCENERY;
+    SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
+    SurfaceInfo.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
+    SurfaceInfo.iRenderSubdivideType = GAME_RENDER_SUBDIVIDE_TYPE_AUTO;
+    drawtrk3_emit_surface_to_renderer(g_pGameRenderer, verts, &SurfaceInfo);
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
 //00075850
 void DrawTower(int iTowerIdx, uint8 *pScrBuf)
 {                                               
@@ -124,35 +198,7 @@ void DrawTower(int iTowerIdx, uint8 *pScrBuf)
     iPixelY = (iScreenSize * (199 - (int)dScreenY)) >> 6;// Complex visibility test for different distance ranges
     if (fOriginalZ >= 5000.0 && xp >= -50 && xp < 370 && yp >= -50 && yp < 250
       || fOriginalZ > -1000.0 && fOriginalZ < 5000.0 && (fTransformed3DX > -1000.0 && fTransformed3DX < 1000.0 || xp > -200 && xp < 520)) {
-      GameRenderVertex verts[4];
-      float fHalfPixelSize = fClampedZ * 3.0f * 64.0f / ((float)scr_size * (float)VIEWDIST);
-      float viewOffsetX[4] = { fHalfPixelSize, -fHalfPixelSize, -fHalfPixelSize, fHalfPixelSize };
-      float viewOffsetY[4] = { fHalfPixelSize, fHalfPixelSize, -fHalfPixelSize, -fHalfPixelSize };
-      for (int vi = 0; vi < 4; vi++) {
-        verts[vi].x = TowerX[iTowerIdx] + viewOffsetX[vi] * vk1 + viewOffsetY[vi] * vk2;
-        verts[vi].y = TowerY[iTowerIdx] + viewOffsetX[vi] * vk4 + viewOffsetY[vi] * vk5;
-        verts[vi].z = TowerZ[iTowerIdx] + viewOffsetX[vi] * vk7 + viewOffsetY[vi] * vk8;
-        verts[vi].u = 0.0f;
-        verts[vi].v = 0.0f;
-      }
-      {
-        tEdSurfaceInfo SurfaceInfo;
-        memset(&SurfaceInfo, 0, sizeof(SurfaceInfo));
-        SurfaceInfo.uiChunkId = TowerBase[iTowerIdx].iChunkIdx >= 0
-          ? (uint32_t)TowerBase[iTowerIdx].iChunkIdx
-          : ROLLER_ED_INVALID_CHUNK_ID;
-        SurfaceInfo.uiRenderFlags = SURFACE_FLAG_FLIP_BACKFACE | 0xE7;
-        SurfaceInfo.uiBackSurfaceFlags = ED_MATERIAL_ID_NONE;
-        SurfaceInfo.uiTextureSet = TEXTURE_BANK_TRACK;
-        SurfaceInfo.fSubdivideThreshold = 1.0f;
-        SurfaceInfo.unSurfaceClass = ROLLER_ED_SURFACE_CLASS_TOWER;
-        SurfaceInfo.unContentClass = ROLLER_ED_CONTENT_RUNTIME_SCENERY;
-        SurfaceInfo.byTopology = ROLLER_ED_TOPOLOGY_QUAD;
-        SurfaceInfo.byRenderUVLayout = ROLLER_ED_RENDER_UV_TILE;
-        SurfaceInfo.iRenderSubdivideType = GAME_RENDER_SUBDIVIDE_TYPE_AUTO;
-        drawtrk3_emit_surface_to_renderer(
-          g_pGameRenderer, verts, &SurfaceInfo);
-      }
+      tower_emit_marker(iTowerIdx, 1.0f);
     }
   }
 }

@@ -50,6 +50,7 @@ class EditorApiContractTests(unittest.TestCase):
             "fAtlasBias",
             "ROLLER_ED_OVERLAY_SHOW_SURFACES",
             "ROLLER_ED_OVERLAY_SHOW_REFERENCE_MESH",
+            "ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS",
         ):
             self.assertIn(name, self.header)
 
@@ -68,6 +69,8 @@ class EditorApiContractTests(unittest.TestCase):
             "RollerEd_RenderFrame",
             "RollerEd_SetOverlayState",
             "RollerEd_SetReferenceMesh",
+            "RollerEd_QueryTowerCount",
+            "RollerEd_QueryTower",
             "RollerEd_QueryGeometrySizes",
             "RollerEd_FillGeometry",
         ):

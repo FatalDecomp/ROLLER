@@ -446,6 +446,10 @@ void drawtrk3_editor_draw_helpers(GameRenderer *pRenderer)
                                    ED_STUNT_MARKER_PALETTE_COLOUR);
         }
     }
+    if (roller_ed_overlay_enabled(ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS)) {
+        for (int iTowerIdx = 0; iTowerIdx < NumTowers; iTowerIdx++)
+            tower_emit_marker(iTowerIdx, 1.0f);
+    }
 }
 
 static void draw_emitted_surface(const tEdSurfaceEmission *pSurface,

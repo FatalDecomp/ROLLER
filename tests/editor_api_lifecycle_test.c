@@ -39,6 +39,23 @@ static tEdGraphicsSettings s_LastLegacyGraphics;
 static uint32_t s_uiStubQuadCount;
 static int s_iStubExtractCount;
 
+uint32_t roller_ed_legacy_scene_tower_count(void)
+{
+    return 2u;
+}
+
+void roller_ed_legacy_scene_query_tower(
+    uint32_t uiTowerIndex, tEdTowerInfo *pInfoOut)
+{
+    pInfoOut->uiChunkId = 40u + uiTowerIndex;
+    pInfoOut->fWorldPosition[0] = (float)uiTowerIndex + 0.25f;
+    pInfoOut->fWorldPosition[1] = (float)uiTowerIndex + 1.25f;
+    pInfoOut->fWorldPosition[2] = (float)uiTowerIndex + 2.25f;
+    pInfoOut->fAnchorPosition[0] = (float)uiTowerIndex - 10.0f;
+    pInfoOut->fAnchorPosition[1] = (float)uiTowerIndex - 20.0f;
+    pInfoOut->fAnchorPosition[2] = (float)uiTowerIndex - 30.0f;
+}
+
 eRollerEdResult roller_ed_legacy_scene_install(
     const char *szTrackPath,
     const tEdTrackStage *pStage,
@@ -351,6 +368,38 @@ static int SDLCALL lifecycle_worker(void *pUserData)
     CHECK_WORKER(Sizes.uiMaterialStride == sizeof(tEdMaterial));
     uiInitialEpoch = Sizes.uiGeometryEpoch;
     uiInitialGeneration = Sizes.uiTrackGeneration;
+    {
+        uint32_t uiTowerCount = 0x87654321u;
+        tEdTowerInfo TowerInfo;
+        tEdTowerInfo Before;
+
+        memset(&TowerInfo, 0xa5, sizeof(TowerInfo));
+        TowerInfo.uiStructSize = sizeof(TowerInfo);
+        TowerInfo.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+        Before = TowerInfo;
+        CHECK_WORKER(RollerEd_QueryTowerCount(&uiTowerCount)
+                     == ROLLER_ED_RESULT_NO_SCENE);
+        CHECK_WORKER(uiTowerCount == 0x87654321u);
+        CHECK_WORKER(RollerEd_QueryTower(0u, &TowerInfo)
+                     == ROLLER_ED_RESULT_NO_SCENE);
+        CHECK_WORKER(memcmp(&TowerInfo, &Before, sizeof(Before)) == 0);
+        CHECK_WORKER(RollerEd_QueryTowerCount(NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(RollerEd_QueryTower(0u, NULL)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+
+        TowerInfo.uiVersion = ROLLER_ED_TOWER_INFO_VERSION + 1u;
+        Before = TowerInfo;
+        CHECK_WORKER(RollerEd_QueryTower(0u, &TowerInfo)
+                     == ROLLER_ED_RESULT_INVALID_VERSION);
+        CHECK_WORKER(memcmp(&TowerInfo, &Before, sizeof(Before)) == 0);
+        TowerInfo.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+        TowerInfo.uiStructSize = sizeof(TowerInfo) - 1u;
+        Before = TowerInfo;
+        CHECK_WORKER(RollerEd_QueryTower(0u, &TowerInfo)
+                     == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+        CHECK_WORKER(memcmp(&TowerInfo, &Before, sizeof(Before)) == 0);
+    }
 
     SDL_SignalSemaphore(pContext->pReady);
     SDL_WaitSemaphore(pContext->pContinue);
@@ -403,7 +452,8 @@ static int SDLCALL lifecycle_worker(void *pUserData)
             .uiFlags = ROLLER_ED_OVERLAY_SHOW_SURFACES
                 | ROLLER_ED_OVERLAY_SHOW_WIREFRAME
                 | ROLLER_ED_OVERLAY_HIGHLIGHT_SELECTION
-                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS,
+                | ROLLER_ED_OVERLAY_SHOW_STUNT_MARKERS
+                | ROLLER_ED_OVERLAY_SHOW_TOWER_MARKERS,
             .uiFirstSelectedChunk = 31u,
             .uiLastSelectedChunk = 12u,
             .uiSurfaceClassMask = ROLLER_ED_OVERLAY_ALL_SURFACE_CLASSES,
@@ -460,7 +510,7 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         /* A bit this API version does not define is refused whole rather than
          * quietly dropped, so the host never believes it enabled something. */
         InvalidOverlay = Overlay;
-        InvalidOverlay.uiFlags |= 1u << 12;
+        InvalidOverlay.uiFlags |= 1u << 13;
         CHECK_WORKER(RollerEd_SetOverlayState(&InvalidOverlay)
                      == ROLLER_ED_RESULT_INVALID_ARGUMENT);
         CHECK_WORKER(strstr(RollerEd_GetLastError(), "uiFlags") != NULL);
@@ -596,6 +646,38 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(Sizes.uiSceneState == ROLLER_ED_SCENE_READY);
         CHECK_WORKER(Sizes.uiTrackGeneration != uiInitialGeneration);
         CHECK_WORKER(Sizes.uiGeometryEpoch != uiInitialEpoch);
+        {
+            uint32_t uiTowerCount = 0u;
+            tEdTowerInfo TowerInfo = {
+                .uiStructSize = sizeof(TowerInfo),
+                .uiVersion = ROLLER_ED_TOWER_INFO_VERSION
+            };
+            tEdTowerInfo Before;
+
+            CHECK_WORKER(RollerEd_QueryTowerCount(&uiTowerCount)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(uiTowerCount == 2u);
+            CHECK_WORKER(RollerEd_QueryTower(1u, &TowerInfo)
+                         == ROLLER_ED_RESULT_OK);
+            CHECK_WORKER(TowerInfo.uiStructSize == sizeof(TowerInfo));
+            CHECK_WORKER(TowerInfo.uiVersion
+                         == ROLLER_ED_TOWER_INFO_VERSION);
+            CHECK_WORKER(TowerInfo.uiChunkId == 41u);
+            CHECK_WORKER(TowerInfo.fWorldPosition[0] == 1.25f
+                         && TowerInfo.fWorldPosition[1] == 2.25f
+                         && TowerInfo.fWorldPosition[2] == 3.25f);
+            CHECK_WORKER(TowerInfo.fAnchorPosition[0] == -9.0f
+                         && TowerInfo.fAnchorPosition[1] == -19.0f
+                         && TowerInfo.fAnchorPosition[2] == -29.0f);
+
+            memset(&TowerInfo, 0x5a, sizeof(TowerInfo));
+            TowerInfo.uiStructSize = sizeof(TowerInfo);
+            TowerInfo.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+            Before = TowerInfo;
+            CHECK_WORKER(RollerEd_QueryTower(uiTowerCount, &TowerInfo)
+                         == ROLLER_ED_RESULT_INVALID_ARGUMENT);
+            CHECK_WORKER(memcmp(&TowerInfo, &Before, sizeof(Before)) == 0);
+        }
         {
             const uint32_t uiEpochBeforeStunts = Sizes.uiGeometryEpoch;
             const uint32_t uiGenerationBeforeStunts =
@@ -809,6 +891,24 @@ static int SDLCALL lifecycle_worker(void *pUserData)
         CHECK_WORKER(RollerEd_GetLastError()[0] == '\0');
 
         {
+            uint32_t uiTowerCount = 0xfedcba98u;
+            tEdTowerInfo TowerInfo;
+            tEdTowerInfo TowerBefore;
+
+            memset(&TowerInfo, 0x6b, sizeof(TowerInfo));
+            TowerInfo.uiStructSize = sizeof(TowerInfo);
+            TowerInfo.uiVersion = ROLLER_ED_TOWER_INFO_VERSION;
+            TowerBefore = TowerInfo;
+            CHECK_WORKER(RollerEd_QueryTowerCount(&uiTowerCount)
+                         == ROLLER_ED_RESULT_NO_SCENE);
+            CHECK_WORKER(uiTowerCount == 0xfedcba98u);
+            CHECK_WORKER(RollerEd_QueryTower(0u, &TowerInfo)
+                         == ROLLER_ED_RESULT_NO_SCENE);
+            CHECK_WORKER(memcmp(&TowerInfo, &TowerBefore,
+                                sizeof(TowerBefore)) == 0);
+        }
+
+        {
             tEdVertex Vertex;
             tEdVertex Before;
             tEdVertex aVertices[4];
@@ -1020,6 +1120,12 @@ int main(int argc, char **argv)
             .uiStructSize = sizeof(Sizes),
             .uiVersion = ROLLER_ED_GEOMETRY_SIZES_VERSION
         };
+        uint32_t uiTowerCount = 0x12345678u;
+        tEdTowerInfo TowerInfo = {
+            .uiStructSize = sizeof(TowerInfo),
+            .uiVersion = ROLLER_ED_TOWER_INFO_VERSION
+        };
+        tEdTowerInfo TowerBefore = TowerInfo;
         tRollerEdInitInfo InitInfo = {
             .uiStructSize = sizeof(InitInfo),
             .uiVersion = ROLLER_ED_INIT_INFO_VERSION,
@@ -1031,6 +1137,19 @@ int main(int argc, char **argv)
             RollerEd_QueryGeometrySizes(&Sizes)
                 == ROLLER_ED_RESULT_WRONG_THREAD,
             __LINE__);
+        if (iMainFailure == 0)
+            iMainFailure = check_condition(
+                RollerEd_QueryTowerCount(&uiTowerCount)
+                    == ROLLER_ED_RESULT_WRONG_THREAD
+                && uiTowerCount == 0x12345678u,
+                __LINE__);
+        if (iMainFailure == 0)
+            iMainFailure = check_condition(
+                RollerEd_QueryTower(0u, &TowerInfo)
+                    == ROLLER_ED_RESULT_WRONG_THREAD
+                && memcmp(&TowerInfo, &TowerBefore,
+                          sizeof(TowerBefore)) == 0,
+                __LINE__);
         if (iMainFailure == 0)
             iMainFailure = check_condition(
                 RollerEd_Init(&InitInfo) == ROLLER_ED_RESULT_WRONG_THREAD,
