@@ -160,6 +160,10 @@ int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState)
   pState->extra.byAIThrottleControl = pCar->byAIThrottleControl;
   pState->extra.byPitLaneActiveFlag = pCar->byPitLaneActiveFlag;
   pState->extra.byCollisionTimer = pCar->byCollisionTimer;
+  pState->extra.nLocalYaw = pCar->nYaw;
+  pState->extra.nLocalPitch = pCar->nPitch;
+  pState->extra.nLocalRoll = pCar->nRoll;
+  pState->extra.nLocalActualYaw = pCar->nActualYaw;
   pState->extra.byFinishPosition = finished_car[iCar] ? pCar->byRacePosition : 255;
   return 1;
 }
@@ -240,6 +244,10 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   pose.nRoll = pState->state.nWorldRoll; pose.nActualYaw = pState->state.nActualYaw;
   if (!NetSimWorldToLegacy(&pose, &car))
     return 0;
+  car.nYaw = pState->extra.nLocalYaw;
+  car.nPitch = pState->extra.nLocalPitch;
+  car.nRoll = pState->extra.nLocalRoll;
+  car.nActualYaw = pState->extra.nLocalActualYaw;
   NetSimRehomeChunk(&car);
   Car[iCar] = car;
   human_control[iCar] = pState->state.byHumanControl;

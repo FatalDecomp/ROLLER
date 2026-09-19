@@ -139,17 +139,20 @@ typedef struct
   uint8  byDamageToggle, byCheatCooldown, byEngineStartTimer, byPad;        /* 4 */
   uint8  byThrottlePressed, byAccelerating, byAIThrottleControl, byPitLaneActiveFlag; /* 4 */
   uint8  byCollisionTimer, byPad2[3];                                       /* 4 */
-} tNetCarExtra;                                /* 84 bytes */
+  /* Exact local angles remove the one-unit ambiguity in the integer
+     world/local transforms before a predicted car is replayed. */
+  int16  nLocalYaw, nLocalPitch, nLocalRoll, nLocalActualYaw;                /* 8 */
+} tNetCarExtra;                                /* 92 bytes */
 
-typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 148 */
+typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 156 */
 
 typedef struct
 {
   uint32 uiTick;
   uint8  byCount;           /* 1 or 2: one entry per rollback-group car */
   uint8  byPad[3];
-  /* followed by byCount x { uint8 byCarIdx; uint8 byPad2[3]; tNetCarExtra extra; } (72 each) */
-} tNetOwnCarStateHeader;    /* 8 bytes; 80 for one car, 152 for two */
+  /* followed by byCount x { uint8 byCarIdx; uint8 byPad2[3]; tNetCarExtra extra; } (96 each) */
+} tNetOwnCarStateHeader;    /* 8 bytes; 104 for one car, 200 for two */
 
 typedef enum
 {
@@ -230,8 +233,8 @@ _Static_assert(sizeof(tNetCarState) == 64, "tNetCarState wire size");
 _Static_assert(sizeof(tNetRampState) == 6, "tNetRampState wire size");
 _Static_assert(sizeof(tNetSnapshot) == 1104, "tNetSnapshot wire size");
 _Static_assert(sizeof(tNetSnapshotDeltaHeader) == 36, "tNetSnapshotDeltaHeader wire size");
-_Static_assert(sizeof(tNetCarExtra) == 84, "tNetCarExtra wire size");
-_Static_assert(sizeof(tNetCarFullState) == 148, "tNetCarFullState wire size");
+_Static_assert(sizeof(tNetCarExtra) == 92, "tNetCarExtra wire size");
+_Static_assert(sizeof(tNetCarFullState) == 156, "tNetCarFullState wire size");
 _Static_assert(sizeof(tNetOwnCarStateHeader) == 8, "tNetOwnCarStateHeader wire size");
 _Static_assert(sizeof(tNetEvent) == 20, "tNetEvent wire size");
 _Static_assert(sizeof(tNetPause) == 8, "tNetPause wire size");

@@ -154,7 +154,7 @@ jobs:
       - name: Run simulation, wire and multi-process tests
         run: >-
           zig build test-net-foundations test-net-full-state-coherence test-net-harness -Doptimize=ReleaseSafe
-          -Dassets-path=zig-out/fatdata-demo -Dsoak-track=TRACK5.TRK
+          '-Dassets-path=${{ github.workspace }}/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
       - name: Check source manifests
         run: zig build check-source-set-drift check-roller-core-manifest
 

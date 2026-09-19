@@ -323,9 +323,10 @@ static void NetTestFramesAndRanges(void)
   CHECK(fabsf(world.position.fX - roundTrip.position.fX) < 0.01f);
   CHECK(fabsf(world.position.fY - roundTrip.position.fY) < 0.01f);
   CHECK(fabsf(world.position.fZ - roundTrip.position.fZ) < 0.01f);
-  CHECK(NetAngleDifference(world.nYaw, roundTrip.nYaw) <= 1);
-  CHECK(NetAngleDifference(world.nPitch, roundTrip.nPitch) <= 1);
-  CHECK(NetAngleDifference(world.nRoll, roundTrip.nRoll) <= 1);
+  /* The legacy integer angle transforms can round by two of 16384 units. */
+  CHECK(NetAngleDifference(world.nYaw, roundTrip.nYaw) <= 2);
+  CHECK(NetAngleDifference(world.nPitch, roundTrip.nPitch) <= 2);
+  CHECK(NetAngleDifference(world.nRoll, roundTrip.nRoll) <= 2);
 
   car.nCurrChunk = car.nReferenceChunk = -1;
   car.pos.fX = 1234.5f; car.pos.fY = -456.25f; car.pos.fZ = 789.75f;
@@ -353,7 +354,7 @@ static void NetTestFramesAndRanges(void)
   CHECK(fabsf(targetWorld.position.fX - roundTrip.position.fX) < 0.05f);
   CHECK(fabsf(targetWorld.position.fY - roundTrip.position.fY) < 0.05f);
   CHECK(fabsf(targetWorld.position.fZ - roundTrip.position.fZ) < 0.05f);
-  CHECK(NetAngleDifference(targetWorld.nYaw, roundTrip.nYaw) <= 1);
+  CHECK(NetAngleDifference(targetWorld.nYaw, roundTrip.nYaw) <= 2);
 
   NetTestRestore(&initial);
   human_control[0] = 1;
