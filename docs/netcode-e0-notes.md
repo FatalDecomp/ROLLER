@@ -120,7 +120,8 @@ of it (R1 NET-FIX-1): chunks within the loaded track, the four local angles
 within the trig tables, `byAttacker`, `byRacePosition` and `byFinishPosition`
 within `numcars`, the gear within -2 (reverse) to the car's own engine gear
 count, the replay bit fields (`byWheelAnimationFrame` 0..15, `byDamageState`
-0..1), lives 0..3 or 255, laps within `NoOfLaps + 1`, and health finite within
+0..1), lives at most 3 as a signed byte (any negative value is a dead or
+non-competitor car), laps within `NoOfLaps + 1`, and health finite within
 0..100. A rejected state leaves `Car[]` byte-identical.
 
 ## Replay cost

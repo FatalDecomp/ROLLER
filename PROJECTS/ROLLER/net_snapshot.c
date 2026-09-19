@@ -232,8 +232,11 @@ static int NetCarFullStateValid(int iCar, const tNetCarFullState *pState)
     return 0;
   if (pExtra->byFinishPosition != 255 && pExtra->byFinishPosition >= numcars)
     return 0;
-  /* Three lives at the start; 255 marks a car that is out or a non-competitor. */
-  if (pCar->byLives > 3 && pCar->byLives != 255)
+  /* Three lives at the start.  byLives is only read for its sign (the 0x80
+     bit, (char) > 0, !byLives), and any negative value is reachable: a
+     non-competitor at 255 is decremented to 254 on destruction and only
+     renormalised to 255 once its death timer runs out. */
+  if ((int8)pCar->byLives > 3)
     return 0;
   /* Lap counting stops at NoOfLaps + 1 when a car finishes; NoOfLaps == 0 is
      infinite laps, where only the sign is meaningful. */

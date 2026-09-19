@@ -841,7 +841,7 @@ static void NetTestFullStateRejection(const tTestMoment *pRunning)
         full.state.byWheelAnimationFrame = 15;
         full.state.byDamageState = 1;
         full.state.byRacePosition = (uint8)(numcars - 1);
-        full.state.byLives = 255;
+        full.state.byLives = 254; /* destroyed non-competitor, pre-renormalise */
         full.extra.byFinishPosition = 255;
         full.extra.fHealth = 100.0f;
         full.state.nCurrChunk = (int16)(TRAK_LEN - 1);
