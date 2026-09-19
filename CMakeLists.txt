@@ -66,6 +66,13 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/scene_render.c
     PROJECTS/ROLLER/scene_render_software.c
     PROJECTS/ROLLER/moving.c
+    PROJECTS/ROLLER/net_headless.c
+    PROJECTS/ROLLER/net_stats.c
+    PROJECTS/ROLLER/net_channel.c
+    PROJECTS/ROLLER/net_session.c
+    PROJECTS/ROLLER/net_host.c
+    PROJECTS/ROLLER/net_client.c
+    PROJECTS/ROLLER/net_rendezvous.c
     PROJECTS/ROLLER/network.c
     PROJECTS/ROLLER/plans.c
     PROJECTS/ROLLER/platform_log.c
@@ -165,6 +172,10 @@ if(ROLLER_BUILD_EDITOR_CORE)
         target_link_libraries(roller-core PRIVATE winmm)
     endif()
     roller_configure_c_target(roller-core)
+
+    add_executable(net-foundations-test tests/net_foundations_test.c)
+    target_link_libraries(net-foundations-test PRIVATE ROLLER::core)
+    roller_configure_c_target(net-foundations-test)
 
     add_executable(editor-core-link-test tests/editor_core_link_test.c)
     target_link_libraries(editor-core-link-test PRIVATE ROLLER::core)

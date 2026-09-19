@@ -136,6 +136,13 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/scene_render.c",
             "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/moving.c",
+            "PROJECTS/ROLLER/net_headless.c",
+            "PROJECTS/ROLLER/net_stats.c",
+            "PROJECTS/ROLLER/net_channel.c",
+            "PROJECTS/ROLLER/net_session.c",
+            "PROJECTS/ROLLER/net_host.c",
+            "PROJECTS/ROLLER/net_client.c",
+            "PROJECTS/ROLLER/net_rendezvous.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
             "PROJECTS/ROLLER/platform_log.c",
@@ -436,6 +443,43 @@ fn configureRenderQueue3DTests(
         .target = target,
         .optimize = optimize,
     });
+    const net_foundations_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_foundations_mod.sanitize_c = .off;
+    net_foundations_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_foundations_mod.addIncludePath(sdl.builder.path("include"));
+    net_foundations_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_foundations_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_foundations_mod.addIncludePath(libcdio.builder.path("include"));
+    net_foundations_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_foundations_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_foundations_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_foundations_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_foundations_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_foundations_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_foundations_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_foundations_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_foundations_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/net_foundations_test.c",
+        },
+    });
+    const net_foundations_exe = b.addExecutable(.{
+        .name = "net_foundations_acceptance",
+        .root_module = net_foundations_mod,
+    });
+    const run_net_foundations = b.addRunArtifact(net_foundations_exe);
+    run_net_foundations.addFileArg(assets_path.path(b, soak_track));
+    run_net_foundations.addDirectoryArg(assets_path);
+    const net_foundations_tests = b.step("test-net-foundations", "Run NET-E0 foundation acceptance");
+    net_foundations_tests.dependOn(&run_net_foundations.step);
     const editor_track_only_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
