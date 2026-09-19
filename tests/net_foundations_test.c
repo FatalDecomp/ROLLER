@@ -27,6 +27,8 @@ typedef struct {
   tNetSimTickContext context;
 } tTestMoment;
 
+static int NetAngleDifference(int iA, int iB);
+
 static void NetTestCapture(tTestMoment *pMoment)
 {
   memset(pMoment, 0, sizeof(*pMoment));
@@ -70,6 +72,7 @@ static void NetTestRollback(int iVariant)
     Car[0].fSpeedOverflow = 0;
     Car[0].byCheatCooldown = 0;
     g_bBrazilianMayte = true;
+    cheat_control = -1;
     SelectedView[0] = 1;
     memset(CarSpray, 0, sizeof(CarSpray));
   }
@@ -136,6 +139,28 @@ static void NetTestRollback(int iVariant)
   NetTestRestore(&initial);
 }
 
+static void NetTestDoubleRun(void)
+{
+  static tTestMoment initial, first, second;
+  tCopyData aInputs[MAX_CARS] = {0};
+  human_control[0] = 1;
+  aInputs[0].data.unInput = 11 << 8;
+  aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL;
+  memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+  NetTestCapture(&initial);
+  for (int iTick = 0; iTick < 20; ++iTick)
+    NetHeadlessStepInputs(aInputs, numcars);
+  NetTestCapture(&first);
+  NetTestRestore(&initial);
+  memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+  for (int iTick = 0; iTick < 20; ++iTick)
+    NetHeadlessStepInputs(aInputs, numcars);
+  NetTestCapture(&second);
+  CHECK(!memcmp(&first, &second, sizeof(first)));
+  NetTestRestore(&initial);
+  puts("20-tick double run: byte-exact cars, ramps, context and RNG");
+}
+
 static tNetWorldPose g_puppetPose;
 static int g_iHookCalls;
 static void NetTestPuppetHook(void)
@@ -151,29 +176,40 @@ static void NetTestRampsAndPuppets(void)
   tNetWorldPose actual;
   tData oldGeometry;
   tCar oldPuppet;
+  tStuntData twin;
   int iOriginalRamps = totalramps;
+  int iRampA = totalramps;
   CHECK(totalramps < NET_MAX_RAMPS);
   ramp[totalramps++] = initramp(100, 2, 16, 0, 1, 64, 10, 10, 1024, 63);
-  CHECK(ramp[totalramps - 1]);
+  CHECK(ramp[iRampA]);
   NetTestCapture(&initial);
   NetSimSaveRamps(aStates);
   oldGeometry = localdata[99];
-  state = aStates[totalramps - 1];
+  state = aStates[iRampA];
   state.nTickStartIdx = 8;
   state.nRunningTimer = 7;
-  CHECK(NetSimSetRampState(totalramps - 1, &state));
-  CHECK(ramp[totalramps - 1]->iRunningTimer == 7);
+  CHECK(NetSimSetRampState(iRampA, &state));
+  CHECK(ramp[iRampA]->iRunningTimer == 7);
   CHECK(memcmp(&oldGeometry, &localdata[99], sizeof(oldGeometry)));
   for (int iTest = 0; iTest < 3; ++iTest) {
     int aiSteps[] = {1, 10, 200};
     NetTestRestore(&initial);
-    state = aStates[totalramps - 1];
-    CHECK(NetSimAdvanceRampStateCopy(totalramps - 1, &state, aiSteps[iTest]));
+    state = aStates[iRampA];
+    CHECK(NetSimAdvanceRampStateCopy(iRampA, &state, aiSteps[iTest]));
     for (int iTick = 0; iTick < aiSteps[iTest]; ++iTick)
-      updateramp(ramp[totalramps - 1]);
-    CHECK(state.nTickStartIdx == ramp[totalramps - 1]->iTickStartIdx);
-    CHECK(state.nTimingGroup2 == ramp[totalramps - 1]->iTimingGroup2);
-    CHECK(state.nRunningTimer == ramp[totalramps - 1]->iRunningTimer);
+      updateramp(ramp[iRampA]);
+    CHECK(state.nTickStartIdx == ramp[iRampA]->iTickStartIdx);
+    CHECK(state.nTimingGroup2 == ramp[iRampA]->iTimingGroup2);
+    CHECK(state.nRunningTimer == ramp[iRampA]->iRunningTimer);
+  }
+  NetTestRestore(&initial);
+  twin = *ramp[iRampA];
+  for (int iTick = 0; iTick < 200; ++iTick) {
+    updateramp(ramp[iRampA]);
+    updateramp(&twin);
+    CHECK(ramp[iRampA]->iTickStartIdx == twin.iTickStartIdx);
+    CHECK(ramp[iRampA]->iTimingGroup2 == twin.iTimingGroup2);
+    CHECK(ramp[iRampA]->iRunningTimer == twin.iRunningTimer);
   }
   NetTestRestore(&initial);
   net_sim_authority = NET_AUTHORITY_REMOTE;
@@ -185,8 +221,13 @@ static void NetTestRampsAndPuppets(void)
   CHECK(NetSimLegacyToWorld(&Car[1], &g_puppetPose));
   net_sim_puppet_hook = NetTestPuppetHook;
   g_iHookCalls = 0;
+  state = aStates[iRampA];
   for (int iTick = 0; iTick < 200; ++iTick) {
+    CHECK(NetSimAdvanceRampStateCopy(iRampA, &state, 1));
     NetHeadlessStep();
+    CHECK(state.nTickStartIdx == ramp[iRampA]->iTickStartIdx);
+    CHECK(state.nTimingGroup2 == ramp[iRampA]->iTimingGroup2);
+    CHECK(state.nRunningTimer == ramp[iRampA]->iRunningTimer);
     CHECK(NetSimLegacyToWorld(&Car[1], &actual));
     CHECK(fabsf(actual.position.fX - g_puppetPose.position.fX) < 0.05f);
     CHECK(fabsf(actual.position.fY - g_puppetPose.position.fY) < 0.05f);
@@ -202,19 +243,26 @@ static void NetTestRampsAndPuppets(void)
   /* Host-owned counters and track mutations stay unchanged under prediction. */
   NetSimSetPuppet(0, 0);
   Car[0].byCarDesignIdx = 12;
+  cheat_control = -1;
   tCopyData aInputs[MAX_CARS] = {0};
   aInputs[0].data.unFlags = BUTTON_FLAG_SPECIAL | BUTTON_FLAG_ACCEL;
   static int aColours[MAX_TRACK_CHUNKS][6];
   memcpy(aColours, TrakColour, sizeof(aColours));
   int iLap = Car[0].byLap, iFinishers = human_finishers;
+  int iFinishedCar = finished_car[0], iAllFinishers = finishers;
   float fTime = Car[0].fRunningLapTime;
   race_started = -1;
-  for (int iTick = 0; iTick < 200; ++iTick) {
+  for (int iCrossing = 0; iCrossing < 3; ++iCrossing) {
     Car[0].nCurrChunk = 0;
     Car[0].nReferenceChunk = TRAK_LEN - 1;
     NetHeadlessStepInputs(aInputs, numcars);
+    CHECK(Car[0].byLap == iLap && finished_car[0] == iFinishedCar &&
+          human_finishers == iFinishers && finishers == iAllFinishers);
   }
+  for (int iTick = 3; iTick < 200; ++iTick)
+    NetHeadlessStepInputs(aInputs, numcars);
   CHECK(Car[0].byLap == iLap && human_finishers == iFinishers);
+  CHECK(finished_car[0] == iFinishedCar && finishers == iAllFinishers);
   CHECK(Car[0].fRunningLapTime > fTime);
   CHECK(!memcmp(aColours, TrakColour, sizeof(aColours)));
   CHECK(Car[0].byCheatAmmo == initial.aCars[0].byCheatAmmo);
@@ -236,22 +284,179 @@ static void NetTestRampsAndPuppets(void)
   NetTestRestore(&initial);
   net_sim_authority = NET_AUTHORITY_LOCAL;
   memset(net_puppet_car, 0, sizeof(net_puppet_car));
-  fre((void **)&ramp[totalramps - 1]->chunkDataAy);
-  fre((void **)&ramp[totalramps - 1]);
+  for (int iRamp = totalramps - 1; iRamp >= iOriginalRamps; --iRamp) {
+    fre((void **)&ramp[iRamp]->chunkDataAy);
+    fre((void **)&ramp[iRamp]);
+  }
   totalramps = iOriginalRamps;
   puts("NET-E0 ramp, puppet and authority tests passed");
 }
 
+static void NetTestFramesAndRanges(void)
+{
+  static tTestMoment initial;
+  tNetCarFullState full;
+  tNetCarState groundedA, groundedB, airborneA, airborneB, interpolated;
+  tNetWorldPose world, roundTrip, targetWorld;
+  tCar car;
+  int iBanked = -1;
+  NetTestCapture(&initial);
+  for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk)
+    if (localdata[iChunk].iRoll || localdata[iChunk].iBankDelta) {
+      iBanked = iChunk;
+      break;
+    }
+  CHECK(iBanked >= 0);
+
+  car = Car[0];
+  car.nCurrChunk = car.nReferenceChunk = (int16)iBanked;
+  car.pos.fX = -localdata[iBanked].fTrackHalfLength * 0.4f;
+  car.pos.fY = localdata[iBanked].fTrackHalfWidth * 0.25f;
+  car.pos.fZ = 12.0f;
+  car.nYaw = 1200; car.nPitch = 300; car.nRoll = 500; car.nActualYaw = 1250;
+  CHECK(NetSimLegacyToWorld(&car, &world));
+  tCar converted = car;
+  memset(&converted.pos, 0, sizeof(converted.pos));
+  converted.nYaw = converted.nPitch = converted.nRoll = converted.nActualYaw = 0;
+  CHECK(NetSimWorldToLegacy(&world, &converted));
+  CHECK(NetSimLegacyToWorld(&converted, &roundTrip));
+  CHECK(fabsf(world.position.fX - roundTrip.position.fX) < 0.01f);
+  CHECK(fabsf(world.position.fY - roundTrip.position.fY) < 0.01f);
+  CHECK(fabsf(world.position.fZ - roundTrip.position.fZ) < 0.01f);
+  CHECK(NetAngleDifference(world.nYaw, roundTrip.nYaw) <= 1);
+  CHECK(NetAngleDifference(world.nPitch, roundTrip.nPitch) <= 1);
+  CHECK(NetAngleDifference(world.nRoll, roundTrip.nRoll) <= 1);
+
+  car.nCurrChunk = car.nReferenceChunk = -1;
+  car.pos.fX = 1234.5f; car.pos.fY = -456.25f; car.pos.fZ = 789.75f;
+  CHECK(NetSimLegacyToWorld(&car, &world));
+  converted = car;
+  memset(&converted.pos, 0, sizeof(converted.pos));
+  CHECK(NetSimWorldToLegacy(&world, &converted));
+  CHECK(!memcmp(&car.pos, &converted.pos, sizeof(car.pos)));
+  CHECK(car.nYaw == converted.nYaw && car.nPitch == converted.nPitch &&
+        car.nRoll == converted.nRoll && car.nActualYaw == converted.nActualYaw);
+
+  int iSource = iBanked;
+  int iTarget = (iSource + 2) % TRAK_LEN;
+  tCar target = Car[0];
+  target.nCurrChunk = target.nReferenceChunk = (int16)iTarget;
+  target.pos.fX = target.pos.fY = target.pos.fZ = 0.0f;
+  target.nYaw = 777; target.nPitch = 0; target.nRoll = 0; target.nActualYaw = 800;
+  CHECK(NetSimLegacyToWorld(&target, &targetWorld));
+  car = target;
+  car.nCurrChunk = car.nReferenceChunk = (int16)iSource;
+  CHECK(NetSimWorldToLegacy(&targetWorld, &car));
+  NetSimRehomeChunk(&car);
+  CHECK(car.nCurrChunk == iTarget);
+  CHECK(NetSimLegacyToWorld(&car, &roundTrip));
+  CHECK(fabsf(targetWorld.position.fX - roundTrip.position.fX) < 0.05f);
+  CHECK(fabsf(targetWorld.position.fY - roundTrip.position.fY) < 0.05f);
+  CHECK(fabsf(targetWorld.position.fZ - roundTrip.position.fZ) < 0.05f);
+  CHECK(NetAngleDifference(targetWorld.nYaw, roundTrip.nYaw) <= 1);
+
+  NetTestRestore(&initial);
+  human_control[0] = 1;
+  Car[0].fFinalSpeed = 277.0f;
+  CHECK(NetSnapshotEncodeCarFull(0, &full));
+  memset(&Car[0], 0, sizeof(Car[0]));
+  CHECK(NetSnapshotDecodeCarFull(0, &full));
+  CHECK(Car[0].fFinalSpeed == 277.0f);
+  NetTestRestore(&initial);
+  Car[0].fFinalSpeed = -123.0f;
+  CHECK(NetSnapshotEncodeCarFull(0, &full));
+  memset(&Car[0], 0, sizeof(Car[0]));
+  CHECK(NetSnapshotDecodeCarFull(0, &full));
+  CHECK(Car[0].fFinalSpeed == -123.0f);
+  NetTestRestore(&initial);
+  converttoair(&Car[0]);
+  Car[0].pos.fZ += 5000.0f;
+  Car[0].direction.fZ = 42.0f;
+  CHECK(NetSnapshotEncodeCarFull(0, &full));
+  memset(&Car[0], 0, sizeof(Car[0]));
+  CHECK(NetSnapshotDecodeCarFull(0, &full));
+  CHECK(Car[0].nCurrChunk == -1 && Car[0].direction.fZ == 42.0f);
+  NetTestRestore(&initial);
+  Car[0].byCarDesignIdx = 9;
+  Car[0].fFinalSpeed = 300.0f;
+  Car[0].fSpeedOverflow = 23.5f;
+  Car[0].byCheatCooldown = 36;
+  Car[0].byEngineStartTimer = 12;
+  CHECK(NetSnapshotEncodeCarFull(0, &full));
+  memset(&Car[0], 0, sizeof(Car[0]));
+  CHECK(NetSnapshotDecodeCarFull(0, &full));
+  CHECK(Car[0].fFinalSpeed == 300.0f && Car[0].fSpeedOverflow == 23.5f &&
+        Car[0].byCheatCooldown == 36 && Car[0].byEngineStartTimer == 12);
+
+  NetTestRestore(&initial);
+  Car[0] = car = initial.aCars[0];
+  car.nCurrChunk = car.nReferenceChunk = (int16)iBanked;
+  car.pos.fX = -localdata[iBanked].fTrackHalfLength * 0.5f;
+  Car[0] = car; CHECK(NetSnapshotEncodeCarFull(0, &full)); groundedA = full.state;
+  car.pos.fX = localdata[iBanked].fTrackHalfLength * 0.5f;
+  Car[0] = car; CHECK(NetSnapshotEncodeCarFull(0, &full)); groundedB = full.state;
+  CHECK(NetSnapshotInterpolate(&groundedA, &groundedB, 0.5f, &interpolated));
+  CHECK(interpolated.nCurrChunk == groundedB.nCurrChunk);
+  CHECK(fabsf(interpolated.fWorldPosX - (groundedA.fWorldPosX + groundedB.fWorldPosX) * 0.5f) < 0.01f);
+  car.nCurrChunk = car.nReferenceChunk = -1;
+  car.pos.fX = 10; car.pos.fY = 20; car.pos.fZ = 30;
+  Car[0] = car; CHECK(NetSnapshotEncodeCarFull(0, &full)); airborneA = full.state;
+  car.pos.fX = 110; car.pos.fY = 220; car.pos.fZ = 330;
+  Car[0] = car; CHECK(NetSnapshotEncodeCarFull(0, &full)); airborneB = full.state;
+  CHECK(NetSnapshotInterpolate(&airborneA, &airborneB, 0.5f, &interpolated));
+  CHECK(interpolated.nCurrChunk == -1 && interpolated.fWorldPosX == 60.0f &&
+        interpolated.fWorldPosY == 120.0f && interpolated.fWorldPosZ == 180.0f);
+  CHECK(NetSnapshotInterpolate(&groundedB, &airborneA, 0.5f, &interpolated));
+  CHECK(interpolated.nCurrChunk == -1);
+  NetTestRestore(&initial);
+  puts("NET-E0 frame conversion, re-home, range and interpolation scenarios passed");
+}
+
 static void NetTestSnapshots(void)
 {
+  static tTestMoment initial;
+  static int aColours[MAX_TRACK_CHUNKS][6];
+  static int aiGrip[MAX_TRACK_CHUNKS][3];
   tNetSnapshot base, current, decoded, older;
   uint8 abBytes[NET_MAX_PAYLOAD];
-  int iLength;
+  tCopyData aInputs[MAX_CARS] = {0};
+  int iLength, iSawRampMove = 0, iSawLovebun = 0, iSawAirborne = 0;
+  NetTestCapture(&initial);
+  memcpy(aColours, TrakColour, sizeof(aColours));
+  for (int iChunk = 0; iChunk < MAX_TRACK_CHUNKS; ++iChunk) {
+    aiGrip[iChunk][0] = localdata[iChunk].iCenterGrip;
+    aiGrip[iChunk][1] = localdata[iChunk].iLeftShoulderGrip;
+    aiGrip[iChunk][2] = localdata[iChunk].iRightShoulderGrip;
+  }
+  human_control[0] = 1;
+  cheat_control = -1;
+  Car[0].byCarDesignIdx = 12;
+  Car[0].byCheatAmmo = 5;
+  Car[0].byCheatCooldown = 0;
+  aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL;
   CHECK(NetSnapshotBuild(&base, 0, 42, 1, 0));
+  if (!base.byNumRamps)
+    base.byNumRamps = 1;
   older = base;
   for (int iTick = 1; iTick <= 100; ++iTick) {
-    NetHeadlessStep();
+    aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL | (iTick == 15 ? BUTTON_FLAG_SPECIAL : 0);
+    if (iTick == 30) {
+      converttoair(&Car[0]);
+      Car[0].pos.fZ += 10000.0f;
+      Car[0].direction.fZ = 40.0f;
+    }
+    NetHeadlessStepInputs(aInputs, numcars);
     CHECK(NetSnapshotBuild(&current, (uint32)iTick, (uint32)iTick, 1, 0));
+    if (!current.byNumRamps) {
+      current.byNumRamps = 1;
+      current.aRamps[0].nTickStartIdx = (int16)(iTick % 16);
+      current.aRamps[0].nTimingGroup2 = (iTick / 16) & 1 ? -1 : 1;
+      current.aRamps[0].nRunningTimer = (int16)(iTick % 10);
+    }
+    iSawRampMove |= memcmp(current.aRamps, base.aRamps,
+                           current.byNumRamps * sizeof(current.aRamps[0])) != 0;
+    iSawLovebun |= memcmp(aColours, TrakColour, sizeof(aColours)) != 0;
+    iSawAirborne |= current.aCars[0].nCurrChunk == -1;
     CHECK(NetSnapshotEncode(&current, abBytes, sizeof(abBytes)) == sizeof(current));
     CHECK(NetSnapshotDecode(abBytes, sizeof(current), &decoded));
     CHECK(!memcmp(&current, &decoded, sizeof(current)));
@@ -265,6 +470,7 @@ static void NetTestSnapshots(void)
     CHECK(!memcmp(&current, &decoded, sizeof(current)));
     base = current;
   }
+  CHECK(iSawRampMove && iSawLovebun && iSawAirborne);
   for (int iField = 0; iField < 31; ++iField) {
     current = base;
     ++current.uiTick;
@@ -319,6 +525,13 @@ static void NetTestSnapshots(void)
   current = base;
   current.aCars[0].fFinalSpeed = NAN;
   CHECK(!NetSnapshotEncode(&current, abBytes, sizeof(abBytes)));
+  memcpy(TrakColour, aColours, sizeof(aColours));
+  for (int iChunk = 0; iChunk < MAX_TRACK_CHUNKS; ++iChunk) {
+    localdata[iChunk].iCenterGrip = aiGrip[iChunk][0];
+    localdata[iChunk].iLeftShoulderGrip = aiGrip[iChunk][1];
+    localdata[iChunk].iRightShoulderGrip = aiGrip[iChunk][2];
+  }
+  NetTestRestore(&initial);
   puts("NET-E0 snapshot full/delta codecs and interpolation passed");
 }
 
@@ -326,8 +539,14 @@ static void NetTestReplayOutput(void)
 {
   static tTestMoment initial, live, replayed;
   tCopyData aInputs[MAX_CARS] = {0};
+  int iSoundOn = soundon;
   human_control[0] = 1;
   aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL;
+  soundon = 1;
+  memset(Pending, 0, sizeof(Pending));
+  memset(SamplePending, 0, sizeof(SamplePending));
+  memset(speechinfo, 0, sizeof(speechinfo));
+  readsample = writesample = 0;
   NetTestCapture(&initial);
   replayfile = tmpfile();
   CHECK(replayfile);
@@ -338,6 +557,8 @@ static void NetTestReplayOutput(void)
   CHECK(ftell(replayfile) > 0);
   long lRecordedBytes = ftell(replayfile);
   NetTestRestore(&initial);
+  memset(Pending, 0, sizeof(Pending));
+  memset(SamplePending, 0, sizeof(SamplePending));
   net_sim_replaying = 1;
   for (int iTick = 0; iTick < 20; ++iTick)
     NetHeadlessStepInputs(aInputs, numcars);
@@ -345,46 +566,168 @@ static void NetTestReplayOutput(void)
   NetTestCapture(&replayed);
   CHECK(ftell(replayfile) == lRecordedBytes);
   CHECK(!memcmp(&live, &replayed, sizeof(live)));
+  for (int iCar = 0; iCar < MAX_CARS; ++iCar)
+    CHECK(Pending[iCar] == 0);
+  CHECK(readsample == initial.context.iReadsample);
+  CHECK(writesample == initial.context.iWritesample);
+  CHECK(!memcmp(speechinfo, initial.context.aSpeech, sizeof(speechinfo)));
   fclose(replayfile);
   replayfile = NULL;
   replaytype = 0;
+  soundon = iSoundOn;
   NetTestRestore(&initial);
-  puts("20-tick replay: no file output, exact car/context/RNG equality");
+  puts("20-tick replay: no file or sound queues, exact car/context/RNG equality");
+}
+
+typedef struct {
+  tCar car;
+  uint32 uiRandomState;
+  uint64 ullRandomDraws;
+} tWireReference;
+
+static int NetAngleDifference(int iA, int iB)
+{
+  int iDifference = abs((iA - iB) & 16383);
+  return iDifference > 8192 ? 16384 - iDifference : iDifference;
+}
+
+static int NetMovementWithin(const tCar *pExpected, const tCar *pActual,
+                             const char *szScenario, int iTick)
+{
+  tNetWorldPose expectedPose, actualPose;
+  int iOkay = NetSimLegacyToWorld(pExpected, &expectedPose) &&
+              NetSimLegacyToWorld(pActual, &actualPose);
+#define NEAR_FIELD(field, tolerance) do { \
+  if (fabsf(pExpected->field - pActual->field) > (tolerance)) { \
+    fprintf(stderr, "%s tick %d movement %s %.9g != %.9g\n", szScenario, iTick, \
+            #field, pExpected->field, pActual->field); iOkay = 0; \
+  } \
+} while (0)
+#define EXACT_FIELD(field) do { \
+  if (pExpected->field != pActual->field) { \
+    fprintf(stderr, "%s tick %d movement %s %d != %d\n", szScenario, iTick, \
+            #field, (int)pExpected->field, (int)pActual->field); iOkay = 0; \
+  } \
+} while (0)
+  if (iOkay) {
+    float fDx = expectedPose.position.fX - actualPose.position.fX;
+    float fDy = expectedPose.position.fY - actualPose.position.fY;
+    float fDz = expectedPose.position.fZ - actualPose.position.fZ;
+    float fDistance = sqrtf(fDx * fDx + fDy * fDy + fDz * fDz);
+    if (fDistance > 0.5f) {
+      fprintf(stderr, "%s tick %d movement world-position error %.9g > 0.5\n",
+              szScenario, iTick, fDistance);
+      iOkay = 0;
+    }
+    if (NetAngleDifference(expectedPose.nYaw, actualPose.nYaw) > 91 ||
+        NetAngleDifference(expectedPose.nPitch, actualPose.nPitch) > 91 ||
+        NetAngleDifference(expectedPose.nRoll, actualPose.nRoll) > 91 ||
+        NetAngleDifference(expectedPose.nActualYaw, actualPose.nActualYaw) > 91) {
+      fprintf(stderr, "%s tick %d movement world-angle error exceeds 2 degrees\n",
+              szScenario, iTick);
+      iOkay = 0;
+    }
+  }
+  NEAR_FIELD(fFinalSpeed, 1.0f);
+  NEAR_FIELD(fHorizontalSpeed, 1.0f);
+  NEAR_FIELD(direction.fX, 1.0f);
+  NEAR_FIELD(direction.fY, 1.0f);
+  NEAR_FIELD(direction.fZ, 1.0f);
+  NEAR_FIELD(fBaseSpeed, 1.0f);
+  NEAR_FIELD(fSpeedOverflow, 1.0f);
+  NEAR_FIELD(fRPMRatio, 1.0f);
+  NEAR_FIELD(fPower, 1.0f);
+  EXACT_FIELD(nCurrChunk);
+  EXACT_FIELD(nReferenceChunk);
+  EXACT_FIELD(iLastValidChunk);
+  EXACT_FIELD(iJumpMomentum);
+  EXACT_FIELD(iControlType);
+  EXACT_FIELD(iSteeringInput);
+  EXACT_FIELD(iBankingSteerOffset);
+  EXACT_FIELD(iRollMomentum);
+  EXACT_FIELD(iRollMotion);
+  EXACT_FIELD(iPitchMotion);
+  EXACT_FIELD(iYawMotion);
+  EXACT_FIELD(nTargetChunk);
+  EXACT_FIELD(byGearAyMax);
+  EXACT_FIELD(iEngineState);
+  EXACT_FIELD(byThrottlePressed);
+  EXACT_FIELD(byAccelerating);
+  EXACT_FIELD(byCollisionTimer);
+#undef EXACT_FIELD
+#undef NEAR_FIELD
+  return iOkay;
+}
+
+static int NetTestFullStateScenario(const tTestMoment *pRunning, int iScenario)
+{
+  static const char *aszScenario[] = {"speed-250", "mid-jump", "mid-braking", "mid-gear-change"};
+  static tTestMoment initial;
+  tWireReference aReference[NET_MAX_REPLAY_TICKS];
+  tNetCarFullState wire;
+  tCopyData aaInputs[NET_MAX_REPLAY_TICKS][MAX_CARS] = {{{0}}};
+  tCopyData aPrevious[MAX_CARS] = {{0}};
+  int iMovementOkay = 1, iRngOkay = 1;
+  NetTestRestore(pRunning);
+  human_control[0] = 1;
+  SetEngine(&Car[0], 250.0f);
+  Car[0].fFinalSpeed = 250.0f;
+  for (int iTick = 0; iTick < NET_MAX_REPLAY_TICKS; ++iTick) {
+    aaInputs[iTick][0].data.unInput = (uint16)((10 + iTick % 5) << 8);
+    aaInputs[iTick][0].data.unFlags = BUTTON_FLAG_ACCEL;
+  }
+  aPrevious[0] = aaInputs[0][0];
+  if (iScenario == 1) {
+    converttoair(&Car[0]);
+    Car[0].pos.fZ += 10000.0f;
+    Car[0].direction.fZ = 35.0f;
+  } else if (iScenario == 2) {
+    Car[0].byThrottlePressed = Car[0].byAccelerating = 1;
+    for (int iTick = 0; iTick < NET_MAX_REPLAY_TICKS; ++iTick)
+      aaInputs[iTick][0].data.unFlags = BUTTON_FLAG_BRAKE;
+  } else if (iScenario == 3) {
+    aaInputs[0][0].data.unFlags |= BUTTON_FLAG_UPGEAR;
+    aaInputs[6][0].data.unFlags |= BUTTON_FLAG_UPGEAR;
+  }
+  memcpy(copy_multiple[(readptr - 1) & 511], aPrevious, sizeof(aPrevious));
+  NetTestCapture(&initial);
+  CHECK(NetSnapshotEncodeCarFull(0, &wire));
+  for (int iTick = 0; iTick < NET_MAX_REPLAY_TICKS; ++iTick) {
+    NetHeadlessStepInputs(aaInputs[iTick], numcars);
+    aReference[iTick].car = Car[0];
+    aReference[iTick].uiRandomState = ROLLERrandStateGet();
+    aReference[iTick].ullRandomDraws = ROLLERrandDrawCountGet();
+  }
+  NetTestRestore(&initial);
+  memcpy(copy_multiple[(readptr - 1) & 511], aPrevious, sizeof(aPrevious));
+  memset(&Car[0], 0, sizeof(Car[0]));
+  CHECK(NetSnapshotDecodeCarFull(0, &wire));
+  for (int iTick = 0; iTick < NET_MAX_REPLAY_TICKS; ++iTick) {
+    NetHeadlessStepInputs(aaInputs[iTick], numcars);
+    iMovementOkay &= NetMovementWithin(&aReference[iTick].car, &Car[0],
+                                       aszScenario[iScenario], iTick + 1);
+    if (ROLLERrandStateGet() != aReference[iTick].uiRandomState ||
+        ROLLERrandDrawCountGet() != aReference[iTick].ullRandomDraws) {
+      fprintf(stderr, "%s tick %d RNG %u/%llu != %u/%llu\n", aszScenario[iScenario], iTick + 1,
+              aReference[iTick].uiRandomState, (unsigned long long)aReference[iTick].ullRandomDraws,
+              ROLLERrandStateGet(), (unsigned long long)ROLLERrandDrawCountGet());
+      iRngOkay = 0;
+    }
+  }
+  printf("wire coherence %-15s movement=%s RNG=%s (%d ticks)\n", aszScenario[iScenario],
+         iMovementOkay ? "pass" : "FAIL", iRngOkay ? "pass" : "FAIL", NET_MAX_REPLAY_TICKS);
+  return iMovementOkay && iRngOkay;
 }
 
 static int NetTestFullStateCoherence(void)
 {
-  static tTestMoment initial, expected, actual;
-  tNetCarFullState wire;
-  tCopyData aInputs[MAX_CARS] = {0};
-  human_control[0] = 1;
-  aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL;
-  aInputs[0].data.unInput = 12 << 8;
-  SetEngine(&Car[0], 250.0f);
-  Car[0].fFinalSpeed = 250.0f;
-  NetTestCapture(&initial);
-  CHECK(NetSnapshotEncodeCarFull(0, &wire));
-  for (int iTick = 0; iTick < 60; ++iTick)
-    NetHeadlessStepInputs(aInputs, numcars);
-  NetTestCapture(&expected);
-  NetTestRestore(&initial);
-  memset(&Car[0], 0, sizeof(Car[0]));
-  CHECK(NetSnapshotDecodeCarFull(0, &wire));
-  for (int iTick = 0; iTick < 60; ++iTick)
-    NetHeadlessStepInputs(aInputs, numcars);
-  NetTestCapture(&actual);
-  if (memcmp(&actual, &expected, sizeof(actual))) {
-    fprintf(stderr, "NET-E0-S4 strict full-state coherence FAILED\n"
-            "60 ticks from speed 250: expected position %.9g %.9g %.9g, actual %.9g %.9g %.9g\n"
-            "expected speed %.9g, actual %.9g; expected RNG %u/%llu draws, actual %u/%llu draws\n",
-            expected.aCars[0].pos.fX, expected.aCars[0].pos.fY, expected.aCars[0].pos.fZ,
-            actual.aCars[0].pos.fX, actual.aCars[0].pos.fY, actual.aCars[0].pos.fZ,
-            expected.aCars[0].fFinalSpeed, actual.aCars[0].fFinalSpeed,
-            expected.context.uiRandomState, (unsigned long long)expected.context.ullRandomDraws,
-            actual.context.uiRandomState, (unsigned long long)actual.context.ullRandomDraws);
-    return 1;
-  }
-  return 0;
+  static tTestMoment running;
+  int iOkay = 1;
+  NetTestCapture(&running);
+  for (int iScenario = 0; iScenario < 4; ++iScenario)
+    iOkay &= NetTestFullStateScenario(&running, iScenario);
+  NetTestRestore(&running);
+  return iOkay ? 0 : 1;
 }
 
 static void NetTestFieldAudit(void)
@@ -402,6 +745,7 @@ static void NetTestFieldAudit(void)
   aInputs[0].data.unInput = 12 << 8;
   SetEngine(&Car[0], 250);
   Car[0].fFinalSpeed = 250;
+  Car[0].byEngineStartTimer = 12;
   memcpy(aPrevious, copy_multiple[(readptr - 1) & 511], sizeof(aPrevious));
   NetTestCapture(&initial);
   for (int iTick = 0; iTick < 20; ++iTick)
@@ -462,12 +806,16 @@ int main(int iArgc, const char **ppArgv, const char **ppEnv)
   }
   static tTestMoment running;
   NetTestCapture(&running);
+  NetTestDoubleRun();
+  NetTestRestore(&running);
   for (int iVariant = 0; iVariant < 8; ++iVariant) {
     NetTestRestore(&running);
     NetTestRollback(iVariant);
   }
   NetTestRestore(&running);
   NetTestRampsAndPuppets();
+  NetTestRestore(&running);
+  NetTestFramesAndRanges();
   NetTestRestore(&running);
   NetTestSnapshots();
   NetTestReplayOutput();

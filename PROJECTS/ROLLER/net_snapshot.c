@@ -145,6 +145,8 @@ int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState)
   pState->extra.iPitchMotion = pCar->iPitchMotion;
   pState->extra.iYawMotion = pCar->iYawMotion;
   pState->extra.iEngineState = pCar->iEngineState;
+  pState->extra.iSteeringInput = pCar->iSteeringInput;
+  pState->extra.iBankingSteerOffset = pCar->iBankingSteerOffset;
   pState->extra.nTargetChunk = pCar->nTargetChunk;
   pState->extra.nChangeMateCooldown = pCar->nChangeMateCooldown;
   pState->extra.byKills = pCar->byKills;
@@ -153,6 +155,11 @@ int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState)
   pState->extra.byDamageToggle = pCar->byDamageToggle;
   pState->extra.byCheatCooldown = pCar->byCheatCooldown;
   pState->extra.byEngineStartTimer = pCar->byEngineStartTimer;
+  pState->extra.byThrottlePressed = pCar->byThrottlePressed;
+  pState->extra.byAccelerating = pCar->byAccelerating;
+  pState->extra.byAIThrottleControl = pCar->byAIThrottleControl;
+  pState->extra.byPitLaneActiveFlag = pCar->byPitLaneActiveFlag;
+  pState->extra.byCollisionTimer = pCar->byCollisionTimer;
   pState->extra.byFinishPosition = finished_car[iCar] ? pCar->byRacePosition : 255;
   return 1;
 }
@@ -211,6 +218,8 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   car.iPitchMotion = pState->extra.iPitchMotion;
   car.iYawMotion = pState->extra.iYawMotion;
   car.iEngineState = pState->extra.iEngineState;
+  car.iSteeringInput = pState->extra.iSteeringInput;
+  car.iBankingSteerOffset = pState->extra.iBankingSteerOffset;
   car.nTargetChunk = pState->extra.nTargetChunk;
   car.nChangeMateCooldown = pState->extra.nChangeMateCooldown;
   car.byKills = pState->extra.byKills;
@@ -219,6 +228,11 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   car.byDamageToggle = pState->extra.byDamageToggle;
   car.byCheatCooldown = pState->extra.byCheatCooldown;
   car.byEngineStartTimer = pState->extra.byEngineStartTimer;
+  car.byThrottlePressed = pState->extra.byThrottlePressed;
+  car.byAccelerating = pState->extra.byAccelerating;
+  car.byAIThrottleControl = pState->extra.byAIThrottleControl;
+  car.byPitLaneActiveFlag = pState->extra.byPitLaneActiveFlag;
+  car.byCollisionTimer = pState->extra.byCollisionTimer;
   pose.position.fX = pState->state.fWorldPosX;
   pose.position.fY = pState->state.fWorldPosY;
   pose.position.fZ = pState->state.fWorldPosZ;

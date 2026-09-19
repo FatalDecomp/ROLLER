@@ -2042,7 +2042,9 @@ void speechsample(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
       if (player_type != 2 || iGameOverCount == 2)// Disable further messages after 2 game overs in multiplayer or any in single player
         disable_messages = -1;
     }
-    if (!winner_mode || iSampleIdx >= 89)     // Only queue certain samples when in winner mode (samples >= 89)
+    /* Queue insertion is an output side effect and consumes no RNG.  Keep all
+       selection and game-over bookkeeping above it during replay. */
+    if ((!winner_mode || iSampleIdx >= 89) && !net_sim_replaying)
     {
       iCurrentWriteIndex = writesample;         // Queue speech sample data into the circular buffer
       speechinfo[iCurrentWriteIndex].iSampleIdx = iSampleIdx;

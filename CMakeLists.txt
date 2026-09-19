@@ -205,11 +205,14 @@ if(ROLLER_BUILD_EDITOR_CORE)
     if(ROLLER_NET_TEST_ASSETS)
         add_test(NAME net-foundations COMMAND net-foundations-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        add_test(NAME net-full-state-coherence COMMAND net-foundations-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
+            --full-state-coherence)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
-        set_tests_properties(net-foundations net-harness PROPERTIES TIMEOUT 30)
+        set_tests_properties(net-foundations net-full-state-coherence net-harness PROPERTIES TIMEOUT 30)
     endif()
     if(WIN32)
         foreach(net_target IN ITEMS net-foundations-test net-server)

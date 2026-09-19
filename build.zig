@@ -538,7 +538,7 @@ fn configureRenderQueue3DTests(
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);
     run_net_coherence.addArg("--full-state-coherence");
-    const net_coherence_tests = b.step("test-net-full-state-coherence", "Run strict NET-E0-S4 full-state replay coherence gate");
+    const net_coherence_tests = b.step("test-net-full-state-coherence", "Run NET-E0-S4 bounded wire replay coherence gate");
     net_coherence_tests.dependOn(&run_net_coherence.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));

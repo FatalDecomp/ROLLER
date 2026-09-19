@@ -6,7 +6,7 @@
 #include "roller.h"
 #include <errno.h>
 
-static int NetHarnessDrain(tNetSocket socketHandle, int iExpected, uint32 *pCount, uint32 *pHash)
+static int NetHarnessPump(tNetSocket socketHandle, int iExpected, uint32 *pCount, uint32 *pHash)
 {
   int iDrained = 0;
   while (NetSocketReadable(socketHandle, iDrained < iExpected ? 1000 : 0)) {
@@ -68,7 +68,7 @@ int NetHarnessMain(int iArgc, const char **ppArgv)
     strcpy(szReply, "{\"error\":\"invalid command or range\"}\n");
     if (sscanf(szLine, "step %d", &iCount) == 1 && iCount >= 0 && iCount <= 10000) {
       for (int iStep = 0; iStep < iCount; ++iStep) {
-        NetHarnessDrain(udpSocket, 0, &uiPackets, &uiHash);
+        NetHarnessPump(udpSocket, 0, &uiPackets, &uiHash);
         NetHeadlessStepInputs(aInputs, numcars);
         ++uiTicks;
         ullNowMs = (uint64)uiTicks * 1000 / 36;
@@ -88,10 +88,10 @@ int NetHarnessMain(int iArgc, const char **ppArgv)
       net_sim_authority = iValue;
       strcpy(szReply, "{\"ok\":true}\n");
     } else if (!strcmp(szLine, "stats")) {
-      NetHarnessDrain(udpSocket, 0, &uiPackets, &uiHash);
+      NetHarnessPump(udpSocket, 0, &uiPackets, &uiHash);
       snprintf(szReply, sizeof(szReply), "{\"tick\":%u,\"packets\":%u,\"hash\":%u}\n", uiTicks, uiPackets, uiHash);
     } else if (sscanf(szLine, "drain %d", &iCount) == 1 && iCount >= 0 && iCount <= 10000) {
-      snprintf(szReply, sizeof(szReply), "{\"ok\":%s,\"packets\":%u}\n", NetHarnessDrain(udpSocket, iCount, &uiPackets, &uiHash) ? "true" : "false", uiPackets);
+      snprintf(szReply, sizeof(szReply), "{\"ok\":%s,\"packets\":%u}\n", NetHarnessPump(udpSocket, iCount, &uiPackets, &uiHash) ? "true" : "false", uiPackets);
     } else if (sscanf(szLine, "car %d", &iCar) == 1 && iCar >= 0 && iCar < numcars) {
       snprintf(szReply, sizeof(szReply), "{\"chunk\":%d,\"speed\":%.9g,\"x\":%.9g,\"y\":%.9g,\"z\":%.9g}\n", Car[iCar].nCurrChunk, Car[iCar].fFinalSpeed, Car[iCar].pos.fX, Car[iCar].pos.fY, Car[iCar].pos.fZ);
     } else if (sscanf(szLine, "worldpose %d", &iCar) == 1 && iCar >= 0 && iCar < numcars) {

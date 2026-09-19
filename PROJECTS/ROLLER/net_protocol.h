@@ -8,6 +8,10 @@
 #define NET_INPUT_HISTORY 256
 #define NET_INPUT_QUEUE 64
 #define NET_INPUT_HORIZON 48
+#define NET_REPLAY_BUDGET_MS 500
+/* roller-core advances the legacy simulation at 36 Hz.  Higher negotiated
+   rates convert the same 500 ms budget at runtime. */
+#define NET_MAX_REPLAY_TICKS 18
 #define NET_MSG_RELIABLE 1
 #define NET_MSG_ORDERED 2
 #pragma pack(push, 1)
@@ -129,12 +133,15 @@ typedef struct
   float  fRunningLapTime, fBestLapTime, fPreviousLapTime, fTotalRaceTime;   /* 16 */
   float  fBaseSpeed, fSpeedOverflow, fPower, fDurability, fRPMRatio;        /* 20 */
   int32  iRollMomentum, iRollMotion, iPitchMotion, iYawMotion, iEngineState;/* 20 */
+  int32  iSteeringInput, iBankingSteerOffset;                              /* 8 */
   int16  nTargetChunk, nChangeMateCooldown;                                 /* 4 */
   uint8  byKills, byAttacker, byLapNumber, byFinishPosition;                /* 4 */
   uint8  byDamageToggle, byCheatCooldown, byEngineStartTimer, byPad;        /* 4 */
-} tNetCarExtra;                                /* 68 bytes */
+  uint8  byThrottlePressed, byAccelerating, byAIThrottleControl, byPitLaneActiveFlag; /* 4 */
+  uint8  byCollisionTimer, byPad2[3];                                       /* 4 */
+} tNetCarExtra;                                /* 84 bytes */
 
-typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 132 */
+typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 148 */
 
 typedef struct
 {
@@ -179,7 +186,7 @@ typedef struct
 } tNetCheckpointHeader;     /* 80 bytes */
 
 /* NET_MSG_CHECKPOINT_CARS:  uint8 byFirstCar, uint8 byCount, then byCount x tNetCarFullState
-                             (<= 8, 1058 bytes payload) */
+                             (<= 7, 1038 bytes payload) */
 /* NET_MSG_CHECKPOINT_WORLD: uint8 byCount, uint8 byPad[3], then byCount x tNetWorldChangeEntry
                              (<= 64, 1156 bytes payload) */
 /* NET_MSG_CHECKPOINT_END:   uint32 uiTick */
@@ -223,8 +230,8 @@ _Static_assert(sizeof(tNetCarState) == 64, "tNetCarState wire size");
 _Static_assert(sizeof(tNetRampState) == 6, "tNetRampState wire size");
 _Static_assert(sizeof(tNetSnapshot) == 1104, "tNetSnapshot wire size");
 _Static_assert(sizeof(tNetSnapshotDeltaHeader) == 36, "tNetSnapshotDeltaHeader wire size");
-_Static_assert(sizeof(tNetCarExtra) == 68, "tNetCarExtra wire size");
-_Static_assert(sizeof(tNetCarFullState) == 132, "tNetCarFullState wire size");
+_Static_assert(sizeof(tNetCarExtra) == 84, "tNetCarExtra wire size");
+_Static_assert(sizeof(tNetCarFullState) == 148, "tNetCarFullState wire size");
 _Static_assert(sizeof(tNetOwnCarStateHeader) == 8, "tNetOwnCarStateHeader wire size");
 _Static_assert(sizeof(tNetEvent) == 20, "tNetEvent wire size");
 _Static_assert(sizeof(tNetPause) == 8, "tNetPause wire size");
@@ -234,8 +241,10 @@ _Static_assert(sizeof(tNetWorldChangeEntry) == 18, "tNetWorldChangeEntry wire si
 _Static_assert(sizeof(tNetWorldChangeHeader) == 12, "tNetWorldChangeHeader wire size");
 _Static_assert(sizeof(tRvzSessionInfo) == 85, "rendezvous entry wire size");
 _Static_assert(sizeof(tNetSnapshot) + 28 <= NET_MAX_PAYLOAD, "snapshot fits");
-_Static_assert(8 + 2 * 72 + 28 <= NET_MAX_PAYLOAD, "own cars fit");
-_Static_assert(8 * 132 + 2 + 28 <= NET_MAX_PAYLOAD, "checkpoint cars fit");
+_Static_assert(8 + 2 * (4 + sizeof(tNetCarExtra)) + 28 <= NET_MAX_PAYLOAD, "own cars fit");
+#define NET_CHECKPOINT_CARS_PER_MESSAGE ((NET_MAX_PAYLOAD - 28 - 2) / sizeof(tNetCarFullState))
+_Static_assert(NET_CHECKPOINT_CARS_PER_MESSAGE == 7, "checkpoint car count");
+_Static_assert(NET_CHECKPOINT_CARS_PER_MESSAGE * sizeof(tNetCarFullState) + 2 + 28 <= NET_MAX_PAYLOAD, "checkpoint cars fit");
 _Static_assert(64 * 18 + 12 + 28 <= NET_MAX_PAYLOAD, "world changes fit");
 _Static_assert(16 * 13 + 28 <= NET_MAX_PAYLOAD, "players fit");
 _Static_assert(12 * 85 + 28 <= NET_MAX_PAYLOAD, "rendezvous page fits");
