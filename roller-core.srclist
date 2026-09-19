@@ -113,3 +113,4 @@ KEEP|PROJECTS/ROLLER/net_rendezvous.c
 KEEP|PROJECTS/ROLLER/net_sim_seam.c
 EXCLUDE|PROJECTS/ROLLER/net_transport_sim.c
 EXCLUDE|PROJECTS/ROLLER/net_harness.c
+KEEP|PROJECTS/ROLLER/net_snapshot.c

@@ -244,7 +244,7 @@ void humancar(int iCarIdx)
       }
       iTargetCarIdx = findcardistance(iCarIndex1, 8000.0);// Find target car within range (8000 units)
       iTargetCar1 = iTargetCarIdx;
-      if (iTargetCarIdx >= 0 && Car[iTargetCarIdx].nCurrChunk != -1 && Car[iTargetCarIdx].byCarDesignIdx != 13) {
+      if (iTargetCarIdx >= 0 && !net_puppet_car[iTargetCarIdx] && Car[iTargetCarIdx].nCurrChunk != -1 && Car[iTargetCarIdx].byCarDesignIdx != 13) {
         Car[iTargetCarIdx].byAttacker = iCarIdx_1;// Apply damage: 200 damage, stop target car, consume ammo
         Car[iTargetCarIdx].byDamageSourceTimer = -40;
         dodamage(&Car[iTargetCarIdx], 200.0);
@@ -340,7 +340,7 @@ void humancar(int iCarIdx)
       } else {
         iJumpTargetIdx = findcardistance(iCarIndex1, 16000.0);// Find target car within jump range (16000 units)
         iJumpTarget = iJumpTargetIdx;
-        if (iJumpTargetIdx >= 0) {
+        if (iJumpTargetIdx >= 0 && !net_puppet_car[iJumpTargetIdx]) {
           iJumpTargetCar = iJumpTargetIdx;
           if (Car[iJumpTargetCar].nCurrChunk != -1 && Car[iJumpTargetCar].byCarDesignIdx != 13) {
             iTargetCarDesign = Car[iJumpTargetCar].byCarDesignIdx;// Apply jump effect: launch target car into air with roll and Z-offset
@@ -386,7 +386,7 @@ void humancar(int iCarIdx)
       }
       iTeleportTargetIdx = findcardistance(iCarIdx_1, 16000.0);// Find target car for teleport swap (16000 units)
       iTeleportTargetIndex = iTeleportTargetIdx;
-      if (iTeleportTargetIdx < 0 || (iTeleportTarget = iTeleportTargetIdx, Car[iTeleportTargetIdx].nCurrChunk == -1) || Car[iTeleportTargetIdx].byCarDesignIdx == 13) {
+      if (iTeleportTargetIdx < 0 || net_puppet_car[iTeleportTargetIdx] || (iTeleportTarget = iTeleportTargetIdx, Car[iTeleportTargetIdx].nCurrChunk == -1) || Car[iTeleportTargetIdx].byCarDesignIdx == 13) {
         if (!cheatsampleok(iCarIdx_1))
           goto SET_TELEPORT_COOLDOWN;
       PLAY_TELEPORT_FAIL_SOUND:
@@ -728,6 +728,9 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
   float fY; // [esp+7Ch] [ebp-20h]
   float fLightDeltaY; // [esp+80h] [ebp-1Ch]
   int iTicksProcessed = 0;
+#ifndef NDEBUG
+  tNetWorldPose aPuppetPoses[MAX_CARS];
+#endif
 
   if (replaytype == 2)
     readptr = -10000;
@@ -876,6 +879,11 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
     updatestunts();
     if (net_sim_puppet_hook)
       net_sim_puppet_hook();
+#ifndef NDEBUG
+    for (int iPuppet = 0; iPuppet < numcars; ++iPuppet)
+      if (net_puppet_car[iPuppet])
+        assert(NetSimLegacyToWorld(&Car[iPuppet], &aPuppetPoses[iPuppet]));
+#endif
     if (replaytype != 2) {
       memset(newrepsample, 0, sizeof(newrepsample));// Process car controls and AI for non-replay mode
       iCarArrayIdx = 0;
@@ -1109,6 +1117,15 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         }
       }
     }
+#ifndef NDEBUG
+    for (int iPuppet = 0; iPuppet < numcars; ++iPuppet) {
+      if (net_puppet_car[iPuppet]) {
+        tNetWorldPose pose;
+        assert(NetSimLegacyToWorld(&Car[iPuppet], &pose));
+        assert(memcmp(&pose, &aPuppetPoses[iPuppet], sizeof(pose)) == 0);
+      }
+    }
+#endif
     if (++nearcarcheck == 4)                  // Update near car checking counter and advance frame pointer
       nearcarcheck = 0;
     if (replaytype == 2)
@@ -3246,9 +3263,11 @@ LABEL_502:
     pCar->nActualYaw = pCar->nYaw;
     if (iRoll < 4096 || iRoll > 12288) {
       pCar->nRoll = 0;
-      pCar->iStunned = 0;
+      if (net_sim_authority == NET_AUTHORITY_LOCAL)
+        pCar->iStunned = 0;
     } else {
-      pCar->iStunned = -1;
+      if (net_sim_authority == NET_AUTHORITY_LOCAL)
+        pCar->iStunned = -1;
       pCar->iSteeringInput = 0;
       pCar->nRoll = 0x2000;
       iRoll = iRoll - 0x2000 + (iRoll - 0x2000 < 0 ? 0x4000 : 0);
@@ -6041,9 +6060,11 @@ void landontrack(tCar *pCar)
             pCar->nActualYaw = (int)dAngle3 & 0x3FFF;
           }
           if (iBank < 4096 || iBank > 12288) {
-            pCar->iStunned = 0;
+            if (net_sim_authority == NET_AUTHORITY_LOCAL)
+        pCar->iStunned = 0;
           } else {
-            pCar->iStunned = -1;
+            if (net_sim_authority == NET_AUTHORITY_LOCAL)
+        pCar->iStunned = -1;
             pCar->iSteeringInput = 0;
             iBankAdjusted = iBank + 0x2000;
             iBank = iBankAdjusted;
@@ -6594,9 +6615,12 @@ void ordercars()
   byPosition = 0;                               // Assign race positions based on sorted order (0=1st, 1=2nd, etc.)
   if (iTotalCars > 0) {
     iCarIndex = 0;
-    do
-      Car[carorder[iCarIndex++]].byRacePosition = byPosition++;
-    while (iTotalCars > byPosition);
+    do {
+      if (!net_puppet_car[carorder[iCarIndex]])
+        Car[carorder[iCarIndex]].byRacePosition = byPosition;
+      ++iCarIndex;
+      ++byPosition;
+    } while (iTotalCars > byPosition);
   }
   numcars = iTotalCars;
 }

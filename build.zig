@@ -137,6 +137,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/net_headless.c",
+            "PROJECTS/ROLLER/net_snapshot.c",
             "PROJECTS/ROLLER/net_sim_seam.c",
             "PROJECTS/ROLLER/net_stats.c",
             "PROJECTS/ROLLER/net_channel.c",
@@ -533,6 +534,20 @@ fn configureRenderQueue3DTests(
     const net_foundations_tests = b.step("test-net-foundations", "Run NET-E0 foundation acceptance");
     net_foundations_tests.dependOn(&run_net_foundations.step);
     net_foundations_tests.dependOn(&run_net_transport.step);
+    const run_net_coherence = b.addRunArtifact(net_foundations_exe);
+    run_net_coherence.addFileArg(assets_path.path(b, soak_track));
+    run_net_coherence.addDirectoryArg(assets_path);
+    run_net_coherence.addArg("--full-state-coherence");
+    const net_coherence_tests = b.step("test-net-full-state-coherence", "Run strict NET-E0-S4 full-state replay coherence gate");
+    net_coherence_tests.dependOn(&run_net_coherence.step);
+    const run_net_audit = b.addRunArtifact(net_foundations_exe);
+    run_net_audit.addFileArg(assets_path.path(b, soak_track));
+    run_net_audit.addDirectoryArg(assets_path);
+    run_net_audit.addArg("--field-audit");
+    const net_audit = b.step("audit-net-car-fields", "Report every tCar field and zero-field replay sensitivity");
+    net_audit.dependOn(&run_net_audit.step);
+
+
     const run_net_harness = b.addSystemCommand(&.{ "python", "tests/net_harness.py", "--server" });
     run_net_harness.addArtifactArg(net_server_exe);
     run_net_harness.addArg("--proxy");

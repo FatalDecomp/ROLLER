@@ -4,6 +4,7 @@
 #include "car.h"
 #include "sound.h"
 #include "moving.h"
+#include "view.h"
 
 typedef struct {
   uint32 uiTick;
@@ -44,6 +45,10 @@ typedef struct {
   char aszRecordNames[25][9];
   tCarSpray aSpray[18][32];
   tSLight aLights[2][3];
+  int iReadsample, iWritesample, iChampCount;
+  tSpeechInfo aSpeech[16];
+  int aiGameCount[2], aiSubOn[2];
+  float afGameScale[2], afPullZ[2];
   uint32 uiRandomState;
   uint64 ullRandomDraws;
 } tNetSimTickContext;

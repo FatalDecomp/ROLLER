@@ -67,6 +67,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/scene_render_software.c
     PROJECTS/ROLLER/moving.c
     PROJECTS/ROLLER/net_headless.c
+    PROJECTS/ROLLER/net_snapshot.c
     PROJECTS/ROLLER/net_sim_seam.c
     PROJECTS/ROLLER/net_stats.c
     PROJECTS/ROLLER/net_channel.c
@@ -175,26 +176,50 @@ if(ROLLER_BUILD_EDITOR_CORE)
     endif()
     roller_configure_c_target(roller-core)
 
-    add_executable(roller-server PROJECTS/ROLLERSRV/roller_server.c PROJECTS/ROLLER/net_harness.c)
-    target_link_libraries(roller-server PRIVATE ROLLER::core)
-    roller_configure_c_target(roller-server)
-    add_executable(roller-netsim PROJECTS/ROLLERSRV/roller_netsim.c PROJECTS/ROLLER/net_transport_sim.c)
-    target_include_directories(roller-netsim PRIVATE PROJECTS/ROLLER)
-    roller_configure_c_target(roller-netsim)
+    add_executable(net-server PROJECTS/ROLLERSRV/roller_server.c PROJECTS/ROLLER/net_harness.c)
+    target_link_libraries(net-server PRIVATE ROLLER::core SDL3::SDL3)
+    set_target_properties(net-server PROPERTIES OUTPUT_NAME "roller-server")
+    roller_configure_c_target(net-server)
+    add_executable(net-netsim PROJECTS/ROLLERSRV/roller_netsim.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-netsim PRIVATE c_std_11)
+    target_include_directories(net-netsim PRIVATE PROJECTS/ROLLER)
+    set_target_properties(net-netsim PROPERTIES OUTPUT_NAME "roller-netsim")
+    roller_configure_c_target(net-netsim)
     if(WIN32)
-        target_link_libraries(roller-server PRIVATE ws2_32)
-        target_link_libraries(roller-netsim PRIVATE ws2_32)
+        target_link_libraries(net-server PRIVATE ws2_32)
+        target_link_libraries(net-netsim PRIVATE ws2_32)
     endif()
 
     add_executable(net-transport-test tests/net_transport_test.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-transport-test PRIVATE c_std_11)
     target_include_directories(net-transport-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-transport-test)
     enable_testing()
     add_test(NAME net-transport COMMAND net-transport-test)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
-    target_link_libraries(net-foundations-test PRIVATE ROLLER::core)
+    target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-foundations-test)
+    set(ROLLER_NET_TEST_ASSETS "" CACHE PATH "FATDATA directory for NET foundation acceptance")
+    set(ROLLER_NET_TEST_TRACK "TRACK5.TRK" CACHE STRING "NET acceptance track inside FATDATA")
+    if(ROLLER_NET_TEST_ASSETS)
+        add_test(NAME net-foundations COMMAND net-foundations-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
+            --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
+            --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
+        set_tests_properties(net-foundations net-harness PROPERTIES TIMEOUT 30)
+    endif()
+    if(WIN32)
+        foreach(net_target IN ITEMS net-foundations-test net-server)
+            add_custom_command(TARGET ${net_target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"
+                    "$<TARGET_FILE_DIR:${net_target}>")
+        endforeach()
+    endif()
+
 
     add_executable(editor-core-link-test tests/editor_core_link_test.c)
     target_link_libraries(editor-core-link-test PRIVATE ROLLER::core)

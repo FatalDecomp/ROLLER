@@ -49,6 +49,14 @@ void NetSimCaptureContext(tNetSimTickContext *pContext)
   memcpy(pContext->aszRecordNames, RecordNames, sizeof(RecordNames));
   memcpy(pContext->aSpray, CarSpray, sizeof(CarSpray));
   memcpy(pContext->aLights, SLight, sizeof(SLight));
+  pContext->iReadsample = readsample;
+  pContext->iWritesample = writesample;
+  pContext->iChampCount = champ_count;
+  memcpy(pContext->aSpeech, speechinfo, sizeof(speechinfo));
+  memcpy(pContext->aiGameCount, game_count, sizeof(game_count));
+  memcpy(pContext->aiSubOn, sub_on, sizeof(sub_on));
+  memcpy(pContext->afGameScale, game_scale, sizeof(game_scale));
+  memcpy(pContext->afPullZ, PULLZ, sizeof(PULLZ));
   pContext->uiRandomState = ROLLERrandStateGet();
   pContext->ullRandomDraws = ROLLERrandDrawCountGet();
 }
@@ -88,6 +96,14 @@ void NetSimRestoreContext(const tNetSimTickContext *pContext)
   memcpy(RecordNames, pContext->aszRecordNames, sizeof(RecordNames));
   memcpy(CarSpray, pContext->aSpray, sizeof(CarSpray));
   memcpy(SLight, pContext->aLights, sizeof(SLight));
+  readsample = pContext->iReadsample;
+  writesample = pContext->iWritesample;
+  champ_count = pContext->iChampCount;
+  memcpy(speechinfo, pContext->aSpeech, sizeof(speechinfo));
+  memcpy(game_count, pContext->aiGameCount, sizeof(game_count));
+  memcpy(sub_on, pContext->aiSubOn, sizeof(sub_on));
+  memcpy(game_scale, pContext->afGameScale, sizeof(game_scale));
+  memcpy(PULLZ, pContext->afPullZ, sizeof(PULLZ));
   ROLLERrandStateSet(pContext->uiRandomState);
   ROLLERrandDrawCountSet(pContext->ullRandomDraws);
 }
