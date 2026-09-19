@@ -1,6 +1,7 @@
+#include "net_types.h"
+#include "net_race_start.h"
 #if !defined(__EMSCRIPTEN__)
 #include "net_harness.h"
-#include "net_types.h"
 #if !defined(IS_WASM)
 #include "net_frontend_lobby.h"
 #endif
@@ -362,11 +363,15 @@ static void frontend_shutdown_begin(void)
   iFrontendShutdownStarted = -1;
   exiting = -1;
   quit_game = -1;
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     tick_on = -1;
     frontend_on = -1;
     network_broadcast_wait_start(-666, 1);
     iFrontendShutdownWaitingForNetwork = -1;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  } else if (network_on && net_mode == NET_MODE_MODERN) {
+    NetFrontendClose();
+#endif
   }
 }
 
@@ -1556,10 +1561,12 @@ void race_enter(void)
   //_disable();
   network_limit = 4320;                         // Disable interrupts and setup network timing arrays
   iNetTimeItr = 0;
-  do {
-    iNetTimeItr_1 = (int16)iNetTimeItr++;       // Initialize network timing array with current frame count
-    net_time[iNetTimeItr_1] = frames;
-  } while ((int16)iNetTimeItr < 16);
+  if (net_mode == NET_MODE_LEGACY) {
+    do {
+      iNetTimeItr_1 = (int16)iNetTimeItr++;
+      net_time[iNetTimeItr_1] = frames;
+    } while ((int16)iNetTimeItr < 16);
+  }
   network_timeout = frames;
   network_error = 0;
   network_sync_error = 0;
@@ -1664,7 +1671,7 @@ void race_update(void)
     stopallsamples();
     dostopsamps = 0;
   }
-  if (network_on)                               // Handle network game timing and synchronization
+  if (network_on && net_mode == NET_MODE_LEGACY)// Legacy ready and timeout handling
   {                                             // Set countdown for network games after frame 250
     if (frame_number >= 250)
       countdown = -75;
@@ -1709,6 +1716,11 @@ void race_update(void)
       }
     }
   }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (network_on && net_mode == NET_MODE_MODERN && fadedin &&
+      !NetFrontendRaceSynchronise())
+    SDL_SetAtomicInt(&iTicksPending, 0);
+#endif
   updates = 0;
   if (g_bSnapshotMode) {
     // No SDL tick timer in snapshot mode: drive one logical tick per
@@ -1745,7 +1757,7 @@ void race_update(void)
   //  RepeatTrack();
   //  start_cd = frames;
   //}
-  if (network_on && net_quit && !intro)         // Handle network quit requests
+  if (network_on && net_mode == NET_MODE_LEGACY && net_quit && !intro)
     racing = 0;
   if (player_type == 2)                         // Handle end-of-race conditions for different player modes
   {                                             // 2-player mode: end race when both cars dead and sound finished
@@ -1808,7 +1820,7 @@ void race_update(void)
   if (pause_request && !intro)                  // Handle pause requests (excluding intro mode)
   {
     if (!pausewindow || !paused) {                                         // Network pause handling - master/slave coordination
-      if (network_on && replaytype != 2) {
+      if (network_on && net_mode == NET_MODE_LEGACY && replaytype != 2) {
         if (wConsoleNode == master) {
           if (!finished_car[player1_car]) {
             paused = paused == 0;
@@ -1827,7 +1839,8 @@ void race_update(void)
     }
     pause_request = 0;
   }
-  if (network_on && slave_pause && wConsoleNode == master)// Handle slave pause requests in network games
+  if (network_on && net_mode == NET_MODE_LEGACY &&
+      slave_pause && wConsoleNode == master)
   {
     paused = paused == 0;
     if (paused)
@@ -4424,7 +4437,8 @@ void game_keys()
               } else if (!network_on || replaytype == 2) {
               REQUEST_PAUSE:
                 pause_request = -1;
-              } else if (active_nodes == network_on) {
+              } else if (net_mode == NET_MODE_MODERN ||
+                         active_nodes == network_on) {
                 if (I_Would_Like_To_Quit == -1) {
                   if (Quit_Count <= 0)
                     I_Would_Like_To_Quit = 0;
@@ -5170,7 +5184,8 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
         iPlayerCar = player1_car;
         goto PLAY_COUNTDOWN_SOUND;
       }
-      if (gosound >= 1 && active_nodes == network_on) {
+      if (gosound >= 1 &&
+          (net_mode == NET_MODE_MODERN || active_nodes == network_on)) {
         iSoundSample = SOUND_SAMPLE_GO;                       // SOUND_SAMPLE_GO
         iPlayerCar = player1_car;
         gosound = 0;
@@ -5211,7 +5226,11 @@ HANDLE_SPECIAL_MODES:
   }
   if (!winner_mode && replaytype != 2)        // Network status and waiting messages
   {                                             // Waiting for players message (blinking)
-    if (network_on && active_nodes < network_on && (frames & 0xFu) < 8) {
+    if (network_on &&
+        ((net_mode == NET_MODE_LEGACY && active_nodes < network_on) ||
+         (net_mode == NET_MODE_MODERN &&
+          NetRaceStartPhase() == NET_RACE_START_LOADING)) &&
+        (frames & 0xFu) < 8) {
       if (winh >= 200) {
         prt_centrecol(rev_vga[1], "WAITING FOR PLAYERS", 160, 100, 207);
       } else {

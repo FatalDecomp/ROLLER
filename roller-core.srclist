@@ -108,6 +108,7 @@ KEEP|PROJECTS/ROLLER/net_stats.c
 KEEP|PROJECTS/ROLLER/net_channel.c
 KEEP|PROJECTS/ROLLER/net_session.c
 KEEP|PROJECTS/ROLLER/net_lobby.c
+KEEP|PROJECTS/ROLLER/net_race_start.c
 KEEP|PROJECTS/ROLLER/net_config.c
 KEEP|PROJECTS/ROLLER/net_config_codec.c
 KEEP|PROJECTS/ROLLER/net_host.c

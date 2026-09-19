@@ -16,6 +16,7 @@ void NetFrontendPump(void);
 int NetFrontendLobbyCanStart(void);
 int NetFrontendLobbyRequestStart(uint32 uiStartTick);
 int NetFrontendLobbyStartTick(uint32 *puiStartTick);
+int NetFrontendRaceSynchronise(void);
 const char *NetFrontendLobbyStatus(void);
 
 #endif

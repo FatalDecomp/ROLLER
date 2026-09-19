@@ -1,5 +1,6 @@
 #include "sound.h"
 #include "net_sim_seam.h"
+#include "net_race_start.h"
 #include "net_types.h"
 #include "frontend.h"
 #include "moving.h"
@@ -598,7 +599,7 @@ void tick_clock_step(void)
       fraction = 0;
   } else {
     ticks++;
-    if (!paused && !frontend_on) {
+    if (!paused && !frontend_on && net_mode == NET_MODE_LEGACY) {
       network_master_input_tick();
       network_slave_input_tick();
     }
@@ -638,9 +639,17 @@ void game_tick_step(void)
 {
   int iControlTicks = 1;
   int iDrainEngineDelay = 0;
+  int iModernRaceTick = 0;
+  uint32 uiModernTick;
 
   if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
     if (!network_on || winner_mode) {
+      local_input_tick();
+      iDrainEngineDelay = start_race;
+    } else if (net_mode == NET_MODE_MODERN) {
+      if (!NetRaceStartBeginTick(&uiModernTick))
+        return;
+      iModernRaceTick = 1;
       local_input_tick();
       iDrainEngineDelay = start_race;
     } else if (start_race) {
@@ -670,6 +679,8 @@ void game_tick_step(void)
     if (iDrainEngineDelay)
       DrainEngineDelay();
   }
+  if (iModernRaceTick)
+    NetRaceStartEndTick(game_frame);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1303,7 +1314,7 @@ void readuserdata(int iPlayer)
     goto LABEL_107;
 
   // Handle network messages for strategy buttons
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     message_node = network_mes_mode;
     // Validate target node for messaging
     if (network_mes_mode >= 0) {

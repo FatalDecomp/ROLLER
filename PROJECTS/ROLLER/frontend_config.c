@@ -20,6 +20,7 @@
 #include "snapshot.h"
 #include "rollerinput.h"
 #include "phone_ui.h"
+#include "net_types.h"
 #if defined(IS_WASM)
 #include "roller_web.h"
 #endif
@@ -462,9 +463,15 @@ static void frontend_config_start_name_edit(void)
 
 //-------------------------------------------------------------------------------------------------
 
+static void frontend_config_finish_broadcast_wait(void);
+
 static void frontend_config_begin_broadcast_wait(int iBroadcastMode, int iAction)
 {
   iFrontendConfigBroadcastWaitAction = iAction;
+  if (network_on && net_mode == NET_MODE_MODERN) {
+    frontend_config_finish_broadcast_wait();
+    return;
+  }
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
 

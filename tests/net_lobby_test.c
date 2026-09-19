@@ -1,4 +1,5 @@
 #include "net_lobby.h"
+#include "net_race_start.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,7 +115,9 @@ static void NetTestHostAndThreeClients(void)
   tNetChat chat;
   uint8 abBadList[sizeof(tNetPlayerListHeader) +
                   4 * sizeof(tNetPlayerEntry)] = {0};
+  uint8 abBadCountdown[sizeof(tNetCountdown)] = {0};
   uint32 uiStartTick;
+  tNetRaceStartClock aRaceClocks[NET_TEST_CLIENTS];
   int iClient, iPlayer;
 
   CHECK(pSim);
@@ -245,6 +248,7 @@ static void NetTestHostAndThreeClients(void)
 
   CHECK(NetLobbyHostStart(pHostLobby, 4242));
   CHECK(!NetLobbyHostAllReady(pHostLobby));
+  CHECK(!NetLobbyHostRaceReleased(pHostLobby));
   CHECK(NetLobbyHostStartTick(pHostLobby, &uiStartTick));
   CHECK(uiStartTick == 4242);
   NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,
@@ -258,6 +262,62 @@ static void NetTestHostAndThreeClients(void)
         continue;
       CHECK(player.byState == NET_PLAYER_RACING);
     }
+  }
+
+  abBadCountdown[0] = 0x92;
+  abBadCountdown[1] = 0x10;
+  abBadCountdown[4] = 100;
+  abBadCountdown[6] = NET_PLAYER_RACING;
+  abBadCountdown[7] = NET_COUNTDOWN_RELEASE + 1;
+  CHECK(NetConnectionQueueMessage(NetSessionHostPlayerConnection(
+      pHost, NetSessionClientPlayerIndex(aClients[0].pSession)),
+      NET_MSG_COUNTDOWN, NET_MSG_RELIABLE | NET_MSG_ORDERED,
+      abBadCountdown, sizeof(abBadCountdown)));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,
+              1501, 1550);
+  CHECK(!NetLobbyClientRaceReleased(aClients[0].pLobby, &uiStartTick));
+
+  for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+    NetRaceClockReset(&aRaceClocks[iClient]);
+    CHECK(NetRaceClockSchedule(&aRaceClocks[iClient], uiStartTick));
+  }
+  for (iClient = 0; iClient < NET_TEST_CLIENTS - 1; ++iClient) {
+    CHECK(NetLobbyClientSetRaceLoaded(aClients[iClient].pLobby));
+    NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,
+                1551 + iClient * 100, 1650 + iClient * 100);
+    CHECK(!NetLobbyHostRaceReleased(pHostLobby));
+  }
+  CHECK(NetLobbyClientSetRaceLoaded(
+      aClients[NET_TEST_CLIENTS - 1].pLobby));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,
+              1751, 2050);
+  CHECK(NetLobbyHostRaceReleased(pHostLobby));
+  for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+    uint32 uiReleaseTick;
+    CHECK(NetLobbyClientRaceReleased(aClients[iClient].pLobby,
+                                     &uiReleaseTick));
+    CHECK(uiReleaseTick == 4242);
+    CHECK(NetRaceClockRelease(&aRaceClocks[iClient], uiReleaseTick));
+    CHECK(NetRaceClockPhase(&aRaceClocks[iClient]) ==
+          NET_RACE_START_PRE_START);
+  }
+  for (iPlayer = 0; iPlayer <= 145; ++iPlayer) {
+    uint32 uiReferenceTick = 0;
+    for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+      uint32 uiRaceTick;
+      CHECK(NetRaceClockBeginTick(&aRaceClocks[iClient], &uiRaceTick));
+      if (!iClient)
+        uiReferenceTick = uiRaceTick;
+      CHECK(uiRaceTick == uiReferenceTick);
+      NetRaceClockEndTick(&aRaceClocks[iClient], iPlayer);
+    }
+  }
+  CHECK(NetRaceClockRunningTick(&aRaceClocks[0]) == 4242u + 145u);
+  for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+    CHECK(NetRaceClockPhase(&aRaceClocks[iClient]) ==
+          NET_RACE_START_RUNNING);
+    CHECK(NetRaceClockRunningTick(&aRaceClocks[iClient]) ==
+          NetRaceClockRunningTick(&aRaceClocks[0]));
   }
 
   NetTestDestroyClients(aClients, NET_TEST_CLIENTS);

@@ -6,6 +6,7 @@
 #include "net_channel.h"
 #include "net_config.h"
 #include "net_lobby.h"
+#include "net_race_start.h"
 #include "net_session.h"
 #include "net_transport.h"
 #include "net_types.h"
@@ -27,6 +28,7 @@ typedef struct
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
+  uint8 byRaceScheduled, byRaceLoadedSent;
   uint8 bySelectedCar, bySelectedControl;
   char szStatus[96];
 } tNetFrontendLobbyState;
@@ -82,6 +84,8 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byConfigApplied = 0;
   s_frontend.byPlayerInfoSent = 0;
   s_frontend.byReadySent = 0;
+  s_frontend.byRaceScheduled = 0;
+  s_frontend.byRaceLoadedSent = 0;
 }
 
 void NetFrontendClose(void)
@@ -97,6 +101,7 @@ void NetFrontendClose(void)
   s_frontend.pServerUdp = NULL;
   s_frontend.byOpen = 0;
   s_frontend.byHost = 0;
+  NetRaceStartReset();
   network_on = 0;
   players = 1;
   players_waiting = 0;
@@ -329,8 +334,35 @@ int NetFrontendLobbyRequestStart(uint32 uiStartTick)
 
 int NetFrontendLobbyStartTick(uint32 *puiStartTick)
 {
-  return s_frontend.pClientLobby &&
-      NetLobbyClientStartTick(s_frontend.pClientLobby, puiStartTick);
+  if (!s_frontend.pClientLobby ||
+      !NetLobbyClientStartTick(s_frontend.pClientLobby, puiStartTick))
+    return 0;
+  if (!s_frontend.byRaceScheduled) {
+    if (!NetRaceStartSchedule(*puiStartTick))
+      return 0;
+    s_frontend.byRaceScheduled = 1;
+  }
+  return 1;
+}
+
+int NetFrontendRaceSynchronise(void)
+{
+  uint32 uiStartTick;
+  if (!s_frontend.pClientLobby || !s_frontend.byRaceScheduled)
+    return 0;
+  if (!s_frontend.byRaceLoadedSent) {
+    if (!NetLobbyClientSetRaceLoaded(s_frontend.pClientLobby))
+      return 0;
+    s_frontend.byRaceLoadedSent = 1;
+    NetFrontendStatus("WAITING FOR PLAYERS TO LOAD");
+  }
+  if (!NetLobbyClientRaceReleased(s_frontend.pClientLobby, &uiStartTick))
+    return 0;
+  if (NetRaceStartPhase() == NET_RACE_START_LOADING &&
+      !NetRaceStartRelease(uiStartTick))
+    return 0;
+  NetFrontendStatus("");
+  return NetRaceStartPhase() >= NET_RACE_START_PRE_START;
 }
 
 const char *NetFrontendLobbyStatus(void)

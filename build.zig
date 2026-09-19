@@ -143,6 +143,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_channel.c",
             "PROJECTS/ROLLER/net_session.c",
             "PROJECTS/ROLLER/net_lobby.c",
+            "PROJECTS/ROLLER/net_race_start.c",
             "PROJECTS/ROLLER/net_config.c",
             "PROJECTS/ROLLER/net_config_codec.c",
             "PROJECTS/ROLLER/net_host.c",
@@ -542,6 +543,7 @@ fn configureRenderQueue3DTests(
     net_lobby_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     net_lobby_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
         "PROJECTS/ROLLER/net_lobby.c",
+        "PROJECTS/ROLLER/net_race_start.c",
         "PROJECTS/ROLLER/net_session.c",
         "PROJECTS/ROLLER/net_config_codec.c",
         "PROJECTS/ROLLER/net_channel.c",

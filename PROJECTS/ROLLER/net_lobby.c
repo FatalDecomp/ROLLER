@@ -10,8 +10,9 @@ struct tNetLobbyHost
   tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetChat lastChat;
   uint32 uiStartTick;
-  uint16 unRevision, unStartRevision;
-  uint8 byHasStart, byHasChat;
+  uint16 unRevision, unStartRevision, unRaceRevision;
+  uint8 abyRaceLoaded[NET_SESSION_MAX_PLAYERS];
+  uint8 byHasStart, byRaceReleased, byHasChat;
 };
 
 struct tNetLobbyClient
@@ -20,8 +21,9 @@ struct tNetLobbyClient
   tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetChat lastChat;
   uint32 uiStartTick;
-  uint16 unRevision, unStartRevision;
-  uint8 byPlayerSlots, byHasStart, byHasChat;
+  uint16 unRevision, unStartRevision, unRaceRevision;
+  uint8 byPlayerSlots, byHasStart, byRaceReleased, byRaceLoadedSent,
+      byHasChat;
 };
 
 static uint16 NetLobbyRead16(const uint8 *pData)
@@ -164,6 +166,39 @@ static int NetLobbyHostCarAvailable(const tNetLobbyHost *pLobby,
   return 1;
 }
 
+static int NetLobbyHostTryReleaseRace(tNetLobbyHost *pLobby)
+{
+  uint8 abCountdown[sizeof(tNetCountdown)] = {0};
+  uint16 unRaceRevision;
+  int iPlayers = 0;
+  int iPlayer;
+  if (!pLobby || !pLobby->byHasStart || pLobby->byRaceReleased)
+    return 0;
+  for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
+    if (pLobby->aPlayers[iPlayer].byState == NET_PLAYER_EMPTY)
+      continue;
+    if (pLobby->aPlayers[iPlayer].byState != NET_PLAYER_RACING ||
+        !pLobby->abyRaceLoaded[iPlayer])
+      return 0;
+    ++iPlayers;
+  }
+  if (!iPlayers)
+    return 0;
+
+  unRaceRevision = NetLobbyNextRevision(pLobby->unRevision);
+  NetLobbyWrite32(abCountdown, pLobby->uiStartTick);
+  NetLobbyWrite16(abCountdown + 4, unRaceRevision);
+  abCountdown[6] = NET_PLAYER_RACING;
+  abCountdown[7] = NET_COUNTDOWN_RELEASE;
+  if (!NetLobbyHostQueueAll(pLobby, NET_MSG_COUNTDOWN, abCountdown,
+                            sizeof(abCountdown)))
+    return 0;
+  pLobby->unRevision = unRaceRevision;
+  pLobby->unRaceRevision = unRaceRevision;
+  pLobby->byRaceReleased = 1;
+  return 1;
+}
+
 static int NetLobbyDecodeStrategy(tNetChat *pChat, const tNetMessage *pMessage,
                                   int iFromClient)
 {
@@ -193,9 +228,6 @@ static void NetLobbyHostMessage(void *pContext, uint8 byPlayerIdx,
 
   if (pMessage->byType == NET_MSG_READY &&
       pMessage->unLength == sizeof(tNetReady) &&
-      !pLobby->byHasStart &&
-      (pPlayer->byState == NET_PLAYER_LOBBY ||
-       pPlayer->byState == NET_PLAYER_READY) &&
       pMessage->abData[4] <= 1 && !pMessage->abData[5] &&
       !pMessage->abData[6] && !pMessage->abData[7]) {
     uint32 uiTrackCRC = NetLobbyRead32(pMessage->abData);
@@ -207,9 +239,18 @@ static void NetLobbyHostMessage(void *pContext, uint8 byPlayerIdx,
       }
       return;
     }
-    pPlayer->byState = pMessage->abData[4] ?
-        NET_PLAYER_READY : NET_PLAYER_LOBBY;
-    NetLobbyHostBroadcastPlayers(pLobby, 1);
+    if (!pLobby->byHasStart &&
+        (pPlayer->byState == NET_PLAYER_LOBBY ||
+         pPlayer->byState == NET_PLAYER_READY)) {
+      pPlayer->byState = pMessage->abData[4] ?
+          NET_PLAYER_READY : NET_PLAYER_LOBBY;
+      NetLobbyHostBroadcastPlayers(pLobby, 1);
+    } else if (pLobby->byHasStart && !pLobby->byRaceReleased &&
+               pPlayer->byState == NET_PLAYER_RACING &&
+               pMessage->abData[4]) {
+      pLobby->abyRaceLoaded[byPlayerIdx] = 1;
+      NetLobbyHostTryReleaseRace(pLobby);
+    }
   } else if (pMessage->byType == NET_MSG_PLAYER_INFO &&
              pMessage->unLength == sizeof(tNetPlayerInfo) &&
              !pLobby->byHasStart &&
@@ -303,6 +344,7 @@ void NetLobbyHostPump(tNetLobbyHost *pLobby)
   }
   if (iChanged)
     NetLobbyHostBroadcastPlayers(pLobby, 1);
+  NetLobbyHostTryReleaseRace(pLobby);
 }
 
 int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick)
@@ -327,6 +369,7 @@ int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick)
   NetLobbyWrite32(abCountdown, uiStartTick);
   NetLobbyWrite16(abCountdown + 4, pLobby->unStartRevision);
   abCountdown[6] = NET_PLAYER_RACING;
+  abCountdown[7] = NET_COUNTDOWN_LOADING;
   if (!NetLobbyHostQueueAll(pLobby, NET_MSG_COUNTDOWN, abCountdown,
                             sizeof(abCountdown)))
     return 0;
@@ -381,6 +424,11 @@ int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick)
     return 0;
   *puiStartTick = pLobby->uiStartTick;
   return 1;
+}
+
+int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby)
+{
+  return pLobby && pLobby->byRaceReleased;
 }
 
 int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat)
@@ -454,13 +502,25 @@ static void NetLobbyClientMessage(void *pContext,
   } else if (pMessage->byType == NET_MSG_COUNTDOWN &&
              pMessage->unLength == sizeof(tNetCountdown) &&
              pMessage->abData[6] == NET_PLAYER_RACING &&
-             !pMessage->abData[7]) {
+             pMessage->abData[7] <= NET_COUNTDOWN_RELEASE) {
     uint16 unRevision = NetLobbyRead16(pMessage->abData + 4);
-    if (unRevision && (!pLobby->byHasStart ||
-        NetLobbyRevisionNewer(unRevision, pLobby->unStartRevision))) {
-      pLobby->uiStartTick = NetLobbyRead32(pMessage->abData);
+    uint32 uiStartTick = NetLobbyRead32(pMessage->abData);
+    if (pMessage->abData[7] == NET_COUNTDOWN_LOADING && unRevision &&
+        (!pLobby->byHasStart ||
+         NetLobbyRevisionNewer(unRevision, pLobby->unStartRevision))) {
+      pLobby->uiStartTick = uiStartTick;
       pLobby->unStartRevision = unRevision;
       pLobby->byHasStart = 1;
+    } else if (pMessage->abData[7] == NET_COUNTDOWN_RELEASE &&
+               pLobby->byHasStart && uiStartTick == pLobby->uiStartTick &&
+               unRevision &&
+               NetLobbyRevisionNewer(unRevision,
+                                     pLobby->unStartRevision) &&
+               (!pLobby->byRaceReleased ||
+                NetLobbyRevisionNewer(unRevision,
+                                      pLobby->unRaceRevision))) {
+      pLobby->unRaceRevision = unRevision;
+      pLobby->byRaceReleased = 1;
     }
   } else if (pMessage->byType == NET_MSG_CHAT) {
     tNetChat chat;
@@ -574,6 +634,33 @@ int NetLobbyClientStartTick(const tNetLobbyClient *pLobby,
                             uint32 *puiStartTick)
 {
   if (!pLobby || !puiStartTick || !pLobby->byHasStart)
+    return 0;
+  *puiStartTick = pLobby->uiStartTick;
+  return 1;
+}
+
+int NetLobbyClientSetRaceLoaded(tNetLobbyClient *pLobby)
+{
+  tNetSessionConfig config;
+  uint8 abReady[sizeof(tNetReady)] = {0};
+  if (!pLobby || !pLobby->byHasStart || pLobby->byRaceLoadedSent ||
+      NetSessionClientState(pLobby->pSession) != NET_JOIN_ACCEPTED ||
+      !NetSessionClientGetConfig(pLobby->pSession, &config))
+    return 0;
+  NetLobbyWrite32(abReady, config.uiTrackCRC);
+  abReady[4] = 1;
+  if (!NetConnectionQueueMessage(
+          NetSessionClientConnection(pLobby->pSession), NET_MSG_READY,
+          NET_MSG_RELIABLE | NET_MSG_ORDERED, abReady, sizeof(abReady)))
+    return 0;
+  pLobby->byRaceLoadedSent = 1;
+  return 1;
+}
+
+int NetLobbyClientRaceReleased(const tNetLobbyClient *pLobby,
+                               uint32 *puiStartTick)
+{
+  if (!pLobby || !puiStartTick || !pLobby->byRaceReleased)
     return 0;
   *puiStartTick = pLobby->uiStartTick;
   return 1;

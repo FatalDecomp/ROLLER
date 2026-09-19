@@ -138,8 +138,14 @@ typedef struct
 {
   uint32 uiStartTick;
   uint16 unRevision;
-  uint8 byState, byPad;
+  uint8 byState, byPhase;
 } tNetCountdown;                            /* 8 bytes */
+
+typedef enum
+{
+  NET_COUNTDOWN_LOADING = 0,
+  NET_COUNTDOWN_RELEASE
+} eNetCountdownPhase;
 
 #define NET_INPUT_REDUNDANCY 8
 

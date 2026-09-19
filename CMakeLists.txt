@@ -73,6 +73,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_channel.c
     PROJECTS/ROLLER/net_session.c
     PROJECTS/ROLLER/net_lobby.c
+    PROJECTS/ROLLER/net_race_start.c
     PROJECTS/ROLLER/net_config.c
     PROJECTS/ROLLER/net_config_codec.c
     PROJECTS/ROLLER/net_host.c
@@ -246,6 +247,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-lobby-test
         tests/net_lobby_test.c
         PROJECTS/ROLLER/net_lobby.c
+        PROJECTS/ROLLER/net_race_start.c
         PROJECTS/ROLLER/net_session.c
         PROJECTS/ROLLER/net_config_codec.c
         PROJECTS/ROLLER/net_channel.c

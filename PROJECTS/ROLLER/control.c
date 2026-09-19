@@ -1,5 +1,6 @@
 #include "control.h"
 #include "net_sim_seam.h"
+#include "net_types.h"
 #include "view.h"
 #include "loadtrak.h"
 #include "sound.h"
@@ -749,7 +750,8 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
       racing = master ^ wConsoleNode;
     ++game_frame;
     --countdown;
-    if (network_on && replaytype != 2 && write_check >= 0)// Network synchronization: calculate checksums for car state validation
+    if (network_on && net_mode == NET_MODE_LEGACY &&
+        replaytype != 2 && write_check >= 0)// Legacy lockstep checksum
     {
       iChecksum = 0;
       iCarCounter = 0;

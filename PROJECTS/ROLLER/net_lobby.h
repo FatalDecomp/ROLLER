@@ -18,6 +18,7 @@ int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
                        tNetPlayerEntry *pPlayer);
 int NetLobbyHostAllReady(const tNetLobbyHost *pLobby);
 int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick);
+int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby);
 int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat);
 
 tNetLobbyClient *NetLobbyClientCreate(tNetSessionClient *pSession);
@@ -34,6 +35,9 @@ int NetLobbyClientPlayer(const tNetLobbyClient *pLobby, uint8 byPlayerIdx,
                          tNetPlayerEntry *pPlayer);
 int NetLobbyClientStartTick(const tNetLobbyClient *pLobby,
                             uint32 *puiStartTick);
+int NetLobbyClientSetRaceLoaded(tNetLobbyClient *pLobby);
+int NetLobbyClientRaceReleased(const tNetLobbyClient *pLobby,
+                               uint32 *puiStartTick);
 int NetLobbyClientLastChat(const tNetLobbyClient *pLobby, tNetChat *pChat);
 
 #endif
