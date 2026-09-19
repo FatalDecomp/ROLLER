@@ -110,3 +110,6 @@ KEEP|PROJECTS/ROLLER/net_session.c
 KEEP|PROJECTS/ROLLER/net_host.c
 KEEP|PROJECTS/ROLLER/net_client.c
 KEEP|PROJECTS/ROLLER/net_rendezvous.c
+KEEP|PROJECTS/ROLLER/net_sim_seam.c
+EXCLUDE|PROJECTS/ROLLER/net_transport_sim.c
+EXCLUDE|PROJECTS/ROLLER/net_harness.c

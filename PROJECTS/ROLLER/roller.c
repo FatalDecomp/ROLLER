@@ -2656,6 +2656,10 @@ int ROLLERfilelength(const char *szFile)
 //-------------------------------------------------------------------------------------------------
 
 static uint32 g_uiRandState = 1;
+static uint64 g_ullRandDraws;
+
+uint64 ROLLERrandDrawCountGet(void) { return g_ullRandDraws; }
+void ROLLERrandDrawCountSet(uint64 ullCount) { g_ullRandDraws = ullCount; }
 
 void ROLLERsrand(unsigned int uiSeed)
 {
@@ -2666,6 +2670,7 @@ void ROLLERsrand(unsigned int uiSeed)
 
 int ROLLERrandRaw(void)
 {
+  ++g_ullRandDraws;
   g_uiRandState = g_uiRandState * 1103515245u + 12345u;
   return (int)((g_uiRandState >> 16) & 0x7FFFu);
 }

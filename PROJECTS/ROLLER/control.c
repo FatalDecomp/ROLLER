@@ -1,4 +1,5 @@
 #include "control.h"
+#include "net_sim_seam.h"
 #include "view.h"
 #include "loadtrak.h"
 #include "sound.h"
@@ -117,6 +118,8 @@ static void mayte_spawn_boost_spray(tCar *pCar, int iDriverIdx)
 //00029640
 void humancar(int iCarIdx)
 {
+  if (net_puppet_car[iCarIdx])
+    return;
   int iTrakLen; // ebp
   int iInput; // eax
   int iSteeringInput; // edi
@@ -178,6 +181,10 @@ void humancar(int iCarIdx)
   byCarDesignIdx = Car[iCarIdx_1].byCarDesignIdx;
   iControlFlags = unFlags;
   iPhoneThrottle = 0;
+  if (net_mode == NET_MODE_MODERN && (iControlFlags & BUTTON_FLAG_PHONE_THROTTLE)) {
+    iPhoneThrottle = -1;
+    iControlFlags &= ~BUTTON_FLAG_PHONE_THROTTLE;
+  }
 #if defined(IS_ANDROID) || defined(IS_WASM)
   if (ROLLERPhoneUIActive() && iCarIdx_1 == player1_car &&
       (iControlFlags & BUTTON_FLAG_PHONE_THROTTLE) != 0) {
@@ -194,7 +201,7 @@ void humancar(int iCarIdx)
     iControlFlags = 2;
     //LOWORD(iControlFlags) = 2;
   //if (racers - 1 == finishers && Car[iCarIdx_1].byLap < NoOfLaps && (LODWORD(Car[iCarIdx_1].fFinalSpeed) & 0x7FFFFFFF) == 0 && competitors > 1)// Handle race finish condition: play finish sounds and mark player as finished
-  if (racers - 1 == finishers && Car[iCarIdx_1].byLap < NoOfLaps && fabs(Car[iCarIdx_1].fFinalSpeed) == 0 && competitors > 1)// Handle race finish condition: play finish sounds and mark player as finished
+  if (net_sim_authority == NET_AUTHORITY_LOCAL && racers - 1 == finishers && Car[iCarIdx_1].byLap < NoOfLaps && fabs(Car[iCarIdx_1].fFinalSpeed) == 0 && competitors > 1)// Handle race finish condition: play finish sounds and mark player as finished
   {
     if (player1_car == iCarIdx_1 || player2_car == iCarIdx_1) {
       if ((char)Car[iCarIdx_1].byLives > 0)
@@ -215,7 +222,7 @@ void humancar(int iCarIdx)
   iCarIndex1 = iCarIdx_1;
   iCarIndex2 = iCarIdx_1;
   Car[iCarIdx_1].iSteeringInput = iSteeringInput;// Store steering input and handle cheat power activation
-  if (!cheat_control)
+  if (!cheat_control || (net_sim_authority == NET_AUTHORITY_REMOTE && byCarDesignIdx != 9))
     goto PROCESS_VEHICLE_CONTROLS;
   switch (byCarDesignIdx) {
     case 8:                                     // SUICYCO (explode opponent)
@@ -290,7 +297,8 @@ void humancar(int iCarIdx)
             if (cheatsampleok(iCarIdx_1))
               sfxsample(SOUND_SAMPLE_BLOP, 0x8000);
           } else {
-            --Car[iCarIdx_1].byCheatAmmo;
+            if (net_sim_authority == NET_AUTHORITY_LOCAL)
+              --Car[iCarIdx_1].byCheatAmmo;
             // Direct velocity impulse only applies airborne -- traced through the Brazilian
             // binary's x87 stack, the tcos/tsin push is inside its own "nCurrChunk == -1" check,
             // separate from the unconditional fSpeedOverflow/spawn below. On the ground the speed
@@ -311,7 +319,8 @@ void humancar(int iCarIdx)
         mayte_spawn_boost_spray(&Car[iCarIdx_1], Car[iCarIdx_1].iDriverIdx);
       }
       TRAK_LEN = iTrakLen;
-      Car[iCarIdx_1].byCheatCooldown = 36;          // shared switch-tail behavior, matches SUICYCO
+      if (net_sim_authority == NET_AUTHORITY_LOCAL)
+        Car[iCarIdx_1].byCheatCooldown = 36;        // shared switch-tail behavior, matches SUICYCO
       goto PROCESS_VEHICLE_CONTROLS;
     }
     case 10:                                    // 2X4B523P (flip opponent)
@@ -776,6 +785,8 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
     {
       for (int i = 0; i < numcars; i++)
       {
+        if (net_puppet_car[i])
+          continue;
         // Initialize wheel spin factor to 1.0
         Car[i].fWheelSpinFactor = 1.0;
 
@@ -810,6 +821,8 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
       dozoomstuff(1);
     if (readptr >= 0) {                                           // Process each car: handle race start, player controls, and network events
       for (iCar = 0; iCar < numcars; ++iCar) {                                         // Race start condition: clear high bit from gear and enable racing
+        if (net_puppet_car[iCar])
+          continue;
         if (game_frame == 145 && (Car[iCar].byGearAyMax & 0x80u) != 0) {
           Car[iCar].byGearAyMax = 0;
           race_started = -1;
@@ -857,9 +870,12 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         }
       }
     }
-    if (replaytype == 2)                      // Handle replay data and update stunt system
+    if (replaytype == 2 && !net_sim_replaying) // Replay output consumes no RNG.
+                                            // Handle replay data and update stunt system
       DoReplayData();
     updatestunts();
+    if (net_sim_puppet_hook)
+      net_sim_puppet_hook();
     if (replaytype != 2) {
       memset(newrepsample, 0, sizeof(newrepsample));// Process car controls and AI for non-replay mode
       iCarArrayIdx = 0;
@@ -867,9 +883,11 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         iCarStructIdx = 0;
         iCarLoopIdx = 0;
         do {
+          if (net_puppet_car[iCarStructIdx])
+            goto net_next_control_car;
           byStatusFlags = Car[iCarStructIdx].byStatusFlags;// Check car status and handle death/damage states
           Car[iCarStructIdx].byAccelerating = 0;
-          if ((byStatusFlags & 4) != 0 || !Car[iCarStructIdx].byLives) {
+          if (net_sim_authority == NET_AUTHORITY_LOCAL && ((byStatusFlags & 4) != 0 || !Car[iCarStructIdx].byLives)) {
             //if ((LODWORD(Car[iCarStructIdx].fFinalSpeed) & 0x7FFFFFFF) == 0 || Car[iCarStructIdx].nUnk21 < 126) {
             if (fabs(Car[iCarStructIdx].fFinalSpeed) == 0 || Car[iCarStructIdx].nDeathTimer < 126) {
               nTimerValue = Car[iCarStructIdx].nExplosionSoundTimer - 1;
@@ -887,6 +905,7 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
               autocar2(&Car[iCarStructIdx]);
             }
           }
+        net_next_control_car:
           ++iCarStructIdx;
           ++iCarArrayIdx;
           ++iCarLoopIdx;
@@ -896,11 +915,11 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
       if (numcars > 0) {
         iCarUpdateIdx = 0;
         do {
-          if ((Car[iCarUpdateIdx].byLives & 0x80u) == 0) {
+          if (!net_puppet_car[iCarUpdateIdx] && (Car[iCarUpdateIdx].byLives & 0x80u) == 0) {
             if (fudge_wait < 0)
               updatecar2(&Car[iCarUpdateIdx]);
             byUnk43 = Car[iCarUpdateIdx].byDamageSourceTimer;
-            if (byUnk43 && Car[iCarUpdateIdx].fHealth > 0.0)
+            if (net_sim_authority == NET_AUTHORITY_LOCAL && byUnk43 && Car[iCarUpdateIdx].fHealth > 0.0)
               Car[iCarUpdateIdx].byDamageSourceTimer = byUnk43 - 1;
           }
           iCarArrayIdx = numcars;
@@ -976,7 +995,7 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         } while (iCrossLineIdx < numcars);
       }
     }
-    if (replaytype == 1 && fudge_wait < 0)
+    if (replaytype == 1 && fudge_wait < 0 && !net_sim_replaying)
       DoReplayData();
     if (replaytype != 2 || newreplayframe)    // Calculate car motion effects based on health and speed
     {
@@ -984,6 +1003,12 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
       if (numcars > 0) {
         pCurrentCar = Car;
         do {
+          if (NetSimIsPuppet(pCurrentCar)) {
+            ++pCurrentCar;
+            ++iMotionCarIdx;
+            iNumCarsTemp = numcars;
+            continue;
+          }
           fHealthFactor = (pCurrentCar->fHealth + 34.0f) * 0.01f;// Apply random motion effects: more damage = more erratic movement
           pMotionCar = pCurrentCar;
           if (fHealthFactor > 1.0)
@@ -1040,7 +1065,7 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
         enginesounds(ViewType[0]);
       }
     }
-    if (!intro && human_finishers >= players && (disable_messages || network_on))// Check race completion conditions and network state
+    if (net_sim_authority == NET_AUTHORITY_LOCAL && !intro && human_finishers >= players && (disable_messages || network_on))// Check race completion conditions and network state
     {
       iNetworkArraySize = 4 * numcars;
       iCarOffset = network_on;
@@ -1098,6 +1123,8 @@ static void control_ticks(int iMaxTicks, int iReturnIfNoTick)
     iFinalCarIdx = 0;
     iFinalByteIdx = 0;
     while (1) {
+      if (net_puppet_car[iFinalCarIdx])
+        goto LABEL_185;
       if (Car[iFinalCarIdx].fFinalSpeed <= 36.0 || Car[iFinalCarIdx].fFinalSpeed >= 100.0)
         goto LABEL_185;                         // Toggle special car state (byUnk68) based on speed and current state
       byUnk68 = Car[iFinalCarIdx].byWheelAnimationFrame;
@@ -1912,6 +1939,8 @@ double change_gear(int iCurrentGear, int iNextGear, tCar *pCar, int iCarDesignId
 //0002C5A0
 void updatecar2(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar))
+    return;
   int iLeaderCarIdx; // edi
   int iLeaderProgress; // ecx
   int iCarLoopIdx; // edx
@@ -2230,7 +2259,7 @@ LABEL_45:
   if (byCollisionTimer)
     pCar->byCollisionTimer = byCollisionTimer - 1;
   byCheatCooldown = pCar->byCheatCooldown;
-  if (byCheatCooldown)
+  if (byCheatCooldown && net_sim_authority == NET_AUTHORITY_LOCAL)
     pCar->byCheatCooldown = byCheatCooldown - 1;
   //if (pCar->byThrottlePressed && !pCar->byEngineStartTimer && (LODWORD(pCar->fRPMRatio) & 0x7FFFFFFF) == 0 && !pCar->byAccelerating)
   if (pCar->byThrottlePressed && !pCar->byEngineStartTimer && fabs(pCar->fRPMRatio) == 0 && !pCar->byAccelerating)
@@ -2612,14 +2641,14 @@ LABEL_171:
     } else {
       pCar->iLaneType = 0;
     }
-    if (finished_car[pCar->iDriverIdx] || death_race) {
+    if (net_sim_authority == NET_AUTHORITY_REMOTE || finished_car[pCar->iDriverIdx] || death_race) {
       iTrackColorFlag = 0;
       bZeroFlag = 1;
     } else {
       iTrackColorFlag = TrakColour[pCar->nCurrChunk][pCar->iLaneType] & SURFACE_FLAG_PIT;
       bZeroFlag = iTrackColorFlag == 0;
     }
-    if (bZeroFlag)
+    if (bZeroFlag && net_sim_authority == NET_AUTHORITY_LOCAL && !net_puppet_car[0])
       Car[0].byStatusFlags &= ~8u;
     //if ((LODWORD(fAbsoluteSpeed) & 0x7FFFFFFF) != 0)
     if (fabs(fAbsoluteSpeed) > FLT_EPSILON)
@@ -3251,6 +3280,8 @@ LABEL_502:
 //0002F040
 void check_crossed_line(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar) || net_sim_authority == NET_AUTHORITY_REMOTE)
+    return;
   int iDriverIdx; // eax
   int16 nCurrChunk; // dx
   int iRacers; // edx
@@ -3587,6 +3618,8 @@ void check_crossed_line(tCar *pCar)
 //0002F920
 void checkplacement(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar) || net_sim_authority == NET_AUTHORITY_REMOTE)
+    return;
   int iRandValue; // eax
   int iNewChunk; // edi
   int iPlacementResult; // ebp
@@ -4919,6 +4952,8 @@ double block(int iCarIdx, float fSteeringInput, float fMaxOutput, float fSaturat
 //00031BA0
 void autocar2(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar))
+    return;
   tCarStrategy *pStrategy; // ebp
   int iCountdown; // ebx
   int iCurrChunk; // edx
@@ -5555,6 +5590,8 @@ static int should_skip_improved_jump_landing_inner_wall(int iChunk, int iWallSur
 //00033000
 void landontrack(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar))
+    return;
   tTrackInfo *pTrackInfo; // ebp
   int iNextChunkIdx; // eax
   tData *pCurrentData; // esi
@@ -6446,6 +6483,8 @@ void landontrack(tCar *pCar)
 //00034CF0
 void converttoair(tCar *pCar)
 {
+  if (NetSimIsPuppet(pCar))
+    return;
   int iCurrChunk; // eax
   double dRollSpeedCalc; // st7
   int iChunkBackup; // edi
@@ -6501,6 +6540,8 @@ void converttoair(tCar *pCar)
 //00034EA0
 void ordercars()
 {
+  if (net_sim_authority == NET_AUTHORITY_REMOTE)
+    return;
   int iTotalCars; // edi
   unsigned int uiSortIndex; // edx
   int iSortLimit; // esi

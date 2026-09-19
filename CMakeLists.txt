@@ -67,6 +67,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/scene_render_software.c
     PROJECTS/ROLLER/moving.c
     PROJECTS/ROLLER/net_headless.c
+    PROJECTS/ROLLER/net_sim_seam.c
     PROJECTS/ROLLER/net_stats.c
     PROJECTS/ROLLER/net_channel.c
     PROJECTS/ROLLER/net_session.c
@@ -96,6 +97,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/view.c)
 
 set(ROLLER_GAME_NATIVE_SOURCES
+    PROJECTS/ROLLER/net_harness.c
     PROJECTS/ROLLER/debug_overlay.c
     PROJECTS/ROLLER/crashdump.c
     PROJECTS/ROLLER/menu_render_gpu.c
@@ -172,6 +174,23 @@ if(ROLLER_BUILD_EDITOR_CORE)
         target_link_libraries(roller-core PRIVATE winmm)
     endif()
     roller_configure_c_target(roller-core)
+
+    add_executable(roller-server PROJECTS/ROLLERSRV/roller_server.c PROJECTS/ROLLER/net_harness.c)
+    target_link_libraries(roller-server PRIVATE ROLLER::core)
+    roller_configure_c_target(roller-server)
+    add_executable(roller-netsim PROJECTS/ROLLERSRV/roller_netsim.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_include_directories(roller-netsim PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(roller-netsim)
+    if(WIN32)
+        target_link_libraries(roller-server PRIVATE ws2_32)
+        target_link_libraries(roller-netsim PRIVATE ws2_32)
+    endif()
+
+    add_executable(net-transport-test tests/net_transport_test.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_include_directories(net-transport-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-transport-test)
+    enable_testing()
+    add_test(NAME net-transport COMMAND net-transport-test)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core)

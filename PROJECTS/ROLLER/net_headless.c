@@ -54,7 +54,16 @@ int NetHeadlessInit(const char *szTrack, const char *szAssets, int iCars,
 
 void NetHeadlessStep(void)
 {
+  NetHeadlessStepInputs(NULL, 0);
+}
+
+void NetHeadlessStepInputs(const tCopyData *pInputs, int iNumCars)
+{
+  if (iNumCars < 0 || iNumCars > numcars || (iNumCars && !pInputs))
+    return;
   memset(copy_multiple[writeptr], 0, sizeof(copy_multiple[writeptr]));
+  if (iNumCars)
+    memcpy(copy_multiple[writeptr], pInputs, (size_t)iNumCars * sizeof(*pInputs));
   writeptr = (writeptr + 1) & 511;
   control_one_tick();
 }

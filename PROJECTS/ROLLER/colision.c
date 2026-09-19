@@ -1,4 +1,5 @@
 #include "colision.h"
+#include "net_sim_seam.h"
 #include "loadtrak.h"
 #include "3d.h"
 #include "function.h"
@@ -399,6 +400,12 @@ void testcollisions()
 //0005FA00
 void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
 {
+  tCar car1Copy, car2Copy;
+  if (NetSimIsPuppet(pCar1) && NetSimIsPuppet(pCar2))
+    return;
+  if (NetSimIsPuppet(pCar1)) { car1Copy = *pCar1; pCar1 = &car1Copy; }
+  if (NetSimIsPuppet(pCar2)) { car2Copy = *pCar2; pCar2 = &car2Copy; }
+
   tData *pData2; // eax
   double dRelativeX1; // st7
   double dRelativeY1; // st6
@@ -815,12 +822,14 @@ void testcoll(tCar *pCar1, tCar *pCar2, int iDistanceSteps)
         speechonly(iSpeechId2, 0x8000, 18, pCar2->iDriverIdx);
       }
     LABEL_96:
+      if (net_sim_authority == NET_AUTHORITY_LOCAL) {
       if (pCar1->fHealth > 0.0)
         pCar1->byAttacker = pCar2->iDriverIdx;
       pCar1->byDamageSourceTimer = -40;
       if (pCar2->fHealth > 0.0)
         pCar2->byAttacker = pCar1->iDriverIdx;
       pCar2->byDamageSourceTimer = -40;
+      }
       fCar1FinalDamage = fCar1Damage * damage_levels[damage_level];
       dodamage(pCar1, fCar1FinalDamage);        // Apply calculated damage to both cars and set attacker information
       fCar2FinalDamage = fCar2Damage * damage_levels[damage_level];

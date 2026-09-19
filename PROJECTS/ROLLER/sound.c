@@ -1,4 +1,5 @@
 #include "sound.h"
+#include "net_sim_seam.h"
 #include "frontend.h"
 #include "moving.h"
 #include "cdx.h"
@@ -2302,6 +2303,9 @@ void analysespeechsamples()
 //0003CAD0
 void dospeechsample(int iSampleIdx, int iVolume)
 {
+  /* Output sink has no RNG draws or simulation bookkeeping. */
+  if (net_sim_replaying)
+    return;
   int iUseVolume;
   int iHandle, iSampleHandle;
 
@@ -2504,6 +2508,9 @@ int cheatsampleok(int iCarIdx)
 //0003CEF0
 void sfxsample(int iSample, int iVol)
 {
+  /* Output sink has no RNG draws or simulation bookkeeping. */
+  if (net_sim_replaying)
+    return;
   if (SamplePtr[iSample] == 0) {
     SDL_Log("sfxsample: Sample pointer is NULL for sample index %d", iSample);
     return;
@@ -2630,7 +2637,7 @@ void sfxpend(int iSampleIdx, int iDriverIdx, int iVolume)
     //repvolume[iDriverIdx] = (unsigned __int16)(iClampedVolume - (__CFSHL__(iClampedVolume >> 31, 8) + ((unsigned __int16)(iClampedVolume >> 31) << 8))) >> 8;
   }
   iAdjustedVolume = iClampedVolume * SFXVolume / 127;// Calculate final volume based on global SFX volume setting
-  if (soundon && Pending[iDriverIdx] != 5)    // Only queue sample if sound is enabled and pending queue isn't full
+  if (!net_sim_replaying && soundon && Pending[iDriverIdx] != 5)    // Only queue sample if sound is enabled and pending queue isn't full
   {
 
     // Check if this sample is already pending for this driver

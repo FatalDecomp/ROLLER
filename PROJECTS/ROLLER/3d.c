@@ -1,3 +1,6 @@
+#if !defined(__EMSCRIPTEN__)
+#include "net_harness.h"
+#endif
 #include "3d.h"
 #include "game_render_hw.h"
 #include "cdx.h"
@@ -2814,6 +2817,12 @@ int SDL_main(int argc, char *argv[])
 
 int main(int argc, const char **argv, const char **envp)
 {
+#if !defined(IS_WASM)
+  int iHarnessResult = NetHarnessMain(argc, argv);
+  if (iHarnessResult >= 0)
+    return iHarnessResult;
+#endif
+
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
   int iPlayer1NameOverride = 0;

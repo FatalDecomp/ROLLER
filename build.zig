@@ -137,6 +137,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/moving.c",
             "PROJECTS/ROLLER/net_headless.c",
+            "PROJECTS/ROLLER/net_sim_seam.c",
             "PROJECTS/ROLLER/net_stats.c",
             "PROJECTS/ROLLER/net_channel.c",
             "PROJECTS/ROLLER/net_session.c",
@@ -185,6 +186,7 @@ pub fn build(b: *std.Build) void {
             .flags = c_flags,
             .files = &.{
                 "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/net_harness.c",
                 "PROJECTS/ROLLER/crashdump.c",
                 "PROJECTS/ROLLER/menu_render_gpu.c",
                 "PROJECTS/ROLLER/crt_filter.c",
@@ -443,6 +445,56 @@ fn configureRenderQueue3DTests(
         .target = target,
         .optimize = optimize,
     });
+    const net_transport_mod = b.createModule(.{
+        .target = target, .optimize = optimize, .link_libc = true,
+    });
+    net_transport_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_transport_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_transport_sim.c", "tests/net_transport_test.c",
+    } });
+    const net_transport_exe = b.addExecutable(.{ .name = "net_transport_test", .root_module = net_transport_mod });
+    const run_net_transport = b.addRunArtifact(net_transport_exe);
+    const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLERSRV/roller_netsim.c", "PROJECTS/ROLLER/net_transport_sim.c",
+    } });
+    if (target.result.os.tag == .windows) netsim_mod.linkSystemLibrary("ws2_32", .{});
+    const netsim_exe = b.addExecutable(.{ .name = "roller-netsim", .root_module = netsim_mod });
+    const net_server_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_server_mod.sanitize_c = .off;
+    net_server_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_server_mod.addIncludePath(sdl.builder.path("include"));
+    net_server_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_server_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_server_mod.addIncludePath(libcdio.builder.path("include"));
+    net_server_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_server_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_server_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_server_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_server_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_server_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_server_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_server_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_server_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLERSRV/roller_server.c",
+            "PROJECTS/ROLLER/net_harness.c",
+        },
+    });
+    if (target.result.os.tag == .windows) net_server_mod.linkSystemLibrary("ws2_32", .{});
+    const net_server_exe = b.addExecutable(.{
+        .name = "roller-server",
+        .root_module = net_server_mod,
+    });
     const net_foundations_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -480,6 +532,18 @@ fn configureRenderQueue3DTests(
     run_net_foundations.addDirectoryArg(assets_path);
     const net_foundations_tests = b.step("test-net-foundations", "Run NET-E0 foundation acceptance");
     net_foundations_tests.dependOn(&run_net_foundations.step);
+    net_foundations_tests.dependOn(&run_net_transport.step);
+    const run_net_harness = b.addSystemCommand(&.{ "python", "tests/net_harness.py", "--server" });
+    run_net_harness.addArtifactArg(net_server_exe);
+    run_net_harness.addArg("--proxy");
+    run_net_harness.addArtifactArg(netsim_exe);
+    run_net_harness.addArg("--track");
+    run_net_harness.addFileArg(assets_path.path(b, soak_track));
+    run_net_harness.addArg("--assets");
+    run_net_harness.addDirectoryArg(assets_path);
+    const net_harness_tests = b.step("test-net-harness", "Run deterministic two-process NET-E0 smoke test");
+    net_harness_tests.dependOn(&run_net_harness.step);
+
     const editor_track_only_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
