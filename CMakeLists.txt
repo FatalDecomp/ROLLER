@@ -207,6 +207,15 @@ if(ROLLER_BUILD_EDITOR_CORE)
     enable_testing()
     add_test(NAME net-transport COMMAND net-transport-test)
 
+    add_executable(net-channel-test
+        tests/net_channel_test.c
+        PROJECTS/ROLLER/net_channel.c
+        PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-channel-test PRIVATE c_std_11)
+    target_include_directories(net-channel-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-channel-test)
+    add_test(NAME net-channel COMMAND net-channel-test)
+
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-foundations-test)

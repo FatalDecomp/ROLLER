@@ -461,6 +461,26 @@ fn configureRenderQueue3DTests(
     }
     const net_transport_exe = b.addExecutable(.{ .name = "net_transport_test", .root_module = net_transport_mod });
     const run_net_transport = b.addRunArtifact(net_transport_exe);
+    const net_channel_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_channel_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_channel_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_channel.c", "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_channel_test.c",
+    } });
+    const net_channel_exe = b.addExecutable(.{
+        .name = "net_channel_test",
+        .root_module = net_channel_mod,
+    });
+    const run_net_channel = b.addRunArtifact(net_channel_exe);
+    const net_channel_tests = b.step(
+        "test-net-channel",
+        "Run NET-E1-S2 packet/channel reliability acceptance",
+    );
+    net_channel_tests.dependOn(&run_net_channel.step);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -544,6 +564,7 @@ fn configureRenderQueue3DTests(
     const net_foundations_tests = b.step("test-net-foundations", "Run NET-E0 foundation acceptance");
     net_foundations_tests.dependOn(&run_net_foundations.step);
     net_foundations_tests.dependOn(&run_net_transport.step);
+    net_foundations_tests.dependOn(&run_net_channel.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

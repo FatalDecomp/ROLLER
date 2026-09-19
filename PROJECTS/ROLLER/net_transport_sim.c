@@ -85,7 +85,10 @@ static int NetSimReceive(void *pContext, tNetAddress *pFrom, void *pData, int iC
   memcpy(pData, pBest->abData, (size_t)iLength);
   if (pFrom) {
     memset(pFrom, 0, sizeof(*pFrom));
+    pFrom->abAddress[0] = 127;
+    pFrom->abAddress[3] = 1;
     pFrom->unPort = (uint16)(1 - pEndpoint->iIndex);
+    pFrom->byFamily = NET_ADDR_IPV4;
   }
   pBest->iLength = 0;
   return iLength;

@@ -22,3 +22,24 @@ The transport is a native platform source and remains excluded from
 dedicated server compile it directly. The transport acceptance executable
 covers IPv4 and IPv6 loopback, address parsing and formatting, local address
 enumeration, non-blocking receive, payload bounds, and the clock override.
+
+## E1-S2 packet channels
+
+Each channel owns a transport and up to 16 token-and-address keyed
+connections. `NetPump` services every registered channel from the frame loop;
+it does not inspect or depend on simulation tick state or pause state.
+
+Packet sequences and the 32-bit ACK window use wrap-safe 16-bit comparisons.
+Reliable entries remain queued until any packet carrying them is acknowledged,
+and are resent after 100 ms. Reliable-ordered messages use a 64-message send
+and receive window, which bounds reordering memory while applying backpressure
+when an old message remains unacknowledged. Duplicate packets and reliable
+messages are discarded. A generation mismatch is dropped before ACK or
+message processing.
+
+Connections send an empty ACK-only packet when needed and a channel-internal
+`PING` every second while otherwise idle. The ping is acknowledged at packet
+level to keep RTT current, while empty ACK packets do not request another ACK,
+avoiding an ACK ping-pong. A connection expires after 10 seconds without a
+valid packet. RTT and jitter use acknowledged packet timestamps on the
+transport's monotonic or harness-supplied clock.
