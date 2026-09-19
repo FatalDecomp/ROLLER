@@ -52,6 +52,8 @@ struct tNetChannel {
   tNetTransport transport;
   tNetConnection *apConnections[NET_MAX_CONNECTIONS];
   int iConnectionCount;
+  tNetChannelAcceptFn pAccept;
+  void *pAcceptContext;
   struct tNetChannel *pNext;
 };
 
@@ -342,21 +344,55 @@ static int NetValidatePacket(const uint8 *pPacket, int iLength)
 static tNetConnection *NetFindConnection(tNetChannel *pChannel,
                                          const tNetAddress *pFrom,
                                          uint64 ullToken,
-                                         uint8 byGeneration)
+                                         uint8 byGeneration,
+                                         const uint8 *pPacket)
 {
   int iConnection;
   for (iConnection = 0; iConnection < pChannel->iConnectionCount;
        ++iConnection) {
     tNetConnection *pConnection = pChannel->apConnections[iConnection];
-    if (pConnection->ullSessionToken == ullToken &&
-        NetChannelAddressEqual(&pConnection->peer, pFrom)) {
+    if (pConnection->ullSessionToken == ullToken) {
+      if (!ullToken && !NetChannelAddressEqual(&pConnection->peer, pFrom))
+        continue;
       if (pConnection->byGeneration != byGeneration) {
         ++pConnection->iStalePackets;
         return NULL;
       }
+      if (ullToken && !NetChannelAddressEqual(&pConnection->peer, pFrom))
+        pConnection->peer = *pFrom;
       return pConnection;
     }
   }
+
+  /* A join accept carries the newly minted token in both the packet and its
+     payload.  Let the address-bound provisional client consume it, then the
+     session promotes that connection to the authenticated identity. */
+  if (ullToken && byGeneration && pPacket[21] &&
+      pPacket[sizeof(tNetPacketHeader)] == NET_MSG_JOIN_ACCEPT &&
+      NetRead16(pPacket + sizeof(tNetPacketHeader) + 2) ==
+          sizeof(tNetJoinAccept) &&
+      NetRead64(pPacket + sizeof(tNetPacketHeader) +
+                sizeof(tNetMessageHeader)) == ullToken &&
+      pPacket[sizeof(tNetPacketHeader) + sizeof(tNetMessageHeader) + 8] ==
+          byGeneration) {
+    for (iConnection = 0; iConnection < pChannel->iConnectionCount;
+         ++iConnection) {
+      tNetConnection *pConnection = pChannel->apConnections[iConnection];
+      if (!pConnection->ullSessionToken && !pConnection->byGeneration &&
+          NetChannelAddressEqual(&pConnection->peer, pFrom))
+        return pConnection;
+    }
+  }
+
+  /* Only an uncredentialled JOIN_REQUEST may ask the session listener to
+     allocate a provisional host-side connection. */
+  if (!ullToken && !byGeneration && pChannel->pAccept && pPacket[21] &&
+      pPacket[sizeof(tNetPacketHeader)] == NET_MSG_JOIN_REQUEST &&
+      pPacket[sizeof(tNetPacketHeader) + 1] ==
+          (NET_MSG_RELIABLE | NET_MSG_ORDERED) &&
+      NetRead16(pPacket + sizeof(tNetPacketHeader) + 2) ==
+          sizeof(tNetJoinRequest))
+    return pChannel->pAccept(pChannel->pAcceptContext, pChannel, pFrom);
   return NULL;
 }
 
@@ -371,7 +407,7 @@ static void NetProcessPacket(tNetChannel *pChannel, const tNetAddress *pFrom,
   if (!NetValidatePacket(pPacket, iLength))
     return;
   pConnection = NetFindConnection(pChannel, pFrom, NetRead64(pPacket + 12),
-                                  pPacket[20]);
+                                  pPacket[20], pPacket);
   if (!pConnection || pConnection->byExpired)
     return;
   if (pConnection->iDeliveryCount + pPacket[21] > NET_DELIVERY_QUEUE)
@@ -598,6 +634,16 @@ tNetConnection *NetChannelAddConnection(tNetChannel *pChannel,
   return pConnection;
 }
 
+void NetChannelSetAcceptCallback(tNetChannel *pChannel,
+                                 tNetChannelAcceptFn pAccept,
+                                 void *pContext)
+{
+  if (!pChannel)
+    return;
+  pChannel->pAccept = pAccept;
+  pChannel->pAcceptContext = pAccept ? pContext : NULL;
+}
+
 static int NetOrderedWindowAvailable(const tNetConnection *pConnection)
 {
   uint16 unOldest = pConnection->unNextOrderedSend;
@@ -699,6 +745,35 @@ float NetConnectionRttMs(const tNetConnection *pConnection)
 float NetConnectionJitterMs(const tNetConnection *pConnection)
 {
   return pConnection ? pConnection->fJitterMs : 0.0f;
+}
+
+void NetConnectionSetIdentity(tNetConnection *pConnection,
+                              uint64 ullSessionToken,
+                              uint8 byGeneration)
+{
+  if (!pConnection)
+    return;
+  pConnection->ullSessionToken = ullSessionToken;
+  pConnection->byGeneration = byGeneration;
+}
+
+uint64 NetConnectionSessionToken(const tNetConnection *pConnection)
+{
+  return pConnection ? pConnection->ullSessionToken : 0;
+}
+
+uint8 NetConnectionGeneration(const tNetConnection *pConnection)
+{
+  return pConnection ? pConnection->byGeneration : 0;
+}
+
+int NetConnectionPeer(const tNetConnection *pConnection,
+                      tNetAddress *pPeer)
+{
+  if (!pConnection || !pPeer)
+    return 0;
+  *pPeer = pConnection->peer;
+  return 1;
 }
 
 void NetChannelPump(tNetChannel *pChannel)

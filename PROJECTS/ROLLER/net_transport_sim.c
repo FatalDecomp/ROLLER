@@ -11,6 +11,7 @@ typedef struct {
 typedef struct {
   struct tNetTransportSim *pSim;
   int iIndex;
+  tNetAddress address;
 } tNetSimEndpoint;
 struct tNetTransportSim {
   uint64 ullNowMs, ullOrder;
@@ -84,11 +85,7 @@ static int NetSimReceive(void *pContext, tNetAddress *pFrom, void *pData, int iC
   iLength = pBest->iLength;
   memcpy(pData, pBest->abData, (size_t)iLength);
   if (pFrom) {
-    memset(pFrom, 0, sizeof(*pFrom));
-    pFrom->abAddress[0] = 127;
-    pFrom->abAddress[3] = 1;
-    pFrom->unPort = (uint16)(1 - pEndpoint->iIndex);
-    pFrom->byFamily = NET_ADDR_IPV4;
+    *pFrom = pSim->aEndpoints[1 - pEndpoint->iIndex].address;
   }
   pBest->iLength = 0;
   return iLength;
@@ -107,6 +104,10 @@ tNetTransportSim *NetTransportSimCreate(uint32 uiSeed)
     for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint) {
       pSim->aEndpoints[iEndpoint].pSim = pSim;
       pSim->aEndpoints[iEndpoint].iIndex = iEndpoint;
+      pSim->aEndpoints[iEndpoint].address.abAddress[0] = 127;
+      pSim->aEndpoints[iEndpoint].address.abAddress[3] = 1;
+      pSim->aEndpoints[iEndpoint].address.unPort = (uint16)iEndpoint;
+      pSim->aEndpoints[iEndpoint].address.byFamily = NET_ADDR_IPV4;
     }
   }
   return pSim;
@@ -133,6 +134,17 @@ int NetTransportSimSetLink(tNetTransportSim *pSim, int iSender, const tNetSimLin
       pLink->unReorderPermille > 1000 || pLink->uiJitterMs > 60000 || pLink->uiLatencyMs > 60000)
     return 0;
   pSim->aLinks[iSender] = *pLink;
+  return 1;
+}
+
+int NetTransportSimSetEndpointAddress(tNetTransportSim *pSim, int iEndpoint,
+                                      const tNetAddress *pAddress)
+{
+  if (!pSim || !pAddress || iEndpoint < 0 || iEndpoint > 1 ||
+      (pAddress->byFamily != NET_ADDR_IPV4 &&
+       pAddress->byFamily != NET_ADDR_IPV6))
+    return 0;
+  pSim->aEndpoints[iEndpoint].address = *pAddress;
   return 1;
 }
 

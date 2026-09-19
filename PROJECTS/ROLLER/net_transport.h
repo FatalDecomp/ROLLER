@@ -47,6 +47,10 @@ uint16 NetTransportUdpPort(const tNetTransportUdp *pUdp);
 void NetTransportUdpSetClock(tNetTransportUdp *pUdp, tNetClockFn pClock,
                              void *pClockContext);
 
+/* Platform cryptographic random source.  The context argument is ignored so
+   this function can be passed directly to the session random callback. */
+int NetPlatformRandomBytes(void *pContext, void *pData, int iLength);
+
 typedef struct {
   uint32 uiLatencyMs, uiJitterMs;
   uint16 unLossPermille, unDuplicatePermille, unReorderPermille;
@@ -58,6 +62,8 @@ tNetTransportSim *NetTransportSimCreate(uint32 uiSeed);
 void NetTransportSimDestroy(tNetTransportSim *pSim);
 tNetTransport NetTransportSimEndpoint(tNetTransportSim *pSim, int iEndpoint);
 int NetTransportSimSetLink(tNetTransportSim *pSim, int iSender, const tNetSimLink *pLink);
+int NetTransportSimSetEndpointAddress(tNetTransportSim *pSim, int iEndpoint,
+                                      const tNetAddress *pAddress);
 int NetTransportSimAdvance(tNetTransportSim *pSim, uint64 ullNowMs);
 
 #endif

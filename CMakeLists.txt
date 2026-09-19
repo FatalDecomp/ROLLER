@@ -190,7 +190,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     set_target_properties(net-netsim PROPERTIES OUTPUT_NAME "roller-netsim")
     roller_configure_c_target(net-netsim)
     if(WIN32)
-        target_link_libraries(net-server PRIVATE ws2_32 iphlpapi)
+        target_link_libraries(net-server PRIVATE ws2_32 iphlpapi bcrypt)
         target_link_libraries(net-netsim PRIVATE ws2_32)
     endif()
 
@@ -202,7 +202,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_include_directories(net-transport-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-transport-test)
     if(WIN32)
-        target_link_libraries(net-transport-test PRIVATE ws2_32 iphlpapi)
+        target_link_libraries(net-transport-test PRIVATE ws2_32 iphlpapi bcrypt)
     endif()
     enable_testing()
     add_test(NAME net-transport COMMAND net-transport-test)
@@ -215,6 +215,16 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_include_directories(net-channel-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-channel-test)
     add_test(NAME net-channel COMMAND net-channel-test)
+
+    add_executable(net-session-test
+        tests/net_session_test.c
+        PROJECTS/ROLLER/net_session.c
+        PROJECTS/ROLLER/net_channel.c
+        PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-session-test PRIVATE c_std_11)
+    target_include_directories(net-session-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-session-test)
+    add_test(NAME net-session COMMAND net-session-test)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
@@ -302,7 +312,7 @@ if(ROLLER_BUILD_GAME)
             external/rtmidi/rtmidi_c.cpp
             PROPERTIES COMPILE_DEFINITIONS __WINDOWS_MM__)
         target_compile_definitions(roller PRIVATE WILDMIDI_STATIC=1)
-        target_link_libraries(roller PRIVATE ws2_32 iphlpapi winmm)
+        target_link_libraries(roller PRIVATE ws2_32 iphlpapi bcrypt winmm)
         set_target_properties(roller PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
     roller_configure_c_target(roller)

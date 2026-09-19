@@ -101,6 +101,16 @@ static void NetTestClockOverride(void)
   NetTransportUdpDestroy(pUdp);
 }
 
+static void NetTestPlatformRandom(void)
+{
+  uint8 abFirst[32] = {0}, abSecond[32] = {0}, abZero[32] = {0};
+  CHECK(NetPlatformRandomBytes(NULL, abFirst, sizeof(abFirst)));
+  CHECK(NetPlatformRandomBytes(NULL, abSecond, sizeof(abSecond)));
+  CHECK(memcmp(abFirst, abZero, sizeof(abFirst)) != 0);
+  CHECK(memcmp(abFirst, abSecond, sizeof(abFirst)) != 0);
+  CHECK(!NetPlatformRandomBytes(NULL, abFirst, 0));
+}
+
 static uint64 NetTestRun(uint32 uiSeed, int iDuplicate, int iReorder)
 {
   tNetTransportSim *pSim = NetTransportSimCreate(uiSeed);
@@ -146,6 +156,7 @@ int main(void)
   NetTestLoopback("127.0.0.1", NET_ADDR_IPV4);
   NetTestLoopback("::1", NET_ADDR_IPV6);
   NetTestClockOverride();
+  NetTestPlatformRandom();
   CHECK(NetTestRun(2718, 0, 0) == NetTestRun(2718, 0, 0));
   CHECK(NetTestRun(3141, 200, 200) == NetTestRun(3141, 200, 200));
   puts("NET-E0/E1 transport, address and wire bounds passed");

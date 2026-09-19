@@ -51,6 +51,35 @@ typedef enum
   NET_MSG_CHECKPOINT_END, NET_MSG_KICK
 } eNetMessageType;
 
+typedef enum
+{
+  NET_JOIN_REFUSE_NONE = 0,
+  NET_JOIN_REFUSE_VERSION_MISMATCH,
+  NET_JOIN_REFUSE_SERVER_FULL,
+  NET_JOIN_REFUSE_CSPRNG_UNAVAILABLE,
+  NET_JOIN_REFUSE_INVALID_REQUEST
+} eNetJoinRefuseReason;
+
+typedef struct
+{
+  uint16 unProtocolVersion;
+  uint8 byLocalPlayers, byReserved;
+  char szPlayerName[9];
+} tNetJoinRequest;                         /* 13 bytes */
+
+typedef struct
+{
+  uint64 ullSessionToken;
+  uint8 byGeneration, byPlayerIdx;
+  uint8 byPad[2];
+} tNetJoinAccept;                          /* 12 bytes */
+
+typedef struct
+{
+  uint8 byReason, byPad;
+  uint16 unExpectedVersion;
+} tNetJoinRefuse;                          /* 4 bytes */
+
 typedef struct
 {
   uint16 unProtocolVersion, unTickRateHz;   /* 36, 50, 100 */
@@ -226,6 +255,9 @@ typedef struct {
 
 _Static_assert(sizeof(tNetPacketHeader) == 22, "tNetPacketHeader wire size");
 _Static_assert(sizeof(tNetMessageHeader) == 6, "tNetMessageHeader wire size");
+_Static_assert(sizeof(tNetJoinRequest) == 13, "tNetJoinRequest wire size");
+_Static_assert(sizeof(tNetJoinAccept) == 12, "tNetJoinAccept wire size");
+_Static_assert(sizeof(tNetJoinRefuse) == 4, "tNetJoinRefuse wire size");
 _Static_assert(sizeof(tNetInputBatchHeader) == 10, "tNetInputBatchHeader wire size");
 _Static_assert(sizeof(tNetInputFeedback) == 12, "tNetInputFeedback wire size");
 _Static_assert(sizeof(tNetSimContextWire) == 12, "tNetSimContextWire wire size");

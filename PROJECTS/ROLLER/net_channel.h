@@ -25,6 +25,9 @@ typedef struct {
 
 typedef struct tNetChannel tNetChannel;
 typedef struct tNetConnection tNetConnection;
+typedef tNetConnection *(*tNetChannelAcceptFn)(void *pContext,
+                                               tNetChannel *pChannel,
+                                               const tNetAddress *pPeer);
 
 int NetSequenceIsNewer(uint16 unA, uint16 unB);
 int NetAckStateReceive(tNetAckState *pState, uint16 unSequence);
@@ -36,6 +39,9 @@ tNetConnection *NetChannelAddConnection(tNetChannel *pChannel,
                                         const tNetAddress *pPeer,
                                         uint64 ullSessionToken,
                                         uint8 byGeneration);
+void NetChannelSetAcceptCallback(tNetChannel *pChannel,
+                                 tNetChannelAcceptFn pAccept,
+                                 void *pContext);
 
 int NetConnectionQueueMessage(tNetConnection *pConnection, uint8 byType,
                               uint8 byFlags, const void *pData,
@@ -48,6 +54,13 @@ int NetConnectionStalePackets(const tNetConnection *pConnection);
 uint64 NetConnectionLastReceiveMs(const tNetConnection *pConnection);
 float NetConnectionRttMs(const tNetConnection *pConnection);
 float NetConnectionJitterMs(const tNetConnection *pConnection);
+void NetConnectionSetIdentity(tNetConnection *pConnection,
+                              uint64 ullSessionToken,
+                              uint8 byGeneration);
+uint64 NetConnectionSessionToken(const tNetConnection *pConnection);
+uint8 NetConnectionGeneration(const tNetConnection *pConnection);
+int NetConnectionPeer(const tNetConnection *pConnection,
+                      tNetAddress *pPeer);
 
 void NetChannelPump(tNetChannel *pChannel);
 void NetPump(void);

@@ -272,6 +272,7 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("user32");
             exe.linkSystemLibrary("ws2_32");
             exe.linkSystemLibrary("iphlpapi");
+            exe.linkSystemLibrary("bcrypt");
             exe.linkSystemLibrary("winmm");
 
             // rtmidi: OS MIDI output (WinMM backend); needs libc++ for RtMidi.cpp
@@ -458,6 +459,7 @@ fn configureRenderQueue3DTests(
     if (target.result.os.tag == .windows) {
         net_transport_mod.linkSystemLibrary("ws2_32", .{});
         net_transport_mod.linkSystemLibrary("iphlpapi", .{});
+        net_transport_mod.linkSystemLibrary("bcrypt", .{});
     }
     const net_transport_exe = b.addExecutable(.{ .name = "net_transport_test", .root_module = net_transport_mod });
     const run_net_transport = b.addRunArtifact(net_transport_exe);
@@ -481,6 +483,28 @@ fn configureRenderQueue3DTests(
         "Run NET-E1-S2 packet/channel reliability acceptance",
     );
     net_channel_tests.dependOn(&run_net_channel.step);
+    const net_session_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_session_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_session_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_session.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_session_test.c",
+    } });
+    const net_session_exe = b.addExecutable(.{
+        .name = "net_session_test",
+        .root_module = net_session_mod,
+    });
+    const run_net_session = b.addRunArtifact(net_session_exe);
+    const net_session_tests = b.step(
+        "test-net-session",
+        "Run NET-E1-S3 join/session-token acceptance",
+    );
+    net_session_tests.dependOn(&run_net_session.step);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -521,6 +545,7 @@ fn configureRenderQueue3DTests(
     if (target.result.os.tag == .windows) {
         net_server_mod.linkSystemLibrary("ws2_32", .{});
         net_server_mod.linkSystemLibrary("iphlpapi", .{});
+        net_server_mod.linkSystemLibrary("bcrypt", .{});
     }
     const net_server_exe = b.addExecutable(.{
         .name = "roller-server",
@@ -565,6 +590,7 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_foundations.step);
     net_foundations_tests.dependOn(&run_net_transport.step);
     net_foundations_tests.dependOn(&run_net_channel.step);
+    net_foundations_tests.dependOn(&run_net_session.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

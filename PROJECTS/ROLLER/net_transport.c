@@ -19,6 +19,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
+#include <bcrypt.h>
 typedef SOCKET tNetSocket;
 typedef int tNetSocketLength;
 #define NET_INVALID_SOCKET INVALID_SOCKET
@@ -37,6 +38,39 @@ typedef socklen_t tNetSocketLength;
 #define NET_INVALID_SOCKET (-1)
 #define NetCloseSocket close
 #endif
+
+int NetPlatformRandomBytes(void *pContext, void *pData, int iLength)
+{
+  (void)pContext;
+  if (!pData || iLength <= 0)
+    return 0;
+#ifdef _WIN32
+  return BCryptGenRandom(NULL, (PUCHAR)pData, (ULONG)iLength,
+                         BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
+#else
+  {
+    uint8 *pBytes = (uint8 *)pData;
+    int iFile = open("/dev/urandom", O_RDONLY);
+    int iOffset = 0;
+    if (iFile < 0)
+      return 0;
+    while (iOffset < iLength) {
+      ssize_t iRead = read(iFile, pBytes + iOffset,
+                           (size_t)(iLength - iOffset));
+      if (iRead > 0)
+        iOffset += (int)iRead;
+      else if (iRead < 0 && errno == EINTR)
+        continue;
+      else {
+        close(iFile);
+        return 0;
+      }
+    }
+    close(iFile);
+    return 1;
+  }
+#endif
+}
 
 struct tNetTransportUdp {
   tNetSocket socketHandle;
