@@ -49,6 +49,7 @@ uint8 NetSessionHostPlayerLocalPlayers(const tNetSessionHost *pHost,
                                        uint8 byPlayerIdx);
 int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
                                eNetJoinRefuseReason reason);
+uint64 NetSessionHostNowMs(const tNetSessionHost *pHost);
 
 tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
                                           uint16 unProtocolVersion,

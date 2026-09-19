@@ -403,7 +403,7 @@ int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
 {
   int iSlot;
   if (!pHost || reason <= NET_JOIN_REFUSE_NONE ||
-      reason > NET_JOIN_REFUSE_TRACK_CRC_MISMATCH)
+      reason > NET_JOIN_REFUSE_LOAD_TIMEOUT)
     return 0;
   for (iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot) {
     tNetHostSlot *pSlot = &pHost->aSlots[iSlot];
@@ -414,6 +414,11 @@ int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
     }
   }
   return 0;
+}
+
+uint64 NetSessionHostNowMs(const tNetSessionHost *pHost)
+{
+  return pHost ? NetChannelNowMs(pHost->pChannel) : 0;
 }
 
 tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
@@ -495,7 +500,7 @@ void NetSessionClientPump(tNetSessionClient *pClient)
                message.byType == NET_MSG_JOIN_REFUSE &&
                message.unLength == sizeof(tNetJoinRefuse) &&
                message.abData[0] > NET_JOIN_REFUSE_NONE &&
-               message.abData[0] <= NET_JOIN_REFUSE_TRACK_CRC_MISMATCH &&
+               message.abData[0] <= NET_JOIN_REFUSE_LOAD_TIMEOUT &&
                !message.abData[1] &&
                NetSessionRead16(message.abData + 2) == NET_PROTOCOL_VERSION) {
       pClient->byRefuseReason = message.abData[0];

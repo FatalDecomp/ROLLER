@@ -9,6 +9,7 @@ struct tNetLobbyHost
   tNetSessionConfig config;
   tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetChat lastChat;
+  uint64 ullStartMs;
   uint32 uiStartTick;
   uint16 unRevision, unStartRevision, unRaceRevision;
   uint8 abyRaceLoaded[NET_SESSION_MAX_PLAYERS];
@@ -118,7 +119,8 @@ static int NetLobbyHostQueueAll(tNetLobbyHost *pLobby, uint8 byType,
   for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
     tNetConnection *pConnection =
         NetSessionHostPlayerConnection(pLobby->pSession, (uint8)iPlayer);
-    if (pConnection) {
+    /* An expired connection accepts nothing; it must not block the rest. */
+    if (pConnection && !NetConnectionIsExpired(pConnection)) {
       if (!NetConnectionQueueMessage(pConnection, byType,
               NET_MSG_RELIABLE | NET_MSG_ORDERED, pData, unLength))
         return 0;
@@ -175,7 +177,8 @@ static int NetLobbyHostTryReleaseRace(tNetLobbyHost *pLobby)
   if (!pLobby || !pLobby->byHasStart || pLobby->byRaceReleased)
     return 0;
   for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
-    if (pLobby->aPlayers[iPlayer].byState == NET_PLAYER_EMPTY)
+    if (pLobby->aPlayers[iPlayer].byState == NET_PLAYER_EMPTY ||
+        pLobby->aPlayers[iPlayer].byState == NET_PLAYER_DROPPED)
       continue;
     if (pLobby->aPlayers[iPlayer].byState != NET_PLAYER_RACING ||
         !pLobby->abyRaceLoaded[iPlayer])
@@ -197,6 +200,40 @@ static int NetLobbyHostTryReleaseRace(tNetLobbyHost *pLobby)
   pLobby->unRaceRevision = unRaceRevision;
   pLobby->byRaceReleased = 1;
   return 1;
+}
+
+/* The race-start barrier gives up on a racing player that has not reported
+   loaded once its connection has expired (it can never deliver the message),
+   or once the rejoin grace window has passed since the loading countdown.
+   Handing the car to the AI at the start line needs E5-S2's ownership
+   bookkeeping, so for now the player is dropped: its session is refused and
+   the roster keeps it as DROPPED, which leaves its car reserved. */
+static void NetLobbyHostDropUnloaded(tNetLobbyHost *pLobby)
+{
+  int iDeadline, iDropped = 0;
+  int iPlayer;
+  if (!pLobby->byHasStart || pLobby->byRaceReleased)
+    return;
+  iDeadline = NetSessionHostNowMs(pLobby->pSession) - pLobby->ullStartMs >=
+      NET_REJOIN_GRACE_MS;
+  for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
+    tNetPlayerEntry *pPlayer = &pLobby->aPlayers[iPlayer];
+    tNetConnection *pConnection;
+    if (pPlayer->byState != NET_PLAYER_RACING ||
+        pLobby->abyRaceLoaded[iPlayer])
+      continue;
+    pConnection = NetSessionHostPlayerConnection(pLobby->pSession,
+                                                 (uint8)iPlayer);
+    if (!iDeadline && pConnection && !NetConnectionIsExpired(pConnection))
+      continue;
+    /* Fails harmlessly when the connection has expired. */
+    NetSessionHostRefusePlayer(pLobby->pSession, (uint8)iPlayer,
+                               NET_JOIN_REFUSE_LOAD_TIMEOUT);
+    pPlayer->byState = NET_PLAYER_DROPPED;
+    iDropped = 1;
+  }
+  if (iDropped)
+    NetLobbyHostBroadcastPlayers(pLobby, 1);
 }
 
 static int NetLobbyDecodeStrategy(tNetChat *pChat, const tNetMessage *pMessage,
@@ -337,13 +374,15 @@ void NetLobbyHostPump(tNetLobbyHost *pLobby)
       pPlayer->byHumanControl = (uint8)pLobby->config.iManualControl;
       memcpy(pPlayer->szName, szName, sizeof(pPlayer->szName));
       iChanged = 1;
-    } else if (!szName && pPlayer->byState != NET_PLAYER_EMPTY) {
+    } else if (!szName && pPlayer->byState != NET_PLAYER_EMPTY &&
+               pPlayer->byState != NET_PLAYER_DROPPED) {
       NetLobbyClearPlayer(pPlayer);
       iChanged = 1;
     }
   }
   if (iChanged)
     NetLobbyHostBroadcastPlayers(pLobby, 1);
+  NetLobbyHostDropUnloaded(pLobby);
   NetLobbyHostTryReleaseRace(pLobby);
 }
 
@@ -374,6 +413,7 @@ int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick)
                             sizeof(abCountdown)))
     return 0;
   pLobby->uiStartTick = uiStartTick;
+  pLobby->ullStartMs = NetSessionHostNowMs(pLobby->pSession);
   pLobby->byHasStart = 1;
   for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer)
     if (pLobby->aPlayers[iPlayer].byState != NET_PLAYER_EMPTY)

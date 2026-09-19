@@ -18,6 +18,12 @@ The `roller-core` test executable uses the existing manifest stub swaps:
 platform communication are inert; simulation state, the input ring, RNG, and
 track loading remain real.
 
+`roller-core.srclist` excludes `sound.c` and `rollersound.c` deliberately, so
+the deterministic core never links audio. The consequence is that every test
+linking `roller-core` exercises the stubs: `sound_stub_test` proves the stub
+behaves, not that audio works. No `roller-core` test covers real audio
+playback; only the full game target links it.
+
 ## Tick context enumeration
 
 The local rollback ring stores the following globals in `tNetSimTickContext`:
@@ -102,9 +108,20 @@ acceleration and is an RNG-dependent host decision, so it is carried and has a
 nonzero encode/decode range test. The four local angles are also carried in full
 state because the legacy integer world/local transforms can map adjacent local
 angles to the same world angle; restoring the exact local values prevents that
-one-unit ambiguity from accumulating position error during replay. The additions
-make `tNetCarExtra` 92 bytes and `tNetCarFullState` 156 bytes. Seven checkpoint
-cars fit in one packet.
+one-unit ambiguity from accumulating position error during replay. Health is
+carried exactly as `tNetCarExtra.fHealth` (remediation R1 NET-FIX-2): the start
+gate and every speed update read it, and the snapshot's `byHealth` byte is
+display-grade for puppets only. The additions make `tNetCarExtra` 96 bytes and
+`tNetCarFullState` 160 bytes. Seven checkpoint cars fit in one packet (1122
+payload bytes).
+
+`NetSnapshotDecodeCarFull` validates the whole full state before copying any
+of it (R1 NET-FIX-1): chunks within the loaded track, the four local angles
+within the trig tables, `byAttacker`, `byRacePosition` and `byFinishPosition`
+within `numcars`, the gear within -2 (reverse) to the car's own engine gear
+count, the replay bit fields (`byWheelAnimationFrame` 0..15, `byDamageState`
+0..1), lives 0..3 or 255, laps within `NoOfLaps + 1`, and health finite within
+0..100. A rejected state leaves `Car[]` byte-identical.
 
 ## Replay cost
 

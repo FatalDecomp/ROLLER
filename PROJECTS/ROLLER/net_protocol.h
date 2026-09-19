@@ -9,6 +9,9 @@
 #define NET_INPUT_QUEUE 64
 #define NET_INPUT_HORIZON 48
 #define NET_REPLAY_BUDGET_MS 500
+/* D8 rejoin grace window (plan open question 3 proposes 60 s wall time).  The
+   race-start barrier waits no longer than this for a player to load. */
+#define NET_REJOIN_GRACE_MS 60000
 /* roller-core advances the legacy simulation at 36 Hz.  Higher negotiated
    rates convert the same 500 ms budget at runtime. */
 #define NET_MAX_REPLAY_TICKS 18
@@ -58,7 +61,8 @@ typedef enum
   NET_JOIN_REFUSE_SERVER_FULL,
   NET_JOIN_REFUSE_CSPRNG_UNAVAILABLE,
   NET_JOIN_REFUSE_INVALID_REQUEST,
-  NET_JOIN_REFUSE_TRACK_CRC_MISMATCH
+  NET_JOIN_REFUSE_TRACK_CRC_MISMATCH,
+  NET_JOIN_REFUSE_LOAD_TIMEOUT
 } eNetJoinRefuseReason;
 
 typedef enum
@@ -187,6 +191,8 @@ typedef struct
   int16  nReferenceChunk, nLastValidChunk;
   int16  nWorldRoll, nWorldPitch, nWorldYaw, nActualYaw;
   int16  nDeathTimer, nJumpMomentum;
+  /* byHealth is display-grade, for interpolated puppets only.  It must never
+     feed a simulation branch; full state carries the exact tNetCarExtra.fHealth. */
   uint8  byHealth, byLives, byLap, byRacePosition;
   uint8  byStatusFlags, byStunned, byDamageIntensity, byDamageState;
   uint8  byWheelAnimationFrame, byGearAyMax;
@@ -217,6 +223,7 @@ typedef struct
 {
   float  fRunningLapTime, fBestLapTime, fPreviousLapTime, fTotalRaceTime;   /* 16 */
   float  fBaseSpeed, fSpeedOverflow, fPower, fDurability, fRPMRatio;        /* 20 */
+  float  fHealth;           /* exact: the start gate and speed factors read it  4 */
   int32  iRollMomentum, iRollMotion, iPitchMotion, iYawMotion, iEngineState;/* 20 */
   int32  iSteeringInput, iBankingSteerOffset;                              /* 8 */
   int16  nTargetChunk, nChangeMateCooldown;                                 /* 4 */
@@ -227,17 +234,17 @@ typedef struct
   /* Exact local angles remove the one-unit ambiguity in the integer
      world/local transforms before a predicted car is replayed. */
   int16  nLocalYaw, nLocalPitch, nLocalRoll, nLocalActualYaw;                /* 8 */
-} tNetCarExtra;                                /* 92 bytes */
+} tNetCarExtra;                                /* 96 bytes */
 
-typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 156 */
+typedef struct { tNetCarState state; tNetCarExtra extra; } tNetCarFullState;  /* 160 */
 
 typedef struct
 {
   uint32 uiTick;
   uint8  byCount;           /* 1 or 2: one entry per rollback-group car */
   uint8  byPad[3];
-  /* followed by byCount x { uint8 byCarIdx; uint8 byPad2[3]; tNetCarExtra extra; } (96 each) */
-} tNetOwnCarStateHeader;    /* 8 bytes; 104 for one car, 200 for two */
+  /* followed by byCount x { uint8 byCarIdx; uint8 byPad2[3]; tNetCarExtra extra; } (100 each) */
+} tNetOwnCarStateHeader;    /* 8 bytes; 108 for one car, 208 for two */
 
 typedef enum
 {
@@ -274,7 +281,7 @@ typedef struct
 } tNetCheckpointHeader;     /* 80 bytes */
 
 /* NET_MSG_CHECKPOINT_CARS:  uint8 byFirstCar, uint8 byCount, then byCount x tNetCarFullState
-                             (<= 7, 1038 bytes payload) */
+                             (<= 7, 1122 bytes payload) */
 /* NET_MSG_CHECKPOINT_WORLD: uint8 byCount, uint8 byPad[3], then byCount x tNetWorldChangeEntry
                              (<= 64, 1156 bytes payload) */
 /* NET_MSG_CHECKPOINT_END:   uint32 uiTick */
@@ -327,8 +334,8 @@ _Static_assert(sizeof(tNetCarState) == 64, "tNetCarState wire size");
 _Static_assert(sizeof(tNetRampState) == 6, "tNetRampState wire size");
 _Static_assert(sizeof(tNetSnapshot) == 1104, "tNetSnapshot wire size");
 _Static_assert(sizeof(tNetSnapshotDeltaHeader) == 36, "tNetSnapshotDeltaHeader wire size");
-_Static_assert(sizeof(tNetCarExtra) == 92, "tNetCarExtra wire size");
-_Static_assert(sizeof(tNetCarFullState) == 156, "tNetCarFullState wire size");
+_Static_assert(sizeof(tNetCarExtra) == 96, "tNetCarExtra wire size");
+_Static_assert(sizeof(tNetCarFullState) == 160, "tNetCarFullState wire size");
 _Static_assert(sizeof(tNetOwnCarStateHeader) == 8, "tNetOwnCarStateHeader wire size");
 _Static_assert(sizeof(tNetEvent) == 20, "tNetEvent wire size");
 _Static_assert(sizeof(tNetPause) == 8, "tNetPause wire size");

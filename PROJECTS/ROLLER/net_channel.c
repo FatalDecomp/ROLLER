@@ -711,6 +711,11 @@ int NetConnectionReceiveMessage(tNetConnection *pConnection,
   return 1;
 }
 
+uint64 NetChannelNowMs(const tNetChannel *pChannel)
+{
+  return pChannel ? NetChannelNow(pChannel) : 0;
+}
+
 int NetConnectionIsExpired(const tNetConnection *pConnection)
 {
   return !pConnection || pConnection->byExpired;

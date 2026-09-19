@@ -100,6 +100,49 @@ The lobby acceptance test proves three clients remain blocked until the final
 load acknowledgement, enter Pre-Start at tick 4242, and all enter Running at
 tick 4387. It also rejects an invalid countdown phase without changing state.
 
+### Loading deadline (remediation R1 NET-FIX-3)
+
+The barrier no longer waits forever for a player that never reports loaded.
+On every host lobby pump after the loading countdown, a racing player without
+a loaded report is dropped when either:
+
+- its channel connection has expired (`NET_CONNECTION_TIMEOUT_MS`, 10 s of
+  silence), since an expired connection can never deliver the message; or
+- `NET_REJOIN_GRACE_MS` (60 s, the plan's D8 grace window from open question
+  3) has passed since `NetLobbyHostStart`.
+
+The chosen outcome is the fallback, not AI takeover. Giving the car to the AI at
+the start line needs the player-to-car ownership bookkeeping that plan 4.11
+assigns to E5-S2, and nothing in the modern race path re-reads ownership after
+loading yet. A dropped player's session is refused with the new
+`NET_JOIN_REFUSE_LOAD_TIMEOUT` reason (a no-op if the connection has already
+expired), and the roster keeps the entry as `NET_PLAYER_DROPPED` with its car
+index and name, so E5-S2 can hand that car to the AI and E5-S3 can find it for
+rejoin. The drop advances the roster revision and is broadcast before the
+release. Broadcasts now skip expired connections instead of failing, which
+previously would also have blocked the release.
+
+The dropped client is left on its loading screen with the refusal recorded in
+its session; nothing yet tells it what happened or takes it back to the
+frontend. Reason strings on the modern path are E5-S4. Whether Escape leaves
+the barrier cleanly has not been checked interactively.
+
+A track load that blocks the main loop for longer than
+`NET_CONNECTION_TIMEOUT_MS` stops that client's keepalives, so the host expires
+it and it is dropped even though it would have finished loading. Before this
+change the same load hung every player. If cold-disk loads approach 10 s, the
+loader needs to pump the network.
+
+`tests/net_lobby_test.c` covers both paths with two clients on the
+deterministic transport simulator: a connected client that never reports
+loaded, released at exactly 60 000 ms after start, and a client that crashes
+mid-load, released about 10 s after its last packet. Both assert the dropped
+roster entry and, for the connected case, the refusal reason. The loaded
+client's race clock then runs from the agreed start tick with consecutive
+labels into Running. The remediation named `tests/net_harness.py`, but that
+harness drives the E0 raw-UDP stepping loop and has no session or lobby
+commands, so it follows the E2-S2 and E2-S4 lobby acceptance tests instead.
+
 Modern `game_tick_step` records local input and steps one simulation tick only
 after release. It does not enter `network_master_tick`, `network_slave_tick`,
 or `network_orphan_tick`; those are the legacy lockstep path. The timer thread

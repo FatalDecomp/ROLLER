@@ -647,6 +647,11 @@ void game_tick_step(void)
       local_input_tick();
       iDrainEngineDelay = start_race;
     } else if (net_mode == NET_MODE_MODERN) {
+      /* This early return also skips the firework branch below.  That branch
+         cannot be reached here: champ_mode only reaches 16 inside race_update's
+         winner_mode block, and winner_mode takes the branch above.  The clock
+         labels each tick as it hands it out, so every tick it gives must be
+         simulated; E3-S1 builds on that numbering. */
       if (!NetRaceStartBeginTick(&uiModernTick))
         return;
       iModernRaceTick = 1;

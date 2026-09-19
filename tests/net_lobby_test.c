@@ -373,10 +373,135 @@ static void NetTestTrackMismatchRefused(void)
   NetTransportSimDestroy(pSim);
 }
 
+/* NET-FIX-3: one of two clients never reports loaded.  With iCrash the
+   client process disappears (its connection expires); otherwise it stays
+   connected and silent until the grace-window deadline. */
+static void NetTestLoadDeadline(int iCrash)
+{
+  static const char *aszNames[2] = {"Loaded", "Silent"};
+  tNetTransportSim *pSim = NetTransportSimCreate(iCrash ? 0xc4a5u : 0x51e7u);
+  tNetAddress hostAddress = NetTestAddress(0);
+  tNetChannel *pHostChannel;
+  tNetSessionHost *pHost;
+  tNetLobbyHost *pHostLobby;
+  tNetSessionConfig config = NetTestConfig(2);
+  tNetTestRandom random = {0x0badc0ffee123457ull};
+  tNetTestClient aClients[2] = {0};
+  tNetRaceStartClock clock;
+  tNetPlayerEntry player;
+  uint32 uiStartTick = 0, uiRaceTick;
+  uint8 bySilentIdx;
+  int iClient, iTick, iStartMs, iReleaseMs, iLastMs;
+
+  CHECK(pSim);
+  pHostChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  CHECK(pHostChannel);
+  pHost = NetSessionHostCreate(pHostChannel, config.byMaxPlayers,
+                               NetTestRandomBytes, &random);
+  CHECK(pHost && NetSessionHostSetConfig(pHost, &config));
+  pHostLobby = NetLobbyHostCreate(pHost);
+  CHECK(pHostLobby);
+  for (iClient = 0; iClient < 2; ++iClient) {
+    aClients[iClient].pChannel = NetChannelCreate(
+        NetTransportSimEndpoint(pSim, iClient + 1));
+    CHECK(aClients[iClient].pChannel);
+    aClients[iClient].pConnection = NetChannelAddConnection(
+        aClients[iClient].pChannel, &hostAddress, 0, 0);
+    aClients[iClient].pSession = NetSessionClientCreate(
+        aClients[iClient].pConnection, NET_PROTOCOL_VERSION, 1,
+        aszNames[iClient]);
+    CHECK(aClients[iClient].pSession);
+    aClients[iClient].pLobby = NetLobbyClientCreate(
+        aClients[iClient].pSession);
+    CHECK(aClients[iClient].pLobby &&
+          NetSessionClientStart(aClients[iClient].pSession));
+  }
+  NetTestPump(pSim, pHost, pHostLobby, aClients, 2, 0, 500);
+  for (iClient = 0; iClient < 2; ++iClient)
+    CHECK(NetLobbyClientSetReady(aClients[iClient].pLobby, 1,
+                                 config.uiTrackCRC));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, 2, 501, 900);
+  CHECK(NetLobbyHostAllReady(pHostLobby));
+  bySilentIdx = NetSessionClientPlayerIndex(aClients[1].pSession);
+
+  iStartMs = 900;
+  CHECK(NetLobbyHostStart(pHostLobby, 777));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, 2, 901, 1200);
+  CHECK(NetLobbyClientStartTick(aClients[0].pLobby, &uiStartTick));
+  CHECK(uiStartTick == 777);
+  NetRaceClockReset(&clock);
+  CHECK(NetRaceClockSchedule(&clock, uiStartTick));
+  CHECK(NetLobbyClientSetRaceLoaded(aClients[0].pLobby));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, 2, 1201, 1500);
+  CHECK(!NetLobbyHostRaceReleased(pHostLobby));
+
+  if (iCrash) {
+    /* The process dies mid-load: nothing more is sent from it. */
+    NetLobbyClientDestroy(aClients[1].pLobby);
+    NetSessionClientDestroy(aClients[1].pSession);
+    NetChannelDestroy(aClients[1].pChannel);
+    memset(&aClients[1], 0, sizeof(aClients[1]));
+    iLastMs = 1500 + NET_CONNECTION_TIMEOUT_MS + 1000;
+  } else {
+    iLastMs = iStartMs + NET_REJOIN_GRACE_MS + 1000;
+  }
+  for (iReleaseMs = 1501; iReleaseMs <= iLastMs; ++iReleaseMs) {
+    NetTestPump(pSim, pHost, pHostLobby, aClients, iCrash ? 1 : 2,
+                iReleaseMs, iReleaseMs);
+    if (NetLobbyHostRaceReleased(pHostLobby))
+      break;
+  }
+  CHECK(NetLobbyHostRaceReleased(pHostLobby));
+  if (iCrash)
+    CHECK(iReleaseMs > 1500 - NET_KEEPALIVE_MS + NET_CONNECTION_TIMEOUT_MS &&
+          iReleaseMs < iStartMs + NET_REJOIN_GRACE_MS);
+  else
+    CHECK(iReleaseMs >= iStartMs + NET_REJOIN_GRACE_MS);
+  NetTestPump(pSim, pHost, pHostLobby, aClients, iCrash ? 1 : 2,
+              iReleaseMs + 1, iReleaseMs + 300);
+
+  CHECK(NetLobbyHostPlayer(pHostLobby, bySilentIdx, &player));
+  CHECK(player.byState == NET_PLAYER_DROPPED);
+  CHECK(player.byCarIdx0 == bySilentIdx);
+  CHECK(NetLobbyClientPlayer(aClients[0].pLobby, bySilentIdx, &player));
+  CHECK(player.byState == NET_PLAYER_DROPPED);
+  if (!iCrash) {
+    uint32 uiIgnored;
+    CHECK(NetSessionClientState(aClients[1].pSession) == NET_JOIN_REFUSED);
+    CHECK(NetSessionClientRefuseReason(aClients[1].pSession) ==
+          NET_JOIN_REFUSE_LOAD_TIMEOUT);
+    CHECK(!NetLobbyClientRaceReleased(aClients[1].pLobby, &uiIgnored));
+  }
+
+  /* The loaded client's tick stream starts at the agreed tick and runs on
+     without a gap across the release. */
+  CHECK(NetLobbyClientRaceReleased(aClients[0].pLobby, &uiRaceTick));
+  CHECK(uiRaceTick == 777);
+  CHECK(NetRaceClockRelease(&clock, uiRaceTick));
+  for (iTick = 0; iTick <= 145; ++iTick) {
+    CHECK(NetRaceClockBeginTick(&clock, &uiRaceTick));
+    CHECK(uiRaceTick == 777u + (uint32)iTick);
+    NetRaceClockEndTick(&clock, iTick);
+  }
+  CHECK(NetRaceClockPhase(&clock) == NET_RACE_START_RUNNING);
+  CHECK(NetRaceClockRunningTick(&clock) == 777u + 145u);
+
+  NetTestDestroyClients(aClients, iCrash ? 1 : 2);
+  NetLobbyHostDestroy(pHostLobby);
+  NetSessionHostDestroy(pHost);
+  NetChannelDestroy(pHostChannel);
+  NetTransportSimDestroy(pSim);
+  printf("load deadline (%s): released at %d ms, %d ms after start\n",
+         iCrash ? "crashed client" : "silent client", iReleaseMs,
+         iReleaseMs - iStartMs);
+}
+
 int main(void)
 {
   NetTestHostAndThreeClients();
   NetTestTrackMismatchRefused();
+  NetTestLoadDeadline(0);
+  NetTestLoadDeadline(1);
   puts("net lobby tests passed");
   return 0;
 }

@@ -42,6 +42,8 @@ tNetConnection *NetChannelAddConnection(tNetChannel *pChannel,
 void NetChannelSetAcceptCallback(tNetChannel *pChannel,
                                  tNetChannelAcceptFn pAccept,
                                  void *pContext);
+/* The transport clock the channel runs on (simulated in tests). */
+uint64 NetChannelNowMs(const tNetChannel *pChannel);
 
 int NetConnectionQueueMessage(tNetConnection *pConnection, uint8 byType,
                               uint8 byFlags, const void *pData,

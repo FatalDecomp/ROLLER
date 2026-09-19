@@ -1,6 +1,8 @@
 #include "net_snapshot.h"
 #include "net_sim_seam.h"
+#include "3d.h"
 #include "control.h"
+#include "engines.h"
 #include "loadtrak.h"
 #include "roller.h"
 #include <math.h>
@@ -140,6 +142,7 @@ int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState)
   pState->extra.fPower = pCar->fPower;
   pState->extra.fDurability = pCar->fDurability;
   pState->extra.fRPMRatio = pCar->fRPMRatio;
+  pState->extra.fHealth = pCar->fHealth;
   pState->extra.iRollMomentum = pCar->iRollMomentum;
   pState->extra.iRollMotion = pCar->iRollMotion;
   pState->extra.iPitchMotion = pCar->iPitchMotion;
@@ -168,23 +171,85 @@ int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState)
   return 1;
 }
 
+static int NetAngleValid(int16 nAngle)
+{
+  return nAngle >= 0 && nAngle <= 16383;
+}
+
+/* Full state lands in a live tCar, so every field the simulation later uses
+   as an index, bit field or branch input is bounded here, before anything is
+   copied (D23).  NetSnapshotValid stays limited to tNetCarState because the
+   interpolation and delta paths never see tNetCarExtra. */
+static int NetCarFullStateValid(int iCar, const tNetCarFullState *pState)
+{
+  tNetSnapshot validation = {0};
+  const tNetCarState *pCar;
+  const tNetCarExtra *pExtra;
+  int iDesign, iGear, iLapCap;
+  if (!pState || iCar < 0 || iCar >= numcars || numcars > MAX_CARS)
+    return 0;
+  pCar = &pState->state;
+  pExtra = &pState->extra;
+  validation.byNumCars = 1;
+  validation.aCars[0] = *pCar;
+  if (!NetSnapshotValid(&validation))
+    return 0;
+  /* NetSnapshotValid allows any chunk under MAX_TRACK_CHUNKS; a restored car
+     must stay inside the loaded track. */
+  if (pCar->nCurrChunk >= TRAK_LEN || pCar->nReferenceChunk >= TRAK_LEN ||
+      pCar->nLastValidChunk >= TRAK_LEN)
+    return 0;
+  /* The ten leading floats, fRunningLapTime through fHealth. */
+  for (int iField = 0; iField < 10; ++iField) {
+    float fValue;
+    memcpy(&fValue, (const uint8 *)pExtra + iField * 4, 4);
+    if (!isfinite(fValue))
+      return 0;
+  }
+  /* The game clamps health to 0..100 wherever it writes it. */
+  if (pExtra->fHealth < 0.0f || pExtra->fHealth > 100.0f)
+    return 0;
+  /* Local angles index tcos/tsin[16384], exactly like the world angles. */
+  if (!NetAngleValid(pExtra->nLocalYaw) || !NetAngleValid(pExtra->nLocalPitch) ||
+      !NetAngleValid(pExtra->nLocalRoll) || !NetAngleValid(pExtra->nLocalActualYaw))
+    return 0;
+  /* byAttacker indexes the ++Car[].byKills write and driver_names[]. */
+  if (pExtra->byAttacker >= numcars)
+    return 0;
+  /* Forward gears index the engine's pSpds[] (speeds[6]); -1 is neutral and
+     -2 reverse.  The design is local configuration, not wire data. */
+  iDesign = Car[iCar].byCarDesignIdx;
+  if (iDesign >= (int)(sizeof(CarEngines.engines) / sizeof(CarEngines.engines[0])))
+    return 0;
+  iGear = (int8)pCar->byGearAyMax;
+  if (iGear < -2 || iGear > 5 || iGear >= CarEngines.engines[iDesign].iNumGears)
+    return 0;
+  /* Both share the replay's byMiscCarData bit fields. */
+  if (pCar->byWheelAnimationFrame > 15 || pCar->byDamageState > 1)
+    return 0;
+  /* byRacePosition selects a language_buffer string. */
+  if (pCar->byRacePosition >= numcars)
+    return 0;
+  if (pExtra->byFinishPosition != 255 && pExtra->byFinishPosition >= numcars)
+    return 0;
+  /* Three lives at the start; 255 marks a car that is out or a non-competitor. */
+  if (pCar->byLives > 3 && pCar->byLives != 255)
+    return 0;
+  /* Lap counting stops at NoOfLaps + 1 when a car finishes; NoOfLaps == 0 is
+     infinite laps, where only the sign is meaningful. */
+  iLapCap = NoOfLaps > 0 ? NoOfLaps + 1 : 127;
+  if ((int8)pCar->byLap < 0 || (int8)pCar->byLap > iLapCap ||
+      (int8)pExtra->byLapNumber < 0 || (int8)pExtra->byLapNumber > iLapCap)
+    return 0;
+  return 1;
+}
+
 int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
 {
   tCar car;
   tNetWorldPose pose;
-  tNetSnapshot validation = {0};
-  if (!pState || iCar < 0 || iCar >= numcars || pState->state.nCurrChunk >= TRAK_LEN)
+  if (!NetCarFullStateValid(iCar, pState))
     return 0;
-  validation.byNumCars = 1;
-  validation.aCars[0] = pState->state;
-  if (!NetSnapshotValid(&validation))
-    return 0;
-  for (int iField = 0; iField < 9; ++iField) {
-    float fValue;
-    memcpy(&fValue, (const uint8 *)&pState->extra + iField * 4, 4);
-    if (!isfinite(fValue))
-      return 0;
-  }
   car = Car[iCar];
   car.fFinalSpeed = pState->state.fFinalSpeed;
   car.fHorizontalSpeed = pState->state.fHorizontalSpeed;
@@ -207,7 +272,7 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   car.byGearAyMax = pState->state.byGearAyMax;
   car.iControlType = pState->state.byControlType;
   car.byCheatAmmo = pState->state.byCheatAmmo;
-  car.fHealth = pState->state.byHealth;
+  car.fHealth = pState->extra.fHealth;
   car.fRunningLapTime = pState->extra.fRunningLapTime;
   car.fBestLapTime = pState->extra.fBestLapTime;
   car.fPreviousLapTime = pState->extra.fPreviousLapTime;

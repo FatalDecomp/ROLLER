@@ -12,6 +12,7 @@
 #include "3d.h"
 #include "car.h"
 #include "control.h"
+#include "engines.h"
 #include "moving.h"
 #include <math.h>
 #include <stdio.h>
@@ -638,6 +639,7 @@ static int NetMovementWithin(const tCar *pExpected, const tCar *pActual,
   NEAR_FIELD(fSpeedOverflow, 1.0f);
   NEAR_FIELD(fRPMRatio, 1.0f);
   NEAR_FIELD(fPower, 1.0f);
+  NEAR_FIELD(fHealth, 0.0f);
   EXACT_FIELD(nCurrChunk);
   EXACT_FIELD(nReferenceChunk);
   EXACT_FIELD(iLastValidChunk);
@@ -662,7 +664,8 @@ static int NetMovementWithin(const tCar *pExpected, const tCar *pActual,
 
 static int NetTestFullStateScenario(const tTestMoment *pRunning, int iScenario)
 {
-  static const char *aszScenario[] = {"speed-250", "mid-jump", "mid-braking", "mid-gear-change"};
+  static const char *aszScenario[] = {"speed-250", "mid-jump", "mid-braking", "mid-gear-change",
+                                      "health-11.5"};
   static tTestMoment initial;
   tWireReference aReference[NET_MAX_REPLAY_TICKS];
   tNetCarFullState wire;
@@ -689,6 +692,9 @@ static int NetTestFullStateScenario(const tTestMoment *pRunning, int iScenario)
   } else if (iScenario == 3) {
     aaInputs[0][0].data.unFlags |= BUTTON_FLAG_UPGEAR;
     aaInputs[6][0].data.unFlags |= BUTTON_FLAG_UPGEAR;
+  } else if (iScenario == 4) {
+    /* Fractional health feeds the health factor in every speed update. */
+    Car[0].fHealth = 11.5f;
   }
   memcpy(copy_multiple[(readptr - 1) & 511], aPrevious, sizeof(aPrevious));
   NetTestCapture(&initial);
@@ -725,10 +731,165 @@ static int NetTestFullStateCoherence(void)
   static tTestMoment running;
   int iOkay = 1;
   NetTestCapture(&running);
-  for (int iScenario = 0; iScenario < 4; ++iScenario)
+  for (int iScenario = 0; iScenario < 5; ++iScenario)
     iOkay &= NetTestFullStateScenario(&running, iScenario);
   NetTestRestore(&running);
   return iOkay ? 0 : 1;
+}
+
+/* NET-FIX-2: health crosses the full-state wire exactly.  At health 11.5 the
+   start gate compares 11.035 against the draw; a quantised 11.0 compares 10.99,
+   so the draw iTemp == 11 starts the engine on one side and false-starts on the
+   other. */
+static void NetTestHealthExact(const tTestMoment *pRunning)
+{
+  static tTestMoment initial;
+  tNetCarFullState wire;
+  tCopyData aInputs[MAX_CARS] = {0};
+  int iFalseStarts = false_starts;
+  int iOriginalTimer, iRestoredTimer, iFound = 0;
+  uint32 uiSeed;
+
+  NetTestRestore(pRunning);
+  false_starts = 1;
+  human_control[0] = 1;
+  aInputs[0].data.unFlags = BUTTON_FLAG_ACCEL;
+  Car[0].fHealth = 11.5f;
+  Car[0].iControlType = 3;
+  Car[0].byThrottlePressed = 0;
+  Car[0].byEngineStartTimer = 0;
+  Car[0].byAccelerating = 1;
+  memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+  NetTestCapture(&initial);
+  /* Find a seed whose start-gate draw is iTemp == 11 by probing the two
+     healths directly, independent of the codec under test. */
+  for (uiSeed = 1; uiSeed < 65536 && !iFound; ++uiSeed) {
+    int aiTimer[2];
+    for (int iProbe = 0; iProbe < 2; ++iProbe) {
+      NetTestRestore(&initial);
+      memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+      Car[0].fHealth = iProbe ? 11.0f : 11.5f;
+      ROLLERrandStateSet(uiSeed);
+      NetHeadlessStepInputs(aInputs, numcars);
+      aiTimer[iProbe] = Car[0].byEngineStartTimer;
+    }
+    iFound = aiTimer[0] == 36 && aiTimer[1] == 72;
+  }
+  CHECK(iFound);
+  --uiSeed;
+
+  NetTestRestore(&initial);
+  memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+  CHECK(NetSnapshotEncodeCarFull(0, &wire));
+  ROLLERrandStateSet(uiSeed);
+  NetHeadlessStepInputs(aInputs, numcars);
+  iOriginalTimer = Car[0].byEngineStartTimer;
+
+  NetTestRestore(&initial);
+  memcpy(copy_multiple[(readptr - 1) & 511], aInputs, sizeof(aInputs));
+  Car[0].fHealth = 100.0f;
+  CHECK(NetSnapshotDecodeCarFull(0, &wire));
+  ROLLERrandStateSet(uiSeed);
+  NetHeadlessStepInputs(aInputs, numcars);
+  iRestoredTimer = Car[0].byEngineStartTimer;
+  if (iOriginalTimer != iRestoredTimer)
+    fprintf(stderr, "start gate seed %u: original timer %d, restored timer %d\n",
+            uiSeed, iOriginalTimer, iRestoredTimer);
+  CHECK(iOriginalTimer == 36 && iRestoredTimer == iOriginalTimer);
+
+  false_starts = iFalseStarts;
+  NetTestRestore(pRunning);
+  Car[0].fHealth = 11.5f;
+  CHECK(NetSnapshotEncodeCarFull(0, &wire));
+  Car[0].fHealth = 100.0f;
+  CHECK(NetSnapshotDecodeCarFull(0, &wire));
+  CHECK(Car[0].fHealth == 11.5f);
+  NetTestRestore(pRunning);
+  printf("full-state health: exact 11.5 round trip, start gate seed %u agrees (%d)\n",
+         uiSeed, iRestoredTimer);
+}
+
+/* NET-FIX-1: each row pokes one full-state field out of range.  A rejected
+   decode must leave every car, human_control and finished_car untouched. */
+static void NetTestFullStateRejection(const tTestMoment *pRunning)
+{
+  static const char *aszRows[] = {
+    "control", "control-edges",
+    "local-yaw-high", "local-yaw-negative", "local-pitch", "local-roll",
+    "local-actual-yaw", "attacker-numcars", "attacker-200", "gear-numgears",
+    "gear-minus-3", "wheel-frame", "damage-state", "race-position", "lives",
+    "lap-high", "lap-negative", "lap-number", "finish-position",
+    "health-high", "health-negative", "health-nan", "curr-chunk",
+    "reference-chunk", "last-valid-chunk"
+  };
+  static tCar aBefore[MAX_CARS];
+  int iRows = (int)(sizeof(aszRows) / sizeof(aszRows[0]));
+  int iLapBad = NoOfLaps > 0 ? NoOfLaps + 2 : 0x80;
+  for (int iRow = 0; iRow < iRows; ++iRow) {
+    tNetCarFullState full;
+    int iHuman, iFinished, iDecoded;
+    NetTestRestore(pRunning);
+    human_control[0] = 1;
+    CHECK(NetSnapshotEncodeCarFull(0, &full));
+    switch (iRow) {
+      case 0: break;
+      case 1:
+        full.extra.nLocalYaw = full.extra.nLocalPitch = 16383;
+        full.extra.nLocalRoll = full.extra.nLocalActualYaw = 0;
+        full.extra.byAttacker = (uint8)(numcars - 1);
+        full.state.byGearAyMax = (uint8)-2;
+        full.state.byWheelAnimationFrame = 15;
+        full.state.byDamageState = 1;
+        full.state.byRacePosition = (uint8)(numcars - 1);
+        full.state.byLives = 255;
+        full.extra.byFinishPosition = 255;
+        full.extra.fHealth = 100.0f;
+        full.state.nCurrChunk = (int16)(TRAK_LEN - 1);
+        full.state.nReferenceChunk = (int16)(TRAK_LEN - 1);
+        full.state.nLastValidChunk = (int16)(TRAK_LEN - 1);
+        break;
+      case 2: full.extra.nLocalYaw = 16384; break;
+      case 3: full.extra.nLocalYaw = -1; break;
+      case 4: full.extra.nLocalPitch = 16384; break;
+      case 5: full.extra.nLocalRoll = -1; break;
+      case 6: full.extra.nLocalActualYaw = 16384; break;
+      case 7: full.extra.byAttacker = (uint8)numcars; break;
+      case 8: full.extra.byAttacker = 200; break;
+      case 9: full.state.byGearAyMax = (uint8)CarEngines.engines[Car[0].byCarDesignIdx].iNumGears; break;
+      case 10: full.state.byGearAyMax = (uint8)-3; break;
+      case 11: full.state.byWheelAnimationFrame = 16; break;
+      case 12: full.state.byDamageState = 2; break;
+      case 13: full.state.byRacePosition = (uint8)numcars; break;
+      case 14: full.state.byLives = 4; break;
+      case 15: full.state.byLap = (uint8)iLapBad; break;
+      case 16: full.state.byLap = 0x80; break;
+      case 17: full.extra.byLapNumber = (uint8)iLapBad; break;
+      case 18: full.extra.byFinishPosition = (uint8)numcars; break;
+      case 19: full.extra.fHealth = 100.5f; break;
+      case 20: full.extra.fHealth = -1.0f; break;
+      case 21: full.extra.fHealth = NAN; break;
+      case 22: full.state.nCurrChunk = (int16)TRAK_LEN; break;
+      case 23: full.state.nReferenceChunk = (int16)TRAK_LEN; break;
+      case 24: full.state.nLastValidChunk = (int16)TRAK_LEN; break;
+    }
+    memcpy(aBefore, Car, sizeof(aBefore));
+    iHuman = human_control[0];
+    iFinished = finished_car[0];
+    iDecoded = NetSnapshotDecodeCarFull(0, &full);
+    if (iRow < 2) {
+      if (!iDecoded)
+        fprintf(stderr, "full-state row %s rejected a valid state\n", aszRows[iRow]);
+      CHECK(iDecoded);
+      continue;
+    }
+    if (iDecoded)
+      fprintf(stderr, "full-state row %s was accepted\n", aszRows[iRow]);
+    CHECK(!iDecoded);
+    CHECK(!memcmp(aBefore, Car, sizeof(aBefore)));
+    CHECK(human_control[0] == iHuman && finished_car[0] == iFinished);
+  }
+  NetTestRestore(pRunning);
+  printf("full-state validation: %d out-of-range rows rejected, controls decode\n", iRows - 2);
 }
 
 static void NetTestFieldAudit(void)
@@ -817,6 +978,8 @@ int main(int iArgc, const char **ppArgv, const char **ppEnv)
   NetTestRampsAndPuppets();
   NetTestRestore(&running);
   NetTestFramesAndRanges();
+  NetTestHealthExact(&running);
+  NetTestFullStateRejection(&running);
   NetTestRestore(&running);
   NetTestSnapshots();
   NetTestReplayOutput();
