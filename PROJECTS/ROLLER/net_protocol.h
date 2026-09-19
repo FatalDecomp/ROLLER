@@ -57,8 +57,26 @@ typedef enum
   NET_JOIN_REFUSE_VERSION_MISMATCH,
   NET_JOIN_REFUSE_SERVER_FULL,
   NET_JOIN_REFUSE_CSPRNG_UNAVAILABLE,
-  NET_JOIN_REFUSE_INVALID_REQUEST
+  NET_JOIN_REFUSE_INVALID_REQUEST,
+  NET_JOIN_REFUSE_TRACK_CRC_MISMATCH
 } eNetJoinRefuseReason;
+
+typedef enum
+{
+  NET_PLAYER_EMPTY = 0,
+  NET_PLAYER_JOINING,
+  NET_PLAYER_LOBBY,
+  NET_PLAYER_READY,
+  NET_PLAYER_RACING,
+  NET_PLAYER_DROPPED,
+  NET_PLAYER_FINISHED
+} eNetPlayerState;
+
+typedef enum
+{
+  NET_CHAT_TEXT = 0,
+  NET_CHAT_STRATEGY
+} eNetChatKind;
 
 typedef struct
 {
@@ -90,6 +108,38 @@ typedef struct
   char   szCommunityTrack[NET_COMMUNITY_TRACK_FILENAME];
   char   szBuildHash[16];
 } tNetSessionConfig;
+
+typedef struct
+{
+  uint16 unRevision;
+  uint8 byCount, byPad;
+} tNetPlayerListHeader;                     /* 4 bytes */
+
+typedef struct
+{
+  uint8 byCarIdx0, byCarIdx1;
+  uint8 byHumanControl, byPad;
+} tNetPlayerInfo;                           /* 4 bytes */
+
+typedef struct
+{
+  uint32 uiTrackCRC;
+  uint8 byReady, byPad[3];
+} tNetReady;                                /* 8 bytes */
+
+typedef struct
+{
+  uint8 bySenderPlayerIdx, byTargetPlayerIdx;
+  uint8 byKind, byValue;
+  char szText[64];
+} tNetChat;                                 /* 68 bytes */
+
+typedef struct
+{
+  uint32 uiStartTick;
+  uint16 unRevision;
+  uint8 byState, byPad;
+} tNetCountdown;                            /* 8 bytes */
 
 #define NET_INPUT_REDUNDANCY 8
 
@@ -259,6 +309,11 @@ _Static_assert(sizeof(tNetJoinRequest) == 13, "tNetJoinRequest wire size");
 _Static_assert(sizeof(tNetJoinAccept) == 12, "tNetJoinAccept wire size");
 _Static_assert(sizeof(tNetJoinRefuse) == 4, "tNetJoinRefuse wire size");
 _Static_assert(sizeof(tNetSessionConfig) == 312, "tNetSessionConfig wire size");
+_Static_assert(sizeof(tNetPlayerListHeader) == 4, "tNetPlayerListHeader wire size");
+_Static_assert(sizeof(tNetPlayerInfo) == 4, "tNetPlayerInfo wire size");
+_Static_assert(sizeof(tNetReady) == 8, "tNetReady wire size");
+_Static_assert(sizeof(tNetChat) == 68, "tNetChat wire size");
+_Static_assert(sizeof(tNetCountdown) == 8, "tNetCountdown wire size");
 _Static_assert(sizeof(tNetInputBatchHeader) == 10, "tNetInputBatchHeader wire size");
 _Static_assert(sizeof(tNetInputFeedback) == 12, "tNetInputFeedback wire size");
 _Static_assert(sizeof(tNetSimContextWire) == 12, "tNetSimContextWire wire size");

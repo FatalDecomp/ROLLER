@@ -142,6 +142,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_stats.c",
             "PROJECTS/ROLLER/net_channel.c",
             "PROJECTS/ROLLER/net_session.c",
+            "PROJECTS/ROLLER/net_lobby.c",
             "PROJECTS/ROLLER/net_config.c",
             "PROJECTS/ROLLER/net_config_codec.c",
             "PROJECTS/ROLLER/net_host.c",
@@ -532,6 +533,30 @@ fn configureRenderQueue3DTests(
         "Run NET-E2-S1 session configuration acceptance",
     );
     net_config_tests.dependOn(&run_net_config.step);
+    const net_lobby_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_lobby_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_lobby_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_lobby.c",
+        "PROJECTS/ROLLER/net_session.c",
+        "PROJECTS/ROLLER/net_config_codec.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_lobby_test.c",
+    } });
+    const net_lobby_exe = b.addExecutable(.{
+        .name = "net_lobby_test",
+        .root_module = net_lobby_mod,
+    });
+    const run_net_lobby = b.addRunArtifact(net_lobby_exe);
+    const net_lobby_tests = b.step(
+        "test-net-lobby",
+        "Run NET-E2-S2 lobby state acceptance",
+    );
+    net_lobby_tests.dependOn(&run_net_lobby.step);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -619,6 +644,7 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_channel.step);
     net_foundations_tests.dependOn(&run_net_session.step);
     net_foundations_tests.dependOn(&run_net_config.step);
+    net_foundations_tests.dependOn(&run_net_lobby.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

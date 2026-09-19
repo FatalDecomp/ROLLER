@@ -5,7 +5,8 @@
 enum {
   NET_ADDR_IPV4 = 4,
   NET_ADDR_IPV6 = 6,
-  NET_ADDRESS_STRING_CAPACITY = 80
+  NET_ADDRESS_STRING_CAPACITY = 80,
+  NET_SIM_MAX_ENDPOINTS = 8
 };
 
 typedef struct {
@@ -57,7 +58,8 @@ typedef struct {
 } tNetSimLink;
 typedef struct tNetTransportSim tNetTransportSim;
 
-/* Channel tests only: two endpoints, independent directional link settings. */
+/* Channel tests only: deterministic addressed endpoints with independent
+   outgoing link settings. */
 tNetTransportSim *NetTransportSimCreate(uint32 uiSeed);
 void NetTransportSimDestroy(tNetTransportSim *pSim);
 tNetTransport NetTransportSimEndpoint(tNetTransportSim *pSim, int iEndpoint);

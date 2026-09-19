@@ -25,3 +25,29 @@ build/encode/decode/apply agreement, little-endian scalar layout, dedicated
 pause policy, an in-memory host/client join and configuration exchange,
 malformed fields, unchanged decode output on rejection, and unchanged globals
 when apply rejects a configuration.
+
+## E2-S2 host and client lobby state
+
+`net_lobby.c` owns the host-authoritative lobby roster. Session joins become
+`LOBBY` entries, clients can update their car/control selection and ready flag,
+and each accepted change advances a 16-bit revision and broadcasts a reliable,
+ordered complete player list. Clients validate the entire list into staging
+before publishing it, so malformed or stale updates cannot partially alter
+lobby state.
+
+Ready messages carry the client's local track CRC. A mismatch changes the
+authenticated session to refused with
+`NET_JOIN_REFUSE_TRACK_CRC_MISMATCH`; it never reaches `READY`. Once every
+joined player is ready, the host broadcasts one revision and start tick in the
+countdown and moves the canonical roster to `RACING`.
+
+Legacy strategy selections use the chat envelope with a distinct strategy
+kind and values 0 through 3. The host supplies the authenticated sender index,
+validates an optional target, and rebroadcasts the canonical message. Reserved
+bytes and strategy text must be zero.
+
+The transport simulator now routes up to eight addressed endpoints, retaining
+independent deterministic outgoing link settings. The focused acceptance test
+uses one host and three clients to exercise join, identical player lists,
+ready, strategy propagation, and an identical start tick, plus a separate
+track-CRC refusal and malformed-strategy rejection.

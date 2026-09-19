@@ -15,7 +15,7 @@ typedef struct
 {
   tNetConnection *pConnection;
   uint64 ullToken;
-  uint8 byState, byPlayerIdx, byRefuseReason;
+  uint8 byState, byPlayerIdx, byRefuseReason, byLocalPlayers;
   char szPlayerName[9];
 } tNetHostSlot;
 
@@ -24,6 +24,8 @@ struct tNetSessionHost
   tNetChannel *pChannel;
   tNetRandomBytesFn pRandom;
   void *pRandomContext;
+  tNetSessionHostMessageFn pMessageCallback;
+  void *pMessageContext;
   uint64 ullRandomProof;
   uint8 byMaxPlayers, byHasConfig;
   tNetSessionConfig config;
@@ -38,6 +40,8 @@ struct tNetSessionClient
   uint8 byLocalPlayers, byGeneration, byPlayerIdx, byRefuseReason;
   uint8 byHasConfig;
   eNetJoinState state;
+  tNetSessionClientMessageFn pMessageCallback;
+  void *pMessageContext;
   tNetSessionConfig config;
   char szPlayerName[9];
 };
@@ -67,6 +71,25 @@ static uint64 NetSessionRead64(const uint8 *pData)
   for (iByte = 0; iByte < 8; ++iByte)
     ullValue |= (uint64)pData[iByte] << (iByte * 8);
   return ullValue;
+}
+
+static int NetSessionPlayerNameValid(const char *szName)
+{
+  int iChar, iTerminated = 0;
+  if (!szName || !szName[0])
+    return 0;
+  for (iChar = 0; iChar < 9; ++iChar) {
+    uint8 byChar = (uint8)szName[iChar];
+    if (iTerminated) {
+      if (byChar)
+        return 0;
+    } else if (!byChar) {
+      iTerminated = 1;
+    } else if (byChar < 32 || byChar > 126) {
+      return 0;
+    }
+  }
+  return iTerminated;
 }
 
 static int NetSessionAddressEqual(const tNetAddress *pA,
@@ -191,14 +214,13 @@ static void NetSessionAcceptRequest(tNetSessionHost *pHost,
 {
   uint8 abAccept[sizeof(tNetJoinAccept)] = {0};
   uint16 unVersion = NetSessionRead16(pData);
-  const char *pTerminator = (const char *)memchr(pData + 4, 0, 9);
   int iPlayerIdx;
   if (unVersion != NET_PROTOCOL_VERSION) {
     NetSessionQueueRefuse(pSlot, NET_JOIN_REFUSE_VERSION_MISMATCH);
     return;
   }
   if ((pData[2] != 1 && pData[2] != 2) || pData[3] ||
-      !pData[4] || !pTerminator) {
+      !NetSessionPlayerNameValid((const char *)pData + 4)) {
     NetSessionQueueRefuse(pSlot, NET_JOIN_REFUSE_INVALID_REQUEST);
     return;
   }
@@ -212,6 +234,7 @@ static void NetSessionAcceptRequest(tNetSessionHost *pHost,
     return;
   }
   pSlot->byPlayerIdx = (uint8)iPlayerIdx;
+  pSlot->byLocalPlayers = pData[2];
   memcpy(pSlot->szPlayerName, pData + 4, sizeof(pSlot->szPlayerName));
   NetSessionWrite64(abAccept, pSlot->ullToken);
   abAccept[8] = 1;
@@ -265,23 +288,28 @@ void NetSessionHostPump(tNetSessionHost *pHost)
     tNetMessage message;
     while (pSlot->byState &&
            NetConnectionReceiveMessage(pSlot->pConnection, &message)) {
-      if (message.byType != NET_MSG_JOIN_REQUEST ||
-          message.unLength != sizeof(tNetJoinRequest) ||
-          (message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
-              (NET_MSG_RELIABLE | NET_MSG_ORDERED))
+      if ((message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
+          (NET_MSG_RELIABLE | NET_MSG_ORDERED))
         continue;
-      if (pSlot->byState == NET_HOST_SLOT_PENDING)
-        NetSessionAcceptRequest(pHost, pSlot, message.abData);
-      else if (pSlot->byState == NET_HOST_SLOT_REFUSED)
-        NetSessionQueueRefuse(pSlot,
-            (eNetJoinRefuseReason)pSlot->byRefuseReason);
-      else if (pSlot->byState == NET_HOST_SLOT_JOINED) {
-        uint8 abAccept[sizeof(tNetJoinAccept)] = {0};
-        NetSessionWrite64(abAccept, pSlot->ullToken);
-        abAccept[8] = 1;
-        abAccept[9] = pSlot->byPlayerIdx;
-        NetConnectionQueueMessage(pSlot->pConnection, NET_MSG_JOIN_ACCEPT,
-            NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept));
+      if (message.byType == NET_MSG_JOIN_REQUEST &&
+          message.unLength == sizeof(tNetJoinRequest)) {
+        if (pSlot->byState == NET_HOST_SLOT_PENDING)
+          NetSessionAcceptRequest(pHost, pSlot, message.abData);
+        else if (pSlot->byState == NET_HOST_SLOT_REFUSED)
+          NetSessionQueueRefuse(pSlot,
+              (eNetJoinRefuseReason)pSlot->byRefuseReason);
+        else if (pSlot->byState == NET_HOST_SLOT_JOINED) {
+          uint8 abAccept[sizeof(tNetJoinAccept)] = {0};
+          NetSessionWrite64(abAccept, pSlot->ullToken);
+          abAccept[8] = 1;
+          abAccept[9] = pSlot->byPlayerIdx;
+          NetConnectionQueueMessage(pSlot->pConnection, NET_MSG_JOIN_ACCEPT,
+              NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept));
+        }
+      } else if (pSlot->byState == NET_HOST_SLOT_JOINED &&
+                 pHost->pMessageCallback) {
+        pHost->pMessageCallback(pHost->pMessageContext,
+                                pSlot->byPlayerIdx, &message);
       }
     }
   }
@@ -306,6 +334,16 @@ int NetSessionHostGetConfig(const tNetSessionHost *pHost,
     return 0;
   *pConfig = pHost->config;
   return 1;
+}
+
+void NetSessionHostSetMessageCallback(tNetSessionHost *pHost,
+                                      tNetSessionHostMessageFn pCallback,
+                                      void *pContext)
+{
+  if (!pHost)
+    return;
+  pHost->pMessageCallback = pCallback;
+  pHost->pMessageContext = pContext;
 }
 
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost)
@@ -334,6 +372,50 @@ uint64 NetSessionHostPlayerToken(const tNetSessionHost *pHost,
   return NetConnectionSessionToken(pConnection);
 }
 
+const char *NetSessionHostPlayerName(const tNetSessionHost *pHost,
+                                     uint8 byPlayerIdx)
+{
+  int iSlot;
+  if (!pHost)
+    return NULL;
+  for (iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot)
+    if (pHost->aSlots[iSlot].byState == NET_HOST_SLOT_JOINED &&
+        pHost->aSlots[iSlot].byPlayerIdx == byPlayerIdx)
+      return pHost->aSlots[iSlot].szPlayerName;
+  return NULL;
+}
+
+uint8 NetSessionHostPlayerLocalPlayers(const tNetSessionHost *pHost,
+                                       uint8 byPlayerIdx)
+{
+  int iSlot;
+  if (!pHost)
+    return 0;
+  for (iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot)
+    if (pHost->aSlots[iSlot].byState == NET_HOST_SLOT_JOINED &&
+        pHost->aSlots[iSlot].byPlayerIdx == byPlayerIdx)
+      return pHost->aSlots[iSlot].byLocalPlayers;
+  return 0;
+}
+
+int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
+                               eNetJoinRefuseReason reason)
+{
+  int iSlot;
+  if (!pHost || reason <= NET_JOIN_REFUSE_NONE ||
+      reason > NET_JOIN_REFUSE_TRACK_CRC_MISMATCH)
+    return 0;
+  for (iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot) {
+    tNetHostSlot *pSlot = &pHost->aSlots[iSlot];
+    if (pSlot->byState == NET_HOST_SLOT_JOINED &&
+        pSlot->byPlayerIdx == byPlayerIdx) {
+      NetSessionQueueRefuse(pSlot, reason);
+      return pSlot->byState == NET_HOST_SLOT_REFUSED;
+    }
+  }
+  return 0;
+}
+
 tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
                                           uint16 unProtocolVersion,
                                           uint8 byLocalPlayers,
@@ -345,8 +427,15 @@ tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
       (byLocalPlayers != 1 && byLocalPlayers != 2))
     return NULL;
   nameLength = strlen(szPlayerName);
-  if (!nameLength || nameLength > 8)
+  if (!nameLength || nameLength > 8) {
     return NULL;
+  } else {
+    size_t iChar;
+    for (iChar = 0; iChar < nameLength; ++iChar)
+      if ((uint8)szPlayerName[iChar] < 32 ||
+          (uint8)szPlayerName[iChar] > 126)
+        return NULL;
+  }
   pClient = (tNetSessionClient *)calloc(1, sizeof(*pClient));
   if (!pClient)
     return NULL;
@@ -401,11 +490,12 @@ void NetSessionClientPump(tNetSessionClient *pClient)
       pClient->byPlayerIdx = byPlayerIdx;
       pClient->state = NET_JOIN_ACCEPTED;
       NetConnectionSetIdentity(pClient->pConnection, ullToken, byGeneration);
-    } else if (pClient->state == NET_JOIN_WAITING &&
+    } else if ((pClient->state == NET_JOIN_WAITING ||
+                pClient->state == NET_JOIN_ACCEPTED) &&
                message.byType == NET_MSG_JOIN_REFUSE &&
                message.unLength == sizeof(tNetJoinRefuse) &&
                message.abData[0] > NET_JOIN_REFUSE_NONE &&
-               message.abData[0] <= NET_JOIN_REFUSE_INVALID_REQUEST &&
+               message.abData[0] <= NET_JOIN_REFUSE_TRACK_CRC_MISMATCH &&
                !message.abData[1] &&
                NetSessionRead16(message.abData + 2) == NET_PROTOCOL_VERSION) {
       pClient->byRefuseReason = message.abData[0];
@@ -417,6 +507,9 @@ void NetSessionClientPump(tNetSessionClient *pClient)
         pClient->config = config;
         pClient->byHasConfig = 1;
       }
+    } else if (pClient->state == NET_JOIN_ACCEPTED &&
+               pClient->pMessageCallback) {
+      pClient->pMessageCallback(pClient->pMessageContext, &message);
     }
   }
 }
@@ -448,6 +541,11 @@ uint8 NetSessionClientPlayerIndex(const tNetSessionClient *pClient)
   return pClient ? pClient->byPlayerIdx : 0xff;
 }
 
+tNetConnection *NetSessionClientConnection(const tNetSessionClient *pClient)
+{
+  return pClient ? pClient->pConnection : NULL;
+}
+
 int NetSessionClientGetConfig(const tNetSessionClient *pClient,
                               tNetSessionConfig *pConfig)
 {
@@ -455,4 +553,14 @@ int NetSessionClientGetConfig(const tNetSessionClient *pClient,
     return 0;
   *pConfig = pClient->config;
   return 1;
+}
+
+void NetSessionClientSetMessageCallback(tNetSessionClient *pClient,
+                                        tNetSessionClientMessageFn pCallback,
+                                        void *pContext)
+{
+  if (!pClient)
+    return;
+  pClient->pMessageCallback = pCallback;
+  pClient->pMessageContext = pContext;
 }

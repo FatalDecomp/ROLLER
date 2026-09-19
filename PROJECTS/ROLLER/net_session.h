@@ -16,6 +16,11 @@ typedef enum
 
 typedef struct tNetSessionHost tNetSessionHost;
 typedef struct tNetSessionClient tNetSessionClient;
+typedef void (*tNetSessionHostMessageFn)(void *pContext,
+                                         uint8 byPlayerIdx,
+                                         const tNetMessage *pMessage);
+typedef void (*tNetSessionClientMessageFn)(void *pContext,
+                                           const tNetMessage *pMessage);
 
 /* Creation verifies the random provider immediately.  A host is never
    advertised or allowed to accept joins without a working CSPRNG. */
@@ -30,11 +35,20 @@ int NetSessionHostSetConfig(tNetSessionHost *pHost,
                             const tNetSessionConfig *pConfig);
 int NetSessionHostGetConfig(const tNetSessionHost *pHost,
                             tNetSessionConfig *pConfig);
+void NetSessionHostSetMessageCallback(tNetSessionHost *pHost,
+                                      tNetSessionHostMessageFn pCallback,
+                                      void *pContext);
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost);
 tNetConnection *NetSessionHostPlayerConnection(const tNetSessionHost *pHost,
                                                 uint8 byPlayerIdx);
 uint64 NetSessionHostPlayerToken(const tNetSessionHost *pHost,
                                  uint8 byPlayerIdx);
+const char *NetSessionHostPlayerName(const tNetSessionHost *pHost,
+                                     uint8 byPlayerIdx);
+uint8 NetSessionHostPlayerLocalPlayers(const tNetSessionHost *pHost,
+                                       uint8 byPlayerIdx);
+int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
+                               eNetJoinRefuseReason reason);
 
 tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
                                           uint16 unProtocolVersion,
@@ -49,7 +63,11 @@ eNetJoinRefuseReason NetSessionClientRefuseReason(
 uint64 NetSessionClientToken(const tNetSessionClient *pClient);
 uint8 NetSessionClientGeneration(const tNetSessionClient *pClient);
 uint8 NetSessionClientPlayerIndex(const tNetSessionClient *pClient);
+tNetConnection *NetSessionClientConnection(const tNetSessionClient *pClient);
 int NetSessionClientGetConfig(const tNetSessionClient *pClient,
                               tNetSessionConfig *pConfig);
+void NetSessionClientSetMessageCallback(tNetSessionClient *pClient,
+                                        tNetSessionClientMessageFn pCallback,
+                                        void *pContext);
 
 #endif
