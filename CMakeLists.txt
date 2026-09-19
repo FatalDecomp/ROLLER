@@ -99,6 +99,7 @@ set(ROLLER_GAME_BASE_SOURCES
 
 set(ROLLER_GAME_NATIVE_SOURCES
     PROJECTS/ROLLER/net_harness.c
+    PROJECTS/ROLLER/net_transport.c
     PROJECTS/ROLLER/debug_overlay.c
     PROJECTS/ROLLER/crashdump.c
     PROJECTS/ROLLER/menu_render_gpu.c
@@ -176,7 +177,10 @@ if(ROLLER_BUILD_EDITOR_CORE)
     endif()
     roller_configure_c_target(roller-core)
 
-    add_executable(net-server PROJECTS/ROLLERSRV/roller_server.c PROJECTS/ROLLER/net_harness.c)
+    add_executable(net-server
+        PROJECTS/ROLLERSRV/roller_server.c
+        PROJECTS/ROLLER/net_harness.c
+        PROJECTS/ROLLER/net_transport.c)
     target_link_libraries(net-server PRIVATE ROLLER::core SDL3::SDL3)
     set_target_properties(net-server PROPERTIES OUTPUT_NAME "roller-server")
     roller_configure_c_target(net-server)
@@ -186,14 +190,20 @@ if(ROLLER_BUILD_EDITOR_CORE)
     set_target_properties(net-netsim PROPERTIES OUTPUT_NAME "roller-netsim")
     roller_configure_c_target(net-netsim)
     if(WIN32)
-        target_link_libraries(net-server PRIVATE ws2_32)
+        target_link_libraries(net-server PRIVATE ws2_32 iphlpapi)
         target_link_libraries(net-netsim PRIVATE ws2_32)
     endif()
 
-    add_executable(net-transport-test tests/net_transport_test.c PROJECTS/ROLLER/net_transport_sim.c)
+    add_executable(net-transport-test
+        tests/net_transport_test.c
+        PROJECTS/ROLLER/net_transport.c
+        PROJECTS/ROLLER/net_transport_sim.c)
     target_compile_features(net-transport-test PRIVATE c_std_11)
     target_include_directories(net-transport-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-transport-test)
+    if(WIN32)
+        target_link_libraries(net-transport-test PRIVATE ws2_32 iphlpapi)
+    endif()
     enable_testing()
     add_test(NAME net-transport COMMAND net-transport-test)
 

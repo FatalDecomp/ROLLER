@@ -186,9 +186,10 @@ pub fn build(b: *std.Build) void {
         exe_mod.addCSourceFiles(.{
             .flags = c_flags,
             .files = &.{
-                "PROJECTS/ROLLER/debug_overlay.c",
-                "PROJECTS/ROLLER/net_harness.c",
-                "PROJECTS/ROLLER/crashdump.c",
+            "PROJECTS/ROLLER/debug_overlay.c",
+            "PROJECTS/ROLLER/net_harness.c",
+            "PROJECTS/ROLLER/net_transport.c",
+            "PROJECTS/ROLLER/crashdump.c",
                 "PROJECTS/ROLLER/menu_render_gpu.c",
                 "PROJECTS/ROLLER/crt_filter.c",
                 "PROJECTS/ROLLER/game_render_hardware.c",
@@ -451,8 +452,13 @@ fn configureRenderQueue3DTests(
     });
     net_transport_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     net_transport_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
-        "PROJECTS/ROLLER/net_transport_sim.c", "tests/net_transport_test.c",
+        "PROJECTS/ROLLER/net_transport.c", "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_transport_test.c",
     } });
+    if (target.result.os.tag == .windows) {
+        net_transport_mod.linkSystemLibrary("ws2_32", .{});
+        net_transport_mod.linkSystemLibrary("iphlpapi", .{});
+    }
     const net_transport_exe = b.addExecutable(.{ .name = "net_transport_test", .root_module = net_transport_mod });
     const run_net_transport = b.addRunArtifact(net_transport_exe);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
@@ -489,9 +495,13 @@ fn configureRenderQueue3DTests(
         .files = &.{
             "PROJECTS/ROLLERSRV/roller_server.c",
             "PROJECTS/ROLLER/net_harness.c",
+            "PROJECTS/ROLLER/net_transport.c",
         },
     });
-    if (target.result.os.tag == .windows) net_server_mod.linkSystemLibrary("ws2_32", .{});
+    if (target.result.os.tag == .windows) {
+        net_server_mod.linkSystemLibrary("ws2_32", .{});
+        net_server_mod.linkSystemLibrary("iphlpapi", .{});
+    }
     const net_server_exe = b.addExecutable(.{
         .name = "roller-server",
         .root_module = net_server_mod,
