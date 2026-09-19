@@ -13,6 +13,10 @@
 #include "comms.h"
 #include "rollercomms.h"
 #include "menu_render.h"
+#include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <string.h>
 #ifdef IS_WINDOWS
 #include <io.h>
@@ -73,7 +77,8 @@ void frontend_lobby_enter(void)
   front_fade = 0;
   tick_on = -1;
   frontend_on = -1;
-  clear_network_game();
+  if (net_mode == NET_MODE_LEGACY)
+    clear_network_game();
   netCD = 0;
   cd_error = 0;
   SVGA_ON = -1;
@@ -108,6 +113,10 @@ void frontend_lobby_enter(void)
   iLobbyRacePrepared = 0;
   iLobbyExitFading = 0;
   eLobbyExitTarget = eFRONTEND_STATE_NONE;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN && !NetFrontendLobbyBegin())
+    SDL_Log("[NET-LOBBY] %s", NetFrontendLobbyStatus());
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -291,7 +300,13 @@ static void lobby_emit_draw(MenuRenderer *mr)
   }
   menu_render_text(mr, 1, buffer, font2_ascii, font2_offsets, 200, 4, 0x8Fu, 1u, pal_addr);
 
-  if (players_waiting == network_on) {
+  if (players_waiting == network_on &&
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      (net_mode != NET_MODE_MODERN || NetFrontendLobbyCanStart())
+#else
+      net_mode != NET_MODE_MODERN
+#endif
+      ) {
     frontend_mouse_register_text(LOBBY_MOUSE_START, front_vga[1],
                                  &language_buffer[4800], font2_ascii,
                                  font2_offsets, 200, 22, 1u);
@@ -302,6 +317,11 @@ static void lobby_emit_draw(MenuRenderer *mr)
     if (time_to_start)
       iLobbyActive = 0;
   }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN && NetFrontendLobbyStatus()[0])
+    menu_render_text(mr, 15, NetFrontendLobbyStatus(), font1_ascii,
+                     font1_offsets, 200, 382, 0x8Fu, 1u, pal_addr);
+#endif
   if (g_iNetworkTrackFileCRCMismatch) {
     menu_render_text(mr, 15, "TRACK FILE CRC MISMATCH", font1_ascii,
                      font1_offsets, 200, 32, MENU_COLOR_RED, 1u, pal_addr);
@@ -400,7 +420,10 @@ static void lobby_draw_frame(void)
     if (!front_fade) {
       front_fade = -1;
       menu_render_begin_fade(mr, 1, 32);
-      lobby_begin_broadcast_wait(eLOBBY_BROADCAST_FADE_IN, -668, 2);
+      if (net_mode == NET_MODE_LEGACY)
+        lobby_begin_broadcast_wait(eLOBBY_BROADCAST_FADE_IN, -668, 2);
+      else
+        frames = 0;
     }
   }
   menu_render_end_frame(mr);
@@ -412,6 +435,18 @@ static int lobby_request_start_race(void)
 {
   if (players_waiting != network_on || time_to_start)
     return 0;
+
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    if (!NetFrontendLobbyCanStart())
+      return 0;
+    if (!NetFrontendLobbyRequestStart((uint32)ticks + 36u)) {
+      sfxsample(SOUND_SAMPLE_BUTTON, 0x8000);
+      return -1;
+    }
+    return -1;
+  }
+#endif
 
   if (g_iNetworkTrackFileCRCMismatch ||
       (TrackLoad == TRACK_LOAD_COMMUNITY && g_iCommunityTrackMissing) ||
@@ -461,6 +496,13 @@ static void lobby_handle_input(void)
     } else if (uiKeyPressed == 27 && !time_to_start && !restart_net) {
       StartPressed = 0;
       time_to_start = 0;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      if (net_mode == NET_MODE_MODERN) {
+        NetFrontendClose();
+        iLobbyActive = 0;
+        return;
+      }
+#endif
       lobby_begin_broadcast_wait(eLOBBY_BROADCAST_LEAVE, -670, 1);
       return;
     }
@@ -473,6 +515,33 @@ void frontend_lobby_update(void)
 {
   if (lobby_update_exit_fade())
     return;
+
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    uint32 uiStartTick;
+    lobby_draw_frame();
+    if (lobby_handle_mouse())
+      return;
+    lobby_handle_input();
+    if (NetFrontendLobbyStartTick(&uiStartTick)) {
+      (void)uiStartTick;
+      time_to_start = -1;
+      iLobbyActive = 0;
+    }
+    if (!iLobbyActive) {
+      if (time_to_start) {
+        if (!iLobbyRacePrepared) {
+          frontend_main_menu_prepare_race_start();
+          iLobbyRacePrepared = -1;
+        }
+        lobby_begin_exit(eFRONTEND_STATE_LOADING);
+      } else {
+        lobby_begin_exit(eFRONTEND_STATE_MAIN_MENU);
+      }
+    }
+    return;
+  }
+#endif
 
   if (lobby_update_broadcast_wait())
     return;

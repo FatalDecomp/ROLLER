@@ -18,6 +18,9 @@
 #include "view.h"
 #include "platform_log.h"
 #include "net_channel.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #if defined(IS_WASM)
 #include "present_sdlrenderer.h"
 #include "web_default_config.h"
@@ -1871,6 +1874,9 @@ void UpdateDebugLoop()
 void UpdateSDL()
 {
   NetPump();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  NetFrontendPump();
+#endif
 #if defined(IS_WASM)
   g_iCRTFilterMode = 0;
 #endif

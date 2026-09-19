@@ -1,5 +1,6 @@
 #include "sound.h"
 #include "net_sim_seam.h"
+#include "net_types.h"
 #include "frontend.h"
 #include "moving.h"
 #include "cdx.h"
@@ -537,7 +538,7 @@ void tick_clock_step(void)
 
   int iTickAdvance = 1;
 
-  if (network_on && syncleft) {
+  if (network_on && net_mode == NET_MODE_LEGACY && syncleft) {
     ROLLERCommsPumpSendQueue();
     do_sync_stuff();
     ROLLERCommsPumpSendQueue();
@@ -604,18 +605,19 @@ void tick_clock_step(void)
   }
 
   if (tick_on) {
-    if (network_on && (replaytype == 2 || game_type > 2)) {
+    if (network_on && net_mode == NET_MODE_LEGACY &&
+        (replaytype == 2 || game_type > 2)) {
       CheckNewNodes();
       SendAMessage();
       BroadcastNews();
     } else if (replaytype != 2 && game_type < 3) {
       if (frontend_on) {
-        if (network_on) {
+        if (network_on && net_mode == NET_MODE_LEGACY) {
           CheckNewNodes();
           SendAMessage();
           BroadcastNews();
         }
-      } else if (network_on && winner_mode) {
+      } else if (network_on && net_mode == NET_MODE_LEGACY && winner_mode) {
         CheckNewNodes();
         SendAMessage();
         BroadcastNews();
@@ -623,7 +625,7 @@ void tick_clock_step(void)
     }
   }
 
-  if (network_on)
+  if (network_on && net_mode == NET_MODE_LEGACY)
     ROLLERCommsPumpSendQueue();
 
   if (!frontend_on && iTickAdvance != 0)

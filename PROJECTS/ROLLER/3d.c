@@ -1,5 +1,9 @@
 #if !defined(__EMSCRIPTEN__)
 #include "net_harness.h"
+#include "net_types.h"
+#if !defined(IS_WASM)
+#include "net_frontend_lobby.h"
+#endif
 #endif
 #include "3d.h"
 #include "game_render_hw.h"
@@ -605,6 +609,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
+  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
   cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
@@ -2883,6 +2888,9 @@ int main(int argc, const char **argv, const char **envp)
           return 1;
         }
         ROLLERCommsSetLocalPort((uint16_t)iPort);
+#if !defined(IS_WASM)
+        NetFrontendSetLocalPort((uint16)iPort);
+#endif
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--port' needs an argument\n");
@@ -2905,6 +2913,12 @@ int main(int argc, const char **argv, const char **envp)
           return 1;
         }
         ROLLERCommsSetPeer(szPeerBuf, (uint16_t)iPeerPort);
+#if !defined(IS_WASM)
+        if (!NetFrontendSetPeer(szPeerBuf, (uint16)iPeerPort)) {
+          cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
+          return 1;
+        }
+#endif
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--peer' needs an argument\n");
@@ -2918,6 +2932,21 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--net-mode") == 0) {
+      if (i + 1 >= argc) {
+        cli_fprintf(stderr, "ERROR: '--net-mode' needs an argument\n");
+        return 1;
+      }
+      if (strcmp(argv[i + 1], "legacy") == 0)
+        net_mode = NET_MODE_LEGACY;
+      else if (strcmp(argv[i + 1], "modern") == 0)
+        net_mode = NET_MODE_MODERN;
+      else {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-mode' expects legacy or modern\n");
+        return 1;
+      }
+      consumed = 2;
     } else if (strcmp(argv[i], "--snapshot") == 0) {
       if (i + 1 < argc) {
         SnapshotSetReplay(argv[i + 1]);

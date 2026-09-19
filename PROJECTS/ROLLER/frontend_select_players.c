@@ -16,6 +16,10 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -119,6 +123,13 @@ static void frontend_players_select_handle_mouse(void)
           select_messages();
       } else if (iClicked == FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT) {
         if (network_on)
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+          if (net_mode == NET_MODE_MODERN) {
+            NetFrontendClose();
+            iFrontendPlayersNetworkMode = 0;
+            iFrontendPlayersSelectedPlayerType = 0;
+          } else
+#endif
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
       } else if (!frontend_players_network_prompt_hovered(
@@ -198,7 +209,12 @@ static int frontend_players_select_update_broadcast_wait(void)
 
     iFrontendPlayersCloseNetworkPending = 0;
     iFrontendPlayersCloseNetworkStartFrame = 0;
-    close_network();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN)
+      NetFrontendClose();
+    else
+#endif
+      close_network();
     iFrontendPlayersNetworkMode = 0;
     iFrontendPlayersSelectedPlayerType = 0;
     return -1;
@@ -279,6 +295,14 @@ static void frontend_players_select_finish_network_setup(void)
 
 static void frontend_players_select_begin_net_slot(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
+    iFrontendPlayersNetworkStatus = NetFrontendOpen() ? 0 : -1;
+    frontend_players_select_finish_network_setup();
+    return;
+  }
+#endif
   network_slot = -1;
   iFrontendPlayersNetSlotCurrent = 0;
   iFrontendPlayersNetworkStatus = 0;
@@ -585,7 +609,12 @@ static int frontend_players_net_slot_update(void)
     frontend_players_net_slot_drain_mouse();
     if (!network_broadcast_wait_update())
       return -1;
-    close_network();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN)
+      NetFrontendClose();
+    else
+#endif
+      close_network();
     iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
     iFrontendPlayersNetworkMode = 0;
     iFrontendPlayersNetworkStatus = 0;
@@ -924,6 +953,14 @@ void frontend_players_select_update(void)
       if (byInputKey == 113) {                // Q/q keys: Quit network and return to player selection
       LABEL_121:
         if (network_on) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+          if (net_mode == NET_MODE_MODERN) {
+            NetFrontendClose();
+            iFrontendPlayersNetworkMode = 0;
+            iFrontendPlayersSelectedPlayerType = 0;
+            continue;
+          }
+#endif
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
           return;

@@ -359,6 +359,22 @@ int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
   return pPlayer->byState != NET_PLAYER_EMPTY;
 }
 
+int NetLobbyHostAllReady(const tNetLobbyHost *pLobby)
+{
+  int iPlayers = 0;
+  int iPlayer;
+  if (!pLobby)
+    return 0;
+  for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
+    if (pLobby->aPlayers[iPlayer].byState == NET_PLAYER_EMPTY)
+      continue;
+    if (pLobby->aPlayers[iPlayer].byState != NET_PLAYER_READY)
+      return 0;
+    ++iPlayers;
+  }
+  return iPlayers > 0;
+}
+
 int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick)
 {
   if (!pLobby || !puiStartTick || !pLobby->byHasStart)

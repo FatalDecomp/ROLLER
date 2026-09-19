@@ -51,3 +51,33 @@ independent deterministic outgoing link settings. The focused acceptance test
 uses one host and three clients to exercise join, identical player lists,
 ready, strategy propagation, and an identical start tick, plus a separate
 track-CRC refusal and malformed-strategy rejection.
+
+## E2-S3 lobby screen over the new session
+
+`net_frontend_lobby.c` owns the native frontend lifetime for a modern direct
+connection. The existing `--port`, `--peer`, and `--net-slot` options configure
+it; `--net-mode modern` selects it explicitly, leaving LEGACY as the default.
+A listen host opens its authoritative socket plus a separate loopback client,
+so the host is represented by the same authenticated roster path as every
+remote player.
+
+The bridge starts the session when the existing car-selection flow enters the
+lobby, applies the received session configuration before publishing UI state,
+sends the selected car/control and local track CRC, and mirrors the validated
+player list into the legacy lobby display globals. The start prompt is host
+only and is enabled only when the authoritative roster is entirely Ready.
+Escape tears down the modern session without sending any legacy packet.
+The SDL timer's frontend networking branch is also mode-gated, so the modern
+lobby does not pulse discovery or the legacy send queue in the background.
+
+Manual localhost invocation:
+
+```text
+roller --net-mode modern --port 7777 --net-slot 0 --player1name HOST
+roller --net-mode modern --port 7778 --peer 127.0.0.1:7777 --net-slot -1 --player1name CLIENT
+```
+
+In both instances select Network, choose a car, and enter the lobby. The host
+and client screens use the same ordered roster and ready state. Screenshots
+remain a manual release-check artifact because the CI frontend renderer does
+not drive two interactive processes.

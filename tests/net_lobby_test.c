@@ -216,6 +216,7 @@ static void NetTestHostAndThreeClients(void)
       CHECK(player.byState == NET_PLAYER_READY);
     }
   }
+  CHECK(NetLobbyHostAllReady(pHostLobby));
 
   memset(&chat, 0, sizeof(chat));
   chat.bySenderPlayerIdx = NET_LOBBY_NO_PLAYER;
@@ -243,6 +244,7 @@ static void NetTestHostAndThreeClients(void)
   }
 
   CHECK(NetLobbyHostStart(pHostLobby, 4242));
+  CHECK(!NetLobbyHostAllReady(pHostLobby));
   CHECK(NetLobbyHostStartTick(pHostLobby, &uiStartTick));
   CHECK(uiStartTick == 4242);
   NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,

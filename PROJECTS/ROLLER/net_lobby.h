@@ -16,6 +16,7 @@ int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick);
 int NetLobbyHostPlayerCount(const tNetLobbyHost *pLobby);
 int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
                        tNetPlayerEntry *pPlayer);
+int NetLobbyHostAllReady(const tNetLobbyHost *pLobby);
 int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick);
 int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat);
 

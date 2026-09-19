@@ -191,6 +191,7 @@ pub fn build(b: *std.Build) void {
             .files = &.{
             "PROJECTS/ROLLER/debug_overlay.c",
             "PROJECTS/ROLLER/net_harness.c",
+            "PROJECTS/ROLLER/net_frontend_lobby.c",
             "PROJECTS/ROLLER/net_transport.c",
             "PROJECTS/ROLLER/crashdump.c",
                 "PROJECTS/ROLLER/menu_render_gpu.c",

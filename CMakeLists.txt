@@ -102,6 +102,7 @@ set(ROLLER_GAME_BASE_SOURCES
 
 set(ROLLER_GAME_NATIVE_SOURCES
     PROJECTS/ROLLER/net_harness.c
+    PROJECTS/ROLLER/net_frontend_lobby.c
     PROJECTS/ROLLER/net_transport.c
     PROJECTS/ROLLER/debug_overlay.c
     PROJECTS/ROLLER/crashdump.c
