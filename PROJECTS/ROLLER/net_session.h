@@ -2,8 +2,7 @@
 #define ROLLER_NET_SESSION_H
 
 #include "net_channel.h"
-
-#define NET_SESSION_MAX_PLAYERS 16
+#include "net_config.h"
 
 typedef int (*tNetRandomBytesFn)(void *pContext, void *pData, int iLength);
 
@@ -26,6 +25,11 @@ tNetSessionHost *NetSessionHostCreate(tNetChannel *pChannel,
                                       void *pRandomContext);
 void NetSessionHostDestroy(tNetSessionHost *pHost);
 void NetSessionHostPump(tNetSessionHost *pHost);
+/* Configuration must be installed before the first player joins. */
+int NetSessionHostSetConfig(tNetSessionHost *pHost,
+                            const tNetSessionConfig *pConfig);
+int NetSessionHostGetConfig(const tNetSessionHost *pHost,
+                            tNetSessionConfig *pConfig);
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost);
 tNetConnection *NetSessionHostPlayerConnection(const tNetSessionHost *pHost,
                                                 uint8 byPlayerIdx);
@@ -45,5 +49,7 @@ eNetJoinRefuseReason NetSessionClientRefuseReason(
 uint64 NetSessionClientToken(const tNetSessionClient *pClient);
 uint8 NetSessionClientGeneration(const tNetSessionClient *pClient);
 uint8 NetSessionClientPlayerIndex(const tNetSessionClient *pClient);
+int NetSessionClientGetConfig(const tNetSessionClient *pClient,
+                              tNetSessionConfig *pConfig);
 
 #endif

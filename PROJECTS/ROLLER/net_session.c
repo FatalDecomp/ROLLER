@@ -25,7 +25,8 @@ struct tNetSessionHost
   tNetRandomBytesFn pRandom;
   void *pRandomContext;
   uint64 ullRandomProof;
-  uint8 byMaxPlayers;
+  uint8 byMaxPlayers, byHasConfig;
+  tNetSessionConfig config;
   tNetHostSlot aSlots[NET_SESSION_MAX_PLAYERS];
 };
 
@@ -35,7 +36,9 @@ struct tNetSessionClient
   uint16 unProtocolVersion;
   uint64 ullToken;
   uint8 byLocalPlayers, byGeneration, byPlayerIdx, byRefuseReason;
+  uint8 byHasConfig;
   eNetJoinState state;
+  tNetSessionConfig config;
   char szPlayerName[9];
 };
 
@@ -169,6 +172,19 @@ static int NetSessionFindPlayerIndex(const tNetSessionHost *pHost)
   return -1;
 }
 
+static int NetSessionQueueConfig(const tNetSessionHost *pHost,
+                                 tNetHostSlot *pSlot)
+{
+  uint8 abConfig[NET_SESSION_CONFIG_WIRE_SIZE];
+  if (!pHost->byHasConfig)
+    return 1;
+  if (!NetSessionConfigEncode(&pHost->config, abConfig, sizeof(abConfig)))
+    return 0;
+  return NetConnectionQueueMessage(pSlot->pConnection,
+      NET_MSG_SESSION_CONFIG, NET_MSG_RELIABLE | NET_MSG_ORDERED,
+      abConfig, sizeof(abConfig));
+}
+
 static void NetSessionAcceptRequest(tNetSessionHost *pHost,
                                     tNetHostSlot *pSlot,
                                     const uint8 *pData)
@@ -202,8 +218,10 @@ static void NetSessionAcceptRequest(tNetSessionHost *pHost,
   abAccept[9] = pSlot->byPlayerIdx;
   NetConnectionSetIdentity(pSlot->pConnection, pSlot->ullToken, 1);
   if (NetConnectionQueueMessage(pSlot->pConnection, NET_MSG_JOIN_ACCEPT,
-          NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept)))
+          NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept))) {
     pSlot->byState = NET_HOST_SLOT_JOINED;
+    NetSessionQueueConfig(pHost, pSlot);
+  }
 }
 
 tNetSessionHost *NetSessionHostCreate(tNetChannel *pChannel,
@@ -267,6 +285,27 @@ void NetSessionHostPump(tNetSessionHost *pHost)
       }
     }
   }
+}
+
+int NetSessionHostSetConfig(tNetSessionHost *pHost,
+                            const tNetSessionConfig *pConfig)
+{
+  if (!pHost || NetSessionPlayerCount(pHost) ||
+      !NetSessionConfigValidate(pConfig) ||
+      pConfig->byMaxPlayers != pHost->byMaxPlayers)
+    return 0;
+  pHost->config = *pConfig;
+  pHost->byHasConfig = 1;
+  return 1;
+}
+
+int NetSessionHostGetConfig(const tNetSessionHost *pHost,
+                            tNetSessionConfig *pConfig)
+{
+  if (!pHost || !pConfig || !pHost->byHasConfig)
+    return 0;
+  *pConfig = pHost->config;
+  return 1;
 }
 
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost)
@@ -371,6 +410,13 @@ void NetSessionClientPump(tNetSessionClient *pClient)
                NetSessionRead16(message.abData + 2) == NET_PROTOCOL_VERSION) {
       pClient->byRefuseReason = message.abData[0];
       pClient->state = NET_JOIN_REFUSED;
+    } else if (pClient->state == NET_JOIN_ACCEPTED &&
+               message.byType == NET_MSG_SESSION_CONFIG) {
+      tNetSessionConfig config;
+      if (NetSessionConfigDecode(&config, message.abData, message.unLength)) {
+        pClient->config = config;
+        pClient->byHasConfig = 1;
+      }
     }
   }
 }
@@ -400,4 +446,13 @@ uint8 NetSessionClientGeneration(const tNetSessionClient *pClient)
 uint8 NetSessionClientPlayerIndex(const tNetSessionClient *pClient)
 {
   return pClient ? pClient->byPlayerIdx : 0xff;
+}
+
+int NetSessionClientGetConfig(const tNetSessionClient *pClient,
+                              tNetSessionConfig *pConfig)
+{
+  if (!pClient || !pConfig || !pClient->byHasConfig)
+    return 0;
+  *pConfig = pClient->config;
+  return 1;
 }

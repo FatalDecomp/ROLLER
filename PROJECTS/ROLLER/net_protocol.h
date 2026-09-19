@@ -258,6 +258,7 @@ _Static_assert(sizeof(tNetMessageHeader) == 6, "tNetMessageHeader wire size");
 _Static_assert(sizeof(tNetJoinRequest) == 13, "tNetJoinRequest wire size");
 _Static_assert(sizeof(tNetJoinAccept) == 12, "tNetJoinAccept wire size");
 _Static_assert(sizeof(tNetJoinRefuse) == 4, "tNetJoinRefuse wire size");
+_Static_assert(sizeof(tNetSessionConfig) == 312, "tNetSessionConfig wire size");
 _Static_assert(sizeof(tNetInputBatchHeader) == 10, "tNetInputBatchHeader wire size");
 _Static_assert(sizeof(tNetInputFeedback) == 12, "tNetInputFeedback wire size");
 _Static_assert(sizeof(tNetSimContextWire) == 12, "tNetSimContextWire wire size");

@@ -107,6 +107,8 @@ KEEP|PROJECTS/ROLLER/net_headless.c
 KEEP|PROJECTS/ROLLER/net_stats.c
 KEEP|PROJECTS/ROLLER/net_channel.c
 KEEP|PROJECTS/ROLLER/net_session.c
+KEEP|PROJECTS/ROLLER/net_config.c
+KEEP|PROJECTS/ROLLER/net_config_codec.c
 KEEP|PROJECTS/ROLLER/net_host.c
 KEEP|PROJECTS/ROLLER/net_client.c
 KEEP|PROJECTS/ROLLER/net_rendezvous.c

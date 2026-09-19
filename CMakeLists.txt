@@ -72,6 +72,8 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_stats.c
     PROJECTS/ROLLER/net_channel.c
     PROJECTS/ROLLER/net_session.c
+    PROJECTS/ROLLER/net_config.c
+    PROJECTS/ROLLER/net_config_codec.c
     PROJECTS/ROLLER/net_host.c
     PROJECTS/ROLLER/net_client.c
     PROJECTS/ROLLER/net_rendezvous.c
@@ -219,12 +221,25 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-session-test
         tests/net_session_test.c
         PROJECTS/ROLLER/net_session.c
+        PROJECTS/ROLLER/net_config_codec.c
         PROJECTS/ROLLER/net_channel.c
         PROJECTS/ROLLER/net_transport_sim.c)
     target_compile_features(net-session-test PRIVATE c_std_11)
     target_include_directories(net-session-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-session-test)
     add_test(NAME net-session COMMAND net-session-test)
+
+    add_executable(net-config-test
+        tests/net_config_test.c
+        PROJECTS/ROLLER/net_config.c
+        PROJECTS/ROLLER/net_config_codec.c
+        PROJECTS/ROLLER/net_session.c
+        PROJECTS/ROLLER/net_channel.c
+        PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-config-test PRIVATE c_std_11)
+    target_include_directories(net-config-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-config-test)
+    add_test(NAME net-config COMMAND net-config-test)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
