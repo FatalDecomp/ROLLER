@@ -348,6 +348,76 @@ int NetSnapshotBuild(tNetSnapshot *pSnapshot, uint32 uiTick, uint32 uiLastEventS
   return 1;
 }
 
+/* tNetCarExtra wire order: ten floats, seven int32, two int16, sixteen bytes,
+   four int16 local angles (96 bytes, declaration order). */
+static void NetWireCarExtra(uint8 *pOutput, const uint8 *pInput)
+{
+  int iOffset = 0;
+  for (int iField = 0; iField < 17; ++iField, iOffset += 4)
+    NetWireScalar(pOutput + iOffset, pInput + iOffset, 4);
+  for (int iField = 0; iField < 2; ++iField, iOffset += 2)
+    NetWireScalar(pOutput + iOffset, pInput + iOffset, 2);
+  memcpy(pOutput + iOffset, pInput + iOffset, 16);
+  iOffset += 16;
+  for (int iField = 0; iField < 4; ++iField, iOffset += 2)
+    NetWireScalar(pOutput + iOffset, pInput + iOffset, 2);
+}
+_Static_assert(17 * 4 + 2 * 2 + 16 + 4 * 2 == sizeof(tNetCarExtra), "extra wire walk covers the struct");
+_Static_assert(offsetof(tNetCarExtra, nTargetChunk) == 68 && offsetof(tNetCarExtra, byKills) == 72 &&
+               offsetof(tNetCarExtra, nLocalYaw) == 88, "extra wire walk offsets");
+
+int NetSnapshotEncodeOwnCarState(uint32 uiTick, const uint8 *pbyCars,
+                                 const tNetCarExtra *pExtras, int iCount,
+                                 uint8 *pBytes, int iCapacity)
+{
+  int iLength = (int)sizeof(tNetOwnCarStateHeader) + iCount * NET_OWN_CAR_ENTRY_SIZE;
+  if (!pbyCars || !pExtras || !pBytes || iCount < 1 || iCount > 2 || iLength > iCapacity)
+    return 0;
+  memset(pBytes, 0, (size_t)iLength);
+  NetWireScalar(pBytes, &uiTick, 4);
+  pBytes[4] = (uint8)iCount;
+  for (int iEntry = 0; iEntry < iCount; ++iEntry) {
+    uint8 *pEntry = pBytes + sizeof(tNetOwnCarStateHeader) + iEntry * NET_OWN_CAR_ENTRY_SIZE;
+    if (pbyCars[iEntry] >= MAX_CARS)
+      return 0;
+    pEntry[0] = pbyCars[iEntry];
+    NetWireCarExtra(pEntry + 4, (const uint8 *)&pExtras[iEntry]);
+  }
+  return iLength;
+}
+
+/* Structure only.  The extras are not written anywhere here; installing one
+   goes through NetSnapshotDecodeCarFull, which range-checks it (D23). */
+int NetSnapshotDecodeOwnCarState(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                                 uint8 *pbyCars, tNetCarExtra *pExtras, int *piCount)
+{
+  uint8 abyCars[2];
+  tNetCarExtra aExtras[2];
+  uint32 uiTick;
+  int iCount;
+  if (!pBytes || !puiTick || !pbyCars || !pExtras || !piCount ||
+      iLength < (int)sizeof(tNetOwnCarStateHeader))
+    return 0;
+  iCount = pBytes[4];
+  if (iCount < 1 || iCount > 2 || pBytes[5] || pBytes[6] || pBytes[7] ||
+      iLength != (int)sizeof(tNetOwnCarStateHeader) + iCount * NET_OWN_CAR_ENTRY_SIZE)
+    return 0;
+  NetWireScalar((uint8 *)&uiTick, pBytes, 4);
+  for (int iEntry = 0; iEntry < iCount; ++iEntry) {
+    const uint8 *pEntry = pBytes + sizeof(tNetOwnCarStateHeader) + iEntry * NET_OWN_CAR_ENTRY_SIZE;
+    if (pEntry[0] >= MAX_CARS || pEntry[1] || pEntry[2] || pEntry[3] ||
+        (iEntry && pEntry[0] == abyCars[0]))
+      return 0;
+    abyCars[iEntry] = pEntry[0];
+    NetWireCarExtra((uint8 *)&aExtras[iEntry], pEntry + 4);
+  }
+  *puiTick = uiTick;
+  *piCount = iCount;
+  memcpy(pbyCars, abyCars, (size_t)iCount);
+  memcpy(pExtras, aExtras, (size_t)iCount * sizeof(aExtras[0]));
+  return 1;
+}
+
 static int16 NetSnapshotAngle(int16 nFrom, int16 nTo, float fFraction)
 {
   int iDelta = ((nTo - nFrom + 8192) & 16383) - 8192;

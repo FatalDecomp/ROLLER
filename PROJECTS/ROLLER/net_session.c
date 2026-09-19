@@ -73,6 +73,12 @@ static uint64 NetSessionRead64(const uint8 *pData)
   return ullValue;
 }
 
+static int NetSessionIsControlMessage(uint8 byType)
+{
+  return byType == NET_MSG_JOIN_REQUEST || byType == NET_MSG_JOIN_ACCEPT ||
+         byType == NET_MSG_JOIN_REFUSE || byType == NET_MSG_SESSION_CONFIG;
+}
+
 static int NetSessionPlayerNameValid(const char *szName)
 {
   int iChar, iTerminated = 0;
@@ -288,7 +294,11 @@ void NetSessionHostPump(tNetSessionHost *pHost)
     tNetMessage message;
     while (pSlot->byState &&
            NetConnectionReceiveMessage(pSlot->pConnection, &message)) {
-      if ((message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
+      /* Join control is reliable-ordered only.  Other messages keep their
+         flags; the callback owner decides what each type requires (race
+         traffic such as NET_MSG_INPUT is unreliable by design). */
+      if (NetSessionIsControlMessage(message.byType) &&
+          (message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
           (NET_MSG_RELIABLE | NET_MSG_ORDERED))
         continue;
       if (message.byType == NET_MSG_JOIN_REQUEST &&
@@ -478,7 +488,8 @@ void NetSessionClientPump(tNetSessionClient *pClient)
   if (!pClient)
     return;
   while (NetConnectionReceiveMessage(pClient->pConnection, &message)) {
-    if ((message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
+    if (NetSessionIsControlMessage(message.byType) &&
+        (message.byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) !=
         (NET_MSG_RELIABLE | NET_MSG_ORDERED))
       continue;
     if (pClient->state == NET_JOIN_WAITING &&

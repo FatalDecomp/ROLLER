@@ -20,6 +20,10 @@ int NetLobbyHostAllReady(const tNetLobbyHost *pLobby);
 int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick);
 int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby);
 int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat);
+/* Non-lobby messages from a racing player, once the race is released. */
+void NetLobbyHostSetRaceCallback(tNetLobbyHost *pLobby,
+                                 tNetSessionHostMessageFn pCallback,
+                                 void *pContext);
 
 tNetLobbyClient *NetLobbyClientCreate(tNetSessionClient *pSession);
 void NetLobbyClientDestroy(tNetLobbyClient *pLobby);
@@ -39,5 +43,9 @@ int NetLobbyClientSetRaceLoaded(tNetLobbyClient *pLobby);
 int NetLobbyClientRaceReleased(const tNetLobbyClient *pLobby,
                                uint32 *puiStartTick);
 int NetLobbyClientLastChat(const tNetLobbyClient *pLobby, tNetChat *pChat);
+/* Non-lobby messages from the host, once the race is released. */
+void NetLobbyClientSetRaceCallback(tNetLobbyClient *pLobby,
+                                   tNetSessionClientMessageFn pCallback,
+                                   void *pContext);
 
 #endif

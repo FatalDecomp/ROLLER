@@ -13,6 +13,13 @@ int NetSnapshotEncode(const tNetSnapshot *pSnapshot, uint8 *pBytes, int iCapacit
 int NetSnapshotDecode(const uint8 *pBytes, int iLength, tNetSnapshot *pSnapshot);
 int NetSnapshotEncodeDelta(const tNetSnapshot *pBase, const tNetSnapshot *pCurrent,
                            uint8 *pBytes, int iCapacity);
+/* NET_MSG_OWN_CAR_STATE (5.6): header, then per car { byCarIdx, pad[3], extra }. */
+#define NET_OWN_CAR_ENTRY_SIZE (4 + (int)sizeof(tNetCarExtra))
+int NetSnapshotEncodeOwnCarState(uint32 uiTick, const uint8 *pbyCars,
+                                 const tNetCarExtra *pExtras, int iCount,
+                                 uint8 *pBytes, int iCapacity);
+int NetSnapshotDecodeOwnCarState(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                                 uint8 *pbyCars, tNetCarExtra *pExtras, int *piCount);
 int NetSnapshotDecodeDelta(const tNetSnapshot *pBase, const uint8 *pBytes, int iLength,
                            tNetSnapshot *pResult);
 #endif

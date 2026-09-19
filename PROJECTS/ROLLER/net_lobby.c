@@ -14,6 +14,8 @@ struct tNetLobbyHost
   uint16 unRevision, unStartRevision, unRaceRevision;
   uint8 abyRaceLoaded[NET_SESSION_MAX_PLAYERS];
   uint8 byHasStart, byRaceReleased, byHasChat;
+  tNetSessionHostMessageFn pRaceCallback;
+  void *pRaceContext;
 };
 
 struct tNetLobbyClient
@@ -25,6 +27,8 @@ struct tNetLobbyClient
   uint16 unRevision, unStartRevision, unRaceRevision;
   uint8 byPlayerSlots, byHasStart, byRaceReleased, byRaceLoadedSent,
       byHasChat;
+  tNetSessionClientMessageFn pRaceCallback;
+  void *pRaceContext;
 };
 
 static uint16 NetLobbyRead16(const uint8 *pData)
@@ -52,6 +56,21 @@ static void NetLobbyWrite32(uint8 *pData, uint32 uiValue)
   pData[1] = (uint8)(uiValue >> 8);
   pData[2] = (uint8)(uiValue >> 16);
   pData[3] = (uint8)(uiValue >> 24);
+}
+
+/* Lobby messages are reliable-ordered.  Anything else that reaches the
+   lobby belongs to the race and goes to the race callback. */
+static int NetLobbyIsLobbyMessage(uint8 byType)
+{
+  return byType == NET_MSG_PLAYER_LIST || byType == NET_MSG_PLAYER_INFO ||
+         byType == NET_MSG_READY || byType == NET_MSG_CHAT ||
+         byType == NET_MSG_COUNTDOWN;
+}
+
+static int NetLobbyReliableOrdered(const tNetMessage *pMessage)
+{
+  return (pMessage->byFlags & (NET_MSG_RELIABLE | NET_MSG_ORDERED)) ==
+         (NET_MSG_RELIABLE | NET_MSG_ORDERED);
 }
 
 static int NetLobbyRevisionNewer(uint16 unA, uint16 unB)
@@ -263,6 +282,16 @@ static void NetLobbyHostMessage(void *pContext, uint8 byPlayerIdx,
     return;
   pPlayer = &pLobby->aPlayers[byPlayerIdx];
 
+  if (!NetLobbyIsLobbyMessage(pMessage->byType)) {
+    /* Race traffic only from a player the roster has in the race. */
+    if (pLobby->pRaceCallback && pLobby->byRaceReleased &&
+        pPlayer->byState == NET_PLAYER_RACING)
+      pLobby->pRaceCallback(pLobby->pRaceContext, byPlayerIdx, pMessage);
+    return;
+  }
+  if (!NetLobbyReliableOrdered(pMessage))
+    return;
+
   if (pMessage->byType == NET_MSG_READY &&
       pMessage->unLength == sizeof(tNetReady) &&
       pMessage->abData[4] <= 1 && !pMessage->abData[5] &&
@@ -471,6 +500,16 @@ int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby)
   return pLobby && pLobby->byRaceReleased;
 }
 
+void NetLobbyHostSetRaceCallback(tNetLobbyHost *pLobby,
+                                 tNetSessionHostMessageFn pCallback,
+                                 void *pContext)
+{
+  if (!pLobby)
+    return;
+  pLobby->pRaceCallback = pCallback;
+  pLobby->pRaceContext = pContext;
+}
+
 int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat)
 {
   if (!pLobby || !pChat || !pLobby->byHasChat)
@@ -536,6 +575,13 @@ static void NetLobbyClientMessage(void *pContext,
 {
   tNetLobbyClient *pLobby = (tNetLobbyClient *)pContext;
   if (!pLobby)
+    return;
+  if (!NetLobbyIsLobbyMessage(pMessage->byType)) {
+    if (pLobby->pRaceCallback && pLobby->byRaceReleased)
+      pLobby->pRaceCallback(pLobby->pRaceContext, pMessage);
+    return;
+  }
+  if (!NetLobbyReliableOrdered(pMessage))
     return;
   if (pMessage->byType == NET_MSG_PLAYER_LIST) {
     NetLobbyClientDecodePlayers(pLobby, pMessage);
@@ -704,6 +750,16 @@ int NetLobbyClientRaceReleased(const tNetLobbyClient *pLobby,
     return 0;
   *puiStartTick = pLobby->uiStartTick;
   return 1;
+}
+
+void NetLobbyClientSetRaceCallback(tNetLobbyClient *pLobby,
+                                   tNetSessionClientMessageFn pCallback,
+                                   void *pContext)
+{
+  if (!pLobby)
+    return;
+  pLobby->pRaceCallback = pCallback;
+  pLobby->pRaceContext = pContext;
 }
 
 int NetLobbyClientLastChat(const tNetLobbyClient *pLobby, tNetChat *pChat)

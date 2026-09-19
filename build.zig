@@ -147,6 +147,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_config.c",
             "PROJECTS/ROLLER/net_config_codec.c",
             "PROJECTS/ROLLER/net_host.c",
+            "PROJECTS/ROLLER/net_input.c",
             "PROJECTS/ROLLER/net_client.c",
             "PROJECTS/ROLLER/net_rendezvous.c",
             "PROJECTS/ROLLER/network.c",
@@ -654,6 +655,44 @@ fn configureRenderQueue3DTests(
     run_net_coherence.addArg("--full-state-coherence");
     const net_coherence_tests = b.step("test-net-full-state-coherence", "Run NET-E0-S4 bounded wire replay coherence gate");
     net_coherence_tests.dependOn(&run_net_coherence.step);
+    const net_host_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_host_mod.sanitize_c = .off;
+    net_host_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_host_mod.addIncludePath(sdl.builder.path("include"));
+    net_host_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_host_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_host_mod.addIncludePath(libcdio.builder.path("include"));
+    net_host_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_host_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_host_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_host_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_host_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_host_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_host_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_host_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_host_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_host_test.c",
+        },
+    });
+    const net_host_exe = b.addExecutable(.{
+        .name = "net_host_acceptance",
+        .root_module = net_host_mod,
+    });
+    const run_net_host = b.addRunArtifact(net_host_exe);
+    run_net_host.addFileArg(assets_path.path(b, soak_track));
+    run_net_host.addDirectoryArg(assets_path);
+    const net_host_tests = b.step("test-net-host", "Run NET-E3-S1 host tick acceptance");
+    net_host_tests.dependOn(&run_net_host.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);
