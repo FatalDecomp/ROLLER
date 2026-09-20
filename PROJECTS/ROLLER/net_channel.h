@@ -54,6 +54,8 @@ int NetConnectionIsExpired(const tNetConnection *pConnection);
 int NetConnectionPendingReliable(const tNetConnection *pConnection);
 int NetConnectionStalePackets(const tNetConnection *pConnection);
 uint64 NetConnectionLastReceiveMs(const tNetConnection *pConnection);
+/* The transport clock of the connection's channel. */
+uint64 NetConnectionNowMs(const tNetConnection *pConnection);
 float NetConnectionRttMs(const tNetConnection *pConnection);
 float NetConnectionJitterMs(const tNetConnection *pConnection);
 void NetConnectionSetIdentity(tNetConnection *pConnection,

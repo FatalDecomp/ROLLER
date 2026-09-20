@@ -1,0 +1,238 @@
+# NET-E4 implementation notes
+
+## E4-S1 client tick timeline, input send, clock sync, lead control, rings
+
+`net_client.c` owns the client side of a race: the monotonic tick timeline,
+the host-clock estimator, the lead controller and its dilated accumulator,
+canonical input sampling and sending, and the three rings of plan 4.5. It
+shares `net_input.c` (the batch codec and feedback codec) with the host.
+
+### API
+
+```c
+tNetClient *NetClientCreate(tNetSessionClient *pSession, tNetLobbyClient *pLobby);
+int NetClientBeginRace(tNetClient *pClient);        /* once the lobby has released */
+void NetClientPump(tNetClient *pClient);            /* frame loop: clock, lead, accumulator */
+int NetClientTicksDue(const tNetClient *pClient);
+int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs);
+uint32 NetClientCurrentTick(const tNetClient *pClient);
+int NetClientGroup(const tNetClient *pClient, uint8 *pbyCars);
+int NetClientStats(const tNetClient *pClient, tNetClientStats *pStats);
+int NetClientInputAt(...);       /* the three rings, indexed by client tick */
+int NetClientPredictionAt(...);
+int NetClientContextAt(...);
+int NetClientSnapshotAt(...);    /* received host state, 600 ms of retention */
+int NetClientOwnCarStateAt(...);
+```
+
+The frame order is `NetPump()`, the session pump, then `NetClientPump()`,
+then exactly `NetClientTicksDue()` calls to `NetClientTick`. The accumulator
+owns the tick count: `NetClientTick` fails when no tick is due, so the
+timeline cannot be advanced by the caller's frame rate.
+
+### Timeline and the accumulator (4.4)
+
+`uiClientTick` is the newest simulated tick and moves by exactly one per
+`NetClientTick`. `NetClientBeginRace` puts it at `uiStartTick - 1`, takes the
+rollback group from the roster and writes `human_control[]` exactly as
+`NetHostBeginRace` does, and clears all three rings.
+
+Each pump adds `elapsed * tickRate * fTickScale` ticks to the accumulator.
+Nothing else moves it, so ticks are never skipped or repeated. The one
+exception is the join, where the accumulator is preloaded with the distance
+to the target (capped at `NET_INPUT_HORIZON`): the client has been released
+about half a round trip after the host started ticking, so it owes those
+ticks. They are all simulated, just in a burst over the next few frames.
+
+### Host clock estimate and lead
+
+The estimate is an offset from the transport clock, updated by an EMA
+(gain 0.1) from two kinds of observation, each corrected by half the
+channel's RTT:
+
+- a snapshot for tick T, which the host sends as soon as it has simulated T,
+  so the host's clock was T when it was sent;
+- input feedback, whose `uiHostTick` is the *next* tick the host will
+  consume, so the host's clock was somewhere in the preceding interval and
+  the sample is `uiHostTick - 0.5`.
+
+The lead is `ceil((RTT/2 + jitter + one tick period + frame interval) /
+period)`, with hysteresis so it only drops once the formula is 1.25 ticks
+below it. Two deviations from the plan's formula, both deliberate:
+
+- **The frame interval is included.** A batch queued during a tick is only
+  transmitted by the next frame's `NetPump`, so the wait is part of the
+  input's one-way latency. The measured frame time (EMA) is used, not a
+  constant.
+- **A feedback-driven bias.** If feedback reports the host's cumulative late
+  count rising while the timeline is on target (within one tick of the
+  target), the lead gains a tick, up to four. It decays a tick per 10 s of
+  quiet. This covers links whose real one-way input delay is worse than
+  `RTT/2 + jitter` predicts. The 100 Hz acceptance run settles at +2, and
+  the mutation that removes input redundancy pushes it to +4.
+
+The controller is proportional: `fTickScale = 1 - 0.05 * error`, clamped to
+[0.9, 1.1], where the error is the timeline position minus
+`host estimate + lead`. Time dilation is the only adjustment (4.4).
+
+### Input, and what goes on the wire
+
+Every tick samples the group's input, passes it through
+`NetSimCanonicaliseInput` (4.13), records it in the input history, and sends
+a `NET_MSG_INPUT` batch of the last `NET_INPUT_REDUNDANCY` ticks.
+
+The batch always carries eight ticks, so `uiFirstTick` advances by exactly
+one per client tick from the first batch onwards. Ticks before the start
+carry neutral input, which the host ignores as old. The alternative -
+shorter batches at the start - would have repeated `uiFirstTick` for the
+first eight batches, which the acceptance forbids.
+
+`uiLastDecodedSnapshotTick` is the newest snapshot the client has decoded
+(4.8). E3-S4 will use it as the delta baseline.
+
+### The three rings (4.5), recorded after the tick
+
+All three are `NET_INPUT_HISTORY` (256) deep and indexed by client tick:
+
+- the canonical `tCarInputData` per group car, recorded **before** the tick,
+  because it is what the tick consumes;
+- the prediction history, one `tNetCarFullState` per group car from
+  `NetSnapshotEncodeCarFull`, recorded **after** the tick;
+- the context ring, `tNetSimTickContext` from `NetSimCaptureContext`,
+  recorded **after** the tick.
+
+Recording both after the tick is what makes `context[N]` and `pred[N]` the
+state the simulation enters tick N+1 with (4.3 step 7). The test asserts
+exactly that, by capturing the live context immediately before tick N+1 and
+comparing the whole struct against `context[N]`.
+
+The tick itself runs `NetSimWriteTickInputs` and then `control_one_tick()`
+with `net_sim_authority == NET_AUTHORITY_REMOTE` (4.14), restoring the
+previous authority afterwards.
+
+### Received host state
+
+Snapshots and own-car states go into 64-entry buffers keyed by tick, with
+anything older than `NET_SNAPSHOT_RETENTION_MS` behind the newest snapshot
+refused (4.6). Own-car extras are stored in rollback-group order, and a
+message whose cars are not the group's is rejected whole. `uiRampTick` is
+kept for E4-S2's divergence check; it equals the newest simulated tick,
+since ramps advance once per tick inside `control_ticks`.
+
+`g_netStats` gets RTT, jitter, tick scale, snapshot age, and the host's
+cumulative late and future counts from feedback (E0-S5's overlay).
+
+### Host and channel changes
+
+- **`NetHostSetSimulation`** (`net_host.c`): replaces the simulation step of
+  `NetHostTick` (`NetSimWriteTickInputs` then `control_one_tick`). This
+  exists for the acceptance test below; NULL is the shipping behaviour.
+- **Batch timeline statistics** in `tNetHostPlayerStats`:
+  `uiInputBatches`, `uiBatchTickGaps`, `uiBatchReorders`,
+  `uiFirstBatchTick`, `uiNewestFirstTick`. Because `uiFirstTick` advances by
+  one per client tick, `batches + gaps - reorders` is exactly the span
+  `newest - first + 1`, and `gaps - reorders` is the number of batches lost
+  on the link.
+- **`NetConnectionNowMs`** (`net_channel.c`): the transport clock of a
+  connection's channel, which is simulated in tests. The client needs it for
+  the same reason the lobby needed `NetChannelNowMs` in R1.
+
+### Acceptance test
+
+`zig build test-net-client` (CMake `net-client`, under
+`ROLLER_NET_TEST_ASSETS`) runs `tests/net_client_test.c`. It takes about 3 s
+and runs twice: 36 Hz (20 s of steady state, then the latency step, then
+10 s) and 100 Hz (8 s and 8 s).
+
+Link: 60 ms one way (120 ms RTT), 10 ms of jitter each way (so 20 ms on the
+RTT), 3 percent loss each way. The client runs a 60 fps frame loop; the host
+pumps every millisecond and ticks on its own clock.
+
+What it asserts, per run:
+
+- **Steady state under 1 percent late, zero future-dropped.** Measured at
+  the host from two seconds in to the latency step: 0 of 648 at 36 Hz and
+  1 of 600 at 100 Hz. `uiFutureInputs` is 0 for the whole race, as are
+  rejected and clamped inputs.
+- **The host simulated the scripted input.** For every tick the host did not
+  count late, the input it would have simulated equals the canonicalised
+  script for that tick.
+- **The timeline as the host sees it.** One batch per client tick,
+  `uiFirstTick` consecutive, the span identity above holds exactly, and the
+  leftover gaps (lost batches) stay under the loss budget.
+- **The latency step.** A +60 ms step in each direction: the inputs in
+  flight arrive late, and no input is late more than five seconds after the
+  step. `fTickScale` is asserted inside [0.9, 1.1] on every frame, and the
+  final lead error is under 1.5 ticks.
+- **The three rings.** Per tick: the input ring holds the canonicalised
+  input, the prediction ring equals `NetSnapshotEncodeCarFull` for the car
+  as it stands, and `context[N]` equals the live context entering N+1, whole
+  struct. At the end: every one of the last 256 ticks has a context whose
+  `iGameFrame` is strictly consecutive, and the tick 256 back is no longer
+  served.
+- **Received host state.** No rejected messages, snapshots and own-car
+  states arriving, a snapshot and own-car state paired for a good share of
+  the retention window (a correction needs both), the newest snapshot older
+  than the client's tick, and the host reporting a recent
+  `uiLastDecodedSnapshotTick`.
+- **The client really drove.** `human_control` is 1 for its car, the car
+  advanced `iLastValidChunk` since the race started, and it reached a
+  nonzero top speed.
+
+Mutation checks, run once by hand and reverted:
+
+- Forcing `fTickScale` to 1 (no time dilation) leaves inputs arriving late
+  for the rest of the race after the step; the recovery assertion fails.
+- Recording the context before the tick instead of after fails the
+  "entering N+1" comparison on the first tick.
+- Sending one tick per batch instead of eight raises the steady-state late
+  rate to 2.6 percent at 36 Hz and fails the 1 percent bar.
+
+### Judgement calls and deviations
+
+- **One world, and it is the client's (D13).** The acceptance measures the
+  client's rings, which need the client to simulate, and the host's input
+  timing, which does not need the host to simulate. So the test gives the
+  process's one world to the client and replaces the host's simulation step
+  through `NetHostSetSimulation` with a recorder. Everything else about the
+  host is real: session, lobby, input queues with the range check and the
+  D9 clamp, the snapshot cadence, the ring, and input feedback. The
+  snapshots the host builds describe the client's world, which is
+  immaterial to E4-S1 because the client does not yet install any of it
+  (E4-S2 and E4-S3 do). A genuinely two-world version is multi-process work
+  that belongs with E8-S1's scenario library, once the E0-S6 harness has
+  session, lobby and input commands.
+- **"uiFirstTick strictly consecutive at the host" is checked as an
+  accounting identity, not as arrival order.** At 60 fps with 10 ms of
+  jitter, two frames' packets genuinely swap order on the link, so arrival
+  order is not monotonic and should not be. What the acceptance is really
+  about - the client emitting a consecutive, gap-free, never-repeated tick
+  sequence - is what the identity proves.
+- **The 1 percent late bar is measured in steady state.** The latency step
+  is a deliberate disturbance, and the plan gives it its own criterion
+  (recovery within 5 s). At 100 Hz the step costs about 40 late ticks,
+  because +60 ms is 6 ticks of lead to regain and dilation is capped at 10
+  percent; counting those against the steady-state bar would make the two
+  criteria contradict each other at high tick rates.
+- **A second rate is covered.** The plan only asks for the default rate.
+  100 Hz is run as well because the lead, the horizon and the redundancy
+  window all scale with the tick rate, and NUCLEAR sessions are the case
+  4.16 warns about.
+
+### Not done here
+
+- **Game wiring.** `game_tick_step` still runs the E2-S4 local path in
+  modern mode. Wiring the client means `tick_clock_step` no longer adding to
+  `iTicksPending` in modern client mode, the frame loop driving
+  `NetClientPump` and `NetClientTicksDue`, and `readuserdata` feeding
+  `NetClientTick`. That belongs with E3-S3, which switches the listen host
+  to `NetHostTick`, so that both sides of a local race go live together.
+- **Corrections, interpolation and degraded mode.** The client predicts and
+  records, but never compares against a snapshot or corrects (E4-S3), and
+  remote cars are not yet puppets (E4-S2), so they sit still under the
+  client's own simulation. `NET_MSG_EVENT` and `NET_MSG_WORLD_CHANGE` are
+  ignored (E3-S2 and E4-S4).
+- **Two local players.** The group is sized for two throughout - rings,
+  batch, own-car state - but only the one-car case is exercised (E2-S5).
+- **Legacy-call trap.** Still cannot be checked; it arrives with E7-S1. The
+  client path calls nothing in `network.c` or `rollercomms.c`.

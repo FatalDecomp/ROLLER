@@ -42,6 +42,8 @@ struct tNetHost
   uint64 ullLastFeedbackMs;
   int iRetentionTicks, iRingNext;
   uint8 byRacing, byHasSnapshot;
+  tNetHostSimulateFn pSimulate;
+  void *pSimulateContext;
   tNetHostPlayer aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetHostRingEntry aRing[NET_HOST_SNAPSHOT_RING];
 };
@@ -60,6 +62,19 @@ static void NetHostReceiveInput(tNetHost *pHost, tNetHostPlayer *pPlayer,
     ++pPlayer->stats.uiRejectedBatches;
     return;
   }
+  if (!pPlayer->stats.uiInputBatches) {
+    pPlayer->stats.uiFirstBatchTick = batch.uiFirstTick;
+    pPlayer->stats.uiNewestFirstTick = batch.uiFirstTick;
+  } else {
+    int32 iStep = (int32)(batch.uiFirstTick - pPlayer->stats.uiNewestFirstTick);
+    if (iStep <= 0) {
+      ++pPlayer->stats.uiBatchReorders;
+    } else {
+      pPlayer->stats.uiBatchTickGaps += (uint32)(iStep - 1);
+      pPlayer->stats.uiNewestFirstTick = batch.uiFirstTick;
+    }
+  }
+  ++pPlayer->stats.uiInputBatches;
   if ((int32)(batch.uiLastDecodedSnapshotTick -
               pPlayer->stats.uiLastDecodedSnapshotTick) > 0)
     pPlayer->stats.uiLastDecodedSnapshotTick = batch.uiLastDecodedSnapshotTick;
@@ -299,9 +314,14 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
     for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar)
       aInputs[pPlayer->abyCars[iCar]].data = pPlayer->aLast[iCar];
   }
-  if (!NetSimWriteTickInputs(aInputs, numcars))
-    return 0;
-  control_one_tick();
+  if (pHost->pSimulate) {
+    if (!pHost->pSimulate(pHost->pSimulateContext, uiTick, aInputs, numcars))
+      return 0;
+  } else {
+    if (!NetSimWriteTickInputs(aInputs, numcars))
+      return 0;
+    control_one_tick();
+  }
   ++pHost->uiNextTick;
 
   if ((uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
@@ -327,6 +347,15 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
 uint32 NetHostNextTick(const tNetHost *pHost)
 {
   return pHost ? pHost->uiNextTick : 0;
+}
+
+void NetHostSetSimulation(tNetHost *pHost, tNetHostSimulateFn pSimulate,
+                          void *pContext)
+{
+  if (!pHost)
+    return;
+  pHost->pSimulate = pSimulate;
+  pHost->pSimulateContext = pSimulate ? pContext : NULL;
 }
 
 int NetHostSnapshotAt(const tNetHost *pHost, uint32 uiTick,

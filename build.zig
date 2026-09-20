@@ -693,6 +693,44 @@ fn configureRenderQueue3DTests(
     run_net_host.addDirectoryArg(assets_path);
     const net_host_tests = b.step("test-net-host", "Run NET-E3-S1 host tick acceptance");
     net_host_tests.dependOn(&run_net_host.step);
+    const net_client_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_client_mod.sanitize_c = .off;
+    net_client_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_client_mod.addIncludePath(sdl.builder.path("include"));
+    net_client_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_client_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_client_mod.addIncludePath(libcdio.builder.path("include"));
+    net_client_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_client_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_client_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_client_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_client_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_client_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_client_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_client_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_client_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_client_test.c",
+        },
+    });
+    const net_client_exe = b.addExecutable(.{
+        .name = "net_client_acceptance",
+        .root_module = net_client_mod,
+    });
+    const run_net_client = b.addRunArtifact(net_client_exe);
+    run_net_client.addFileArg(assets_path.path(b, soak_track));
+    run_net_client.addDirectoryArg(assets_path);
+    const net_client_tests = b.step("test-net-client", "Run NET-E4-S1 client timeline acceptance");
+    net_client_tests.dependOn(&run_net_client.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);

@@ -264,6 +264,9 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-host-test tests/net_host_test.c PROJECTS/ROLLER/net_transport_sim.c)
     target_link_libraries(net-host-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-host-test)
+    add_executable(net-client-test tests/net_client_test.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_link_libraries(net-client-test PRIVATE ROLLER::core SDL3::SDL3)
+    roller_configure_c_target(net-client-test)
     set(ROLLER_NET_TEST_ASSETS "" CACHE PATH "FATDATA directory for NET foundation acceptance")
     set(ROLLER_NET_TEST_TRACK "TRACK5.TRK" CACHE STRING "NET acceptance track inside FATDATA")
     if(ROLLER_NET_TEST_ASSETS)
@@ -274,14 +277,16 @@ if(ROLLER_BUILD_EDITOR_CORE)
             --full-state-coherence)
         add_test(NAME net-host COMMAND net-host-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        add_test(NAME net-client COMMAND net-client-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
-        set_tests_properties(net-foundations net-full-state-coherence net-host net-harness PROPERTIES TIMEOUT 30)
+        set_tests_properties(net-foundations net-full-state-coherence net-host net-client net-harness PROPERTIES TIMEOUT 30)
     endif()
     if(WIN32)
-        foreach(net_target IN ITEMS net-foundations-test net-host-test net-server)
+        foreach(net_target IN ITEMS net-foundations-test net-host-test net-client-test net-server)
             add_custom_command(TARGET ${net_target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"

@@ -742,6 +742,12 @@ uint64 NetConnectionLastReceiveMs(const tNetConnection *pConnection)
   return pConnection ? pConnection->ullLastReceiveMs : 0;
 }
 
+uint64 NetConnectionNowMs(const tNetConnection *pConnection)
+{
+  return pConnection && pConnection->pChannel ?
+      NetChannelNow(pConnection->pChannel) : 0;
+}
+
 float NetConnectionRttMs(const tNetConnection *pConnection)
 {
   return pConnection ? pConnection->fRttMs : 0.0f;
