@@ -67,6 +67,11 @@ void NetHostSetSimulation(tNetHost *pHost, tNetHostSimulateFn pSimulate,
 
 int NetHostSnapshotAt(const tNetHost *pHost, uint32 uiTick,
                       tNetSnapshot *pSnapshot);
+uint32 NetHostLastEventSeq(const tNetHost *pHost);
+/* Returns the latest state of a chunk changed since this race began.  This is
+   also the persistent set future checkpoint messages consume (4.7, 5.9). */
+int NetHostWorldChangeAt(const tNetHost *pHost, int iChunk,
+                         tNetWorldChangeEntry *pEntry);
 int NetHostPlayerStats(const tNetHost *pHost, uint8 byPlayerIdx,
                        tNetHostPlayerStats *pStats);
 

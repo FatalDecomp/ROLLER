@@ -609,6 +609,7 @@ static void NetTestContinueRace(tNetTestNodes *pNodes, uint64 *pullNowMs,
       uint32 uiTick = NetHostNextTick(pNodes->pHost);
       CHECK(s_hostRun.iTicks < NET_TEST_MAX_TICKS);
       CHECK(NetHostTick(pNodes->pHost, uiTick));
+      CHECK(!NetHostLastEventSeq(pNodes->pHost));
       NetTestRestoreClientWorld(&s_hostRun);
       ++s_hostRun.iTicks;
       ++*piHostTickIndex;
@@ -910,6 +911,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       uiLateBefore = hostStats.uiLateInputs;
       CHECK(NetHostTick(nodes.pHost, uiTick));
+      CHECK(!NetHostLastEventSeq(nodes.pHost));
       NetTestRestoreClientWorld(&s_hostRun);
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       s_hostRun.aTicks[iIndex].ullMs = ullNowMs;

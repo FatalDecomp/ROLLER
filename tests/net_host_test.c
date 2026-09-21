@@ -1,10 +1,11 @@
-/* NET-E3-S1 acceptance: host tick with inputs in, simulation, snapshots out.
+/* NET-E3-S1/S2 acceptance: host tick, semantic events and world changes.
 
    One process holds the one simulation world, the host's (D13).  The three
    clients are session, lobby and message endpoints only: they send scripted
    input batches and decode what the host sends, but simulate nothing, so
    they need no world of their own.  Client prediction is E4-S1. */
 #include "net_headless.h"
+#include "net_event.h"
 #include "net_host.h"
 #include "net_input.h"
 #include "net_race_start.h"
@@ -15,6 +16,7 @@
 #include "control.h"
 #include "engines.h"
 #include "frontend.h"
+#include "loadtrak.h"
 #include "roller.h"
 
 #include <math.h>
@@ -37,6 +39,11 @@
 #define NET_TEST_MAX_TICKS 2400
 #define NET_TEST_MAX_SNAPSHOTS (NET_TEST_MAX_TICKS / 2 + 8)
 #define NET_TEST_FORBIDDEN (FLAG_DISCONNECT | BUTTON_FLAG_F1 | 0x4000 | 0x8000)
+#define NET_TEST_MAX_EVENTS 128
+#define NET_TEST_MAX_WORLD_MESSAGES 8
+#define NET_TEST_LAP_TICK (NET_TEST_START_TICK + 155u)
+#define NET_TEST_FINISH_TICK (NET_TEST_START_TICK + 165u)
+#define NET_TEST_LOVEBUN_TICK (NET_TEST_START_TICK + 175u)
 
 typedef struct
 {
@@ -50,9 +57,11 @@ typedef struct
   tNetSessionClient *pSession;
   tNetLobbyClient *pLobby;
   uint8 byPlayerIdx, byCar;
-  int iSnapshots, iOwnStates, iFeedback, iBadMessages;
+  int iSnapshots, iOwnStates, iFeedback, iEvents, iWorldChanges;
+  int iCommitSeqs, iBadMessages;
   uint32 uiNewestSnapshotTick;
   uint32 auiSnapshotTick[NET_TEST_MAX_SNAPSHOTS];
+  uint32 auiSnapshotEventSeq[NET_TEST_MAX_SNAPSHOTS];
   int aiSnapshotFrame[NET_TEST_MAX_SNAPSHOTS];
   uint32 auiSnapshotRandom[NET_TEST_MAX_SNAPSHOTS];
   uint8 abySnapshotHuman[NET_TEST_MAX_SNAPSHOTS];
@@ -61,6 +70,11 @@ typedef struct
   int aiOwnCount[NET_TEST_MAX_SNAPSHOTS];
   tNetCarExtra aOwnExtra[NET_TEST_MAX_SNAPSHOTS];
   tNetInputFeedback lastFeedback;
+  tNetEvent aEvents[NET_TEST_MAX_EVENTS];
+  uint32 auiCommitSeq[NET_TEST_MAX_EVENTS + NET_TEST_MAX_WORLD_MESSAGES];
+  tNetWorldChangeHeader aWorldHeaders[NET_TEST_MAX_WORLD_MESSAGES];
+  tNetWorldChangeEntry
+      aaWorldEntries[NET_TEST_MAX_WORLD_MESSAGES][NET_WORLD_CHANGE_MAX_ENTRIES];
 } tNetTestClient;
 
 typedef struct
@@ -75,6 +89,14 @@ typedef struct
   tNetHostPlayerStats aFinalStats[NET_TEST_CLIENTS];
   float afSpeedAtRunning[NET_TEST_CLIENTS];
   int aiChunkAtRunning[NET_TEST_CLIENTS];
+  int aiLapEvents[MAX_CARS], aiFinishedEvents[MAX_CARS];
+  int aiDestroyedEvents[MAX_CARS], aiKillEvents[MAX_CARS];
+  int iLovebunUses, iLovebunCar, iWorldEntries;
+  int iRestoreLap, iRestoreFinish, iSavedFinishers;
+  uint8 bySavedLap, bySavedRacePosition, bySavedLovebunDesign;
+  float fSavedPreviousLapTime;
+  uint32 uiLastEventSeq;
+  tNetWorldChangeEntry aWorldEntries[NET_WORLD_CHANGE_MAX_ENTRIES];
 } tNetTestRun;
 
 typedef struct
@@ -84,6 +106,9 @@ typedef struct
   tNetSimTickContext context;
   tCopyData aRing[512][16];
   int aiHumanControl[16];
+  int iTrackLen;
+  int aiTrakColour[MAX_TRACK_CHUNKS][3];
+  int aiGrip[MAX_TRACK_CHUNKS][3];
 } tNetTestMoment;
 
 static tNetTestClient s_aClients[NET_TEST_CLIENTS];
@@ -112,6 +137,14 @@ static void NetTestCapture(tNetTestMoment *pMoment)
   NetSimCaptureContext(&pMoment->context);
   memcpy(pMoment->aRing, copy_multiple, sizeof(pMoment->aRing));
   memcpy(pMoment->aiHumanControl, human_control, sizeof(pMoment->aiHumanControl));
+  pMoment->iTrackLen = TRAK_LEN;
+  for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+    memcpy(pMoment->aiTrakColour[iChunk], TrakColour[iChunk],
+           sizeof(pMoment->aiTrakColour[iChunk]));
+    pMoment->aiGrip[iChunk][0] = localdata[iChunk].iCenterGrip;
+    pMoment->aiGrip[iChunk][1] = localdata[iChunk].iLeftShoulderGrip;
+    pMoment->aiGrip[iChunk][2] = localdata[iChunk].iRightShoulderGrip;
+  }
 }
 
 static void NetTestRestore(const tNetTestMoment *pMoment)
@@ -122,6 +155,14 @@ static void NetTestRestore(const tNetTestMoment *pMoment)
   NetSimRestoreContext(&pMoment->context);
   memcpy(copy_multiple, pMoment->aRing, sizeof(copy_multiple));
   memcpy(human_control, pMoment->aiHumanControl, sizeof(human_control));
+  CHECK(TRAK_LEN == pMoment->iTrackLen);
+  for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+    memcpy(TrakColour[iChunk], pMoment->aiTrakColour[iChunk],
+           sizeof(pMoment->aiTrakColour[iChunk]));
+    localdata[iChunk].iCenterGrip = pMoment->aiGrip[iChunk][0];
+    localdata[iChunk].iLeftShoulderGrip = pMoment->aiGrip[iChunk][1];
+    localdata[iChunk].iRightShoulderGrip = pMoment->aiGrip[iChunk][2];
+  }
 }
 
 static uint32 NetTestWorldHash(void)
@@ -152,6 +193,8 @@ static tCarInputData NetTestScript(int iClient, uint32 uiTick, int iPhone)
     if (uiTick % 11u == 0)
       input.unInput = (uint16)(uiTick % 22u ? 0x7FFF : 0x8000);
   }
+  if (iClient == 0 && uiTick == NET_TEST_LOVEBUN_TICK)
+    input.unFlags |= BUTTON_FLAG_SPECIAL;
   return input;
 }
 
@@ -182,6 +225,7 @@ static void NetTestClientRace(void *pContext, const tNetMessage *pMessage)
       return;
     }
     pClient->auiSnapshotTick[iEntry] = snapshot.uiTick;
+    pClient->auiSnapshotEventSeq[iEntry] = snapshot.uiLastEventSeq;
     pClient->aiSnapshotFrame[iEntry] = snapshot.context.iGameFrame;
     pClient->auiSnapshotRandom[iEntry] = snapshot.uiRandomState;
     pClient->abySnapshotHuman[iEntry] = snapshot.aCars[pClient->byCar].byHumanControl;
@@ -210,9 +254,101 @@ static void NetTestClientRace(void *pContext, const tNetMessage *pMessage)
       return;
     }
     ++pClient->iFeedback;
+  } else if (pMessage->byType == NET_MSG_EVENT) {
+    int iEntry = pClient->iEvents;
+    if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+        iEntry >= NET_TEST_MAX_EVENTS ||
+        pClient->iCommitSeqs >= NET_TEST_MAX_EVENTS + NET_TEST_MAX_WORLD_MESSAGES ||
+        !NetEventDecode(pMessage->abData, pMessage->unLength, numcars, 4,
+                        &pClient->aEvents[iEntry])) {
+      ++pClient->iBadMessages;
+      return;
+    }
+    pClient->auiCommitSeq[pClient->iCommitSeqs++] =
+        pClient->aEvents[iEntry].uiEventSeq;
+    ++pClient->iEvents;
+  } else if (pMessage->byType == NET_MSG_WORLD_CHANGE) {
+    int iEntry = pClient->iWorldChanges;
+    if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+        iEntry >= NET_TEST_MAX_WORLD_MESSAGES ||
+        pClient->iCommitSeqs >= NET_TEST_MAX_EVENTS + NET_TEST_MAX_WORLD_MESSAGES ||
+        !NetWorldChangeDecode(pMessage->abData, pMessage->unLength, TRAK_LEN,
+                              &pClient->aWorldHeaders[iEntry],
+                              pClient->aaWorldEntries[iEntry],
+                              NET_WORLD_CHANGE_MAX_ENTRIES)) {
+      ++pClient->iBadMessages;
+      return;
+    }
+    pClient->auiCommitSeq[pClient->iCommitSeqs++] =
+        pClient->aWorldHeaders[iEntry].uiEventSeq;
+    ++pClient->iWorldChanges;
   } else {
     ++pClient->iBadMessages;
   }
+}
+
+static int NetTestHostSimulate(void *pContext, uint32 uiTick,
+                               const tCopyData *pInputs, int iNumCars)
+{
+  tNetTestRun *pRun = (tNetTestRun *)pContext;
+  tCopyData aInputs[MAX_CARS];
+  int iLovebunCar = -1;
+  uint8 bySavedDesign = 0;
+  memcpy(aInputs, pInputs, sizeof(aInputs));
+  if (pRun->iRestoreLap) {
+    int iCar = numcars - 2;
+    Car[iCar].byLap = (char)pRun->bySavedLap;
+    Car[iCar].fPreviousLapTime = pRun->fSavedPreviousLapTime;
+    pRun->iRestoreLap = 0;
+  }
+  if (pRun->iRestoreFinish) {
+    int iCar = numcars - 1;
+    finished_car[iCar] = 0;
+    finishers = pRun->iSavedFinishers;
+    Car[iCar].byRacePosition = pRun->bySavedRacePosition;
+    pRun->iRestoreFinish = 0;
+  }
+  if (uiTick == NET_TEST_LOVEBUN_TICK) {
+    iLovebunCar = pRun->iLovebunCar;
+    if (iLovebunCar < 0 || iLovebunCar >= numcars ||
+        Car[iLovebunCar].byCarDesignIdx != 12 ||
+        Car[iLovebunCar].byCheatAmmo != 8 ||
+        Car[iLovebunCar].byCheatCooldown)
+      return 0;
+    bySavedDesign = pRun->bySavedLovebunDesign;
+    aInputs[iLovebunCar].data.unFlags |= BUTTON_FLAG_SPECIAL;
+  }
+  if (!NetSimWriteTickInputs(aInputs, iNumCars))
+    return 0;
+  control_one_tick();
+  if (iLovebunCar >= 0) {
+    Car[iLovebunCar].byCarDesignIdx = bySavedDesign;
+    if (Car[iLovebunCar].byCheatAmmo != 7)
+      return 0;
+    ++pRun->iLovebunUses;
+    pRun->iLovebunCar = iLovebunCar;
+  }
+  if (uiTick == NET_TEST_LAP_TICK) {
+    int iCar = numcars - 2;
+    int iLap = (int)(int8)Car[iCar].byLap;
+    pRun->bySavedLap = Car[iCar].byLap;
+    pRun->fSavedPreviousLapTime = Car[iCar].fPreviousLapTime;
+    Car[iCar].byLap = (char)(iLap < 1 ? 2 : iLap + 1);
+    Car[iCar].fPreviousLapTime = 5.25f;
+    pRun->iRestoreLap = 1;
+  }
+  if (uiTick == NET_TEST_FINISH_TICK) {
+    int iCar = numcars - 1;
+    if (finished_car[iCar])
+      return 0;
+    pRun->iSavedFinishers = finishers;
+    pRun->bySavedRacePosition = Car[iCar].byRacePosition;
+    finished_car[iCar] = -1;
+    Car[iCar].byRacePosition = (uint8)finishers;
+    ++finishers;
+    pRun->iRestoreFinish = 1;
+  }
+  return 1;
 }
 
 static void NetTestSendRaw(tNetTestClient *pClient, const tNetInputBatch *pBatch)
@@ -271,10 +407,12 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
   uint64 ullNowMs = 0, ullReleaseMs;
   int iTickIndex = 0, iRunning = -1, iProbed = 0, iLocalInputProbed = 0;
   tNetHostPlayerStats probeStats;
+  tNetWorldChangeEntry aWorldBefore[MAX_TRACK_CHUNKS];
 
   NetTestRestore(&s_pristine);
   memset(&g_netStats, 0, sizeof(g_netStats));
   memset(pRun, 0, sizeof(*pRun));
+  pRun->iLovebunCar = -1;
   memset(s_aClients, 0, sizeof(s_aClients));
   CHECK(pSim);
   for (int iEndpoint = 0; iEndpoint <= NET_TEST_CLIENTS; ++iEndpoint)
@@ -353,6 +491,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
       iOwned |= s_aClients[iClient].byCar == iCar;
     CHECK(human_control[iCar] == iOwned);
   }
+  NetHostSetSimulation(pHost, NetTestHostSimulate, pRun);
   NetRaceClockReset(&clock);
   CHECK(NetRaceClockSchedule(&clock, NET_TEST_START_TICK));
   CHECK(NetRaceClockRelease(&clock, NET_TEST_START_TICK));
@@ -366,10 +505,31 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
     while (ullNowMs >= ullReleaseMs + (uint64)iTickIndex * 1000u / 36u) {
       uint32 uiTick;
       int iIndex;
+      int aiLapBefore[MAX_CARS];
+      uint8 abyFinishedBefore[MAX_CARS], abyKillsBefore[MAX_CARS];
       CHECK(NetRaceClockBeginTick(&clock, &uiTick));
       CHECK(uiTick == NetHostNextTick(pHost));
       iIndex = (int)(uiTick - NET_TEST_START_TICK);
       CHECK(iIndex == iTickIndex && iIndex < NET_TEST_MAX_TICKS);
+      for (int iCar = 0; iCar < numcars; ++iCar) {
+        aiLapBefore[iCar] = (int)(int8)Car[iCar].byLap;
+        abyFinishedBefore[iCar] = finished_car[iCar] != 0;
+        abyKillsBefore[iCar] = Car[iCar].byKills;
+      }
+      if (uiTick == NET_TEST_LOVEBUN_TICK) {
+        int iCar = s_aClients[0].byCar;
+        CHECK(Car[iCar].nCurrChunk >= 0 && Car[iCar].nCurrChunk < TRAK_LEN);
+        pRun->iLovebunCar = iCar;
+        pRun->bySavedLovebunDesign = Car[iCar].byCarDesignIdx;
+        Car[iCar].byCarDesignIdx = 12;
+        Car[iCar].byCheatAmmo = 8;
+        Car[iCar].byCheatCooldown = 0;
+      }
+      if (uiTick == NET_TEST_LOVEBUN_TICK) {
+        CHECK(pRun->iLovebunCar >= 0);
+        for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk)
+          CHECK(NetWorldChangeCapture(iChunk, &aWorldBefore[iChunk]));
+      }
       if (iIndex == NET_TEST_WARMUP_TICKS + 5) {
         tCarInputData input = NetTestExpected(
             NetTestScript(0, uiTick, iPhone), s_aClients[0].byCar);
@@ -381,7 +541,40 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
                                     uiTick, &input, 1));
         iLocalInputProbed = 1;
       }
-      CHECK(NetHostTick(pHost, uiTick));
+      if (!NetHostTick(pHost, uiTick)) {
+        fprintf(stderr, "host tick %u failed (events %u, LOVEBUN uses %d)\n",
+                uiTick, NetHostLastEventSeq(pHost), pRun->iLovebunUses);
+        CHECK(0);
+      }
+      for (int iCar = 0; iCar < numcars; ++iCar) {
+        int iLapAfter = (int)(int8)Car[iCar].byLap;
+        int iFirstLap = aiLapBefore[iCar] + 1;
+        if (iFirstLap < 2)
+          iFirstLap = 2;
+        if (iLapAfter >= iFirstLap)
+          pRun->aiLapEvents[iCar] += iLapAfter - iFirstLap + 1;
+        if (!abyFinishedBefore[iCar] && finished_car[iCar]) {
+          if (Car[iCar].byLives)
+            ++pRun->aiFinishedEvents[iCar];
+          else
+            ++pRun->aiDestroyedEvents[iCar];
+        }
+        if (Car[iCar].byKills > abyKillsBefore[iCar])
+          pRun->aiKillEvents[iCar] += Car[iCar].byKills - abyKillsBefore[iCar];
+      }
+      if (uiTick == NET_TEST_LOVEBUN_TICK) {
+        for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
+          tNetWorldChangeEntry current, retained;
+          CHECK(NetWorldChangeCapture(iChunk, &current));
+          if (NetWorldChangeEntryEqual(&aWorldBefore[iChunk], &current))
+            continue;
+          CHECK(pRun->iWorldEntries < NET_WORLD_CHANGE_MAX_ENTRIES);
+          pRun->aWorldEntries[pRun->iWorldEntries++] = current;
+          CHECK(NetHostWorldChangeAt(pHost, iChunk, &retained));
+          CHECK(NetWorldChangeEntryEqual(&current, &retained));
+        }
+        CHECK(pRun->iLovebunUses == 1 && pRun->iWorldEntries > 0);
+      }
       NetRaceClockEndTick(&clock, game_frame);
       pRun->aiFrame[iIndex] = game_frame;
       pRun->auiRandom[iIndex] = ROLLERrandStateGet();
@@ -433,6 +626,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
       break;
   }
   pRun->iTicks = iTickIndex;
+  pRun->uiLastEventSeq = NetHostLastEventSeq(pHost);
   CHECK(iLocalInputProbed);
   /* Let the snapshots in flight land; no further ticks. */
   for (uint64 ullEnd = ullNowMs + 3 * NET_TEST_LATENCY_MS; ullNowMs <= ullEnd; ++ullNowMs)
@@ -449,6 +643,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
     CHECK(NetHostSnapshotAt(pHost, uiNewest, &snapshot));
     CHECK(snapshot.uiTick == uiNewest && snapshot.context.iGameFrame == pRun->aiFrame[iNewest]);
     CHECK(snapshot.uiRandomState == pRun->auiRandom[iNewest]);
+    CHECK(snapshot.uiLastEventSeq == pRun->uiLastEventSeq);
     CHECK(NetHostSnapshotAt(pHost, uiNewest - 22u, &snapshot));
     CHECK(snapshot.context.iGameFrame == pRun->aiFrame[iNewest - 22]);
     CHECK(!NetHostSnapshotAt(pHost, uiNewest - 24u, &snapshot));
@@ -485,6 +680,17 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
   const int iInterval = NET_SESSION_DEFAULT_SNAPSHOT_INTERVAL;
   const uint32 uiLastTick = NET_TEST_START_TICK + (uint32)pRun->iTicks - 1u;
   int iLateTicks[NET_TEST_CLIENTS] = {0};
+  int iExpectedEvents = 0;
+
+  for (int iCar = 0; iCar < numcars; ++iCar)
+    iExpectedEvents += pRun->aiLapEvents[iCar] +
+                       pRun->aiFinishedEvents[iCar] +
+                       pRun->aiDestroyedEvents[iCar] +
+                       pRun->aiKillEvents[iCar];
+  CHECK(pRun->iLovebunUses == 1 && pRun->iWorldEntries > 0);
+  printf("host commits: %u total, %d semantic, %d LOVEBUN chunks\n",
+         pRun->uiLastEventSeq, iExpectedEvents, pRun->iWorldEntries);
+  CHECK(pRun->uiLastEventSeq == (uint32)(iExpectedEvents + 1));
 
   CHECK(pRun->iTicks - 1 - pRun->iRunningIndex >= NET_TEST_RUNNING_TICKS);
   CHECK(pRun->aiFrame[pRun->iRunningIndex] == 145);
@@ -548,10 +754,52 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
       if (iEntry)
         CHECK(pClient->aiSnapshotFrame[iEntry] ==
               pClient->aiSnapshotFrame[iEntry - 1] + iInterval);
+      if (iEntry)
+        CHECK(pClient->auiSnapshotEventSeq[iEntry] >=
+              pClient->auiSnapshotEventSeq[iEntry - 1]);
+      CHECK(pClient->auiSnapshotEventSeq[iEntry] <= pRun->uiLastEventSeq);
       CHECK(pClient->auiOwnTick[iEntry] == uiTick);
       CHECK(pClient->aiOwnCount[iEntry] == 1 && pClient->abyOwnCar[iEntry] == iCar);
       CHECK(!memcmp(&pClient->aOwnExtra[iEntry], &pRun->aExtra[iIndex][iClient],
                     sizeof(tNetCarExtra)));
+    }
+    CHECK(pClient->auiSnapshotEventSeq[pClient->iSnapshots - 1] ==
+          pRun->uiLastEventSeq);
+
+    /* Reliable ordered host commits share one monotonic sequence. */
+    CHECK(pClient->iEvents == iExpectedEvents);
+    CHECK(pClient->iWorldChanges == pRun->iLovebunUses);
+    CHECK(pClient->iCommitSeqs == (int)pRun->uiLastEventSeq);
+    for (int iCommit = 0; iCommit < pClient->iCommitSeqs; ++iCommit)
+      CHECK(pClient->auiCommitSeq[iCommit] == (uint32)iCommit + 1u);
+    for (int iCar = 0; iCar < numcars; ++iCar) {
+      int iLapEvents = 0, iFinishedEvents = 0, iDestroyedEvents = 0;
+      int iKillEvents = 0;
+      for (int iEvent = 0; iEvent < pClient->iEvents; ++iEvent) {
+        const tNetEvent *pEvent = &pClient->aEvents[iEvent];
+        if (pEvent->byCarIdx != iCar)
+          continue;
+        iLapEvents += pEvent->byType == NET_EV_LAP_COMPLETE;
+        iFinishedEvents += pEvent->byType == NET_EV_FINISHED;
+        iDestroyedEvents += pEvent->byType == NET_EV_DESTROYED;
+        iKillEvents += pEvent->byType == NET_EV_KILL;
+      }
+      CHECK(iLapEvents == pRun->aiLapEvents[iCar]);
+      CHECK(iFinishedEvents == pRun->aiFinishedEvents[iCar]);
+      CHECK(iDestroyedEvents == pRun->aiDestroyedEvents[iCar]);
+      CHECK(iKillEvents == pRun->aiKillEvents[iCar]);
+    }
+    CHECK(pClient->aWorldHeaders[0].byCount == pRun->iWorldEntries);
+    CHECK(pClient->aWorldHeaders[0].uiTick == NET_TEST_LOVEBUN_TICK);
+    for (int iExpected = 0; iExpected < pRun->iWorldEntries; ++iExpected) {
+      int iFound = 0;
+      for (int iEntry = 0; iEntry < pRun->iWorldEntries; ++iEntry)
+        if (NetWorldChangeEntryEqual(&pClient->aaWorldEntries[0][iEntry],
+                                     &pRun->aWorldEntries[iExpected])) {
+          iFound = 1;
+          break;
+        }
+      CHECK(iFound);
     }
 
     /* Input feedback every 250 ms of race time, with the cumulative counts. */
@@ -576,6 +824,11 @@ static void NetTestCodecs(void)
   uint8 abBytes[NET_INPUT_BATCH_MAX_BYTES + 4];
   tCarInputData input;
   int iLength;
+  tNetEvent event, decodedEvent;
+  tNetWorldChangeHeader worldHeader;
+  tNetWorldChangeEntry aWorld[2], aDecodedWorld[2];
+  uint8 abCommit[sizeof(tNetWorldChangeHeader) +
+                 2 * sizeof(tNetWorldChangeEntry)];
 
   memset(&batch, 0, sizeof(batch));
   batch.uiFirstTick = 0x01020304u;
@@ -623,7 +876,81 @@ static void NetTestCodecs(void)
   input.unInput = (uint16)-32768;
   CHECK(NetInputClamp(&input, 0));
   CHECK((int16)input.unInput == -CarEngines.engines[Car[0].byCarDesignIdx].iSteeringSensitivity * 256);
-  puts("NET-E3-S1 input and feedback codecs passed");
+
+  memset(&event, 0, sizeof(event));
+  event.uiEventSeq = 0x01020304u;
+  event.uiTick = 0xa0b0c0d0u;
+  event.byType = NET_EV_LAP_COMPLETE;
+  event.byCarIdx = 1;
+  event.byPlayerIdx = NET_EVENT_NO_PLAYER;
+  event.iArg0 = 2;
+  event.iArg1 = 5432;
+  CHECK(NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)) == 20);
+  CHECK(abCommit[0] == 0x04 && abCommit[3] == 0x01 && abCommit[4] == 0xd0);
+  CHECK(NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  CHECK(!memcmp(&event, &decodedEvent, sizeof(event)));
+  memset(&decodedEvent, 0x5a, sizeof(decodedEvent));
+  abCommit[11] = 1;
+  CHECK(!NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  CHECK(decodedEvent.byType == 0x5a);
+  abCommit[11] = 0;
+  abCommit[9] = (uint8)numcars;
+  CHECK(!NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  abCommit[9] = 1;
+  abCommit[8] = 0xff;
+  CHECK(!NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  memset(&event, 0, sizeof(event));
+  event.uiEventSeq = 5;
+  event.uiTick = 101;
+  event.byType = NET_EV_KILL;
+  event.byCarIdx = 2;
+  event.byPlayerIdx = NET_EVENT_NO_PLAYER;
+  event.iArg0 = -1; /* the victim may be unavailable to the post-tick diff */
+  event.iArg1 = 7;
+  CHECK(NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)) == 20);
+  CHECK(NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  CHECK(!memcmp(&event, &decodedEvent, sizeof(event)));
+
+  CHECK(NetWorldChangeCapture(0, &aWorld[0]));
+  CHECK(NetWorldChangeCapture(TRAK_LEN - 1, &aWorld[1]));
+  iLength = NetWorldChangeEncode(7, 99, aWorld, 2,
+                                 abCommit, sizeof(abCommit));
+  CHECK(iLength == (int)sizeof(abCommit));
+  CHECK(NetWorldChangeDecode(abCommit, iLength, TRAK_LEN, &worldHeader,
+                             aDecodedWorld, 2));
+  CHECK(worldHeader.uiEventSeq == 7 && worldHeader.uiTick == 99 &&
+        worldHeader.byCount == 2);
+  CHECK(NetWorldChangeEntryEqual(&aWorld[0], &aDecodedWorld[0]));
+  CHECK(NetWorldChangeEntryEqual(&aWorld[1], &aDecodedWorld[1]));
+  CHECK(!NetWorldChangeEncode(8, 100, aWorld, 0,
+                              abCommit, sizeof(abCommit)));
+  aWorld[1] = aWorld[0];
+  CHECK(!NetWorldChangeEncode(8, 100, aWorld, 2,
+                              abCommit, sizeof(abCommit)));
+  CHECK(NetWorldChangeCapture(TRAK_LEN - 1, &aWorld[1]));
+  CHECK(NetWorldChangeEncode(8, 100, aWorld, 2,
+                             abCommit, sizeof(abCommit)) == iLength);
+  abCommit[9] = 1;
+  CHECK(!NetWorldChangeDecode(abCommit, iLength, TRAK_LEN, &worldHeader,
+                              aDecodedWorld, 2));
+  abCommit[9] = 0;
+  abCommit[sizeof(tNetWorldChangeHeader) + 2] = NET_WORLD_GRIP_COUNT;
+  CHECK(!NetWorldChangeDecode(abCommit, iLength, TRAK_LEN, &worldHeader,
+                              aDecodedWorld, 2));
+  CHECK(NetWorldChangeEncode(8, 100, aWorld, 2,
+                             abCommit, sizeof(abCommit)) == iLength);
+  abCommit[sizeof(tNetWorldChangeHeader)] = (uint8)TRAK_LEN;
+  abCommit[sizeof(tNetWorldChangeHeader) + 1] = (uint8)(TRAK_LEN >> 8);
+  CHECK(!NetWorldChangeDecode(abCommit, iLength, TRAK_LEN, &worldHeader,
+                              aDecodedWorld, 2));
+  CHECK(NetWorldChangeEncode(8, 100, aWorld, 2,
+                             abCommit, sizeof(abCommit)) == iLength);
+  memcpy(abCommit + sizeof(tNetWorldChangeHeader) + sizeof(tNetWorldChangeEntry),
+         abCommit + sizeof(tNetWorldChangeHeader),
+         sizeof(tNetWorldChangeEntry));
+  CHECK(!NetWorldChangeDecode(abCommit, iLength, TRAK_LEN, &worldHeader,
+                              aDecodedWorld, 2));
+  puts("NET-E3-S1/S2 input, event and world-change codecs passed");
 }
 
 int main(int iArgc, const char **ppArgv)
@@ -640,7 +967,7 @@ int main(int iArgc, const char **ppArgv)
 
   NetTestRace(&s_phoneRun, 1, NET_TEST_RUNNING_TICKS);
   NetTestCheckAcceptance(&s_phoneRun);
-  puts("NET-E3-S1 host tick acceptance passed");
+  puts("NET-E3-S1/S2 host tick and commit acceptance passed");
 
   /* Phone throttle on a desktop host: the same race with client 1 sending
      the throttle bit instead must leave the world byte-identical, tick for

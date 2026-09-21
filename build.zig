@@ -136,6 +136,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/scene_render.c",
             "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/moving.c",
+            "PROJECTS/ROLLER/net_event.c",
             "PROJECTS/ROLLER/net_headless.c",
             "PROJECTS/ROLLER/net_snapshot.c",
             "PROJECTS/ROLLER/net_sim_seam.c",
@@ -742,7 +743,7 @@ fn configureRenderQueue3DTests(
     const run_net_host = b.addRunArtifact(net_host_exe);
     run_net_host.addFileArg(assets_path.path(b, soak_track));
     run_net_host.addDirectoryArg(assets_path);
-    const net_host_tests = b.step("test-net-host", "Run NET-E3-S1 host tick acceptance");
+    const net_host_tests = b.step("test-net-host", "Run NET-E3 host acceptance");
     net_host_tests.dependOn(&run_net_host.step);
     const net_client_mod = b.createModule(.{
         .target = target,

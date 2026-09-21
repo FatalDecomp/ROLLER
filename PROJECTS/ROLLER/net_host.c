@@ -1,4 +1,5 @@
 #include "net_host.h"
+#include "net_event.h"
 #include "net_input.h"
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
@@ -7,6 +8,7 @@
 #include "car.h"
 #include "control.h"
 #include "frontend.h"
+#include "loadtrak.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -38,14 +40,16 @@ struct tNetHost
   tNetSessionHost *pSession;
   tNetLobbyHost *pLobby;
   tNetSessionConfig config;
-  uint32 uiStartTick, uiNextTick, uiNewestSnapshotTick;
+  uint32 uiStartTick, uiNextTick, uiNewestSnapshotTick, uiLastEventSeq;
   uint64 ullLastFeedbackMs;
-  int iRetentionTicks, iRingNext;
+  int iRetentionTicks, iRingNext, iTrackLen;
   uint8 byRacing, byHasSnapshot;
+  uint8 abyCarOwner[MAX_CARS], abyWorldMutated[MAX_TRACK_CHUNKS];
   tNetHostSimulateFn pSimulate;
   void *pSimulateContext;
   tNetHostPlayer aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetHostRingEntry aRing[NET_HOST_SNAPSHOT_RING];
+  tNetWorldChangeEntry aWorld[MAX_TRACK_CHUNKS];
 };
 
 _Static_assert(NET_INPUT_HORIZON < NET_INPUT_QUEUE,
@@ -165,7 +169,8 @@ int NetHostBeginRace(tNetHost *pHost)
   if (!pHost || pHost->byRacing || net_mode != NET_MODE_MODERN ||
       !NetLobbyHostRaceReleased(pHost->pLobby) ||
       !NetLobbyHostStartTick(pHost->pLobby, &uiStartTick) ||
-      numcars < 1 || numcars > MAX_CARS)
+      numcars < 1 || numcars > MAX_CARS ||
+      TRAK_LEN < 1 || TRAK_LEN > MAX_TRACK_CHUNKS)
     return 0;
   memset(abyOwner, 0xff, sizeof(abyOwner));
   memset(aPlayers, 0, sizeof(aPlayers));
@@ -198,13 +203,22 @@ int NetHostBeginRace(tNetHost *pHost)
   }
   if (!iPlayers)
     return 0;
-  /* Ownership only, through human_control[] (4.11). */
+  memcpy(pHost->aPlayers, aPlayers, sizeof(aPlayers));
+  memcpy(pHost->abyCarOwner, abyOwner, sizeof(abyOwner));
+  memset(pHost->aRing, 0, sizeof(pHost->aRing));
+  memset(pHost->abyWorldMutated, 0, sizeof(pHost->abyWorldMutated));
+  memset(pHost->aWorld, 0, sizeof(pHost->aWorld));
+  for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk)
+    if (!NetWorldChangeCapture(iChunk, &pHost->aWorld[iChunk]))
+      return 0;
+  /* Ownership only, through human_control[] (4.11).  Install it only after
+     every loaded-world value needed by the race has validated. */
   for (int iCar = 0; iCar < MAX_CARS; ++iCar)
     human_control[iCar] = iCar < numcars ? aiHumanControl[iCar] : 0;
-  memcpy(pHost->aPlayers, aPlayers, sizeof(aPlayers));
-  memset(pHost->aRing, 0, sizeof(pHost->aRing));
+  pHost->iTrackLen = TRAK_LEN;
   pHost->uiStartTick = uiStartTick;
   pHost->uiNextTick = uiStartTick;
+  pHost->uiLastEventSeq = 0;
   pHost->iRingNext = 0;
   pHost->byHasSnapshot = 0;
   pHost->ullLastFeedbackMs = NetSessionHostNowMs(pHost->pSession);
@@ -291,12 +305,207 @@ static void NetHostSendSnapshot(tNetHost *pHost, const tNetSnapshot *pSnapshot)
   }
 }
 
+static int NetHostBroadcastCommit(tNetHost *pHost, uint8 byType,
+                                  const uint8 *pData, uint16 unLength)
+{
+  int iQueued = 1;
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+    tNetConnection *pConnection;
+    if (!pHost->aPlayers[iPlayer].byActive ||
+        !(pConnection = NetHostLiveConnection(pHost, iPlayer)))
+      continue;
+    if (!NetConnectionQueueMessage(pConnection, byType,
+            NET_MSG_RELIABLE | NET_MSG_ORDERED, pData, unLength))
+      iQueued = 0;
+  }
+  return iQueued;
+}
+
+static int NetHostEmitEvent(tNetHost *pHost, uint32 uiTick, uint8 byType,
+                            int iCar, int32 iArg0, int32 iArg1)
+{
+  tNetEvent event;
+  uint8 abEvent[sizeof(tNetEvent)];
+  int iLength;
+  if (pHost->uiLastEventSeq == 0xffffffffu)
+    return 0;
+  memset(&event, 0, sizeof(event));
+  event.uiEventSeq = pHost->uiLastEventSeq + 1u;
+  event.uiTick = uiTick;
+  event.byType = byType;
+  event.byCarIdx = (uint8)iCar;
+  event.byPlayerIdx = pHost->abyCarOwner[iCar];
+  event.iArg0 = iArg0;
+  event.iArg1 = iArg1;
+  iLength = NetEventEncode(&event, numcars, pHost->config.byMaxPlayers,
+                           abEvent, sizeof(abEvent));
+  if (!iLength)
+    return 0;
+  pHost->uiLastEventSeq = event.uiEventSeq;
+  return NetHostBroadcastCommit(pHost, NET_MSG_EVENT, abEvent,
+                                (uint16)iLength);
+}
+
+static int NetHostEmitCarEvents(tNetHost *pHost, uint32 uiTick,
+                                const int *piLapBefore,
+                                const uint8 *pbyFinishedBefore,
+                                const uint8 *pbyLivesBefore,
+                                const uint8 *pbyKillsBefore)
+{
+  int iOk = 1;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    int iLapAfter = (int)(int8)Car[iCar].byLap;
+    int iFirstLap = piLapBefore[iCar] + 1;
+    if (iFirstLap < 2)
+      iFirstLap = 2; /* crossing onto lap 1 starts the race; it completes none */
+    for (int iLap = iFirstLap; iLap <= iLapAfter; ++iLap) {
+      int32 iLapMs = (int32)(Car[iCar].fPreviousLapTime * 1000.0f + 0.5f);
+      if (iLapMs < 0)
+        iLapMs = 0;
+      if (!NetHostEmitEvent(pHost, uiTick, NET_EV_LAP_COMPLETE, iCar,
+                            iLap - 1, iLapMs))
+        iOk = 0;
+    }
+    if (!pbyFinishedBefore[iCar] && finished_car[iCar]) {
+      if (Car[iCar].byLives) {
+        if (!NetHostEmitEvent(pHost, uiTick, NET_EV_FINISHED, iCar,
+                              Car[iCar].byRacePosition, finishers))
+          iOk = 0;
+      } else if (!NetHostEmitEvent(pHost, uiTick, NET_EV_DESTROYED, iCar,
+                                   Car[iCar].byAttacker, Destroyed)) {
+        iOk = 0;
+      }
+    }
+    uint8 abyVictimUsed[MAX_CARS] = {0};
+    for (int iKill = pbyKillsBefore[iCar];
+         iKill < Car[iCar].byKills; ++iKill) {
+      int iVictim = -1;
+      for (int iCandidate = 0; iCandidate < numcars; ++iCandidate)
+        if (!abyVictimUsed[iCandidate] &&
+            pbyLivesBefore[iCandidate] > Car[iCandidate].byLives &&
+            Car[iCandidate].byAttacker == iCar) {
+          iVictim = iCandidate;
+          abyVictimUsed[iCandidate] = 1;
+          break;
+        }
+      if (!NetHostEmitEvent(pHost, uiTick, NET_EV_KILL, iCar, iVictim,
+                            iKill + 1))
+        iOk = 0;
+    }
+  }
+  return iOk;
+}
+
+static int NetHostSendWorldChanges(tNetHost *pHost, uint32 uiTick,
+                                   const tNetWorldChangeEntry *pEntries,
+                                   int iCount)
+{
+  uint8 abWorld[sizeof(tNetWorldChangeHeader) +
+                NET_WORLD_CHANGE_MAX_ENTRIES * sizeof(tNetWorldChangeEntry)];
+  uint32 uiEventSeq;
+  int iLength;
+  if (pHost->uiLastEventSeq == 0xffffffffu)
+    return 0;
+  uiEventSeq = pHost->uiLastEventSeq + 1u;
+  iLength = NetWorldChangeEncode(uiEventSeq, uiTick, pEntries, iCount,
+                                 abWorld, sizeof(abWorld));
+  if (!iLength)
+    return 0;
+  pHost->uiLastEventSeq = uiEventSeq;
+  return NetHostBroadcastCommit(pHost, NET_MSG_WORLD_CHANGE, abWorld,
+                                (uint16)iLength);
+}
+
+static int NetHostEmitWorldChanges(tNetHost *pHost, uint32 uiTick,
+                                   const int *piLovebunChunk,
+                                   const uint8 *pbyLovebunAmmo)
+{
+  tNetWorldChangeEntry aCurrent[MAX_TRACK_CHUNKS];
+  tNetWorldChangeEntry aBatch[NET_WORLD_CHANGE_MAX_ENTRIES];
+  uint8 abyChanged[MAX_TRACK_CHUNKS] = {0};
+  uint8 abyCovered[MAX_TRACK_CHUNKS] = {0};
+  int iCount, iOk = 1;
+  for (int iChunk = 0; iChunk < pHost->iTrackLen; ++iChunk) {
+    if (!NetWorldChangeCapture(iChunk, &aCurrent[iChunk]))
+      return 0;
+    abyChanged[iChunk] = !NetWorldChangeEntryEqual(
+        &aCurrent[iChunk], &pHost->aWorld[iChunk]);
+  }
+
+  /* A successful LOVEBUN use consumes one ammo and touches the 16 chunks
+     from current through current + 15.  Emit one commit for each use;
+     overlapping same-tick uses carry the common final post-tick values. */
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    uint8 abyAdded[MAX_TRACK_CHUNKS] = {0};
+    int iChunk;
+    if (piLovebunChunk[iCar] < 0 ||
+        Car[iCar].byCheatAmmo >= pbyLovebunAmmo[iCar])
+      continue;
+    iCount = 0;
+    iChunk = piLovebunChunk[iCar];
+    for (int iStep = 0; iStep < 16; ++iStep) {
+      if (abyChanged[iChunk] && !abyAdded[iChunk]) {
+        aBatch[iCount++] = aCurrent[iChunk];
+        abyAdded[iChunk] = 1;
+        abyCovered[iChunk] = 1;
+      }
+      if (++iChunk == pHost->iTrackLen)
+        iChunk = 0;
+    }
+    if (iCount && !NetHostSendWorldChanges(pHost, uiTick, aBatch, iCount))
+      iOk = 0;
+  }
+
+  /* Preserve changes from any later world-mutating mechanic, and changes
+     outside a detected LOVEBUN range, without dropping them. */
+  iCount = 0;
+  for (int iChunk = 0; iChunk < pHost->iTrackLen; ++iChunk) {
+    if (!abyChanged[iChunk] || abyCovered[iChunk])
+      continue;
+    aBatch[iCount++] = aCurrent[iChunk];
+    if (iCount == NET_WORLD_CHANGE_MAX_ENTRIES) {
+      if (!NetHostSendWorldChanges(pHost, uiTick, aBatch, iCount))
+        iOk = 0;
+      iCount = 0;
+    }
+  }
+  if (iCount && !NetHostSendWorldChanges(pHost, uiTick, aBatch, iCount))
+    iOk = 0;
+
+  for (int iChunk = 0; iChunk < pHost->iTrackLen; ++iChunk) {
+    if (!abyChanged[iChunk])
+      continue;
+    pHost->aWorld[iChunk] = aCurrent[iChunk];
+    pHost->abyWorldMutated[iChunk] = 1;
+  }
+  return iOk;
+}
+
 int NetHostTick(tNetHost *pHost, uint32 uiTick)
 {
   tCopyData aInputs[MAX_CARS];
   tNetSnapshot *pSnapshot;
-  if (!pHost || !pHost->byRacing || uiTick != pHost->uiNextTick)
+  int aiLapBefore[MAX_CARS];
+  int aiLovebunChunk[MAX_CARS];
+  uint8 abyFinishedBefore[MAX_CARS];
+  uint8 abyLivesBefore[MAX_CARS], abyKillsBefore[MAX_CARS];
+  uint8 abyLovebunAmmo[MAX_CARS];
+  int iCommitsOk;
+  if (!pHost || !pHost->byRacing || uiTick != pHost->uiNextTick ||
+      TRAK_LEN != pHost->iTrackLen)
     return 0;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    aiLapBefore[iCar] = (int)(int8)Car[iCar].byLap;
+    abyFinishedBefore[iCar] = finished_car[iCar] != 0;
+    abyLivesBefore[iCar] = Car[iCar].byLives;
+    abyKillsBefore[iCar] = Car[iCar].byKills;
+    aiLovebunChunk[iCar] = -1;
+    abyLovebunAmmo[iCar] = Car[iCar].byCheatAmmo;
+    if (Car[iCar].byCarDesignIdx == 12 && !Car[iCar].byCheatCooldown &&
+        Car[iCar].byCheatAmmo && Car[iCar].nCurrChunk >= 0 &&
+        Car[iCar].nCurrChunk < pHost->iTrackLen)
+      aiLovebunChunk[iCar] = Car[iCar].nCurrChunk;
+  }
   memset(aInputs, 0, sizeof(aInputs));
   for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
     tNetHostPlayer *pPlayer = &pHost->aPlayers[iPlayer];
@@ -323,13 +532,19 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
     control_one_tick();
   }
   ++pHost->uiNextTick;
+  iCommitsOk = NetHostEmitCarEvents(pHost, uiTick, aiLapBefore,
+                                    abyFinishedBefore, abyLivesBefore,
+                                    abyKillsBefore);
+  if (!NetHostEmitWorldChanges(pHost, uiTick, aiLovebunChunk,
+                               abyLovebunAmmo))
+    iCommitsOk = 0;
 
   if ((uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
-    return 1;
+    return iCommitsOk;
   pSnapshot = &pHost->aRing[pHost->iRingNext].snapshot;
   /* byRaceState carries the race-clock phase until E5-S1 defines the race
-     state machine; E3-S2 supplies uiLastEventSeq and E5-S1 byPaused. */
-  if (!NetSnapshotBuild(pSnapshot, uiTick, 0,
+     state machine; E5-S1 also supplies byPaused. */
+  if (!NetSnapshotBuild(pSnapshot, uiTick, pHost->uiLastEventSeq,
                         (uint8)(game_frame >= 145 ? NET_RACE_START_RUNNING :
                                                     NET_RACE_START_PRE_START),
                         0)) {
@@ -341,7 +556,7 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   pHost->uiNewestSnapshotTick = uiTick;
   pHost->byHasSnapshot = 1;
   NetHostSendSnapshot(pHost, pSnapshot);
-  return 1;
+  return iCommitsOk;
 }
 
 uint32 NetHostNextTick(const tNetHost *pHost)
@@ -394,6 +609,21 @@ int NetHostSnapshotAt(const tNetHost *pHost, uint32 uiTick,
       return 1;
     }
   return 0;
+}
+
+uint32 NetHostLastEventSeq(const tNetHost *pHost)
+{
+  return pHost ? pHost->uiLastEventSeq : 0;
+}
+
+int NetHostWorldChangeAt(const tNetHost *pHost, int iChunk,
+                         tNetWorldChangeEntry *pEntry)
+{
+  if (!pHost || !pEntry || iChunk < 0 || iChunk >= pHost->iTrackLen ||
+      !pHost->abyWorldMutated[iChunk])
+    return 0;
+  *pEntry = pHost->aWorld[iChunk];
+  return 1;
 }
 
 int NetHostPlayerStats(const tNetHost *pHost, uint8 byPlayerIdx,

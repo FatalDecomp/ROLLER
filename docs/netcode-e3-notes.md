@@ -93,7 +93,7 @@ tick context and `uiRandomState`.
 - **Placeholder fields.** `byRaceState` carries the race-clock phase
   (`NET_RACE_START_PRE_START` or `NET_RACE_START_RUNNING`, chosen from
   `game_frame >= 145`) until E5-S1 defines the race state machine.
-  `uiLastEventSeq` is 0 until E3-S2, and `byPaused` is 0 until E5-S1.
+  E3-S2 now supplies `uiLastEventSeq`; `byPaused` is 0 until E5-S1.
 
 ### Input feedback
 
@@ -200,6 +200,94 @@ worlds of their own, or with E8-S1's scenario library.
   The code paths for loss are the late-input repeat and the redundant batch,
   and E4-S1's acceptance (3 percent loss) is the first test that stresses
   them.
+
+## E3-S2 semantic events and world changes
+
+Implemented on 2026-09-21. `net_event.c` is a new `roller-core` source for
+the explicit little-endian codecs; `net_host.c` owns post-tick detection,
+numbering, reliable ordered broadcast, and the persistent mutated-world set.
+
+### Event contract
+
+Immediately after `control_one_tick`, the host diffs every car against its
+pre-tick lap and finished state. It emits, in car order:
+
+- `NET_EV_LAP_COMPLETE` for each completed lap. Crossing onto lap 1 starts
+  the race and emits nothing; a transition to `byLap == N` emits completed
+  lap `N - 1`. `iArg0` is that completed-lap number and `iArg1` is
+  `fPreviousLapTime` in rounded milliseconds.
+- `NET_EV_FINISHED` once when a live car enters `finished_car[]`. `iArg0` is
+  its zero-based race position and `iArg1` is the host's finisher count.
+- `NET_EV_DESTROYED` instead when the transition belongs to a car with no
+  lives. Its arguments are the attacker and the host `Destroyed` count.
+- `NET_EV_KILL` once for each increment of an attacker's `byKills`. `iArg0`
+  is the victim car when the same tick's life decrement identifies it (or
+  -1), and `iArg1` is the attacker's new cumulative kill count.
+
+`byPlayerIdx` is the frozen roster owner, or 255 for an AI car. Events and
+world changes share one session sequence starting at 1. Every message is
+`NET_MSG_RELIABLE | NET_MSG_ORDERED`; snapshots built later in the same tick
+carry the final `uiLastEventSeq`. Queue failure makes `NetHostTick` report
+failure after advancing the already-simulated tick, while the sequence gap
+visible in a snapshot remains available to E4-S4/E5-S3 recovery logic.
+
+### World changes
+
+At race start the host validates and captures all loaded `TRAK_LEN` chunks.
+After every tick it compares all three mutable grips and all three complete
+32-bit `TrakColour` words against that shadow. Changed chunks update a
+persistent bitmap and latest-state array; `NetHostWorldChangeAt` exposes
+that set for the future checkpoint implementation.
+
+A successful LOVEBUN use is identified from its pre-tick design, cooldown,
+ammo and chunk plus its post-tick ammo consumption. Each use gets one world
+change containing exactly the changed chunks from current through current +
+15, wrapping at `TRAK_LEN`. Two uses
+on the same tick still get distinct sequence numbers; overlapping entries
+carry the common final post-tick state. Any changed chunk outside a detected
+LOVEBUN range is still sent in batches of at most 64, so a future world
+mechanic cannot mutate the host silently. The persistent bitmap never clears
+when a chunk later returns to its original values, because a checkpoint must
+still carry its current state.
+
+`NetWorldChangeCapture` rejects a loaded chunk whose grip cannot index the
+14-entry `surface[]` table. The decoder rejects a zero sequence, non-zero
+padding, a count outside 1..64, a length mismatch, duplicate chunks, a chunk
+outside the caller's loaded track length, or any grip outside 0..13 before
+publishing output. Track colours are not narrowed or masked. The event codec
+likewise rejects unknown types, bad car/player bounds and malformed
+lap/finish arguments without changing its output.
+
+### Acceptance and topology
+
+`zig build test-net-host -Doptimize=ReleaseSafe` retains the E3-S1 2000-tick
+host race and adds the E3-S2 checks:
+
+- deterministic lap and finish transitions prove one event per car per
+  transition, while natural transitions over the full race are counted too;
+- a scripted human car executes the real design-12 `humancar` LOVEBUN path;
+  every client receives exactly one world-change message for that use, with
+  precisely the host-diffed chunks, grips, low colours and high flag bits;
+- all three clients observe the same gap-free shared commit sequence, and
+  every snapshot's `uiLastEventSeq` is monotonic and reaches the final host
+  value;
+- the host's retained mutated-chunk entries equal the live post-tick world;
+- codec probes cover little-endian layout, padding, bounds, grip range,
+  duplicate chunks, malformed types and rejection without partial output.
+
+The test remains one host world with three message-only clients per D13. Its
+existing simulation seam calls the real `NetSimWriteTickInputs` and
+`control_one_tick`; it only brackets deterministic event probes so a
+synthetic early finisher does not alter the later race. No `control.c` seam
+or original function body changed.
+
+### Not done here
+
+E4-S4 owns buffering and applying these commits on a client. Checkpoint
+serialization of the retained world set remains E5-S3. Race-state, results,
+join/leave, takeover and rejoin event types remain with their lifecycle
+stories. The E7-S1 legacy-call trap still does not exist; this path calls no
+legacy networking function.
 
 ## E3-S3 listen host local player
 
