@@ -200,3 +200,66 @@ worlds of their own, or with E8-S1's scenario library.
   The code paths for loss are the late-input repeat and the redundant batch,
   and E4-S1's acceptance (3 percent loss) is the first test that stresses
   them.
+
+## E3-S3 listen host local player
+
+Implemented on 2026-09-20. The native modern race now leaves the E2-S4
+placeholder path and runs the host or client race object created by
+`net_frontend_lobby.c` after the loading barrier releases.
+
+### Lifetime and frame loop
+
+- A listen host creates and begins `tNetHost`; a remote node creates and
+  begins `tNetClient`. Race objects are destroyed before their lobby and
+  session owners.
+- `UpdateSDL` still pumps the channel, session and lobby every rendered
+  frame. `NetFrontendPump` then calls `NetHostPump` or `NetClientPump`.
+- The listen host keeps the SDL timer as its authoritative tick source.
+  A remote client no longer lets `tick_clock_step` add to `iTicksPending`;
+  each frame mirrors `NetClientTicksDue()` into it, so the E4-S1 dilated
+  accumulator owns the count while the existing four-tick drain cap stays
+  in force.
+- `game_tick_step` obtains the next consecutive E2-S4 race-clock label,
+  samples `readuserdata`, and dispatches exactly once to `NetHostTick` or
+  `NetClientTick`. It does not call `control_one_tick` again afterward.
+
+### Listen-host input and one-world rule
+
+The listen host's authenticated loopback session still owns a normal frozen
+roster entry. Its input does not make a UDP round trip: the new
+`NetHostSetLocalInputs` writes the current tick into that roster player's
+normal host input queue, applies the same D9 clamp as remote input, and then
+`NetHostTick` consumes it. It rejects the wrong tick, player, or local-player
+count before indexing the queue.
+
+This is deliberately not a `NetClientTick` followed by `NetHostTick`. A
+process has one world (D13), and doing both would simulate that world twice.
+The listen host renders its authoritative world, so it needs no prediction or
+correction. Race start clears the net overlay and explicitly leaves it at
+RTT 0, zero corrections and `NET_PREDICT_FULL`; it clears all puppet flags and
+sets `net_sim_puppet_hook` to NULL.
+
+The same `readuserdata` path now routes F5-F8 strategy messages through
+`NET_MSG_CHAT` in modern mode. Those bits are removed from tick input, as
+required by canonical input.
+
+### Verification
+
+Passed on Windows in ReleaseSafe:
+
+```powershell
+zig build -Doptimize=ReleaseSafe
+zig build test-net-foundations test-net-full-state-coherence test-net-host test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix
+```
+
+`test-net-host` now also probes the listen-host input seam during both host
+runs: the wrong tick and wrong player count are rejected, and current-tick
+input is accepted without changing the established world-hash comparison.
+
+The plan's acceptance is manual. No interactive two-instance race was run in
+this implementation session, so the overlay criteria still need an in-game
+smoke check. The legacy-call trap still does not exist; it belongs to E7-S1.

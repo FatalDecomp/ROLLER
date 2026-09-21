@@ -2,6 +2,9 @@
 #include "net_sim_seam.h"
 #include "net_race_start.h"
 #include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include "frontend.h"
 #include "moving.h"
 #include "cdx.h"
@@ -629,7 +632,8 @@ void tick_clock_step(void)
   if (network_on && net_mode == NET_MODE_LEGACY)
     ROLLERCommsPumpSendQueue();
 
-  if (!frontend_on && iTickAdvance != 0)
+  if (!frontend_on && iTickAdvance != 0 &&
+      !(network_on && net_mode == NET_MODE_MODERN && !net_listen_host))
     SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
 }
 
@@ -640,6 +644,7 @@ void game_tick_step(void)
   int iControlTicks = 1;
   int iDrainEngineDelay = 0;
   int iModernRaceTick = 0;
+  int iModernSimulated = 0;
   uint32 uiModernTick;
 
   if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
@@ -655,7 +660,32 @@ void game_tick_step(void)
       if (!NetRaceStartBeginTick(&uiModernTick))
         return;
       iModernRaceTick = 1;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      {
+        tCarInputData aInputs[2] = {{0}};
+        int iLocalPlayers = NetFrontendRaceLocalPlayers();
+        if (iLocalPlayers < 1 || iLocalPlayers > 2) {
+          racing = 0;
+          return;
+        }
+        if (start_race && !paused) {
+          for (int iPlayer = 0; iPlayer < iLocalPlayers; ++iPlayer) {
+            tCopyData input;
+            readuserdata(iPlayer);
+            input.uiFullData = (uint32)user_inp;
+            aInputs[iPlayer] = input.data;
+            last_inp[iPlayer] = user_inp;
+          }
+        }
+        if (!NetFrontendRaceTick(uiModernTick, aInputs, iLocalPlayers)) {
+          racing = 0;
+          return;
+        }
+        iModernSimulated = 1;
+      }
+#else
       local_input_tick();
+#endif
       iDrainEngineDelay = start_race;
     } else if (start_race) {
       ticks_received = 0;
@@ -677,10 +707,13 @@ void game_tick_step(void)
     iDrainEngineDelay = 1;
 
   for (int i = 0; i < iControlTicks; i++) {
-    if (champ_mode < 16)
-      control_one_tick();
-    else
-      firework_display_one_tick();
+    /* The modern race object has already simulated this exact tick. */
+    if (!iModernSimulated) {
+      if (champ_mode < 16)
+        control_one_tick();
+      else
+        firework_display_one_tick();
+    }
     if (iDrainEngineDelay)
       DrainEngineDelay();
   }
@@ -1357,6 +1390,20 @@ void readuserdata(int iPlayer)
       send_mes(iMessageIdx, iNode);
       goto LABEL_105;
     }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  } else if (network_on && net_mode == NET_MODE_MODERN) {
+    if ((iStrategyFlags & 0x40) != 0)
+      iMessageIdx = 0;
+    else if ((iStrategyFlags & 0x80) != 0)
+      iMessageIdx = 1;
+    else if ((iStrategyFlags & 0x100) != 0)
+      iMessageIdx = 2;
+    else
+      iMessageIdx = 3;
+    NetFrontendSendStrategy((uint8)iMessageIdx);
+    iStrategyFlags = 0;
+    goto LABEL_106;
+#endif
   }
 LABEL_106:
   nButtonFlags_1 |= iStrategyFlags;               // add strategy buttons to buttons state

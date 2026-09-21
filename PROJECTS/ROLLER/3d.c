@@ -1717,9 +1717,12 @@ void race_update(void)
     }
   }
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
-  if (network_on && net_mode == NET_MODE_MODERN && fadedin &&
-      !NetFrontendRaceSynchronise())
-    SDL_SetAtomicInt(&iTicksPending, 0);
+  if (network_on && net_mode == NET_MODE_MODERN && fadedin) {
+    if (!NetFrontendRaceSynchronise())
+      SDL_SetAtomicInt(&iTicksPending, 0);
+    else if (!net_listen_host)
+      SDL_SetAtomicInt(&iTicksPending, NetFrontendRaceTicksDue());
+  }
 #endif
   updates = 0;
   if (g_bSnapshotMode) {

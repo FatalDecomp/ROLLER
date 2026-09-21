@@ -269,7 +269,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
   tNetHost *pHost;
   tNetRaceStartClock clock;
   uint64 ullNowMs = 0, ullReleaseMs;
-  int iTickIndex = 0, iRunning = -1, iProbed = 0;
+  int iTickIndex = 0, iRunning = -1, iProbed = 0, iLocalInputProbed = 0;
   tNetHostPlayerStats probeStats;
 
   NetTestRestore(&s_pristine);
@@ -370,6 +370,17 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
       CHECK(uiTick == NetHostNextTick(pHost));
       iIndex = (int)(uiTick - NET_TEST_START_TICK);
       CHECK(iIndex == iTickIndex && iIndex < NET_TEST_MAX_TICKS);
+      if (iIndex == NET_TEST_WARMUP_TICKS + 5) {
+        tCarInputData input = NetTestExpected(
+            NetTestScript(0, uiTick, iPhone), s_aClients[0].byCar);
+        CHECK(!NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                     uiTick + 1u, &input, 1));
+        CHECK(!NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                     uiTick, &input, 2));
+        CHECK(NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                    uiTick, &input, 1));
+        iLocalInputProbed = 1;
+      }
       CHECK(NetHostTick(pHost, uiTick));
       NetRaceClockEndTick(&clock, game_frame);
       pRun->aiFrame[iIndex] = game_frame;
@@ -422,6 +433,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
       break;
   }
   pRun->iTicks = iTickIndex;
+  CHECK(iLocalInputProbed);
   /* Let the snapshots in flight land; no further ticks. */
   for (uint64 ullEnd = ullNowMs + 3 * NET_TEST_LATENCY_MS; ullNowMs <= ullEnd; ++ullNowMs)
     NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);

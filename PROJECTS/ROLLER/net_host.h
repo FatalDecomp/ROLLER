@@ -48,6 +48,13 @@ void NetHostPump(tNetHost *pHost);
 int NetHostTick(tNetHost *pHost, uint32 uiTick);
 uint32 NetHostNextTick(const tNetHost *pHost);
 
+/* Supplies the listen host player's input for uiTick without sending it
+   through its authenticated loopback connection.  The authoritative world
+   still consumes it through the same per-player queue and D9 clamp as a
+   remote input. */
+int NetHostSetLocalInputs(tNetHost *pHost, uint8 byPlayerIdx, uint32 uiTick,
+                          const tCarInputData *pInputs, int iCount);
+
 /* Replaces the simulation step of NetHostTick (NetSimWriteTickInputs, then
    control_one_tick).  NULL restores it.  A process holds one world (D13); a
    test whose world belongs to a client uses this to keep the host's queues,

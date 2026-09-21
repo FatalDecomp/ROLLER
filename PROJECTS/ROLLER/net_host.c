@@ -349,6 +349,29 @@ uint32 NetHostNextTick(const tNetHost *pHost)
   return pHost ? pHost->uiNextTick : 0;
 }
 
+int NetHostSetLocalInputs(tNetHost *pHost, uint8 byPlayerIdx, uint32 uiTick,
+                          const tCarInputData *pInputs, int iCount)
+{
+  tNetHostPlayer *pPlayer;
+  tNetHostInputSlot *pSlot;
+  if (!pHost || !pHost->byRacing || !pInputs ||
+      byPlayerIdx >= NET_SESSION_MAX_PLAYERS || uiTick != pHost->uiNextTick)
+    return 0;
+  pPlayer = &pHost->aPlayers[byPlayerIdx];
+  if (!pPlayer->byActive || iCount != pPlayer->byCarCount)
+    return 0;
+  pSlot = &pPlayer->aQueue[uiTick % NET_INPUT_QUEUE];
+  memset(pSlot, 0, sizeof(*pSlot));
+  pSlot->uiTick = uiTick;
+  pSlot->byValid = 1;
+  for (int iLocal = 0; iLocal < iCount; ++iLocal) {
+    pSlot->aInput[iLocal] = pInputs[iLocal];
+    if (NetInputClamp(&pSlot->aInput[iLocal], pPlayer->abyCars[iLocal]))
+      ++pPlayer->stats.uiClampedInputs;
+  }
+  return 1;
+}
+
 void NetHostSetSimulation(tNetHost *pHost, tNetHostSimulateFn pSimulate,
                           void *pContext)
 {

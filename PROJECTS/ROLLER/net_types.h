@@ -6,6 +6,9 @@ typedef enum { NET_MODE_LEGACY, NET_MODE_MODERN } eNetMode;
 typedef enum { NET_AUTHORITY_LOCAL, NET_AUTHORITY_REMOTE } eNetAuthority;
 typedef enum { NET_PREDICT_FULL, NET_PREDICT_DELAYED } eNetPredictionMode;
 extern int net_mode;
+/* Native modern-session role.  A listen host keeps the SDL timer as the
+   authoritative tick source; a remote client uses its dilated accumulator. */
+extern int net_listen_host;
 
 typedef struct {
   float fRttMs, fJitterMs;

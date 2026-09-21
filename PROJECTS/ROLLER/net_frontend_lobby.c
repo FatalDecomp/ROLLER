@@ -4,7 +4,9 @@
 #include "frontend.h"
 #include "loadtrak.h"
 #include "net_channel.h"
+#include "net_client.h"
 #include "net_config.h"
+#include "net_host.h"
 #include "net_lobby.h"
 #include "net_race_start.h"
 #include "net_session.h"
@@ -24,11 +26,13 @@ typedef struct
   tNetSessionClient *pClient;
   tNetLobbyHost *pHostLobby;
   tNetLobbyClient *pClientLobby;
+  tNetHost *pRaceHost;
+  tNetClient *pRaceClient;
   tNetAddress peer;
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
-  uint8 byRaceScheduled, byRaceLoadedSent;
+  uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
   uint8 bySelectedCar, bySelectedControl;
   char szStatus[96];
 } tNetFrontendLobbyState;
@@ -72,6 +76,10 @@ int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort)
 
 static void NetFrontendDestroyLobby(void)
 {
+  NetClientDestroy(s_frontend.pRaceClient);
+  s_frontend.pRaceClient = NULL;
+  NetHostDestroy(s_frontend.pRaceHost);
+  s_frontend.pRaceHost = NULL;
   NetLobbyClientDestroy(s_frontend.pClientLobby);
   s_frontend.pClientLobby = NULL;
   NetSessionClientDestroy(s_frontend.pClient);
@@ -86,6 +94,7 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byReadySent = 0;
   s_frontend.byRaceScheduled = 0;
   s_frontend.byRaceLoadedSent = 0;
+  s_frontend.byRaceStarted = 0;
 }
 
 void NetFrontendClose(void)
@@ -101,6 +110,7 @@ void NetFrontendClose(void)
   s_frontend.pServerUdp = NULL;
   s_frontend.byOpen = 0;
   s_frontend.byHost = 0;
+  net_listen_host = 0;
   NetRaceStartReset();
   network_on = 0;
   players = 1;
@@ -136,6 +146,7 @@ int NetFrontendOpen(void)
   }
 
   s_frontend.byOpen = 1;
+  net_listen_host = s_frontend.byHost;
   network_on = 1;
   players = 1;
   players_waiting = 0;
@@ -281,6 +292,8 @@ void NetFrontendPump(void)
   NetSessionHostPump(s_frontend.pHost);
   NetLobbyHostPump(s_frontend.pHostLobby);
   NetSessionClientPump(s_frontend.pClient);
+  NetHostPump(s_frontend.pRaceHost);
+  NetClientPump(s_frontend.pRaceClient);
   state = NetSessionClientState(s_frontend.pClient);
   if (state == NET_JOIN_REFUSED) {
     if (NetSessionClientRefuseReason(s_frontend.pClient) ==
@@ -361,8 +374,92 @@ int NetFrontendRaceSynchronise(void)
   if (NetRaceStartPhase() == NET_RACE_START_LOADING &&
       !NetRaceStartRelease(uiStartTick))
     return 0;
+  if (!s_frontend.byRaceStarted) {
+    memset(&g_netStats, 0, sizeof(g_netStats));
+    g_netStats.iPredictionMode = NET_PREDICT_FULL;
+    if (s_frontend.byHost) {
+      s_frontend.pRaceHost = NetHostCreate(s_frontend.pHost,
+                                           s_frontend.pHostLobby);
+      if (!s_frontend.pRaceHost ||
+          !NetHostBeginRace(s_frontend.pRaceHost)) {
+        NetHostDestroy(s_frontend.pRaceHost);
+        s_frontend.pRaceHost = NULL;
+        NetFrontendStatus("HOST RACE START FAILED");
+        return 0;
+      }
+      /* A listen host renders the authoritative world and never puppets it. */
+      memset(net_puppet_car, 0, sizeof(net_puppet_car));
+      net_sim_puppet_hook = NULL;
+      net_sim_authority = NET_AUTHORITY_LOCAL;
+      net_sim_replaying = 0;
+    } else {
+      s_frontend.pRaceClient = NetClientCreate(s_frontend.pClient,
+                                               s_frontend.pClientLobby);
+      if (!s_frontend.pRaceClient ||
+          !NetClientBeginRace(s_frontend.pRaceClient)) {
+        NetClientDestroy(s_frontend.pRaceClient);
+        s_frontend.pRaceClient = NULL;
+        NetFrontendStatus("CLIENT RACE START FAILED");
+        return 0;
+      }
+    }
+    s_frontend.byRaceStarted = 1;
+  }
   NetFrontendStatus("");
   return NetRaceStartPhase() >= NET_RACE_START_PRE_START;
+}
+
+int NetFrontendRaceTicksDue(void)
+{
+  return s_frontend.byRaceStarted && !s_frontend.byHost ?
+      NetClientTicksDue(s_frontend.pRaceClient) : 0;
+}
+
+int NetFrontendRaceLocalPlayers(void)
+{
+  if (!s_frontend.byRaceStarted)
+    return 0;
+  if (s_frontend.byHost) {
+    uint8 byPlayerIdx = NetSessionClientPlayerIndex(s_frontend.pClient);
+    return NetSessionHostPlayerLocalPlayers(s_frontend.pHost, byPlayerIdx);
+  }
+  return NetClientGroup(s_frontend.pRaceClient, NULL);
+}
+
+int NetFrontendRaceTick(uint32 uiTick, const tCarInputData *pInputs,
+                        int iCount)
+{
+  if (!s_frontend.byRaceStarted || !pInputs || iCount < 1)
+    return 0;
+  if (s_frontend.byHost) {
+    uint8 byPlayerIdx = NetSessionClientPlayerIndex(s_frontend.pClient);
+    if (NetHostNextTick(s_frontend.pRaceHost) != uiTick ||
+        !NetHostSetLocalInputs(s_frontend.pRaceHost, byPlayerIdx, uiTick,
+                               pInputs, iCount))
+      return 0;
+    return NetHostTick(s_frontend.pRaceHost, uiTick);
+  }
+  if (NetClientCurrentTick(s_frontend.pRaceClient) + 1u != uiTick)
+    return 0;
+  return NetClientTick(s_frontend.pRaceClient, pInputs);
+}
+
+int NetFrontendSendStrategy(uint8 byMessage)
+{
+  uint8 byTarget = NET_LOBBY_NO_PLAYER;
+  if (!s_frontend.pClientLobby)
+    return 0;
+  if (network_mes_mode < -1)
+    return 0;
+  if (network_mes_mode >= 0) {
+    if (network_mes_mode >= MAX_CARS || !human_control[network_mes_mode] ||
+        car_to_player[network_mes_mode] < 0 ||
+        car_to_player[network_mes_mode] >= NET_SESSION_MAX_PLAYERS)
+      return 0;
+    byTarget = (uint8)car_to_player[network_mes_mode];
+  }
+  return NetLobbyClientSendStrategy(s_frontend.pClientLobby, byTarget,
+                                    byMessage);
 }
 
 const char *NetFrontendLobbyStatus(void)
