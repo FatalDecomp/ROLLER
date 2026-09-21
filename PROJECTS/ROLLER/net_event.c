@@ -51,6 +51,10 @@ static int NetEventValid(const tNetEvent *pEvent,
       return pEvent->byCarIdx != NET_EVENT_NO_CAR &&
              pEvent->iArg0 >= 0 && pEvent->iArg0 < iNumCars &&
              pEvent->iArg1 >= 1 && pEvent->iArg1 <= iNumCars;
+    case NET_EV_DESTROYED:
+      return pEvent->byCarIdx != NET_EVENT_NO_CAR &&
+             pEvent->iArg0 >= 0 && pEvent->iArg0 < iNumCars &&
+             pEvent->iArg1 >= 1 && pEvent->iArg1 <= iNumCars;
     case NET_EV_KILL:
       return pEvent->byCarIdx != NET_EVENT_NO_CAR &&
              pEvent->iArg0 >= -1 && pEvent->iArg0 < iNumCars &&

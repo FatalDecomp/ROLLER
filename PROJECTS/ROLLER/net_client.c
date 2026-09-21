@@ -1,4 +1,5 @@
 #include "net_client.h"
+#include "net_event.h"
 #include "net_input.h"
 #include "net_snapshot.h"
 #include "3d.h"
@@ -25,6 +26,7 @@
 #define NET_CLIENT_LEAD_BIAS_DECAY_MS 10000u
 #define NET_CLIENT_ON_TARGET_TICKS 1.0f
 #define NET_CLIENT_FRAME_GAIN 0.1f
+#define NET_CLIENT_COMMIT_BUFFER NET_RELIABLE_QUEUE
 
 typedef struct
 {
@@ -60,6 +62,14 @@ typedef struct
   uint8 byValid;
 } tNetClientOwnSlot;
 
+typedef struct
+{
+  uint32 uiEventSeq, uiTick;
+  uint8 byMessageType, byWorldCount, byValid;
+  tNetEvent event;
+  tNetWorldChangeEntry aWorld[NET_WORLD_CHANGE_MAX_ENTRIES];
+} tNetClientCommitSlot;
+
 struct tNetClient
 {
   tNetSessionClient *pSession;
@@ -83,13 +93,19 @@ struct tNetClient
   int iReplayBudgetTicks, iReplayPressure, iPredictionMode;
   uint32 uiFeedbackHostTick;
   uint32 uiLastReconciledTick, uiLastAuthoritativeTick, uiDeferredTick;
+  uint32 uiLastAppliedEventSeq, uiCommitWatermark;
   uint64 ullAboveBudgetSinceMs, ullBelowBudgetSinceMs;
+  uint8 abyFinishCommitted[MAX_CARS], abyDestroyedCommitted[MAX_CARS];
+  uint8 abyFinishOwner[MAX_CARS], abyFinishPosition[MAX_CARS];
+  uint8 abyLapCommitted[MAX_CARS], abyKillCommitted[MAX_CARS];
+  uint8 abyCommittedLap[MAX_CARS], abyCommittedKills[MAX_CARS];
   tNetClientStats stats;
   tNetClientInputSlot aInputs[NET_CLIENT_HISTORY];
   tNetClientPredictionSlot aPrediction[NET_INPUT_MAX_LOCAL_PLAYERS][NET_CLIENT_HISTORY];
   tNetClientContextSlot aContext[NET_CLIENT_HISTORY];
   tNetClientSnapshotSlot aSnapshots[NET_CLIENT_SNAPSHOT_BUFFER];
   tNetClientOwnSlot aOwn[NET_CLIENT_SNAPSHOT_BUFFER];
+  tNetClientCommitSlot aCommits[NET_CLIENT_COMMIT_BUFFER];
 };
 
 /* D13 permits one simulation world per process, so exactly one racing client
@@ -103,6 +119,10 @@ _Static_assert(NET_INPUT_REDUNDANCY < NET_CLIENT_HISTORY,
 _Static_assert(NET_MAX_REPLAY_TICKS ==
                    (NET_CLIENT_REPLAY_BUDGET_MS * 36) / 1000,
                "Contract B's 36 Hz horizon must match the session budget");
+_Static_assert(NET_CLIENT_COMMIT_BUFFER >= NET_RELIABLE_QUEUE,
+               "the client must retain a full reliable commit window");
+_Static_assert(sizeof(TrakColour[0][0]) == sizeof(uint32),
+               "world-change colours are complete 32-bit words");
 
 static void NetClientPublishReconciliationStats(const tNetClient *pClient);
 static void NetClientEnterDelayed(tNetClient *pClient);
@@ -533,6 +553,181 @@ static void NetClientApplyNewestAuthoritative(tNetClient *pClient)
   }
 }
 
+static tNetClientCommitSlot *NetClientPrepareCommit(tNetClient *pClient,
+                                                     uint32 uiEventSeq)
+{
+  tNetClientCommitSlot *pSlot;
+  uint32 uiAhead = uiEventSeq - pClient->uiLastAppliedEventSeq;
+  /* Range-check the hostile sequence before it selects a ring slot (D23).
+     Reliable ordered delivery bounds a legitimate gap by its send window. */
+  if ((int32)uiAhead <= 0) {
+    ++pClient->stats.uiStaleMessages;
+    return NULL;
+  }
+  if (uiAhead > NET_CLIENT_COMMIT_BUFFER) {
+    ++pClient->stats.uiRejectedMessages;
+    return NULL;
+  }
+  pSlot = &pClient->aCommits[uiEventSeq % NET_CLIENT_COMMIT_BUFFER];
+  if (pSlot->byValid) {
+    if (pSlot->uiEventSeq == uiEventSeq)
+      ++pClient->stats.uiStaleMessages;
+    else
+      ++pClient->stats.uiRejectedMessages;
+    return NULL;
+  }
+  memset(pSlot, 0, sizeof(*pSlot));
+  pSlot->uiEventSeq = uiEventSeq;
+  return pSlot;
+}
+
+static void NetClientReceiveEvent(tNetClient *pClient,
+                                  const tNetMessage *pMessage)
+{
+  tNetClientCommitSlot *pSlot;
+  tNetEvent event;
+  if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+      !NetEventDecode(pMessage->abData, pMessage->unLength, numcars,
+                      pClient->config.byMaxPlayers, &event)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  pSlot = NetClientPrepareCommit(pClient, event.uiEventSeq);
+  if (!pSlot)
+    return;
+  pSlot->uiTick = event.uiTick;
+  pSlot->byMessageType = NET_MSG_EVENT;
+  pSlot->event = event;
+  pSlot->byValid = 1;
+  ++pClient->stats.uiEvents;
+}
+
+static void NetClientReceiveWorldChange(tNetClient *pClient,
+                                        const tNetMessage *pMessage)
+{
+  tNetClientCommitSlot *pSlot;
+  tNetWorldChangeHeader header;
+  tNetWorldChangeEntry aEntries[NET_WORLD_CHANGE_MAX_ENTRIES];
+  if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+      !NetWorldChangeDecode(pMessage->abData, pMessage->unLength, TRAK_LEN,
+                            &header, aEntries,
+                            NET_WORLD_CHANGE_MAX_ENTRIES)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  pSlot = NetClientPrepareCommit(pClient, header.uiEventSeq);
+  if (!pSlot)
+    return;
+  pSlot->uiTick = header.uiTick;
+  pSlot->byMessageType = NET_MSG_WORLD_CHANGE;
+  pSlot->byWorldCount = header.byCount;
+  memcpy(pSlot->aWorld, aEntries,
+         header.byCount * sizeof(pSlot->aWorld[0]));
+  pSlot->byValid = 1;
+  ++pClient->stats.uiWorldChanges;
+}
+
+static void NetClientPublishEventCommits(tNetClient *pClient)
+{
+  int iFinishers = 0, iHumanFinishers = 0, iDestroyed = 0;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    if (pClient->abyLapCommitted[iCar]) {
+      if ((int)(int8)Car[iCar].byLap < pClient->abyCommittedLap[iCar])
+        Car[iCar].byLap = pClient->abyCommittedLap[iCar];
+      if ((int)(int8)Car[iCar].byLapNumber <
+          pClient->abyCommittedLap[iCar])
+        Car[iCar].byLapNumber = pClient->abyCommittedLap[iCar];
+    }
+    if (pClient->abyKillCommitted[iCar])
+      Car[iCar].byKills = pClient->abyCommittedKills[iCar];
+    if (!pClient->abyFinishCommitted[iCar])
+      continue;
+    finished_car[iCar] = -1;
+    ++iFinishers;
+    iHumanFinishers += pClient->abyFinishOwner[iCar] != NET_EVENT_NO_PLAYER;
+    iDestroyed += pClient->abyDestroyedCommitted[iCar] != 0;
+    if (!pClient->abyDestroyedCommitted[iCar] &&
+        pClient->abyFinishPosition[iCar] < numcars) {
+      Car[iCar].byRacePosition = pClient->abyFinishPosition[iCar];
+      carorder[pClient->abyFinishPosition[iCar]] = iCar;
+    }
+  }
+  finishers = iFinishers;
+  human_finishers = iHumanFinishers;
+  Destroyed = iDestroyed;
+}
+
+static void NetClientApplyEvent(tNetClient *pClient,
+                                const tNetEvent *pEvent)
+{
+  tCar *pCar = pEvent->byCarIdx == NET_EVENT_NO_CAR ? NULL :
+      &Car[pEvent->byCarIdx];
+  switch (pEvent->byType) {
+    case NET_EV_LAP_COMPLETE: {
+      int iLap = pEvent->iArg0 + 1;
+      pClient->abyLapCommitted[pEvent->byCarIdx] = 1;
+      pClient->abyCommittedLap[pEvent->byCarIdx] = (uint8)iLap;
+      pCar->fPreviousLapTime = pEvent->iArg1 / 1000.0f;
+      pCar->fRunningLapTime = 0.0f;
+      break;
+    }
+    case NET_EV_FINISHED:
+      pClient->abyFinishCommitted[pEvent->byCarIdx] = 1;
+      pClient->abyFinishOwner[pEvent->byCarIdx] = pEvent->byPlayerIdx;
+      pClient->abyFinishPosition[pEvent->byCarIdx] = (uint8)pEvent->iArg0;
+      break;
+    case NET_EV_DESTROYED:
+      pCar->byAttacker = (uint8)pEvent->iArg0;
+      pClient->abyFinishCommitted[pEvent->byCarIdx] = 1;
+      pClient->abyDestroyedCommitted[pEvent->byCarIdx] = 1;
+      pClient->abyFinishOwner[pEvent->byCarIdx] = pEvent->byPlayerIdx;
+      break;
+    case NET_EV_KILL:
+      pClient->abyKillCommitted[pEvent->byCarIdx] = 1;
+      pClient->abyCommittedKills[pEvent->byCarIdx] =
+          (uint8)pEvent->iArg1;
+      if (pEvent->iArg0 >= 0)
+        Victim = pEvent->iArg0;
+      break;
+    default:
+      /* Later lifecycle stories own the remaining numbered event types. */
+      break;
+  }
+}
+
+static void NetClientApplyWorldChange(const tNetClientCommitSlot *pSlot)
+{
+  for (int iEntry = 0; iEntry < pSlot->byWorldCount; ++iEntry) {
+    const tNetWorldChangeEntry *pEntry = &pSlot->aWorld[iEntry];
+    int iChunk = pEntry->nChunk;
+    localdata[iChunk].iCenterGrip = pEntry->byCenterGrip;
+    localdata[iChunk].iLeftShoulderGrip = pEntry->byLeftShoulderGrip;
+    localdata[iChunk].iRightShoulderGrip = pEntry->byRightShoulderGrip;
+    memcpy(TrakColour[iChunk], pEntry->auiTrakColour,
+           sizeof(pEntry->auiTrakColour));
+  }
+}
+
+static void NetClientApplyCommits(tNetClient *pClient)
+{
+  while (pClient->uiLastAppliedEventSeq < pClient->uiCommitWatermark) {
+    uint32 uiNext = pClient->uiLastAppliedEventSeq + 1u;
+    tNetClientCommitSlot *pSlot =
+        &pClient->aCommits[uiNext % NET_CLIENT_COMMIT_BUFFER];
+    if (!pSlot->byValid || pSlot->uiEventSeq != uiNext)
+      break;
+    if (pSlot->byMessageType == NET_MSG_EVENT)
+      NetClientApplyEvent(pClient, &pSlot->event);
+    else
+      NetClientApplyWorldChange(pSlot);
+    pSlot->byValid = 0;
+    pClient->uiLastAppliedEventSeq = uiNext;
+    pClient->stats.uiLastAppliedEventSeq = uiNext;
+    ++pClient->stats.uiCommitsApplied;
+  }
+  NetClientPublishEventCommits(pClient);
+}
+
 static void NetClientReceiveSnapshot(tNetClient *pClient,
                                      const tNetMessage *pMessage,
                                      uint64 ullNowMs)
@@ -541,6 +736,20 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
   tNetClientSnapshotSlot *pSlot;
   if (!NetSnapshotDecode(pMessage->abData, pMessage->unLength, &snapshot) ||
       !NetClientSnapshotMatchesWorld(&snapshot)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  if ((!pClient->byHasSnapshot ||
+       (int32)(snapshot.uiTick - pClient->stats.uiNewestSnapshotTick) > 0) &&
+      (snapshot.uiLastEventSeq < pClient->uiLastAppliedEventSeq ||
+       (pClient->byHasSnapshot &&
+        snapshot.uiLastEventSeq < pClient->uiCommitWatermark))) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  if (pClient->byHasSnapshot &&
+      snapshot.uiTick == pClient->stats.uiNewestSnapshotTick &&
+      snapshot.uiLastEventSeq != pClient->uiCommitWatermark) {
     ++pClient->stats.uiRejectedMessages;
     return;
   }
@@ -559,6 +768,8 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
     pClient->stats.uiNewestSnapshotTick = snapshot.uiTick;
     pClient->ullNewestSnapshotMs = ullNowMs;
     pClient->byHasSnapshot = 1;
+    pClient->uiCommitWatermark = snapshot.uiLastEventSeq;
+    pClient->stats.uiCommitWatermark = snapshot.uiLastEventSeq;
     /* The host sends a snapshot as soon as it has simulated its tick. */
     NetClientObserveHost(pClient, NetClientRelative(pClient, snapshot.uiTick),
                          ullNowMs);
@@ -657,8 +868,14 @@ static void NetClientRaceMessage(void *pContext, const tNetMessage *pMessage)
     case NET_MSG_INPUT_FEEDBACK:
       NetClientReceiveFeedback(pClient, pMessage, ullNowMs);
       break;
+    case NET_MSG_EVENT:
+      NetClientReceiveEvent(pClient, pMessage);
+      break;
+    case NET_MSG_WORLD_CHANGE:
+      NetClientReceiveWorldChange(pClient, pMessage);
+      break;
     default:
-      /* Events, world changes and pause belong to later stories. */
+      /* Pause belongs to a later story. */
       break;
   }
 }
@@ -742,6 +959,20 @@ int NetClientBeginRace(tNetClient *pClient)
   memset(pClient->aContext, 0, sizeof(pClient->aContext));
   memset(pClient->aSnapshots, 0, sizeof(pClient->aSnapshots));
   memset(pClient->aOwn, 0, sizeof(pClient->aOwn));
+  memset(pClient->aCommits, 0, sizeof(pClient->aCommits));
+  memset(pClient->abyFinishCommitted, 0,
+         sizeof(pClient->abyFinishCommitted));
+  memset(pClient->abyDestroyedCommitted, 0,
+         sizeof(pClient->abyDestroyedCommitted));
+  memset(pClient->abyFinishOwner, NET_EVENT_NO_PLAYER,
+         sizeof(pClient->abyFinishOwner));
+  memset(pClient->abyFinishPosition, 0xff,
+         sizeof(pClient->abyFinishPosition));
+  memset(pClient->abyLapCommitted, 0, sizeof(pClient->abyLapCommitted));
+  memset(pClient->abyKillCommitted, 0, sizeof(pClient->abyKillCommitted));
+  memset(pClient->abyCommittedLap, 0, sizeof(pClient->abyCommittedLap));
+  memset(pClient->abyCommittedKills, 0,
+         sizeof(pClient->abyCommittedKills));
   pClient->config = config;
   pClient->dTicksPerMs = config.unTickRateHz / 1000.0;
   pClient->iRetentionTicks =
@@ -768,6 +999,8 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->uiLastReconciledTick = uiStartTick - 1u;
   pClient->uiLastAuthoritativeTick = uiStartTick - 1u;
   pClient->uiDeferredTick = uiStartTick - 1u;
+  pClient->uiLastAppliedEventSeq = 0;
+  pClient->uiCommitWatermark = 0;
   pClient->byJoined = 0;
   pClient->byHasEstimate = 0;
   pClient->byHasFeedback = 0;
@@ -1320,6 +1553,10 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
     return 0;
   uiTick = pClient->uiClientTick + 1u;
   NetSimAdvanceRenderCorrections();
+
+  /* 4.3 step 1: a snapshot may outrun its reliable commits.  Advance only
+     through the contiguous shared sequence covered by the newest snapshot. */
+  NetClientApplyCommits(pClient);
   NetClientApplyNewestAuthoritative(pClient);
 
   /* 4.3 step 2: compare matching ticks before updatestunts advances the
@@ -1333,6 +1570,10 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
      is sampled, so its post-tick history contains the corrected run. */
   if (!NetClientTryLeaveDelayed(pClient) || !NetClientReconcile(pClient))
     return 0;
+  /* A correction restores a locally recorded context, which can predate a
+     late reliable result commit.  Re-publish those host-owned globals after
+     the replay without turning them into movement corrections (D19). */
+  NetClientPublishEventCommits(pClient);
 
   /* 4.3 step 5: canonicalise, record in the input history, send. */
   pInput = &pClient->aInputs[uiTick % NET_CLIENT_HISTORY];
@@ -1363,6 +1604,9 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
   /* 4.3 step 7: record after the tick, so context[N] and pred[N] are the
      state the simulation enters tick N + 1 with. */
   NetClientApplyNewestAuthoritative(pClient);
+  /* The puppet hook may have sampled a pre-commit snapshot for its delayed
+     render cursor.  Reliable result commits remain the displayed truth. */
+  NetClientPublishEventCommits(pClient);
   return NetClientRecordPostTick(
       pClient, uiTick, pClient->iPredictionMode == NET_PREDICT_FULL);
 }

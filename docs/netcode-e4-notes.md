@@ -476,3 +476,84 @@ E8-S1 multi-process scenarios.
 
 Still not checkable: the E7-S1 legacy-call trap. Split-screen correction uses
 the group-wide production path but remains unexercised until E2-S5.
+
+## E4-S4 host commits on the client
+
+Implemented on 2026-09-21 in `net_client.c`, using the E3-S2 codecs and the
+existing race-message callback.
+
+### Commit retention and ordering
+
+The client validates `NET_MSG_EVENT` and `NET_MSG_WORLD_CHANGE` on receipt
+and requires both reliable and ordered flags. It retains decoded commits in a
+64-entry ring keyed by their shared `uiEventSeq`. A hostile sequence is
+range-checked against the last applied sequence before it can select a ring
+slot. Duplicate, stale, colliding, malformed, and over-window messages do not
+mutate the world.
+
+Only the newest snapshot advances `uiCommitWatermark`. A newer snapshot whose
+watermark regresses is rejected, while a legitimately reordered older
+snapshot with an older watermark remains available for interpolation. At
+4.3 client step 1, `NetClientTick` applies the contiguous sequence from the
+last applied commit through that watermark and stops at the first gap. This
+handles the normal case where an unreliable snapshot arrives before the
+reliable commit it describes.
+
+### Event and world application
+
+The four E3-S2 event types install host-owned state without entering the
+movement comparison:
+
+- lap-complete retains the newest committed lap, lap-number floor and rounded
+  previous-lap time;
+- kill retains the host's cumulative kill count and victim;
+- finished retains the host finish position and marks the result committed;
+- destroyed retains the attacker and marks the result and destroyed count.
+
+Finishers, human finishers and destroyed counts are derived from per-car
+commit state, so applying an event is idempotent even when the matching own-car
+state arrived first. The same retained state is re-published after a replay
+restores an older local context and after the delayed puppet hook samples a
+pre-commit snapshot. This preserves D19: result changes do not trigger or
+become movement corrections. `NetEventDecode` now also validates the car,
+attacker and cumulative count carried by a destroyed event before the client
+can use them.
+
+A world commit is already fully staged and validated by
+`NetWorldChangeDecode`. Between ticks the client installs every entry's three
+grips and copies all three complete 32-bit `TrakColour` words. World state is
+not part of rollback context or car history, so replay cannot return it to a
+predicted value.
+
+### Acceptance coverage and topology
+
+`test-net-client` runs the E4-S4 probes at both 36 and 100 Hz over the real
+channel, session and lobby path:
+
+- an early group-car finish-line crossing under remote authority leaves
+  `finished_car`, `finishers` and `human_finishers` unchanged before the host
+  correction;
+- a snapshot advertises sequence 7 before any commit; commits 2 through 6
+  then arrive behind a deliberate missing sequence 1, and no result or world
+  state advances across the gap;
+- the released stream represents three completed laps, a collision kill, a
+  human finish and an AI destruction. Lap counts, cumulative kills, finish
+  position, `carorder`, `finishers`, `human_finishers` and `Destroyed` match
+  the scripted host values;
+- clearing those result fields and ticking again proves retained commits are
+  idempotently re-published, as required after a correction restores older
+  context;
+- sequence 7 applies a 16-chunk LOVEBUN-style world commit. Every changed
+  chunk has all three exact grips and all three exact 32-bit colour/flag
+  words, and every other loaded chunk stays bit-identical;
+- a reordered pre-commit snapshot with watermark zero is accepted for
+  interpolation without regressing the active watermark.
+
+D13 still permits only one simulation world in this process. The client test
+therefore uses a scripted three-lap/collision commit stream rather than a
+second simultaneous host race world. E3-S2's host acceptance independently
+runs the real host diff/emission path and produces lap, finish, destruction,
+kill and a real design-12 LOVEBUN world message. Together the two tests cover
+production emission, wire codecs, reliable delivery, client gap handling and
+application without constructing a forbidden second world. A literal
+multi-process three-lap race remains E8-S1 harness work.

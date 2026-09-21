@@ -34,6 +34,8 @@ typedef struct
   uint32 uiTicks;              /* client ticks simulated */
   uint32 uiBatchesSent;        /* one NET_MSG_INPUT per client tick */
   uint32 uiSnapshots, uiOwnCarStates, uiFeedback;
+  uint32 uiEvents, uiWorldChanges, uiCommitsApplied;
+  uint32 uiLastAppliedEventSeq, uiCommitWatermark;
   uint32 uiRejectedMessages;   /* race messages that failed to decode */
   uint32 uiStaleMessages;      /* decoded, but older than what was held */
   uint32 uiNewestSnapshotTick; /* uiLastDecodedSnapshotTick on the wire */
