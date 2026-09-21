@@ -58,6 +58,13 @@ typedef struct {
   int16 nYaw, nPitch, nRoll, nActualYaw;
 } tNetWorldPose;
 
+/* Presentation only: the simulation always sees the corrected car. */
+typedef struct {
+  tVec3 worldPosOffset;
+  int16 nYawOffset;
+  int iTicksRemaining;
+} tNetCorrection;
+
 extern int net_sim_replaying;
 extern int net_sim_authority;
 extern uint8 net_puppet_car[MAX_CARS];
@@ -65,7 +72,8 @@ extern void (*net_sim_puppet_hook)(void);
 
 void NetSimCaptureContext(tNetSimTickContext *pContext);
 void NetSimRestoreContext(const tNetSimTickContext *pContext);
-int NetSimRestoreInputRing(const tNetInputSlot *pSlots, int iFirstTick, int iCount, int iReadPtr);
+int NetSimRestoreInputRing(const tNetInputSlot *pSlots, uint32 uiFirstTick,
+                           int iCount, int iReadPtr);
 int NetSimWriteTickInputs(const tCopyData *pInputs, int iNumCars);
 void NetSimSaveCar(int iCar, tCar *pSaved);
 void NetSimRestoreCar(int iCar, const tCar *pSaved);
@@ -79,4 +87,11 @@ void NetSimCanonicaliseInput(tCarInputData *pInput);
 int NetSimLegacyToWorld(const tCar *pCar, tNetWorldPose *pPose);
 int NetSimWorldToLegacy(const tNetWorldPose *pPose, tCar *pCar);
 void NetSimRehomeChunk(tCar *pCar);
+void NetSimClearRenderCorrection(int iCar);
+void NetSimSetRenderCorrection(int iCar, const tNetWorldPose *pBefore,
+                               const tNetWorldPose *pAfter, int iTicks);
+void NetSimAdvanceRenderCorrections(void);
+int NetSimApplyRenderCorrection(int iCar, tVec3 *pPosition, int *piYaw,
+                                int *piPitch, int *piRoll);
+int NetSimRenderCorrectionAt(int iCar, tNetCorrection *pCorrection);
 #endif

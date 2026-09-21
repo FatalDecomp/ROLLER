@@ -191,11 +191,11 @@ pub fn build(b: *std.Build) void {
         exe_mod.addCSourceFiles(.{
             .flags = c_flags,
             .files = &.{
-            "PROJECTS/ROLLER/debug_overlay.c",
-            "PROJECTS/ROLLER/net_harness.c",
-            "PROJECTS/ROLLER/net_frontend_lobby.c",
-            "PROJECTS/ROLLER/net_transport.c",
-            "PROJECTS/ROLLER/crashdump.c",
+                "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/net_harness.c",
+                "PROJECTS/ROLLER/net_frontend_lobby.c",
+                "PROJECTS/ROLLER/net_transport.c",
+                "PROJECTS/ROLLER/crashdump.c",
                 "PROJECTS/ROLLER/menu_render_gpu.c",
                 "PROJECTS/ROLLER/crt_filter.c",
                 "PROJECTS/ROLLER/game_render_hardware.c",
@@ -363,8 +363,15 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&wildmidi_config_install.step);
 
     configureRenderQueue3DTests(
-        b, target, optimize, c_flags, python_checks, assets_path,
-        under_valgrind, soak_track, soak_cycles,
+        b,
+        target,
+        optimize,
+        c_flags,
+        python_checks,
+        assets_path,
+        under_valgrind,
+        soak_track,
+        soak_cycles,
     );
 
     // Snapshot regression harness: drive the snapshot binary serially across
@@ -455,7 +462,9 @@ fn configureRenderQueue3DTests(
         .optimize = optimize,
     });
     const net_transport_mod = b.createModule(.{
-        .target = target, .optimize = optimize, .link_libc = true,
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
     net_transport_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     net_transport_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -655,6 +664,48 @@ fn configureRenderQueue3DTests(
     run_net_coherence.addArg("--full-state-coherence");
     const net_coherence_tests = b.step("test-net-full-state-coherence", "Run NET-E0-S4 bounded wire replay coherence gate");
     net_coherence_tests.dependOn(&run_net_coherence.step);
+    // D20 suppression has to exercise real sound.c.  The low-level
+    // rollersound stub is the device-boundary mock; only sound_stub.c is
+    // swapped out of the ordinary roller-core source set.
+    const net_replay_output_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_replay_output_mod.sanitize_c = .off;
+    net_replay_output_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_replay_output_mod.addIncludePath(sdl.builder.path("include"));
+    net_replay_output_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_replay_output_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_replay_output_mod.addIncludePath(libcdio.builder.path("include"));
+    net_replay_output_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_replay_output_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_replay_output_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_replay_output_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_replay_output_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_replay_output_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_replay_output_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_replay_output_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSourcesRealSound(b),
+    });
+    net_replay_output_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/net_foundations_test.c"},
+    });
+    const net_replay_output_exe = b.addExecutable(.{
+        .name = "net_replay_output_acceptance",
+        .root_module = net_replay_output_mod,
+    });
+    const run_net_replay_output = b.addRunArtifact(net_replay_output_exe);
+    run_net_replay_output.addFileArg(assets_path.path(b, soak_track));
+    run_net_replay_output.addDirectoryArg(assets_path);
+    run_net_replay_output.addArg("--replay-output-only");
+    const net_replay_output_tests = b.step(
+        "test-net-replay-output",
+        "Run D20 replay suppression against real sound.c",
+    );
+    net_replay_output_tests.dependOn(&run_net_replay_output.step);
     const net_host_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -729,15 +780,15 @@ fn configureRenderQueue3DTests(
     const run_net_client = b.addRunArtifact(net_client_exe);
     run_net_client.addFileArg(assets_path.path(b, soak_track));
     run_net_client.addDirectoryArg(assets_path);
-    const net_client_tests = b.step("test-net-client", "Run NET-E4-S1 client timeline acceptance");
+    const net_client_tests = b.step("test-net-client", "Run NET-E4 client prediction acceptance");
     net_client_tests.dependOn(&run_net_client.step);
+    net_client_tests.dependOn(&run_net_replay_output.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);
     run_net_audit.addArg("--field-audit");
     const net_audit = b.step("audit-net-car-fields", "Report every tCar field and zero-field replay sensitivity");
     net_audit.dependOn(&run_net_audit.step);
-
 
     const run_net_harness = b.addSystemCommand(&.{ "python", "tests/net_harness.py", "--server" });
     run_net_harness.addArtifactArg(net_server_exe);
@@ -886,14 +937,11 @@ fn configureRenderQueue3DTests(
     editor_overlay_toggle_mod.sanitize_c = .off;
     editor_overlay_toggle_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
     editor_overlay_toggle_mod.addIncludePath(sdl.builder.path("include"));
-    editor_overlay_toggle_mod.addIncludePath(
-        sdl_image_source.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(sdl_image_source.builder.path("include"));
     editor_overlay_toggle_mod.addIncludePath(wildmidi.builder.path("include"));
     editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("include"));
-    editor_overlay_toggle_mod.addIncludePath(
-        libcdio.builder.path("zig-config"));
-    editor_overlay_toggle_mod.addIncludePath(
-        b.path("external/Nuklear-4.13.2"));
+    editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_overlay_toggle_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
     editor_overlay_toggle_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     editor_overlay_toggle_mod.linkLibrary(sdl.artifact("SDL3"));
     editor_overlay_toggle_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
@@ -2086,6 +2134,20 @@ fn rollerCoreSources(b: *Build) []const []const u8 {
             b.allocator.dupe(u8, source) catch @panic("out of memory"),
         ) catch @panic("out of memory");
     }
+    return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
+}
+
+fn rollerCoreSourcesRealSound(b: *Build) []const []const u8 {
+    var sources: ArrayList([]const u8) = .empty;
+    for (rollerCoreSources(b)) |source| {
+        if (std.mem.eql(u8, source, "PROJECTS/ROLLER/sound_stub.c"))
+            continue;
+        sources.append(b.allocator, source) catch @panic("out of memory");
+    }
+    sources.append(
+        b.allocator,
+        "PROJECTS/ROLLER/sound.c",
+    ) catch @panic("out of memory");
     return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
 }
 

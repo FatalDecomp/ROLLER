@@ -982,6 +982,10 @@ int main(int iArgc, const char **ppArgv, const char **ppEnv)
   }
   static tTestMoment running;
   NetTestCapture(&running);
+  if (iArgc == 4 && !strcmp(ppArgv[3], "--replay-output-only")) {
+    NetTestReplayOutput();
+    return 0;
+  }
   NetTestDoubleRun();
   NetTestRestore(&running);
   for (int iVariant = 0; iVariant < 8; ++iVariant) {

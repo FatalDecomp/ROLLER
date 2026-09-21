@@ -346,3 +346,133 @@ three-client soak remains E8-S1 multi-process work rather than creating
 multiple worlds in this process.
 
 Not yet checkable: convention 11's legacy-call trap, which arrives in E7-S1.
+
+## E4-S3 rollback, replay and prediction modes
+
+Implemented on 2026-09-20 in `net_client.c`, with validation and
+authoritative-field helpers in `net_snapshot.c`, presentation smoothing in
+`net_sim_seam.c`, and the draw-only application seam in `drawtrk3.c`.
+
+### Reconciliation and replay
+
+The client considers the newest retained snapshot no newer than its current
+tick and newer than `uiLastReconciledTick`. A correction is deferred once per
+snapshot tick until the snapshot, all group extras, all predictions, and the
+post-tick context are present. The complete group is validated before any
+member is written.
+
+`NetClientMovementWithin` follows the E0-S4 assignment. Position is compared
+in world space at 0.5 track units, all four world angles at two degrees (91
+units of the 14-bit circle), and the wire velocity and headline speeds at one
+legacy speed unit. Discrete movement fields are exact. Exact `fHealth` is
+included because it controls branching even though health is also host-owned.
+Lap/result/damage/timing fields do not cause a correction.
+
+A correction restores the moment in D18 order:
+
+1. install all snapshot ramp timings, rebuilding geometry;
+2. install the whole rollback group from snapshot state plus own-car extras;
+3. debug-check the restored world pose;
+4. restore the matched post-tick context;
+5. rewrite the input ring from T through the current client tick, including
+   T as the previous-input slot;
+6. set `net_sim_replaying`, replay `(T, uiClientTick]` through
+   `control_one_tick`, and regenerate prediction and context history after
+   every tick.
+
+The input ring is physically preloaded to the end of the span. Intermediate
+context records therefore replace that physical future `writeptr` with the
+logical post-tick value a live run had; at the end, physical `readptr` and
+`writeptr` have caught up naturally. `uiClientTick` is never assigned by a
+correction or mode switch.
+
+`NetSnapshotApplyAuthoritative` validates the complete full state and writes
+only the E0-S4 host-owned fields. A paired state applies on receipt/current
+tick and again after replay. The newest prediction is re-recorded after that
+application, so the live group and newest history agree after correction.
+
+### Visual correction
+
+Before replay, each group car's current world pose is saved. The difference
+from the replay result becomes an eight-tick `tNetCorrection`. The simulation
+always sees the corrected car; only the car pose queued by `drawtrk3.c` gets
+the decaying world-position and shortest-arc yaw offset. Camera, collisions,
+history, and future prediction never read the offset. Entry to delayed mode
+clears it.
+
+### Prediction modes
+
+The replay budget is derived once per race as
+
+```text
+clamp((500 ms * tick rate) / 1000, 16, 64)
+```
+
+which gives 18, 25, and 50 ticks at 36, 50, and 100 Hz. A static assertion
+keeps the older 18-tick Contract B horizon tied specifically to 36 Hz.
+
+An over-budget disagreement raises pressure; three skips enter
+`NET_PREDICT_DELAYED`. Independently, expected replay depth (lead plus half
+RTT) above the budget for two seconds enters delayed mode. All group cars
+become ordinary E4-S2 puppets, prediction history and render offsets clear,
+and input/context history continues. No correction pass runs while delayed.
+
+Expected depth below 85 percent of budget for three seconds makes exit
+eligible. Exit un-puppets the group and performs the ordinary D18 restore and
+replay from the newest complete snapshot. Failure leaves the group delayed;
+success changes the mode without changing `uiClientTick`. The overlay's
+existing fields now receive correction count and magnitude, deferred count,
+replay depth/ticks/cost, prediction mode/transitions, and delayed time.
+
+### Acceptance coverage and measurements
+
+`test-net-client` now covers both 36 and 100 Hz and additionally checks:
+
+- a forced 15-tick, two-unit world-space disturbance causes one correction,
+  regenerates live/history equality, and creates an eight-tick visual offset;
+- a 0.5-second lap-time-only difference applies for display and causes no
+  correction;
+- dropping the own-car state counts exactly one defer, leaves correction
+  count unchanged, and corrects after the matching extra arrives;
+- 100 consecutive synthetic snapshots each force a 14-tick replay for the
+  cost sample;
+- 600 ms RTT enters delayed mode at both rates, stays there for 20 seconds
+  with zero replay while every tick still sends input and the snapshot puppet
+  remains visibly moving, and makes at most one high-latency transition;
+- 120 ms RTT returns to full prediction inside five seconds through a bounded
+  exit replay, with monotonic client tick, matching ramp tick, and the group
+  no longer puppeted.
+
+The E0 foundations suite remains the strict local-determinism half of this
+acceptance: eight byte-exact rollback variants include the start gate, the
+previous-input slot, two local cars, effects/RNG, and engine state; the five
+Contract B cases cover speed 250, airborne, braking, gear change, and
+fractional-health engine start with RNG identity.
+
+The 100 ms RTT collision feel is unchanged from full local prediction: the
+group still runs local one-sided collisions and remote cars are interpolated
+puppets. During a correction replay those puppets hold the latest render pose,
+so a collision inside the corrected span can be felt once and then be refined
+by the next snapshot. In delayed mode collision response arrives with the
+host pose and therefore has the same full-round-trip lag as steering.
+
+The replay-output acceptance now has a separate executable which links the
+real `sound.c`; only `rollersound_stub.c`, the low-level playback boundary,
+is mocked. It proves a 20-tick replay leaves replay-file length, audio queues,
+speech pointers, complete context, cars, and RNG equal to the live run. Both
+Zig and CMake define the target; `test-net-client` depends on it in Zig.
+
+### Test topology judgement
+
+D13 still gives this process one client world. Before an in-process host
+snapshot is built, the test temporarily exposes the client's recorded state
+for that host tick, then restores the live client car. This makes ordinary
+traffic coherent without constructing a second world. In delayed mode, where
+there is intentionally no prediction record, the same host seam advances a
+temporary pose by four world units so the snapshot-puppet path can prove the
+local car remains visibly live. This is test scaffolding, not production
+physics. True controllability-with-lag and multi-client collision feel remain
+E8-S1 multi-process scenarios.
+
+Still not checkable: the E7-S1 legacy-call trap. Split-screen correction uses
+the group-wide production path but remains unexercised until E2-S5.

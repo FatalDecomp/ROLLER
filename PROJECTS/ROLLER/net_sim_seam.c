@@ -12,6 +12,7 @@ int net_sim_replaying;
 int net_sim_authority = NET_AUTHORITY_LOCAL;
 uint8 net_puppet_car[MAX_CARS];
 void (*net_sim_puppet_hook)(void);
+static tNetCorrection s_aRenderCorrections[MAX_CARS];
 
 void NetSimCaptureContext(tNetSimTickContext *pContext)
 {
@@ -108,12 +109,13 @@ void NetSimRestoreContext(const tNetSimTickContext *pContext)
   ROLLERrandDrawCountSet(pContext->ullRandomDraws);
 }
 
-int NetSimRestoreInputRing(const tNetInputSlot *pSlots, int iFirstTick, int iCount, int iReadPtr)
+int NetSimRestoreInputRing(const tNetInputSlot *pSlots, uint32 uiFirstTick,
+                           int iCount, int iReadPtr)
 {
-  if (!pSlots || iFirstTick < 0 || iCount < 2 || iCount > 256 || iReadPtr < 0 || iReadPtr >= 512)
+  if (!pSlots || iCount < 1 || iCount > 256 || iReadPtr < 0 || iReadPtr >= 512)
     return 0;
   for (int iSlot = 0; iSlot < iCount; ++iSlot)
-    if (pSlots[iSlot].uiTick != (uint32)iFirstTick + (uint32)iSlot)
+    if (pSlots[iSlot].uiTick != uiFirstTick + (uint32)iSlot)
       return 0;
   /* Slot zero is the previous tick; iReadPtr consumes slot one. */
   for (int iSlot = 0; iSlot < iCount; ++iSlot)
@@ -264,4 +266,88 @@ void NetSimRehomeChunk(tCar *pCar)
   if (pCar->nCurrChunk >= 0 && pCar->nCurrChunk < TRAK_LEN &&
       fabsf(pCar->pos.fX) > localdata[pCar->nCurrChunk].fTrackHalfLength)
     scansection(pCar);
+}
+
+void NetSimClearRenderCorrection(int iCar)
+{
+  if (iCar >= 0 && iCar < MAX_CARS)
+    memset(&s_aRenderCorrections[iCar], 0,
+           sizeof(s_aRenderCorrections[iCar]));
+}
+
+void NetSimSetRenderCorrection(int iCar, const tNetWorldPose *pBefore,
+                               const tNetWorldPose *pAfter, int iTicks)
+{
+  tNetCorrection *pCorrection;
+  int iYaw;
+  if (iCar < 0 || iCar >= MAX_CARS || !pBefore || !pAfter || iTicks < 1)
+    return;
+  pCorrection = &s_aRenderCorrections[iCar];
+  pCorrection->worldPosOffset.fX =
+      pBefore->position.fX - pAfter->position.fX;
+  pCorrection->worldPosOffset.fY =
+      pBefore->position.fY - pAfter->position.fY;
+  pCorrection->worldPosOffset.fZ =
+      pBefore->position.fZ - pAfter->position.fZ;
+  iYaw = ((pBefore->nYaw - pAfter->nYaw + 8192) & 16383) - 8192;
+  pCorrection->nYawOffset = (int16)iYaw;
+  pCorrection->iTicksRemaining = iTicks;
+}
+
+void NetSimAdvanceRenderCorrections(void)
+{
+  for (int iCar = 0; iCar < MAX_CARS; ++iCar) {
+    tNetCorrection *pCorrection = &s_aRenderCorrections[iCar];
+    float fScale;
+    if (pCorrection->iTicksRemaining <= 0)
+      continue;
+    if (pCorrection->iTicksRemaining == 1) {
+      NetSimClearRenderCorrection(iCar);
+      continue;
+    }
+    fScale = (float)(pCorrection->iTicksRemaining - 1) /
+             (float)pCorrection->iTicksRemaining;
+    pCorrection->worldPosOffset.fX *= fScale;
+    pCorrection->worldPosOffset.fY *= fScale;
+    pCorrection->worldPosOffset.fZ *= fScale;
+    pCorrection->nYawOffset = (int16)lroundf(
+        (float)pCorrection->nYawOffset * fScale);
+    --pCorrection->iTicksRemaining;
+  }
+}
+
+int NetSimApplyRenderCorrection(int iCar, tVec3 *pPosition, int *piYaw,
+                                int *piPitch, int *piRoll)
+{
+  const tNetCorrection *pCorrection;
+  tNetWorldPose pose;
+  tCar renderCar;
+  if (iCar < 0 || iCar >= numcars || !pPosition || !piYaw || !piPitch ||
+      !piRoll)
+    return 0;
+  pCorrection = &s_aRenderCorrections[iCar];
+  if (pCorrection->iTicksRemaining <= 0)
+    return 1;
+  renderCar = Car[iCar];
+  if (!NetSimLegacyToWorld(&renderCar, &pose))
+    return 0;
+  pose.position.fX += pCorrection->worldPosOffset.fX;
+  pose.position.fY += pCorrection->worldPosOffset.fY;
+  pose.position.fZ += pCorrection->worldPosOffset.fZ;
+  pose.nYaw = (int16)((pose.nYaw + pCorrection->nYawOffset) & 16383);
+  if (!NetSimWorldToLegacy(&pose, &renderCar))
+    return 0;
+  *pPosition = renderCar.pos;
+  *piYaw = renderCar.nYaw;
+  *piPitch = renderCar.nPitch;
+  *piRoll = renderCar.nRoll;
+  return 1;
+}
+
+int NetSimRenderCorrectionAt(int iCar, tNetCorrection *pCorrection)
+{
+  if (iCar < 0 || iCar >= MAX_CARS || !pCorrection)
+    return 0;
+  *pCorrection = s_aRenderCorrections[iCar];
+  return 1;
 }

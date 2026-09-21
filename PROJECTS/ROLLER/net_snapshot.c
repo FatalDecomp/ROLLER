@@ -255,6 +255,11 @@ static int NetCarFullStateValid(int iCar, const tNetCarFullState *pState)
   return 1;
 }
 
+int NetSnapshotCarFullValid(int iCar, const tNetCarFullState *pState)
+{
+  return NetCarFullStateValid(iCar, pState);
+}
+
 int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
 {
   tCar car;
@@ -326,6 +331,38 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   car.nActualYaw = pState->extra.nLocalActualYaw;
   NetSimRehomeChunk(&car);
   Car[iCar] = car;
+  human_control[iCar] = pState->state.byHumanControl;
+  finished_car[iCar] = pState->extra.byFinishPosition != 255 ? -1 : 0;
+  return 1;
+}
+
+int NetSnapshotApplyAuthoritative(int iCar,
+                                  const tNetCarFullState *pState)
+{
+  tCar *pCar;
+  if (!NetCarFullStateValid(iCar, pState))
+    return 0;
+  pCar = &Car[iCar];
+  pCar->fRunningLapTime = pState->extra.fRunningLapTime;
+  pCar->fBestLapTime = pState->extra.fBestLapTime;
+  pCar->fPreviousLapTime = pState->extra.fPreviousLapTime;
+  pCar->fTotalRaceTime = pState->extra.fTotalRaceTime;
+  pCar->fHealth = pState->extra.fHealth;
+  pCar->fDurability = pState->extra.fDurability;
+  pCar->nDeathTimer = pState->state.nDeathTimer;
+  pCar->byLives = pState->state.byLives;
+  pCar->byLap = pState->state.byLap;
+  pCar->byRacePosition = pState->state.byRacePosition;
+  pCar->byStatusFlags = pState->state.byStatusFlags;
+  pCar->iStunned = pState->state.byStunned;
+  pCar->byDamageIntensity = pState->state.byDamageIntensity;
+  pCar->iDamageState = pState->state.byDamageState;
+  pCar->byCheatAmmo = pState->state.byCheatAmmo;
+  pCar->byLapNumber = pState->extra.byLapNumber;
+  pCar->byDamageToggle = pState->extra.byDamageToggle;
+  pCar->byKills = pState->extra.byKills;
+  pCar->byAttacker = pState->extra.byAttacker;
+  pCar->byCheatCooldown = pState->extra.byCheatCooldown;
   human_control[iCar] = pState->state.byHumanControl;
   finished_car[iCar] = pState->extra.byFinishPosition != 255 ? -1 : 0;
   return 1;

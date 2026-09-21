@@ -15,6 +15,17 @@
 #define NET_CLIENT_INTERPOLATION_MIN_MS 50.0f
 #define NET_CLIENT_INTERPOLATION_MAX_MS 250.0f
 #define NET_CLIENT_EXTRAPOLATION_MAX_MS 100.0f
+/* Reconciliation thresholds, in wire/world units (4.5). */
+#define NET_CLIENT_POSITION_TOLERANCE 0.5f
+#define NET_CLIENT_SPEED_TOLERANCE 1.0f
+#define NET_CLIENT_ANGLE_TOLERANCE 91 /* two degrees in the 14-bit circle */
+#define NET_CLIENT_CORRECTION_TICKS 8
+/* The session tick rate converts this time budget to 16..64 ticks (4.16). */
+#define NET_CLIENT_REPLAY_BUDGET_MS 500
+#define NET_CLIENT_REPLAY_PRESSURE_MAX 3
+#define NET_CLIENT_HIGH_RTT_MS 2000u
+#define NET_CLIENT_LOW_RTT_MS 3000u
+#define NET_CLIENT_RTT_HYSTERESIS 0.85f
 
 typedef struct tNetClient tNetClient;
 
@@ -29,6 +40,8 @@ typedef struct
   uint32 uiSnapshotAgeMs;
   uint32 uiRampTick;           /* the tick ramps stand at (4.6) */
   uint32 uiRampCorrections;
+  uint32 uiCorrections, uiDeferredCorrections, uiReplayTicksTotal;
+  uint32 uiTimeDegradedMs;
   uint32 uiPuppetHookCalls, uiPuppetApplications;
   uint32 uiInterpolationUnderruns, uiInterpolationExtrapolations;
   /* The host's cumulative counts from the newest input feedback. */
@@ -37,11 +50,14 @@ typedef struct
   uint8 byHasHostEstimate;
   uint8 byStalled;
   int iLeadTicks, iLeadBias;
+  int iReplayDepth, iReplayBudgetTicks, iReplayPressure;
+  int iPredictionMode, iPredictionTransitions;
   float fHostTick;             /* estimated host tick now, minus uiStartTick */
   float fLeadErrorTicks;       /* timeline position minus (host + lead) */
   float fTickScale, fRttMs, fJitterMs, fFrameMs;
   float fInterpolationDelayMs;
   float fRenderTick, fAppliedRenderTick;
+  float fCorrectionMagnitude, fReplayMsTotal, fReplayMsWorst;
 } tNetClientStats;
 
 /* Registers for race traffic on pLobby.  One client per session. */

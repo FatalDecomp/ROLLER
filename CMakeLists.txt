@@ -261,6 +261,27 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-foundations-test)
+    set(ROLLER_CORE_REAL_SOUND_SOURCES ${ROLLER_CORE_SOURCES})
+    list(REMOVE_ITEM ROLLER_CORE_REAL_SOUND_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/sound_stub.c")
+    list(APPEND ROLLER_CORE_REAL_SOUND_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/sound.c")
+    add_executable(net-replay-output-test
+        tests/net_foundations_test.c
+        ${ROLLER_CORE_REAL_SOUND_SOURCES})
+    target_compile_definitions(net-replay-output-test PRIVATE ROLLER_EDITOR_CORE=1)
+    target_compile_features(net-replay-output-test PRIVATE c_std_11)
+    target_include_directories(net-replay-output-test PRIVATE
+        PROJECTS/ROLLER external/Nuklear-4.13.2)
+    target_link_libraries(net-replay-output-test PRIVATE
+        SDL3::SDL3 SDL3_image::SDL3_image)
+    if(ROLLER_MATH_LIBRARY)
+        target_link_libraries(net-replay-output-test PRIVATE "${ROLLER_MATH_LIBRARY}")
+    endif()
+    if(WIN32)
+        target_link_libraries(net-replay-output-test PRIVATE winmm)
+    endif()
+    roller_configure_c_target(net-replay-output-test)
     add_executable(net-host-test tests/net_host_test.c PROJECTS/ROLLER/net_transport_sim.c)
     target_link_libraries(net-host-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-host-test)
@@ -275,6 +296,9 @@ if(ROLLER_BUILD_EDITOR_CORE)
         add_test(NAME net-full-state-coherence COMMAND net-foundations-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
             --full-state-coherence)
+        add_test(NAME net-replay-output COMMAND net-replay-output-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
+            --replay-output-only)
         add_test(NAME net-host COMMAND net-host-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         add_test(NAME net-client COMMAND net-client-test
@@ -283,10 +307,11 @@ if(ROLLER_BUILD_EDITOR_CORE)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
-        set_tests_properties(net-foundations net-full-state-coherence net-host net-client net-harness PROPERTIES TIMEOUT 30)
+        set_tests_properties(net-foundations net-full-state-coherence net-replay-output net-host net-client net-harness PROPERTIES TIMEOUT 30)
     endif()
-    if(WIN32)
-        foreach(net_target IN ITEMS net-foundations-test net-host-test net-client-test net-server)
+    get_target_property(ROLLER_SDL3_TARGET_TYPE SDL3::SDL3 TYPE)
+    if(WIN32 AND NOT ROLLER_SDL3_TARGET_TYPE STREQUAL "INTERFACE_LIBRARY")
+        foreach(net_target IN ITEMS net-foundations-test net-replay-output-test net-host-test net-client-test net-server)
             add_custom_command(TARGET ${net_target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"

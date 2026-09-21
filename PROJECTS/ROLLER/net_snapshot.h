@@ -6,7 +6,11 @@
 int NetSnapshotBuild(tNetSnapshot *pSnapshot, uint32 uiTick, uint32 uiLastEventSeq,
                      uint8 byRaceState, uint8 byPaused);
 int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState);
+int NetSnapshotCarFullValid(int iCar, const tNetCarFullState *pState);
 int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState);
+/* Write only the host-owned half of a validated full state (D19). */
+int NetSnapshotApplyAuthoritative(int iCar,
+                                  const tNetCarFullState *pState);
 /* Install display-grade snapshot state for a puppet.  The world pose is
    converted against the caller's current ramp geometry; no full-state-only
    field is touched. */

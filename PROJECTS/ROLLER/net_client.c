@@ -7,6 +7,7 @@
 #include "frontend.h"
 #include "loadtrak.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +68,8 @@ struct tNetClient
   double dTicksPerMs;
   int iRetentionTicks;
   uint8 byRacing, byJoined, byHasEstimate, byHasFeedback, byHasSnapshot;
-  uint8 byHasFrame, byGroupCount;
+  uint8 byHasFrame, byGroupCount, byHasReconciled, byHasAuthoritative;
+  uint8 byDeferredCounted, byAboveBudget, byBelowBudget, byExitReady;
   uint8 abyGroup[NET_INPUT_MAX_LOCAL_PLAYERS];
   /* Timeline (4.4).  uiClientTick is the newest simulated tick; it moves by
      exactly one per NetClientTick. */
@@ -78,7 +80,10 @@ struct tNetClient
      + dHostOffsetTicks. */
   double dHostOffsetTicks;
   int iLeadBase;
+  int iReplayBudgetTicks, iReplayPressure, iPredictionMode;
   uint32 uiFeedbackHostTick;
+  uint32 uiLastReconciledTick, uiLastAuthoritativeTick, uiDeferredTick;
+  uint64 ullAboveBudgetSinceMs, ullBelowBudgetSinceMs;
   tNetClientStats stats;
   tNetClientInputSlot aInputs[NET_CLIENT_HISTORY];
   tNetClientPredictionSlot aPrediction[NET_INPUT_MAX_LOCAL_PLAYERS][NET_CLIENT_HISTORY];
@@ -95,6 +100,12 @@ _Static_assert(NET_CLIENT_SNAPSHOT_BUFFER > (NET_SNAPSHOT_RETENTION_MS * 100 + 9
                "the snapshot buffer must hold 600 ms at 100 Hz without aliasing");
 _Static_assert(NET_INPUT_REDUNDANCY < NET_CLIENT_HISTORY,
                "a batch must come from the input history");
+_Static_assert(NET_MAX_REPLAY_TICKS ==
+                   (NET_CLIENT_REPLAY_BUDGET_MS * 36) / 1000,
+               "Contract B's 36 Hz horizon must match the session budget");
+
+static void NetClientPublishReconciliationStats(const tNetClient *pClient);
+static void NetClientEnterDelayed(tNetClient *pClient);
 
 static uint64 NetClientNowMs(const tNetClient *pClient)
 {
@@ -149,6 +160,73 @@ static int NetClientMember(const tNetClient *pClient, uint8 byCar)
     if (pClient->abyGroup[iMember] == byCar)
       return iMember;
   return -1;
+}
+
+static int NetClientAngleDifference(int16 nA, int16 nB)
+{
+  int iDifference = ((nA - nB + 8192) & 16383) - 8192;
+  return iDifference < 0 ? -iDifference : iDifference;
+}
+
+/* The comparison contains only E0-S4's movement assignment.  Positions are
+   world-space track units, angular fields use the 14-bit circle, and speed
+   tolerances are legacy speed units (4.5 and D19). */
+static int NetClientMovementWithin(const tNetCarFullState *pPredicted,
+                                   const tNetCarFullState *pHost)
+{
+  const tNetCarState *pA = &pPredicted->state;
+  const tNetCarState *pB = &pHost->state;
+  const tNetCarExtra *pEA = &pPredicted->extra;
+  const tNetCarExtra *pEB = &pHost->extra;
+  float fDx = pA->fWorldPosX - pB->fWorldPosX;
+  float fDy = pA->fWorldPosY - pB->fWorldPosY;
+  float fDz = pA->fWorldPosZ - pB->fWorldPosZ;
+  if (fDx * fDx + fDy * fDy + fDz * fDz >
+          NET_CLIENT_POSITION_TOLERANCE * NET_CLIENT_POSITION_TOLERANCE ||
+      NetClientAngleDifference(pA->nWorldYaw, pB->nWorldYaw) >
+          NET_CLIENT_ANGLE_TOLERANCE ||
+      NetClientAngleDifference(pA->nWorldPitch, pB->nWorldPitch) >
+          NET_CLIENT_ANGLE_TOLERANCE ||
+      NetClientAngleDifference(pA->nWorldRoll, pB->nWorldRoll) >
+          NET_CLIENT_ANGLE_TOLERANCE ||
+      NetClientAngleDifference(pA->nActualYaw, pB->nActualYaw) >
+          NET_CLIENT_ANGLE_TOLERANCE ||
+      fabsf(pA->fFinalSpeed - pB->fFinalSpeed) >
+          NET_CLIENT_SPEED_TOLERANCE ||
+      fabsf(pA->fHorizontalSpeed - pB->fHorizontalSpeed) >
+          NET_CLIENT_SPEED_TOLERANCE ||
+      fabsf(pA->fVelX - pB->fVelX) > NET_CLIENT_SPEED_TOLERANCE ||
+      fabsf(pA->fVelY - pB->fVelY) > NET_CLIENT_SPEED_TOLERANCE ||
+      fabsf(pA->fVelZ - pB->fVelZ) > NET_CLIENT_SPEED_TOLERANCE)
+    return 0;
+  if (pA->nCurrChunk != pB->nCurrChunk ||
+      pA->nReferenceChunk != pB->nReferenceChunk ||
+      pA->nLastValidChunk != pB->nLastValidChunk ||
+      pA->nJumpMomentum != pB->nJumpMomentum ||
+      pA->byGearAyMax != pB->byGearAyMax ||
+      pA->byControlType != pB->byControlType ||
+      pEA->fBaseSpeed != pEB->fBaseSpeed ||
+      pEA->fSpeedOverflow != pEB->fSpeedOverflow ||
+      pEA->fPower != pEB->fPower || pEA->fRPMRatio != pEB->fRPMRatio ||
+      /* Exact health is both host-owned and branch-relevant (4.15). */
+      pEA->fHealth != pEB->fHealth ||
+      pEA->iRollMomentum != pEB->iRollMomentum ||
+      pEA->iRollMotion != pEB->iRollMotion ||
+      pEA->iPitchMotion != pEB->iPitchMotion ||
+      pEA->iYawMotion != pEB->iYawMotion ||
+      pEA->iEngineState != pEB->iEngineState ||
+      pEA->iSteeringInput != pEB->iSteeringInput ||
+      pEA->iBankingSteerOffset != pEB->iBankingSteerOffset ||
+      pEA->nTargetChunk != pEB->nTargetChunk ||
+      pEA->nChangeMateCooldown != pEB->nChangeMateCooldown ||
+      pEA->byEngineStartTimer != pEB->byEngineStartTimer ||
+      pEA->byThrottlePressed != pEB->byThrottlePressed ||
+      pEA->byAccelerating != pEB->byAccelerating ||
+      pEA->byAIThrottleControl != pEB->byAIThrottleControl ||
+      pEA->byPitLaneActiveFlag != pEB->byPitLaneActiveFlag ||
+      pEA->byCollisionTimer != pEB->byCollisionTimer)
+    return 0;
+  return 1;
 }
 
 static int NetClientSnapshotMatchesWorld(const tNetSnapshot *pSnapshot)
@@ -370,6 +448,91 @@ static int NetClientCorrectRamps(tNetClient *pClient)
   return 1;
 }
 
+/* Return 1 for a complete validated pair, 0 while either unreliable message
+   is missing, and -1 for a hostile full state. */
+static int NetClientFullStatesAt(tNetClient *pClient, uint32 uiTick,
+                                 tNetSnapshot *pSnapshot,
+                                 tNetCarFullState *pStates)
+{
+  const tNetClientSnapshotSlot *pSnapshotSlot =
+      &pClient->aSnapshots[uiTick % NET_CLIENT_SNAPSHOT_BUFFER];
+  const tNetClientOwnSlot *pOwn =
+      &pClient->aOwn[uiTick % NET_CLIENT_SNAPSHOT_BUFFER];
+  if (!pSnapshotSlot->byValid || pSnapshotSlot->snapshot.uiTick != uiTick ||
+      !pOwn->byValid || pOwn->uiTick != uiTick)
+    return 0;
+  if (pSnapshotSlot->snapshot.byNumCars != numcars)
+    return -1;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    int iCar = pClient->abyGroup[iMember];
+    pStates[iMember].state = pSnapshotSlot->snapshot.aCars[iCar];
+    pStates[iMember].extra = pOwn->aExtras[iMember];
+    if (!NetSnapshotCarFullValid(iCar, &pStates[iMember]))
+      return -1;
+  }
+  if (pSnapshot)
+    *pSnapshot = pSnapshotSlot->snapshot;
+  return 1;
+}
+
+static int NetClientApplyAuthoritativeAt(tNetClient *pClient, uint32 uiTick,
+                                         int iForce)
+{
+  tNetCarFullState aStates[NET_INPUT_MAX_LOCAL_PLAYERS];
+  int iResult;
+  if (!iForce && pClient->byHasAuthoritative &&
+      (int32)(uiTick - pClient->uiLastAuthoritativeTick) <= 0)
+    return 1;
+  iResult = NetClientFullStatesAt(pClient, uiTick, NULL, aStates);
+  if (iResult != 1)
+    return iResult;
+  /* Validate the whole rollback group before writing any member (D23). */
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    if (!NetSnapshotCarFullValid(pClient->abyGroup[iMember],
+                                 &aStates[iMember]))
+      return -1;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    if (!NetSnapshotApplyAuthoritative(pClient->abyGroup[iMember],
+                                       &aStates[iMember]))
+      return -1;
+  if (!pClient->byHasAuthoritative ||
+      (int32)(uiTick - pClient->uiLastAuthoritativeTick) > 0) {
+    pClient->uiLastAuthoritativeTick = uiTick;
+    pClient->byHasAuthoritative = 1;
+  }
+  return 1;
+}
+
+static void NetClientApplyNewestAuthoritative(tNetClient *pClient)
+{
+  uint32 uiNewest = 0;
+  int iFound = 0;
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    uint32 uiTick;
+    if (!pSlot->byValid)
+      continue;
+    uiTick = pSlot->snapshot.uiTick;
+    if ((int32)(pClient->uiClientTick - uiTick) < 0 ||
+        (pClient->byHasAuthoritative &&
+         (int32)(uiTick - pClient->uiLastAuthoritativeTick) <= 0) ||
+        !pClient->aOwn[uiTick % NET_CLIENT_SNAPSHOT_BUFFER].byValid ||
+        pClient->aOwn[uiTick % NET_CLIENT_SNAPSHOT_BUFFER].uiTick != uiTick)
+      continue;
+    if (!iFound || (int32)(uiTick - uiNewest) > 0) {
+      uiNewest = uiTick;
+      iFound = 1;
+    }
+  }
+  if (iFound) {
+    int iResult = NetClientApplyAuthoritativeAt(pClient, uiNewest, 0);
+    if (iResult < 0) {
+      pClient->aOwn[uiNewest % NET_CLIENT_SNAPSHOT_BUFFER].byValid = 0;
+      ++pClient->stats.uiRejectedMessages;
+    }
+  }
+}
+
 static void NetClientReceiveSnapshot(tNetClient *pClient,
                                      const tNetMessage *pMessage,
                                      uint64 ullNowMs)
@@ -400,6 +563,7 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
     NetClientObserveHost(pClient, NetClientRelative(pClient, snapshot.uiTick),
                          ullNowMs);
   }
+  NetClientApplyNewestAuthoritative(pClient);
 }
 
 static void NetClientReceiveOwnCarState(tNetClient *pClient,
@@ -435,6 +599,7 @@ static void NetClientReceiveOwnCarState(tNetClient *pClient,
     pSlot->aExtras[NetClientMember(pClient, abyCars[iEntry])] = aExtras[iEntry];
   pSlot->byValid = 1;
   ++pClient->stats.uiOwnCarStates;
+  NetClientApplyNewestAuthoritative(pClient);
 }
 
 static void NetClientReceiveFeedback(tNetClient *pClient,
@@ -521,6 +686,8 @@ void NetClientDestroy(tNetClient *pClient)
     net_sim_puppet_hook = NULL;
     s_pPuppetClient = NULL;
     memset(net_puppet_car, 0, sizeof(net_puppet_car));
+    for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+      NetSimClearRenderCorrection(pClient->abyGroup[iMember]);
   }
   NetLobbyClientSetRaceCallback(pClient->pLobby, NULL, NULL);
   free(pClient);
@@ -579,6 +746,12 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->dTicksPerMs = config.unTickRateHz / 1000.0;
   pClient->iRetentionTicks =
       (NET_SNAPSHOT_RETENTION_MS * config.unTickRateHz + 999) / 1000;
+  pClient->iReplayBudgetTicks =
+      (NET_CLIENT_REPLAY_BUDGET_MS * config.unTickRateHz) / 1000;
+  if (pClient->iReplayBudgetTicks < 16)
+    pClient->iReplayBudgetTicks = 16;
+  if (pClient->iReplayBudgetTicks > 64)
+    pClient->iReplayBudgetTicks = 64;
   memcpy(pClient->abyGroup, abyGroup, sizeof(abyGroup));
   pClient->byGroupCount = (uint8)iGroupCount;
   pClient->uiStartTick = uiStartTick;
@@ -590,16 +763,31 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->dAccumTicks = 0.0;
   pClient->dHostOffsetTicks = 0.0;
   pClient->iLeadBase = 0;
+  pClient->iReplayPressure = 0;
+  pClient->iPredictionMode = NET_PREDICT_FULL;
+  pClient->uiLastReconciledTick = uiStartTick - 1u;
+  pClient->uiLastAuthoritativeTick = uiStartTick - 1u;
+  pClient->uiDeferredTick = uiStartTick - 1u;
   pClient->byJoined = 0;
   pClient->byHasEstimate = 0;
   pClient->byHasFeedback = 0;
   pClient->byHasSnapshot = 0;
   pClient->byHasFrame = 0;
+  pClient->byHasReconciled = 0;
+  pClient->byHasAuthoritative = 0;
+  pClient->byDeferredCounted = 0;
+  pClient->byAboveBudget = 0;
+  pClient->byBelowBudget = 0;
+  pClient->byExitReady = 0;
   pClient->stats.fTickScale = 1.0f;
   pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MIN_MS;
+  pClient->stats.iPredictionMode = NET_PREDICT_FULL;
+  pClient->stats.iReplayBudgetTicks = pClient->iReplayBudgetTicks;
   memset(net_puppet_car, 0, sizeof(net_puppet_car));
   for (int iCar = 0; iCar < numcars; ++iCar)
     NetSimSetPuppet(iCar, NetClientMember(pClient, (uint8)iCar) < 0);
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    NetSimClearRenderCorrection(pClient->abyGroup[iMember]);
   s_pPuppetClient = pClient;
   net_sim_puppet_hook = NetClientPuppetHook;
   pClient->byRacing = 1;
@@ -626,6 +814,52 @@ static void NetClientUpdateLead(tNetClient *pClient, float fRttMs,
   if (iLead > NET_INPUT_HORIZON - NET_INPUT_REDUNDANCY)
     iLead = NET_INPUT_HORIZON - NET_INPUT_REDUNDANCY;
   pClient->stats.iLeadTicks = iLead;
+}
+
+static int NetClientExpectedReplayTicks(const tNetClient *pClient)
+{
+  return pClient->stats.iLeadTicks +
+      (int)ceil(pClient->stats.fRttMs * 0.5 * pClient->dTicksPerMs);
+}
+
+static void NetClientUpdatePredictionPressure(tNetClient *pClient,
+                                              uint64 ullNowMs,
+                                              uint32 uiElapsedMs)
+{
+  int iExpected = NetClientExpectedReplayTicks(pClient);
+  if (pClient->iPredictionMode == NET_PREDICT_FULL) {
+    pClient->byBelowBudget = 0;
+    if (iExpected > pClient->iReplayBudgetTicks) {
+      if (!pClient->byAboveBudget) {
+        pClient->byAboveBudget = 1;
+        pClient->ullAboveBudgetSinceMs = ullNowMs;
+      } else if (ullNowMs - pClient->ullAboveBudgetSinceMs >=
+                 NET_CLIENT_HIGH_RTT_MS) {
+        NetClientEnterDelayed(pClient);
+      }
+    } else {
+      pClient->byAboveBudget = 0;
+    }
+  } else {
+    uint32 uiBefore = pClient->stats.uiTimeDegradedMs;
+    pClient->byAboveBudget = 0;
+    pClient->stats.uiTimeDegradedMs += uiElapsedMs;
+    if (pClient->stats.uiTimeDegradedMs < uiBefore)
+      pClient->stats.uiTimeDegradedMs = UINT32_MAX;
+    if ((float)iExpected <=
+        (float)pClient->iReplayBudgetTicks * NET_CLIENT_RTT_HYSTERESIS) {
+      if (!pClient->byBelowBudget) {
+        pClient->byBelowBudget = 1;
+        pClient->ullBelowBudgetSinceMs = ullNowMs;
+      } else if (ullNowMs - pClient->ullBelowBudgetSinceMs >=
+                 NET_CLIENT_LOW_RTT_MS) {
+        pClient->byExitReady = 1;
+      }
+    } else {
+      pClient->byBelowBudget = 0;
+      pClient->byExitReady = 0;
+    }
+  }
 }
 
 void NetClientPump(tNetClient *pClient)
@@ -662,6 +896,9 @@ void NetClientPump(tNetClient *pClient)
   if (pClient->stats.fInterpolationDelayMs > NET_CLIENT_INTERPOLATION_MAX_MS)
     pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MAX_MS;
   NetClientUpdateLead(pClient, pClient->stats.fRttMs, pClient->stats.fJitterMs);
+  NetClientUpdatePredictionPressure(
+      pClient, ullNowMs,
+      dElapsedMs >= (double)UINT32_MAX ? UINT32_MAX : (uint32)dElapsedMs);
 
   if (pClient->byHasEstimate) {
     double dHost = NetClientHostTickAt(pClient, ullNowMs);
@@ -697,6 +934,7 @@ void NetClientPump(tNetClient *pClient)
   g_netStats.fTickScale = pClient->stats.fTickScale;
   g_netStats.iLateInputs = (int)pClient->stats.uiHostLateInputs;
   g_netStats.iFutureInputs = (int)pClient->stats.uiHostFutureInputs;
+  NetClientPublishReconciliationStats(pClient);
 }
 
 int NetClientTicksDue(const tNetClient *pClient)
@@ -734,6 +972,344 @@ static void NetClientSendBatch(tNetClient *pClient, uint32 uiTick)
     ++pClient->stats.uiBatchesSent;
 }
 
+static int NetClientRecordPostTick(tNetClient *pClient, uint32 uiTick,
+                                   int iRecordPrediction)
+{
+  if (iRecordPrediction) {
+    for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+      tNetClientPredictionSlot *pSlot =
+          &pClient->aPrediction[iMember][uiTick % NET_CLIENT_HISTORY];
+      pSlot->uiTick = uiTick;
+      pSlot->byValid = (uint8)NetSnapshotEncodeCarFull(
+          pClient->abyGroup[iMember], &pSlot->state);
+      if (!pSlot->byValid)
+        return 0;
+    }
+  }
+  {
+    tNetClientContextSlot *pSlot =
+        &pClient->aContext[uiTick % NET_CLIENT_HISTORY];
+    NetSimCaptureContext(&pSlot->context);
+    pSlot->uiTick = uiTick;
+    pSlot->byValid = 1;
+  }
+  return 1;
+}
+
+static void NetClientPublishReconciliationStats(const tNetClient *pClient)
+{
+  g_netStats.fCorrectionMagnitude = pClient->stats.fCorrectionMagnitude;
+  g_netStats.iCorrectionCount = (int)pClient->stats.uiCorrections;
+  g_netStats.iDeferredCorrections =
+      (int)pClient->stats.uiDeferredCorrections;
+  g_netStats.iReplayTicksTotal = (int)pClient->stats.uiReplayTicksTotal;
+  g_netStats.iReplayDepth = pClient->stats.iReplayDepth;
+  g_netStats.fReplayMsTotal = pClient->stats.fReplayMsTotal;
+  g_netStats.fReplayMsWorst = pClient->stats.fReplayMsWorst;
+  g_netStats.iPredictionMode = pClient->stats.iPredictionMode;
+  g_netStats.iPredictionTransitions = pClient->stats.iPredictionTransitions;
+  g_netStats.uiTimeDegradedMs = pClient->stats.uiTimeDegradedMs;
+}
+
+static void NetClientEnterDelayed(tNetClient *pClient)
+{
+  if (pClient->iPredictionMode == NET_PREDICT_DELAYED)
+    return;
+  pClient->iPredictionMode = NET_PREDICT_DELAYED;
+  pClient->stats.iPredictionMode = NET_PREDICT_DELAYED;
+  ++pClient->stats.iPredictionTransitions;
+  pClient->byAboveBudget = 0;
+  pClient->byBelowBudget = 0;
+  pClient->byExitReady = 0;
+  memset(pClient->aPrediction, 0, sizeof(pClient->aPrediction));
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    NetSimSetPuppet(pClient->abyGroup[iMember], 1);
+    NetSimClearRenderCorrection(pClient->abyGroup[iMember]);
+  }
+  NetClientPublishReconciliationStats(pClient);
+}
+
+static int NetClientReplayInputs(tNetClient *pClient, uint32 uiFirstTick,
+                                 int iCount, tNetInputSlot *pSlots)
+{
+  if (iCount < 1 || iCount > NET_CLIENT_HISTORY)
+    return 0;
+  memset(pSlots, 0, (size_t)iCount * sizeof(*pSlots));
+  for (int iSlot = 0; iSlot < iCount; ++iSlot) {
+    uint32 uiTick = uiFirstTick + (uint32)iSlot;
+    const tNetClientInputSlot *pInput =
+        &pClient->aInputs[uiTick % NET_CLIENT_HISTORY];
+    if (!pInput->byValid || pInput->uiTick != uiTick)
+      return 0;
+    pSlots[iSlot].uiTick = uiTick;
+    for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+      pSlots[iSlot].aInputs[pClient->abyGroup[iMember]].data =
+          pInput->aInputs[iMember];
+  }
+  return 1;
+}
+
+static int NetClientReplayFrom(tNetClient *pClient, uint32 uiTick)
+{
+  tNetSnapshot snapshot;
+  tNetCarFullState aHost[NET_INPUT_MAX_LOCAL_PLAYERS];
+  tNetInputSlot aInputs[NET_CLIENT_HISTORY];
+  tNetSimTickContext context;
+  tNetWorldPose aBefore[NET_INPUT_MAX_LOCAL_PLAYERS];
+  tNetWorldPose aAfter[NET_INPUT_MAX_LOCAL_PLAYERS];
+  const tNetClientContextSlot *pContext;
+  uint64 ullStartedMs, ullElapsedMs;
+  uint32 uiCurrent = pClient->uiClientTick;
+  int iReplayTicks = (int)(uiCurrent - uiTick);
+  int iInputCount = iReplayTicks + 1;
+  int iSavedAuthority, iSavedReplaying;
+  float fMagnitude = 0.0f;
+
+  if ((int32)(uiCurrent - uiTick) < 0 ||
+      iReplayTicks > pClient->iReplayBudgetTicks ||
+      NetClientFullStatesAt(pClient, uiTick, &snapshot, aHost) != 1)
+    return 0;
+  pContext = &pClient->aContext[uiTick % NET_CLIENT_HISTORY];
+  if (!pContext->byValid || pContext->uiTick != uiTick ||
+      !NetClientReplayInputs(pClient, uiTick, iInputCount, aInputs))
+    return 0;
+  context = pContext->context;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    int iCar = pClient->abyGroup[iMember];
+    if (!NetSnapshotCarFullValid(iCar, &aHost[iMember]) ||
+        !NetSimLegacyToWorld(&Car[iCar], &aBefore[iMember]))
+      return 0;
+  }
+
+  ullStartedMs = NetClientNowMs(pClient);
+  /* D18 restore order: geometry, the entire rollback group, matched
+     post-tick context, then the input slot for T and every consumed slot. */
+  if (!NetSimRestoreRamps(snapshot.aRamps))
+    return 0;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    if (!NetSnapshotDecodeCarFull(pClient->abyGroup[iMember],
+                                  &aHost[iMember]))
+      return 0;
+#ifndef NDEBUG
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    tNetWorldPose restored;
+    const tNetCarState *pState = &aHost[iMember].state;
+    assert(NetSimLegacyToWorld(&Car[pClient->abyGroup[iMember]], &restored));
+    assert(fabsf(restored.position.fX - pState->fWorldPosX) < 0.05f);
+    assert(fabsf(restored.position.fY - pState->fWorldPosY) < 0.05f);
+    assert(fabsf(restored.position.fZ - pState->fWorldPosZ) < 0.05f);
+    assert(NetClientAngleDifference(restored.nYaw, pState->nWorldYaw) <= 2);
+  }
+#endif
+  NetSimRestoreContext(&context);
+  if (!NetSimRestoreInputRing(aInputs, uiTick, iInputCount,
+                              context.iReadptr))
+    return 0;
+  if (!NetClientRecordPostTick(pClient, uiTick, 1))
+    return 0;
+  /* The replay input ring is preloaded through uiCurrent, so its physical
+     writeptr is ahead.  History records the logical post-tick boundary a
+     live run had at T, where producer and consumer had caught up. */
+  pClient->aContext[uiTick % NET_CLIENT_HISTORY].context.iWriteptr =
+      context.iWriteptr;
+
+  iSavedAuthority = net_sim_authority;
+  iSavedReplaying = net_sim_replaying;
+  net_sim_authority = NET_AUTHORITY_REMOTE;
+  net_sim_replaying = 1;
+  for (uint32 uiReplay = uiTick + 1u;
+       (int32)(uiCurrent - uiReplay) >= 0; ++uiReplay) {
+    control_one_tick();
+    if (!NetClientRecordPostTick(pClient, uiReplay, 1)) {
+      net_sim_replaying = iSavedReplaying;
+      net_sim_authority = iSavedAuthority;
+      return 0;
+    }
+    pClient->aContext[uiReplay % NET_CLIENT_HISTORY].context.iWriteptr =
+        pClient->aContext[uiReplay % NET_CLIENT_HISTORY].context.iReadptr;
+  }
+  net_sim_replaying = iSavedReplaying;
+  net_sim_authority = iSavedAuthority;
+  pClient->uiRampTick = uiCurrent;
+  pClient->stats.uiRampTick = uiCurrent;
+
+  if (NetClientApplyAuthoritativeAt(pClient, uiTick, 1) != 1 ||
+      !NetClientRecordPostTick(pClient, uiCurrent, 1))
+    return 0;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    float fDx, fDy, fDz, fDistance;
+    int iCar = pClient->abyGroup[iMember];
+    if (!NetSimLegacyToWorld(&Car[iCar], &aAfter[iMember]))
+      return 0;
+    fDx = aBefore[iMember].position.fX - aAfter[iMember].position.fX;
+    fDy = aBefore[iMember].position.fY - aAfter[iMember].position.fY;
+    fDz = aBefore[iMember].position.fZ - aAfter[iMember].position.fZ;
+    fDistance = sqrtf(fDx * fDx + fDy * fDy + fDz * fDz);
+    if (fDistance > fMagnitude)
+      fMagnitude = fDistance;
+    NetSimSetRenderCorrection(iCar, &aBefore[iMember], &aAfter[iMember],
+                              NET_CLIENT_CORRECTION_TICKS);
+  }
+  ullElapsedMs = NetClientNowMs(pClient) - ullStartedMs;
+  ++pClient->stats.uiCorrections;
+  pClient->stats.uiReplayTicksTotal += (uint32)iReplayTicks;
+  pClient->stats.iReplayDepth = iReplayTicks;
+  pClient->stats.fCorrectionMagnitude = fMagnitude;
+  pClient->stats.fReplayMsTotal += (float)ullElapsedMs;
+  if ((float)ullElapsedMs > pClient->stats.fReplayMsWorst)
+    pClient->stats.fReplayMsWorst = (float)ullElapsedMs;
+  pClient->uiLastReconciledTick = uiTick;
+  pClient->byHasReconciled = 1;
+  pClient->byDeferredCounted = 0;
+  if (pClient->iReplayPressure > 0)
+    --pClient->iReplayPressure;
+  pClient->stats.iReplayPressure = pClient->iReplayPressure;
+  NetClientPublishReconciliationStats(pClient);
+  return 1;
+}
+
+static int NetClientNewestCandidate(const tNetClient *pClient,
+                                    uint32 *puiTick)
+{
+  uint32 uiNewest = 0;
+  int iFound = 0;
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    uint32 uiTick;
+    if (!pSlot->byValid)
+      continue;
+    uiTick = pSlot->snapshot.uiTick;
+    if ((int32)(pClient->uiClientTick - uiTick) < 0 ||
+        (pClient->byHasReconciled &&
+         (int32)(uiTick - pClient->uiLastReconciledTick) <= 0))
+      continue;
+    if (!iFound || (int32)(uiTick - uiNewest) > 0) {
+      uiNewest = uiTick;
+      iFound = 1;
+    }
+  }
+  if (iFound)
+    *puiTick = uiNewest;
+  return iFound;
+}
+
+static void NetClientDefer(tNetClient *pClient, uint32 uiTick)
+{
+  if (!pClient->byDeferredCounted || pClient->uiDeferredTick != uiTick) {
+    pClient->uiDeferredTick = uiTick;
+    pClient->byDeferredCounted = 1;
+    ++pClient->stats.uiDeferredCorrections;
+    NetClientPublishReconciliationStats(pClient);
+  }
+}
+
+static int NetClientReconcile(tNetClient *pClient)
+{
+  tNetSnapshot snapshot;
+  tNetCarFullState aHost[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint32 uiTick;
+  int iPair;
+  int iReplayTicks;
+  if (pClient->iPredictionMode != NET_PREDICT_FULL ||
+      !NetClientNewestCandidate(pClient, &uiTick))
+    return 1;
+  iPair = NetClientFullStatesAt(pClient, uiTick, &snapshot, aHost);
+  if (iPair < 0) {
+    pClient->aOwn[uiTick % NET_CLIENT_SNAPSHOT_BUFFER].byValid = 0;
+    ++pClient->stats.uiRejectedMessages;
+    return 1;
+  }
+  if (!iPair) {
+    NetClientDefer(pClient, uiTick);
+    return 1;
+  }
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    const tNetClientPredictionSlot *pPredicted =
+        &pClient->aPrediction[iMember][uiTick % NET_CLIENT_HISTORY];
+    if (!pPredicted->byValid || pPredicted->uiTick != uiTick) {
+      NetClientDefer(pClient, uiTick);
+      return 1;
+    }
+  }
+  {
+    const tNetClientContextSlot *pContext =
+        &pClient->aContext[uiTick % NET_CLIENT_HISTORY];
+    if (!pContext->byValid || pContext->uiTick != uiTick) {
+      NetClientDefer(pClient, uiTick);
+      return 1;
+    }
+  }
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
+    const tNetClientPredictionSlot *pPredicted =
+        &pClient->aPrediction[iMember][uiTick % NET_CLIENT_HISTORY];
+    if (!NetClientMovementWithin(&pPredicted->state, &aHost[iMember]))
+      goto correct;
+  }
+  pClient->uiLastReconciledTick = uiTick;
+  pClient->byHasReconciled = 1;
+  pClient->byDeferredCounted = 0;
+  if (pClient->iReplayPressure > 0)
+    --pClient->iReplayPressure;
+  pClient->stats.iReplayPressure = pClient->iReplayPressure;
+  NetClientApplyAuthoritativeAt(pClient, uiTick, 1);
+  return 1;
+
+correct:
+  iReplayTicks = (int)(pClient->uiClientTick - uiTick);
+  if (iReplayTicks > pClient->iReplayBudgetTicks) {
+    if (pClient->iReplayPressure < NET_CLIENT_REPLAY_PRESSURE_MAX)
+      ++pClient->iReplayPressure;
+    pClient->stats.iReplayPressure = pClient->iReplayPressure;
+    if (pClient->iReplayPressure >= NET_CLIENT_REPLAY_PRESSURE_MAX)
+      NetClientEnterDelayed(pClient);
+    return 1;
+  }
+  return NetClientReplayFrom(pClient, uiTick);
+}
+
+static int NetClientTryLeaveDelayed(tNetClient *pClient)
+{
+  uint32 uiNewest = 0;
+  int iFound = 0;
+  if (pClient->iPredictionMode != NET_PREDICT_DELAYED ||
+      !pClient->byExitReady)
+    return 1;
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    uint32 uiTick;
+    tNetCarFullState aStates[NET_INPUT_MAX_LOCAL_PLAYERS];
+    if (!pSlot->byValid)
+      continue;
+    uiTick = pSlot->snapshot.uiTick;
+    if ((int32)(pClient->uiClientTick - uiTick) < 0 ||
+        (int)(pClient->uiClientTick - uiTick) > pClient->iReplayBudgetTicks ||
+        NetClientFullStatesAt(pClient, uiTick, NULL, aStates) != 1)
+      continue;
+    if (!iFound || (int32)(uiTick - uiNewest) > 0) {
+      uiNewest = uiTick;
+      iFound = 1;
+    }
+  }
+  if (!iFound)
+    return 1;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    NetSimSetPuppet(pClient->abyGroup[iMember], 0);
+  if (!NetClientReplayFrom(pClient, uiNewest)) {
+    for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+      NetSimSetPuppet(pClient->abyGroup[iMember], 1);
+    return 0;
+  }
+  pClient->iPredictionMode = NET_PREDICT_FULL;
+  pClient->iReplayPressure = 0;
+  pClient->stats.iPredictionMode = NET_PREDICT_FULL;
+  pClient->stats.iReplayPressure = 0;
+  ++pClient->stats.iPredictionTransitions;
+  pClient->byExitReady = 0;
+  pClient->byBelowBudget = 0;
+  NetClientPublishReconciliationStats(pClient);
+  return 1;
+}
+
 int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
 {
   tCopyData aInputs[MAX_CARS];
@@ -743,11 +1319,19 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
   if (!pClient || !pLocalInputs || NetClientTicksDue(pClient) < 1)
     return 0;
   uiTick = pClient->uiClientTick + 1u;
+  NetSimAdvanceRenderCorrections();
+  NetClientApplyNewestAuthoritative(pClient);
 
   /* 4.3 step 2: compare matching ticks before updatestunts advances the
      live ramps.  Correction installs timing and rebuilds geometry, but never
      advances the authoritative local timeline. */
   if (!NetClientCorrectRamps(pClient))
+    return 0;
+
+  /* 4.3 steps 3 and 4: a delayed client resumes through the same restore
+     and replay path; a fully predicting client reconciles before this tick
+     is sampled, so its post-tick history contains the corrected run. */
+  if (!NetClientTryLeaveDelayed(pClient) || !NetClientReconcile(pClient))
     return 0;
 
   /* 4.3 step 5: canonicalise, record in the input history, send. */
@@ -778,20 +1362,9 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
 
   /* 4.3 step 7: record after the tick, so context[N] and pred[N] are the
      state the simulation enters tick N + 1 with. */
-  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
-    tNetClientPredictionSlot *pSlot =
-        &pClient->aPrediction[iMember][uiTick % NET_CLIENT_HISTORY];
-    pSlot->uiTick = uiTick;
-    pSlot->byValid = (uint8)NetSnapshotEncodeCarFull(pClient->abyGroup[iMember],
-                                                     &pSlot->state);
-  }
-  {
-    tNetClientContextSlot *pSlot = &pClient->aContext[uiTick % NET_CLIENT_HISTORY];
-    NetSimCaptureContext(&pSlot->context);
-    pSlot->uiTick = uiTick;
-    pSlot->byValid = 1;
-  }
-  return 1;
+  NetClientApplyNewestAuthoritative(pClient);
+  return NetClientRecordPostTick(
+      pClient, uiTick, pClient->iPredictionMode == NET_PREDICT_FULL);
 }
 
 uint32 NetClientCurrentTick(const tNetClient *pClient)

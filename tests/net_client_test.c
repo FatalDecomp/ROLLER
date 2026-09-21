@@ -1,5 +1,6 @@
-/* NET-E4-S1/S2 acceptance: client timeline, rings, remote-car world-space
-   interpolation, bounded stall extrapolation, and the in-tick puppet hook.
+/* NET-E4-S1/S2/S3 acceptance: client timeline, rings, remote-car world-space
+   interpolation, bounded stall extrapolation, rollback/replay, prediction
+   modes, and the in-tick puppet hook.
 
    One process holds one simulation world (D13), and here it is the client's:
    the client predicts, records all three rings and is the thing under test.
@@ -28,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CHECK(iCondition) do { if (!(iCondition)) { \
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #iCondition); exit(1); \
@@ -60,7 +62,11 @@ typedef struct
 {
   int iTicks;
   uint8 byCar, byRemoteCar, byRemoteReady;
+  uint8 byLocalSwapped;
   uint32 uiStartTick;
+  tNetClient *pClient;
+  tCar savedLocalCar;
+  int iSavedHumanControl, iSavedFinished;
   tNetWorldPose remoteBase, lastPuppetPose;
   float fLastPuppetTick, fMaxPuppetStepPerTick;
   int iPuppetSamples, iSawChunk0, iSawChunk1, iSawAirborne;
@@ -205,12 +211,48 @@ static int NetTestHostSimulate(void *pContext, uint32 uiTick,
                                const tCopyData *pInputs, int iNumCars)
 {
   tNetTestHostRun *pRun = (tNetTestHostRun *)pContext;
+  tNetCarFullState predicted;
   CHECK(iNumCars == numcars && pRun->iTicks < NET_TEST_MAX_TICKS);
+  /* The process owns the client world (D13), but NetHostTick builds its
+     snapshot immediately after this callback.  Temporarily expose the
+     client's recorded state for the host tick so normal traffic is coherent
+     and E4-S3 only corrects deliberate disturbances. */
+  pRun->byLocalSwapped = 0;
+  if (pRun->pClient &&
+      NetClientPredictionAt(pRun->pClient, 0, uiTick, &predicted)) {
+    NetSimSaveCar(pRun->byCar, &pRun->savedLocalCar);
+    pRun->iSavedHumanControl = human_control[pRun->byCar];
+    pRun->iSavedFinished = finished_car[pRun->byCar];
+    CHECK(NetSnapshotDecodeCarFull(pRun->byCar, &predicted));
+    pRun->byLocalSwapped = 1;
+  } else if (pRun->pClient && net_puppet_car[pRun->byCar]) {
+    tNetWorldPose pose;
+    /* There is no second host world in this D13 test.  While the group is
+       delayed, move the temporary host pose so the ordinary snapshot puppet
+       path still proves that the local car remains visibly live. */
+    NetSimSaveCar(pRun->byCar, &pRun->savedLocalCar);
+    pRun->iSavedHumanControl = human_control[pRun->byCar];
+    pRun->iSavedFinished = finished_car[pRun->byCar];
+    CHECK(NetSimLegacyToWorld(&Car[pRun->byCar], &pose));
+    pose.position.fX += 4.0f;
+    CHECK(NetSimWorldToLegacy(&pose, &Car[pRun->byCar]));
+    pRun->byLocalSwapped = 1;
+  }
   if (pRun->byRemoteReady)
     NetTestSetRemoteHostState(pRun, uiTick);
   pRun->aTicks[pRun->iTicks].uiTick = uiTick;
   pRun->aTicks[pRun->iTicks].input = pInputs[pRun->byCar].data;
   return 1;
+}
+
+static void NetTestRestoreClientWorld(tNetTestHostRun *pRun)
+{
+  if (!pRun->byLocalSwapped)
+    return;
+  NetSimRestoreCar(pRun->byCar, &pRun->savedLocalCar);
+  human_control[pRun->byCar] = pRun->iSavedHumanControl;
+  finished_car[pRun->byCar] = pRun->iSavedFinished;
+  pRun->byLocalSwapped = 0;
 }
 
 typedef struct
@@ -341,6 +383,305 @@ static void NetTestRampStallRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
          (double)fWorstPlacementError, (double)before.fInterpolationDelayMs);
 }
 
+static void NetTestDeliverRaceMessages(tNetTestNodes *pNodes,
+                                       uint64 *pullNowMs,
+                                       uint16 unTickRateHz)
+{
+  uint64 ullEndMs = *pullNowMs + 1000u / unTickRateHz + 3u;
+  NetTestPumpHost(pNodes);
+  for (; *pullNowMs <= ullEndMs; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+  }
+  NetClientPump(pNodes->pClient);
+  CHECK(NetClientTicksDue(pNodes->pClient) > 0);
+}
+
+static void NetTestQueueSyntheticState(tNetTestNodes *pNodes,
+                                       uint32 uiBaseTick, uint32 uiTick,
+                                       uint8 byCar, float fLateralPush,
+                                       float fLapTimePush, int iSendOwn,
+                                       tNetCarFullState *pHostState)
+{
+  tNetConnection *pConnection = NetSessionHostPlayerConnection(
+      pNodes->pSessionHost,
+      NetSessionClientPlayerIndex(pNodes->pSessionClient));
+  tNetSnapshot snapshot;
+  tNetCarFullState predicted;
+  uint8 abMessage[NET_MAX_PAYLOAD];
+  uint8 abyCars[1] = {byCar};
+  int iLength;
+  CHECK(NetClientSnapshotAt(pNodes->pClient, uiBaseTick, &snapshot));
+  CHECK(NetClientPredictionAt(pNodes->pClient, 0, uiTick, &predicted));
+  for (int iRamp = 0; iRamp < snapshot.byNumRamps; ++iRamp)
+    CHECK(NetSimAdvanceRampStateCopy(
+        iRamp, &snapshot.aRamps[iRamp], (int)(uiTick - uiBaseTick)));
+  snapshot.uiTick = uiTick;
+  snapshot.aCars[byCar] = predicted.state;
+  snapshot.aCars[byCar].fWorldPosY += fLateralPush;
+  predicted.state = snapshot.aCars[byCar];
+  predicted.extra.fRunningLapTime += fLapTimePush;
+  CHECK(NetSnapshotCarFullValid(byCar, &predicted));
+  iLength = NetSnapshotEncode(&snapshot, abMessage, sizeof(abMessage));
+  CHECK(iLength == (int)sizeof(snapshot));
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT, 0,
+                                  abMessage, (uint16)iLength));
+  if (iSendOwn) {
+    iLength = NetSnapshotEncodeOwnCarState(
+        uiTick, abyCars, &predicted.extra, 1, abMessage, sizeof(abMessage));
+    CHECK(iLength > 0);
+    CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_OWN_CAR_STATE, 0,
+                                    abMessage, (uint16)iLength));
+  }
+  if (pHostState)
+    *pHostState = predicted;
+}
+
+static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
+                               uint16 unTickRateHz, uint8 bySnapshotInterval,
+                               uint8 byCar)
+{
+  tNetSimLink link = {0, 0, 0, 0, 0};
+  tNetClientStats before, after;
+  tNetCarFullState host, live, recorded;
+  tNetCorrection correction;
+  tCarInputData input;
+  uint32 uiBaseTick, uiTick;
+  int iDepth;
+  double dCorrectionMs;
+  clock_t tickStarted;
+  /* Let every packet from the steady-state link arrive, then advance only
+     the client.  This creates a clean 15-tick retained span with no newer
+     automatic host snapshot waiting to supersede the synthetic one. */
+  {
+    uint64 ullEndMs = *pullNowMs + 400u;
+    for (; *pullNowMs <= ullEndMs; ++*pullNowMs) {
+      CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+      NetTestPumpHost(pNodes);
+      NetTestPumpClient(pNodes);
+    }
+    NetClientPump(pNodes->pClient);
+    while (NetClientTicksDue(pNodes->pClient) > 0) {
+      input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u,
+                            byCar);
+      CHECK(NetClientTick(pNodes->pClient, &input));
+    }
+  }
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &link));
+
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  CHECK(before.uiCorrections * 100u < before.uiTicks);
+  printf("%u Hz: steady client had %u corrections in %u ticks; "
+         "latest magnitude %.3f\n", unTickRateHz, before.uiCorrections,
+         before.uiTicks, (double)before.fCorrectionMagnitude);
+  uiBaseTick = before.uiNewestSnapshotTick;
+  uiTick = NetClientCurrentTick(pNodes->pClient) - 15u;
+  CHECK((int32)(uiTick - uiBaseTick) > 0);
+  iDepth = (int)(NetClientCurrentTick(pNodes->pClient) - uiTick);
+  NetTestQueueSyntheticState(pNodes, uiBaseTick, uiTick, byCar, 2.0f,
+                             0.0f, 1, &host);
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+  tickStarted = clock();
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  dCorrectionMs = 1000.0 * (clock() - tickStarted) / CLOCKS_PER_SEC;
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  if (after.uiCorrections != before.uiCorrections + 1u)
+    fprintf(stderr, "forced correction: tick %u current %u newest %u, "
+            "corrections %u -> %u, deferred %u -> %u, rejected %u\n",
+            uiTick, NetClientCurrentTick(pNodes->pClient),
+            after.uiNewestSnapshotTick, before.uiCorrections,
+            after.uiCorrections, before.uiDeferredCorrections,
+            after.uiDeferredCorrections, after.uiRejectedMessages);
+  CHECK(after.uiCorrections == before.uiCorrections + 1u);
+  CHECK(after.uiReplayTicksTotal ==
+        before.uiReplayTicksTotal + (uint32)iDepth);
+  CHECK(after.iReplayDepth == iDepth);
+  CHECK(after.fCorrectionMagnitude > NET_CLIENT_POSITION_TOLERANCE);
+  CHECK(NetSnapshotEncodeCarFull(byCar, &live));
+  CHECK(NetClientPredictionAt(pNodes->pClient, 0,
+                              NetClientCurrentTick(pNodes->pClient),
+                              &recorded));
+  CHECK(!memcmp(&live, &recorded, sizeof(live)));
+  CHECK(NetSimRenderCorrectionAt(byCar, &correction));
+  CHECK(correction.iTicksRemaining == NET_CLIENT_CORRECTION_TICKS);
+
+  /* Authoritative-only drift is displayed immediately but never causes a
+     rollback. */
+  before = after;
+  uiBaseTick = uiTick;
+  uiTick += bySnapshotInterval;
+  CHECK((int32)(NetClientCurrentTick(pNodes->pClient) - uiTick) >= 0);
+  NetTestQueueSyntheticState(pNodes, uiBaseTick, uiTick, byCar, 0.0f,
+                             0.5f, 1, &host);
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  CHECK(Car[byCar].fRunningLapTime == host.extra.fRunningLapTime);
+  input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiCorrections == before.uiCorrections);
+
+  /* A snapshot cannot mutate through the correction path without its own-car
+     extra.  Count the defer once, then correct when the pair arrives. */
+  before = after;
+  uiBaseTick = uiTick;
+  uiTick += bySnapshotInterval;
+  CHECK((int32)(NetClientCurrentTick(pNodes->pClient) - uiTick) >= 0);
+  NetTestQueueSyntheticState(pNodes, uiBaseTick, uiTick, byCar, 2.0f,
+                             0.0f, 0, &host);
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiDeferredCorrections == before.uiDeferredCorrections + 1u);
+  CHECK(after.uiCorrections == before.uiCorrections);
+  {
+    tNetConnection *pConnection = NetSessionHostPlayerConnection(
+        pNodes->pSessionHost,
+        NetSessionClientPlayerIndex(pNodes->pSessionClient));
+    uint8 abMessage[NET_MAX_PAYLOAD];
+    uint8 abyCars[1] = {byCar};
+    int iLength = NetSnapshotEncodeOwnCarState(
+        uiTick, abyCars, &host.extra, 1, abMessage, sizeof(abMessage));
+    CHECK(iLength > 0);
+    CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_OWN_CAR_STATE, 0,
+                                    abMessage, (uint16)iLength));
+  }
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiCorrections == before.uiCorrections + 1u);
+
+  /* Cost sample: force one 14-tick correction for each synthetic snapshot.
+     Timing is accumulated so sub-millisecond replays survive clock()
+     granularity on Windows. */
+  {
+    const int iCostCorrections = 100;
+    tNetClientStats costBefore, costAfter;
+    clock_t costTicks = 0;
+    double dCostMs;
+    uiBaseTick = uiTick;
+    CHECK(NetClientStats(pNodes->pClient, &costBefore));
+    for (int iCorrection = 0; iCorrection < iCostCorrections; ++iCorrection) {
+      clock_t correctionStarted;
+      uiTick = uiBaseTick + 1u;
+      CHECK((int32)(NetClientCurrentTick(pNodes->pClient) - uiTick) > 0);
+      NetTestQueueSyntheticState(pNodes, uiBaseTick, uiTick, byCar, 2.0f,
+                                 0.0f, 1, NULL);
+      NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+      input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u,
+                            byCar);
+      correctionStarted = clock();
+      CHECK(NetClientTick(pNodes->pClient, &input));
+      costTicks += clock() - correctionStarted;
+      uiBaseTick = uiTick;
+    }
+    dCostMs = 1000.0 * costTicks / CLOCKS_PER_SEC;
+    CHECK(NetClientStats(pNodes->pClient, &costAfter));
+    CHECK(costAfter.uiCorrections ==
+          costBefore.uiCorrections + (uint32)iCostCorrections);
+    printf("%u Hz: %d forced 14-tick corrections averaged %.3f ms "
+           "(%.2f%% of one tick)\n", unTickRateHz, iCostCorrections,
+           dCostMs / iCostCorrections,
+           100.0 * (dCostMs / iCostCorrections) * unTickRateHz / 1000.0);
+  }
+  printf("%u Hz: forced %d-tick correction in %.3f ms, "
+         "authoritative-only no-op, and one deferred correction\n",
+         unTickRateHz, iDepth, dCorrectionMs);
+}
+
+static void NetTestContinueRace(tNetTestNodes *pNodes, uint64 *pullNowMs,
+                                uint64 ullDurationMs, uint64 ullReleaseMs,
+                                int *piHostTickIndex,
+                                uint16 unTickRateHz, uint8 byCar)
+{
+  uint64 ullStartMs = *pullNowMs;
+  uint64 ullEndMs = ullStartMs + ullDurationMs;
+  uint64 ullFrame = 0, ullNextFrameMs = ullStartMs;
+  for (; *pullNowMs <= ullEndMs; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    while (*pullNowMs >= ullReleaseMs +
+           (uint64)*piHostTickIndex * 1000u / unTickRateHz) {
+      uint32 uiTick = NetHostNextTick(pNodes->pHost);
+      CHECK(s_hostRun.iTicks < NET_TEST_MAX_TICKS);
+      CHECK(NetHostTick(pNodes->pHost, uiTick));
+      NetTestRestoreClientWorld(&s_hostRun);
+      ++s_hostRun.iTicks;
+      ++*piHostTickIndex;
+    }
+    if (*pullNowMs < ullNextFrameMs)
+      continue;
+    ++ullFrame;
+    ullNextFrameMs = ullStartMs + ullFrame * NET_TEST_FRAME_NUMERATOR / 3u;
+    NetTestPumpClient(pNodes);
+    NetClientPump(pNodes->pClient);
+    while (NetClientTicksDue(pNodes->pClient) > 0) {
+      tCarInputData input = NetTestScript(
+          NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+      CHECK(NetClientTick(pNodes->pClient, &input));
+    }
+  }
+}
+
+static void NetTestPredictionModes(tNetTestNodes *pNodes,
+                                   uint64 *pullNowMs,
+                                   uint64 ullReleaseMs,
+                                   int *piHostTickIndex,
+                                   uint16 unTickRateHz, uint8 byCar)
+{
+  tNetSimLink high = {300, 0, 0, 0, 0}; /* 600 ms RTT */
+  tNetSimLink low = {60, 0, 0, 0, 0};   /* 120 ms RTT */
+  tNetClientStats before, entered, held, recovered;
+  tNetWorldPose startPose, endPose;
+  uint32 uiEnteredTick;
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &high));
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  NetTestContinueRace(pNodes, pullNowMs, 5000u, ullReleaseMs,
+                      piHostTickIndex, unTickRateHz, byCar);
+  CHECK(NetClientStats(pNodes->pClient, &entered));
+  CHECK(entered.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(entered.iPredictionTransitions == before.iPredictionTransitions + 1);
+  CHECK(net_puppet_car[byCar]);
+  CHECK(!NetClientPredictionAt(pNodes->pClient, 0,
+                               NetClientCurrentTick(pNodes->pClient),
+                               &(tNetCarFullState){0}));
+  CHECK(NetSimLegacyToWorld(&Car[byCar], &startPose));
+  uiEnteredTick = NetClientCurrentTick(pNodes->pClient);
+  NetTestContinueRace(pNodes, pullNowMs, 20000u, ullReleaseMs,
+                      piHostTickIndex, unTickRateHz, byCar);
+  CHECK(NetClientStats(pNodes->pClient, &held));
+  CHECK(held.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(held.iPredictionTransitions == entered.iPredictionTransitions);
+  CHECK(held.uiReplayTicksTotal == entered.uiReplayTicksTotal);
+  CHECK(held.uiBatchesSent - entered.uiBatchesSent ==
+        held.uiTicks - entered.uiTicks);
+  CHECK(NetClientCurrentTick(pNodes->pClient) > uiEnteredTick);
+  CHECK(NetSimLegacyToWorld(&Car[byCar], &endPose));
+  CHECK(fabsf(endPose.position.fX - startPose.position.fX) +
+        fabsf(endPose.position.fY - startPose.position.fY) +
+        fabsf(endPose.position.fZ - startPose.position.fZ) > 1.0f);
+
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &low));
+  NetTestContinueRace(pNodes, pullNowMs, 5000u, ullReleaseMs,
+                      piHostTickIndex, unTickRateHz, byCar);
+  CHECK(NetClientStats(pNodes->pClient, &recovered));
+  CHECK(recovered.iPredictionMode == NET_PREDICT_FULL);
+  CHECK(recovered.iPredictionTransitions ==
+        entered.iPredictionTransitions + 1);
+  CHECK(!net_puppet_car[byCar]);
+  CHECK(recovered.uiRampTick == NetClientCurrentTick(pNodes->pClient));
+  CHECK(recovered.iReplayDepth <= recovered.iReplayBudgetTicks);
+  CHECK(recovered.uiTimeDegradedMs >= 20000u);
+  printf("%u Hz: delayed mode held 20 s at 600 ms RTT with zero replay, "
+         "then recovered at 120 ms RTT\n", unTickRateHz);
+}
+
 /* One client tick, with every per-tick ring check the acceptance asks for. */
 static void NetTestClientTick(tNetClient *pClient, uint8 byCar)
 {
@@ -375,7 +716,8 @@ static void NetTestClientTick(tNetClient *pClient, uint8 byCar)
   {
     tNetClientStats stats;
     CHECK(NetClientStats(pClient, &stats));
-    CHECK(stats.uiPuppetHookCalls == stats.uiTicks);
+    CHECK(stats.uiPuppetHookCalls ==
+          stats.uiTicks + stats.uiReplayTicksTotal);
     CHECK(!net_puppet_car[byCar]);
     CHECK(net_puppet_car[s_hostRun.byRemoteCar]);
     if (stats.uiPuppetApplications) {
@@ -568,6 +910,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       uiLateBefore = hostStats.uiLateInputs;
       CHECK(NetHostTick(nodes.pHost, uiTick));
+      NetTestRestoreClientWorld(&s_hostRun);
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       s_hostRun.aTicks[iIndex].ullMs = ullNowMs;
       s_hostRun.aTicks[iIndex].byLate =
@@ -604,6 +947,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
         continue;
       CHECK(uiStartTick == NET_TEST_START_TICK);
       CHECK(NetClientBeginRace(nodes.pClient));
+      s_hostRun.pClient = nodes.pClient;
       CHECK(!NetClientBeginRace(nodes.pClient));
       CHECK(NetClientCurrentTick(nodes.pClient) == NET_TEST_START_TICK - 1u);
       CHECK(NetClientGroup(nodes.pClient, NULL) == 1);
@@ -671,7 +1015,8 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
      repeated, and inside the host's accept window all race long. */
   CHECK(stats.uiTicks == NetClientCurrentTick(nodes.pClient) - NET_TEST_START_TICK + 1u);
   CHECK(stats.uiRampTick == NetClientCurrentTick(nodes.pClient));
-  CHECK(stats.uiPuppetHookCalls == stats.uiTicks);
+  CHECK(stats.uiPuppetHookCalls ==
+        stats.uiTicks + stats.uiReplayTicksTotal);
   CHECK(stats.uiPuppetApplications > stats.uiPuppetHookCalls);
   CHECK(stats.fInterpolationDelayMs >= NET_CLIENT_INTERPOLATION_MIN_MS &&
         stats.fInterpolationDelayMs <= NET_CLIENT_INTERPOLATION_MAX_MS);
@@ -777,6 +1122,11 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   if (unTickRateHz == 100)
     NetTestRampStallRecovery(&nodes, &ullNowMs, unTickRateHz, byCar);
 
+  NetTestCorrections(&nodes, &ullNowMs, unTickRateHz,
+                     config.bySnapshotInterval, byCar);
+  NetTestPredictionModes(&nodes, &ullNowMs, ullReleaseMs,
+                         &iHostTickIndex, unTickRateHz, byCar);
+
   NetClientDestroy(nodes.pClient);
   NetLobbyClientDestroy(nodes.pLobbyClient);
   NetSessionClientDestroy(nodes.pSessionClient);
@@ -801,8 +1151,8 @@ int main(int iArgc, const char **ppArgv)
 
   /* Five minutes of virtual race time is E4-S2's steady puppet soak. */
   NetTestRace(36, 285000, 15000);
-  puts("NET-E4-S1/S2 client timeline and interpolation acceptance passed at 36 Hz");
+  puts("NET-E4-S1/S2/S3 client acceptance passed at 36 Hz");
   NetTestRace(100, 8000, 8000);
-  puts("NET-E4-S1/S2 client timeline and interpolation acceptance passed at 100 Hz");
+  puts("NET-E4-S1/S2/S3 client acceptance passed at 100 Hz");
   return 0;
 }
