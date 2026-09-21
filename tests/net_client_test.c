@@ -1,5 +1,5 @@
-/* NET-E4-S1 acceptance: client tick timeline, input send, clock sync, lead
-   control, and the three rings.
+/* NET-E4-S1/S2 acceptance: client timeline, rings, remote-car world-space
+   interpolation, bounded stall extrapolation, and the in-tick puppet hook.
 
    One process holds one simulation world (D13), and here it is the client's:
    the client predicts, records all three rings and is the thing under test.
@@ -21,6 +21,7 @@
 #include "control.h"
 #include "engines.h"
 #include "frontend.h"
+#include "loadtrak.h"
 #include "roller.h"
 
 #include <math.h>
@@ -39,7 +40,7 @@
 #define NET_TEST_STEP_LATENCY_MS 60 /* the +60 ms step, each way */
 #define NET_TEST_WARMUP_MS 2000
 #define NET_TEST_RECOVERY_MS 5000
-#define NET_TEST_MAX_TICKS 4096
+#define NET_TEST_MAX_TICKS 16384
 #define NET_TEST_FRAME_NUMERATOR 50 /* 60 fps: 50/3 ms per frame */
 
 typedef struct
@@ -58,7 +59,11 @@ typedef struct
 typedef struct
 {
   int iTicks;
-  uint8 byCar;
+  uint8 byCar, byRemoteCar, byRemoteReady;
+  uint32 uiStartTick;
+  tNetWorldPose remoteBase, lastPuppetPose;
+  float fLastPuppetTick, fMaxPuppetStepPerTick;
+  int iPuppetSamples, iSawChunk0, iSawChunk1, iSawAirborne;
   tNetTestHostTick aTicks[NET_TEST_MAX_TICKS];
 } tNetTestHostRun;
 
@@ -123,6 +128,77 @@ static tCarInputData NetTestScript(uint32 uiTick, int iCar)
   return input;
 }
 
+static tNetWorldPose NetTestRemotePose(const tNetTestHostRun *pRun,
+                                       double dTick)
+{
+  double dRelative = dTick - pRun->uiStartTick;
+  tNetWorldPose pose = pRun->remoteBase;
+  pose.position.fX += (float)(1.5 * dRelative);
+  pose.position.fY += (float)(0.5 * dRelative);
+  pose.position.fZ += (float)(0.25 * dRelative);
+  pose.nYaw = (int16)((pRun->remoteBase.nYaw +
+                       (int)lround(37.0 * dRelative)) & 16383);
+  pose.nPitch = (int16)((pRun->remoteBase.nPitch +
+                         (int)lround(11.0 * dRelative)) & 16383);
+  pose.nRoll = (int16)((pRun->remoteBase.nRoll +
+                        (int)lround(19.0 * dRelative)) & 16383);
+  pose.nActualYaw = pose.nYaw;
+  return pose;
+}
+
+static int NetTestAngleDifference(int16 nA, int16 nB)
+{
+  int iDifference = ((nA - nB + 8192) & 16383) - 8192;
+  return iDifference < 0 ? -iDifference : iDifference;
+}
+
+static int NetTestInterpolatedState(tNetClient *pClient,
+                                    const tNetClientStats *pStats, int iCar,
+                                    tNetCarState *pState)
+{
+  tNetSnapshot snapshot, older = {0}, newer = {0};
+  int iHasOlder = 0, iHasNewer = 0;
+  for (uint32 uiBack = 0; uiBack < NET_CLIENT_SNAPSHOT_BUFFER; ++uiBack) {
+    uint32 uiTick = pStats->uiNewestSnapshotTick - uiBack;
+    if (!NetClientSnapshotAt(pClient, uiTick, &snapshot))
+      continue;
+    if ((float)uiTick <= pStats->fAppliedRenderTick &&
+        (!iHasOlder || (int32)(uiTick - older.uiTick) > 0)) {
+      older = snapshot;
+      iHasOlder = 1;
+    }
+    if ((float)uiTick >= pStats->fAppliedRenderTick &&
+        (!iHasNewer || (int32)(newer.uiTick - uiTick) > 0)) {
+      newer = snapshot;
+      iHasNewer = 1;
+    }
+  }
+  if (!iHasOlder || !iHasNewer)
+    return 0;
+  return NetSnapshotInterpolate(&older.aCars[iCar], &newer.aCars[iCar],
+      newer.uiTick == older.uiTick ? 1.0f :
+      (pStats->fAppliedRenderTick - older.uiTick) /
+          (newer.uiTick - older.uiTick),
+      pState);
+}
+
+static void NetTestSetRemoteHostState(tNetTestHostRun *pRun, uint32 uiTick)
+{
+  tCar *pCar = &Car[pRun->byRemoteCar];
+  tNetWorldPose pose = NetTestRemotePose(pRun, uiTick);
+  int iPhase = (int)(((uiTick - pRun->uiStartTick) / 40u) % 3u);
+  pCar->nCurrChunk = iPhase == 2 ? -1 : (int16)iPhase;
+  pCar->nReferenceChunk = iPhase == 2 ? 1 : (int16)iPhase;
+  pCar->iLastValidChunk = iPhase == 2 ? 1 : iPhase;
+  CHECK(NetSimWorldToLegacy(&pose, pCar));
+  pCar->direction.fX = 1.5f;
+  pCar->direction.fY = 0.5f;
+  pCar->direction.fZ = 0.25f;
+  pCar->fFinalSpeed = 1.75f;
+  pCar->fHorizontalSpeed = sqrtf(2.5f);
+  pCar->iControlType = iPhase;
+}
+
 /* The one world belongs to the client (D13): the host records the tick's
    inputs instead of simulating them. */
 static int NetTestHostSimulate(void *pContext, uint32 uiTick,
@@ -130,6 +206,8 @@ static int NetTestHostSimulate(void *pContext, uint32 uiTick,
 {
   tNetTestHostRun *pRun = (tNetTestHostRun *)pContext;
   CHECK(iNumCars == numcars && pRun->iTicks < NET_TEST_MAX_TICKS);
+  if (pRun->byRemoteReady)
+    NetTestSetRemoteHostState(pRun, uiTick);
   pRun->aTicks[pRun->iTicks].uiTick = uiTick;
   pRun->aTicks[pRun->iTicks].input = pInputs[pRun->byCar].data;
   return 1;
@@ -170,6 +248,99 @@ static void NetTestSetLinks(tNetTestNodes *pNodes, uint32 uiLatencyMs)
     CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &link));
 }
 
+static void NetTestRampStallRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
+                                     uint16 unTickRateHz, uint8 byCar)
+{
+  tNetSnapshot snapshot;
+  tNetRampState initial, corrupt, expected, actual[NET_MAX_RAMPS];
+  tNetClientStats before, after;
+  tNetWorldPose parkedWorld, movedWorld;
+  tCar parked;
+  tCarInputData input;
+  uint8 abSnapshot[NET_MAX_PAYLOAD];
+  uint32 uiTick = NetClientCurrentTick(pNodes->pClient);
+  uint64 ullEndMs = *pullNowMs + 2000u;
+  float fWorstPlacementError = 0.0f;
+  int iRamp = totalramps;
+  int iLength, iDelayTicks;
+
+  {
+    tNetSimLink link = {NET_TEST_STEP_LATENCY_MS + NET_TEST_LATENCY_MS,
+                        0, 0, 0, 0};
+    for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+      CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &link));
+  }
+  CHECK(totalramps < NET_MAX_RAMPS && TRAK_LEN > 102);
+  ramp[totalramps++] = initramp(100, 2, 16, 0, 1, 64, 10, 10, 1024, 63);
+  CHECK(ramp[iRamp]);
+  NetSimSaveRamps(actual);
+  initial = actual[iRamp];
+
+  /* Measure the geometric bound named by 4.6: keep one local ramp pose fixed
+     while the ramp advances for one actual interpolation delay. */
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  parked = Car[(byCar + 1) % numcars];
+  parked.nCurrChunk = parked.nReferenceChunk = parked.iLastValidChunk = 100;
+  parked.pos.fX = parked.pos.fY = parked.pos.fZ = 0.0f;
+  parked.nYaw = parked.nPitch = parked.nRoll = parked.nActualYaw = 0;
+  CHECK(NetSimLegacyToWorld(&parked, &parkedWorld));
+  iDelayTicks = (int)ceilf(before.fInterpolationDelayMs * unTickRateHz /
+                           1000.0f);
+  for (int iTick = 0; iTick < iDelayTicks; ++iTick) {
+    float fDx, fDy, fDz, fDistance;
+    updateramp(ramp[iRamp]);
+    CHECK(NetSimLegacyToWorld(&parked, &movedWorld));
+    fDx = movedWorld.position.fX - parkedWorld.position.fX;
+    fDy = movedWorld.position.fY - parkedWorld.position.fY;
+    fDz = movedWorld.position.fZ - parkedWorld.position.fZ;
+    fDistance = sqrtf(fDx * fDx + fDy * fDy + fDz * fDz);
+    if (fDistance > fWorstPlacementError)
+      fWorstPlacementError = fDistance;
+  }
+  CHECK(NetSimSetRampState(iRamp, &initial));
+  CHECK(fWorstPlacementError > 0.0f && isfinite(fWorstPlacementError));
+
+  /* Queue a real full snapshot at the client's matching post-tick boundary,
+     then keep pumping transport but stop client frames for two seconds. */
+  CHECK(NetSnapshotBuild(&snapshot, uiTick, 0, 0, 0));
+  iLength = NetSnapshotEncode(&snapshot, abSnapshot, sizeof(abSnapshot));
+  CHECK(iLength == (int)sizeof(snapshot));
+  CHECK(NetConnectionQueueMessage(
+      NetSessionHostPlayerConnection(pNodes->pSessionHost,
+                                     NetSessionClientPlayerIndex(
+                                         pNodes->pSessionClient)),
+      NET_MSG_SNAPSHOT, 0, abSnapshot, (uint16)iLength));
+  for (; *pullNowMs <= ullEndMs; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+  }
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  CHECK(before.uiNewestSnapshotTick == uiTick);
+
+  /* Disturb timing while stalled.  The first resumed tick must install the
+     matching snapshot state, count one correction, then let updatestunts
+     advance it exactly once. */
+  corrupt = initial;
+  CHECK(NetSimAdvanceRampStateCopy(iRamp, &corrupt, 7));
+  CHECK(memcmp(&corrupt, &initial, sizeof(corrupt)));
+  CHECK(NetSimSetRampState(iRamp, &corrupt));
+  NetClientPump(pNodes->pClient);
+  CHECK(NetClientTicksDue(pNodes->pClient) > 0);
+  input = NetTestScript(uiTick + 1u, byCar);
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  expected = initial;
+  CHECK(NetSimAdvanceRampStateCopy(iRamp, &expected, 1));
+  NetSimSaveRamps(actual);
+  CHECK(!memcmp(&actual[iRamp], &expected, sizeof(expected)));
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiRampCorrections == before.uiRampCorrections + 1u);
+  CHECK(g_netStats.iRampCorrections == (int)after.uiRampCorrections);
+  printf("%u Hz: 2 s stall ramp recovery, one correction; %.3f-unit "
+         "worst placement error over %.1f ms\n", unTickRateHz,
+         (double)fWorstPlacementError, (double)before.fInterpolationDelayMs);
+}
+
 /* One client tick, with every per-tick ring check the acceptance asks for. */
 static void NetTestClientTick(tNetClient *pClient, uint8 byCar)
 {
@@ -197,6 +368,71 @@ static void NetTestClientTick(tNetClient *pClient, uint8 byCar)
   CHECK(NetClientPredictionAt(pClient, 0, uiTick, &predicted));
   CHECK(!memcmp(&live, &predicted, sizeof(live)));
   CHECK(NetClientContextAt(pClient, uiTick, &recorded) && recorded.iGameFrame == game_frame);
+
+  /* The remote script is continuous in world space while its wire frame
+     alternates between two banked chunks and airborne.  Any frame-conversion
+     discontinuity therefore appears as a placement error or speed spike. */
+  {
+    tNetClientStats stats;
+    CHECK(NetClientStats(pClient, &stats));
+    CHECK(stats.uiPuppetHookCalls == stats.uiTicks);
+    CHECK(!net_puppet_car[byCar]);
+    CHECK(net_puppet_car[s_hostRun.byRemoteCar]);
+    if (stats.uiPuppetApplications) {
+      tNetWorldPose actual;
+      tNetWorldPose expected = NetTestRemotePose(&s_hostRun,
+                                                  stats.fAppliedRenderTick);
+      float fDx, fDy, fDz, fError;
+      CHECK(NetSimLegacyToWorld(&Car[s_hostRun.byRemoteCar], &actual));
+      fDx = actual.position.fX - expected.position.fX;
+      fDy = actual.position.fY - expected.position.fY;
+      fDz = actual.position.fZ - expected.position.fZ;
+      fError = sqrtf(fDx * fDx + fDy * fDy + fDz * fDz);
+      if (fError >= 0.35f)
+        fprintf(stderr, "puppet tick %.3f error %.3f (%f %f %f), chunk %d, "
+                "stalled %u\n", (double)stats.fAppliedRenderTick,
+                (double)fError, (double)fDx, (double)fDy, (double)fDz,
+                Car[s_hostRun.byRemoteCar].nCurrChunk, stats.byStalled);
+      CHECK(fError < 0.35f);
+      /* Stall extrapolation advances position by velocity and deliberately
+         holds orientation.  Bracketed interpolation advances both. */
+      if (!stats.byStalled) {
+        tNetCarState expectedState;
+        /* One unit can be lost in each of host encode, interpolation
+           rounding, and client world/local/world conversion. */
+        CHECK(NetTestInterpolatedState(pClient, &stats,
+                                       s_hostRun.byRemoteCar, &expectedState));
+        CHECK(NetTestAngleDifference(actual.nYaw,
+                                     expectedState.nWorldYaw) <= 4);
+        CHECK(NetTestAngleDifference(actual.nPitch,
+                                     expectedState.nWorldPitch) <= 4);
+        CHECK(NetTestAngleDifference(actual.nRoll,
+                                     expectedState.nWorldRoll) <= 4);
+      }
+      if (stats.fAppliedRenderTick > s_hostRun.uiStartTick + 100.0f) {
+        if (s_hostRun.iPuppetSamples &&
+            stats.fAppliedRenderTick > s_hostRun.fLastPuppetTick) {
+          float fTickSpan = stats.fAppliedRenderTick - s_hostRun.fLastPuppetTick;
+          float fStepX = actual.position.fX - s_hostRun.lastPuppetPose.position.fX;
+          float fStepY = actual.position.fY - s_hostRun.lastPuppetPose.position.fY;
+          float fStepZ = actual.position.fZ - s_hostRun.lastPuppetPose.position.fZ;
+          float fStep = sqrtf(fStepX * fStepX + fStepY * fStepY +
+                              fStepZ * fStepZ) / fTickSpan;
+          if (fStep > s_hostRun.fMaxPuppetStepPerTick)
+            s_hostRun.fMaxPuppetStepPerTick = fStep;
+        }
+        s_hostRun.lastPuppetPose = actual;
+        s_hostRun.fLastPuppetTick = stats.fAppliedRenderTick;
+        ++s_hostRun.iPuppetSamples;
+        if (Car[s_hostRun.byRemoteCar].nCurrChunk == 0)
+          s_hostRun.iSawChunk0 = 1;
+        else if (Car[s_hostRun.byRemoteCar].nCurrChunk == 1)
+          s_hostRun.iSawChunk1 = 1;
+        else if (Car[s_hostRun.byRemoteCar].nCurrChunk == -1)
+          s_hostRun.iSawAirborne = 1;
+      }
+    }
+  }
 }
 
 static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
@@ -285,6 +521,15 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   CHECK(NetSessionClientState(nodes.pSessionClient) == NET_JOIN_ACCEPTED);
   byCar = NetSessionClientPlayerIndex(nodes.pSessionClient);
   s_hostRun.byCar = byCar;
+  s_hostRun.byRemoteCar = (uint8)((byCar + 1) % numcars);
+  s_hostRun.uiStartTick = NET_TEST_START_TICK;
+  CHECK(NetSimLegacyToWorld(&Car[s_hostRun.byRemoteCar],
+                            &s_hostRun.remoteBase));
+  /* Keep the scripted puppet away from the predicted car; its frame still
+     switches between chunks 0 and 1 and airborne every 40 host ticks. */
+  s_hostRun.remoteBase.position.fX += 4000.0f;
+  s_hostRun.remoteBase.position.fZ += 1000.0f;
+  s_hostRun.byRemoteReady = 1;
   CHECK(NetLobbyClientSetReady(nodes.pLobbyClient, 1, config.uiTrackCRC));
   for (; ullNowMs <= 2500; ++ullNowMs) {
     CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
@@ -426,6 +671,11 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
      repeated, and inside the host's accept window all race long. */
   CHECK(stats.uiTicks == NetClientCurrentTick(nodes.pClient) - NET_TEST_START_TICK + 1u);
   CHECK(stats.uiRampTick == NetClientCurrentTick(nodes.pClient));
+  CHECK(stats.uiPuppetHookCalls == stats.uiTicks);
+  CHECK(stats.uiPuppetApplications > stats.uiPuppetHookCalls);
+  CHECK(stats.fInterpolationDelayMs >= NET_CLIENT_INTERPOLATION_MIN_MS &&
+        stats.fInterpolationDelayMs <= NET_CLIENT_INTERPOLATION_MAX_MS);
+  CHECK(!stats.uiRampCorrections && !g_netStats.iRampCorrections);
   CHECK(stats.uiSnapshotAgeMs < 1000u);
   CHECK(stats.uiBatchesSent == stats.uiTicks);
   CHECK(hostStats.uiFirstBatchTick == uiFirstSentTick ||
@@ -514,6 +764,19 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
                   (uiNewestSnapshot - 4u * (uint32)iRetention)) > 0);
   }
 
+  /* Interpolation stayed smooth while the newer snapshot's discrete frame
+     crossed two chunks and the airborne boundary.  The scripted median is
+     sqrt(1.5^2 + 0.5^2 + 0.25^2) = 1.6008 units per tick; the story's spike
+     threshold is three times that value. */
+  CHECK(s_hostRun.iPuppetSamples > 100);
+  CHECK(s_hostRun.iSawChunk0 && s_hostRun.iSawChunk1 &&
+        s_hostRun.iSawAirborne);
+  CHECK(s_hostRun.fMaxPuppetStepPerTick > 1.4f);
+  CHECK(s_hostRun.fMaxPuppetStepPerTick < 4.8024f);
+
+  if (unTickRateHz == 100)
+    NetTestRampStallRecovery(&nodes, &ullNowMs, unTickRateHz, byCar);
+
   NetClientDestroy(nodes.pClient);
   NetLobbyClientDestroy(nodes.pLobbyClient);
   NetSessionClientDestroy(nodes.pSessionClient);
@@ -536,9 +799,10 @@ int main(int iArgc, const char **ppArgv)
   net_mode = NET_MODE_MODERN;
   NetTestCapture(&s_pristine);
 
-  NetTestRace(36, 20000, 10000);
-  puts("NET-E4-S1 client timeline acceptance passed at 36 Hz");
+  /* Five minutes of virtual race time is E4-S2's steady puppet soak. */
+  NetTestRace(36, 285000, 15000);
+  puts("NET-E4-S1/S2 client timeline and interpolation acceptance passed at 36 Hz");
   NetTestRace(100, 8000, 8000);
-  puts("NET-E4-S1 client timeline acceptance passed at 100 Hz");
+  puts("NET-E4-S1/S2 client timeline and interpolation acceptance passed at 100 Hz");
   return 0;
 }

@@ -5,6 +5,7 @@
 #include "car.h"
 #include "control.h"
 #include "frontend.h"
+#include "loadtrak.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -86,6 +87,10 @@ struct tNetClient
   tNetClientOwnSlot aOwn[NET_CLIENT_SNAPSHOT_BUFFER];
 };
 
+/* D13 permits one simulation world per process, so exactly one racing client
+   can own the process-global in-tick puppet hook. */
+static tNetClient *s_pPuppetClient;
+
 _Static_assert(NET_CLIENT_SNAPSHOT_BUFFER > (NET_SNAPSHOT_RETENTION_MS * 100 + 999) / 1000,
                "the snapshot buffer must hold 600 ms at 100 Hz without aliasing");
 _Static_assert(NET_INPUT_REDUNDANCY < NET_CLIENT_HISTORY,
@@ -146,6 +151,225 @@ static int NetClientMember(const tNetClient *pClient, uint8 byCar)
   return -1;
 }
 
+static int NetClientSnapshotMatchesWorld(const tNetSnapshot *pSnapshot)
+{
+  if (!pSnapshot || pSnapshot->byNumCars != numcars ||
+      pSnapshot->byNumRamps != totalramps)
+    return 0;
+  for (int iCar = 0; iCar < pSnapshot->byNumCars; ++iCar) {
+    const tNetCarState *pCar = &pSnapshot->aCars[iCar];
+    if (pCar->nCurrChunk >= TRAK_LEN || pCar->nReferenceChunk >= TRAK_LEN ||
+        pCar->nLastValidChunk >= TRAK_LEN)
+      return 0;
+  }
+  /* Zero steps validates every timing field against the loaded ramp without
+     touching either timing or geometry. */
+  for (int iRamp = 0; iRamp < pSnapshot->byNumRamps; ++iRamp) {
+    tNetRampState state = pSnapshot->aRamps[iRamp];
+    if (!NetSimAdvanceRampStateCopy(iRamp, &state, 0))
+      return 0;
+  }
+  return 1;
+}
+
+typedef struct
+{
+  const tNetSnapshot *pOlder, *pNewer, *pPrevious;
+  double dFraction, dExtraTicks, dAppliedRelative;
+  uint8 byExtrapolating, byUnderrun;
+} tNetClientPuppetSample;
+
+/* Locate snapshots by their signed distance from the race start, so the
+   interpolation comparison remains valid across uint32 tick wrap. */
+static int NetClientPuppetSampleAt(tNetClient *pClient, double dTargetRelative,
+                                  tNetClientPuppetSample *pSample)
+{
+  const tNetSnapshot *pOldest = NULL, *pNewest = NULL;
+  const tNetSnapshot *pBefore = NULL, *pAfter = NULL, *pPrevious = NULL;
+  double dOldest = 0.0, dNewest = 0.0, dBefore = 0.0, dAfter = 0.0;
+  double dPrevious = 0.0;
+  if (!pClient->byHasSnapshot || !pSample)
+    return 0;
+  memset(pSample, 0, sizeof(*pSample));
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    double dTick;
+    if (!pSlot->byValid ||
+        !NetClientInWindow(pClient, pSlot->snapshot.uiTick,
+                           pClient->stats.uiNewestSnapshotTick,
+                           pClient->iRetentionTicks + 1))
+      continue;
+    dTick = NetClientRelative(pClient, pSlot->snapshot.uiTick);
+    if (!pOldest || dTick < dOldest) {
+      pOldest = &pSlot->snapshot;
+      dOldest = dTick;
+    }
+    if (!pNewest || dTick > dNewest) {
+      pNewest = &pSlot->snapshot;
+      dNewest = dTick;
+    }
+    if (dTick <= dTargetRelative && (!pBefore || dTick > dBefore)) {
+      pBefore = &pSlot->snapshot;
+      dBefore = dTick;
+    }
+    if (dTick >= dTargetRelative && (!pAfter || dTick < dAfter)) {
+      pAfter = &pSlot->snapshot;
+      dAfter = dTick;
+    }
+  }
+  if (!pOldest || !pNewest)
+    return 0;
+  if (!pBefore) {
+    pSample->pOlder = pSample->pNewer = pOldest;
+    pSample->dAppliedRelative = dOldest;
+    pSample->dFraction = 1.0;
+    pSample->byUnderrun = 1;
+    return 1;
+  }
+  if (pAfter) {
+    pSample->pOlder = pBefore;
+    pSample->pNewer = pAfter;
+    pSample->dAppliedRelative = dTargetRelative;
+    pSample->dFraction = dAfter == dBefore ? 1.0 :
+        (dTargetRelative - dBefore) / (dAfter - dBefore);
+    return 1;
+  }
+
+  /* The render cursor passed the newest snapshot.  Estimate visual motion
+     from the last two received world poses and hold after 100 ms.  This is
+     presentation only; it never feeds a predicted or host-owned car. */
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    double dTick;
+    if (!pSlot->byValid || pSlot->snapshot.uiTick == pNewest->uiTick ||
+        !NetClientInWindow(pClient, pSlot->snapshot.uiTick,
+                           pClient->stats.uiNewestSnapshotTick,
+                           pClient->iRetentionTicks + 1))
+      continue;
+    dTick = NetClientRelative(pClient, pSlot->snapshot.uiTick);
+    if (dTick < dNewest && (!pPrevious || dTick > dPrevious)) {
+      pPrevious = &pSlot->snapshot;
+      dPrevious = dTick;
+    }
+  }
+  pSample->pOlder = pSample->pNewer = pNewest;
+  pSample->pPrevious = pPrevious;
+  pSample->dExtraTicks = fmin(dTargetRelative - dNewest,
+      NET_CLIENT_EXTRAPOLATION_MAX_MS * pClient->dTicksPerMs);
+  if (pSample->dExtraTicks < 0.0)
+    pSample->dExtraTicks = 0.0;
+  if (!pPrevious)
+    pSample->dExtraTicks = 0.0;
+  pSample->dAppliedRelative = dNewest + pSample->dExtraTicks;
+  pSample->dFraction = 1.0;
+  pSample->byExtrapolating = 1;
+  return 1;
+}
+
+static int NetClientSamplePuppetCar(const tNetClient *pClient,
+                                    const tNetClientPuppetSample *pSample,
+                                    int iCar, tNetCarState *pState)
+{
+  if (!pSample->pOlder || !pSample->pNewer || iCar < 0 || iCar >= numcars ||
+      !NetSnapshotInterpolate(&pSample->pOlder->aCars[iCar],
+                              &pSample->pNewer->aCars[iCar],
+                              (float)pSample->dFraction, pState))
+    return 0;
+  if (pSample->byExtrapolating && pSample->pPrevious) {
+    double dNewest = NetClientRelative(pClient, pSample->pNewer->uiTick);
+    double dPrevious = NetClientRelative(pClient, pSample->pPrevious->uiTick);
+    double dSpan = dNewest - dPrevious;
+    if (dSpan > 0.0) {
+      const tNetCarState *pPrevious = &pSample->pPrevious->aCars[iCar];
+      const tNetCarState *pNewest = &pSample->pNewer->aCars[iCar];
+      float fScale = (float)(pSample->dExtraTicks / dSpan);
+      pState->fWorldPosX += (pNewest->fWorldPosX - pPrevious->fWorldPosX) * fScale;
+      pState->fWorldPosY += (pNewest->fWorldPosY - pPrevious->fWorldPosY) * fScale;
+      pState->fWorldPosZ += (pNewest->fWorldPosZ - pPrevious->fWorldPosZ) * fScale;
+    }
+  }
+  return 1;
+}
+
+static void NetClientPuppetHook(void)
+{
+  tNetClient *pClient = s_pPuppetClient;
+  tNetClientPuppetSample sample;
+  double dTargetRelative;
+  int iApplied = 0;
+  if (!pClient || !pClient->byRacing)
+    return;
+  ++pClient->stats.uiPuppetHookCalls;
+  dTargetRelative = NetClientRelative(pClient, pClient->uiClientTick + 1u) -
+      pClient->stats.iLeadTicks -
+      pClient->stats.fInterpolationDelayMs * pClient->dTicksPerMs;
+  pClient->stats.fRenderTick = (float)(pClient->uiStartTick + dTargetRelative);
+  if (!NetClientPuppetSampleAt(pClient, dTargetRelative, &sample)) {
+    pClient->stats.byStalled = 1;
+    g_netStats.iStalled = 1;
+    return;
+  }
+  if (sample.byUnderrun)
+    ++pClient->stats.uiInterpolationUnderruns;
+  if (sample.byExtrapolating)
+    ++pClient->stats.uiInterpolationExtrapolations;
+  pClient->stats.byStalled = sample.byExtrapolating;
+  pClient->stats.fAppliedRenderTick =
+      (float)(pClient->uiStartTick + sample.dAppliedRelative);
+  g_netStats.iStalled = pClient->stats.byStalled;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    tNetCarState state;
+    if (!net_puppet_car[iCar])
+      continue;
+    if (!NetClientSamplePuppetCar(pClient, &sample, iCar, &state) ||
+        !NetSnapshotApplyPuppet(iCar, &state)) {
+      ++pClient->stats.uiRejectedMessages;
+      continue;
+    }
+    ++iApplied;
+  }
+  pClient->stats.uiPuppetApplications += (uint32)iApplied;
+}
+
+static int NetClientCorrectRamps(tNetClient *pClient)
+{
+  const tNetSnapshot *pNewest = NULL;
+  tNetRampState aExpected[NET_MAX_RAMPS], aCurrent[NET_MAX_RAMPS];
+  double dRampTick = NetClientRelative(pClient, pClient->uiRampTick);
+  double dNewest = 0.0;
+  int iAdvance;
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    double dTick;
+    if (!pSlot->byValid ||
+        !NetClientInWindow(pClient, pSlot->snapshot.uiTick,
+                           pClient->stats.uiNewestSnapshotTick,
+                           pClient->iRetentionTicks + 1))
+      continue;
+    dTick = NetClientRelative(pClient, pSlot->snapshot.uiTick);
+    if (dTick <= dRampTick && (!pNewest || dTick > dNewest)) {
+      pNewest = &pSlot->snapshot;
+      dNewest = dTick;
+    }
+  }
+  /* A newly released or stalled client may hold only future snapshots. */
+  if (!pNewest)
+    return 1;
+  iAdvance = (int)(dRampTick - dNewest);
+  memcpy(aExpected, pNewest->aRamps, sizeof(aExpected));
+  for (int iRamp = 0; iRamp < totalramps; ++iRamp)
+    if (!NetSimAdvanceRampStateCopy(iRamp, &aExpected[iRamp], iAdvance))
+      return 0;
+  NetSimSaveRamps(aCurrent);
+  if (!memcmp(aCurrent, aExpected, (size_t)totalramps * sizeof(aCurrent[0])))
+    return 1;
+  if (!NetSimRestoreRamps(aExpected))
+    return 0;
+  ++pClient->stats.uiRampCorrections;
+  ++g_netStats.iRampCorrections;
+  return 1;
+}
+
 static void NetClientReceiveSnapshot(tNetClient *pClient,
                                      const tNetMessage *pMessage,
                                      uint64 ullNowMs)
@@ -153,7 +377,7 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
   tNetSnapshot snapshot;
   tNetClientSnapshotSlot *pSlot;
   if (!NetSnapshotDecode(pMessage->abData, pMessage->unLength, &snapshot) ||
-      snapshot.byNumCars != numcars) {
+      !NetClientSnapshotMatchesWorld(&snapshot)) {
     ++pClient->stats.uiRejectedMessages;
     return;
   }
@@ -293,6 +517,11 @@ void NetClientDestroy(tNetClient *pClient)
 {
   if (!pClient)
     return;
+  if (s_pPuppetClient == pClient) {
+    net_sim_puppet_hook = NULL;
+    s_pPuppetClient = NULL;
+    memset(net_puppet_car, 0, sizeof(net_puppet_car));
+  }
   NetLobbyClientSetRaceCallback(pClient->pLobby, NULL, NULL);
   free(pClient);
 }
@@ -307,6 +536,7 @@ int NetClientBeginRace(tNetClient *pClient)
   uint8 byMe;
   int iGroupCount = 0;
   if (!pClient || pClient->byRacing || net_mode != NET_MODE_MODERN ||
+      (s_pPuppetClient && s_pPuppetClient != pClient) ||
       !NetLobbyClientRaceReleased(pClient->pLobby, &uiStartTick) ||
       !NetSessionClientGetConfig(pClient->pSession, &config) ||
       !config.unTickRateHz || numcars < 1 || numcars > MAX_CARS)
@@ -366,6 +596,12 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->byHasSnapshot = 0;
   pClient->byHasFrame = 0;
   pClient->stats.fTickScale = 1.0f;
+  pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MIN_MS;
+  memset(net_puppet_car, 0, sizeof(net_puppet_car));
+  for (int iCar = 0; iCar < numcars; ++iCar)
+    NetSimSetPuppet(iCar, NetClientMember(pClient, (uint8)iCar) < 0);
+  s_pPuppetClient = pClient;
+  net_sim_puppet_hook = NetClientPuppetHook;
   pClient->byRacing = 1;
   return 1;
 }
@@ -418,6 +654,13 @@ void NetClientPump(tNetClient *pClient)
   }
   pClient->stats.fRttMs = NetConnectionRttMs(pConnection);
   pClient->stats.fJitterMs = NetConnectionJitterMs(pConnection);
+  pClient->stats.fInterpolationDelayMs =
+      (float)(pClient->config.bySnapshotInterval / pClient->dTicksPerMs) +
+      2.0f * pClient->stats.fJitterMs;
+  if (pClient->stats.fInterpolationDelayMs < NET_CLIENT_INTERPOLATION_MIN_MS)
+    pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MIN_MS;
+  if (pClient->stats.fInterpolationDelayMs > NET_CLIENT_INTERPOLATION_MAX_MS)
+    pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MAX_MS;
   NetClientUpdateLead(pClient, pClient->stats.fRttMs, pClient->stats.fJitterMs);
 
   if (pClient->byHasEstimate) {
@@ -500,6 +743,12 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
   if (!pClient || !pLocalInputs || NetClientTicksDue(pClient) < 1)
     return 0;
   uiTick = pClient->uiClientTick + 1u;
+
+  /* 4.3 step 2: compare matching ticks before updatestunts advances the
+     live ramps.  Correction installs timing and rebuilds geometry, but never
+     advances the authoritative local timeline. */
+  if (!NetClientCorrectRamps(pClient))
+    return 0;
 
   /* 4.3 step 5: canonicalise, record in the input history, send. */
   pInput = &pClient->aInputs[uiTick % NET_CLIENT_HISTORY];

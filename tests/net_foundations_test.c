@@ -521,6 +521,20 @@ static void NetTestSnapshots(void)
   b.nCurrChunk = -1;
   CHECK(NetSnapshotInterpolate(&a, &b, 0.5f, &interpolated));
   CHECK(interpolated.nWorldYaw == 0 && interpolated.fWorldPosX == 50 && interpolated.nCurrChunk == -1);
+  {
+    tCar installed;
+    tNetWorldPose pose;
+    int iInstalledControl;
+    CHECK(NetSnapshotApplyPuppet(1, &interpolated));
+    CHECK(NetSimLegacyToWorld(&Car[1], &pose));
+    CHECK(pose.position.fX == 50.0f && pose.nYaw == 0);
+    installed = Car[1];
+    iInstalledControl = human_control[1];
+    interpolated.nCurrChunk = TRAK_LEN;
+    CHECK(!NetSnapshotApplyPuppet(1, &interpolated));
+    CHECK(!memcmp(&Car[1], &installed, sizeof(installed)));
+    CHECK(human_control[1] == iInstalledControl);
+  }
   current = base;
   current.byNumCars = 17;
   CHECK(!NetSnapshotEncode(&current, abBytes, sizeof(abBytes)));

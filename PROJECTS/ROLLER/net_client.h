@@ -11,6 +11,10 @@
 /* Time dilation is the only lead adjustment (4.4). */
 #define NET_CLIENT_TICK_SCALE_MIN 0.9f
 #define NET_CLIENT_TICK_SCALE_MAX 1.1f
+/* World-space puppet buffering and visual-only stall extrapolation (4.6). */
+#define NET_CLIENT_INTERPOLATION_MIN_MS 50.0f
+#define NET_CLIENT_INTERPOLATION_MAX_MS 250.0f
+#define NET_CLIENT_EXTRAPOLATION_MAX_MS 100.0f
 
 typedef struct tNetClient tNetClient;
 
@@ -24,14 +28,20 @@ typedef struct
   uint32 uiNewestSnapshotTick; /* uiLastDecodedSnapshotTick on the wire */
   uint32 uiSnapshotAgeMs;
   uint32 uiRampTick;           /* the tick ramps stand at (4.6) */
+  uint32 uiRampCorrections;
+  uint32 uiPuppetHookCalls, uiPuppetApplications;
+  uint32 uiInterpolationUnderruns, uiInterpolationExtrapolations;
   /* The host's cumulative counts from the newest input feedback. */
   uint32 uiHostLateInputs, uiHostFutureInputs;
   int16 nArrivalMarginTicks;
   uint8 byHasHostEstimate;
+  uint8 byStalled;
   int iLeadTicks, iLeadBias;
   float fHostTick;             /* estimated host tick now, minus uiStartTick */
   float fLeadErrorTicks;       /* timeline position minus (host + lead) */
   float fTickScale, fRttMs, fJitterMs, fFrameMs;
+  float fInterpolationDelayMs;
+  float fRenderTick, fAppliedRenderTick;
 } tNetClientStats;
 
 /* Registers for race traffic on pLobby.  One client per session. */

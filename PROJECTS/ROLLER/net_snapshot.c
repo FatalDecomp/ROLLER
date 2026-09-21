@@ -69,29 +69,37 @@ static void NetWireContext(uint8 *pOutput, const uint8 *pInput)
   pOutput[8] = pInput[8]; pOutput[9] = pInput[9];
   NetWireScalar(pOutput + 10, pInput + 10, 2);
 }
+
+static int NetCarStateValid(const tNetCarState *pCar, int iChunkLimit)
+{
+  if (!pCar || iChunkLimit < 0 || iChunkLimit > MAX_TRACK_CHUNKS ||
+      pCar->nCurrChunk < -1 || pCar->nCurrChunk >= iChunkLimit ||
+      pCar->nReferenceChunk < -1 || pCar->nReferenceChunk >= iChunkLimit ||
+      pCar->nLastValidChunk < -1 || pCar->nLastValidChunk >= iChunkLimit ||
+      pCar->nWorldYaw < 0 || pCar->nWorldYaw > 16383 ||
+      pCar->nWorldPitch < 0 || pCar->nWorldPitch > 16383 ||
+      pCar->nWorldRoll < 0 || pCar->nWorldRoll > 16383 ||
+      pCar->nActualYaw < 0 || pCar->nActualYaw > 16383 ||
+      pCar->byControlType > 3 || pCar->byHumanControl > 2 ||
+      pCar->byHealth > 100)
+    return 0;
+  for (int iField = 0; iField < 8; ++iField) {
+    float fValue;
+    memcpy(&fValue, (const uint8 *)pCar + aCarFields[iField].unOffset, 4);
+    if (!isfinite(fValue))
+      return 0;
+  }
+  return 1;
+}
+
 static int NetSnapshotValid(const tNetSnapshot *pSnapshot)
 {
   if (!pSnapshot || pSnapshot->byNumCars > MAX_CARS || pSnapshot->byNumRamps > NET_MAX_RAMPS ||
       pSnapshot->byPaused > 1 || pSnapshot->context.byRaceStarted > 1 || pSnapshot->context.byRacing > 1)
     return 0;
-  for (int iCar = 0; iCar < pSnapshot->byNumCars; ++iCar) {
-    const tNetCarState *pCar = &pSnapshot->aCars[iCar];
-    if (pCar->nCurrChunk < -1 || pCar->nCurrChunk >= MAX_TRACK_CHUNKS ||
-        pCar->nReferenceChunk < -1 || pCar->nReferenceChunk >= MAX_TRACK_CHUNKS ||
-        pCar->nLastValidChunk < -1 || pCar->nLastValidChunk >= MAX_TRACK_CHUNKS ||
-        pCar->nWorldYaw < 0 || pCar->nWorldYaw > 16383 ||
-        pCar->nWorldPitch < 0 || pCar->nWorldPitch > 16383 ||
-        pCar->nWorldRoll < 0 || pCar->nWorldRoll > 16383 ||
-        pCar->nActualYaw < 0 || pCar->nActualYaw > 16383 ||
-        pCar->byControlType > 3 || pCar->byHumanControl > 2 || pCar->byHealth > 100)
+  for (int iCar = 0; iCar < pSnapshot->byNumCars; ++iCar)
+    if (!NetCarStateValid(&pSnapshot->aCars[iCar], MAX_TRACK_CHUNKS))
       return 0;
-    for (int iField = 0; iField < 8; ++iField) {
-      float fValue;
-      memcpy(&fValue, (const uint8 *)pCar + aCarFields[iField].unOffset, 4);
-      if (!isfinite(fValue))
-        return 0;
-    }
-  }
   return 1;
 }
 
@@ -320,6 +328,49 @@ int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState)
   Car[iCar] = car;
   human_control[iCar] = pState->state.byHumanControl;
   finished_car[iCar] = pState->extra.byFinishPosition != 255 ? -1 : 0;
+  return 1;
+}
+
+int NetSnapshotApplyPuppet(int iCar, const tNetCarState *pState)
+{
+  tCar car;
+  tNetWorldPose pose;
+  if (iCar < 0 || iCar >= numcars || !NetCarStateValid(pState, TRAK_LEN))
+    return 0;
+  car = Car[iCar];
+  car.fFinalSpeed = pState->fFinalSpeed;
+  car.fHorizontalSpeed = pState->fHorizontalSpeed;
+  car.direction.fX = pState->fVelX;
+  car.direction.fY = pState->fVelY;
+  car.direction.fZ = pState->fVelZ;
+  car.nCurrChunk = pState->nCurrChunk;
+  car.nReferenceChunk = pState->nReferenceChunk;
+  car.iLastValidChunk = pState->nLastValidChunk;
+  car.nDeathTimer = pState->nDeathTimer;
+  car.iJumpMomentum = pState->nJumpMomentum;
+  car.fHealth = (float)pState->byHealth;
+  car.byLives = pState->byLives;
+  car.byLap = pState->byLap;
+  car.byRacePosition = pState->byRacePosition;
+  car.byStatusFlags = pState->byStatusFlags;
+  car.iStunned = pState->byStunned;
+  car.byDamageIntensity = pState->byDamageIntensity;
+  car.iDamageState = pState->byDamageState;
+  car.byWheelAnimationFrame = pState->byWheelAnimationFrame;
+  car.byGearAyMax = pState->byGearAyMax;
+  car.iControlType = pState->byControlType;
+  car.byCheatAmmo = pState->byCheatAmmo;
+  pose.position.fX = pState->fWorldPosX;
+  pose.position.fY = pState->fWorldPosY;
+  pose.position.fZ = pState->fWorldPosZ;
+  pose.nYaw = pState->nWorldYaw;
+  pose.nPitch = pState->nWorldPitch;
+  pose.nRoll = pState->nWorldRoll;
+  pose.nActualYaw = pState->nActualYaw;
+  if (!NetSimWorldToLegacy(&pose, &car))
+    return 0;
+  Car[iCar] = car;
+  human_control[iCar] = pState->byHumanControl;
   return 1;
 }
 

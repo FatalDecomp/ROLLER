@@ -236,3 +236,113 @@ Mutation checks, run once by hand and reverted:
   batch, own-car state - but only the one-car case is exercised (E2-S5).
 - **Legacy-call trap.** Still cannot be checked; it arrives with E7-S1. The
   client path calls nothing in `network.c` or `rollercomms.c`.
+
+## E4-S2 remote interpolation and ramp correction
+
+Implemented on 2026-09-20 in `net_client.c` and `net_snapshot.c`.
+
+### Race wiring and snapshot validation
+
+`NetClientBeginRace` marks every car outside the local rollback group as a
+puppet and installs the process's single `net_sim_puppet_hook`. This follows
+D13: one process owns one world and therefore at most one racing client owns
+the global hook. `NetClientDestroy` removes the hook and clears all puppet
+flags. The listen-host path remains unchanged and explicitly keeps the hook
+NULL.
+
+Before retaining a decoded snapshot, the client now also checks it against
+the loaded world: its car and ramp counts must equal `numcars` and
+`totalramps`, every chunk must be below `TRAK_LEN`, and every ramp timing
+triple must validate against the corresponding loaded ramp. The zero-step
+`NetSimAdvanceRampStateCopy` check validates without mutating timing or
+geometry.
+
+### In-tick puppet placement
+
+The hook runs at E0-S3's existing seam, after `updatestunts` and before the
+car loop. For tick N its render cursor is
+
+```text
+N - lead - interpolation_delay_in_ticks
+```
+
+so it advances once per simulated tick even when one frame drains several
+ticks. The delay is one configured snapshot interval plus twice measured
+jitter, clamped to 50..250 ms.
+
+The client scans only the retained 600 ms window, finds the two snapshots
+bracketing the cursor, and calls `NetSnapshotInterpolate`. Position, speed
+and wire velocity are linear in world space; all four 14-bit angles use the
+existing shortest-arc interpolation; discrete fields come from the newer
+snapshot. `NetSnapshotApplyPuppet` copies the display-grade state into a
+temporary `tCar`, converts the world pose against the current post-ramp
+geometry, and commits only after validation and conversion succeed. It does
+not touch any `tNetCarExtra`-only field.
+
+If the cursor is older than the retained window it clamps to the oldest
+snapshot. If it is newer than the newest snapshot, position advances from
+the last two received world positions for at most 100 ms and then holds;
+orientation and discrete state hold at the newest snapshot. With only one
+snapshot there is no velocity sample, so both pose and the reported applied
+render tick hold at that snapshot. This is visual only and never feeds the
+local prediction group.
+
+`tNetClientStats` now exposes hook/application counts, interpolation delay,
+requested and applied render ticks, underflow/extrapolation counts, the stall
+indicator, and ramp corrections. The existing overlay fields receive the
+stall and ramp-correction values.
+
+### Ramp correction
+
+At the start of every client tick, before the one live `updatestunts` call,
+the client selects the newest retained snapshot T no newer than
+`uiRampTick`. It advances a copy of each received timing triple by
+`uiRampTick - T` with `NetSimAdvanceRampStateCopy`. Exact agreement does
+nothing. On any mismatch it installs the complete validated set through
+`NetSimRestoreRamps`, which rebuilds geometry, and increments one correction.
+A future-only snapshot is skipped. No netcode path advances the live ramps;
+`updatestunts` remains the sole advancer in live and replay ticks.
+
+### Acceptance coverage and measurements
+
+`zig build test-net-client` now keeps the E4-S1 network assertions and adds:
+
+- a five-minute virtual 36 Hz soak with one real client and all fifteen
+  non-local cars puppeted, plus the 100 Hz run;
+- a scripted host puppet whose continuous world pose crosses between chunk
+  frames 0 and 1 and airborne every 40 host ticks; its end-of-tick world pose
+  and interpolated angles are checked after every application;
+- a foundations check that a valid display state installs in world space and
+  an out-of-track chunk is rejected without changing the car or ownership;
+- `uiPuppetHookCalls == uiTicks`, end-of-tick placement equal to the hook's
+  pose, and zero steady-state ramp corrections;
+- a world-displacement check over more than 100 samples. The scripted median
+  is 1.6008 track units per tick; the observed maximum stays below the plan's
+  3x bound of 4.8024 through chunk and airborne transitions;
+- a two-second stopped-client probe. A full snapshot is delivered at the
+  matching post-tick boundary, ramp timing is deliberately disturbed, and
+  the first resumed tick records exactly one correction and ends at snapshot
+  timing advanced exactly once;
+- a synthetic moving-ramp measurement. At the 100 Hz run's 50 ms live
+  interpolation delay, the worst displacement of a fixed local ramp pose is
+  **318.274 track units**. This is the bounded placement error from using
+  current ramp geometry for an older puppet pose.
+
+The five-minute soak produced 10,808 client ticks, 5,240 received snapshots,
+zero steady ramp corrections, and no placement or displacement-spike failure.
+The second rate produced 1,620 ticks and 766 snapshots before the focused
+stall probe.
+
+### Test topology judgement
+
+The plan names one host, three clients and twelve AI. D13 forbids three
+client worlds in this in-process test, and the E0 harness still has no
+session/lobby/race commands. The acceptance therefore uses the same real
+session, lobby, channel, host snapshot cadence and client world as E4-S1,
+with one client puppeting fifteen non-local cars. The host simulation seam
+scripts one remote world pose before snapshot construction; the remaining
+remote cars also traverse the ordinary hook. A true simultaneous
+three-client soak remains E8-S1 multi-process work rather than creating
+multiple worlds in this process.
+
+Not yet checkable: convention 11's legacy-call trap, which arrives in E7-S1.
