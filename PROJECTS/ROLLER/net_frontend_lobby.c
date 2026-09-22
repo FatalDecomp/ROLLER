@@ -34,6 +34,7 @@ typedef struct
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
   uint8 bySelectedCar, bySelectedControl;
+  uint8 byAppResumePending;
   uint64 ullRejoinStartedMs;
   char szStatus[96];
   char szRaceError[96];
@@ -97,6 +98,7 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byRaceScheduled = 0;
   s_frontend.byRaceLoadedSent = 0;
   s_frontend.byRaceStarted = 0;
+  s_frontend.byAppResumePending = 0;
   s_frontend.ullRejoinStartedMs = 0;
   s_frontend.szRaceError[0] = '\0';
 }
@@ -168,6 +170,12 @@ int NetFrontendIsHost(void)
   return s_frontend.byOpen && s_frontend.byHost;
 }
 
+void NetFrontendAppResumed(void)
+{
+  if (net_mode == NET_MODE_MODERN && s_frontend.byLobbyStarted)
+    s_frontend.byAppResumePending = 1;
+}
+
 static int NetFrontendLobbyFailure(const char *szStatus)
 {
   NetFrontendClose();
@@ -227,6 +235,9 @@ int NetFrontendLobbyBegin(void)
         !NetAddressParse(&peer, "127.0.0.1", s_frontend.unLocalPort) ||
         !NetFrontendCreateClient(&peer))
       return NetFrontendLobbyFailure("LOCAL HOST JOIN FAILED");
+    /* The listen host's in-process client uses this address again if the
+       Android activity sleeps and resumes during a race. */
+    s_frontend.peer = peer;
   } else if (!NetFrontendCreateClient(&s_frontend.peer))
     return NetFrontendLobbyFailure("JOIN START FAILED");
 
@@ -286,6 +297,33 @@ static void NetFrontendSyncLegacyRoster(void)
   master = s_frontend.byHost ? -1 : 0;
 }
 
+static int NetFrontendBeginRejoin(void)
+{
+  tNetConnection *pOldConnection;
+  tNetConnection *pRejoin;
+  if (!s_frontend.pRaceClient || !s_frontend.pClient ||
+      NetClientRecoveryState(s_frontend.pRaceClient) != NET_RECOVERY_RACING)
+    return 1;
+  pOldConnection = NetSessionClientConnection(s_frontend.pClient);
+  pRejoin = NetChannelAddConnection(
+      s_frontend.pClientChannel, &s_frontend.peer,
+      NetSessionClientToken(s_frontend.pClient),
+      (uint8)(NetSessionClientGeneration(s_frontend.pClient) + 1u));
+  if (!pRejoin || !NetClientBeginRejoin(s_frontend.pRaceClient, pRejoin)) {
+    if (pRejoin)
+      NetChannelRemoveConnection(s_frontend.pClientChannel, pRejoin);
+    snprintf(s_frontend.szRaceError, sizeof(s_frontend.szRaceError),
+             "%s", "Session rejoin failed");
+    return 0;
+  }
+  /* NetClientBeginRejoin has moved every session lookup to pRejoin.  Retire
+     the old generation so repeated mobile resumes cannot exhaust the
+     channel's bounded connection table. */
+  NetChannelRemoveConnection(s_frontend.pClientChannel, pOldConnection);
+  s_frontend.ullRejoinStartedMs = NetConnectionNowMs(pRejoin);
+  return 1;
+}
+
 void NetFrontendPump(void)
 {
   tNetSessionConfig config;
@@ -295,20 +333,16 @@ void NetFrontendPump(void)
 
   NetSessionHostPump(s_frontend.pHost);
   NetLobbyHostPump(s_frontend.pHostLobby);
-  if (s_frontend.pRaceClient && s_frontend.pClient &&
+  if (s_frontend.byAppResumePending) {
+    s_frontend.byAppResumePending = 0;
+    if (!NetFrontendBeginRejoin())
+      return;
+  } else if (s_frontend.pRaceClient && s_frontend.pClient &&
       NetSessionClientState(s_frontend.pClient) == NET_JOIN_ACCEPTED &&
       NetConnectionIsExpired(
           NetSessionClientConnection(s_frontend.pClient))) {
-    tNetConnection *pRejoin = NetChannelAddConnection(
-        s_frontend.pClientChannel, &s_frontend.peer,
-        NetSessionClientToken(s_frontend.pClient),
-        (uint8)(NetSessionClientGeneration(s_frontend.pClient) + 1u));
-    if (!pRejoin || !NetClientBeginRejoin(s_frontend.pRaceClient, pRejoin)) {
-      snprintf(s_frontend.szRaceError, sizeof(s_frontend.szRaceError),
-               "%s", "Session rejoin failed");
+    if (!NetFrontendBeginRejoin())
       return;
-    }
-    s_frontend.ullRejoinStartedMs = NetConnectionNowMs(pRejoin);
   }
   NetSessionClientPump(s_frontend.pClient);
   NetHostPump(s_frontend.pRaceHost);

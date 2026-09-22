@@ -39,6 +39,10 @@ tNetConnection *NetChannelAddConnection(tNetChannel *pChannel,
                                         const tNetAddress *pPeer,
                                         uint64 ullSessionToken,
                                         uint8 byGeneration);
+/* Removes a connection only after every session object has stopped referring
+   to it. This lets a reconnect replace, rather than leak, its old generation. */
+int NetChannelRemoveConnection(tNetChannel *pChannel,
+                               tNetConnection *pConnection);
 void NetChannelSetAcceptCallback(tNetChannel *pChannel,
                                  tNetChannelAcceptFn pAccept,
                                  void *pContext);

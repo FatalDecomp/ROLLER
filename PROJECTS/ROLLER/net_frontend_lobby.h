@@ -13,6 +13,10 @@ int NetFrontendOpen(void);
 void NetFrontendClose(void);
 int NetFrontendIsOpen(void);
 int NetFrontendIsHost(void);
+/* Called on the main thread after a mobile app returns to the foreground.
+   An active race resumes through the authenticated checkpoint path so wall
+   time spent asleep never becomes a client simulation backlog. */
+void NetFrontendAppResumed(void);
 
 int NetFrontendLobbyBegin(void);
 void NetFrontendPump(void);

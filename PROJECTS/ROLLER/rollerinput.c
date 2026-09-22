@@ -1466,6 +1466,16 @@ void InputHandleEvent(const SDL_Event *pEvent)
 
 //-------------------------------------------------------------------------------------------------
 
+void InputHandleAppResume(void)
+{
+#if defined(IS_ANDROID) || defined(IS_WASM)
+  if (ROLLERPhoneUIActive())
+    InputPhoneShutdown();
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+
 void InputUpdate(void)
 {
   if (!s_bInitialized)

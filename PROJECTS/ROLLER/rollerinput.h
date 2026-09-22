@@ -99,6 +99,7 @@ extern tInputBinding g_inputBindings[INPUT_NUM_ACTIONS];
 void InputInit(void);
 void InputShutdown(void);
 void InputHandleEvent(const SDL_Event *pEvent);
+void InputHandleAppResume(void);
 void InputUpdate(void);
 void InputUpdateMenuControls(void);
 void InputRefreshDevices(void);

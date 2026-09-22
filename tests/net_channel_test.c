@@ -210,6 +210,26 @@ static void NetTestPacketSpill(void)
   NetTransportSimDestroy(pSim);
 }
 
+static void NetTestConnectionRemoval(void)
+{
+  tNetTransportSim *pSim = NetTransportSimCreate(100);
+  tNetChannel *pChannel;
+  tNetAddress peer = NetTestAddress(1);
+  CHECK(pSim);
+  pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  CHECK(pChannel);
+  /* More replacements than the channel's fixed capacity prove each retired
+     generation actually releases its slot. */
+  for (int iGeneration = 1; iGeneration <= 32; ++iGeneration) {
+    tNetConnection *pConnection = NetChannelAddConnection(
+        pChannel, &peer, 5678, (uint8)iGeneration);
+    CHECK(pConnection);
+    CHECK(NetChannelRemoveConnection(pChannel, pConnection));
+  }
+  NetChannelDestroy(pChannel);
+  NetTransportSimDestroy(pSim);
+}
+
 int main(void)
 {
   NetTestSequenceAndAck();
@@ -219,6 +239,7 @@ int main(void)
   NetTestGeneration();
   NetTestKeepaliveAndExpiry();
   NetTestPacketSpill();
+  NetTestConnectionRemoval();
   puts("NET-E1-S2 channel acceptance passed");
   return 0;
 }

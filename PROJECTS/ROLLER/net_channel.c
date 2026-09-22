@@ -680,6 +680,30 @@ tNetConnection *NetChannelAddConnection(tNetChannel *pChannel,
   return pConnection;
 }
 
+int NetChannelRemoveConnection(tNetChannel *pChannel,
+                               tNetConnection *pConnection)
+{
+  int iConnection;
+  if (!pChannel || !pConnection)
+    return 0;
+  for (iConnection = 0; iConnection < pChannel->iConnectionCount;
+       ++iConnection) {
+    if (pChannel->apConnections[iConnection] != pConnection)
+      continue;
+    free(pConnection);
+    --pChannel->iConnectionCount;
+    if (iConnection < pChannel->iConnectionCount) {
+      memmove(&pChannel->apConnections[iConnection],
+              &pChannel->apConnections[iConnection + 1],
+              (size_t)(pChannel->iConnectionCount - iConnection) *
+                  sizeof(pChannel->apConnections[0]));
+    }
+    pChannel->apConnections[pChannel->iConnectionCount] = NULL;
+    return 1;
+  }
+  return 0;
+}
+
 void NetChannelSetAcceptCallback(tNetChannel *pChannel,
                                  tNetChannelAcceptFn pAccept,
                                  void *pContext)

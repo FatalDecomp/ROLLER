@@ -329,3 +329,56 @@ selected Python tests pass.
 Not run: the story's manual two-instance proxy check at 100 percent mid-race
 loss and sustained 600 ms, Android `assembleDebug`, a CMake configure, or the
 E7-S1 legacy-call trap (it does not exist yet).
+
+## NET-E5-S5: mobile and sleep robustness
+
+Implemented on 2026-09-22. The changes are intentionally uncommitted.
+
+### Android lifecycle contract
+
+SDL3 delivers Android background and foreground notifications only through an
+event watch, which may run on any thread. The Android watch therefore performs
+only atomic bookkeeping. Entering the background clears pending simulation
+ticks. The first main-thread `UpdateSDL` after foregrounding clears them again,
+resets the render tick timestamp, releases all remembered touches, closes the
+old accelerometer handle so it is reopened on demand, and notifies the modern
+frontend before its normal network pumps run.
+
+An active race always resumes through the existing authenticated
+generation-replacement and checkpoint path, even if the old connection is
+still inside the ten-second transport timeout. This prevents time asleep from
+becoming hundreds of locally owed ticks on a short suspension. For a longer
+suspension the same path takes the car back from AI. Listen hosts retain their
+loopback peer address so their in-process client can use the same recovery.
+The normal `Connection lost, retrying`, `Resynchronising`, and delayed-controls
+statuses remain the only recovery UI states.
+
+Android also disables the SDL screen saver for the game process and restores
+the default at shutdown. This keeps the display awake without a Java-only
+window flag and therefore covers the native SDL window for the whole run.
+
+### Acceptance coverage
+
+The existing host acceptance proves that `BUTTON_FLAG_PHONE_THROTTLE` received
+from a phone is byte-identical to ordinary acceleration over 546 host ticks,
+including RNG state. The client acceptance at 36 and 100 Hz proves that a
+600 ms RTT enters delayed prediction, holds it for 20 seconds with zero replay,
+then recovers at 120 ms only after the three-second hysteresis. It also measures
+100 forced 14-tick corrections; the current Windows run averaged 0.210 ms at
+36 Hz and 0.240 ms at 100 Hz, respectively 0.76 and 2.40 percent of one tick.
+The 15-second generation-2 recovery case covers the longer-than-timeout sleep
+shape and returns ownership through a checkpoint at both rates.
+
+### Verification
+
+Passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-client test-net-host test-phone-ui -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+```
+
+Not yet run: the Android `assembleDebug` build, the manual device test that
+switches away for 10 seconds and returns, or a real cellular drift across the
+prediction crossover. Those device checks are still required before calling
+the story shipped.

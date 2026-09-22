@@ -119,6 +119,8 @@ static SDL_GPUTransferBuffer *s_pTransferBuffer = NULL;
 static int s_iGPUPresentSkipFrames = 0;
 #if defined(IS_ANDROID)
 static bool s_bAndroidDefaultConfigPending = false;
+static bool s_bAndroidLifecycleWatchInstalled = false;
+static SDL_AtomicInt s_iAndroidResumePending;
 #endif
 bool g_bPaletteSet = false;
 float g_fDrawDistanceFraction = 1.0f;
@@ -755,6 +757,26 @@ static void RaiseFileDescriptorLimit(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if defined(IS_ANDROID)
+static bool SDLCALL ROLLERAndroidLifecycleEvent(void *pUserData,
+                                                SDL_Event *pEvent)
+{
+  (void)pUserData;
+  if (!pEvent)
+    return true;
+  if (pEvent->type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+      pEvent->type == SDL_EVENT_DID_ENTER_BACKGROUND) {
+    /* Event watches may run on any thread.  Only touch SDL atomics here. */
+    SDL_SetAtomicInt(&iTicksPending, 0);
+  } else if (pEvent->type == SDL_EVENT_DID_ENTER_FOREGROUND) {
+    SDL_SetAtomicInt(&s_iAndroidResumePending, 1);
+  }
+  return true;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   RaiseFileDescriptorLimit();
@@ -780,6 +802,19 @@ int InitSDL(char *whiplash_root, const char *midi_root)
     return 1;
   }
   ROLLERInstallPlatformLogSink();
+
+#if defined(IS_ANDROID)
+  /* Android lifecycle events are callback-only in SDL3.  The callback below
+     performs atomic bookkeeping; all game, input and netcode work stays on
+     the main thread in UpdateSDL(). */
+  if (!s_bAndroidLifecycleWatchInstalled) {
+    if (SDL_AddEventWatch(ROLLERAndroidLifecycleEvent, NULL))
+      s_bAndroidLifecycleWatchInstalled = true;
+    else
+      SDL_Log("Android lifecycle event watch failed: %s", SDL_GetError());
+  }
+  SDL_DisableScreenSaver();
+#endif
 
 #if defined(IS_WASM)
   SDL_strlcpy(whiplash_root, "/persist", 260);
@@ -1669,6 +1704,13 @@ void InitTRACKS(const char *szDataRoot)
 
 void ShutdownSDL()
 {
+#if defined(IS_ANDROID)
+  if (s_bAndroidLifecycleWatchInstalled) {
+    SDL_RemoveEventWatch(ROLLERAndroidLifecycleEvent, NULL);
+    s_bAndroidLifecycleWatchInstalled = false;
+  }
+  SDL_EnableScreenSaver();
+#endif
   if (!g_bSnapshotMode) {
     DIGIClearAllStream();
     MIDI_Shutdown();
@@ -1873,6 +1915,19 @@ void UpdateDebugLoop()
 
 void UpdateSDL()
 {
+#if defined(IS_ANDROID)
+  if (SDL_CompareAndSwapAtomicInt(&s_iAndroidResumePending, 1, 0)) {
+    /* SDL's timer and sensor threads may have been stopped independently of
+       the native main thread.  Never turn that wall-clock gap into queued
+       simulation ticks or retain a touch that Android cancelled on pause. */
+    SDL_SetAtomicInt(&iTicksPending, 0);
+    ullLastTickTimeNs = SDL_GetTicksNS();
+    InputHandleAppResume();
+#if !defined(ROLLER_EDITOR_CORE)
+    NetFrontendAppResumed();
+#endif
+  }
+#endif
   NetPump();
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
   NetFrontendPump();
