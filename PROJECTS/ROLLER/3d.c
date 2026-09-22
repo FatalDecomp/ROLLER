@@ -5284,6 +5284,27 @@ HANDLE_SPECIAL_MODES:
       scr_size = iSavedScrSize3;
     }
   }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (network_on && net_mode == NET_MODE_MODERN && draw_type != 2) {
+    const char *szRaceStatus = NetFrontendRaceStatus();
+    int iSavedStatusScale = scr_size;
+    scr_size = 64;
+    if (szRaceStatus[0])
+      mini_prt_centre(rev_vga[0], szRaceStatus, winw / 2, 4);
+    if (net_listen_host) {
+      int iStatusY = 4;
+      for (int iPlayer = 0; iPlayer < MAX_CARS; ++iPlayer) {
+        char szPlayerStatus[32];
+        if (NetFrontendHostNetworkStatus(iPlayer, szPlayerStatus,
+                                         sizeof(szPlayerStatus))) {
+          mini_prt_string(rev_vga[0], szPlayerStatus, 4, iStatusY);
+          iStatusY += 8;
+        }
+      }
+    }
+    scr_size = iSavedStatusScale;
+  }
+#endif
   if (draw_type != 2)                         // Frame rate calculation and timing
   {
     curr_time = ticks;

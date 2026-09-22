@@ -608,6 +608,14 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
                 uiTick, NetHostLastEventSeq(pHost), pRun->iLovebunUses);
         CHECK(0);
       }
+      if (iIndex == 35) {
+        tNetHostPlayerStats warningStats;
+        CHECK(NetHostPlayerStats(pHost, s_aClients[0].byPlayerIdx,
+                                 &warningStats));
+        CHECK(warningStats.fRttMs > 0.0f);
+        CHECK(warningStats.fLateInputRate >= NET_HOST_LATE_WARNING_RATE);
+        CHECK(warningStats.byLateInputWarning);
+      }
       for (int iCar = 0; iCar < numcars; ++iCar) {
         int iLapAfter = (int)(int8)Car[iCar].byLap;
         int iFirstLap = aiLapBefore[iCar] + 1;
@@ -799,6 +807,8 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
     else
       CHECK(!iNewInputs && !pFinal->uiClampedInputs);
     CHECK(pFinal->byCarCount == 1 && pFinal->abyCars[0] == iCar);
+    CHECK(pFinal->fRttMs > 0.0f);
+    CHECK(!pFinal->byLateInputWarning);
     CHECK(pFinal->nArrivalMarginTicks > 0);
     CHECK((int32)(pFinal->uiLastDecodedSnapshotTick - (uiLastTick - 20u)) > 0);
 
@@ -1123,7 +1133,7 @@ static void NetTestDisconnectTakeover(void)
       NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
     CHECK(NetSessionClientState(s_aClients[0].pSession) == NET_JOIN_REFUSED);
     CHECK(NetSessionClientRefuseReason(s_aClients[0].pSession) ==
-          NET_JOIN_REFUSE_INVALID_REQUEST);
+          NET_JOIN_REFUSE_REJOIN_EXPIRED);
     CHECK(NetLobbyHostPlayer(pLobby, s_aClients[0].byPlayerIdx, &player));
     CHECK(player.byState == NET_PLAYER_DROPPED &&
           player.byCarIdx0 == 0 && player.byCarIdx1 == 1);

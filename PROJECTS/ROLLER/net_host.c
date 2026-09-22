@@ -28,6 +28,7 @@ typedef struct
   uint8 byCheckpointPending, byRestoreOwnership;
   uint8 abyCars[NET_INPUT_MAX_LOCAL_PLAYERS];
   uint64 ullDroppedMs;
+  uint32 uiLateWindowTicks, uiLateWindowMisses;
   tCarInputData aLast[NET_INPUT_MAX_LOCAL_PLAYERS];
   tNetHostInputSlot aQueue[NET_INPUT_QUEUE];
   tNetHostPlayerStats stats;
@@ -163,9 +164,10 @@ static eNetJoinRefuseReason NetHostAuthorizeRejoin(void *pContext,
     pPlayer->byRestoreOwnership = 0;
     return NET_JOIN_REFUSE_NONE;
   }
-  if (entry.byState != NET_PLAYER_DROPPED || !pPlayer->ullDroppedMs ||
-      ullNowMs - pPlayer->ullDroppedMs > NET_REJOIN_GRACE_MS)
+  if (entry.byState != NET_PLAYER_DROPPED || !pPlayer->ullDroppedMs)
     return NET_JOIN_REFUSE_INVALID_REQUEST;
+  if (ullNowMs - pPlayer->ullDroppedMs > NET_REJOIN_GRACE_MS)
+    return NET_JOIN_REFUSE_REJOIN_EXPIRED;
   pPlayer->byCheckpointPending = 1;
   pPlayer->byRestoreOwnership = 1;
   return NET_JOIN_REFUSE_NONE;
@@ -403,6 +405,10 @@ void NetHostPump(tNetHost *pHost)
       }
       memset(pPlayer->aQueue, 0, sizeof(pPlayer->aQueue));
       memset(pPlayer->aLast, 0, sizeof(pPlayer->aLast));
+      pPlayer->uiLateWindowTicks = 0;
+      pPlayer->uiLateWindowMisses = 0;
+      pPlayer->stats.fLateInputRate = 0.0f;
+      pPlayer->stats.byLateInputWarning = 0;
       pPlayer->byActive = 1;
       pPlayer->byRestoreOwnership = 0;
       pPlayer->ullDroppedMs = 0;
@@ -795,12 +801,23 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
     tNetHostInputSlot *pSlot = &pPlayer->aQueue[uiTick % NET_INPUT_QUEUE];
     if (!pPlayer->byActive)
       continue;
+    ++pPlayer->uiLateWindowTicks;
     if (pSlot->byValid && pSlot->uiTick == uiTick) {
       memcpy(pPlayer->aLast, pSlot->aInput, sizeof(pPlayer->aLast));
     } else {
       /* A miss repeats the last input and is counted (4.3 step 1). */
       ++pPlayer->stats.uiLateInputs;
+      ++pPlayer->uiLateWindowMisses;
       ++g_netStats.iLateInputs;
+    }
+    if (pPlayer->uiLateWindowTicks >= pHost->config.unTickRateHz) {
+      pPlayer->stats.fLateInputRate =
+          (float)pPlayer->uiLateWindowMisses /
+          (float)pPlayer->uiLateWindowTicks;
+      pPlayer->stats.byLateInputWarning =
+          pPlayer->stats.fLateInputRate >= NET_HOST_LATE_WARNING_RATE;
+      pPlayer->uiLateWindowTicks = 0;
+      pPlayer->uiLateWindowMisses = 0;
     }
     pSlot->byValid = 0;
     for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar)
@@ -968,9 +985,12 @@ int NetHostWorldChangeAt(const tNetHost *pHost, int iChunk,
 int NetHostPlayerStats(const tNetHost *pHost, uint8 byPlayerIdx,
                        tNetHostPlayerStats *pStats)
 {
+  tNetConnection *pConnection;
   if (!pHost || !pStats || byPlayerIdx >= NET_SESSION_MAX_PLAYERS ||
       !pHost->aPlayers[byPlayerIdx].byActive)
     return 0;
   *pStats = pHost->aPlayers[byPlayerIdx].stats;
+  pConnection = NetSessionHostPlayerConnection(pHost->pSession, byPlayerIdx);
+  pStats->fRttMs = NetConnectionRttMs(pConnection);
   return 1;
 }

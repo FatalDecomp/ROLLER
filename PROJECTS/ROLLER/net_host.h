@@ -8,6 +8,7 @@
    at every tick rate and snapshot interval the session allows. */
 #define NET_HOST_SNAPSHOT_RING 64
 #define NET_HOST_FEEDBACK_MS 250
+#define NET_HOST_LATE_WARNING_RATE 0.10f
 
 typedef struct tNetHost tNetHost;
 
@@ -29,6 +30,9 @@ typedef struct
   uint32 uiLastDecodedSnapshotTick;
   int16 nArrivalMarginTicks;
   uint8 byCarCount, abyCars[2];
+  float fRttMs;
+  float fLateInputRate;
+  uint8 byLateInputWarning;
 } tNetHostPlayerStats;
 
 /* Registers for race traffic on pLobby.  One host per session. */

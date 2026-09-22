@@ -1392,6 +1392,25 @@ eNetRecoveryState NetClientRecoveryState(const tNetClient *pClient)
   return pClient ? pClient->recovery : NET_RECOVERY_RACING;
 }
 
+const char *NetClientStatus(const tNetClient *pClient)
+{
+  eNetJoinState state;
+  if (!pClient || !pClient->byRacing)
+    return "";
+  state = NetSessionClientState(pClient->pSession);
+  if (state == NET_JOIN_REFUSED)
+    return NetJoinRefuseReasonString(
+        NetSessionClientRefuseReason(pClient->pSession));
+  if (pClient->recovery != NET_RECOVERY_RACING) {
+    if (state == NET_JOIN_WAITING)
+      return "Connection lost, retrying";
+    return "Resynchronising";
+  }
+  if (pClient->iPredictionMode == NET_PREDICT_DELAYED)
+    return "High latency: delayed controls";
+  return "";
+}
+
 /* lead = ceil((RTT/2 + jitter + one tick period) / tick period) (4.4), plus
    the frame interval, because a batch waits in the send queue until the next
    frame's NetPump, plus the feedback bias. */

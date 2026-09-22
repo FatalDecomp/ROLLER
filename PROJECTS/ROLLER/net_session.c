@@ -463,7 +463,7 @@ int NetSessionHostRefusePlayer(tNetSessionHost *pHost, uint8 byPlayerIdx,
 {
   int iSlot;
   if (!pHost || reason <= NET_JOIN_REFUSE_NONE ||
-      reason > NET_JOIN_REFUSE_LOAD_TIMEOUT)
+      reason > NET_JOIN_REFUSE_REJOIN_EXPIRED)
     return 0;
   for (iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot) {
     tNetHostSlot *pSlot = &pHost->aSlots[iSlot];
@@ -588,7 +588,7 @@ void NetSessionClientPump(tNetSessionClient *pClient)
                message.byType == NET_MSG_JOIN_REFUSE &&
                message.unLength == sizeof(tNetJoinRefuse) &&
                message.abData[0] > NET_JOIN_REFUSE_NONE &&
-               message.abData[0] <= NET_JOIN_REFUSE_LOAD_TIMEOUT &&
+               message.abData[0] <= NET_JOIN_REFUSE_REJOIN_EXPIRED &&
                !message.abData[1] &&
                NetSessionRead16(message.abData + 2) == NET_PROTOCOL_VERSION) {
       pClient->byRefuseReason = message.abData[0];
@@ -617,6 +617,29 @@ eNetJoinRefuseReason NetSessionClientRefuseReason(
 {
   return pClient ? (eNetJoinRefuseReason)pClient->byRefuseReason :
       NET_JOIN_REFUSE_NONE;
+}
+
+const char *NetJoinRefuseReasonString(eNetJoinRefuseReason reason)
+{
+  switch (reason) {
+    case NET_JOIN_REFUSE_VERSION_MISMATCH:
+      return "Protocol version mismatch";
+    case NET_JOIN_REFUSE_SERVER_FULL:
+      return "Server is full";
+    case NET_JOIN_REFUSE_CSPRNG_UNAVAILABLE:
+      return "Secure session unavailable";
+    case NET_JOIN_REFUSE_INVALID_REQUEST:
+      return "Invalid join request";
+    case NET_JOIN_REFUSE_TRACK_CRC_MISMATCH:
+      return "Track file CRC mismatch";
+    case NET_JOIN_REFUSE_LOAD_TIMEOUT:
+      return "Timed out while loading";
+    case NET_JOIN_REFUSE_REJOIN_EXPIRED:
+      return "Rejoin window expired";
+    case NET_JOIN_REFUSE_NONE:
+    default:
+      return "Session join refused";
+  }
 }
 
 uint64 NetSessionClientToken(const tNetSessionClient *pClient)

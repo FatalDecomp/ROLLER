@@ -241,6 +241,28 @@ static void NetTestCSPRNGRequired(void)
   NetTransportSimDestroy(pSim);
 }
 
+static void NetTestRefuseReasonStrings(void)
+{
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_VERSION_MISMATCH),
+                "Protocol version mismatch"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_SERVER_FULL),
+                "Server is full"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(
+                    NET_JOIN_REFUSE_CSPRNG_UNAVAILABLE),
+                "Secure session unavailable"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_INVALID_REQUEST),
+                "Invalid join request"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(
+                    NET_JOIN_REFUSE_TRACK_CRC_MISMATCH),
+                "Track file CRC mismatch"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_LOAD_TIMEOUT),
+                "Timed out while loading"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_REJOIN_EXPIRED),
+                "Rejoin window expired"));
+  CHECK(!strcmp(NetJoinRefuseReasonString(NET_JOIN_REFUSE_NONE),
+                "Session join refused"));
+}
+
 static void NetTestMalformedMessages(void)
 {
   tNetTransportSim *pSim = NetTransportSimCreate(404);
@@ -316,6 +338,7 @@ int main(void)
   NetTestVersionRefusal();
   NetTestGenerationRejoin();
   NetTestCSPRNGRequired();
+  NetTestRefuseReasonStrings();
   NetTestMalformedMessages();
   puts("NET-E1-S3 join, refusal, token and address migration passed");
   return 0;

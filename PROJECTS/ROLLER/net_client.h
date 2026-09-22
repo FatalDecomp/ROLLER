@@ -86,6 +86,9 @@ int NetClientBeginRace(tNetClient *pClient);
 int NetClientBeginRejoin(tNetClient *pClient,
                          tNetConnection *pConnection);
 eNetRecoveryState NetClientRecoveryState(const tNetClient *pClient);
+/* Empty during ordinary racing; otherwise the highest-priority non-blocking
+   recovery or prediction-mode indicator for the in-race HUD. */
+const char *NetClientStatus(const tNetClient *pClient);
 
 /* Frame loop, after the session pump: clock sync, lead control, and the
    dilated accumulator (4.4).  The accumulator owns the client's ticks: the

@@ -71,6 +71,8 @@ void NetSessionClientPump(tNetSessionClient *pClient);
 eNetJoinState NetSessionClientState(const tNetSessionClient *pClient);
 eNetJoinRefuseReason NetSessionClientRefuseReason(
     const tNetSessionClient *pClient);
+/* Stable user-facing text for every modern-path refusal reason. */
+const char *NetJoinRefuseReasonString(eNetJoinRefuseReason reason);
 uint64 NetSessionClientToken(const tNetSessionClient *pClient);
 uint8 NetSessionClientGeneration(const tNetSessionClient *pClient);
 uint8 NetSessionClientPlayerIndex(const tNetSessionClient *pClient);

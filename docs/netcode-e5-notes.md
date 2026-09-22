@@ -161,7 +161,7 @@ disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
 
 ## NET-E5-S3: rejoin via checkpoint and resync
 
-Implemented on 2026-09-22. The changes are intentionally uncommitted.
+Implemented on 2026-09-22 and committed in `310cfbc`.
 
 ### Authenticated generation replacement
 
@@ -266,3 +266,66 @@ Python tests pass.
 
 Not run: Android `assembleDebug`, a CMake configure, a manual two-instance
 disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
+
+## NET-E5-S4: timeouts, errors and user messaging
+
+Implemented on 2026-09-22. The changes are intentionally uncommitted.
+
+### Modern-path status contract
+
+`NetJoinRefuseReasonString` is the single user-facing mapping for every join
+refusal. The modern lobby uses it instead of collapsing failures into a generic
+message. A new `NET_JOIN_REFUSE_REJOIN_EXPIRED` reason distinguishes a retained
+token presented after the 60-second grace window from a malformed request; the
+decoder accepts the new bounded enum value and the existing packed refusal
+message is unchanged.
+
+`NetClientStatus` publishes one non-blocking in-race indicator by priority:
+
+- `Connection lost, retrying` while the replacement generation is waiting;
+- `Resynchronising` after authentication while checkpoint/resync is active;
+- the specific refusal reason if recovery is refused;
+- `High latency: delayed controls` whenever prediction is delayed.
+
+The frontend also changes an unanswered retry to `Rejoin window expired` when
+the channel clock passes the grace window. Rendering and both network pumps
+continue throughout. The race HUD draws the active client indicator at the top
+centre through the existing software HUD layer, which is also composited by the
+GPU renderer.
+
+### Host connection health
+
+Each active host player now exposes smoothed channel RTT plus a one-second
+late-input rate. The warning threshold is 10 percent of simulated ticks; its
+window stops while paused because no input is consumed, and it is cleared when
+a player successfully rejoins. The listen-host HUD renders one row per active
+player as `NAME: N ms`; a trailing `!` is the warning icon while that player's
+latest complete window is at or above the threshold.
+
+The host acceptance proves the warm-up loss crosses the warning threshold,
+the channel RTT is populated, and a later healthy window clears the warning.
+The client acceptance checks the retry indicator during generation replacement
+and the delayed-controls indicator throughout the existing 600 ms RTT hold at
+both 36 and 100 Hz. Session tests cover every refusal string, and the late
+rejoin acceptance now requires the dedicated expiry reason.
+
+### Verification
+
+Passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations test-net-full-state-coherence test-net-host test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
+```
+
+Source counts remain Linux 95, macOS 95, Windows 98, Android 95 and
+Emscripten 93. The roller-core manifest remains 109 translation units. All 18
+selected Python tests pass.
+
+Not run: the story's manual two-instance proxy check at 100 percent mid-race
+loss and sustained 600 ms, Android `assembleDebug`, a CMake configure, or the
+E7-S1 legacy-call trap (it does not exist yet).

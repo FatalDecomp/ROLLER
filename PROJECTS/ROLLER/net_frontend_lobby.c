@@ -34,7 +34,9 @@ typedef struct
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
   uint8 bySelectedCar, bySelectedControl;
+  uint64 ullRejoinStartedMs;
   char szStatus[96];
+  char szRaceError[96];
 } tNetFrontendLobbyState;
 
 static tNetFrontendLobbyState s_frontend = {
@@ -95,6 +97,8 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byRaceScheduled = 0;
   s_frontend.byRaceLoadedSent = 0;
   s_frontend.byRaceStarted = 0;
+  s_frontend.ullRejoinStartedMs = 0;
+  s_frontend.szRaceError[0] = '\0';
 }
 
 void NetFrontendClose(void)
@@ -300,22 +304,36 @@ void NetFrontendPump(void)
         NetSessionClientToken(s_frontend.pClient),
         (uint8)(NetSessionClientGeneration(s_frontend.pClient) + 1u));
     if (!pRejoin || !NetClientBeginRejoin(s_frontend.pRaceClient, pRejoin)) {
-      NetFrontendStatus("SESSION REJOIN FAILED");
+      snprintf(s_frontend.szRaceError, sizeof(s_frontend.szRaceError),
+               "%s", "Session rejoin failed");
       return;
     }
+    s_frontend.ullRejoinStartedMs = NetConnectionNowMs(pRejoin);
   }
   NetSessionClientPump(s_frontend.pClient);
   NetHostPump(s_frontend.pRaceHost);
   NetClientPump(s_frontend.pRaceClient);
+  if (s_frontend.pRaceClient &&
+      NetClientRecoveryState(s_frontend.pRaceClient) != NET_RECOVERY_RACING) {
+    tNetConnection *pConnection =
+        NetSessionClientConnection(s_frontend.pClient);
+    uint64 ullNowMs = NetConnectionNowMs(pConnection);
+    if (s_frontend.ullRejoinStartedMs &&
+        ullNowMs - s_frontend.ullRejoinStartedMs > NET_REJOIN_GRACE_MS)
+      snprintf(s_frontend.szRaceError, sizeof(s_frontend.szRaceError),
+               "%s", NetJoinRefuseReasonString(
+                   NET_JOIN_REFUSE_REJOIN_EXPIRED));
+  } else if (s_frontend.pRaceClient) {
+    s_frontend.ullRejoinStartedMs = 0;
+    s_frontend.szRaceError[0] = '\0';
+  }
   state = NetSessionClientState(s_frontend.pClient);
   if (state == NET_JOIN_REFUSED) {
-    if (NetSessionClientRefuseReason(s_frontend.pClient) ==
-        NET_JOIN_REFUSE_TRACK_CRC_MISMATCH) {
+    eNetJoinRefuseReason reason =
+        NetSessionClientRefuseReason(s_frontend.pClient);
+    if (reason == NET_JOIN_REFUSE_TRACK_CRC_MISMATCH)
       g_iNetworkTrackFileCRCMismatch = -1;
-      NetFrontendStatus("TRACK FILE CRC MISMATCH");
-    } else {
-      NetFrontendStatus("SESSION JOIN REFUSED");
-    }
+    NetFrontendStatus(NetJoinRefuseReasonString(reason));
     return;
   }
   if (state != NET_JOIN_ACCEPTED ||
@@ -510,4 +528,28 @@ int NetFrontendSendStrategy(uint8 byMessage)
 const char *NetFrontendLobbyStatus(void)
 {
   return s_frontend.szStatus;
+}
+
+const char *NetFrontendRaceStatus(void)
+{
+  if (s_frontend.szRaceError[0])
+    return s_frontend.szRaceError;
+  return s_frontend.pRaceClient ? NetClientStatus(s_frontend.pRaceClient) :
+      "";
+}
+
+int NetFrontendHostNetworkStatus(int iPlayer, char *szStatus,
+                                 size_t uiStatusSize)
+{
+  tNetHostPlayerStats stats;
+  const char *szName;
+  if (!szStatus || !uiStatusSize || !s_frontend.pRaceHost ||
+      iPlayer < 0 || iPlayer >= NET_SESSION_MAX_PLAYERS ||
+      !NetHostPlayerStats(s_frontend.pRaceHost, (uint8)iPlayer, &stats))
+    return 0;
+  szName = NetSessionHostPlayerName(s_frontend.pHost, (uint8)iPlayer);
+  snprintf(szStatus, uiStatusSize, "%s: %.0f ms%s",
+           szName ? szName : "PLAYER", stats.fRttMs,
+           stats.byLateInputWarning ? " !" : "");
+  return 1;
 }

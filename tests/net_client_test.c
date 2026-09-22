@@ -650,6 +650,8 @@ static void NetTestPredictionModes(tNetTestNodes *pNodes,
                       piHostTickIndex, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &entered));
   CHECK(entered.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(!strcmp(NetClientStatus(pNodes->pClient),
+                "High latency: delayed controls"));
   CHECK(entered.iPredictionTransitions == before.iPredictionTransitions + 1);
   CHECK(net_puppet_car[byCar]);
   CHECK(!NetClientPredictionAt(pNodes->pClient, 0,
@@ -677,6 +679,7 @@ static void NetTestPredictionModes(tNetTestNodes *pNodes,
                       piHostTickIndex, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &recovered));
   CHECK(recovered.iPredictionMode == NET_PREDICT_FULL);
+  CHECK(!NetClientStatus(pNodes->pClient)[0]);
   CHECK(recovered.iPredictionTransitions ==
         entered.iPredictionTransitions + 1);
   CHECK(!net_puppet_car[byCar]);
@@ -1225,6 +1228,8 @@ static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
   pNodes->pClientConnection = pRejoinConnection;
   CHECK(NetClientBeginRejoin(pNodes->pClient, pRejoinConnection));
   CHECK(NetClientRecoveryState(pNodes->pClient) == NET_RECOVERY_INSTALLING);
+  CHECK(!strcmp(NetClientStatus(pNodes->pClient),
+                "Connection lost, retrying"));
   CHECK(!NetClientInputAt(pNodes->pClient,
                           NetClientCurrentTick(pNodes->pClient), &input));
   for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
@@ -1277,6 +1282,8 @@ static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(NetClientStats(pNodes->pClient, &stats));
   CHECK(stats.fRttMs > 1000.0f);
   CHECK(stats.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(!strcmp(NetClientStatus(pNodes->pClient),
+                "High latency: delayed controls"));
   CHECK(stats.uiRampTick == NetClientCurrentTick(pNodes->pClient));
   CHECK(NetClientContextAt(pNodes->pClient,
                            NetClientCurrentTick(pNodes->pClient), &current));
