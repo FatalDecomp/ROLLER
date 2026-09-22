@@ -95,7 +95,8 @@ static int NetCarStateValid(const tNetCarState *pCar, int iChunkLimit)
 static int NetSnapshotValid(const tNetSnapshot *pSnapshot)
 {
   if (!pSnapshot || pSnapshot->byNumCars > MAX_CARS || pSnapshot->byNumRamps > NET_MAX_RAMPS ||
-      pSnapshot->byPaused > 1 || pSnapshot->context.byRaceStarted > 1 || pSnapshot->context.byRacing > 1)
+      pSnapshot->byRaceState > NET_RACE_STOPPED || pSnapshot->byPaused > 1 ||
+      pSnapshot->context.byRaceStarted > 1 || pSnapshot->context.byRacing > 1)
     return 0;
   for (int iCar = 0; iCar < pSnapshot->byNumCars; ++iCar)
     if (!NetCarStateValid(&pSnapshot->aCars[iCar], MAX_TRACK_CHUNKS))

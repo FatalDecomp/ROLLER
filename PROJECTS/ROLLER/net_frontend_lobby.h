@@ -1,6 +1,7 @@
 #ifndef ROLLER_NET_FRONTEND_LOBBY_H
 #define ROLLER_NET_FRONTEND_LOBBY_H
 
+#include "net_protocol.h"
 #include "sound.h"
 
 void NetFrontendSetLocalPort(uint16 unPort);
@@ -21,6 +22,10 @@ int NetFrontendRaceTicksDue(void);
 int NetFrontendRaceLocalPlayers(void);
 int NetFrontendRaceTick(uint32 uiTick, const tCarInputData *pInputs,
                         int iCount);
+int NetFrontendRaceSetPaused(int iPaused);
+int NetFrontendRacePaused(void);
+eNetRaceState NetFrontendRaceState(void);
+int NetFrontendRaceResults(int *piFinishers, int *piHumanFinishers);
 int NetFrontendSendStrategy(uint8 byMessage);
 const char *NetFrontendLobbyStatus(void);
 

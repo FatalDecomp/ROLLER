@@ -657,6 +657,10 @@ void game_tick_step(void)
          winner_mode block, and winner_mode takes the branch above.  The clock
          labels each tick as it hands it out, so every tick it gives must be
          simulated; E3-S1 builds on that numbering. */
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      if (NetFrontendRacePaused())
+        return;
+#endif
       if (!NetRaceStartBeginTick(&uiModernTick))
         return;
       iModernRaceTick = 1;

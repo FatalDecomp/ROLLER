@@ -16,6 +16,7 @@
 #include "net_host.h"
 #include "net_input.h"
 #include "net_race_start.h"
+#include "net_race_state.h"
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
 #include "3d.h"
@@ -345,7 +346,9 @@ static void NetTestRampStallRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
 
   /* Queue a real full snapshot at the client's matching post-tick boundary,
      then keep pumping transport but stop client frames for two seconds. */
-  CHECK(NetSnapshotBuild(&snapshot, uiTick, 0, 0, 0));
+  CHECK(NetSnapshotBuild(&snapshot, uiTick, before.uiLastAppliedEventSeq,
+                         (uint8)before.iRaceState,
+                         (uint8)before.iPaused));
   iLength = NetSnapshotEncode(&snapshot, abSnapshot, sizeof(abSnapshot));
   CHECK(iLength == (int)sizeof(snapshot));
   CHECK(NetConnectionQueueMessage(
@@ -610,7 +613,7 @@ static void NetTestContinueRace(tNetTestNodes *pNodes, uint64 *pullNowMs,
       uint32 uiTick = NetHostNextTick(pNodes->pHost);
       CHECK(s_hostRun.iTicks < NET_TEST_MAX_TICKS);
       CHECK(NetHostTick(pNodes->pHost, uiTick));
-      CHECK(!NetHostLastEventSeq(pNodes->pHost));
+      CHECK(NetHostLastEventSeq(pNodes->pHost) == 1u);
       NetTestRestoreClientWorld(&s_hostRun);
       ++s_hostRun.iTicks;
       ++*piHostTickIndex;
@@ -791,6 +794,110 @@ static void NetTestQueueEvent(tNetConnection *pConnection,
       abEvent, (uint16)iLength));
 }
 
+static void NetTestQueuePause(tNetConnection *pConnection,
+                              uint16 unRevision, int iPaused,
+                              uint32 uiTick)
+{
+  tNetPause pause;
+  uint8 abPause[sizeof(tNetPause)];
+  int iLength;
+  memset(&pause, 0, sizeof(pause));
+  pause.unPauseRevision = unRevision;
+  pause.byPaused = (uint8)(iPaused != 0);
+  pause.uiTick = uiTick;
+  iLength = NetPauseEncode(&pause, abPause, sizeof(abPause));
+  CHECK(iLength == (int)sizeof(tNetPause));
+  CHECK(NetConnectionQueueMessage(
+      pConnection, NET_MSG_PAUSE, NET_MSG_RELIABLE | NET_MSG_ORDERED,
+      abPause, (uint16)iLength));
+}
+
+static void NetTestPause(tNetTestNodes *pNodes, uint64 *pullNowMs,
+                         uint16 unTickRateHz, uint8 byCar)
+{
+  tNetConnection *pHostConnection = NetSessionHostPlayerConnection(
+      pNodes->pSessionHost,
+      NetSessionClientPlayerIndex(pNodes->pSessionClient));
+  tNetSimLink loss = {NET_TEST_LATENCY_MS, 0, 50, 0, 0};
+  tNetClientStats before, after;
+  tNetSimTickContext beforeContext, afterContext;
+  tCarInputData input;
+  uint64 ullPauseEnd = *pullNowMs + 30000u;
+  uint32 uiHostTick, uiClientTick;
+
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &loss));
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  uiHostTick = NetHostNextTick(pNodes->pHost);
+  uiClientTick = NetClientCurrentTick(pNodes->pClient);
+  CHECK(NetClientContextAt(pNodes->pClient, uiClientTick, &beforeContext));
+  CHECK(NetHostSetPaused(pNodes->pHost, 1));
+  CHECK(NetHostPaused(pNodes->pHost) && NetHostPauseRevision(pNodes->pHost) == 1);
+  CHECK(!NetHostTick(pNodes->pHost, uiHostTick));
+
+  for (; *pullNowMs <= ullPauseEnd; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+    if (!(*pullNowMs % 16u))
+      NetClientPump(pNodes->pClient);
+  }
+  NetClientPump(pNodes->pClient);
+  CHECK(NetClientPaused(pNodes->pClient));
+  CHECK(NetClientPauseRevision(pNodes->pClient) == 1);
+  CHECK(!NetClientTicksDue(pNodes->pClient));
+  CHECK(NetHostNextTick(pNodes->pHost) == uiHostTick);
+  CHECK(NetClientCurrentTick(pNodes->pClient) == uiClientTick);
+  CHECK(!NetConnectionIsExpired(pHostConnection));
+  CHECK(!NetConnectionIsExpired(pNodes->pClientConnection));
+
+  CHECK(NetHostSetPaused(pNodes->pHost, 0));
+  CHECK(!NetHostPaused(pNodes->pHost) && NetHostPauseRevision(pNodes->pHost) == 2);
+  for (uint64 ullEnd = *pullNowMs + 1000u;
+       *pullNowMs <= ullEnd && NetClientPaused(pNodes->pClient);
+       ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+    NetClientPump(pNodes->pClient);
+  }
+  CHECK(!NetClientPaused(pNodes->pClient));
+  while (!NetClientTicksDue(pNodes->pClient)) {
+    ++*pullNowMs;
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+    NetClientPump(pNodes->pClient);
+  }
+  input = NetTestScript(uiClientTick + 1u, byCar);
+  CHECK(NetClientTick(pNodes->pClient, &input));
+  CHECK(NetClientCurrentTick(pNodes->pClient) == uiClientTick + 1u);
+  CHECK(NetClientContextAt(pNodes->pClient, uiClientTick + 1u,
+                           &afterContext));
+  CHECK(afterContext.iGameFrame == beforeContext.iGameFrame + 1);
+
+  /* Drive the authority to revision 4, then deliver a delayed revision 3.
+     The stale pause must not undo the newer unpause. */
+  CHECK(NetHostSetPaused(pNodes->pHost, 1));
+  CHECK(NetHostSetPaused(pNodes->pHost, 0));
+  CHECK(NetHostPauseRevision(pNodes->pHost) == 4);
+  NetTestQueuePause(pHostConnection, 3, 1, NetHostNextTick(pNodes->pHost));
+  for (uint64 ullEnd = *pullNowMs + 1500u; *pullNowMs <= ullEnd;
+       ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+    NetClientPump(pNodes->pClient);
+  }
+  CHECK(!NetClientPaused(pNodes->pClient));
+  CHECK(NetClientPauseRevision(pNodes->pClient) == 4);
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiPauseChanges == before.uiPauseChanges + 4u);
+  CHECK(after.uiStaleMessages >= before.uiStaleMessages + 1u);
+  printf("%u Hz: 30 s pause at 5%% loss kept both connections alive; "
+         "revision 3 ignored after revision 4\n", unTickRateHz);
+}
+
 static void NetTestRunCommitTick(tNetTestNodes *pNodes,
                                  uint64 *pullNowMs,
                                  uint16 unTickRateHz, uint8 byCar)
@@ -809,13 +916,14 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
       NetSessionClientPlayerIndex(pNodes->pSessionClient));
   tNetClientStats before, after;
   tNetSnapshot snapshot, olderSnapshot;
-  tNetEvent aEvents[6];
+  tNetEvent aEvents[8];
   tNetWorldChangeEntry aBefore[MAX_TRACK_CHUNKS];
   tNetWorldChangeEntry aWorld[16];
   tNetSimLink link = {0, 0, 0, 0, 0};
   tCar savedCar;
   uint8 abMessage[NET_MAX_MESSAGE_SIZE];
   uint32 uiSnapshotTick;
+  uint32 uiBaseEventSeq;
   int iSavedAuthority, iLength;
   int aiRemote[3], iRemoteCount = 0;
 
@@ -906,7 +1014,22 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   aEvents[5].iArg1 = 1;
 
   CHECK(NetClientStats(pNodes->pClient, &before));
-  CHECK(!before.uiCommitWatermark && !before.uiLastAppliedEventSeq);
+  CHECK(before.uiCommitWatermark == before.uiLastAppliedEventSeq);
+  CHECK(before.iRaceState == NET_RACE_RUNNING);
+  uiBaseEventSeq = before.uiLastAppliedEventSeq;
+  for (int iEvent = 0; iEvent < 6; ++iEvent)
+    aEvents[iEvent].uiEventSeq += uiBaseEventSeq;
+  aEvents[6].uiEventSeq = uiBaseEventSeq + 7u;
+  aEvents[6].byType = NET_EV_RACE_STATE;
+  aEvents[6].byCarIdx = NET_EVENT_NO_CAR;
+  aEvents[6].byPlayerIdx = NET_EVENT_NO_PLAYER;
+  aEvents[6].iArg0 = NET_RACE_OUTCOME_SETTLED;
+  aEvents[7].uiEventSeq = uiBaseEventSeq + 8u;
+  aEvents[7].byType = NET_EV_RESULTS;
+  aEvents[7].byCarIdx = NET_EVENT_NO_CAR;
+  aEvents[7].byPlayerIdx = NET_EVENT_NO_PLAYER;
+  aEvents[7].iArg0 = 2;
+  aEvents[7].iArg1 = 1;
   CHECK(NetClientSnapshotAt(pNodes->pClient,
                             before.uiNewestSnapshotTick, &snapshot));
   olderSnapshot = snapshot;
@@ -914,7 +1037,8 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   for (int iRamp = 0; iRamp < snapshot.byNumRamps; ++iRamp)
     CHECK(NetSimAdvanceRampStateCopy(iRamp, &snapshot.aRamps[iRamp], 2));
   snapshot.uiTick = uiSnapshotTick;
-  snapshot.uiLastEventSeq = 7;
+  snapshot.uiLastEventSeq = uiBaseEventSeq + 9u;
+  snapshot.byRaceState = NET_RACE_OUTCOME_SETTLED;
   snapshot.aCars[aiRemote[0]].byLap = 4;
   snapshot.aCars[byCar].byRacePosition = 0;
   snapshot.aCars[aiRemote[2]].byRacePosition = (uint8)(numcars - 1);
@@ -924,17 +1048,20 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
                                   abMessage, (uint16)iLength));
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
-  CHECK(after.uiCommitWatermark == 7 && !after.uiCommitsApplied);
+  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 9u &&
+        after.uiCommitsApplied == before.uiCommitsApplied);
 
-  /* Retain 2..6 behind a missing 1.  Neither result globals nor the world
+  /* Retain the later lifecycle/result commits behind the first missing car
+     commit.  Neither result globals nor the world
      may advance across the shared-sequence gap. */
-  for (int iEvent = 1; iEvent < 6; ++iEvent) {
+  for (int iEvent = 1; iEvent < 8; ++iEvent) {
     aEvents[iEvent].uiTick = uiSnapshotTick;
     NetTestQueueEvent(pConnection, &aEvents[iEvent]);
   }
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
-  CHECK(!after.uiCommitsApplied && !finishers && !human_finishers &&
+  CHECK(after.uiCommitsApplied == before.uiCommitsApplied &&
+        !finishers && !human_finishers &&
         !Destroyed && !Car[aiRemote[1]].byKills);
   for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
     tNetWorldChangeEntry current;
@@ -946,15 +1073,22 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestQueueEvent(pConnection, &aEvents[0]);
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
-  CHECK(after.uiEvents == before.uiEvents + 6u);
-  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 6u);
-  CHECK(after.uiLastAppliedEventSeq == 6);
+  CHECK(after.uiEvents == before.uiEvents + 8u);
+  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 8u);
+  CHECK(after.uiLastAppliedEventSeq == uiBaseEventSeq + 8u);
   CHECK(Car[aiRemote[0]].byLap == 4 &&
         Car[aiRemote[0]].byLapNumber >= 4);
   CHECK(Car[aiRemote[1]].byKills == 3);
   CHECK(finished_car[byCar] && finished_car[aiRemote[2]]);
   CHECK(Car[byCar].byRacePosition == 0 && carorder[0] == byCar);
   CHECK(finishers == 2 && human_finishers == 1 && Destroyed == 1);
+  CHECK(NetClientRaceState(pNodes->pClient) == NET_RACE_OUTCOME_SETTLED);
+  {
+    int iResultFinishers, iResultHumanFinishers;
+    CHECK(NetClientResults(pNodes->pClient, &iResultFinishers,
+                           &iResultHumanFinishers));
+    CHECK(iResultFinishers == 2 && iResultHumanFinishers == 1);
+  }
 
   /* Result publication is idempotent even if a later movement correction
      restores a context recorded before these reliable commits arrived. */
@@ -967,7 +1101,8 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(finished_car[byCar] && finished_car[aiRemote[2]]);
   CHECK(Car[aiRemote[0]].byLap == 4 && Car[aiRemote[1]].byKills == 3);
 
-  iLength = NetWorldChangeEncode(7, uiSnapshotTick, aWorld, 16,
+  iLength = NetWorldChangeEncode(uiBaseEventSeq + 9u, uiSnapshotTick,
+                                 aWorld, 16,
                                  abMessage, sizeof(abMessage));
   CHECK(iLength > 0);
   CHECK(NetConnectionQueueMessage(
@@ -976,9 +1111,9 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
   CHECK(after.uiWorldChanges == before.uiWorldChanges + 1u);
-  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 7u);
+  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 9u);
   CHECK(after.uiLastAppliedEventSeq == after.uiCommitWatermark &&
-        after.uiCommitWatermark == 7);
+        after.uiCommitWatermark == uiBaseEventSeq + 9u);
   for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
     tNetWorldChangeEntry current;
     CHECK(NetWorldChangeCapture(iChunk, &current));
@@ -998,7 +1133,8 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
   CHECK(after.uiRejectedMessages == before.uiRejectedMessages);
-  CHECK(after.uiCommitWatermark == 7 && after.uiLastAppliedEventSeq == 7);
+  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 9u &&
+        after.uiLastAppliedEventSeq == uiBaseEventSeq + 9u);
 
   /* This process owns one world, so restore the synthetic host mutation for
      the second tick-rate pass. */
@@ -1011,7 +1147,7 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
     memcpy(TrakColour[iChunk], aBefore[iChunk].auiTrakColour,
            sizeof(aBefore[iChunk].auiTrakColour));
   }
-  printf("%u Hz: 7 ordered host commits applied after a watermark/gap; "
+  printf("%u Hz: 9 ordered host commits applied after a watermark/gap; "
          "16 world chunks exact\n", unTickRateHz);
 }
 
@@ -1148,7 +1284,9 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       uiLateBefore = hostStats.uiLateInputs;
       CHECK(NetHostTick(nodes.pHost, uiTick));
-      CHECK(!NetHostLastEventSeq(nodes.pHost));
+      CHECK(NetHostLastEventSeq(nodes.pHost) <= 1u);
+      CHECK((NetHostRaceState(nodes.pHost) == NET_RACE_RUNNING) ==
+            (NetHostLastEventSeq(nodes.pHost) == 1u));
       NetTestRestoreClientWorld(&s_hostRun);
       CHECK(NetHostPlayerStats(nodes.pHost, 0, &hostStats));
       s_hostRun.aTicks[iIndex].ullMs = ullNowMs;
@@ -1365,6 +1503,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
                      config.bySnapshotInterval, byCar);
   NetTestPredictionModes(&nodes, &ullNowMs, ullReleaseMs,
                          &iHostTickIndex, unTickRateHz, byCar);
+  NetTestPause(&nodes, &ullNowMs, unTickRateHz, byCar);
   NetTestHostCommits(&nodes, &ullNowMs, unTickRateHz, byCar);
 
   NetClientDestroy(nodes.pClient);

@@ -1,6 +1,7 @@
 #include "net_client.h"
 #include "net_event.h"
 #include "net_input.h"
+#include "net_race_state.h"
 #include "net_snapshot.h"
 #include "3d.h"
 #include "car.h"
@@ -80,6 +81,7 @@ struct tNetClient
   uint8 byRacing, byJoined, byHasEstimate, byHasFeedback, byHasSnapshot;
   uint8 byHasFrame, byGroupCount, byHasReconciled, byHasAuthoritative;
   uint8 byDeferredCounted, byAboveBudget, byBelowBudget, byExitReady;
+  uint8 byResultsPublished;
   uint8 abyGroup[NET_INPUT_MAX_LOCAL_PLAYERS];
   /* Timeline (4.4).  uiClientTick is the newest simulated tick; it moves by
      exactly one per NetClientTick. */
@@ -95,6 +97,8 @@ struct tNetClient
   uint32 uiLastReconciledTick, uiLastAuthoritativeTick, uiDeferredTick;
   uint32 uiLastAppliedEventSeq, uiCommitWatermark;
   uint64 ullAboveBudgetSinceMs, ullBelowBudgetSinceMs;
+  tNetRaceLifecycle lifecycle;
+  int iResultFinishers, iResultHumanFinishers;
   uint8 abyFinishCommitted[MAX_CARS], abyDestroyedCommitted[MAX_CARS];
   uint8 abyFinishOwner[MAX_CARS], abyFinishPosition[MAX_CARS];
   uint8 abyLapCommitted[MAX_CARS], abyKillCommitted[MAX_CARS];
@@ -652,8 +656,10 @@ static void NetClientPublishEventCommits(tNetClient *pClient)
       carorder[pClient->abyFinishPosition[iCar]] = iCar;
     }
   }
-  finishers = iFinishers;
-  human_finishers = iHumanFinishers;
+  finishers = pClient->byResultsPublished ?
+      pClient->iResultFinishers : iFinishers;
+  human_finishers = pClient->byResultsPublished ?
+      pClient->iResultHumanFinishers : iHumanFinishers;
   Destroyed = iDestroyed;
 }
 
@@ -689,6 +695,30 @@ static void NetClientApplyEvent(tNetClient *pClient,
       if (pEvent->iArg0 >= 0)
         Victim = pEvent->iArg0;
       break;
+    case NET_EV_RACE_STATE:
+      if (!NetRaceTransition(&pClient->lifecycle, (uint8)pEvent->iArg0))
+        ++pClient->stats.uiRejectedMessages;
+      break;
+    case NET_EV_RESULTS: {
+      int iFinishers = 0, iHumanFinishers = 0;
+      for (int iCar = 0; iCar < numcars; ++iCar) {
+        if (!pClient->abyFinishCommitted[iCar])
+          continue;
+        ++iFinishers;
+        iHumanFinishers +=
+            pClient->abyFinishOwner[iCar] != NET_EVENT_NO_PLAYER;
+      }
+      if (pClient->lifecycle.byState != NET_RACE_OUTCOME_SETTLED ||
+          pEvent->iArg0 != iFinishers ||
+          pEvent->iArg1 != iHumanFinishers) {
+        ++pClient->stats.uiRejectedMessages;
+        break;
+      }
+      pClient->iResultFinishers = pEvent->iArg0;
+      pClient->iResultHumanFinishers = pEvent->iArg1;
+      pClient->byResultsPublished = 1;
+      break;
+    }
     default:
       /* Later lifecycle stories own the remaining numbered event types. */
       break;
@@ -851,6 +881,28 @@ static void NetClientReceiveFeedback(tNetClient *pClient,
   ++pClient->stats.uiFeedback;
 }
 
+static void NetClientReceivePause(tNetClient *pClient,
+                                  const tNetMessage *pMessage,
+                                  uint64 ullNowMs)
+{
+  tNetPause pause;
+  if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+      !NetPauseDecode(pMessage->abData, pMessage->unLength, &pause)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  if (!NetRaceApplyPause(&pClient->lifecycle, pause.unPauseRevision,
+                         pause.byPaused)) {
+    ++pClient->stats.uiStaleMessages;
+    return;
+  }
+  /* Neither time spent paused nor ticks already owed become simulation work
+     after resume.  The next live tick is exactly current + 1. */
+  pClient->dAccumTicks = 0.0;
+  pClient->ullLastPumpMs = ullNowMs;
+  ++pClient->stats.uiPauseChanges;
+}
+
 static void NetClientRaceMessage(void *pContext, const tNetMessage *pMessage)
 {
   tNetClient *pClient = (tNetClient *)pContext;
@@ -874,8 +926,10 @@ static void NetClientRaceMessage(void *pContext, const tNetMessage *pMessage)
     case NET_MSG_WORLD_CHANGE:
       NetClientReceiveWorldChange(pClient, pMessage);
       break;
+    case NET_MSG_PAUSE:
+      NetClientReceivePause(pClient, pMessage, ullNowMs);
+      break;
     default:
-      /* Pause belongs to a later story. */
       break;
   }
 }
@@ -1001,6 +1055,10 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->uiDeferredTick = uiStartTick - 1u;
   pClient->uiLastAppliedEventSeq = 0;
   pClient->uiCommitWatermark = 0;
+  NetRaceLifecycleReset(&pClient->lifecycle);
+  pClient->byResultsPublished = 0;
+  pClient->iResultFinishers = 0;
+  pClient->iResultHumanFinishers = 0;
   pClient->byJoined = 0;
   pClient->byHasEstimate = 0;
   pClient->byHasFeedback = 0;
@@ -1129,9 +1187,10 @@ void NetClientPump(tNetClient *pClient)
   if (pClient->stats.fInterpolationDelayMs > NET_CLIENT_INTERPOLATION_MAX_MS)
     pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MAX_MS;
   NetClientUpdateLead(pClient, pClient->stats.fRttMs, pClient->stats.fJitterMs);
-  NetClientUpdatePredictionPressure(
-      pClient, ullNowMs,
-      dElapsedMs >= (double)UINT32_MAX ? UINT32_MAX : (uint32)dElapsedMs);
+  if (!pClient->lifecycle.byPaused)
+    NetClientUpdatePredictionPressure(
+        pClient, ullNowMs,
+        dElapsedMs >= (double)UINT32_MAX ? UINT32_MAX : (uint32)dElapsedMs);
 
   if (pClient->byHasEstimate) {
     double dHost = NetClientHostTickAt(pClient, ullNowMs);
@@ -1155,11 +1214,20 @@ void NetClientPump(tNetClient *pClient)
     pClient->stats.fHostTick = (float)dHost;
     pClient->stats.fLeadErrorTicks = (float)dError;
   }
-  pClient->dAccumTicks += dElapsedMs * pClient->dTicksPerMs * dScale;
+  if (!pClient->lifecycle.byPaused)
+    pClient->dAccumTicks += dElapsedMs * pClient->dTicksPerMs * dScale;
+  else
+    pClient->dAccumTicks = 0.0;
   pClient->stats.fTickScale = (float)dScale;
   pClient->stats.byHasHostEstimate = pClient->byHasEstimate;
   pClient->stats.uiSnapshotAgeMs = pClient->byHasSnapshot ?
       (uint32)(ullNowMs - pClient->ullNewestSnapshotMs) : 0;
+  pClient->stats.iRaceState = pClient->lifecycle.byState;
+  pClient->stats.iPaused = pClient->lifecycle.byPaused;
+  pClient->stats.unPauseRevision = pClient->lifecycle.unPauseRevision;
+  pClient->stats.iResultsPublished = pClient->byResultsPublished;
+  pClient->stats.iResultFinishers = pClient->iResultFinishers;
+  pClient->stats.iResultHumanFinishers = pClient->iResultHumanFinishers;
 
   g_netStats.iSnapshotAgeMs = (int)pClient->stats.uiSnapshotAgeMs;
   g_netStats.fRttMs = pClient->stats.fRttMs;
@@ -1172,7 +1240,8 @@ void NetClientPump(tNetClient *pClient)
 
 int NetClientTicksDue(const tNetClient *pClient)
 {
-  if (!pClient || !pClient->byRacing || pClient->dAccumTicks < 1.0)
+  if (!pClient || !pClient->byRacing || pClient->lifecycle.byPaused ||
+      pClient->dAccumTicks < 1.0)
     return 0;
   return (int)pClient->dAccumTicks;
 }
@@ -1549,7 +1618,8 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
   tNetClientInputSlot *pInput;
   uint32 uiTick;
   int iSavedAuthority;
-  if (!pClient || !pLocalInputs || NetClientTicksDue(pClient) < 1)
+  if (!pClient || !pLocalInputs || pClient->lifecycle.byPaused ||
+      NetClientTicksDue(pClient) < 1)
     return 0;
   uiTick = pClient->uiClientTick + 1u;
   NetSimAdvanceRenderCorrections();
@@ -1630,6 +1700,34 @@ int NetClientStats(const tNetClient *pClient, tNetClientStats *pStats)
   if (!pClient || !pStats || !pClient->byRacing)
     return 0;
   *pStats = pClient->stats;
+  return 1;
+}
+
+int NetClientPaused(const tNetClient *pClient)
+{
+  return pClient && pClient->byRacing && pClient->lifecycle.byPaused;
+}
+
+uint16 NetClientPauseRevision(const tNetClient *pClient)
+{
+  return pClient ? pClient->lifecycle.unPauseRevision : 0;
+}
+
+eNetRaceState NetClientRaceState(const tNetClient *pClient)
+{
+  return pClient ? (eNetRaceState)pClient->lifecycle.byState :
+      NET_RACE_STOPPED;
+}
+
+int NetClientResults(const tNetClient *pClient, int *piFinishers,
+                     int *piHumanFinishers)
+{
+  if (!pClient || !pClient->byResultsPublished)
+    return 0;
+  if (piFinishers)
+    *piFinishers = pClient->iResultFinishers;
+  if (piHumanFinishers)
+    *piHumanFinishers = pClient->iResultHumanFinishers;
   return 1;
 }
 

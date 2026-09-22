@@ -444,6 +444,38 @@ int NetFrontendRaceTick(uint32 uiTick, const tCarInputData *pInputs,
   return NetClientTick(s_frontend.pRaceClient, pInputs);
 }
 
+int NetFrontendRaceSetPaused(int iPaused)
+{
+  return s_frontend.byRaceStarted && s_frontend.byHost &&
+      NetHostSetPaused(s_frontend.pRaceHost, iPaused);
+}
+
+int NetFrontendRacePaused(void)
+{
+  if (!s_frontend.byRaceStarted)
+    return 0;
+  return s_frontend.byHost ? NetHostPaused(s_frontend.pRaceHost) :
+      NetClientPaused(s_frontend.pRaceClient);
+}
+
+eNetRaceState NetFrontendRaceState(void)
+{
+  if (!s_frontend.byRaceStarted)
+    return NET_RACE_STOPPED;
+  return s_frontend.byHost ? NetHostRaceState(s_frontend.pRaceHost) :
+      NetClientRaceState(s_frontend.pRaceClient);
+}
+
+int NetFrontendRaceResults(int *piFinishers, int *piHumanFinishers)
+{
+  if (!s_frontend.byRaceStarted)
+    return 0;
+  return s_frontend.byHost ?
+      NetHostResults(s_frontend.pRaceHost, piFinishers, piHumanFinishers) :
+      NetClientResults(s_frontend.pRaceClient, piFinishers,
+                       piHumanFinishers);
+}
+
 int NetFrontendSendStrategy(uint8 byMessage)
 {
   uint8 byTarget = NET_LOBBY_NO_PLAYER;

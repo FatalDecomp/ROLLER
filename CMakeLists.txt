@@ -75,6 +75,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_session.c
     PROJECTS/ROLLER/net_lobby.c
     PROJECTS/ROLLER/net_race_start.c
+    PROJECTS/ROLLER/net_race_state.c
     PROJECTS/ROLLER/net_config.c
     PROJECTS/ROLLER/net_config_codec.c
     PROJECTS/ROLLER/net_host.c

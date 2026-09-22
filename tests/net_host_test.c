@@ -92,6 +92,8 @@ typedef struct
   int aiLapEvents[MAX_CARS], aiFinishedEvents[MAX_CARS];
   int aiDestroyedEvents[MAX_CARS], aiKillEvents[MAX_CARS];
   int iLovebunUses, iLovebunCar, iWorldEntries;
+  int iRaceState, iResultFinishers, iResultHumanFinishers;
+  uint32 uiSettleTick;
   int iRestoreLap, iRestoreFinish, iSavedFinishers;
   uint8 bySavedLap, bySavedRacePosition, bySavedLovebunDesign;
   float fSavedPreviousLapTime;
@@ -348,6 +350,16 @@ static int NetTestHostSimulate(void *pContext, uint32 uiTick,
     ++finishers;
     pRun->iRestoreFinish = 1;
   }
+  if (pRun->uiSettleTick && uiTick == pRun->uiSettleTick) {
+    for (int iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+      int iCar = s_aClients[iClient].byCar;
+      if (finished_car[iCar])
+        return 0;
+      finished_car[iCar] = -1;
+      Car[iCar].byRacePosition = (uint8)finishers++;
+      ++human_finishers;
+    }
+  }
   return 1;
 }
 
@@ -541,6 +553,9 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
                                     uiTick, &input, 1));
         iLocalInputProbed = 1;
       }
+      if (iRunningTicks == NET_TEST_RUNNING_TICKS && iRunning >= 0 &&
+          iIndex - iRunning == iRunningTicks - 4)
+        pRun->uiSettleTick = uiTick;
       if (!NetHostTick(pHost, uiTick)) {
         fprintf(stderr, "host tick %u failed (events %u, LOVEBUN uses %d)\n",
                 uiTick, NetHostLastEventSeq(pHost), pRun->iLovebunUses);
@@ -627,6 +642,10 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
   }
   pRun->iTicks = iTickIndex;
   pRun->uiLastEventSeq = NetHostLastEventSeq(pHost);
+  pRun->iRaceState = NetHostRaceState(pHost);
+  CHECK(NetHostResults(pHost, &pRun->iResultFinishers,
+                       &pRun->iResultHumanFinishers) ==
+        (iRunningTicks == NET_TEST_RUNNING_TICKS));
   CHECK(iLocalInputProbed);
   /* Let the snapshots in flight land; no further ticks. */
   for (uint64 ullEnd = ullNowMs + 3 * NET_TEST_LATENCY_MS; ullNowMs <= ullEnd; ++ullNowMs)
@@ -687,10 +706,14 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
                        pRun->aiFinishedEvents[iCar] +
                        pRun->aiDestroyedEvents[iCar] +
                        pRun->aiKillEvents[iCar];
+  iExpectedEvents += 3; /* RUNNING, OUTCOME_SETTLED, RESULTS */
   CHECK(pRun->iLovebunUses == 1 && pRun->iWorldEntries > 0);
   printf("host commits: %u total, %d semantic, %d LOVEBUN chunks\n",
          pRun->uiLastEventSeq, iExpectedEvents, pRun->iWorldEntries);
   CHECK(pRun->uiLastEventSeq == (uint32)(iExpectedEvents + 1));
+  CHECK(pRun->iRaceState == NET_RACE_OUTCOME_SETTLED);
+  CHECK(pRun->iResultFinishers == NET_TEST_CLIENTS &&
+        pRun->iResultHumanFinishers == NET_TEST_CLIENTS);
 
   CHECK(pRun->iTicks - 1 - pRun->iRunningIndex >= NET_TEST_RUNNING_TICKS);
   CHECK(pRun->aiFrame[pRun->iRunningIndex] == 145);
@@ -788,6 +811,21 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
       CHECK(iFinishedEvents == pRun->aiFinishedEvents[iCar]);
       CHECK(iDestroyedEvents == pRun->aiDestroyedEvents[iCar]);
       CHECK(iKillEvents == pRun->aiKillEvents[iCar]);
+    }
+    {
+      int iRaceRunning = 0, iRaceSettled = 0, iResults = 0;
+      for (int iEvent = 0; iEvent < pClient->iEvents; ++iEvent) {
+        const tNetEvent *pEvent = &pClient->aEvents[iEvent];
+        iRaceRunning += pEvent->byType == NET_EV_RACE_STATE &&
+                        pEvent->iArg0 == NET_RACE_RUNNING;
+        iRaceSettled += pEvent->byType == NET_EV_RACE_STATE &&
+                        pEvent->iArg0 == NET_RACE_OUTCOME_SETTLED;
+        iResults += pEvent->byType == NET_EV_RESULTS;
+        if (pEvent->byType == NET_EV_RESULTS)
+          CHECK(pEvent->iArg0 == NET_TEST_CLIENTS &&
+                pEvent->iArg1 == NET_TEST_CLIENTS);
+      }
+      CHECK(iRaceRunning == 1 && iRaceSettled == 1 && iResults == 1);
     }
     CHECK(pClient->aWorldHeaders[0].byCount == pRun->iWorldEntries);
     CHECK(pClient->aWorldHeaders[0].uiTick == NET_TEST_LOVEBUN_TICK);

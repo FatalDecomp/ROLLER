@@ -1,6 +1,7 @@
 #include "net_host.h"
 #include "net_event.h"
 #include "net_input.h"
+#include "net_race_state.h"
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
 #include "net_race_start.h"
@@ -43,7 +44,9 @@ struct tNetHost
   uint32 uiStartTick, uiNextTick, uiNewestSnapshotTick, uiLastEventSeq;
   uint64 ullLastFeedbackMs;
   int iRetentionTicks, iRingNext, iTrackLen;
-  uint8 byRacing, byHasSnapshot;
+  uint8 byRacing, byHasSnapshot, byResultsPublished;
+  int iResultFinishers, iResultHumanFinishers;
+  tNetRaceLifecycle lifecycle;
   uint8 abyCarOwner[MAX_CARS], abyWorldMutated[MAX_TRACK_CHUNKS];
   tNetHostSimulateFn pSimulate;
   void *pSimulateContext;
@@ -219,6 +222,10 @@ int NetHostBeginRace(tNetHost *pHost)
   pHost->uiStartTick = uiStartTick;
   pHost->uiNextTick = uiStartTick;
   pHost->uiLastEventSeq = 0;
+  NetRaceLifecycleReset(&pHost->lifecycle);
+  pHost->byResultsPublished = 0;
+  pHost->iResultFinishers = 0;
+  pHost->iResultHumanFinishers = 0;
   pHost->iRingNext = 0;
   pHost->byHasSnapshot = 0;
   pHost->ullLastFeedbackMs = NetSessionHostNowMs(pHost->pSession);
@@ -334,7 +341,8 @@ static int NetHostEmitEvent(tNetHost *pHost, uint32 uiTick, uint8 byType,
   event.uiTick = uiTick;
   event.byType = byType;
   event.byCarIdx = (uint8)iCar;
-  event.byPlayerIdx = pHost->abyCarOwner[iCar];
+  event.byPlayerIdx = iCar == NET_EVENT_NO_CAR ? NET_EVENT_NO_PLAYER :
+      pHost->abyCarOwner[iCar];
   event.iArg0 = iArg0;
   event.iArg1 = iArg1;
   iLength = NetEventEncode(&event, numcars, pHost->config.byMaxPlayers,
@@ -394,6 +402,62 @@ static int NetHostEmitCarEvents(tNetHost *pHost, uint32 uiTick,
     }
   }
   return iOk;
+}
+
+static int NetHostAllPlayersSettled(const tNetHost *pHost,
+                                    int *piFinishers,
+                                    int *piHumanFinishers)
+{
+  int iActive = 0, iSettled = 0;
+  int iFinishers = 0, iHumanFinishers = 0;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    if (!finished_car[iCar])
+      continue;
+    ++iFinishers;
+    if (pHost->abyCarOwner[iCar] != NET_EVENT_NO_PLAYER)
+      ++iHumanFinishers;
+  }
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+    const tNetHostPlayer *pPlayer = &pHost->aPlayers[iPlayer];
+    int iPlayerSettled = 1;
+    if (!pPlayer->byActive)
+      continue;
+    ++iActive;
+    for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar)
+      if (!finished_car[pPlayer->abyCars[iCar]])
+        iPlayerSettled = 0;
+    iSettled += iPlayerSettled;
+  }
+  if (piFinishers)
+    *piFinishers = iFinishers;
+  if (piHumanFinishers)
+    *piHumanFinishers = iHumanFinishers;
+  return iActive > 0 && iSettled == iActive;
+}
+
+static int NetHostEmitLifecycle(tNetHost *pHost, uint32 uiTick)
+{
+  int iFinishers, iHumanFinishers;
+  if (pHost->lifecycle.byState == NET_RACE_PRE_START && game_frame >= 145) {
+    if (!NetHostEmitEvent(pHost, uiTick, NET_EV_RACE_STATE,
+                          NET_EVENT_NO_CAR, NET_RACE_RUNNING, 0) ||
+        !NetRaceTransition(&pHost->lifecycle, NET_RACE_RUNNING))
+      return 0;
+  }
+  if (pHost->lifecycle.byState != NET_RACE_RUNNING ||
+      !NetHostAllPlayersSettled(pHost, &iFinishers, &iHumanFinishers))
+    return 1;
+  if (!NetHostEmitEvent(pHost, uiTick, NET_EV_RACE_STATE,
+                        NET_EVENT_NO_CAR, NET_RACE_OUTCOME_SETTLED, 0) ||
+      !NetRaceTransition(&pHost->lifecycle, NET_RACE_OUTCOME_SETTLED))
+    return 0;
+  pHost->iResultFinishers = iFinishers;
+  pHost->iResultHumanFinishers = iHumanFinishers;
+  if (!NetHostEmitEvent(pHost, uiTick, NET_EV_RESULTS, NET_EVENT_NO_CAR,
+                        iFinishers, iHumanFinishers))
+    return 0;
+  pHost->byResultsPublished = 1;
+  return 1;
 }
 
 static int NetHostSendWorldChanges(tNetHost *pHost, uint32 uiTick,
@@ -491,7 +555,8 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   uint8 abyLivesBefore[MAX_CARS], abyKillsBefore[MAX_CARS];
   uint8 abyLovebunAmmo[MAX_CARS];
   int iCommitsOk;
-  if (!pHost || !pHost->byRacing || uiTick != pHost->uiNextTick ||
+  if (!pHost || !pHost->byRacing || pHost->lifecycle.byPaused ||
+      uiTick != pHost->uiNextTick ||
       TRAK_LEN != pHost->iTrackLen)
     return 0;
   for (int iCar = 0; iCar < numcars; ++iCar) {
@@ -538,16 +603,15 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   if (!NetHostEmitWorldChanges(pHost, uiTick, aiLovebunChunk,
                                abyLovebunAmmo))
     iCommitsOk = 0;
+  if (!NetHostEmitLifecycle(pHost, uiTick))
+    iCommitsOk = 0;
 
   if ((uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
     return iCommitsOk;
   pSnapshot = &pHost->aRing[pHost->iRingNext].snapshot;
-  /* byRaceState carries the race-clock phase until E5-S1 defines the race
-     state machine; E5-S1 also supplies byPaused. */
   if (!NetSnapshotBuild(pSnapshot, uiTick, pHost->uiLastEventSeq,
-                        (uint8)(game_frame >= 145 ? NET_RACE_START_RUNNING :
-                                                    NET_RACE_START_PRE_START),
-                        0)) {
+                        pHost->lifecycle.byState,
+                        pHost->lifecycle.byPaused)) {
     pHost->aRing[pHost->iRingNext].byValid = 0;
     return 0;
   }
@@ -564,12 +628,67 @@ uint32 NetHostNextTick(const tNetHost *pHost)
   return pHost ? pHost->uiNextTick : 0;
 }
 
+int NetHostSetPaused(tNetHost *pHost, int iPaused)
+{
+  tNetPause pause;
+  uint8 abPause[sizeof(tNetPause)];
+  uint16 unRevision;
+  int iLength, iQueued;
+  if (!pHost || !pHost->byRacing || !NetRacePauseAllowed(&pHost->config))
+    return 0;
+  iPaused = iPaused != 0;
+  if (pHost->lifecycle.byPaused == (uint8)iPaused)
+    return 1;
+  unRevision = (uint16)(pHost->lifecycle.unPauseRevision + 1u);
+  if (!unRevision)
+    unRevision = 1;
+  memset(&pause, 0, sizeof(pause));
+  pause.unPauseRevision = unRevision;
+  pause.byPaused = (uint8)iPaused;
+  pause.uiTick = pHost->uiNextTick;
+  iLength = NetPauseEncode(&pause, abPause, sizeof(abPause));
+  if (!iLength || !NetRaceApplyPause(&pHost->lifecycle, unRevision,
+                                      pause.byPaused))
+    return 0;
+  iQueued = NetHostBroadcastCommit(pHost, NET_MSG_PAUSE, abPause,
+                                   (uint16)iLength);
+  return iQueued;
+}
+
+int NetHostPaused(const tNetHost *pHost)
+{
+  return pHost && pHost->byRacing && pHost->lifecycle.byPaused;
+}
+
+uint16 NetHostPauseRevision(const tNetHost *pHost)
+{
+  return pHost ? pHost->lifecycle.unPauseRevision : 0;
+}
+
+eNetRaceState NetHostRaceState(const tNetHost *pHost)
+{
+  return pHost ? (eNetRaceState)pHost->lifecycle.byState :
+      NET_RACE_STOPPED;
+}
+
+int NetHostResults(const tNetHost *pHost, int *piFinishers,
+                   int *piHumanFinishers)
+{
+  if (!pHost || !pHost->byResultsPublished)
+    return 0;
+  if (piFinishers)
+    *piFinishers = pHost->iResultFinishers;
+  if (piHumanFinishers)
+    *piHumanFinishers = pHost->iResultHumanFinishers;
+  return 1;
+}
+
 int NetHostSetLocalInputs(tNetHost *pHost, uint8 byPlayerIdx, uint32 uiTick,
                           const tCarInputData *pInputs, int iCount)
 {
   tNetHostPlayer *pPlayer;
   tNetHostInputSlot *pSlot;
-  if (!pHost || !pHost->byRacing || !pInputs ||
+  if (!pHost || !pHost->byRacing || pHost->lifecycle.byPaused || !pInputs ||
       byPlayerIdx >= NET_SESSION_MAX_PLAYERS || uiTick != pHost->uiNextTick)
     return 0;
   pPlayer = &pHost->aPlayers[byPlayerIdx];

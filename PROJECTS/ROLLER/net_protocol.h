@@ -76,6 +76,17 @@ typedef enum
   NET_PLAYER_FINISHED
 } eNetPlayerState;
 
+/* Authoritative on-track lifecycle.  Loading remains a lobby concern; a race
+   object begins in PRE_START and keeps simulating in OUTCOME_SETTLED until a
+   later story supplies the explicit stop/exit workflow. */
+typedef enum
+{
+  NET_RACE_PRE_START = 0,
+  NET_RACE_RUNNING,
+  NET_RACE_OUTCOME_SETTLED,
+  NET_RACE_STOPPED
+} eNetRaceState;
+
 typedef enum
 {
   NET_CHAT_TEXT = 0,

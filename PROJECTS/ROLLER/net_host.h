@@ -48,6 +48,15 @@ void NetHostPump(tNetHost *pHost);
 int NetHostTick(tNetHost *pHost, uint32 uiTick);
 uint32 NetHostNextTick(const tNetHost *pHost);
 
+/* Listen-host pause control (D7).  Dedicated sessions and configurations
+   with pause disabled refuse without changing the revision or state. */
+int NetHostSetPaused(tNetHost *pHost, int iPaused);
+int NetHostPaused(const tNetHost *pHost);
+uint16 NetHostPauseRevision(const tNetHost *pHost);
+eNetRaceState NetHostRaceState(const tNetHost *pHost);
+int NetHostResults(const tNetHost *pHost, int *piFinishers,
+                   int *piHumanFinishers);
+
 /* Supplies the listen host player's input for uiTick without sending it
    through its authenticated loopback connection.  The authoritative world
    still consumes it through the same per-player queue and D9 clamp as a

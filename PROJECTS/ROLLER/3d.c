@@ -1720,8 +1720,16 @@ void race_update(void)
   if (network_on && net_mode == NET_MODE_MODERN && fadedin) {
     if (!NetFrontendRaceSynchronise())
       SDL_SetAtomicInt(&iTicksPending, 0);
-    else if (!net_listen_host)
-      SDL_SetAtomicInt(&iTicksPending, NetFrontendRaceTicksDue());
+    else {
+      int iNetPaused = NetFrontendRacePaused();
+      if (iNetPaused && !paused)
+        stopallsamples();
+      paused = iNetPaused;
+      if (paused)
+        SDL_SetAtomicInt(&iTicksPending, 0);
+      else if (!net_listen_host)
+        SDL_SetAtomicInt(&iTicksPending, NetFrontendRaceTicksDue());
+    }
   }
 #endif
   updates = 0;
@@ -1823,7 +1831,18 @@ void race_update(void)
   if (pause_request && !intro)                  // Handle pause requests (excluding intro mode)
   {
     if (!pausewindow || !paused) {                                         // Network pause handling - master/slave coordination
-      if (network_on && net_mode == NET_MODE_LEGACY && replaytype != 2) {
+      if (network_on && net_mode == NET_MODE_MODERN && replaytype != 2) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+        if (net_listen_host && !finished_car[player1_car] &&
+            NetFrontendRaceSetPaused(!NetFrontendRacePaused())) {
+          paused = NetFrontendRacePaused();
+          if (paused) {
+            stopallsamples();
+            pauser = wConsoleNode;
+          }
+        }
+#endif
+      } else if (network_on && net_mode == NET_MODE_LEGACY && replaytype != 2) {
         if (wConsoleNode == master) {
           if (!finished_car[player1_car]) {
             paused = paused == 0;

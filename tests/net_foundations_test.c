@@ -1,6 +1,7 @@
 #include "net_headless.h"
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
+#include "net_race_state.h"
 #include "replay.h"
 #include "loadtrak.h"
 #include "roller.h"
@@ -29,6 +30,42 @@ typedef struct {
 } tTestMoment;
 
 static int NetAngleDifference(int iA, int iB);
+
+static void NetTestRaceLifecycle(void)
+{
+  tNetRaceLifecycle lifecycle;
+  tNetSessionConfig config;
+  tNetPause pause = {4, 0, 0, 12345};
+  tNetPause decoded;
+  uint8 abPause[sizeof(tNetPause)];
+
+  NetRaceLifecycleReset(&lifecycle);
+  CHECK(lifecycle.byState == NET_RACE_PRE_START && !lifecycle.byPaused &&
+        !lifecycle.unPauseRevision);
+  CHECK(!NetRaceTransition(&lifecycle, NET_RACE_OUTCOME_SETTLED));
+  CHECK(NetRaceTransition(&lifecycle, NET_RACE_RUNNING));
+  CHECK(NetRaceTransition(&lifecycle, NET_RACE_OUTCOME_SETTLED));
+  CHECK(!NetRaceTransition(&lifecycle, NET_RACE_RUNNING));
+
+  CHECK(NetRaceApplyPause(&lifecycle, 3, 1));
+  CHECK(NetRaceApplyPause(&lifecycle, 4, 0));
+  CHECK(!NetRaceApplyPause(&lifecycle, 3, 1));
+  CHECK(!lifecycle.byPaused && lifecycle.unPauseRevision == 4);
+  CHECK(NetPauseEncode(&pause, abPause, sizeof(abPause)) == sizeof(pause));
+  CHECK(NetPauseDecode(abPause, sizeof(abPause), &decoded));
+  CHECK(!memcmp(&pause, &decoded, sizeof(pause)));
+  abPause[3] = 1;
+  CHECK(!NetPauseDecode(abPause, sizeof(abPause), &decoded));
+
+  memset(&config, 0, sizeof(config));
+  config.byPauseAllowed = 1;
+  CHECK(NetRacePauseAllowed(&config));
+  config.byHostIsDedicated = 1;
+  CHECK(!NetRacePauseAllowed(&config));
+  config.byPauseAllowed = 0;
+  config.byHostIsDedicated = 0;
+  CHECK(!NetRacePauseAllowed(&config));
+}
 
 static void NetTestCapture(tTestMoment *pMoment)
 {
@@ -987,6 +1024,7 @@ int main(int iArgc, const char **ppArgv, const char **ppEnv)
     return 0;
   }
   NetTestDoubleRun();
+  NetTestRaceLifecycle();
   NetTestRestore(&running);
   for (int iVariant = 0; iVariant < 8; ++iVariant) {
     NetTestRestore(&running);

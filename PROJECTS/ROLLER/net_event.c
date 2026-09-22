@@ -59,6 +59,16 @@ static int NetEventValid(const tNetEvent *pEvent,
       return pEvent->byCarIdx != NET_EVENT_NO_CAR &&
              pEvent->iArg0 >= -1 && pEvent->iArg0 < iNumCars &&
              pEvent->iArg1 >= 1 && pEvent->iArg1 <= 255;
+    case NET_EV_RACE_STATE:
+      return pEvent->byCarIdx == NET_EVENT_NO_CAR &&
+             pEvent->byPlayerIdx == NET_EVENT_NO_PLAYER &&
+             pEvent->iArg0 >= NET_RACE_RUNNING &&
+             pEvent->iArg0 <= NET_RACE_OUTCOME_SETTLED && !pEvent->iArg1;
+    case NET_EV_RESULTS:
+      return pEvent->byCarIdx == NET_EVENT_NO_CAR &&
+             pEvent->byPlayerIdx == NET_EVENT_NO_PLAYER &&
+             pEvent->iArg0 >= 0 && pEvent->iArg0 <= iNumCars &&
+             pEvent->iArg1 >= 0 && pEvent->iArg1 <= pEvent->iArg0;
     default:
       return 1;
   }

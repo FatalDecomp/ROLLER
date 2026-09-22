@@ -35,6 +35,7 @@ typedef struct
   uint32 uiBatchesSent;        /* one NET_MSG_INPUT per client tick */
   uint32 uiSnapshots, uiOwnCarStates, uiFeedback;
   uint32 uiEvents, uiWorldChanges, uiCommitsApplied;
+  uint32 uiPauseChanges;
   uint32 uiLastAppliedEventSeq, uiCommitWatermark;
   uint32 uiRejectedMessages;   /* race messages that failed to decode */
   uint32 uiStaleMessages;      /* decoded, but older than what was held */
@@ -54,6 +55,9 @@ typedef struct
   int iLeadTicks, iLeadBias;
   int iReplayDepth, iReplayBudgetTicks, iReplayPressure;
   int iPredictionMode, iPredictionTransitions;
+  int iRaceState, iPaused, iResultsPublished;
+  int iResultFinishers, iResultHumanFinishers;
+  uint16 unPauseRevision;
   float fHostTick;             /* estimated host tick now, minus uiStartTick */
   float fLeadErrorTicks;       /* timeline position minus (host + lead) */
   float fTickScale, fRttMs, fJitterMs, fFrameMs;
@@ -93,6 +97,11 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs);
 uint32 NetClientCurrentTick(const tNetClient *pClient);
 int NetClientGroup(const tNetClient *pClient, uint8 *pbyCars);
 int NetClientStats(const tNetClient *pClient, tNetClientStats *pStats);
+int NetClientPaused(const tNetClient *pClient);
+uint16 NetClientPauseRevision(const tNetClient *pClient);
+eNetRaceState NetClientRaceState(const tNetClient *pClient);
+int NetClientResults(const tNetClient *pClient, int *piFinishers,
+                     int *piHumanFinishers);
 
 /* Ring readers.  Each fails for a tick outside the last NET_CLIENT_HISTORY
    simulated ticks or one never recorded. */
