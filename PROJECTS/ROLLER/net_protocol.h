@@ -107,6 +107,16 @@ typedef struct
   uint8 byPad[2];
 } tNetJoinAccept;                          /* 12 bytes */
 
+/* Sent on a fresh channel connection.  The same token and generation are
+   also present in the packet header, so the channel can reject stale old
+   generations before the session consumes the request. */
+typedef struct
+{
+  uint64 ullSessionToken;
+  uint8 byGeneration, byPlayerIdx;
+  uint8 byPad[2];
+} tNetRejoinRequest;                       /* 12 bytes */
+
 typedef struct
 {
   uint8 byReason, byPad;
@@ -331,6 +341,7 @@ _Static_assert(sizeof(tNetPacketHeader) == 22, "tNetPacketHeader wire size");
 _Static_assert(sizeof(tNetMessageHeader) == 6, "tNetMessageHeader wire size");
 _Static_assert(sizeof(tNetJoinRequest) == 13, "tNetJoinRequest wire size");
 _Static_assert(sizeof(tNetJoinAccept) == 12, "tNetJoinAccept wire size");
+_Static_assert(sizeof(tNetRejoinRequest) == 12, "tNetRejoinRequest wire size");
 _Static_assert(sizeof(tNetJoinRefuse) == 4, "tNetJoinRefuse wire size");
 _Static_assert(sizeof(tNetSessionConfig) == 312, "tNetSessionConfig wire size");
 _Static_assert(sizeof(tNetPlayerListHeader) == 4, "tNetPlayerListHeader wire size");

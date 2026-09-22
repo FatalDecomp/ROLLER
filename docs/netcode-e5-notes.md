@@ -83,7 +83,7 @@ pause/results race, or the E7-S1 legacy-call trap (it does not exist yet).
 
 ## NET-E5-S2: disconnect to AI via ownership transfer
 
-Implemented on 2026-09-21. The changes are intentionally uncommitted.
+Implemented on 2026-09-21 and committed in `7f4a8a1`.
 
 ### Transfer contract
 
@@ -155,6 +155,114 @@ python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest t
 Source counts remain Linux 94, macOS 94, Windows 97, Android 94 and
 Emscripten 92. The roller-core manifest remains 108 translation units. All 18
 selected Python tests pass.
+
+Not run: Android `assembleDebug`, a CMake configure, a manual two-instance
+disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
+
+## NET-E5-S3: rejoin via checkpoint and resync
+
+Implemented on 2026-09-22. The changes are intentionally uncommitted.
+
+### Authenticated generation replacement
+
+A recovering client keeps its session token and opens a fresh channel
+connection at generation + 1. `NET_MSG_REJOIN_REQUEST` repeats the token,
+generation and player index from the packet identity. The channel accepts this
+one credentialled replacement operation, resets every reliability window, and
+drops later packets from the old generation before delivery. The session then
+cross-checks all three values and asks the race host to authorize the retained
+player against the channel clock and `NET_REJOIN_GRACE_MS`.
+
+An active player may replace its connection before host-side timeout detection;
+ownership stays unchanged and no AI-takeover commit is emitted. A dropped
+player inside the grace window reclaims the same player index and complete car
+group, clears old queued input, restores `human_control[]` and host ownership,
+and publishes one group-shaped `NET_EV_PLAYER_REJOINED`. A token presented
+after the grace window is refused and cannot claim a new roster index.
+The remote frontend detects an expired race connection from the frame pump,
+opens the generation+1 connection to its retained peer, and starts the same
+client recovery path without blocking rendering or network pumping.
+
+### Ordered checkpoint
+
+New `net_checkpoint.c/.h` owns explicit little-endian codecs for the header,
+full-car batches, player roster, mutated-world batches and matching END tick.
+The host captures checkpoint C at its newest completed tick and queues every
+part reliable ordered. Cars are split at the existing seven-car payload bound;
+world changes are batches of at most 64. The header carries the shared commit
+watermark, wire tick context, pause revision, RNG state, all ramp timing and
+part counts. A forced full snapshot follows on the next simulated tick.
+
+The client stages all parts without touching the world. It rejects duplicate
+cars or chunks, inconsistent counts, invalid roster ownership, hostile full
+car state, invalid loaded-world bounds and invalid ramp timing. END installs
+only a complete transaction, in D18 order: lifecycle/roster/world and RNG,
+ramps plus rebuilt geometry, then every car. Re-encoded world poses are
+asserted against the checkpoint. Non-local cars become puppets and the local
+group clears retained AI-takeover state before human ownership is restored.
+
+Phase 1 clears the input, prediction and context rings plus snapshots and
+render corrections. `NetSimBootstrapContext` builds `context[C]` solely from
+`tNetSimContextWire`, `uiRandomState` and a fresh input-ring position; it does
+not read pre-drop history. The client enters Resyncing and issues a new
+checkpoint request after two channel-clock seconds without a qualifying
+snapshot.
+
+### Simulated catch-up
+
+The first paired snapshot and own-car state at S > C starts Phase 2. The client
+installs ramps before the complete rollback group, bootstraps `context[S]`
+from that snapshot, fills `[S, destination]` with neutral input including the
+preceding slot, and replays `(S, destination]` through `control_one_tick` with
+`net_sim_replaying` set. Prediction and context history are rebuilt after every
+tick, so `uiRampTick == uiClientTick == destination` and `iGameFrame` is
+consecutive across the span. Checkpoint world state is republished after the
+catch-up because it is host-current state and never rollback state.
+
+The destination is S plus half RTT plus the normal input lead. Recovery then
+enters the prediction mode selected by that RTT; the acceptance's 1500 ms RTT
+therefore enters `NET_PREDICT_DELAYED` immediately instead of attempting an
+over-budget correction. No live ticks or input messages are produced during
+Installing or Resyncing.
+
+### Acceptance topology
+
+- The session test replaces an active generation-1 connection with generation
+  2 on the same channel. The host keeps the same connection/player identity,
+  accepts traffic from generation 2, and counts but never delivers a scripted
+  stale generation-1 packet.
+- The integrated client acceptance runs at 36 and 100 Hz. It stops the client
+  for 15 seconds, observes the ordinary 10-second drop-to-AI transition,
+  rejoins with the retained token, and delays the checkpoint over a 750 ms
+  one-way link. The ordered checkpoint restores a deliberately corrupted
+  mutated-chunk grip, both recovery phases begin with empty history, neutral
+  catch-up rebuilds consecutive contexts, and the recovered high-RTT client is
+  playable in delayed mode.
+- The host acceptance advances beyond the 60-second rejoin grace and verifies
+  that generation 2 is refused while the dropped roster entry and both
+  reserved split-screen cars remain unchanged.
+
+The one-process client acceptance follows D13: the host uses its existing
+simulation seam, queues the checkpoint and forced newer snapshot, then freezes
+its test world while the client installs. A literal two-process drop at 20 s,
+rejoin at 35 s and human finish remains a manual/E8-S1 scenario.
+
+### Verification
+
+Passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations test-net-full-state-coherence test-net-host test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
+```
+
+Source counts are Linux 95, macOS 95, Windows 98, Android 95 and Emscripten
+93. The roller-core manifest contains 109 translation units. All 18 selected
+Python tests pass.
 
 Not run: Android `assembleDebug`, a CMake configure, a manual two-instance
 disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).

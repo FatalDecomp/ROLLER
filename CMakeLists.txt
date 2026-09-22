@@ -67,6 +67,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/scene_render_software.c
     PROJECTS/ROLLER/moving.c
     PROJECTS/ROLLER/net_event.c
+    PROJECTS/ROLLER/net_checkpoint.c
     PROJECTS/ROLLER/net_headless.c
     PROJECTS/ROLLER/net_snapshot.c
     PROJECTS/ROLLER/net_sim_seam.c

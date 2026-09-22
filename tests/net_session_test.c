@@ -12,6 +12,32 @@ typedef struct
   int iFail;
 } tNetTestRandom;
 
+typedef struct
+{
+  int iAuthorizations, iMessages;
+  eNetJoinRefuseReason reason;
+} tNetTestRejoin;
+
+static eNetJoinRefuseReason NetTestAuthorizeRejoin(void *pContext,
+                                                   uint8 byPlayerIdx,
+                                                   uint64 ullNowMs)
+{
+  tNetTestRejoin *pRejoin = (tNetTestRejoin *)pContext;
+  CHECK(byPlayerIdx == 0);
+  CHECK(ullNowMs > 0);
+  ++pRejoin->iAuthorizations;
+  return pRejoin->reason;
+}
+
+static void NetTestHostMessage(void *pContext, uint8 byPlayerIdx,
+                               const tNetMessage *pMessage)
+{
+  tNetTestRejoin *pRejoin = (tNetTestRejoin *)pContext;
+  CHECK(byPlayerIdx == 0);
+  CHECK(pMessage->byType == NET_MSG_CHAT);
+  ++pRejoin->iMessages;
+}
+
 static int NetTestRandomBytes(void *pContext, void *pData, int iLength)
 {
   tNetTestRandom *pRandom = (tNetTestRandom *)pContext;
@@ -141,6 +167,66 @@ static void NetTestVersionRefusal(void)
   NetTransportSimDestroy(pSim);
 }
 
+static void NetTestGenerationRejoin(void)
+{
+  tNetTransportSim *pSim = NetTransportSimCreate(212);
+  tNetChannel *pHostChannel, *pClientChannel;
+  tNetConnection *pOldConnection, *pNewConnection, *pHostConnection;
+  tNetSessionHost *pHost;
+  tNetSessionClient *pClient;
+  tNetTestRandom random = {0x3141592653589793ull, 0};
+  tNetTestRejoin rejoin = {0};
+  tNetAddress hostAddress = NetTestAddress(1);
+  uint8 byPayload = 7;
+  int iStaleBefore;
+
+  CHECK(pSim);
+  pHostChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 1));
+  pClientChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  CHECK(pHostChannel && pClientChannel);
+  pHost = NetSessionHostCreate(pHostChannel, 8, NetTestRandomBytes, &random);
+  CHECK(pHost);
+  NetSessionHostSetRejoinCallback(pHost, NetTestAuthorizeRejoin, &rejoin);
+  NetSessionHostSetMessageCallback(pHost, NetTestHostMessage, &rejoin);
+  pOldConnection = NetChannelAddConnection(pClientChannel, &hostAddress, 0, 0);
+  CHECK(pOldConnection);
+  pClient = NetSessionClientCreate(pOldConnection, NET_PROTOCOL_VERSION, 1,
+                                   "Driver");
+  CHECK(pClient && NetSessionClientStart(pClient));
+  NetTestPumpJoin(pSim, pHost, pClient, 0, 300);
+  CHECK(NetSessionClientState(pClient) == NET_JOIN_ACCEPTED);
+  pHostConnection = NetSessionHostPlayerConnection(pHost, 0);
+  CHECK(pHostConnection && NetConnectionGeneration(pHostConnection) == 1);
+
+  pNewConnection = NetChannelAddConnection(pClientChannel, &hostAddress,
+      NetSessionClientToken(pClient), 2);
+  CHECK(pNewConnection && NetSessionClientRejoin(pClient, pNewConnection));
+  NetTestPumpJoin(pSim, pHost, pClient, 301, 650);
+  CHECK(NetSessionClientState(pClient) == NET_JOIN_ACCEPTED);
+  CHECK(NetSessionClientGeneration(pClient) == 2);
+  CHECK(NetConnectionGeneration(pHostConnection) == 2);
+  CHECK(NetSessionHostPlayerConnection(pHost, 0) == pHostConnection);
+  CHECK(rejoin.iAuthorizations == 1);
+
+  iStaleBefore = NetConnectionStalePackets(pHostConnection);
+  CHECK(NetConnectionQueueMessage(pOldConnection, NET_MSG_CHAT,
+                                  NET_MSG_RELIABLE, &byPayload, 1));
+  NetTestPumpJoin(pSim, pHost, pClient, 651, 800);
+  CHECK(NetConnectionStalePackets(pHostConnection) > iStaleBefore);
+  CHECK(rejoin.iMessages == 0);
+
+  CHECK(NetConnectionQueueMessage(pNewConnection, NET_MSG_CHAT,
+                                  NET_MSG_RELIABLE, &byPayload, 1));
+  NetTestPumpJoin(pSim, pHost, pClient, 801, 950);
+  CHECK(rejoin.iMessages == 1);
+
+  NetSessionClientDestroy(pClient);
+  NetSessionHostDestroy(pHost);
+  NetChannelDestroy(pClientChannel);
+  NetChannelDestroy(pHostChannel);
+  NetTransportSimDestroy(pSim);
+}
+
 static void NetTestCSPRNGRequired(void)
 {
   tNetTransportSim *pSim = NetTransportSimCreate(303);
@@ -228,6 +314,7 @@ int main(void)
 {
   NetTestAcceptAndAddressChange();
   NetTestVersionRefusal();
+  NetTestGenerationRejoin();
   NetTestCSPRNGRequired();
   NetTestMalformedMessages();
   puts("NET-E1-S3 join, refusal, token and address migration passed");

@@ -268,6 +268,26 @@ void NetSimRehomeChunk(tCar *pCar)
     scansection(pCar);
 }
 
+void NetSimBootstrapContext(const tNetSimContextWire *pWire,
+                            uint32 uiRandomState, int iRingPosition,
+                            tNetSimTickContext *pContext)
+{
+  if (!pWire || !pContext || iRingPosition < 0 || iRingPosition >= 512)
+    return;
+  /* Recovery deliberately starts without local history.  E0's context
+     audit left only these movement-affecting values on the wire; the rest
+     take the same zero values as a fresh race before its first live tick. */
+  memset(pContext, 0, sizeof(*pContext));
+  pContext->iGameFrame = pWire->iGameFrame;
+  pContext->iCountdown = pWire->iCountdown;
+  pContext->iRaceStarted = pWire->byRaceStarted;
+  pContext->iRacing = pWire->byRacing;
+  pContext->iWarpAngle = pWire->nWarpAngle;
+  pContext->iReadptr = iRingPosition;
+  pContext->iWriteptr = iRingPosition;
+  pContext->uiRandomState = uiRandomState;
+}
+
 void NetSimClearRenderCorrection(int iCar)
 {
   if (iCar >= 0 && iCar < MAX_CARS)

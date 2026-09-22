@@ -72,6 +72,9 @@ extern void (*net_sim_puppet_hook)(void);
 
 void NetSimCaptureContext(tNetSimTickContext *pContext);
 void NetSimRestoreContext(const tNetSimTickContext *pContext);
+void NetSimBootstrapContext(const tNetSimContextWire *pWire,
+                            uint32 uiRandomState, int iRingPosition,
+                            tNetSimTickContext *pContext);
 int NetSimRestoreInputRing(const tNetInputSlot *pSlots, uint32 uiFirstTick,
                            int iCount, int iReadPtr);
 int NetSimWriteTickInputs(const tCopyData *pInputs, int iNumCars);

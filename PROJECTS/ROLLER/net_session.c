@@ -26,6 +26,8 @@ struct tNetSessionHost
   void *pRandomContext;
   tNetSessionHostMessageFn pMessageCallback;
   void *pMessageContext;
+  tNetSessionHostRejoinFn pRejoinCallback;
+  void *pRejoinContext;
   uint64 ullRandomProof;
   uint8 byMaxPlayers, byHasConfig;
   tNetSessionConfig config;
@@ -38,7 +40,7 @@ struct tNetSessionClient
   uint16 unProtocolVersion;
   uint64 ullToken;
   uint8 byLocalPlayers, byGeneration, byPlayerIdx, byRefuseReason;
-  uint8 byHasConfig;
+  uint8 byHasConfig, byRejoining;
   eNetJoinState state;
   tNetSessionClientMessageFn pMessageCallback;
   void *pMessageContext;
@@ -76,7 +78,8 @@ static uint64 NetSessionRead64(const uint8 *pData)
 static int NetSessionIsControlMessage(uint8 byType)
 {
   return byType == NET_MSG_JOIN_REQUEST || byType == NET_MSG_JOIN_ACCEPT ||
-         byType == NET_MSG_JOIN_REFUSE || byType == NET_MSG_SESSION_CONFIG;
+         byType == NET_MSG_JOIN_REFUSE || byType == NET_MSG_SESSION_CONFIG ||
+         byType == NET_MSG_REJOIN_REQUEST;
 }
 
 static int NetSessionPlayerNameValid(const char *szName)
@@ -253,6 +256,39 @@ static void NetSessionAcceptRequest(tNetSessionHost *pHost,
   }
 }
 
+static void NetSessionAcceptRejoin(tNetSessionHost *pHost,
+                                   tNetHostSlot *pSlot,
+                                   const uint8 *pData)
+{
+  uint8 abAccept[sizeof(tNetJoinAccept)] = {0};
+  uint64 ullToken = NetSessionRead64(pData);
+  uint8 byGeneration = pData[8];
+  uint8 byPlayerIdx = pData[9];
+  eNetJoinRefuseReason reason = NET_JOIN_REFUSE_NONE;
+  if (!ullToken || ullToken != pSlot->ullToken ||
+      byGeneration != NetConnectionGeneration(pSlot->pConnection) ||
+      !byGeneration || byPlayerIdx != pSlot->byPlayerIdx ||
+      pData[10] || pData[11]) {
+    NetSessionQueueRefuse(pSlot, NET_JOIN_REFUSE_INVALID_REQUEST);
+    return;
+  }
+  if (pHost->pRejoinCallback)
+    reason = pHost->pRejoinCallback(pHost->pRejoinContext, byPlayerIdx,
+                                    NetSessionHostNowMs(pHost));
+  if (reason != NET_JOIN_REFUSE_NONE) {
+    NetSessionQueueRefuse(pSlot, reason);
+    return;
+  }
+  NetSessionWrite64(abAccept, ullToken);
+  abAccept[8] = byGeneration;
+  abAccept[9] = byPlayerIdx;
+  if (NetConnectionQueueMessage(pSlot->pConnection, NET_MSG_JOIN_ACCEPT,
+          NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept))) {
+    pSlot->byState = NET_HOST_SLOT_JOINED;
+    NetSessionQueueConfig(pHost, pSlot);
+  }
+}
+
 tNetSessionHost *NetSessionHostCreate(tNetChannel *pChannel,
                                       uint8 byMaxPlayers,
                                       tNetRandomBytesFn pRandom,
@@ -317,6 +353,10 @@ void NetSessionHostPump(tNetSessionHost *pHost)
               NET_MSG_RELIABLE | NET_MSG_ORDERED, abAccept, sizeof(abAccept));
         }
       } else if (pSlot->byState == NET_HOST_SLOT_JOINED &&
+                 message.byType == NET_MSG_REJOIN_REQUEST &&
+                 message.unLength == sizeof(tNetRejoinRequest)) {
+        NetSessionAcceptRejoin(pHost, pSlot, message.abData);
+      } else if (pSlot->byState == NET_HOST_SLOT_JOINED &&
                  pHost->pMessageCallback) {
         pHost->pMessageCallback(pHost->pMessageContext,
                                 pSlot->byPlayerIdx, &message);
@@ -354,6 +394,16 @@ void NetSessionHostSetMessageCallback(tNetSessionHost *pHost,
     return;
   pHost->pMessageCallback = pCallback;
   pHost->pMessageContext = pContext;
+}
+
+void NetSessionHostSetRejoinCallback(tNetSessionHost *pHost,
+                                     tNetSessionHostRejoinFn pCallback,
+                                     void *pContext)
+{
+  if (!pHost)
+    return;
+  pHost->pRejoinCallback = pCallback;
+  pHost->pRejoinContext = pCallback ? pContext : NULL;
 }
 
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost)
@@ -482,6 +532,29 @@ int NetSessionClientStart(tNetSessionClient *pClient)
   return 1;
 }
 
+int NetSessionClientRejoin(tNetSessionClient *pClient,
+                           tNetConnection *pConnection)
+{
+  uint8 abRequest[sizeof(tNetRejoinRequest)] = {0};
+  uint8 byGeneration;
+  if (!pClient || !pConnection || pClient->state != NET_JOIN_ACCEPTED ||
+      !pClient->ullToken || !pClient->byGeneration ||
+      pClient->byGeneration == 255)
+    return 0;
+  byGeneration = (uint8)(pClient->byGeneration + 1u);
+  NetConnectionSetIdentity(pConnection, pClient->ullToken, byGeneration);
+  NetSessionWrite64(abRequest, pClient->ullToken);
+  abRequest[8] = byGeneration;
+  abRequest[9] = pClient->byPlayerIdx;
+  if (!NetConnectionQueueMessage(pConnection, NET_MSG_REJOIN_REQUEST,
+          NET_MSG_RELIABLE | NET_MSG_ORDERED, abRequest, sizeof(abRequest)))
+    return 0;
+  pClient->pConnection = pConnection;
+  pClient->state = NET_JOIN_WAITING;
+  pClient->byRejoining = 1;
+  return 1;
+}
+
 void NetSessionClientPump(tNetSessionClient *pClient)
 {
   tNetMessage message;
@@ -499,12 +572,16 @@ void NetSessionClientPump(tNetSessionClient *pClient)
       uint8 byGeneration = message.abData[8];
       uint8 byPlayerIdx = message.abData[9];
       if (!ullToken || !byGeneration || byPlayerIdx >= NET_SESSION_MAX_PLAYERS ||
-          message.abData[10] || message.abData[11])
+          message.abData[10] || message.abData[11] ||
+          (pClient->byRejoining &&
+           (ullToken != pClient->ullToken || byPlayerIdx != pClient->byPlayerIdx ||
+            byGeneration != (uint8)(pClient->byGeneration + 1u))))
         continue;
       pClient->ullToken = ullToken;
       pClient->byGeneration = byGeneration;
       pClient->byPlayerIdx = byPlayerIdx;
       pClient->state = NET_JOIN_ACCEPTED;
+      pClient->byRejoining = 0;
       NetConnectionSetIdentity(pClient->pConnection, ullToken, byGeneration);
     } else if ((pClient->state == NET_JOIN_WAITING ||
                 pClient->state == NET_JOIN_ACCEPTED) &&

@@ -1,4 +1,5 @@
 #include "net_host.h"
+#include "net_checkpoint.h"
 #include "net_event.h"
 #include "net_input.h"
 #include "net_race_state.h"
@@ -24,7 +25,9 @@ typedef struct
 typedef struct
 {
   uint8 byActive, byCarCount;
+  uint8 byCheckpointPending, byRestoreOwnership;
   uint8 abyCars[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint64 ullDroppedMs;
   tCarInputData aLast[NET_INPUT_MAX_LOCAL_PLAYERS];
   tNetHostInputSlot aQueue[NET_INPUT_QUEUE];
   tNetHostPlayerStats stats;
@@ -45,6 +48,7 @@ struct tNetHost
   uint64 ullLastFeedbackMs;
   int iRetentionTicks, iRingNext, iTrackLen;
   uint8 byRacing, byHasSnapshot, byResultsPublished;
+  uint8 byForceSnapshot;
   int iResultFinishers, iResultHumanFinishers;
   tNetRaceLifecycle lifecycle;
   uint8 abyCarOwner[MAX_CARS], abyWorldMutated[MAX_TRACK_CHUNKS];
@@ -59,6 +63,9 @@ _Static_assert(NET_INPUT_HORIZON < NET_INPUT_QUEUE,
                "the accept window must not alias queue slots");
 
 static void NetHostDetectDisconnects(tNetHost *pHost);
+static int NetHostSendCheckpoint(tNetHost *pHost, int iPlayer);
+static int NetHostEmitEvent(tNetHost *pHost, uint32 uiTick, uint8 byType,
+                            int iCar, int32 iArg0, int32 iArg1);
 
 static void NetHostReceiveInput(tNetHost *pHost, tNetHostPlayer *pPlayer,
                                 const tNetMessage *pMessage)
@@ -132,6 +139,36 @@ static void NetHostRaceMessage(void *pContext, uint8 byPlayerIdx,
   pPlayer = &pHost->aPlayers[byPlayerIdx];
   if (pPlayer->byActive && pMessage->byType == NET_MSG_INPUT)
     NetHostReceiveInput(pHost, pPlayer, pMessage);
+  else if (pPlayer->byActive &&
+           pMessage->byType == NET_MSG_CHECKPOINT_REQUEST &&
+           pMessage->byFlags == (NET_MSG_RELIABLE | NET_MSG_ORDERED) &&
+           !pMessage->unLength)
+    pPlayer->byCheckpointPending = 1;
+}
+
+static eNetJoinRefuseReason NetHostAuthorizeRejoin(void *pContext,
+                                                   uint8 byPlayerIdx,
+                                                   uint64 ullNowMs)
+{
+  tNetHost *pHost = (tNetHost *)pContext;
+  tNetHostPlayer *pPlayer;
+  tNetPlayerEntry entry;
+  if (!pHost || !pHost->byRacing ||
+      byPlayerIdx >= NET_SESSION_MAX_PLAYERS ||
+      !NetLobbyHostPlayer(pHost->pLobby, byPlayerIdx, &entry))
+    return NET_JOIN_REFUSE_INVALID_REQUEST;
+  pPlayer = &pHost->aPlayers[byPlayerIdx];
+  if (pPlayer->byActive && entry.byState == NET_PLAYER_RACING) {
+    pPlayer->byCheckpointPending = 1;
+    pPlayer->byRestoreOwnership = 0;
+    return NET_JOIN_REFUSE_NONE;
+  }
+  if (entry.byState != NET_PLAYER_DROPPED || !pPlayer->ullDroppedMs ||
+      ullNowMs - pPlayer->ullDroppedMs > NET_REJOIN_GRACE_MS)
+    return NET_JOIN_REFUSE_INVALID_REQUEST;
+  pPlayer->byCheckpointPending = 1;
+  pPlayer->byRestoreOwnership = 1;
+  return NET_JOIN_REFUSE_NONE;
 }
 
 tNetHost *NetHostCreate(tNetSessionHost *pSession, tNetLobbyHost *pLobby)
@@ -153,6 +190,7 @@ tNetHost *NetHostCreate(tNetSessionHost *pSession, tNetLobbyHost *pLobby)
   pHost->iRetentionTicks =
       (NET_SNAPSHOT_RETENTION_MS * pHost->config.unTickRateHz + 999) / 1000;
   NetLobbyHostSetRaceCallback(pLobby, NetHostRaceMessage, pHost);
+  NetSessionHostSetRejoinCallback(pSession, NetHostAuthorizeRejoin, pHost);
   return pHost;
 }
 
@@ -161,6 +199,7 @@ void NetHostDestroy(tNetHost *pHost)
   if (!pHost)
     return;
   NetLobbyHostSetRaceCallback(pHost->pLobby, NULL, NULL);
+  NetSessionHostSetRejoinCallback(pHost->pSession, NULL, NULL);
   free(pHost);
 }
 
@@ -249,11 +288,135 @@ static uint16 NetHostSaturate16(uint32 uiValue)
   return (uint16)(uiValue > 65535u ? 65535u : uiValue);
 }
 
+static int NetHostQueueCheckpointMessage(tNetConnection *pConnection,
+                                         uint8 byType, const uint8 *pData,
+                                         int iLength)
+{
+  return iLength >= 0 && iLength <= NET_MAX_MESSAGE_SIZE &&
+      NetConnectionQueueMessage(pConnection, byType,
+          NET_MSG_RELIABLE | NET_MSG_ORDERED, pData, (uint16)iLength);
+}
+
+static int NetHostSendCheckpoint(tNetHost *pHost, int iPlayer)
+{
+  tNetConnection *pConnection = NetHostLiveConnection(pHost, iPlayer);
+  tNetCheckpointHeader header;
+  tNetSnapshot snapshot;
+  tNetCarFullState aCars[MAX_CARS];
+  tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
+  tNetWorldChangeEntry aWorld[MAX_TRACK_CHUNKS];
+  uint8 abData[NET_MAX_MESSAGE_SIZE];
+  uint32 uiCheckpointTick;
+  int iPlayers, iWorld = 0, iParts, iLength;
+  if (!pConnection || !pHost->uiNextTick ||
+      !(iPlayers = NetLobbyHostPlayerSlots(pHost->pLobby)))
+    return 0;
+  uiCheckpointTick = pHost->uiNextTick - 1u;
+  if (!NetSnapshotBuild(&snapshot, uiCheckpointTick,
+                        pHost->uiLastEventSeq, pHost->lifecycle.byState,
+                        pHost->lifecycle.byPaused))
+    return 0;
+  for (int iCar = 0; iCar < numcars; ++iCar)
+    if (!NetSnapshotEncodeCarFull(iCar, &aCars[iCar]))
+      return 0;
+  for (int iSlot = 0; iSlot < iPlayers; ++iSlot)
+    NetLobbyHostPlayer(pHost->pLobby, (uint8)iSlot, &aPlayers[iSlot]);
+  for (int iChunk = 0; iChunk < pHost->iTrackLen; ++iChunk)
+    if (pHost->abyWorldMutated[iChunk])
+      aWorld[iWorld++] = pHost->aWorld[iChunk];
+  memset(&header, 0, sizeof(header));
+  header.uiTick = uiCheckpointTick;
+  header.uiLastEventSeq = pHost->uiLastEventSeq;
+  header.uiRandomState = snapshot.uiRandomState;
+  header.context = snapshot.context;
+  header.unPauseRevision = pHost->lifecycle.unPauseRevision;
+  header.byRaceState = pHost->lifecycle.byState;
+  header.byPaused = pHost->lifecycle.byPaused;
+  memcpy(header.aRamps, snapshot.aRamps, sizeof(header.aRamps));
+  header.byNumCars = (uint8)numcars;
+  header.byNumCarParts = (uint8)((numcars +
+      NET_CHECKPOINT_CARS_PER_MESSAGE - 1) /
+      NET_CHECKPOINT_CARS_PER_MESSAGE);
+  header.byNumPlayers = (uint8)iPlayers;
+  header.byNumWorldParts = (uint8)((iWorld +
+      NET_WORLD_CHANGE_MAX_ENTRIES - 1) /
+      NET_WORLD_CHANGE_MAX_ENTRIES);
+  iParts = 1 + header.byNumCarParts + 1 + header.byNumWorldParts + 1;
+  if (NetConnectionPendingReliable(pConnection) + iParts >
+      NET_RELIABLE_QUEUE)
+    return 0;
+  iLength = NetCheckpointHeaderEncode(&header, abData, sizeof(abData));
+  if (!iLength || !NetHostQueueCheckpointMessage(pConnection,
+          NET_MSG_CHECKPOINT_HEADER, abData, iLength))
+    return 0;
+  for (int iFirst = 0; iFirst < numcars;
+       iFirst += NET_CHECKPOINT_CARS_PER_MESSAGE) {
+    int iCount = numcars - iFirst;
+    if (iCount > NET_CHECKPOINT_CARS_PER_MESSAGE)
+      iCount = NET_CHECKPOINT_CARS_PER_MESSAGE;
+    iLength = NetCheckpointCarsEncode((uint8)iFirst, aCars + iFirst,
+                                      iCount, abData, sizeof(abData));
+    if (!iLength || !NetHostQueueCheckpointMessage(pConnection,
+            NET_MSG_CHECKPOINT_CARS, abData, iLength))
+      return 0;
+  }
+  iLength = NetCheckpointPlayersEncode(aPlayers, iPlayers,
+                                       abData, sizeof(abData));
+  if (!iLength || !NetHostQueueCheckpointMessage(pConnection,
+          NET_MSG_CHECKPOINT_PLAYERS, abData, iLength))
+    return 0;
+  for (int iFirst = 0; iFirst < iWorld;
+       iFirst += NET_WORLD_CHANGE_MAX_ENTRIES) {
+    int iCount = iWorld - iFirst;
+    if (iCount > NET_WORLD_CHANGE_MAX_ENTRIES)
+      iCount = NET_WORLD_CHANGE_MAX_ENTRIES;
+    iLength = NetCheckpointWorldEncode(aWorld + iFirst, iCount,
+                                       abData, sizeof(abData));
+    if (!iLength || !NetHostQueueCheckpointMessage(pConnection,
+            NET_MSG_CHECKPOINT_WORLD, abData, iLength))
+      return 0;
+  }
+  iLength = NetCheckpointEndEncode(uiCheckpointTick, abData, sizeof(abData));
+  return iLength && NetHostQueueCheckpointMessage(pConnection,
+      NET_MSG_CHECKPOINT_END, abData, iLength);
+}
+
 void NetHostPump(tNetHost *pHost)
 {
   uint64 ullNowMs;
   if (!pHost || !pHost->byRacing)
     return;
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+    tNetHostPlayer *pPlayer = &pHost->aPlayers[iPlayer];
+    if (!pPlayer->byCheckpointPending)
+      continue;
+    if (pPlayer->byRestoreOwnership) {
+      tNetPlayerEntry entry;
+      int iSecondCar;
+      if (!NetLobbyHostPlayer(pHost->pLobby, (uint8)iPlayer, &entry) ||
+          entry.byState != NET_PLAYER_DROPPED)
+        continue;
+      for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar) {
+        int iOwnedCar = pPlayer->abyCars[iCar];
+        human_control[iOwnedCar] = entry.byHumanControl;
+        pHost->abyCarOwner[iOwnedCar] = (uint8)iPlayer;
+      }
+      memset(pPlayer->aQueue, 0, sizeof(pPlayer->aQueue));
+      memset(pPlayer->aLast, 0, sizeof(pPlayer->aLast));
+      pPlayer->byActive = 1;
+      pPlayer->byRestoreOwnership = 0;
+      pPlayer->ullDroppedMs = 0;
+      NetLobbyHostMarkRejoined(pHost->pLobby, (uint8)iPlayer);
+      iSecondCar = pPlayer->byCarCount == 2 ? pPlayer->abyCars[1] : -1;
+      NetHostEmitEvent(pHost, pHost->uiNextTick - 1u,
+                       NET_EV_PLAYER_REJOINED, pPlayer->abyCars[0],
+                       iSecondCar, pPlayer->byCarCount);
+    }
+    if (NetHostSendCheckpoint(pHost, iPlayer)) {
+      pPlayer->byCheckpointPending = 0;
+      pHost->byForceSnapshot = 1;
+    }
+  }
   /* Connection time is independent of simulation time, including pause. */
   NetHostDetectDisconnects(pHost);
   ullNowMs = NetSessionHostNowMs(pHost->pSession);
@@ -389,6 +552,7 @@ static int NetHostTransferPlayerToAi(tNetHost *pHost, int iPlayer)
   memset(pPlayer->aQueue, 0, sizeof(pPlayer->aQueue));
   memset(pPlayer->aLast, 0, sizeof(pPlayer->aLast));
   pPlayer->byActive = 0;
+  pPlayer->ullDroppedMs = NetSessionHostNowMs(pHost->pSession);
   /* The simulation transfer is authoritative even if a roster broadcast
      cannot be queued.  Live clients also receive the numbered event. */
   NetLobbyHostMarkDropped(pHost->pLobby, (uint8)iPlayer);
@@ -660,8 +824,10 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   if (!NetHostEmitLifecycle(pHost, uiTick))
     iCommitsOk = 0;
 
-  if ((uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
+  if (!pHost->byForceSnapshot &&
+      (uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
     return iCommitsOk;
+  pHost->byForceSnapshot = 0;
   pSnapshot = &pHost->aRing[pHost->iRingNext].snapshot;
   if (!NetSnapshotBuild(pSnapshot, uiTick, pHost->uiLastEventSeq,
                         pHost->lifecycle.byState,

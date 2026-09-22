@@ -291,6 +291,19 @@ void NetFrontendPump(void)
 
   NetSessionHostPump(s_frontend.pHost);
   NetLobbyHostPump(s_frontend.pHostLobby);
+  if (s_frontend.pRaceClient && s_frontend.pClient &&
+      NetSessionClientState(s_frontend.pClient) == NET_JOIN_ACCEPTED &&
+      NetConnectionIsExpired(
+          NetSessionClientConnection(s_frontend.pClient))) {
+    tNetConnection *pRejoin = NetChannelAddConnection(
+        s_frontend.pClientChannel, &s_frontend.peer,
+        NetSessionClientToken(s_frontend.pClient),
+        (uint8)(NetSessionClientGeneration(s_frontend.pClient) + 1u));
+    if (!pRejoin || !NetClientBeginRejoin(s_frontend.pRaceClient, pRejoin)) {
+      NetFrontendStatus("SESSION REJOIN FAILED");
+      return;
+    }
+  }
   NetSessionClientPump(s_frontend.pClient);
   NetHostPump(s_frontend.pRaceHost);
   NetClientPump(s_frontend.pRaceClient);

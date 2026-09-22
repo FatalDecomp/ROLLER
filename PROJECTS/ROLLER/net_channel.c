@@ -348,6 +348,19 @@ static tNetConnection *NetFindConnection(tNetChannel *pChannel,
                                          const uint8 *pPacket)
 {
   int iConnection;
+  /* Prefer an exact identity.  A reconnecting client may temporarily keep
+     its old-generation object beside the fresh one on the same channel. */
+  for (iConnection = 0; iConnection < pChannel->iConnectionCount;
+       ++iConnection) {
+    tNetConnection *pConnection = pChannel->apConnections[iConnection];
+    if (pConnection->ullSessionToken != ullToken ||
+        pConnection->byGeneration != byGeneration ||
+        (!ullToken && !NetChannelAddressEqual(&pConnection->peer, pFrom)))
+      continue;
+    if (ullToken && !NetChannelAddressEqual(&pConnection->peer, pFrom))
+      pConnection->peer = *pFrom;
+    return pConnection;
+  }
   for (iConnection = 0; iConnection < pChannel->iConnectionCount;
        ++iConnection) {
     tNetConnection *pConnection = pChannel->apConnections[iConnection];
@@ -355,6 +368,39 @@ static tNetConnection *NetFindConnection(tNetChannel *pChannel,
       if (!ullToken && !NetChannelAddressEqual(&pConnection->peer, pFrom))
         continue;
       if (pConnection->byGeneration != byGeneration) {
+        const uint8 *pMessage = pPacket + sizeof(tNetPacketHeader);
+        const uint8 *pPayload = pMessage + sizeof(tNetMessageHeader);
+        /* A credentialled rejoin is the sole operation allowed to replace a
+           generation.  Reset every reliability window before accepting its
+           first packet; an old-generation packet can then never enter the
+           new delivery stream.  The session validates the repeated token,
+           generation and player index before accepting the rejoin. */
+        if (ullToken && byGeneration &&
+            byGeneration == (uint8)(pConnection->byGeneration + 1u) &&
+            pPacket[21] == 1 && pMessage[0] == NET_MSG_REJOIN_REQUEST &&
+            pMessage[1] == (NET_MSG_RELIABLE | NET_MSG_ORDERED) &&
+            NetRead16(pMessage + 2) == sizeof(tNetRejoinRequest) &&
+            NetRead64(pPayload) == ullToken &&
+            pPayload[8] == byGeneration) {
+          tNetChannel *pOwner = pConnection->pChannel;
+          int iStalePackets = pConnection->iStalePackets;
+          uint16 unInitial = (uint16)ullToken;
+          memset(pConnection, 0, sizeof(*pConnection));
+          pConnection->pChannel = pOwner;
+          pConnection->peer = *pFrom;
+          pConnection->ullSessionToken = ullToken;
+          pConnection->byGeneration = byGeneration;
+          pConnection->unNextPacketSequence = unInitial ? unInitial : 1;
+          pConnection->unNextOrderedSend = unInitial;
+          pConnection->unNextOrderedReceive = unInitial;
+          pConnection->unNextReliableSend = unInitial;
+          pConnection->ullLastReceiveMs = NetChannelNow(pChannel);
+          pConnection->ullLastSendMs = pConnection->ullLastReceiveMs;
+          pConnection->iStalePackets = iStalePackets;
+          pConnection->uiNextEntryId = 1;
+          pConnection->uiNextOrder = 1;
+          return pConnection;
+        }
         ++pConnection->iStalePackets;
         return NULL;
       }

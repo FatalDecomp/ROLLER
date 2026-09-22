@@ -113,6 +113,7 @@ KEEP|PROJECTS/ROLLER/net_race_state.c
 KEEP|PROJECTS/ROLLER/net_config.c
 KEEP|PROJECTS/ROLLER/net_config_codec.c
 KEEP|PROJECTS/ROLLER/net_event.c
+KEEP|PROJECTS/ROLLER/net_checkpoint.c
 KEEP|PROJECTS/ROLLER/net_host.c
 KEEP|PROJECTS/ROLLER/net_input.c
 KEEP|PROJECTS/ROLLER/net_client.c

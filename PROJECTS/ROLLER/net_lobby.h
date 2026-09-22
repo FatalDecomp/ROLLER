@@ -14,6 +14,7 @@ void NetLobbyHostDestroy(tNetLobbyHost *pLobby);
 void NetLobbyHostPump(tNetLobbyHost *pLobby);
 int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick);
 int NetLobbyHostPlayerCount(const tNetLobbyHost *pLobby);
+int NetLobbyHostPlayerSlots(const tNetLobbyHost *pLobby);
 int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
                        tNetPlayerEntry *pPlayer);
 int NetLobbyHostAllReady(const tNetLobbyHost *pLobby);
@@ -23,6 +24,7 @@ int NetLobbyHostLastChat(const tNetLobbyHost *pLobby, tNetChat *pChat);
 /* Marks a racing player dropped while retaining its roster entry and cars
    for E5-S3 rejoin.  The updated roster is broadcast to every live player. */
 int NetLobbyHostMarkDropped(tNetLobbyHost *pLobby, uint8 byPlayerIdx);
+int NetLobbyHostMarkRejoined(tNetLobbyHost *pLobby, uint8 byPlayerIdx);
 /* Non-lobby messages from a racing player, once the race is released. */
 void NetLobbyHostSetRaceCallback(tNetLobbyHost *pLobby,
                                  tNetSessionHostMessageFn pCallback,
@@ -40,6 +42,9 @@ int NetLobbyClientSendStrategy(tNetLobbyClient *pLobby,
 int NetLobbyClientPlayerCount(const tNetLobbyClient *pLobby);
 int NetLobbyClientPlayer(const tNetLobbyClient *pLobby, uint8 byPlayerIdx,
                          tNetPlayerEntry *pPlayer);
+int NetLobbyClientInstallPlayers(tNetLobbyClient *pLobby,
+                                 const tNetPlayerEntry *pPlayers,
+                                 int iCount);
 int NetLobbyClientStartTick(const tNetLobbyClient *pLobby,
                             uint32 *puiStartTick);
 int NetLobbyClientSetRaceLoaded(tNetLobbyClient *pLobby);

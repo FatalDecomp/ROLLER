@@ -1165,6 +1165,166 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
          "16 world chunks exact\n", unTickRateHz);
 }
 
+static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
+                                  uint16 unTickRateHz, uint8 byCar)
+{
+  tNetAddress hostAddress = {0};
+  tNetPlayerEntry player;
+  tNetSimLink slow = {750, 0, 0, 0, 0};
+  tNetConnection *pRejoinConnection;
+  tNetClientStats stats;
+  tNetSimTickContext previous, current;
+  tCarInputData input;
+  uint64 ullDropStart = *pullNowMs;
+  uint64 ullNextTickMs = ullDropStart;
+  uint32 uiTickIndex = 0;
+  int iChunk = Car[byCar].iLastValidChunk;
+  int iAuthoritativeGrip, iOldGrip;
+
+  /* Stop pumping the client for fifteen seconds.  The channel clock drops
+     it at ten seconds and E5-S2 transfers ownership to AI. */
+  for (; *pullNowMs <= ullDropStart + 15000u; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    while (*pullNowMs >= ullNextTickMs) {
+      CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+      NetTestRestoreClientWorld(&s_hostRun);
+      ++s_hostRun.iTicks;
+      ++uiTickIndex;
+      ullNextTickMs = ullDropStart +
+          (uint64)uiTickIndex * 1000u / unTickRateHz;
+    }
+  }
+  CHECK(NetLobbyHostPlayer(pNodes->pLobbyHost, 0, &player));
+  CHECK(player.byState == NET_PLAYER_DROPPED);
+  CHECK(!human_control[byCar]);
+
+  /* Make one authoritative world mutation, let the host shadow it, then
+     corrupt the one-process client world.  The checkpoint must restore the
+     host's retained value, not whatever happens to be live at install. */
+  CHECK(iChunk >= 0 && iChunk < TRAK_LEN);
+  iOldGrip = localdata[iChunk].iCenterGrip;
+  iAuthoritativeGrip = (iOldGrip + 1) % NET_WORLD_GRIP_COUNT;
+  localdata[iChunk].iCenterGrip = iAuthoritativeGrip;
+  CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+  NetTestRestoreClientWorld(&s_hostRun);
+  ++s_hostRun.iTicks;
+  {
+    tNetWorldChangeEntry retained;
+    CHECK(NetHostWorldChangeAt(pNodes->pHost, iChunk, &retained));
+    CHECK(retained.byCenterGrip == iAuthoritativeGrip);
+  }
+
+  hostAddress.abAddress[0] = 127;
+  hostAddress.abAddress[3] = 1;
+  hostAddress.byFamily = NET_ADDR_IPV4;
+  pRejoinConnection = NetChannelAddConnection(pNodes->pClientChannel,
+      &hostAddress, NetSessionClientToken(pNodes->pSessionClient),
+      (uint8)(NetSessionClientGeneration(pNodes->pSessionClient) + 1u));
+  CHECK(pRejoinConnection);
+  pNodes->pClientConnection = pRejoinConnection;
+  CHECK(NetClientBeginRejoin(pNodes->pClient, pRejoinConnection));
+  CHECK(NetClientRecoveryState(pNodes->pClient) == NET_RECOVERY_INSTALLING);
+  CHECK(!NetClientInputAt(pNodes->pClient,
+                          NetClientCurrentTick(pNodes->pClient), &input));
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &slow));
+
+  /* The 750 ms one-way link holds the reliable checkpoint for about 1.5 s
+     round-trip.  No live client ticks or input are issued in either recovery
+     phase; the first forced post-checkpoint snapshot drives Phase 2. */
+  {
+    uint64 ullDeadline = *pullNowMs + 8000u;
+    int iCorruptedClientWorld = 0;
+    ullDropStart = *pullNowMs;
+    uiTickIndex = 0;
+    ullNextTickMs = ullDropStart;
+    while (NetClientRecoveryState(pNodes->pClient) != NET_RECOVERY_RACING) {
+      CHECK(*pullNowMs < ullDeadline);
+      CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+      NetTestPumpHost(pNodes);
+      if (!iCorruptedClientWorld &&
+          NetLobbyHostPlayer(pNodes->pLobbyHost, 0, &player) &&
+          player.byState == NET_PLAYER_RACING) {
+        /* NetHostPump just queued the checkpoint.  Produce its forced newer
+           snapshot, then corrupt only the client side of this D13 one-world
+           test and freeze host simulation until recovery installs both. */
+        CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+        NetTestRestoreClientWorld(&s_hostRun);
+        ++s_hostRun.iTicks;
+        localdata[iChunk].iCenterGrip = iOldGrip;
+        iCorruptedClientWorld = 1;
+      }
+      while (!iCorruptedClientWorld && *pullNowMs >= ullNextTickMs) {
+        CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+        NetTestRestoreClientWorld(&s_hostRun);
+        ++s_hostRun.iTicks;
+        ++uiTickIndex;
+        ullNextTickMs = ullDropStart +
+            (uint64)uiTickIndex * 1000u / unTickRateHz;
+      }
+      NetTestPumpClient(pNodes);
+      NetClientPump(pNodes->pClient);
+      ++*pullNowMs;
+    }
+    CHECK(iCorruptedClientWorld);
+  }
+  CHECK(NetSessionClientGeneration(pNodes->pSessionClient) == 2);
+  CHECK(NetLobbyHostPlayer(pNodes->pLobbyHost, 0, &player));
+  CHECK(player.byState == NET_PLAYER_RACING);
+  CHECK(human_control[byCar] == player.byHumanControl);
+  CHECK(localdata[iChunk].iCenterGrip == iAuthoritativeGrip);
+  CHECK(NetClientStats(pNodes->pClient, &stats));
+  CHECK(stats.fRttMs > 1000.0f);
+  CHECK(stats.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(stats.uiRampTick == NetClientCurrentTick(pNodes->pClient));
+  CHECK(NetClientContextAt(pNodes->pClient,
+                           NetClientCurrentTick(pNodes->pClient), &current));
+  CHECK(NetClientContextAt(pNodes->pClient,
+                           NetClientCurrentTick(pNodes->pClient) - 1u,
+                           &previous));
+  CHECK(current.iGameFrame == previous.iGameFrame + 1);
+  CHECK(NetClientInputAt(pNodes->pClient,
+                         NetClientCurrentTick(pNodes->pClient), &input));
+  CHECK(!input.unInput && !input.unFlags);
+  {
+    tNetHostPlayerStats hostBefore, hostAfter;
+    uint32 uiBatchesBefore = stats.uiBatchesSent;
+    uint64 ullPlayStart = *pullNowMs;
+    uint64 ullPlayEnd = ullPlayStart + 2000u;
+    uint32 uiPlayTick = 0;
+    CHECK(NetHostPlayerStats(pNodes->pHost, 0, &hostBefore));
+    NetTestSetLinks(pNodes, NET_TEST_LATENCY_MS);
+    for (; *pullNowMs <= ullPlayEnd; ++*pullNowMs) {
+      CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+      NetTestPumpHost(pNodes);
+      while (*pullNowMs >= ullPlayStart +
+             (uint64)uiPlayTick * 1000u / unTickRateHz) {
+        CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+        NetTestRestoreClientWorld(&s_hostRun);
+        ++s_hostRun.iTicks;
+        ++uiPlayTick;
+      }
+      NetTestPumpClient(pNodes);
+      NetClientPump(pNodes->pClient);
+      while (NetClientTicksDue(pNodes->pClient) > 0) {
+        tCarInputData liveInput = NetTestScript(
+            NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+        CHECK(NetClientTick(pNodes->pClient, &liveInput));
+      }
+    }
+    CHECK(NetClientStats(pNodes->pClient, &stats));
+    CHECK(NetHostPlayerStats(pNodes->pHost, 0, &hostAfter));
+    CHECK(stats.uiBatchesSent > uiBatchesBefore);
+    CHECK(hostAfter.uiInputBatches > hostBefore.uiInputBatches);
+    CHECK(human_control[byCar] == player.byHumanControl);
+    CHECK(localdata[iChunk].iCenterGrip == iAuthoritativeGrip);
+  }
+  printf("%u Hz: authenticated generation-2 rejoin installed checkpoint "
+         "and replayed to tick %u\n", unTickRateHz,
+         NetClientCurrentTick(pNodes->pClient));
+}
+
 static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
                         uint64 ullAfterStepMs)
 {
@@ -1519,6 +1679,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
                          &iHostTickIndex, unTickRateHz, byCar);
   NetTestPause(&nodes, &ullNowMs, unTickRateHz, byCar);
   NetTestHostCommits(&nodes, &ullNowMs, unTickRateHz, byCar);
+  NetTestRejoinRecovery(&nodes, &ullNowMs, unTickRateHz, byCar);
 
   NetClientDestroy(nodes.pClient);
   NetLobbyClientDestroy(nodes.pLobbyClient);

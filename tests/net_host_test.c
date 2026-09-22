@@ -1100,6 +1100,35 @@ static void NetTestDisconnectTakeover(void)
   }
   puts("NET-E5-S2 split-screen airborne disconnect transferred atomically");
 
+  /* The retained token is not an unlimited late-join credential.  Keep the
+     other endpoint alive while the dropped player passes the 60 s grace,
+     then prove generation 2 is refused without reallocating its roster
+     index. */
+  {
+    tNetConnection *pRejoin;
+    uint64 ullRefuseAt = ullNowMs + NET_REJOIN_GRACE_MS + 1u;
+    while (ullNowMs < ullRefuseAt) {
+      ullNowMs += 100u;
+      if (ullNowMs > ullRefuseAt)
+        ullNowMs = ullRefuseAt;
+      NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+    }
+    CHECK(NetTransportSimSetLink(pSim, 1, &link));
+    pRejoin = NetChannelAddConnection(s_aClients[0].pChannel, &hostAddress,
+        NetSessionClientToken(s_aClients[0].pSession), 2);
+    CHECK(pRejoin && NetSessionClientRejoin(s_aClients[0].pSession,
+                                            pRejoin));
+    for (uint64 ullEndMs = ullNowMs + 500u;
+         ullNowMs <= ullEndMs; ++ullNowMs)
+      NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+    CHECK(NetSessionClientState(s_aClients[0].pSession) == NET_JOIN_REFUSED);
+    CHECK(NetSessionClientRefuseReason(s_aClients[0].pSession) ==
+          NET_JOIN_REFUSE_INVALID_REQUEST);
+    CHECK(NetLobbyHostPlayer(pLobby, s_aClients[0].byPlayerIdx, &player));
+    CHECK(player.byState == NET_PLAYER_DROPPED &&
+          player.byCarIdx0 == 0 && player.byCarIdx1 == 1);
+  }
+
   for (int iClient = 0; iClient < 2; ++iClient) {
     NetLobbyClientDestroy(s_aClients[iClient].pLobby);
     NetSessionClientDestroy(s_aClients[iClient].pSession);

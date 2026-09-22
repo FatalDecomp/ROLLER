@@ -8,6 +8,10 @@ int NetSnapshotBuild(tNetSnapshot *pSnapshot, uint32 uiTick, uint32 uiLastEventS
 int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState);
 int NetSnapshotCarFullValid(int iCar, const tNetCarFullState *pState);
 int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState);
+int NetSnapshotEncodeCarFullWire(const tNetCarFullState *pState,
+                                 uint8 *pBytes, int iCapacity);
+int NetSnapshotDecodeCarFullWire(const uint8 *pBytes, int iLength,
+                                 tNetCarFullState *pState);
 /* Write only the host-owned half of a validated full state (D19). */
 int NetSnapshotApplyAuthoritative(int iCar,
                                   const tNetCarFullState *pState);

@@ -462,6 +462,11 @@ int NetLobbyHostPlayerCount(const tNetLobbyHost *pLobby)
   return iCount;
 }
 
+int NetLobbyHostPlayerSlots(const tNetLobbyHost *pLobby)
+{
+  return pLobby ? pLobby->config.byMaxPlayers : 0;
+}
+
 int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
                        tNetPlayerEntry *pPlayer)
 {
@@ -513,6 +518,22 @@ int NetLobbyHostMarkDropped(tNetLobbyHost *pLobby, uint8 byPlayerIdx)
     return 0;
   pPlayer->byState = NET_PLAYER_DROPPED;
   pLobby->abyRaceLoaded[byPlayerIdx] = 0;
+  return NetLobbyHostBroadcastPlayers(pLobby, 1);
+}
+
+int NetLobbyHostMarkRejoined(tNetLobbyHost *pLobby, uint8 byPlayerIdx)
+{
+  tNetPlayerEntry *pPlayer;
+  if (!pLobby || !pLobby->byRaceReleased ||
+      byPlayerIdx >= pLobby->config.byMaxPlayers)
+    return 0;
+  pPlayer = &pLobby->aPlayers[byPlayerIdx];
+  if (pPlayer->byState == NET_PLAYER_RACING)
+    return 1;
+  if (pPlayer->byState != NET_PLAYER_DROPPED)
+    return 0;
+  pPlayer->byState = NET_PLAYER_RACING;
+  pLobby->abyRaceLoaded[byPlayerIdx] = 1;
   return NetLobbyHostBroadcastPlayers(pLobby, 1);
 }
 
@@ -730,6 +751,37 @@ int NetLobbyClientPlayer(const tNetLobbyClient *pLobby, uint8 byPlayerIdx,
     return 0;
   *pPlayer = pLobby->aPlayers[byPlayerIdx];
   return pPlayer->byState != NET_PLAYER_EMPTY;
+}
+
+int NetLobbyClientInstallPlayers(tNetLobbyClient *pLobby,
+                                 const tNetPlayerEntry *pPlayers,
+                                 int iCount)
+{
+  tNetSessionConfig config;
+  uint8 abyCarUsed[MAX_CARS] = {0};
+  if (!pLobby || !pPlayers ||
+      !NetSessionClientGetConfig(pLobby->pSession, &config) ||
+      iCount != config.byMaxPlayers)
+    return 0;
+  for (int iPlayer = 0; iPlayer < iCount; ++iPlayer) {
+    const tNetPlayerEntry *pPlayer = &pPlayers[iPlayer];
+    if (!NetLobbyPlayerValid(pPlayer))
+      return 0;
+    if (pPlayer->byState == NET_PLAYER_EMPTY)
+      continue;
+    if (pPlayer->byCarIdx0 >= MAX_CARS || abyCarUsed[pPlayer->byCarIdx0])
+      return 0;
+    abyCarUsed[pPlayer->byCarIdx0] = 1;
+    if (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER) {
+      if (pPlayer->byCarIdx1 >= MAX_CARS || abyCarUsed[pPlayer->byCarIdx1])
+        return 0;
+      abyCarUsed[pPlayer->byCarIdx1] = 1;
+    }
+  }
+  memcpy(pLobby->aPlayers, pPlayers,
+         (size_t)iCount * sizeof(pLobby->aPlayers[0]));
+  pLobby->byPlayerSlots = (uint8)iCount;
+  return 1;
 }
 
 int NetLobbyClientStartTick(const tNetLobbyClient *pLobby,

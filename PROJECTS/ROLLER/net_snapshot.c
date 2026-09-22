@@ -455,6 +455,30 @@ _Static_assert(17 * 4 + 2 * 2 + 16 + 4 * 2 == sizeof(tNetCarExtra), "extra wire 
 _Static_assert(offsetof(tNetCarExtra, nTargetChunk) == 68 && offsetof(tNetCarExtra, byKills) == 72 &&
                offsetof(tNetCarExtra, nLocalYaw) == 88, "extra wire walk offsets");
 
+int NetSnapshotEncodeCarFullWire(const tNetCarFullState *pState,
+                                 uint8 *pBytes, int iCapacity)
+{
+  if (!pState || !pBytes || iCapacity < (int)sizeof(*pState))
+    return 0;
+  NetWireCar(pBytes, (const uint8 *)&pState->state);
+  NetWireCarExtra(pBytes + sizeof(tNetCarState),
+                  (const uint8 *)&pState->extra);
+  return sizeof(*pState);
+}
+
+int NetSnapshotDecodeCarFullWire(const uint8 *pBytes, int iLength,
+                                 tNetCarFullState *pState)
+{
+  tNetCarFullState decoded;
+  if (!pBytes || !pState || iLength != (int)sizeof(decoded))
+    return 0;
+  NetWireCar((uint8 *)&decoded.state, pBytes);
+  NetWireCarExtra((uint8 *)&decoded.extra,
+                  pBytes + sizeof(tNetCarState));
+  *pState = decoded;
+  return 1;
+}
+
 int NetSnapshotEncodeOwnCarState(uint32 uiTick, const uint8 *pbyCars,
                                  const tNetCarExtra *pExtras, int iCount,
                                  uint8 *pBytes, int iCapacity)

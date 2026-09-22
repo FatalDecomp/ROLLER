@@ -21,6 +21,9 @@ typedef void (*tNetSessionHostMessageFn)(void *pContext,
                                          const tNetMessage *pMessage);
 typedef void (*tNetSessionClientMessageFn)(void *pContext,
                                            const tNetMessage *pMessage);
+typedef eNetJoinRefuseReason (*tNetSessionHostRejoinFn)(void *pContext,
+                                                        uint8 byPlayerIdx,
+                                                        uint64 ullNowMs);
 
 /* Creation verifies the random provider immediately.  A host is never
    advertised or allowed to accept joins without a working CSPRNG. */
@@ -38,6 +41,9 @@ int NetSessionHostGetConfig(const tNetSessionHost *pHost,
 void NetSessionHostSetMessageCallback(tNetSessionHost *pHost,
                                       tNetSessionHostMessageFn pCallback,
                                       void *pContext);
+void NetSessionHostSetRejoinCallback(tNetSessionHost *pHost,
+                                     tNetSessionHostRejoinFn pCallback,
+                                     void *pContext);
 int NetSessionHostPlayerCount(const tNetSessionHost *pHost);
 tNetConnection *NetSessionHostPlayerConnection(const tNetSessionHost *pHost,
                                                 uint8 byPlayerIdx);
@@ -57,6 +63,10 @@ tNetSessionClient *NetSessionClientCreate(tNetConnection *pConnection,
                                           const char *szPlayerName);
 void NetSessionClientDestroy(tNetSessionClient *pClient);
 int NetSessionClientStart(tNetSessionClient *pClient);
+/* Reuses the accepted session identity on a fresh transport connection and
+   increments the generation. */
+int NetSessionClientRejoin(tNetSessionClient *pClient,
+                           tNetConnection *pConnection);
 void NetSessionClientPump(tNetSessionClient *pClient);
 eNetJoinState NetSessionClientState(const tNetSessionClient *pClient);
 eNetJoinRefuseReason NetSessionClientRefuseReason(

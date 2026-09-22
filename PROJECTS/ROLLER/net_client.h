@@ -29,6 +29,13 @@
 
 typedef struct tNetClient tNetClient;
 
+typedef enum
+{
+  NET_RECOVERY_RACING = 0,
+  NET_RECOVERY_INSTALLING,
+  NET_RECOVERY_RESYNCING
+} eNetRecoveryState;
+
 typedef struct
 {
   uint32 uiTicks;              /* client ticks simulated */
@@ -76,6 +83,9 @@ void NetClientDestroy(tNetClient *pClient);
    rings, and puts the timeline just before the start tick.  Requires
    net_mode == NET_MODE_MODERN. */
 int NetClientBeginRace(tNetClient *pClient);
+int NetClientBeginRejoin(tNetClient *pClient,
+                         tNetConnection *pConnection);
+eNetRecoveryState NetClientRecoveryState(const tNetClient *pClient);
 
 /* Frame loop, after the session pump: clock sync, lead control, and the
    dilated accumulator (4.4).  The accumulator owns the client's ticks: the
