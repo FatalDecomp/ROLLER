@@ -58,6 +58,8 @@ struct tNetHost
 _Static_assert(NET_INPUT_HORIZON < NET_INPUT_QUEUE,
                "the accept window must not alias queue slots");
 
+static void NetHostDetectDisconnects(tNetHost *pHost);
+
 static void NetHostReceiveInput(tNetHost *pHost, tNetHostPlayer *pPlayer,
                                 const tNetMessage *pMessage)
 {
@@ -252,6 +254,8 @@ void NetHostPump(tNetHost *pHost)
   uint64 ullNowMs;
   if (!pHost || !pHost->byRacing)
     return;
+  /* Connection time is independent of simulation time, including pause. */
+  NetHostDetectDisconnects(pHost);
   ullNowMs = NetSessionHostNowMs(pHost->pSession);
   if (ullNowMs - pHost->ullLastFeedbackMs < NET_HOST_FEEDBACK_MS)
     return;
@@ -352,6 +356,56 @@ static int NetHostEmitEvent(tNetHost *pHost, uint32 uiTick, uint8 byType,
   pHost->uiLastEventSeq = event.uiEventSeq;
   return NetHostBroadcastCommit(pHost, NET_MSG_EVENT, abEvent,
                                 (uint16)iLength);
+}
+
+static int NetHostTransferPlayerToAi(tNetHost *pHost, int iPlayer)
+{
+  tNetHostPlayer *pPlayer;
+  int iSecondCar;
+  if (!pHost || iPlayer < 0 || iPlayer >= NET_SESSION_MAX_PLAYERS)
+    return 0;
+  pPlayer = &pHost->aPlayers[iPlayer];
+  if (!pPlayer->byActive || pPlayer->byCarCount < 1 ||
+      pPlayer->byCarCount > NET_INPUT_MAX_LOCAL_PLAYERS)
+    return 0;
+  /* Decide the whole group before mutating it.  Ownership is the only live
+     simulation state this transition changes; airborne/physics state stays
+     byte-identical and continues through the ordinary AI dispatch (4.11). */
+  for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar)
+    if (pPlayer->abyCars[iCar] >= numcars ||
+        pHost->abyCarOwner[pPlayer->abyCars[iCar]] != (uint8)iPlayer)
+      return 0;
+  iSecondCar = pPlayer->byCarCount == 2 ? pPlayer->abyCars[1] : -1;
+  /* Queueing failure cannot leave an expired player in control forever.
+     The reliable commit is best-effort at this boundary, like the other
+     host commits; subsequent snapshots still carry the ownership truth. */
+  NetHostEmitEvent(pHost, pHost->uiNextTick, NET_EV_AI_TAKEOVER,
+                   pPlayer->abyCars[0], iSecondCar, pPlayer->byCarCount);
+  for (int iCar = 0; iCar < pPlayer->byCarCount; ++iCar) {
+    int iOwnedCar = pPlayer->abyCars[iCar];
+    human_control[iOwnedCar] = 0;
+    pHost->abyCarOwner[iOwnedCar] = NET_EVENT_NO_PLAYER;
+  }
+  memset(pPlayer->aQueue, 0, sizeof(pPlayer->aQueue));
+  memset(pPlayer->aLast, 0, sizeof(pPlayer->aLast));
+  pPlayer->byActive = 0;
+  /* The simulation transfer is authoritative even if a roster broadcast
+     cannot be queued.  Live clients also receive the numbered event. */
+  NetLobbyHostMarkDropped(pHost->pLobby, (uint8)iPlayer);
+  return 1;
+}
+
+static void NetHostDetectDisconnects(tNetHost *pHost)
+{
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+    tNetConnection *pConnection;
+    if (!pHost->aPlayers[iPlayer].byActive)
+      continue;
+    pConnection = NetSessionHostPlayerConnection(pHost->pSession,
+                                                  (uint8)iPlayer);
+    if (NetConnectionIsExpired(pConnection))
+      NetHostTransferPlayerToAi(pHost, iPlayer);
+  }
 }
 
 static int NetHostEmitCarEvents(tNetHost *pHost, uint32 uiTick,

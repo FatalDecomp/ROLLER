@@ -916,7 +916,7 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
       NetSessionClientPlayerIndex(pNodes->pSessionClient));
   tNetClientStats before, after;
   tNetSnapshot snapshot, olderSnapshot;
-  tNetEvent aEvents[8];
+  tNetEvent aEvents[9];
   tNetWorldChangeEntry aBefore[MAX_TRACK_CHUNKS];
   tNetWorldChangeEntry aWorld[16];
   tNetSimLink link = {0, 0, 0, 0, 0};
@@ -1020,24 +1020,34 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   for (int iEvent = 0; iEvent < 6; ++iEvent)
     aEvents[iEvent].uiEventSeq += uiBaseEventSeq;
   aEvents[6].uiEventSeq = uiBaseEventSeq + 7u;
-  aEvents[6].byType = NET_EV_RACE_STATE;
-  aEvents[6].byCarIdx = NET_EVENT_NO_CAR;
-  aEvents[6].byPlayerIdx = NET_EVENT_NO_PLAYER;
-  aEvents[6].iArg0 = NET_RACE_OUTCOME_SETTLED;
+  aEvents[6].byType = NET_EV_AI_TAKEOVER;
+  aEvents[6].byCarIdx = (uint8)aiRemote[0];
+  aEvents[6].byPlayerIdx = 1;
+  aEvents[6].iArg0 = -1;
+  aEvents[6].iArg1 = 1;
   aEvents[7].uiEventSeq = uiBaseEventSeq + 8u;
-  aEvents[7].byType = NET_EV_RESULTS;
+  aEvents[7].byType = NET_EV_RACE_STATE;
   aEvents[7].byCarIdx = NET_EVENT_NO_CAR;
   aEvents[7].byPlayerIdx = NET_EVENT_NO_PLAYER;
-  aEvents[7].iArg0 = 2;
-  aEvents[7].iArg1 = 1;
+  aEvents[7].iArg0 = NET_RACE_OUTCOME_SETTLED;
+  aEvents[8].uiEventSeq = uiBaseEventSeq + 9u;
+  aEvents[8].byType = NET_EV_RESULTS;
+  aEvents[8].byCarIdx = NET_EVENT_NO_CAR;
+  aEvents[8].byPlayerIdx = NET_EVENT_NO_PLAYER;
+  aEvents[8].iArg0 = 2;
+  aEvents[8].iArg1 = 1;
   CHECK(NetClientSnapshotAt(pNodes->pClient,
                             before.uiNewestSnapshotTick, &snapshot));
+  /* Model the last pre-drop snapshot.  The retained takeover commit must
+     win again after this older ownership state is applied. */
+  human_control[aiRemote[0]] = 1;
+  snapshot.aCars[aiRemote[0]].byHumanControl = 1;
   olderSnapshot = snapshot;
   uiSnapshotTick = before.uiNewestSnapshotTick + 2u;
   for (int iRamp = 0; iRamp < snapshot.byNumRamps; ++iRamp)
     CHECK(NetSimAdvanceRampStateCopy(iRamp, &snapshot.aRamps[iRamp], 2));
   snapshot.uiTick = uiSnapshotTick;
-  snapshot.uiLastEventSeq = uiBaseEventSeq + 9u;
+  snapshot.uiLastEventSeq = uiBaseEventSeq + 10u;
   snapshot.byRaceState = NET_RACE_OUTCOME_SETTLED;
   snapshot.aCars[aiRemote[0]].byLap = 4;
   snapshot.aCars[byCar].byRacePosition = 0;
@@ -1048,13 +1058,13 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
                                   abMessage, (uint16)iLength));
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
-  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 9u &&
+  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 10u &&
         after.uiCommitsApplied == before.uiCommitsApplied);
 
   /* Retain the later lifecycle/result commits behind the first missing car
      commit.  Neither result globals nor the world
      may advance across the shared-sequence gap. */
-  for (int iEvent = 1; iEvent < 8; ++iEvent) {
+  for (int iEvent = 1; iEvent < 9; ++iEvent) {
     aEvents[iEvent].uiTick = uiSnapshotTick;
     NetTestQueueEvent(pConnection, &aEvents[iEvent]);
   }
@@ -1073,15 +1083,16 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestQueueEvent(pConnection, &aEvents[0]);
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
-  CHECK(after.uiEvents == before.uiEvents + 8u);
-  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 8u);
-  CHECK(after.uiLastAppliedEventSeq == uiBaseEventSeq + 8u);
+  CHECK(after.uiEvents == before.uiEvents + 9u);
+  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 9u);
+  CHECK(after.uiLastAppliedEventSeq == uiBaseEventSeq + 9u);
   CHECK(Car[aiRemote[0]].byLap == 4 &&
         Car[aiRemote[0]].byLapNumber >= 4);
   CHECK(Car[aiRemote[1]].byKills == 3);
   CHECK(finished_car[byCar] && finished_car[aiRemote[2]]);
   CHECK(Car[byCar].byRacePosition == 0 && carorder[0] == byCar);
   CHECK(finishers == 2 && human_finishers == 1 && Destroyed == 1);
+  CHECK(!human_control[aiRemote[0]]);
   CHECK(NetClientRaceState(pNodes->pClient) == NET_RACE_OUTCOME_SETTLED);
   {
     int iResultFinishers, iResultHumanFinishers;
@@ -1093,6 +1104,7 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   /* Result publication is idempotent even if a later movement correction
      restores a context recorded before these reliable commits arrived. */
   finishers = human_finishers = Destroyed = 0;
+  human_control[aiRemote[0]] = 1;
   finished_car[byCar] = finished_car[aiRemote[2]] = 0;
   Car[aiRemote[0]].byLap = Car[aiRemote[0]].byLapNumber = 0;
   Car[aiRemote[1]].byKills = 0;
@@ -1100,8 +1112,9 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(finishers == 2 && human_finishers == 1 && Destroyed == 1);
   CHECK(finished_car[byCar] && finished_car[aiRemote[2]]);
   CHECK(Car[aiRemote[0]].byLap == 4 && Car[aiRemote[1]].byKills == 3);
+  CHECK(!human_control[aiRemote[0]]);
 
-  iLength = NetWorldChangeEncode(uiBaseEventSeq + 9u, uiSnapshotTick,
+  iLength = NetWorldChangeEncode(uiBaseEventSeq + 10u, uiSnapshotTick,
                                  aWorld, 16,
                                  abMessage, sizeof(abMessage));
   CHECK(iLength > 0);
@@ -1111,9 +1124,9 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
   CHECK(after.uiWorldChanges == before.uiWorldChanges + 1u);
-  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 9u);
+  CHECK(after.uiCommitsApplied == before.uiCommitsApplied + 10u);
   CHECK(after.uiLastAppliedEventSeq == after.uiCommitWatermark &&
-        after.uiCommitWatermark == uiBaseEventSeq + 9u);
+        after.uiCommitWatermark == uiBaseEventSeq + 10u);
   for (int iChunk = 0; iChunk < TRAK_LEN; ++iChunk) {
     tNetWorldChangeEntry current;
     CHECK(NetWorldChangeCapture(iChunk, &current));
@@ -1133,8 +1146,9 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
   NetTestRunCommitTick(pNodes, pullNowMs, unTickRateHz, byCar);
   CHECK(NetClientStats(pNodes->pClient, &after));
   CHECK(after.uiRejectedMessages == before.uiRejectedMessages);
-  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 9u &&
-        after.uiLastAppliedEventSeq == uiBaseEventSeq + 9u);
+  CHECK(after.uiCommitWatermark == uiBaseEventSeq + 10u &&
+        after.uiLastAppliedEventSeq == uiBaseEventSeq + 10u);
+  CHECK(!human_control[aiRemote[0]]);
 
   /* This process owns one world, so restore the synthetic host mutation for
      the second tick-rate pass. */
@@ -1147,7 +1161,7 @@ static void NetTestHostCommits(tNetTestNodes *pNodes, uint64 *pullNowMs,
     memcpy(TrakColour[iChunk], aBefore[iChunk].auiTrakColour,
            sizeof(aBefore[iChunk].auiTrakColour));
   }
-  printf("%u Hz: 9 ordered host commits applied after a watermark/gap; "
+  printf("%u Hz: 10 ordered host commits applied after a watermark/gap; "
          "16 world chunks exact\n", unTickRateHz);
 }
 

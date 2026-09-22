@@ -69,6 +69,15 @@ static int NetEventValid(const tNetEvent *pEvent,
              pEvent->byPlayerIdx == NET_EVENT_NO_PLAYER &&
              pEvent->iArg0 >= 0 && pEvent->iArg0 <= iNumCars &&
              pEvent->iArg1 >= 0 && pEvent->iArg1 <= pEvent->iArg0;
+    case NET_EV_AI_TAKEOVER:
+      /* iArg0 is the optional second car and iArg1 is the atomic group
+         size.  One commit therefore transfers a split-screen pair. */
+      return pEvent->byCarIdx != NET_EVENT_NO_CAR &&
+             pEvent->byPlayerIdx != NET_EVENT_NO_PLAYER &&
+             ((pEvent->iArg1 == 1 && pEvent->iArg0 == -1) ||
+              (pEvent->iArg1 == 2 && pEvent->iArg0 >= 0 &&
+               pEvent->iArg0 < iNumCars &&
+               pEvent->iArg0 != pEvent->byCarIdx));
     default:
       return 1;
   }

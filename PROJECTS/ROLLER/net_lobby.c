@@ -500,6 +500,22 @@ int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby)
   return pLobby && pLobby->byRaceReleased;
 }
 
+int NetLobbyHostMarkDropped(tNetLobbyHost *pLobby, uint8 byPlayerIdx)
+{
+  tNetPlayerEntry *pPlayer;
+  if (!pLobby || !pLobby->byRaceReleased ||
+      byPlayerIdx >= pLobby->config.byMaxPlayers)
+    return 0;
+  pPlayer = &pLobby->aPlayers[byPlayerIdx];
+  if (pPlayer->byState == NET_PLAYER_DROPPED)
+    return 1;
+  if (pPlayer->byState != NET_PLAYER_RACING)
+    return 0;
+  pPlayer->byState = NET_PLAYER_DROPPED;
+  pLobby->abyRaceLoaded[byPlayerIdx] = 0;
+  return NetLobbyHostBroadcastPlayers(pLobby, 1);
+}
+
 void NetLobbyHostSetRaceCallback(tNetLobbyHost *pLobby,
                                  tNetSessionHostMessageFn pCallback,
                                  void *pContext)

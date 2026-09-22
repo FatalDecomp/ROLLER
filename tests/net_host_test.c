@@ -103,6 +103,12 @@ typedef struct
 
 typedef struct
 {
+  int iSawAirborneAi, iLanded, iAiTicks, iMoved;
+  float afLandedX[2], afLandedY[2];
+} tNetTakeoverRun;
+
+typedef struct
+{
   tCar aCars[MAX_CARS];
   tNetRampState aRamps[NET_MAX_RAMPS];
   tNetSimTickContext context;
@@ -357,6 +363,47 @@ static int NetTestHostSimulate(void *pContext, uint32 uiTick,
         return 0;
       finished_car[iCar] = -1;
       Car[iCar].byRacePosition = (uint8)finishers++;
+      ++human_finishers;
+    }
+  }
+  return 1;
+}
+
+static int NetTestTakeoverSimulate(void *pContext, uint32 uiTick,
+                                   const tCopyData *pInputs, int iNumCars)
+{
+  tNetTakeoverRun *pRun = (tNetTakeoverRun *)pContext;
+  (void)uiTick;
+  if (!human_control[0] && !human_control[1] &&
+      (!Car[0].iControlType || !Car[1].iControlType))
+    pRun->iSawAirborneAi = 1;
+  if (!NetSimWriteTickInputs(pInputs, iNumCars))
+    return 0;
+  control_one_tick();
+  if (!human_control[0] && !human_control[1] &&
+      Car[0].iControlType == 3 && Car[1].iControlType == 3) {
+    if (!pRun->iLanded) {
+      pRun->iLanded = 1;
+      pRun->afLandedX[0] = Car[0].pos.fX;
+      pRun->afLandedY[0] = Car[0].pos.fY;
+      pRun->afLandedX[1] = Car[1].pos.fX;
+      pRun->afLandedY[1] = Car[1].pos.fY;
+    }
+    ++pRun->iAiTicks;
+    if (pRun->iAiTicks >= 20 &&
+        (Car[0].pos.fX != pRun->afLandedX[0] ||
+         Car[0].pos.fY != pRun->afLandedY[0] ||
+         Car[1].pos.fX != pRun->afLandedX[1] ||
+         Car[1].pos.fY != pRun->afLandedY[1]))
+      pRun->iMoved = 1;
+    if (pRun->iAiTicks == 60) {
+      for (int iCar = 0; iCar < 2; ++iCar) {
+        finished_car[iCar] = -1;
+        Car[iCar].byRacePosition = (uint8)finishers++;
+      }
+    } else if (pRun->iAiTicks == 62) {
+      finished_car[2] = -1;
+      Car[2].byRacePosition = (uint8)finishers++;
       ++human_finishers;
     }
   }
@@ -855,6 +902,216 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
   }
 }
 
+static void NetTestDisconnectTakeover(void)
+{
+  static const char *aszNames[2] = {"Split", "Observer"};
+  tNetTransportSim *pSim = NetTransportSimCreate(0xe5e5u);
+  tNetSimLink link = {0, 0, 0, 0, 0};
+  tNetSimLink dead = {0, 0, 1000, 0, 0};
+  tNetAddress hostAddress;
+  tNetSessionConfig config;
+  tNetTestRandom random = {0x5eed0e5e50000001ull};
+  tNetChannel *pHostChannel;
+  tNetSessionHost *pSession;
+  tNetLobbyHost *pLobby;
+  tNetHost *pHost;
+  tNetTakeoverRun run;
+  tCar aAirborne[2];
+  tCarInputData aSplitInput[2] = {{0}};
+  tCarInputData observerInput = {0};
+  tNetPlayerEntry player;
+  uint64 ullNowMs = 0;
+  uint32 uiEventBeforeDrop;
+  int iTakeovers = 0;
+
+  NetTestRestore(&s_pristine);
+  memset(s_aClients, 0, sizeof(s_aClients));
+  memset(&run, 0, sizeof(run));
+  CHECK(pSim);
+  for (int iEndpoint = 0; iEndpoint < 3; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pSim, iEndpoint, &link));
+  memset(&hostAddress, 0, sizeof(hostAddress));
+  hostAddress.abAddress[0] = 127;
+  hostAddress.abAddress[3] = 1;
+  hostAddress.byFamily = NET_ADDR_IPV4;
+  memset(&config, 0, sizeof(config));
+  config.unProtocolVersion = NET_PROTOCOL_VERSION;
+  config.unTickRateHz = 36;
+  config.bySnapshotInterval = NET_SESSION_DEFAULT_SNAPSHOT_INTERVAL;
+  config.byMaxPlayers = 4;
+  config.byPauseAllowed = 1;
+  config.iTrackLoad = 7;
+  config.iManualControl = 1;
+  config.iCompetitors = 16;
+  config.iDamageLevel = 1;
+  config.uiRandomSeed = 12345;
+  config.uiTrackCRC = 0xe5e5e5e5u;
+  memcpy(config.szBuildHash, "e5-s2-test", 11);
+  CHECK(NetSessionConfigValidate(&config));
+
+  pHostChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  CHECK(pHostChannel);
+  pSession = NetSessionHostCreate(pHostChannel, config.byMaxPlayers,
+                                  NetTestRandomBytes, &random);
+  CHECK(pSession && NetSessionHostSetConfig(pSession, &config));
+  pLobby = NetLobbyHostCreate(pSession);
+  pHost = NetHostCreate(pSession, pLobby);
+  CHECK(pLobby && pHost);
+  for (int iClient = 0; iClient < 2; ++iClient) {
+    tNetTestClient *pClient = &s_aClients[iClient];
+    pClient->pChannel = NetChannelCreate(
+        NetTransportSimEndpoint(pSim, iClient + 1));
+    CHECK(pClient->pChannel);
+    pClient->pConnection = NetChannelAddConnection(
+        pClient->pChannel, &hostAddress, 0, 0);
+    CHECK(pClient->pConnection);
+    pClient->pSession = NetSessionClientCreate(
+        pClient->pConnection, NET_PROTOCOL_VERSION,
+        (uint8)(iClient == 0 ? 2 : 1), aszNames[iClient]);
+    CHECK(pClient->pSession);
+    pClient->pLobby = NetLobbyClientCreate(pClient->pSession);
+    CHECK(pClient->pLobby && NetSessionClientStart(pClient->pSession));
+    NetLobbyClientSetRaceCallback(pClient->pLobby,
+                                  NetTestClientRace, pClient);
+  }
+  for (; ullNowMs <= 1000; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  for (int iClient = 0; iClient < 2; ++iClient) {
+    CHECK(NetSessionClientState(s_aClients[iClient].pSession) ==
+          NET_JOIN_ACCEPTED);
+    s_aClients[iClient].byPlayerIdx = NetSessionClientPlayerIndex(
+        s_aClients[iClient].pSession);
+  }
+  /* Move the observer first so the split player can claim cars 0 and 1. */
+  CHECK(NetLobbyClientSetPlayerInfo(s_aClients[1].pLobby, 2,
+                                    NET_LOBBY_NO_PLAYER, 1));
+  for (; ullNowMs <= 1200; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  CHECK(NetLobbyClientSetPlayerInfo(s_aClients[0].pLobby, 0, 1, 1));
+  for (; ullNowMs <= 1400; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  CHECK(NetLobbyHostPlayer(pLobby, s_aClients[0].byPlayerIdx, &player));
+  CHECK(player.byCarIdx0 == 0 && player.byCarIdx1 == 1);
+  CHECK(NetLobbyHostPlayer(pLobby, s_aClients[1].byPlayerIdx, &player));
+  CHECK(player.byCarIdx0 == 2 && player.byCarIdx1 == NET_LOBBY_NO_PLAYER);
+  for (int iClient = 0; iClient < 2; ++iClient)
+    CHECK(NetLobbyClientSetReady(s_aClients[iClient].pLobby, 1,
+                                 config.uiTrackCRC));
+  for (; ullNowMs <= 1700; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  CHECK(NetLobbyHostStart(pLobby, NET_TEST_START_TICK));
+  for (; ullNowMs <= 2000; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  for (int iClient = 0; iClient < 2; ++iClient)
+    CHECK(NetLobbyClientSetRaceLoaded(s_aClients[iClient].pLobby));
+  for (; !NetLobbyHostRaceReleased(pLobby); ++ullNowMs) {
+    CHECK(ullNowMs < 3000);
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  }
+  CHECK(NetHostBeginRace(pHost));
+  CHECK(human_control[0] == 1 && human_control[1] == 1 &&
+        human_control[2] == 1);
+  NetHostSetSimulation(pHost, NetTestTakeoverSimulate, &run);
+
+  /* Twenty seconds of ordinary race time.  Neutral input leaves both split
+     cars grounded so the airborne boundary below is deterministic. */
+  for (int iTick = 0; iTick < 20 * 36; ++iTick) {
+    uint32 uiTick = NetHostNextTick(pHost);
+    ullNowMs += (iTick % 9 == 0) ? 28u : 27u;
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+    CHECK(NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                uiTick, aSplitInput, 2));
+    CHECK(NetHostSetLocalInputs(pHost, s_aClients[1].byPlayerIdx,
+                                uiTick, &observerInput, 1));
+    CHECK(NetHostTick(pHost, uiTick));
+  }
+  CHECK(NetHostRaceState(pHost) == NET_RACE_RUNNING);
+  for (int iCar = 0; iCar < 2; ++iCar) {
+    CHECK(Car[iCar].iControlType == 3 && Car[iCar].nCurrChunk >= 0);
+    Car[iCar].nPitch = 0;
+    Car[iCar].nRoll = 0;
+    converttoair(&Car[iCar]);
+    Car[iCar].direction.fZ = 15.0f;
+    CHECK(Car[iCar].iControlType == 0 && Car[iCar].nCurrChunk == -1);
+    aAirborne[iCar] = Car[iCar];
+  }
+  uiEventBeforeDrop = NetHostLastEventSeq(pHost);
+  CHECK(NetHostSetPaused(pHost, 1));
+  CHECK(NetTransportSimSetLink(pSim, 1, &dead));
+  /* No simulation tick runs while the channel/session clock expires the
+     connection.  Transfer must therefore preserve both airborne cars. */
+  for (uint64 ullEndMs = ullNowMs + NET_CONNECTION_TIMEOUT_MS + 2u;
+       ullNowMs <= ullEndMs; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  CHECK(!human_control[0] && !human_control[1] && human_control[2] == 1);
+  CHECK(!memcmp(&Car[0], &aAirborne[0], sizeof(tCar)) &&
+        !memcmp(&Car[1], &aAirborne[1], sizeof(tCar)));
+  CHECK(NetHostLastEventSeq(pHost) == uiEventBeforeDrop + 1u);
+  CHECK(NetLobbyHostPlayer(pLobby, s_aClients[0].byPlayerIdx, &player));
+  CHECK(player.byState == NET_PLAYER_DROPPED &&
+        player.byCarIdx0 == 0 && player.byCarIdx1 == 1);
+  {
+    tNetHostPlayerStats stats;
+    /* The same inactive bit gates the lifecycle settlement set. */
+    CHECK(!NetHostPlayerStats(pHost, s_aClients[0].byPlayerIdx, &stats));
+  }
+  for (uint64 ullEndMs = ullNowMs + 10u;
+       ullNowMs <= ullEndMs; ++ullNowMs)
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+  for (int iEvent = 0; iEvent < s_aClients[1].iEvents; ++iEvent) {
+    const tNetEvent *pEvent = &s_aClients[1].aEvents[iEvent];
+    if (pEvent->byType != NET_EV_AI_TAKEOVER)
+      continue;
+    CHECK(pEvent->byCarIdx == 0 && pEvent->byPlayerIdx ==
+          s_aClients[0].byPlayerIdx && pEvent->iArg0 == 1 &&
+          pEvent->iArg1 == 2);
+    ++iTakeovers;
+  }
+  CHECK(iTakeovers == 1);
+
+  CHECK(NetHostSetPaused(pHost, 0));
+  for (int iTick = 0; iTick < 300 &&
+       NetHostRaceState(pHost) != NET_RACE_OUTCOME_SETTLED; ++iTick) {
+    uint32 uiTick = NetHostNextTick(pHost);
+    ullNowMs += (iTick % 9 == 0) ? 28u : 27u;
+    NetTestPumpAll(pSim, ullNowMs, pSession, pLobby, pHost);
+    CHECK(NetHostSetLocalInputs(pHost, s_aClients[1].byPlayerIdx,
+                                uiTick, &observerInput, 1));
+    CHECK(!NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                 uiTick, aSplitInput, 2));
+    CHECK(NetHostTick(pHost, uiTick));
+  }
+  CHECK(run.iSawAirborneAi && run.iLanded && run.iMoved);
+  CHECK(finished_car[0] && finished_car[1] && finished_car[2]);
+  CHECK(NetHostRaceState(pHost) == NET_RACE_OUTCOME_SETTLED);
+  {
+    int iFinishers, iHumanFinishers;
+    CHECK(NetHostResults(pHost, &iFinishers, &iHumanFinishers));
+    CHECK(iFinishers == 3 && iHumanFinishers == 1);
+  }
+  {
+    tNetSnapshot snapshot;
+    uint32 uiTick = NetHostNextTick(pHost) - 1u;
+    while (!NetHostSnapshotAt(pHost, uiTick, &snapshot))
+      --uiTick;
+    CHECK(!snapshot.aCars[0].byHumanControl &&
+          !snapshot.aCars[1].byHumanControl &&
+          snapshot.aCars[2].byHumanControl == 1);
+  }
+  puts("NET-E5-S2 split-screen airborne disconnect transferred atomically");
+
+  for (int iClient = 0; iClient < 2; ++iClient) {
+    NetLobbyClientDestroy(s_aClients[iClient].pLobby);
+    NetSessionClientDestroy(s_aClients[iClient].pSession);
+    NetChannelDestroy(s_aClients[iClient].pChannel);
+  }
+  NetHostDestroy(pHost);
+  NetLobbyHostDestroy(pLobby);
+  NetSessionHostDestroy(pSession);
+  NetChannelDestroy(pHostChannel);
+  NetTransportSimDestroy(pSim);
+}
+
 static void NetTestCodecs(void)
 {
   tNetInputBatch batch, decoded;
@@ -949,6 +1206,24 @@ static void NetTestCodecs(void)
   CHECK(NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
   CHECK(!memcmp(&event, &decodedEvent, sizeof(event)));
 
+  memset(&event, 0, sizeof(event));
+  event.uiEventSeq = 6;
+  event.uiTick = 102;
+  event.byType = NET_EV_AI_TAKEOVER;
+  event.byCarIdx = 0;
+  event.byPlayerIdx = 1;
+  event.iArg0 = 2;
+  event.iArg1 = 2;
+  CHECK(NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)) == 20);
+  CHECK(NetEventDecode(abCommit, 20, numcars, 4, &decodedEvent));
+  CHECK(!memcmp(&event, &decodedEvent, sizeof(event)));
+  event.iArg0 = 0;
+  CHECK(!NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)));
+  event.iArg0 = -1;
+  CHECK(!NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)));
+  event.iArg1 = 1;
+  CHECK(NetEventEncode(&event, numcars, 4, abCommit, sizeof(abCommit)) == 20);
+
   CHECK(NetWorldChangeCapture(0, &aWorld[0]));
   CHECK(NetWorldChangeCapture(TRAK_LEN - 1, &aWorld[1]));
   iLength = NetWorldChangeEncode(7, 99, aWorld, 2,
@@ -1016,5 +1291,6 @@ int main(int iArgc, const char **ppArgv)
     CHECK(s_accelRun.auiWorldHash[iIndex] == s_phoneRun.auiWorldHash[iIndex]);
   CHECK(s_accelRun.aExtra[s_accelRun.iTicks - 1][1].fBaseSpeed > 0.0f);
   printf("phone throttle equals throttle bit over %d host ticks\n", s_accelRun.iTicks);
+  NetTestDisconnectTakeover();
   return 0;
 }

@@ -102,6 +102,7 @@ struct tNetClient
   uint8 abyFinishCommitted[MAX_CARS], abyDestroyedCommitted[MAX_CARS];
   uint8 abyFinishOwner[MAX_CARS], abyFinishPosition[MAX_CARS];
   uint8 abyLapCommitted[MAX_CARS], abyKillCommitted[MAX_CARS];
+  uint8 abyAiTakeoverCommitted[MAX_CARS];
   uint8 abyCommittedLap[MAX_CARS], abyCommittedKills[MAX_CARS];
   tNetClientStats stats;
   tNetClientInputSlot aInputs[NET_CLIENT_HISTORY];
@@ -635,6 +636,8 @@ static void NetClientPublishEventCommits(tNetClient *pClient)
 {
   int iFinishers = 0, iHumanFinishers = 0, iDestroyed = 0;
   for (int iCar = 0; iCar < numcars; ++iCar) {
+    if (pClient->abyAiTakeoverCommitted[iCar])
+      human_control[iCar] = 0;
     if (pClient->abyLapCommitted[iCar]) {
       if ((int)(int8)Car[iCar].byLap < pClient->abyCommittedLap[iCar])
         Car[iCar].byLap = pClient->abyCommittedLap[iCar];
@@ -694,6 +697,11 @@ static void NetClientApplyEvent(tNetClient *pClient,
           (uint8)pEvent->iArg1;
       if (pEvent->iArg0 >= 0)
         Victim = pEvent->iArg0;
+      break;
+    case NET_EV_AI_TAKEOVER:
+      pClient->abyAiTakeoverCommitted[pEvent->byCarIdx] = 1;
+      if (pEvent->iArg1 == 2)
+        pClient->abyAiTakeoverCommitted[pEvent->iArg0] = 1;
       break;
     case NET_EV_RACE_STATE:
       if (!NetRaceTransition(&pClient->lifecycle, (uint8)pEvent->iArg0))
