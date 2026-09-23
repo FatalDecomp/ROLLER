@@ -44,6 +44,9 @@
 #define NET_TEST_LAP_TICK (NET_TEST_START_TICK + 155u)
 #define NET_TEST_FINISH_TICK (NET_TEST_START_TICK + 165u)
 #define NET_TEST_LOVEBUN_TICK (NET_TEST_START_TICK + 175u)
+#define NET_TEST_BLACKOUT_START 100
+#define NET_TEST_BLACKOUT_TICKS (3 * 36)
+#define NET_TEST_BLACKOUT_INPUT_COVER 6
 
 typedef struct
 {
@@ -56,11 +59,19 @@ typedef struct
   tNetConnection *pConnection;
   tNetSessionClient *pSession;
   tNetLobbyClient *pLobby;
+  tNetHost *pHost;
   uint8 byPlayerIdx, byCar;
-  int iSnapshots, iOwnStates, iFeedback, iEvents, iWorldChanges;
+  int iSnapshots, iFullSnapshots, iDeltaSnapshots;
+  int iOwnStates, iFeedback, iEvents, iWorldChanges;
   int iCommitSeqs, iBadMessages;
+  uint64 ullSnapshotBytes;
   uint32 uiNewestSnapshotTick;
+  uint32 uiBlackoutStartTick, uiBlackoutEndTick;
+  uint32 uiFirstBlackoutFullTick, uiFirstPostBlackoutDeltaTick;
+  tNetSnapshot aSnapshotRing[NET_HOST_SNAPSHOT_RING];
+  uint8 abySnapshotValid[NET_HOST_SNAPSHOT_RING];
   uint32 auiSnapshotTick[NET_TEST_MAX_SNAPSHOTS];
+  uint8 abySnapshotDelta[NET_TEST_MAX_SNAPSHOTS];
   uint32 auiSnapshotEventSeq[NET_TEST_MAX_SNAPSHOTS];
   int aiSnapshotFrame[NET_TEST_MAX_SNAPSHOTS];
   uint32 auiSnapshotRandom[NET_TEST_MAX_SNAPSHOTS];
@@ -224,20 +235,61 @@ static tCarInputData NetTestExpected(tCarInputData input, int iCar)
 static void NetTestClientRace(void *pContext, const tNetMessage *pMessage)
 {
   tNetTestClient *pClient = (tNetTestClient *)pContext;
-  if (pMessage->byType == NET_MSG_SNAPSHOT) {
+  if (pMessage->byType == NET_MSG_SNAPSHOT ||
+      pMessage->byType == NET_MSG_SNAPSHOT_DELTA) {
     tNetSnapshot snapshot;
+    tNetSnapshot hostSnapshot;
     int iEntry = pClient->iSnapshots;
-    if (pMessage->byFlags || iEntry >= NET_TEST_MAX_SNAPSHOTS ||
-        !NetSnapshotDecode(pMessage->abData, pMessage->unLength, &snapshot)) {
+    int iDecoded = 0;
+    if (!pMessage->byFlags && iEntry < NET_TEST_MAX_SNAPSHOTS) {
+      if (pMessage->byType == NET_MSG_SNAPSHOT) {
+        iDecoded = NetSnapshotDecode(pMessage->abData, pMessage->unLength,
+                                     &snapshot);
+      } else {
+        uint32 uiTick, uiBaseTick;
+        if (NetSnapshotDeltaTicks(pMessage->abData, pMessage->unLength,
+                                  &uiTick, &uiBaseTick)) {
+          const tNetSnapshot *pBase =
+              &pClient->aSnapshotRing[uiBaseTick % NET_HOST_SNAPSHOT_RING];
+          if (pClient->abySnapshotValid[uiBaseTick % NET_HOST_SNAPSHOT_RING] &&
+              pBase->uiTick == uiBaseTick)
+            iDecoded = NetSnapshotDecodeDelta(
+                pBase, pMessage->abData, pMessage->unLength, &snapshot) &&
+                snapshot.uiTick == uiTick;
+        }
+      }
+    }
+    if (!iDecoded ||
+        !NetHostSnapshotAt(pClient->pHost, snapshot.uiTick, &hostSnapshot) ||
+        memcmp(&snapshot, &hostSnapshot, sizeof(snapshot))) {
       ++pClient->iBadMessages;
       return;
     }
+    pClient->aSnapshotRing[snapshot.uiTick % NET_HOST_SNAPSHOT_RING] = snapshot;
+    pClient->abySnapshotValid[snapshot.uiTick % NET_HOST_SNAPSHOT_RING] = 1;
     pClient->auiSnapshotTick[iEntry] = snapshot.uiTick;
+    pClient->abySnapshotDelta[iEntry] =
+        pMessage->byType == NET_MSG_SNAPSHOT_DELTA;
     pClient->auiSnapshotEventSeq[iEntry] = snapshot.uiLastEventSeq;
     pClient->aiSnapshotFrame[iEntry] = snapshot.context.iGameFrame;
     pClient->auiSnapshotRandom[iEntry] = snapshot.uiRandomState;
     pClient->abySnapshotHuman[iEntry] = snapshot.aCars[pClient->byCar].byHumanControl;
     pClient->uiNewestSnapshotTick = snapshot.uiTick;
+    pClient->ullSnapshotBytes += pMessage->unLength;
+    if (pMessage->byType == NET_MSG_SNAPSHOT)
+      ++pClient->iFullSnapshots;
+    else
+      ++pClient->iDeltaSnapshots;
+    if (pMessage->byType == NET_MSG_SNAPSHOT &&
+        pClient->uiBlackoutStartTick &&
+        !pClient->uiFirstBlackoutFullTick &&
+        (int32)(snapshot.uiTick - pClient->uiBlackoutStartTick) > 0)
+      pClient->uiFirstBlackoutFullTick = snapshot.uiTick;
+    if (pMessage->byType == NET_MSG_SNAPSHOT_DELTA &&
+        pClient->uiBlackoutEndTick &&
+        !pClient->uiFirstPostBlackoutDeltaTick &&
+        (int32)(snapshot.uiTick - pClient->uiBlackoutEndTick) > 0)
+      pClient->uiFirstPostBlackoutDeltaTick = snapshot.uiTick;
     ++pClient->iSnapshots;
   } else if (pMessage->byType == NET_MSG_OWN_CAR_STATE) {
     uint8 abyCars[2];
@@ -455,6 +507,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
   static const char *aszNames[NET_TEST_CLIENTS] = {"Alpha", "Phone", "Rogue"};
   tNetTransportSim *pSim = NetTransportSimCreate(0xe351u);
   tNetSimLink link = {NET_TEST_LATENCY_MS, 0, 0, 0, 0};
+  tNetSimLink dead = {NET_TEST_LATENCY_MS, 0, 1000, 0, 0};
   tNetAddress hostAddress;
   tNetSessionConfig config;
   tNetTestRandom random = {0x5eed0e3510000001ull};
@@ -509,6 +562,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
 
   for (int iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
     tNetTestClient *pClient = &s_aClients[iClient];
+    pClient->pHost = pHost;
     pClient->pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, iClient + 1));
     CHECK(pClient->pChannel);
     pClient->pConnection = NetChannelAddConnection(pClient->pChannel, &hostAddress, 0, 0);
@@ -600,6 +654,18 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
                                     uiTick, &input, 1));
         iLocalInputProbed = 1;
       }
+      if (iIndex == NET_TEST_BLACKOUT_START) {
+        s_aClients[0].uiBlackoutStartTick = uiTick;
+        CHECK(NetTransportSimSetLink(pSim, 1, &dead));
+      }
+      if (iIndex >= NET_TEST_BLACKOUT_START &&
+          iIndex < NET_TEST_BLACKOUT_START + NET_TEST_BLACKOUT_TICKS +
+                       NET_TEST_BLACKOUT_INPUT_COVER) {
+        tCarInputData input = NetTestExpected(
+            NetTestScript(0, uiTick, iPhone), s_aClients[0].byCar);
+        CHECK(NetHostSetLocalInputs(pHost, s_aClients[0].byPlayerIdx,
+                                    uiTick, &input, 1));
+      }
       if (iRunningTicks == NET_TEST_RUNNING_TICKS && iRunning >= 0 &&
           iIndex - iRunning == iRunningTicks - 4)
         pRun->uiSettleTick = uiTick;
@@ -607,6 +673,10 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
         fprintf(stderr, "host tick %u failed (events %u, LOVEBUN uses %d)\n",
                 uiTick, NetHostLastEventSeq(pHost), pRun->iLovebunUses);
         CHECK(0);
+      }
+      if (iIndex == NET_TEST_BLACKOUT_START + NET_TEST_BLACKOUT_TICKS - 1) {
+        s_aClients[0].uiBlackoutEndTick = uiTick;
+        CHECK(NetTransportSimSetLink(pSim, 1, &link));
       }
       if (iIndex == 35) {
         tNetHostPlayerStats warningStats;
@@ -811,6 +881,22 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
     CHECK(!pFinal->byLateInputWarning);
     CHECK(pFinal->nArrivalMarginTicks > 0);
     CHECK((int32)(pFinal->uiLastDecodedSnapshotTick - (uiLastTick - 20u)) > 0);
+    if (iClient == 0) {
+      uint32 uiRetentionTicks =
+          (NET_SNAPSHOT_RETENTION_MS * 36u + 999u) / 1000u;
+      uint32 uiRttTicks = (2u * NET_TEST_LATENCY_MS * 36u + 999u) / 1000u;
+      CHECK(pClient->uiBlackoutEndTick - pClient->uiBlackoutStartTick ==
+            NET_TEST_BLACKOUT_TICKS - 1u);
+      CHECK(pClient->uiFirstBlackoutFullTick >
+            pClient->uiBlackoutStartTick);
+      CHECK(pClient->uiFirstBlackoutFullTick -
+            pClient->uiBlackoutStartTick <=
+            uiRetentionTicks + uiRttTicks + (uint32)iInterval);
+      CHECK(pClient->uiFirstPostBlackoutDeltaTick >
+            pClient->uiBlackoutEndTick);
+      CHECK(pClient->uiFirstPostBlackoutDeltaTick -
+            pClient->uiBlackoutEndTick <= uiRttTicks + (uint32)iInterval);
+    }
 
     /* Driving: each scripted car made progress under its own input. */
     CHECK(human_control[iCar] == 1);
@@ -821,6 +907,14 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
        the same ticks, for the client's car, equal to the host's. */
     CHECK(!pClient->iBadMessages);
     CHECK(pClient->iSnapshots >= NET_TEST_RUNNING_TICKS / iInterval);
+    CHECK(pClient->iFullSnapshots > 1 && pClient->iDeltaSnapshots > 0);
+    CHECK(pClient->iFullSnapshots + pClient->iDeltaSnapshots ==
+          pClient->iSnapshots);
+    CHECK(pFinal->uiFullSnapshots == (uint32)pClient->iFullSnapshots);
+    CHECK(pFinal->uiDeltaSnapshots == (uint32)pClient->iDeltaSnapshots);
+    CHECK(pFinal->ullSnapshotBytes == pClient->ullSnapshotBytes);
+    CHECK(pClient->ullSnapshotBytes * 100u <
+          (uint64)pClient->iSnapshots * sizeof(tNetSnapshot) * 60u);
     CHECK(pClient->auiSnapshotTick[0] == NET_TEST_START_TICK);
     CHECK(uiLastTick - pClient->auiSnapshotTick[pClient->iSnapshots - 1] < (uint32)iInterval);
     CHECK(pClient->iOwnStates == pClient->iSnapshots);
@@ -842,6 +936,19 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
       CHECK(pClient->aiOwnCount[iEntry] == 1 && pClient->abyOwnCar[iEntry] == iCar);
       CHECK(!memcmp(&pClient->aOwnExtra[iEntry], &pRun->aExtra[iIndex][iClient],
                     sizeof(tNetCarExtra)));
+    }
+    {
+      uint32 uiPreviousFull = pClient->auiSnapshotTick[0];
+      uint32 uiFullInterval =
+          (NET_FULL_SNAPSHOT_INTERVAL_MS * 36u + 999u) / 1000u;
+      CHECK(!pClient->abySnapshotDelta[0]);
+      for (int iEntry = 1; iEntry < pClient->iSnapshots; ++iEntry)
+        if (!pClient->abySnapshotDelta[iEntry]) {
+          CHECK(pClient->auiSnapshotTick[iEntry] - uiPreviousFull <=
+                uiFullInterval);
+          uiPreviousFull = pClient->auiSnapshotTick[iEntry];
+        }
+      CHECK(uiLastTick - uiPreviousFull < uiFullInterval + (uint32)iInterval);
     }
     CHECK(pClient->auiSnapshotEventSeq[pClient->iSnapshots - 1] ==
           pRun->uiLastEventSeq);
@@ -904,11 +1011,23 @@ static void NetTestCheckAcceptance(const tNetTestRun *pRun)
     CHECK(pClient->lastFeedback.unFutureInputs == pFinal->uiFutureInputs);
     CHECK(pClient->lastFeedback.nArrivalMarginTicks > 0);
     CHECK((int32)(pClient->lastFeedback.uiHostTick - (uiLastTick - 20u)) > 0);
-    printf("client %d car %d: %d snapshots, %d own-car states, %d feedback, "
-           "%u late (warm-up), %u clamped, %u future, speed %.1f\n",
-           iClient, iCar, pClient->iSnapshots, pClient->iOwnStates, pClient->iFeedback,
+    printf("client %d car %d: %d snapshots (%d full, %d delta, %.1f%% smaller), "
+           "%d own-car states, %d feedback, %u late (warm-up), %u clamped, "
+           "%u future, speed %.1f\n",
+           iClient, iCar, pClient->iSnapshots, pClient->iFullSnapshots,
+           pClient->iDeltaSnapshots,
+           100.0 - 100.0 * (double)pClient->ullSnapshotBytes /
+               ((double)pClient->iSnapshots * sizeof(tNetSnapshot)),
+           pClient->iOwnStates, pClient->iFeedback,
            pFinal->uiLateInputs, pFinal->uiClampedInputs, pFinal->uiFutureInputs,
            Car[iCar].fFinalSpeed);
+    if (iClient == 0)
+      printf("  3 s acknowledgement blackout: full fallback after %u ticks, "
+             "delta resumed %u ticks after restore\n",
+             pClient->uiFirstBlackoutFullTick -
+                 pClient->uiBlackoutStartTick,
+             pClient->uiFirstPostBlackoutDeltaTick -
+                 pClient->uiBlackoutEndTick);
   }
 }
 

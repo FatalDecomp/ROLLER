@@ -351,3 +351,91 @@ input is accepted without changing the established world-hash comparison.
 The plan's acceptance is manual. No interactive two-instance race was run in
 this implementation session, so the overlay criteria still need an in-game
 smoke check. The legacy-call trap still does not exist; it belongs to E7-S1.
+
+## E3-S4 delta snapshots with explicit baselines
+
+Implemented on 2026-09-22. The changes are intentionally uncommitted.
+
+### Baseline selection and fallback
+
+Every input batch already carries the client's newest successfully decoded
+snapshot tick. The host now uses that value per player and looks up the exact
+snapshot in its existing 600 ms shared ring. If the entry is present, the host
+encodes `NET_MSG_SNAPSHOT_DELTA` against it. If it is missing, expired, too
+large, or not smaller than the 1104-byte full state, the host sends
+`NET_MSG_SNAPSHOT` instead.
+
+Full snapshots are also forced on the first snapshot, every two seconds, and
+on the first tick after a checkpoint. `NET_MSG_OWN_CAR_STATE` remains a
+separate full message for every snapshot tick; it is never delta-encoded.
+Host player stats expose full and delta counts plus snapshot payload bytes so
+the bandwidth contract can be measured without including unrelated traffic.
+
+### Client reconstruction
+
+`NetSnapshotDeltaTicks` reads the current and base tick from the explicit
+little-endian delta header without publishing either value on a structurally
+invalid message. The client locates the exact base in its retained snapshot
+ring, then calls the existing full delta decoder. The reconstructed snapshot
+passes the same loaded-world, commit-watermark, staleness and D23 validation as
+a full snapshot before it enters the ring.
+
+A delta with an absent or expired base is counted and discarded. It does not
+advance `uiNewestSnapshotTick`, which is the value reported in the next input
+batch. A malformed delta is counted as rejected. Accepted full and delta
+messages share the existing reconciliation, authoritative-commit, ramp and
+puppet paths.
+
+### Acceptance
+
+The live 16-car host acceptance reconstructs every delta and compares it
+byte-for-byte with the full snapshot retained by the host for that tick. The
+three clients each received 1073 snapshots. The two uninterrupted clients saw
+33 full and 1040 delta snapshots and used 51.7 percent fewer snapshot payload
+bytes than an all-full stream. The blackout client saw 79 full and 994 delta
+snapshots and still used 48.8 percent fewer bytes, above the required 40
+percent reduction.
+
+Client 0 has a deterministic three-second input/acknowledgement blackout while
+its driving input is supplied through the normal host queue seam. Its reported
+baseline ages out, the host falls back to a full snapshot after 18 ticks, and
+deltas resume 5 ticks after the link is restored, inside one 200 ms RTT. The
+test also checks the two-second maximum between forced full snapshots.
+
+The real client acceptance at both 36 and 100 Hz omits one encoded delta and
+then reconstructs a later delta from the same base. It next delivers a delta
+before its base, verifies that the reported tick does not move, delivers the
+full base, and reconstructs the same delta exactly. The existing 3 percent
+loss run now uses live delta traffic for the full E4/E5 prediction, pause,
+commit and rejoin suite. Checkpoint recovery verifies that a forced full
+snapshot arrives after the client clears its history.
+
+Passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations test-net-host test-net-client -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+zig build test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
+
+Push-Location android
+$env:JAVA_HOME="$env:ProgramFiles\Android\Android Studio\jbr"
+$env:GRADLE_USER_HOME="D:\source\repos\ROLLER\android\.gradle\user-home"
+$env:ZIG_EXE="C:\Users\Steve\scoop\persist\zigup\zig\0.15.2\files\zig.exe"
+.\gradlew.bat assembleDebug --rerun-tasks --no-daemon
+Pop-Location
+```
+
+The test cache was copied into the repository-local ignored cache because the
+sandbox could read but not update the normal user cache. The temporary copied
+cache was removed after verification. The full native ReleaseSafe build and
+the harness passed. Source counts remain Linux 95, macOS 95, Windows 98,
+Android 95 and Emscripten 93; the roller-core manifest remains 109 translation
+units; all 18 selected Python tests passed. The Android debug APK rebuilt for
+arm64-v8a and x86_64. A CMake configure was not run because this machine still
+cannot find `SDL3Config.cmake`; its source-list test passed. The E7-S1
+legacy-call trap still does not exist.

@@ -637,6 +637,22 @@ int NetSnapshotEncodeDelta(const tNetSnapshot *pBase, const tNetSnapshot *pCurre
   memcpy(pBytes, abEncoded, (size_t)iLength);
   return iLength;
 }
+
+int NetSnapshotDeltaTicks(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                          uint32 *puiBaseTick)
+{
+  uint32 uiTick, uiBaseTick;
+  if (!pBytes || !puiTick || !puiBaseTick ||
+      iLength < (int)sizeof(tNetSnapshotDeltaHeader) ||
+      iLength > NET_MAX_PAYLOAD - 28)
+    return 0;
+  NetWireScalar((uint8 *)&uiTick, pBytes, 4);
+  NetWireScalar((uint8 *)&uiBaseTick, pBytes + 4, 4);
+  *puiTick = uiTick;
+  *puiBaseTick = uiBaseTick;
+  return 1;
+}
+
 int NetSnapshotDecodeDelta(const tNetSnapshot *pBase, const uint8 *pBytes, int iLength, tNetSnapshot *pResult)
 {
   tNetSnapshot snapshot;

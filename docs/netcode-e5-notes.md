@@ -269,7 +269,8 @@ disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
 
 ## NET-E5-S4: timeouts, errors and user messaging
 
-Implemented on 2026-09-22. The changes are intentionally uncommitted.
+Implemented on 2026-09-22. The code is in `95be6f1`; the final verification
+detail below remains uncommitted.
 
 ### Modern-path status contract
 
@@ -350,6 +351,11 @@ still inside the ten-second transport timeout. This prevents time asleep from
 becoming hundreds of locally owed ticks on a short suspension. For a longer
 suspension the same path takes the car back from AI. Listen hosts retain their
 loopback peer address so their in-process client can use the same recovery.
+After the session has moved to the replacement connection, the frontend
+removes the retired generation from the channel. A channel acceptance cycles
+32 replacements through the bounded 16-connection table, so repeated app
+switches cannot exhaust it.
+
 The normal `Connection lost, retrying`, `Resynchronising`, and delayed-controls
 statuses remain the only recovery UI states.
 
@@ -364,8 +370,8 @@ from a phone is byte-identical to ordinary acceleration over 546 host ticks,
 including RNG state. The client acceptance at 36 and 100 Hz proves that a
 600 ms RTT enters delayed prediction, holds it for 20 seconds with zero replay,
 then recovers at 120 ms only after the three-second hysteresis. It also measures
-100 forced 14-tick corrections; the current Windows run averaged 0.210 ms at
-36 Hz and 0.240 ms at 100 Hz, respectively 0.76 and 2.40 percent of one tick.
+100 forced 14-tick corrections; the final Windows run averaged 0.230 ms at
+36 Hz and 0.240 ms at 100 Hz, respectively 0.83 and 2.40 percent of one tick.
 The 15-second generation-2 recovery case covers the longer-than-timeout sleep
 shape and returns ownership through a checkpoint at both rates.
 
@@ -374,11 +380,26 @@ shape and returns ownership through a checkpoint at both rates.
 Passed on Windows with Zig 0.15.2:
 
 ```powershell
-zig build test-net-client test-net-host test-phone-ui -Doptimize=ReleaseSafe `
+zig build test-net-foundations test-net-full-state-coherence test-net-host test-net-client test-net-harness test-phone-ui -Doptimize=ReleaseSafe `
   '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
+
+Push-Location android
+$env:JAVA_HOME="$env:ProgramFiles\Android\Android Studio\jbr"
+$env:GRADLE_USER_HOME="D:\source\repos\ROLLER\android\.gradle\user-home"
+$env:ZIG_EXE="C:\Users\Steve\scoop\persist\zigup\zig\0.15.2\files\zig.exe"
+.\gradlew.bat assembleDebug --rerun-tasks --no-daemon
+Pop-Location
 ```
 
-Not yet run: the Android `assembleDebug` build, the manual device test that
-switches away for 10 seconds and returns, or a real cellular drift across the
-prediction crossover. Those device checks are still required before calling
-the story shipped.
+The clean Android rebuild compiled arm64-v8a and x86_64 and packaged the debug
+APK. Source counts remain Linux 95, macOS 95, Windows 98, Android 95 and
+Emscripten 93; the roller-core manifest remains 109 translation units; all 18
+selected Python tests passed.
+
+Not run: the manual device test that switches away for 10 seconds and returns,
+or a real cellular drift across the prediction crossover. Those device checks
+are still required before calling the story shipped.

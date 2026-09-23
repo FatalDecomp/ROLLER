@@ -46,9 +46,10 @@ struct tNetHost
   tNetLobbyHost *pLobby;
   tNetSessionConfig config;
   uint32 uiStartTick, uiNextTick, uiNewestSnapshotTick, uiLastEventSeq;
+  uint32 uiLastFullSnapshotTick;
   uint64 ullLastFeedbackMs;
-  int iRetentionTicks, iRingNext, iTrackLen;
-  uint8 byRacing, byHasSnapshot, byResultsPublished;
+  int iRetentionTicks, iFullSnapshotTicks, iRingNext, iTrackLen;
+  uint8 byRacing, byHasSnapshot, byHasFullSnapshot, byResultsPublished;
   uint8 byForceSnapshot;
   int iResultFinishers, iResultHumanFinishers;
   tNetRaceLifecycle lifecycle;
@@ -191,6 +192,9 @@ tNetHost *NetHostCreate(tNetSessionHost *pSession, tNetLobbyHost *pLobby)
   /* 600 ms of ticks, rounded up (4.8). */
   pHost->iRetentionTicks =
       (NET_SNAPSHOT_RETENTION_MS * pHost->config.unTickRateHz + 999) / 1000;
+  pHost->iFullSnapshotTicks =
+      (NET_FULL_SNAPSHOT_INTERVAL_MS * pHost->config.unTickRateHz + 999) /
+      1000;
   NetLobbyHostSetRaceCallback(pLobby, NetHostRaceMessage, pHost);
   NetSessionHostSetRejoinCallback(pSession, NetHostAuthorizeRejoin, pHost);
   return pHost;
@@ -271,6 +275,7 @@ int NetHostBeginRace(tNetHost *pHost)
   pHost->iResultHumanFinishers = 0;
   pHost->iRingNext = 0;
   pHost->byHasSnapshot = 0;
+  pHost->byHasFullSnapshot = 0;
   pHost->ullLastFeedbackMs = NetSessionHostNowMs(pHost->pSession);
   pHost->byRacing = 1;
   return 1;
@@ -448,22 +453,38 @@ void NetHostPump(tNetHost *pHost)
   }
 }
 
-static void NetHostSendSnapshot(tNetHost *pHost, const tNetSnapshot *pSnapshot)
+static void NetHostSendSnapshot(tNetHost *pHost, const tNetSnapshot *pSnapshot,
+                                int iForceFull)
 {
-  uint8 abSnapshot[sizeof(tNetSnapshot)];
+  uint8 abFull[sizeof(tNetSnapshot)];
+  uint8 abSnapshot[NET_MAX_MESSAGE_SIZE];
   uint8 abOwn[sizeof(tNetOwnCarStateHeader) + 2 * NET_OWN_CAR_ENTRY_SIZE];
-  int iSnapshotLength = NetSnapshotEncode(pSnapshot, abSnapshot,
-                                          sizeof(abSnapshot));
-  if (!iSnapshotLength)
+  int iFullLength = NetSnapshotEncode(pSnapshot, abFull, sizeof(abFull));
+  if (!iFullLength)
     return;
   for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
-    const tNetHostPlayer *pPlayer = &pHost->aPlayers[iPlayer];
+    tNetHostPlayer *pPlayer = &pHost->aPlayers[iPlayer];
+    tNetSnapshot base;
     tNetCarExtra aExtras[2];
     tNetConnection *pConnection;
+    const uint8 *pSnapshotBytes = abFull;
+    uint8 bySnapshotType = NET_MSG_SNAPSHOT;
+    int iSnapshotLength = iFullLength;
     int iOwnLength, iCar;
     if (!pPlayer->byActive ||
         !(pConnection = NetHostLiveConnection(pHost, iPlayer)))
       continue;
+    if (!iForceFull &&
+        NetHostSnapshotAt(pHost,
+                          pPlayer->stats.uiLastDecodedSnapshotTick, &base)) {
+      int iDeltaLength = NetSnapshotEncodeDelta(
+          &base, pSnapshot, abSnapshot, sizeof(abSnapshot));
+      if (iDeltaLength > 0 && iDeltaLength < iFullLength) {
+        pSnapshotBytes = abSnapshot;
+        iSnapshotLength = iDeltaLength;
+        bySnapshotType = NET_MSG_SNAPSHOT_DELTA;
+      }
+    }
     for (iCar = 0; iCar < pPlayer->byCarCount; ++iCar) {
       tNetCarFullState full;
       if (!NetSnapshotEncodeCarFull(pPlayer->abyCars[iCar], &full))
@@ -477,8 +498,15 @@ static void NetHostSendSnapshot(tNetHost *pHost, const tNetSnapshot *pSnapshot)
     /* Snapshot then own-car state for the same tick, both unreliable; a
        correction needs both (4.5), and the channel spills the second into
        its own packet when they do not fit together. */
-    NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT, 0, abSnapshot,
-                              (uint16)iSnapshotLength);
+    if (NetConnectionQueueMessage(pConnection, bySnapshotType, 0,
+                                  pSnapshotBytes,
+                                  (uint16)iSnapshotLength)) {
+      if (bySnapshotType == NET_MSG_SNAPSHOT)
+        ++pPlayer->stats.uiFullSnapshots;
+      else
+        ++pPlayer->stats.uiDeltaSnapshots;
+      pPlayer->stats.ullSnapshotBytes += (uint64)iSnapshotLength;
+    }
     if (iOwnLength)
       NetConnectionQueueMessage(pConnection, NET_MSG_OWN_CAR_STATE, 0, abOwn,
                                 (uint16)iOwnLength);
@@ -778,7 +806,7 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   uint8 abyFinishedBefore[MAX_CARS];
   uint8 abyLivesBefore[MAX_CARS], abyKillsBefore[MAX_CARS];
   uint8 abyLovebunAmmo[MAX_CARS];
-  int iCommitsOk;
+  int iCommitsOk, iForceFull;
   if (!pHost || !pHost->byRacing || pHost->lifecycle.byPaused ||
       uiTick != pHost->uiNextTick ||
       TRAK_LEN != pHost->iTrackLen)
@@ -844,6 +872,9 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   if (!pHost->byForceSnapshot &&
       (uiTick - pHost->uiStartTick) % pHost->config.bySnapshotInterval)
     return iCommitsOk;
+  iForceFull = pHost->byForceSnapshot || !pHost->byHasFullSnapshot ||
+      uiTick - pHost->uiLastFullSnapshotTick >=
+          (uint32)pHost->iFullSnapshotTicks;
   pHost->byForceSnapshot = 0;
   pSnapshot = &pHost->aRing[pHost->iRingNext].snapshot;
   if (!NetSnapshotBuild(pSnapshot, uiTick, pHost->uiLastEventSeq,
@@ -856,7 +887,11 @@ int NetHostTick(tNetHost *pHost, uint32 uiTick)
   pHost->iRingNext = (pHost->iRingNext + 1) % NET_HOST_SNAPSHOT_RING;
   pHost->uiNewestSnapshotTick = uiTick;
   pHost->byHasSnapshot = 1;
-  NetHostSendSnapshot(pHost, pSnapshot);
+  if (iForceFull) {
+    pHost->uiLastFullSnapshotTick = uiTick;
+    pHost->byHasFullSnapshot = 1;
+  }
+  NetHostSendSnapshot(pHost, pSnapshot, iForceFull);
   return iCommitsOk;
 }
 

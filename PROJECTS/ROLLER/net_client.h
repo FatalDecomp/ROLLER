@@ -40,7 +40,8 @@ typedef struct
 {
   uint32 uiTicks;              /* client ticks simulated */
   uint32 uiBatchesSent;        /* one NET_MSG_INPUT per client tick */
-  uint32 uiSnapshots, uiOwnCarStates, uiFeedback;
+  uint32 uiSnapshots, uiFullSnapshots, uiDeltaSnapshots, uiDroppedDeltas;
+  uint32 uiOwnCarStates, uiFeedback;
   uint32 uiEvents, uiWorldChanges, uiCommitsApplied;
   uint32 uiPauseChanges;
   uint32 uiLastAppliedEventSeq, uiCommitWatermark;

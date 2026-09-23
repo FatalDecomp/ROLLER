@@ -402,6 +402,102 @@ static void NetTestDeliverRaceMessages(tNetTestNodes *pNodes,
   CHECK(NetClientTicksDue(pNodes->pClient) > 0);
 }
 
+static void NetTestDeliverQueuedMessages(tNetTestNodes *pNodes,
+                                         uint64 *pullNowMs)
+{
+  NetTestPumpHost(pNodes);
+  for (int iStep = 0; iStep < 4; ++iStep) {
+    ++*pullNowMs;
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+  }
+}
+
+static void NetTestSnapshotDeltas(tNetTestNodes *pNodes,
+                                  uint64 *pullNowMs)
+{
+  tNetConnection *pConnection = NetSessionHostPlayerConnection(
+      pNodes->pSessionHost,
+      NetSessionClientPlayerIndex(pNodes->pSessionClient));
+  tNetClientStats before, after;
+  tNetSnapshot base, lost, current, futureBase, future, decoded;
+  tNetSimLink link = {0, 0, 0, 0, 0};
+  uint8 abMessage[NET_MAX_MESSAGE_SIZE];
+  int iLength;
+  CHECK(NetTransportSimSetLink(pNodes->pSim, 0, &link));
+  CHECK(NetTransportSimSetLink(pNodes->pSim, 1, &link));
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  CHECK(NetClientSnapshotAt(pNodes->pClient,
+                            before.uiNewestSnapshotTick, &base));
+
+  /* Omit one encoded delta, then deliver a later delta against the same
+     explicit baseline.  Reconstruction must not depend on the lost delta. */
+  lost = base;
+  lost.uiTick += 2u;
+  lost.uiLastEventSeq = before.uiLastAppliedEventSeq;
+  lost.context.iGameFrame += 2;
+  lost.aCars[0].fWorldPosX += 2.0f;
+  CHECK(NetSnapshotEncodeDelta(&base, &lost, abMessage,
+                               sizeof(abMessage)) > 0);
+  current = lost;
+  current.uiTick += 100u;
+  current.context.iGameFrame += 100;
+  current.aCars[0].fWorldPosX += 2.0f;
+  iLength = NetSnapshotEncodeDelta(&base, &current, abMessage,
+                                   sizeof(abMessage));
+  CHECK(iLength > 0 && iLength < (int)sizeof(tNetSnapshot));
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT_DELTA, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverQueuedMessages(pNodes, pullNowMs);
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiNewestSnapshotTick == current.uiTick);
+  CHECK(after.uiDeltaSnapshots == before.uiDeltaSnapshots + 1u);
+  CHECK(NetClientSnapshotAt(pNodes->pClient, current.uiTick, &decoded));
+  CHECK(!memcmp(&decoded, &current, sizeof(current)));
+
+  /* Deliver a delta before its base.  It is discarded without advancing the
+     tick reported in the next input batch.  Once the full base arrives, the
+     same delta reconstructs exactly. */
+  futureBase = current;
+  futureBase.uiTick += 2u;
+  futureBase.uiLastEventSeq = before.uiLastAppliedEventSeq;
+  futureBase.context.iGameFrame += 2;
+  futureBase.aCars[1].fWorldPosY += 3.0f;
+  future = futureBase;
+  future.uiTick += 2u;
+  future.context.iGameFrame += 2;
+  future.aCars[1].fWorldPosY += 3.0f;
+  iLength = NetSnapshotEncodeDelta(&futureBase, &future, abMessage,
+                                   sizeof(abMessage));
+  CHECK(iLength > 0);
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT_DELTA, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverQueuedMessages(pNodes, pullNowMs);
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiNewestSnapshotTick == current.uiTick);
+  CHECK(after.uiDroppedDeltas > before.uiDroppedDeltas);
+
+  iLength = NetSnapshotEncode(&futureBase, abMessage, sizeof(abMessage));
+  CHECK(iLength == (int)sizeof(tNetSnapshot));
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverQueuedMessages(pNodes, pullNowMs);
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiNewestSnapshotTick == futureBase.uiTick);
+  iLength = NetSnapshotEncodeDelta(&futureBase, &future, abMessage,
+                                   sizeof(abMessage));
+  CHECK(iLength > 0);
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT_DELTA, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverQueuedMessages(pNodes, pullNowMs);
+  CHECK(NetClientStats(pNodes->pClient, &after));
+  CHECK(after.uiNewestSnapshotTick == future.uiTick);
+  CHECK(NetClientSnapshotAt(pNodes->pClient, future.uiTick, &decoded));
+  CHECK(!memcmp(&decoded, &future, sizeof(future)));
+  puts("explicit-baseline lost and before-base delta cases passed");
+}
+
 static void NetTestQueueSyntheticState(tNetTestNodes *pNodes,
                                        uint32 uiBaseTick, uint32 uiTick,
                                        uint8 byCar, float fLateralPush,
@@ -1175,7 +1271,7 @@ static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
   tNetPlayerEntry player;
   tNetSimLink slow = {750, 0, 0, 0, 0};
   tNetConnection *pRejoinConnection;
-  tNetClientStats stats;
+  tNetClientStats before, stats;
   tNetSimTickContext previous, current;
   tCarInputData input;
   uint64 ullDropStart = *pullNowMs;
@@ -1183,6 +1279,7 @@ static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
   uint32 uiTickIndex = 0;
   int iChunk = Car[byCar].iLastValidChunk;
   int iAuthoritativeGrip, iOldGrip;
+  CHECK(NetClientStats(pNodes->pClient, &before));
 
   /* Stop pumping the client for fifteen seconds.  The channel clock drops
      it at ten seconds and E5-S2 transfers ownership to AI. */
@@ -1280,6 +1377,7 @@ static void NetTestRejoinRecovery(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(human_control[byCar] == player.byHumanControl);
   CHECK(localdata[iChunk].iCenterGrip == iAuthoritativeGrip);
   CHECK(NetClientStats(pNodes->pClient, &stats));
+  CHECK(stats.uiFullSnapshots > before.uiFullSnapshots);
   CHECK(stats.fRttMs > 1000.0f);
   CHECK(stats.iPredictionMode == NET_PREDICT_DELAYED);
   CHECK(!strcmp(NetClientStatus(pNodes->pClient),
@@ -1644,6 +1742,8 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
     int iRetention = (NET_SNAPSHOT_RETENTION_MS * unTickRateHz + 999) / 1000;
     CHECK(!stats.uiRejectedMessages);
     CHECK(stats.uiSnapshots > 100 && stats.uiOwnCarStates > 100);
+    CHECK(stats.uiFullSnapshots > 0 && stats.uiDeltaSnapshots > 0);
+    CHECK(stats.uiFullSnapshots + stats.uiDeltaSnapshots == stats.uiSnapshots);
     CHECK(stats.uiFeedback > 10);
     int iPaired = 0;
     CHECK(NetClientSnapshotAt(nodes.pClient, uiNewestSnapshot, &snapshot));
@@ -1687,6 +1787,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   NetTestPause(&nodes, &ullNowMs, unTickRateHz, byCar);
   NetTestHostCommits(&nodes, &ullNowMs, unTickRateHz, byCar);
   NetTestRejoinRecovery(&nodes, &ullNowMs, unTickRateHz, byCar);
+  NetTestSnapshotDeltas(&nodes, &ullNowMs);
 
   NetClientDestroy(nodes.pClient);
   NetLobbyClientDestroy(nodes.pLobbyClient);

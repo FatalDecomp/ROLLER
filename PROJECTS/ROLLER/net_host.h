@@ -28,6 +28,8 @@ typedef struct
   uint32 uiBatchReorders;   /* arrived with uiFirstTick at or below the newest */
   uint32 uiFirstBatchTick, uiNewestFirstTick;
   uint32 uiLastDecodedSnapshotTick;
+  uint32 uiFullSnapshots, uiDeltaSnapshots;
+  uint64 ullSnapshotBytes;
   int16 nArrivalMarginTicks;
   uint8 byCarCount, abyCars[2];
   float fRttMs;

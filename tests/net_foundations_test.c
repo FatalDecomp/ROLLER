@@ -458,6 +458,7 @@ static void NetTestSnapshots(void)
   static int aiGrip[MAX_TRACK_CHUNKS][3];
   tNetSnapshot base, current, decoded, older;
   uint8 abBytes[NET_MAX_PAYLOAD];
+  uint32 uiDeltaTick, uiBaseTick;
   tCopyData aInputs[MAX_CARS] = {0};
   int iLength, iSawRampMove = 0, iSawLovebun = 0, iSawAirborne = 0;
   NetTestCapture(&initial);
@@ -501,6 +502,8 @@ static void NetTestSnapshots(void)
     CHECK(!memcmp(&current, &decoded, sizeof(current)));
     iLength = NetSnapshotEncodeDelta(&base, &current, abBytes, sizeof(abBytes));
     CHECK(iLength > 0);
+    CHECK(NetSnapshotDeltaTicks(abBytes, iLength, &uiDeltaTick, &uiBaseTick));
+    CHECK(uiDeltaTick == current.uiTick && uiBaseTick == base.uiTick);
     CHECK(NetSnapshotDecodeDelta(&base, abBytes, iLength, &decoded));
     CHECK(!memcmp(&current, &decoded, sizeof(current)));
     CHECK(!NetSnapshotDecodeDelta(&base, abBytes, iLength - 1, &decoded));
@@ -510,6 +513,12 @@ static void NetTestSnapshots(void)
     base = current;
   }
   CHECK(iSawRampMove && iSawLovebun && iSawAirborne);
+  uiDeltaTick = 0x11111111u;
+  uiBaseTick = 0x22222222u;
+  CHECK(!NetSnapshotDeltaTicks(abBytes,
+                               (int)sizeof(tNetSnapshotDeltaHeader) - 1,
+                               &uiDeltaTick, &uiBaseTick));
+  CHECK(uiDeltaTick == 0x11111111u && uiBaseTick == 0x22222222u);
   for (int iField = 0; iField < 31; ++iField) {
     current = base;
     ++current.uiTick;

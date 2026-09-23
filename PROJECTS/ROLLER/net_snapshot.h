@@ -25,6 +25,10 @@ int NetSnapshotEncode(const tNetSnapshot *pSnapshot, uint8 *pBytes, int iCapacit
 int NetSnapshotDecode(const uint8 *pBytes, int iLength, tNetSnapshot *pSnapshot);
 int NetSnapshotEncodeDelta(const tNetSnapshot *pBase, const tNetSnapshot *pCurrent,
                            uint8 *pBytes, int iCapacity);
+/* Reads only the two identifying ticks needed to locate a baseline.  The
+   complete message is still validated by NetSnapshotDecodeDelta before use. */
+int NetSnapshotDeltaTicks(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                          uint32 *puiBaseTick);
 /* NET_MSG_OWN_CAR_STATE (5.6): header, then per car { byCarIdx, pad[3], extra }. */
 #define NET_OWN_CAR_ENTRY_SIZE (4 + (int)sizeof(tNetCarExtra))
 int NetSnapshotEncodeOwnCarState(uint32 uiTick, const uint8 *pbyCars,

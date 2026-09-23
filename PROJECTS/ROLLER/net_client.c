@@ -1025,17 +1025,12 @@ static void NetClientReceiveCheckpoint(tNetClient *pClient,
   }
 }
 
-static void NetClientReceiveSnapshot(tNetClient *pClient,
-                                     const tNetMessage *pMessage,
-                                     uint64 ullNowMs)
+static void NetClientAcceptSnapshot(tNetClient *pClient,
+                                    const tNetSnapshot *pSnapshot,
+                                    uint64 ullNowMs, int iDelta)
 {
-  tNetSnapshot snapshot;
+  const tNetSnapshot snapshot = *pSnapshot;
   tNetClientSnapshotSlot *pSlot;
-  if (!NetSnapshotDecode(pMessage->abData, pMessage->unLength, &snapshot) ||
-      !NetClientSnapshotMatchesWorld(&snapshot)) {
-    ++pClient->stats.uiRejectedMessages;
-    return;
-  }
   if ((!pClient->byHasSnapshot ||
        (int32)(snapshot.uiTick - pClient->stats.uiNewestSnapshotTick) > 0) &&
       (snapshot.uiLastEventSeq < pClient->uiLastAppliedEventSeq ||
@@ -1060,6 +1055,10 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
   pSlot->snapshot = snapshot;
   pSlot->byValid = 1;
   ++pClient->stats.uiSnapshots;
+  if (iDelta)
+    ++pClient->stats.uiDeltaSnapshots;
+  else
+    ++pClient->stats.uiFullSnapshots;
   if (!pClient->byHasSnapshot ||
       (int32)(snapshot.uiTick - pClient->stats.uiNewestSnapshotTick) > 0) {
     pClient->stats.uiNewestSnapshotTick = snapshot.uiTick;
@@ -1074,6 +1073,54 @@ static void NetClientReceiveSnapshot(tNetClient *pClient,
   NetClientApplyNewestAuthoritative(pClient);
   if (pClient->recovery == NET_RECOVERY_RESYNCING)
     NetClientTryFinishResync(pClient);
+}
+
+static void NetClientReceiveSnapshot(tNetClient *pClient,
+                                     const tNetMessage *pMessage,
+                                     uint64 ullNowMs)
+{
+  tNetSnapshot snapshot;
+  if (!NetSnapshotDecode(pMessage->abData, pMessage->unLength, &snapshot) ||
+      !NetClientSnapshotMatchesWorld(&snapshot)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  NetClientAcceptSnapshot(pClient, &snapshot, ullNowMs, 0);
+}
+
+static void NetClientReceiveSnapshotDelta(tNetClient *pClient,
+                                          const tNetMessage *pMessage,
+                                          uint64 ullNowMs)
+{
+  const tNetClientSnapshotSlot *pBaseSlot;
+  tNetSnapshot snapshot;
+  uint32 uiTick, uiBaseTick;
+  if (!NetSnapshotDeltaTicks(pMessage->abData, pMessage->unLength,
+                             &uiTick, &uiBaseTick)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  /* Range-check the network tick before it indexes the ring (D23). */
+  if (!pClient->byHasSnapshot ||
+      !NetClientInWindow(pClient, uiBaseTick,
+                         pClient->stats.uiNewestSnapshotTick,
+                         pClient->iRetentionTicks + 1)) {
+    ++pClient->stats.uiDroppedDeltas;
+    return;
+  }
+  pBaseSlot = &pClient->aSnapshots[uiBaseTick % NET_CLIENT_SNAPSHOT_BUFFER];
+  if (!pBaseSlot->byValid || pBaseSlot->snapshot.uiTick != uiBaseTick) {
+    ++pClient->stats.uiDroppedDeltas;
+    return;
+  }
+  if (!NetSnapshotDecodeDelta(&pBaseSlot->snapshot, pMessage->abData,
+                              pMessage->unLength, &snapshot) ||
+      snapshot.uiTick != uiTick ||
+      !NetClientSnapshotMatchesWorld(&snapshot)) {
+    ++pClient->stats.uiRejectedMessages;
+    return;
+  }
+  NetClientAcceptSnapshot(pClient, &snapshot, ullNowMs, 1);
 }
 
 static void NetClientReceiveOwnCarState(tNetClient *pClient,
@@ -1184,6 +1231,9 @@ static void NetClientRaceMessage(void *pContext, const tNetMessage *pMessage)
   switch (pMessage->byType) {
     case NET_MSG_SNAPSHOT:
       NetClientReceiveSnapshot(pClient, pMessage, ullNowMs);
+      break;
+    case NET_MSG_SNAPSHOT_DELTA:
+      NetClientReceiveSnapshotDelta(pClient, pMessage, ullNowMs);
       break;
     case NET_MSG_OWN_CAR_STATE:
       NetClientReceiveOwnCarState(pClient, pMessage);
