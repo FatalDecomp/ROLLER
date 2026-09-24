@@ -1,3 +1,4 @@
+#define NET_LEGACY_NETWORK_IMPLEMENTATION
 #include "network.h"
 #include "sound.h"
 #include "3d.h"

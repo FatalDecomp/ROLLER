@@ -72,7 +72,9 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_snapshot.c
     PROJECTS/ROLLER/net_sim_seam.c
     PROJECTS/ROLLER/net_stats.c
+    PROJECTS/ROLLER/net_legacy.c
     PROJECTS/ROLLER/net_channel.c
+    PROJECTS/ROLLER/net_capture.c
     PROJECTS/ROLLER/net_session.c
     PROJECTS/ROLLER/net_lobby.c
     PROJECTS/ROLLER/net_race_start.c
@@ -132,6 +134,12 @@ set(ROLLER_GAME_WINDOWS_SOURCES
     PROJECTS/ROLLER/midi_player.c
     external/rtmidi/RtMidi.cpp
     external/rtmidi/rtmidi_c.cpp)
+
+# Keep the legacy implementation bodies untouched.  Their public symbols are
+# renamed at compile time so net_legacy.c can put the mode trap in front of
+# every rollercomms entry point.
+set_source_files_properties(PROJECTS/ROLLER/rollercomms.c PROPERTIES
+    COMPILE_DEFINITIONS ROLLERCOMMS_LEGACY_IMPLEMENTATION)
 
 function(roller_configure_c_target target_name)
     if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
@@ -233,6 +241,17 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_include_directories(net-channel-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-channel-test)
     add_test(NAME net-channel COMMAND net-channel-test)
+
+    add_executable(net-capture-test
+        tests/net_capture_test.c
+        PROJECTS/ROLLER/net_capture.c
+        PROJECTS/ROLLER/net_channel.c
+        PROJECTS/ROLLER/net_transport_sim.c
+        PROJECTS/ROLLER/net_stats.c)
+    target_compile_features(net-capture-test PRIVATE c_std_11)
+    target_include_directories(net-capture-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-capture-test)
+    add_test(NAME net-capture COMMAND net-capture-test)
 
     add_executable(net-session-test
         tests/net_session_test.c

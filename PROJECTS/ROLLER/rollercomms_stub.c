@@ -4,6 +4,7 @@
  * report transport initialization failure, and keep all other operations
  * inert so the frontend can follow its normal "no network" path.
  */
+#define ROLLERCOMMS_LEGACY_IMPLEMENTATION
 #include "rollercomms.h"
 
 #include <SDL3/SDL.h>

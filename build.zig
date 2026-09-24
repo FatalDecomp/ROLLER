@@ -63,6 +63,10 @@ pub fn build(b: *std.Build) void {
         &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char" }
     else
         &.{ "-fwrapv", "-fsigned-char" };
+    const c_legacy_comms_flags: []const []const u8 = if (crash_debug)
+        &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char", "-DROLLERCOMMS_LEGACY_IMPLEMENTATION" }
+    else
+        &.{ "-fwrapv", "-fsigned-char", "-DROLLERCOMMS_LEGACY_IMPLEMENTATION" };
     const python_checks = b.option(
         bool,
         "python-checks",
@@ -142,7 +146,9 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_snapshot.c",
             "PROJECTS/ROLLER/net_sim_seam.c",
             "PROJECTS/ROLLER/net_stats.c",
+            "PROJECTS/ROLLER/net_legacy.c",
             "PROJECTS/ROLLER/net_channel.c",
+            "PROJECTS/ROLLER/net_capture.c",
             "PROJECTS/ROLLER/net_session.c",
             "PROJECTS/ROLLER/net_lobby.c",
             "PROJECTS/ROLLER/net_race_start.c",
@@ -204,8 +210,11 @@ pub fn build(b: *std.Build) void {
                 "PROJECTS/ROLLER/crt_filter.c",
                 "PROJECTS/ROLLER/game_render_hardware.c",
                 "PROJECTS/ROLLER/scene_render_gpu.c",
-                "PROJECTS/ROLLER/rollercomms.c",
             },
+        });
+        exe_mod.addCSourceFiles(.{
+            .flags = c_legacy_comms_flags,
+            .files = &.{"PROJECTS/ROLLER/rollercomms.c"},
         });
     }
 
@@ -502,6 +511,29 @@ fn configureRenderQueue3DTests(
         "Run NET-E1-S2 packet/channel reliability acceptance",
     );
     net_channel_tests.dependOn(&run_net_channel.step);
+    const net_capture_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_capture_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_capture_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_capture.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "PROJECTS/ROLLER/net_stats.c",
+        "tests/net_capture_test.c",
+    } });
+    const net_capture_exe = b.addExecutable(.{
+        .name = "net_capture_test",
+        .root_module = net_capture_mod,
+    });
+    const run_net_capture = b.addRunArtifact(net_capture_exe);
+    const net_capture_tests = b.step(
+        "test-net-capture",
+        "Run NET-E8-S2 packet capture/playback acceptance",
+    );
+    net_capture_tests.dependOn(&run_net_capture.step);
     const net_session_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -698,6 +730,7 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_foundations.step);
     net_foundations_tests.dependOn(&run_net_transport.step);
     net_foundations_tests.dependOn(&run_net_channel.step);
+    net_foundations_tests.dependOn(&run_net_capture.step);
     net_foundations_tests.dependOn(&run_net_session.step);
     net_foundations_tests.dependOn(&run_net_config.step);
     net_foundations_tests.dependOn(&run_net_lobby.step);

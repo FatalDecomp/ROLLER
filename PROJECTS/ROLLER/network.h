@@ -4,6 +4,47 @@
 #include "types.h"
 //-------------------------------------------------------------------------------------------------
 
+#ifdef NET_LEGACY_NETWORK_IMPLEMENTATION
+#define network_initialise_begin NetLegacyImpl_network_initialise_begin
+#define network_initialise_update NetLegacyImpl_network_initialise_update
+#define network_initialise_active NetLegacyImpl_network_initialise_active
+#define close_network NetLegacyImpl_close_network
+#define send_net_error NetLegacyImpl_send_net_error
+#define send_network_sync_error NetLegacyImpl_send_network_sync_error
+#define send_resync NetLegacyImpl_send_resync
+#define send_quit NetLegacyImpl_send_quit
+#define send_ready NetLegacyImpl_send_ready
+#define send_record_to_master NetLegacyImpl_send_record_to_master
+#define send_record_to_slaves NetLegacyImpl_send_record_to_slaves
+#define send_mes NetLegacyImpl_send_mes
+#define send_seed NetLegacyImpl_send_seed
+#define send_single NetLegacyImpl_send_single
+#define send_pause NetLegacyImpl_send_pause
+#define send_slot NetLegacyImpl_send_slot
+#define transmitpausetoslaves NetLegacyImpl_transmitpausetoslaves
+#define send_multiple NetLegacyImpl_send_multiple
+#define receive_multiple NetLegacyImpl_receive_multiple
+#define receive_all_singles NetLegacyImpl_receive_all_singles
+#define do_sync_stuff NetLegacyImpl_do_sync_stuff
+#define TransmitInit NetLegacyImpl_TransmitInit
+#define CheckNewNodes NetLegacyImpl_CheckNewNodes
+#define FoundNodes NetLegacyImpl_FoundNodes
+#define SendPlayerInfo NetLegacyImpl_SendPlayerInfo
+#define SendAMessage NetLegacyImpl_SendAMessage
+#define BroadcastNews NetLegacyImpl_BroadcastNews
+#define network_broadcast_wait_start \
+  NetLegacyImpl_network_broadcast_wait_start
+#define network_broadcast_wait_update \
+  NetLegacyImpl_network_broadcast_wait_update
+#define network_broadcast_wait_active \
+  NetLegacyImpl_network_broadcast_wait_active
+#define remove_messages NetLegacyImpl_remove_messages
+#define reset_network NetLegacyImpl_reset_network
+#define clear_network_game NetLegacyImpl_clear_network_game
+#define reset_net_wait NetLegacyImpl_reset_net_wait
+#define send_broadcast NetLegacyImpl_send_broadcast
+#endif
+
 #define PACKET_ID_TRANSMIT_INIT 0x686C6361
 #define PACKET_ID_SEND_MES      0x686C6363
 #define PACKET_ID_QUIT          0x686C6364

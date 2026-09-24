@@ -1,4 +1,5 @@
 #include "net_race_harness.h"
+#include "net_legacy.h"
 
 #include "net_client.h"
 #include "net_host.h"
@@ -261,6 +262,7 @@ static int NetRaceHarnessInitHost(tNetRaceHarness *pHarness, int iProxyPort,
   pHarness->iExpectedClients = iClients;
   pHarness->ullLastFrameMs = pHarness->ullNowMs;
   net_mode = NET_MODE_MODERN;
+  NetLegacyTrapReset();
   return 1;
 }
 
@@ -289,6 +291,7 @@ static int NetRaceHarnessInitClient(tNetRaceHarness *pHarness,
   pHarness->byRole = NET_HARNESS_RACE_CLIENT;
   pHarness->ullLastFrameMs = pHarness->ullNowMs;
   net_mode = NET_MODE_MODERN;
+  NetLegacyTrapReset();
   return 1;
 }
 
@@ -424,7 +427,8 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"paused\":%d,\"race_state\":%d,\"finishers\":%d,"
         "\"human_finishers\":%d,\"full_snapshots\":%u,"
         "\"delta_snapshots\":%u,\"snapshot_bytes\":%llu,"
-        "\"wire_bytes_sent\":%llu,\"wire_bytes_received\":%llu}\n",
+        "\"wire_bytes_sent\":%llu,\"wire_bytes_received\":%llu,"
+        "\"legacy_calls\":%d,\"legacy_violations\":%d}\n",
         pHarness->byStarted ? "true" : "false", uiTick, game_frame,
         NetLobbyHostPlayerCount(pHarness->pLobbyHost),
         NetLobbyHostRaceReleased(pHarness->pLobbyHost) ? "true" : "false",
@@ -432,7 +436,8 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         iFinishers, iHumanFinishers, uiFullSnapshots, uiDeltaSnapshots,
         (unsigned long long)ullSnapshotBytes,
         (unsigned long long)pHarness->ullBytesSent,
-        (unsigned long long)pHarness->ullBytesReceived);
+        (unsigned long long)pHarness->ullBytesReceived,
+        NetLegacyTrapEntryCount(), NetLegacyTrapViolationCount());
   } else if (pHarness->byRole == NET_HARNESS_RACE_CLIENT) {
     tNetClientStats stats;
     uint8 abyCars[NET_INPUT_MAX_LOCAL_PLAYERS] = {NET_LOBBY_NO_PLAYER,
@@ -452,7 +457,8 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"time_degraded_ms\":%u,\"recovery\":%d,"
         "\"rejected_messages\":%u,"
         "\"rtt_ms\":%.9g,\"wire_bytes_sent\":%llu,"
-        "\"wire_bytes_received\":%llu,\"status\":\"%s\"}\n",
+        "\"wire_bytes_received\":%llu,\"legacy_calls\":%d,"
+        "\"legacy_violations\":%d,\"status\":\"%s\"}\n",
         pHarness->byStarted ? "true" : "false",
         pHarness->byStarted ? NetClientCurrentTick(pHarness->pClient) : 0,
         game_frame, NetSessionClientState(pHarness->pSessionClient),
@@ -466,6 +472,7 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         stats.uiRejectedMessages, (double)stats.fRttMs,
         (unsigned long long)pHarness->ullBytesSent,
         (unsigned long long)pHarness->ullBytesReceived,
+        NetLegacyTrapEntryCount(), NetLegacyTrapViolationCount(),
         NetClientStatus(pHarness->pClient));
   } else {
     snprintf(szReply, (size_t)iReplyCapacity,

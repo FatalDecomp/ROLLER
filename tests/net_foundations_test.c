@@ -2,6 +2,8 @@
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
 #include "net_race_state.h"
+#include "net_legacy.h"
+#include "net_types.h"
 #include "replay.h"
 #include "loadtrak.h"
 #include "roller.h"
@@ -15,6 +17,8 @@
 #include "control.h"
 #include "engines.h"
 #include "moving.h"
+#include "network.h"
+#include "rollercomms.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +34,19 @@ typedef struct {
 } tTestMoment;
 
 static int NetAngleDifference(int iA, int iB);
+
+static void NetTestLegacyModeSwitch(void)
+{
+  CHECK(net_mode == NET_MODE_LEGACY);
+  NetLegacyTrapReset();
+  CHECK(!network_initialise_active());
+  ROLLERCommsSetType(1);
+  CHECK(ROLLERCommsGetType() == 1);
+  CHECK(NetLegacyTrapEntryCount() == 3);
+  CHECK(NetLegacyTrapViolationCount() == 0);
+  NetLegacyTrapReset();
+  puts("NET-E7-S1 legacy wrappers preserve the default path");
+}
 
 static void NetTestRaceLifecycle(void)
 {
@@ -998,6 +1015,7 @@ int main(int iArgc, const char **ppArgv, const char **ppEnv)
   tCar aBefore[16];
   int iAdvanced = 0;
   CHECK(iArgc == 3 || iArgc == 4);
+  NetTestLegacyModeSwitch();
   if (!NetHeadlessInit(ppArgv[1], ppArgv[2], 16, 12345, szError, sizeof(szError))) {
     fprintf(stderr, "%s\n", szError);
     return 1;

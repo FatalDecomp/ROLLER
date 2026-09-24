@@ -18,6 +18,7 @@
 #include "function.h"
 #include "loadtrak.h"
 #include "rollercomms.h"
+#include "net_types.h"
 #include "scene_render.h"
 #include "snapshot.h"
 #include <memory.h>
@@ -3991,7 +3992,8 @@ int load_champ_begin(int iSlot)
       net_type = iNetType;
       if (player_type == 1 && net_type)
         net_type = 0;
-      ROLLERCommsSetType(net_type);
+      if (net_mode == NET_MODE_LEGACY)
+        ROLLERCommsSetType(net_type);
       iStatsLoop = 0;
       if (numcars > 0)                        // INDIVIDUAL STATISTICS: Load championship points, kills, fastest laps, wins for each car
       {
@@ -4247,23 +4249,25 @@ int load_champ_begin(int iSlot)
       }
       Race = ((uint8)TrackLoad - 1) & 7;        // FINALIZATION: Set race number, enable game timer, configure network
       tick_on = -1;
-      if (ROLLERCommsGetType())                  // NETWORK RESTORATION: Reinitialize network connections if saved game used networking
-      {
-        iHighestPoints = 0;
-        ROLLERCommsUnInitSystem();
-        network_on = 0;
-        net_started = 0;
-      }
-      ROLLERCommsSetType(net_type);
-      if (network_on) {
-        if (player_type == 1) {
-          reset_network(0);
-        } else {
-          close_network();
-          time_to_start = 0;
+      if (net_mode == NET_MODE_LEGACY) {
+        if (ROLLERCommsGetType())                // NETWORK RESTORATION: Reinitialize legacy network connections
+        {
+          iHighestPoints = 0;
+          ROLLERCommsUnInitSystem();
+          network_on = 0;
+          net_started = 0;
         }
-      } else if (player_type == 1 && net_type != 2) {
-        load_champ_begin_network_init();
+        ROLLERCommsSetType(net_type);
+        if (network_on) {
+          if (player_type == 1) {
+            reset_network(0);
+          } else {
+            close_network();
+            time_to_start = 0;
+          }
+        } else if (player_type == 1 && net_type != 2) {
+          load_champ_begin_network_init();
+        }
       }
     }
     fre((void **)&pFileBuf);                    // Cleanup: Free file buffer and return success/failure status

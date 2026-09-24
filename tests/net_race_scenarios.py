@@ -87,6 +87,8 @@ class RaceScenario:
         elapsed = time.monotonic() - wall_start
         assert report[0]["tick"] >= first_tick + running_ticks, report
         assert report[0]["players"] == 3, report
+        assert all(node["legacy_calls"] == 0 and
+                   node["legacy_violations"] == 0 for node in report), report
         for client in report[1:]:
             assert client["running"], client
             assert client["snapshots"] >= running_ticks // 3, client
@@ -210,4 +212,7 @@ class RaceScenario:
         self.drop_client(0, 11000)
         rejoined = self.rejoin_client(0)
         assert rejoined["generation"] == 2 and rejoined["recovery"] == 0
-        return self.stats()
+        report = self.stats()
+        assert all(node["legacy_calls"] == 0 and
+                   node["legacy_violations"] == 0 for node in report), report
+        return report

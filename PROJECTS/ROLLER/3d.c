@@ -387,7 +387,8 @@ static void frontend_shutdown_finish(void)
   }
 
   iFrontendShutdownFinishing = -1;
-  close_network();
+  if (net_mode == NET_MODE_LEGACY)
+    close_network();
   if (!g_bSnapshotMode) SaveRecords();
   fre((void**)&mirbuf);
   for (int i = 0; i < 16; ++i) {
@@ -610,7 +611,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
   cli_fprintf(f, " --midi-root DIR        specify midi data directory\n");
   cli_fprintf(f, " --player1name NAME     set player 1 name (letters, digits, spaces; max 8 chars)\n");
-  cli_fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
+  cli_fprintf(f, " --local-ip IP          legacy local IPv4 address to advertise\n");
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
@@ -1144,7 +1145,7 @@ void frontend_results_update(void)
       game_type = 0;
       network_champ_on = 0;
     }
-    if (net_quit)
+    if (net_quit && net_mode == NET_MODE_LEGACY)
       close_network();
   }
   if (cd_error) {
@@ -1555,7 +1556,8 @@ void race_enter(void)
   play_game_init();                             // Initialize game systems and memory tracking
   if (quit_game)
     return;
-  reset_net_wait();
+  if (net_mode == NET_MODE_LEGACY)
+    reset_net_wait();
   max_mem = mem_used_low + mem_used;
   enable_keyboard();
   pend_view_init = ViewType[0];
@@ -2867,9 +2869,13 @@ int main(int argc, const char **argv, const char **envp)
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
   int iPlayer1NameOverride = 0;
+  int iNetLocalPort = 0;
+  int iNetPeerPort = 0;
   char whiplash_root[260] = { 0 };
+  char szNetPeer[64] = { 0 };
   char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
   const char *midi_root = NULL;
+  const char *szNetLocalIP = NULL;
   const char *szGpuParityBackend = NULL;
 
   for (int i = 1; i < argc;) {
@@ -2910,7 +2916,7 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--local-ip") == 0) {
       if (i + 1 < argc) {
-        ROLLERCommsSetLocalIP(argv[i + 1]);
+        szNetLocalIP = argv[i + 1];
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--local-ip' needs an argument\n");
@@ -2923,10 +2929,7 @@ int main(int argc, const char **argv, const char **envp)
           cli_fprintf(stderr, "ERROR: '--port' must be 1-65535\n");
           return 1;
         }
-        ROLLERCommsSetLocalPort((uint16_t)iPort);
-#if !defined(IS_WASM)
-        NetFrontendSetLocalPort((uint16)iPort);
-#endif
+        iNetLocalPort = iPort;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--port' needs an argument\n");
@@ -2934,10 +2937,9 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--peer") == 0) {
       if (i + 1 < argc) {
-        char szPeerBuf[64];
-        strncpy(szPeerBuf, argv[i + 1], sizeof(szPeerBuf) - 1);
-        szPeerBuf[sizeof(szPeerBuf) - 1] = '\0';
-        char *pszColon = strrchr(szPeerBuf, ':');
+        strncpy(szNetPeer, argv[i + 1], sizeof(szNetPeer) - 1);
+        szNetPeer[sizeof(szNetPeer) - 1] = '\0';
+        char *pszColon = strrchr(szNetPeer, ':');
         if (!pszColon) {
           cli_fprintf(stderr, "ERROR: '--peer' expects IP:PORT format\n");
           return 1;
@@ -2948,13 +2950,7 @@ int main(int argc, const char **argv, const char **envp)
           cli_fprintf(stderr, "ERROR: '--peer' port must be 1-65535\n");
           return 1;
         }
-        ROLLERCommsSetPeer(szPeerBuf, (uint16_t)iPeerPort);
-#if !defined(IS_WASM)
-        if (!NetFrontendSetPeer(szPeerBuf, (uint16)iPeerPort)) {
-          cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
-          return 1;
-        }
-#endif
+        iNetPeerPort = iPeerPort;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--peer' needs an argument\n");
@@ -3116,6 +3112,30 @@ int main(int argc, const char **argv, const char **envp)
     i += consumed;
   }
 
+  if (net_mode == NET_MODE_LEGACY) {
+    if (szNetLocalIP)
+      ROLLERCommsSetLocalIP(szNetLocalIP);
+    if (iNetLocalPort)
+      ROLLERCommsSetLocalPort((uint16_t)iNetLocalPort);
+    if (iNetPeerPort)
+      ROLLERCommsSetPeer(szNetPeer, (uint16_t)iNetPeerPort);
+  } else {
+    if (szNetLocalIP) {
+      cli_fprintf(stderr,
+                  "ERROR: '--local-ip' is only available in legacy mode\n");
+      return 1;
+    }
+#if !defined(IS_WASM)
+    if (iNetLocalPort)
+      NetFrontendSetLocalPort((uint16)iNetLocalPort);
+    if (iNetPeerPort &&
+        !NetFrontendSetPeer(szNetPeer, (uint16)iNetPeerPort)) {
+      cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
+      return 1;
+    }
+#endif
+  }
+
   if (szGpuParityBackend) {
     if (g_bSnapshotMode || g_szDirectTrackPath) {
       cli_fprintf(stderr, "ERROR: '--gpu-parity' cannot be combined with snapshot or track-path mode\n");
@@ -3203,7 +3223,8 @@ int main(int argc, const char **argv, const char **envp)
     ROLLERGetAudioInfo();
   }
 
-  ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
+  if (net_mode == NET_MODE_LEGACY)
+    ROLLERCommsSetCommandBase(0x686C6361u);       // Initialize legacy communication system
   oldmode = readmode();                         // Save current video mode
   blankpal();
   SVGA_ON = 0;                                  // Disable SVGA mode for initial screen setup

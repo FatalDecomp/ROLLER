@@ -621,7 +621,7 @@ static int frontend_players_net_slot_update(void)
     return -1;
   }
 
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     CheckNewNodes();
     BroadcastNews();
     ROLLERCommsPumpSendQueue();
@@ -920,7 +920,8 @@ void frontend_players_select_update(void)
             goto LABEL_128;
           case 1u:
             net_type = 0;
-            ROLLERCommsSetType(net_type);
+            if (net_mode == NET_MODE_LEGACY)
+              ROLLERCommsSetType(net_type);
             if (iFrontendPlayersNetworkMode) {
             LABEL_128:
               frontend_players_select_request_exit();

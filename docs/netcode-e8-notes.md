@@ -1,9 +1,59 @@
 # Netcode E8 notes
 
+## NET-E8-S2: packet capture and playback
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+`net_capture.c/.h` adds a transport decorator that records every successful
+send and receive with its transport timestamp, direction, peer address, and
+exact packet bytes. The versioned `RLRPCAP1` file format uses explicit
+little-endian fields and validates the complete file before playback. Files
+are capped at 64 MiB, records at `NET_MAX_PAYLOAD`, timestamps must be
+monotonic, and malformed directions, addresses, lengths, headers, or trailing
+records reject the capture before any packet reaches the channel.
+
+Playback exposes the same `tNetTransport` interface on a caller-controlled
+monotonic clock. Inbound packets become available at their captured times.
+Outbound calls must reproduce the next captured send with the same time,
+destination, length, and bytes; a divergence makes playback fail instead of
+silently accepting a different run. The decorator has no socket, SDL, or
+platform-clock dependency and is included in `roller-core` and every game
+source set.
+
+`test-net-capture`, also included by `test-net-foundations`, records three
+reliable ordered feedback messages through the real channel over the
+deterministic transport. It then re-creates the client channel from the
+capture alone, reproduces its acknowledgements, and requires the complete
+`g_netStats` result to be byte-identical to the live run. The captured first
+and last timestamps and end-of-stream state are checked as well.
+
+Focused and regression verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-capture -Doptimize=ReleaseSafe
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-bot test-net-dedicated test-net-multiprocess `
+  test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The focused test, complete netcode set, 51.20-second real-UDP race, full
+native build, source/manifest checks, and all 18 selected Python tests pass.
+Source counts are Linux 97, macOS 97, Windows 100, Android 97 and Emscripten
+94; roller-core contains 113 translation units. A CMake configure, Android
+build, manual macOS run, and E7-S1 legacy-call trap were not run.
+
 ## NET-E8-S5: bandwidth, latency, and replay-cost report
 
-Implemented on 2026-09-24. The changes are intentionally uncommitted. Full
-methodology and measurements are in `docs/netcode-performance.md`.
+Implemented on 2026-09-24 and committed in `a9a2cca`. Full methodology and
+measurements are in `docs/netcode-performance.md`.
 
 The race harness now counts actual protocol bytes at its transport boundary
 and exposes the host's existing full/delta snapshot counters. The counters
