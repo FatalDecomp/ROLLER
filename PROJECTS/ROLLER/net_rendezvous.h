@@ -30,7 +30,9 @@ typedef enum {
   NET_RVZ_MSG_LIST,
   NET_RVZ_MSG_LIST_PAGE,
   NET_RVZ_MSG_ACK,
-  NET_RVZ_MSG_ERROR
+  NET_RVZ_MSG_ERROR,
+  NET_RVZ_MSG_RESOLVE,
+  NET_RVZ_MSG_RESOLVED
 } eNetRendezvousMessageType;
 
 typedef enum {
@@ -71,6 +73,13 @@ typedef struct {
   uint8 byReason, byPad;
   uint16 unRetryAfterMs;
 } tRvzError;
+typedef struct {
+  uint32 uiSessionId;
+  uint8 byFamily, byPad[3];
+  uint16 unPort, unPad;
+  uint32 uiScopeId;
+  uint8 abAddress[16];
+} tRvzResolved;
 #pragma pack(pop)
 
 _Static_assert(sizeof(tRvzRegisterRequest) == 93,
@@ -83,6 +92,7 @@ _Static_assert(sizeof(tRvzListRequest) == 20,
 _Static_assert(sizeof(tRvzListPageHeader) == 8,
                "rendezvous list header wire size");
 _Static_assert(sizeof(tRvzError) == 4, "rendezvous error wire size");
+_Static_assert(sizeof(tRvzResolved) == 32, "rendezvous resolve wire size");
 _Static_assert(sizeof(tRvzListPageHeader) +
                    NET_RVZ_MAX_PAGE_SESSIONS * sizeof(tRvzSessionInfo) +
                    sizeof(tNetPacketHeader) + sizeof(tNetMessageHeader) <=

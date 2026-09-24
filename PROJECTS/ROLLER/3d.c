@@ -4,6 +4,7 @@
 #include "net_harness.h"
 #if !defined(IS_WASM)
 #include "net_frontend_lobby.h"
+#include "net_rendezvous.h"
 #endif
 #endif
 #include "3d.h"
@@ -614,6 +615,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --local-ip IP          legacy local IPv4 address to advertise\n");
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
+  cli_fprintf(f, " --rendezvous IP:PORT   register or browse through a rendezvous daemon\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
   cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern\n");
   cli_fprintf(f, " --net-local-players N  local players on a modern node: 1 or 2\n");
@@ -2964,6 +2966,19 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--rendezvous") == 0) {
+#if !defined(IS_WASM)
+      if (i + 1 >= argc ||
+          !NetFrontendSetRendezvous(argv[i + 1], NET_RVZ_DEFAULT_PORT)) {
+        cli_fprintf(stderr,
+                    "ERROR: '--rendezvous' expects a numeric IP[:PORT]\n");
+        return 1;
+      }
+      consumed = 2;
+#else
+      cli_fprintf(stderr, "ERROR: '--rendezvous' is unavailable on wasm\n");
+      return 1;
+#endif
     } else if (strcmp(argv[i], "--net-mode") == 0) {
       if (i + 1 >= argc) {
         cli_fprintf(stderr, "ERROR: '--net-mode' needs an argument\n");

@@ -159,6 +159,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_input.c",
             "PROJECTS/ROLLER/net_client.c",
             "PROJECTS/ROLLER/net_rendezvous.c",
+            "PROJECTS/ROLLER/net_discovery.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
             "PROJECTS/ROLLER/platform_log.c",
@@ -626,6 +627,29 @@ fn configureRenderQueue3DTests(
         "Run NET-E6-S1 rendezvous daemon acceptance and virtual 24 h soak",
     );
     net_rendezvous_tests.dependOn(&run_net_rendezvous.step);
+    const net_discovery_test_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_discovery_test_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_discovery_test_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_discovery.c",
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_discovery_test.c",
+    } });
+    const net_discovery_test_exe = b.addExecutable(.{
+        .name = "net_discovery_test",
+        .root_module = net_discovery_test_mod,
+    });
+    const run_net_discovery = b.addRunArtifact(net_discovery_test_exe);
+    const net_discovery_tests = b.step(
+        "test-net-discovery",
+        "Run NET-E6-S2 registration and browser acceptance",
+    );
+    net_discovery_tests.dependOn(&run_net_discovery.step);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -781,6 +805,7 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_config.step);
     net_foundations_tests.dependOn(&run_net_lobby.step);
     net_foundations_tests.dependOn(&run_net_rendezvous.step);
+    net_foundations_tests.dependOn(&run_net_discovery.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

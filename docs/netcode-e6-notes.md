@@ -77,3 +77,56 @@ slot.
 Not run: deployment on `fatal.racing`, a CMake configure, Android, or a
 native macOS build. In-game registration/listing is E6-S2, NAT punching is
 E6-S3, and relay allocation and byte/packet budgets are E6-S4.
+
+## NET-E6-S2: host registration and client listing in the game
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+`net_discovery.c/.h` is the game-side rendezvous client. It shares the game
+UDP endpoint through the channel's non-`RLR1` datagram callback, so a host's
+registration, heartbeat and later punch traffic use the public mapping of the
+socket that accepts the game connection. Registration retries once per second
+until acknowledged, refreshes its 30-second lease every 10 seconds, updates
+the advertised player/race state, and unregisters during clean shutdown.
+
+The browser requests all 12-entry pages, optionally filters on the complete
+build hash, retains at most the daemon's fixed 512-session ceiling, and
+refreshes every five seconds. A protocol omission discovered in this story
+was fixed without reducing the 12-entry page: `RESOLVE(session id)` returns
+the selected registration's observed IPv4 or IPv6 endpoint. List entries had
+only a port, so they could not otherwise be joined. The resolve result is
+validated before it becomes a `tNetAddress`.
+
+The native frontend accepts `--rendezvous IP[:PORT]`. Listen hosts register
+after their authoritative session configuration exists. Clients without a
+direct `--peer` browse on the player screen, render up to 12 session names,
+occupancy and tracks, and resolve the first compatible result for the
+existing lobby path. Direct connect remains available and unchanged. NAT
+candidate exchange and selection remain E6-S3.
+
+`test-net-discovery` runs the real discovery client, channel demultiplexer and
+rendezvous daemon over the simulated addressed transport. It covers
+registration, build-filtered listing, public endpoint resolution, heartbeat
+metadata update and unregister. It is also part of `test-net-foundations`.
+
+Verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-discovery test-net-rendezvous -Doptimize=ReleaseSafe
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The focused discovery/daemon tests, complete focused netcode regressions and
+the full native build pass. Source counts are Linux 99, macOS 99, Windows
+102, Android 99 and Emscripten 96; roller-core contains 115 translation
+units. The selected Python suite has 18 tests. A real-daemon two-network
+manual check, CMake configure, Android and native macOS were not run.

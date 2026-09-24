@@ -122,6 +122,7 @@ KEEP|PROJECTS/ROLLER/net_client.c
 KEEP|PROJECTS/ROLLER/net_bot.c
 KEEP|PROJECTS/ROLLER/net_dedicated.c
 KEEP|PROJECTS/ROLLER/net_rendezvous.c
+KEEP|PROJECTS/ROLLER/net_discovery.c
 KEEP|PROJECTS/ROLLER/net_sim_seam.c
 EXCLUDE|PROJECTS/ROLLER/net_transport_sim.c
 EXCLUDE|PROJECTS/ROLLER/net_transport.c

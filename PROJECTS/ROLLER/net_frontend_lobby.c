@@ -6,6 +6,7 @@
 #include "net_channel.h"
 #include "net_client.h"
 #include "net_config.h"
+#include "net_discovery.h"
 #include "net_host.h"
 #include "net_lobby.h"
 #include "net_race_start.h"
@@ -28,9 +29,14 @@ typedef struct
   tNetLobbyClient *pClientLobby;
   tNetHost *pRaceHost;
   tNetClient *pRaceClient;
+  tNetDiscovery *pDiscovery;
   tNetAddress peer;
+  tNetAddress rendezvous;
+  tRvzSessionInfo hostInfo;
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
+  uint8 byHasRendezvous, byResolvePending;
+  uint8 byHostInfo;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
@@ -78,6 +84,16 @@ int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort)
   return 1;
 }
 
+int NetFrontendSetRendezvous(const char *szAddress, uint16 unDefaultPort)
+{
+  tNetAddress rendezvous;
+  if (!NetAddressParse(&rendezvous, szAddress, unDefaultPort))
+    return 0;
+  s_frontend.rendezvous = rendezvous;
+  s_frontend.byHasRendezvous = 1;
+  return 1;
+}
+
 int NetFrontendSetLocalPlayers(int iLocalPlayers)
 {
   if ((iLocalPlayers != 1 && iLocalPlayers != 2) || s_frontend.byOpen)
@@ -115,6 +131,8 @@ static void NetFrontendDestroyLobby(void)
 void NetFrontendClose(void)
 {
   NetFrontendDestroyLobby();
+  NetDiscoveryDestroy(s_frontend.pDiscovery);
+  s_frontend.pDiscovery = NULL;
   NetChannelDestroy(s_frontend.pClientChannel);
   s_frontend.pClientChannel = NULL;
   NetChannelDestroy(s_frontend.pServerChannel);
@@ -125,6 +143,8 @@ void NetFrontendClose(void)
   s_frontend.pServerUdp = NULL;
   s_frontend.byOpen = 0;
   s_frontend.byHost = 0;
+  s_frontend.byResolvePending = 0;
+  s_frontend.byHostInfo = 0;
   net_listen_host = 0;
   NetRaceStartReset();
   network_on = 0;
@@ -138,7 +158,8 @@ int NetFrontendOpen(void)
   tNetTransport transport;
   NetFrontendClose();
   s_frontend.byHost = network_slot >= 0;
-  if (!s_frontend.byHost && !s_frontend.byHasPeer) {
+  if (!s_frontend.byHost && !s_frontend.byHasPeer &&
+      !s_frontend.byHasRendezvous) {
     NetFrontendStatus("DIRECT CONNECT ADDRESS REQUIRED");
     return 0;
   }
@@ -165,7 +186,25 @@ int NetFrontendOpen(void)
   network_on = 1;
   players = 1;
   players_waiting = 0;
-  NetFrontendStatus(s_frontend.byHost ? "HOST READY" : "CLIENT READY");
+  if (s_frontend.byHasRendezvous) {
+    tNetChannel *pChannel = s_frontend.byHost ? s_frontend.pServerChannel :
+                                                s_frontend.pClientChannel;
+    s_frontend.pDiscovery = NetDiscoveryCreate(
+        pChannel, &s_frontend.rendezvous, NetPlatformRandomBytes, NULL);
+    if (!s_frontend.pDiscovery) {
+      NetFrontendClose();
+      NetFrontendStatus("RENDEZVOUS START FAILED");
+      return 0;
+    }
+    if (!s_frontend.byHost && !s_frontend.byHasPeer) {
+      tNetSessionConfigOptions options;
+      NetSessionConfigOptionsDefault(&options);
+      NetDiscoveryList(s_frontend.pDiscovery, options.szBuildHash);
+    }
+  }
+  NetFrontendStatus(s_frontend.byHost ? "HOST READY" :
+                    (s_frontend.byHasPeer ? "CLIENT READY" :
+                                            "SEARCHING FOR GAMES"));
   return 1;
 }
 
@@ -177,6 +216,18 @@ int NetFrontendIsOpen(void)
 int NetFrontendIsHost(void)
 {
   return s_frontend.byOpen && s_frontend.byHost;
+}
+
+int NetFrontendBrowserSessionCount(void)
+{
+  return s_frontend.pDiscovery && !s_frontend.byHost ?
+      NetDiscoverySessionCount(s_frontend.pDiscovery) : 0;
+}
+
+int NetFrontendBrowserSession(int iIndex, tRvzSessionInfo *pInfo)
+{
+  return s_frontend.pDiscovery && !s_frontend.byHost &&
+      NetDiscoverySession(s_frontend.pDiscovery, iIndex, pInfo);
 }
 
 void NetFrontendAppResumed(void)
@@ -250,6 +301,24 @@ int NetFrontendLobbyBegin(void)
     if (!s_frontend.pHost ||
         !NetSessionHostSetConfig(s_frontend.pHost, &config))
       return NetFrontendLobbyFailure("SECURE SESSION START FAILED");
+    if (s_frontend.pDiscovery) {
+      tRvzSessionInfo info;
+      memset(&info, 0, sizeof(info));
+      info.unTickRateHz = config.unTickRateHz;
+      info.byPlayers = 1;
+      info.byMaxPlayers = config.byMaxPlayers;
+      snprintf(info.szName, sizeof(info.szName), "%s'S GAME",
+               NetFrontendPlayerName());
+      snprintf(info.szTrack, sizeof(info.szTrack), "%s",
+               config.iTrackLoad >= 0 && config.iTrackLoad < 8 ?
+                   names[config.iTrackLoad] : "COMMUNITY");
+      memcpy(info.szBuildHash, config.szBuildHash,
+             sizeof(info.szBuildHash));
+      if (!NetDiscoveryHostStart(s_frontend.pDiscovery, &info))
+        return NetFrontendLobbyFailure("RENDEZVOUS REGISTRATION FAILED");
+      s_frontend.hostInfo = info;
+      s_frontend.byHostInfo = 1;
+    }
     s_frontend.pHostLobby = NetLobbyHostCreate(s_frontend.pHost);
     if (!s_frontend.pHostLobby ||
         !NetAddressParse(&peer, "127.0.0.1", s_frontend.unLocalPort) ||
@@ -359,8 +428,37 @@ void NetFrontendPump(void)
 {
   tNetSessionConfig config;
   eNetJoinState state;
-  if (net_mode != NET_MODE_MODERN || !s_frontend.byLobbyStarted)
+  if (net_mode != NET_MODE_MODERN || !s_frontend.byOpen)
     return;
+
+  NetDiscoveryPump(s_frontend.pDiscovery);
+  if (!s_frontend.byHost && !s_frontend.byHasPeer &&
+      s_frontend.pDiscovery) {
+    tRvzSessionInfo info;
+    if (!s_frontend.byResolvePending &&
+        NetDiscoverySession(s_frontend.pDiscovery, 0, &info)) {
+      s_frontend.byResolvePending = (uint8)NetDiscoveryResolve(
+          s_frontend.pDiscovery, info.uiSessionId);
+    }
+    if (s_frontend.byResolvePending &&
+        NetDiscoverySession(s_frontend.pDiscovery, 0, &info) &&
+        NetDiscoveryResolved(s_frontend.pDiscovery, info.uiSessionId,
+                             &s_frontend.peer)) {
+      s_frontend.byHasPeer = 1;
+      s_frontend.byResolvePending = 0;
+      NetFrontendStatus("GAME FOUND");
+    }
+  }
+  if (!s_frontend.byLobbyStarted)
+    return;
+
+  if (s_frontend.byHostInfo && s_frontend.pHostLobby) {
+    int iPlayers = NetLobbyHostPlayerCount(s_frontend.pHostLobby);
+    s_frontend.hostInfo.byPlayers = (uint8)(iPlayers > 0 ? iPlayers : 1);
+    if (s_frontend.byRaceStarted)
+      s_frontend.hostInfo.byFlags |= NET_RVZ_SESSION_IN_RACE;
+    NetDiscoveryHostUpdate(s_frontend.pDiscovery, &s_frontend.hostInfo);
+  }
 
   NetSessionHostPump(s_frontend.pHost);
   NetLobbyHostPump(s_frontend.pHostLobby);

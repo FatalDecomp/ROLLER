@@ -568,6 +568,34 @@ static void NetRvzList(tNetRendezvous *pRendezvous,
                       byCount * sizeof(tRvzSessionInfo)));
 }
 
+static void NetRvzResolve(tNetRendezvous *pRendezvous,
+                          const tNetAddress *pSource,
+                          const tNetRendezvousPacket *pPacket)
+{
+  tNetRendezvousSession *pSession;
+  uint8 abResolved[sizeof(tRvzResolved)] = {0};
+  uint32 uiSessionId;
+  if (pPacket->ullToken || pPacket->unPayloadLength != 4) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_INVALID);
+    return;
+  }
+  uiSessionId = NetRvzRead32(pPacket->pPayload);
+  pSession = NetRvzFindSession(pRendezvous, uiSessionId);
+  if (!pSession) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_NOT_FOUND);
+    return;
+  }
+  NetRvzWrite32(abResolved, uiSessionId);
+  abResolved[4] = pSession->source.byFamily;
+  NetRvzWrite16(abResolved + 8, pSession->source.unPort);
+  NetRvzWrite32(abResolved + 12, pSession->source.uiScopeId);
+  memcpy(abResolved + 16, pSession->source.abAddress, 16);
+  NetRvzSend(pRendezvous, pSource, pPacket->unSequence, 0,
+             NET_RVZ_MSG_RESOLVED, abResolved, sizeof(abResolved));
+}
+
 static void NetRvzHandle(tNetRendezvous *pRendezvous,
                          const tNetAddress *pSource, const uint8 *pData,
                          int iLength, uint64 ullNowMs)
@@ -593,6 +621,9 @@ static void NetRvzHandle(tNetRendezvous *pRendezvous,
       break;
     case NET_RVZ_MSG_LIST:
       NetRvzList(pRendezvous, pSource, &packet);
+      break;
+    case NET_RVZ_MSG_RESOLVE:
+      NetRvzResolve(pRendezvous, pSource, &packet);
       break;
     default:
       NetRvzSendError(pRendezvous, pSource, packet.unSequence,

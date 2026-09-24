@@ -28,6 +28,9 @@ typedef struct tNetConnection tNetConnection;
 typedef tNetConnection *(*tNetChannelAcceptFn)(void *pContext,
                                                tNetChannel *pChannel,
                                                const tNetAddress *pPeer);
+typedef void (*tNetChannelDatagramFn)(void *pContext,
+                                     const tNetAddress *pPeer,
+                                     const void *pData, int iLength);
 
 int NetSequenceIsNewer(uint16 unA, uint16 unB);
 int NetAckStateReceive(tNetAckState *pState, uint16 unSequence);
@@ -46,6 +49,13 @@ int NetChannelRemoveConnection(tNetChannel *pChannel,
 void NetChannelSetAcceptCallback(tNetChannel *pChannel,
                                  tNetChannelAcceptFn pAccept,
                                  void *pContext);
+/* Demultiplexes non-RLR1 datagrams sharing the game socket. */
+void NetChannelSetDatagramCallback(tNetChannel *pChannel,
+                                   tNetChannelDatagramFn pCallback,
+                                   void *pContext);
+int NetChannelSendDatagram(tNetChannel *pChannel,
+                           const tNetAddress *pPeer,
+                           const void *pData, int iLength);
 /* The transport clock the channel runs on (simulated in tests). */
 uint64 NetChannelNowMs(const tNetChannel *pChannel);
 

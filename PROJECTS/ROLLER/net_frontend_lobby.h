@@ -8,12 +8,15 @@
 
 void NetFrontendSetLocalPort(uint16 unPort);
 int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort);
+int NetFrontendSetRendezvous(const char *szAddress, uint16 unDefaultPort);
 int NetFrontendSetLocalPlayers(int iLocalPlayers);
 
 int NetFrontendOpen(void);
 void NetFrontendClose(void);
 int NetFrontendIsOpen(void);
 int NetFrontendIsHost(void);
+int NetFrontendBrowserSessionCount(void);
+int NetFrontendBrowserSession(int iIndex, tRvzSessionInfo *pInfo);
 /* Called on the main thread after a mobile app returns to the foreground.
    An active race resumes through the authenticated checkpoint path so wall
    time spent asleep never becomes a client simulation backlog. */

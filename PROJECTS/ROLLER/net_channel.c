@@ -54,6 +54,8 @@ struct tNetChannel {
   int iConnectionCount;
   tNetChannelAcceptFn pAccept;
   void *pAcceptContext;
+  tNetChannelDatagramFn pDatagram;
+  void *pDatagramContext;
   struct tNetChannel *pNext;
 };
 
@@ -714,6 +716,26 @@ void NetChannelSetAcceptCallback(tNetChannel *pChannel,
   pChannel->pAcceptContext = pAccept ? pContext : NULL;
 }
 
+void NetChannelSetDatagramCallback(tNetChannel *pChannel,
+                                   tNetChannelDatagramFn pCallback,
+                                   void *pContext)
+{
+  if (!pChannel)
+    return;
+  pChannel->pDatagram = pCallback;
+  pChannel->pDatagramContext = pCallback ? pContext : NULL;
+}
+
+int NetChannelSendDatagram(tNetChannel *pChannel,
+                           const tNetAddress *pPeer,
+                           const void *pData, int iLength)
+{
+  return pChannel && pPeer && pData && iLength > 0 &&
+      iLength <= NET_MAX_PAYLOAD &&
+      pChannel->transport.pSend(pChannel->transport.pContext, pPeer,
+                                pData, iLength) == iLength;
+}
+
 static int NetOrderedWindowAvailable(const tNetConnection *pConnection)
 {
   uint16 unOldest = pConnection->unNextOrderedSend;
@@ -868,8 +890,13 @@ void NetChannelPump(tNetChannel *pChannel)
   ullNowMs = NetChannelNow(pChannel);
   while ((iLength = pChannel->transport.pReceive(
               pChannel->transport.pContext, &from, abPacket,
-              sizeof(abPacket))) > 0)
-    NetProcessPacket(pChannel, &from, abPacket, iLength, ullNowMs);
+              sizeof(abPacket))) > 0) {
+    if (iLength >= 4 && NetRead32(abPacket) == NET_PROTOCOL_ID)
+      NetProcessPacket(pChannel, &from, abPacket, iLength, ullNowMs);
+    else if (pChannel->pDatagram)
+      pChannel->pDatagram(pChannel->pDatagramContext, &from,
+                          abPacket, iLength);
+  }
   for (iConnection = 0; iConnection < pChannel->iConnectionCount;
        ++iConnection)
     NetPumpConnection(pChannel->apConnections[iConnection], ullNowMs);

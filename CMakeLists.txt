@@ -85,6 +85,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_input.c
     PROJECTS/ROLLER/net_client.c
     PROJECTS/ROLLER/net_rendezvous.c
+    PROJECTS/ROLLER/net_discovery.c
     PROJECTS/ROLLER/network.c
     PROJECTS/ROLLER/plans.c
     PROJECTS/ROLLER/platform_log.c
@@ -306,6 +307,17 @@ if(ROLLER_BUILD_EDITOR_CORE)
     roller_configure_c_target(net-rendezvous-test)
     add_test(NAME net-rendezvous COMMAND net-rendezvous-test)
     set_tests_properties(net-rendezvous PROPERTIES TIMEOUT 30)
+
+    add_executable(net-discovery-test
+        tests/net_discovery_test.c
+        PROJECTS/ROLLER/net_discovery.c
+        PROJECTS/ROLLER/net_rendezvous.c
+        PROJECTS/ROLLER/net_channel.c
+        PROJECTS/ROLLER/net_transport_sim.c)
+    target_compile_features(net-discovery-test PRIVATE c_std_11)
+    target_include_directories(net-discovery-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-discovery-test)
+    add_test(NAME net-discovery COMMAND net-discovery-test)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
