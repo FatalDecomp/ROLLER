@@ -254,3 +254,61 @@ set and manifest checks, and all 18 selected Python tests pass. Source counts
 remain Linux 95, macOS 95, Windows 98, Android 95 and Emscripten 93; the
 roller-core manifest now contains 110 translation units. A CMake configure,
 Android build, real-UDP bot process, and E7-S1 legacy-call trap were not run.
+
+## E2-S6 dedicated server binary
+
+Implemented on 2026-09-23.
+
+`net_dedicated.c` is the socket-free dedicated runtime in `roller-core`. It
+owns the host session, lobby, and authoritative host layered over a
+caller-owned channel. The frame-loop pump starts only when every configured
+player slot is occupied and Ready, waits for every client to acknowledge the
+loading barrier, and then advances the real headless world from the channel's
+monotonic clock. It never skips a labelled simulation tick. Catch-up is
+limited to eight ticks per pump so a delayed frame returns to channel pumping
+instead of starving network traffic.
+
+The runtime forces modern mode, requires a validated dedicated/no-pause
+configuration, and exposes Waiting, Loading, Racing, Complete, and Error
+states plus server and per-player statistics. Outcome-Settled and Results
+come from the existing `NetHost` lifecycle. The completed runtime keeps
+pumping; the executable uses that interval to drain the reliable result
+messages before exit.
+
+`roller-server` retains the E0 `--net-harness` mode and now otherwise runs a
+real dual-stack UDP dedicated host. It accepts a stock track path and assets
+directory plus port, track index, player-slot count, 2/8/16 competitors, lap
+count, and seed. A stock track index is inferred from a `TRACKn.TRK` filename
+when omitted. The validated session configuration is applied before headless
+track loading, so the authoritative world is created with the same level,
+damage, texture, competitor, and RNG settings the clients receive.
+
+Example:
+
+```text
+roller-server --port 7777 --track-path FATDATA/TRACK5.TRK \
+  --assets-path FATDATA --players 2 --cars 2 --laps 1 --seed 12345
+```
+
+`test-net-dedicated` uses the deterministic addressed transport but the real
+host simulation, lobby, input, snapshot, event, and bot paths. Two separately
+authenticated bots select cars 0 and 1, pass the two-phase loading barrier,
+and both finish a one-lap TRACK5 race. The run completed in 1,715 host ticks
+(47,641 ms of virtual channel time), delivered each bot's lap and finish
+events, and recorded no late or clamped inputs, rejected batches, or rejected
+bot messages. This is one simulation world with two endpoint-only bots, so it
+preserves D13; E8-S4 remains the multi-process race.
+
+Zig and CMake register the acceptance, `net_dedicated.c` is in `roller-core`,
+and Linux CI now runs the two-bot race. The existing cross-platform E0 harness
+continues to build and exercise `roller-server` on the Linux, Windows, and
+macOS CI matrix. On Windows the native ReleaseSafe binary also bound a real
+ephemeral UDP port and entered its waiting state.
+
+The focused ReleaseSafe netcode suite, the full native ReleaseSafe build,
+source/manifest checks, and all 18 selected Python tests pass. Source counts
+remain Linux 95, macOS 95, Windows 98, Android 95 and Emscripten 93; the
+roller-core manifest now contains 111 translation units. A CMake configure,
+Android build, manual macOS run, real-UDP two-client race, and E7-S1
+legacy-call trap were not run. Repository Markdown lint could not start because
+mise's aqua registry requests for its pinned tools returned HTTP 400.

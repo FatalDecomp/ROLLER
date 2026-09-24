@@ -824,6 +824,47 @@ fn configureRenderQueue3DTests(
     run_net_bot.addDirectoryArg(assets_path);
     const net_bot_tests = b.step("test-net-bot", "Run NET-E2-S7 bot client acceptance");
     net_bot_tests.dependOn(&run_net_bot.step);
+    const net_dedicated_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_dedicated_mod.sanitize_c = .off;
+    net_dedicated_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_dedicated_mod.addIncludePath(sdl.builder.path("include"));
+    net_dedicated_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_dedicated_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_dedicated_mod.addIncludePath(libcdio.builder.path("include"));
+    net_dedicated_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_dedicated_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_dedicated_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_dedicated_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_dedicated_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_dedicated_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_dedicated_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_dedicated_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_dedicated_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_dedicated_test.c",
+        },
+    });
+    const net_dedicated_exe = b.addExecutable(.{
+        .name = "net_dedicated_acceptance",
+        .root_module = net_dedicated_mod,
+    });
+    const run_net_dedicated = b.addRunArtifact(net_dedicated_exe);
+    run_net_dedicated.addFileArg(assets_path.path(b, soak_track));
+    run_net_dedicated.addDirectoryArg(assets_path);
+    const net_dedicated_tests = b.step(
+        "test-net-dedicated",
+        "Run NET-E2-S6 two-bot dedicated server acceptance",
+    );
+    net_dedicated_tests.dependOn(&run_net_dedicated.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);

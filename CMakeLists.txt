@@ -294,6 +294,9 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-bot-test tests/net_bot_test.c PROJECTS/ROLLER/net_transport_sim.c)
     target_link_libraries(net-bot-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-bot-test)
+    add_executable(net-dedicated-test tests/net_dedicated_test.c PROJECTS/ROLLER/net_transport_sim.c)
+    target_link_libraries(net-dedicated-test PRIVATE ROLLER::core SDL3::SDL3)
+    roller_configure_c_target(net-dedicated-test)
     set(ROLLER_NET_TEST_ASSETS "" CACHE PATH "FATDATA directory for NET foundation acceptance")
     set(ROLLER_NET_TEST_TRACK "TRACK5.TRK" CACHE STRING "NET acceptance track inside FATDATA")
     if(ROLLER_NET_TEST_ASSETS)
@@ -310,6 +313,8 @@ if(ROLLER_BUILD_EDITOR_CORE)
         add_test(NAME net-client COMMAND net-client-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         add_test(NAME net-bot COMMAND net-bot-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        add_test(NAME net-dedicated COMMAND net-dedicated-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
