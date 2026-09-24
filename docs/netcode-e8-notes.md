@@ -1,5 +1,67 @@
 # Netcode E8 notes
 
+## NET-E8-S1: harness race scenarios library
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+The E0 TCP harness now has a test-only modern race mode backed by the real
+channel, session, lobby, host, client, snapshot, correction and recovery
+objects. One process owns the authoritative world and each of three other
+processes owns one predictive client world, preserving D13. The host and
+clients automate join, ready, loading and release, then advance from the
+harness virtual clock at 36 Hz. Measurement starts only after
+`game_frame > 145`.
+
+The netsim proxy now supports all eight simulated endpoints, addressed
+harness envelopes, per-route latency/jitter/loss/duplicate/reorder settings,
+and a drain-and-advance command. Its original two-endpoint raw-datagram mode
+is unchanged and still passes the deterministic E0 smoke test.
+
+`tests/net_race_scenarios.py` provides the story's reusable operations:
+`run_race`, `disturb`, `disturb_engine`, `disturb_lap_time`, `drop_client`,
+`rejoin_client`, `set_link`, `hold_rtt`, `pause`, `strategy_button`,
+`ability`, `suppress_own_car_state`, `force_correction`, `worldpose`,
+`context`, `rng`, and `stats`. The client report includes replay depth,
+total and worst replay cost, prediction mode and transitions, correction and
+defer counts, degraded time, RTT, snapshot count and rejected-message count.
+Own-car-state suppression happens in the harness transport after the real
+channel has packetised messages; it does not add a production host seam. A
+post-race control smoke invokes every operation, holds pause without advancing
+the host tick, forces a correction, and completes an actual generation-2
+drop/checkpoint/rejoin cycle.
+
+The acceptance runs 16 cars, one host and three predictive clients for 5,000
+running ticks over 20 ms one-way links with 2 ms jitter and 1 percent loss.
+On Windows it completed in 6.68 seconds, with 2,195 / 2,133 / 2,168 client
+corrections, all clients in full prediction at the end, and no rejected race
+messages. The large correction count is useful data rather than a harness
+allowance: these are genuinely separate worlds, and the crowded client worlds
+collide a predicted car with delayed puppets while the host simulates all 16
+cars authoritatively.
+
+Focused verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-bot test-net-dedicated test-net-multiprocess `
+  test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The full focused set, the existing 50.94-second real-UDP race, the full native
+ReleaseSafe build, source/manifest checks and all 18 selected Python tests
+passed. Source counts are Linux 96, macOS 96, Windows 99, Android 96 and
+Emscripten 93; the roller-core manifest contains 112 translation units. A
+CMake configure, Android build, manual macOS run and E7-S1 legacy-call trap
+were not run.
+
 ## NET-E8-S3: bot robustness
 
 Implemented on 2026-09-24 and committed in `ca47bf8`.
@@ -44,7 +106,7 @@ the external handoff.
 
 ## NET-E8-S4: CI multi-process race
 
-Implemented on 2026-09-24. The changes are intentionally uncommitted.
+Implemented on 2026-09-24 and committed in `6922ec6`.
 
 `roller-bot` is a real UDP process wrapper around the endpoint-only bot. It
 loads its own headless track world, joins a numeric dedicated-server address,

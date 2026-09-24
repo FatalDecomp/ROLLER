@@ -107,6 +107,7 @@ set(ROLLER_GAME_BASE_SOURCES
 
 set(ROLLER_GAME_NATIVE_SOURCES
     PROJECTS/ROLLER/net_harness.c
+    PROJECTS/ROLLER/net_race_harness.c
     PROJECTS/ROLLER/net_frontend_lobby.c
     PROJECTS/ROLLER/net_transport.c
     PROJECTS/ROLLER/debug_overlay.c
@@ -189,6 +190,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-server
         PROJECTS/ROLLERSRV/roller_server.c
         PROJECTS/ROLLER/net_harness.c
+        PROJECTS/ROLLER/net_race_harness.c
         PROJECTS/ROLLER/net_transport.c)
     target_link_libraries(net-server PRIVATE ROLLER::core SDL3::SDL3)
     set_target_properties(net-server PROPERTIES OUTPUT_NAME "roller-server")

@@ -1,4 +1,4 @@
-"""NET-E0 multi-process stepping and raw UDP acceptance (one world/process)."""
+"""NET-E0 stepping smoke and NET-E8-S1 multi-process race acceptance."""
 import argparse
 import json
 from pathlib import Path
@@ -7,6 +7,8 @@ import socket
 import subprocess
 import threading
 import time
+
+from net_race_scenarios import RaceScenario
 
 
 class Node:
@@ -109,10 +111,29 @@ def main():
     start = time.monotonic()
     first = run(args, 54321)
     assert first == run(args, 54321), "same-seed run diverged"
-    elapsed = time.monotonic() - start
-    assert elapsed < 30, elapsed
-    print(f"NET-E0 harness passed seed=54321, two runs, {elapsed:.2f}s; packets "
+    smoke_elapsed = time.monotonic() - start
+    assert smoke_elapsed < 30, smoke_elapsed
+    print(f"NET-E0 harness passed seed=54321, two runs, {smoke_elapsed:.2f}s; packets "
           f"{[entry[0]['packets'] for entry in first]}")
+    scenario = RaceScenario(Node, args.server, args.proxy, args.track,
+                            args.assets).start()
+    try:
+        report = scenario.run_race(5000)
+        clients = report["nodes"][1:]
+        exercised = scenario.exercise_controls()
+        print("NET-E8-S1 race passed: 16 cars, 3 clients, "
+              f"{report['running_ticks']} running ticks, "
+              f"{report['wall_seconds']:.2f}s; corrections "
+              f"{[client['corrections'] for client in clients]}, modes "
+              f"{[client['prediction_mode'] for client in clients]}, "
+              f"rejoin generation {exercised[1]['generation']}")
+    except BaseException:
+        print("NET-E8-S1 race scenario failure")
+        for index, node in enumerate(scenario.nodes):
+            print(f"process {index}:\n{''.join(node.logs)}")
+        raise
+    finally:
+        scenario.close()
 
 
 if __name__ == "__main__":

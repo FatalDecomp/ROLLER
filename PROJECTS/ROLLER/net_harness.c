@@ -1,5 +1,6 @@
 #include "net_test_socket.h"
 #include "net_harness.h"
+#include "net_race_harness.h"
 #include "net_headless.h"
 #include "net_sim_seam.h"
 #include "control.h"
@@ -29,8 +30,9 @@ int NetHarnessMain(int iArgc, const char **ppArgv)
   uint32 uiTicks = 0, uiPackets = 0, uiHash = 2166136261u;
   uint64 ullNowMs = 0;
   tCopyData aInputs[MAX_CARS] = {0};
-  char szError[512], szLine[512], szReply[1024];
+  char szError[512], szLine[512], szReply[4096];
   tNetSocket listenSocket, controlSocket, udpSocket;
+  tNetRaceHarness *pRaceHarness;
   for (int iArg = 1; iArg < iArgc; ++iArg)
     if (!strcmp(ppArgv[iArg], "--net-harness")) {
       char *pEnd;
@@ -63,10 +65,16 @@ int NetHarnessMain(int iArgc, const char **ppArgv)
   if (!NetSocketReadable(listenSocket, 10000))
     return 1;
   controlSocket = accept(listenSocket, NULL, NULL);
+  pRaceHarness = NetRaceHarnessCreate(udpSocket);
+  if (!pRaceHarness)
+    return 1;
   while (!iQuit && NetSocketLine(controlSocket, szLine, sizeof(szLine))) {
     int iCount, iCar, iInput, iFlags, iDestination, iValue;
     strcpy(szReply, "{\"error\":\"invalid command or range\"}\n");
-    if (sscanf(szLine, "step %d", &iCount) == 1 && iCount >= 0 && iCount <= 10000) {
+    if (NetRaceHarnessCommand(pRaceHarness, szLine, szReply,
+                              sizeof(szReply))) {
+      /* The race-scenario library owns this command. */
+    } else if (sscanf(szLine, "step %d", &iCount) == 1 && iCount >= 0 && iCount <= 10000) {
       for (int iStep = 0; iStep < iCount; ++iStep) {
         NetHarnessPump(udpSocket, 0, &uiPackets, &uiHash);
         NetHeadlessStepInputs(aInputs, numcars);
@@ -116,6 +124,7 @@ int NetHarnessMain(int iArgc, const char **ppArgv)
     if (!NetSocketReply(controlSocket, szReply))
       break;
   }
+  NetRaceHarnessDestroy(pRaceHarness);
   NetSocketClose(controlSocket);
   NetSocketClose(listenSocket);
   NetSocketClose(udpSocket);
