@@ -822,7 +822,7 @@ fn configureRenderQueue3DTests(
     const run_net_bot = b.addRunArtifact(net_bot_exe);
     run_net_bot.addFileArg(assets_path.path(b, soak_track));
     run_net_bot.addDirectoryArg(assets_path);
-    const net_bot_tests = b.step("test-net-bot", "Run NET-E2-S7 bot client acceptance");
+    const net_bot_tests = b.step("test-net-bot", "Run NET-E2-S7/E8-S3 bot acceptance");
     net_bot_tests.dependOn(&run_net_bot.step);
     const net_dedicated_mod = b.createModule(.{
         .target = target,

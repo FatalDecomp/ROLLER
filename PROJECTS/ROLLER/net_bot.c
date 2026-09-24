@@ -1,5 +1,6 @@
 #include "net_bot.h"
 
+#include "net_checkpoint.h"
 #include "net_event.h"
 #include "net_sim_seam.h"
 #include "net_snapshot.h"
@@ -25,6 +26,16 @@ typedef struct
   uint8 byValid;
 } tNetBotSnapshotSlot;
 
+typedef struct
+{
+  tNetCheckpointHeader header;
+  tNetCarFullState aCars[MAX_CARS];
+  tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
+  uint8 abyCarReceived[MAX_CARS], abyWorldReceived[MAX_TRACK_CHUNKS];
+  uint8 byHasHeader, byHasPlayers, byCarParts, byWorldParts;
+  int iWorldCount;
+} tNetBotCheckpoint;
+
 struct tNetBot
 {
   tNetSessionClient *pSession;
@@ -34,14 +45,154 @@ struct tNetBot
   tNetBotStats stats;
   tNetBotInputSlot aInputs[NET_INPUT_REDUNDANCY];
   tNetBotSnapshotSlot aSnapshots[NET_BOT_SNAPSHOT_RING];
-  uint32 uiLocalTrackCRC, uiNextTick;
+  tNetBotCheckpoint checkpoint;
+  uint64 ullCheckpointRequestMs;
+  uint32 uiLocalTrackCRC, uiNextTick, uiInputBaseTick;
   uint8 byCarIdx, byHumanControl;
   uint8 byStarted, byHasConfig, byInfoSent, byReadySent, byLoadedSent;
+  uint8 byCheckpointInstalled;
 };
 
 static int NetBotTickNewer(uint32 uiA, uint32 uiB)
 {
   return (int32)(uiA - uiB) > 0;
+}
+
+static int NetBotInstallCheckpoint(tNetBot *pBot)
+{
+  const tNetBotCheckpoint *pStage = &pBot->checkpoint;
+  uint8 byMe = NetSessionClientPlayerIndex(pBot->pSession);
+  int iExpectedCarParts;
+  if (!pStage->byHasHeader || !pStage->byHasPlayers ||
+      pStage->header.byNumCars != numcars ||
+      pStage->header.byNumPlayers != pBot->config.byMaxPlayers ||
+      pStage->header.byNumWorldParts != pStage->byWorldParts ||
+      pStage->header.byNumCarParts != pStage->byCarParts ||
+      byMe >= pStage->header.byNumPlayers)
+    return 0;
+  iExpectedCarParts =
+      (numcars + NET_CHECKPOINT_CARS_PER_MESSAGE - 1) /
+      NET_CHECKPOINT_CARS_PER_MESSAGE;
+  if (pStage->header.byNumCarParts != iExpectedCarParts)
+    return 0;
+  for (int iCar = 0; iCar < numcars; ++iCar)
+    if (!pStage->abyCarReceived[iCar] ||
+        !NetSnapshotCarFullValid(iCar, &pStage->aCars[iCar]))
+      return 0;
+  for (int iPlayer = 0; iPlayer < pStage->header.byNumPlayers; ++iPlayer) {
+    const tNetPlayerEntry *pPlayer = &pStage->aPlayers[iPlayer];
+    if (pPlayer->byState == NET_PLAYER_EMPTY)
+      continue;
+    if (pPlayer->byCarIdx0 >= numcars ||
+        (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER &&
+         pPlayer->byCarIdx1 >= numcars))
+      return 0;
+  }
+  {
+    const tNetPlayerEntry *pMe = &pStage->aPlayers[byMe];
+    if (pMe->byState != NET_PLAYER_RACING ||
+        pMe->byCarIdx0 != pBot->byCarIdx ||
+        pMe->byCarIdx1 != NET_LOBBY_NO_PLAYER ||
+        pMe->byHumanControl != pBot->byHumanControl)
+      return 0;
+  }
+  for (int iRamp = 0; iRamp < totalramps; ++iRamp) {
+    tNetRampState state = pStage->header.aRamps[iRamp];
+    if (!NetSimAdvanceRampStateCopy(iRamp, &state, 0))
+      return 0;
+  }
+  memset(pBot->aInputs, 0, sizeof(pBot->aInputs));
+  memset(pBot->aSnapshots, 0, sizeof(pBot->aSnapshots));
+  pBot->byCheckpointInstalled = 1;
+  ++pBot->stats.uiCheckpoints;
+  return 1;
+}
+
+static void NetBotReceiveCheckpoint(tNetBot *pBot,
+                                    const tNetMessage *pMessage)
+{
+  tNetBotCheckpoint *pStage = &pBot->checkpoint;
+  if (pMessage->byFlags != (NET_MSG_RELIABLE | NET_MSG_ORDERED) ||
+      pBot->state != NET_BOT_RECOVERING || pBot->byCheckpointInstalled)
+    goto reject;
+  switch (pMessage->byType) {
+    case NET_MSG_CHECKPOINT_HEADER: {
+      tNetCheckpointHeader header;
+      if (!NetCheckpointHeaderDecode(pMessage->abData, pMessage->unLength,
+                                     &header) ||
+          header.byNumCars != numcars ||
+          header.byNumPlayers != pBot->config.byMaxPlayers ||
+          header.byNumWorldParts > NET_CHECKPOINT_MAX_WORLD_PARTS)
+        goto reject;
+      memset(pStage, 0, sizeof(*pStage));
+      pStage->header = header;
+      pStage->byHasHeader = 1;
+      return;
+    }
+    case NET_MSG_CHECKPOINT_CARS: {
+      tNetCarFullState aCars[NET_CHECKPOINT_CARS_PER_MESSAGE];
+      uint8 byFirst;
+      int iCount;
+      if (!pStage->byHasHeader ||
+          !NetCheckpointCarsDecode(pMessage->abData, pMessage->unLength,
+                                   &byFirst, aCars, &iCount) ||
+          byFirst + iCount > pStage->header.byNumCars)
+        goto reject;
+      for (int iCar = 0; iCar < iCount; ++iCar)
+        if (pStage->abyCarReceived[byFirst + iCar])
+          goto reject;
+      memcpy(pStage->aCars + byFirst, aCars,
+             (size_t)iCount * sizeof(aCars[0]));
+      memset(pStage->abyCarReceived + byFirst, 1, (size_t)iCount);
+      ++pStage->byCarParts;
+      return;
+    }
+    case NET_MSG_CHECKPOINT_PLAYERS: {
+      int iCount;
+      if (!pStage->byHasHeader || pStage->byHasPlayers ||
+          !NetCheckpointPlayersDecode(pMessage->abData, pMessage->unLength,
+                                      pStage->aPlayers,
+                                      NET_SESSION_MAX_PLAYERS, &iCount) ||
+          iCount != pStage->header.byNumPlayers)
+        goto reject;
+      pStage->byHasPlayers = 1;
+      return;
+    }
+    case NET_MSG_CHECKPOINT_WORLD: {
+      tNetWorldChangeEntry aEntries[NET_WORLD_CHANGE_MAX_ENTRIES];
+      int iCount;
+      if (!pStage->byHasHeader ||
+          !NetCheckpointWorldDecode(pMessage->abData, pMessage->unLength,
+                                    TRAK_LEN, aEntries,
+                                    NET_WORLD_CHANGE_MAX_ENTRIES, &iCount) ||
+          pStage->byWorldParts >= pStage->header.byNumWorldParts ||
+          pStage->iWorldCount + iCount > MAX_TRACK_CHUNKS)
+        goto reject;
+      for (int iEntry = 0; iEntry < iCount; ++iEntry)
+        if (pStage->abyWorldReceived[aEntries[iEntry].nChunk])
+          goto reject;
+      for (int iEntry = 0; iEntry < iCount; ++iEntry)
+        pStage->abyWorldReceived[aEntries[iEntry].nChunk] = 1;
+      pStage->iWorldCount += iCount;
+      ++pStage->byWorldParts;
+      return;
+    }
+    case NET_MSG_CHECKPOINT_END: {
+      uint32 uiTick;
+      if (!pStage->byHasHeader ||
+          !NetCheckpointEndDecode(pMessage->abData, pMessage->unLength,
+                                  &uiTick) ||
+          uiTick != pStage->header.uiTick ||
+          !NetBotInstallCheckpoint(pBot))
+        goto reject;
+      return;
+    }
+    default:
+      return;
+  }
+
+reject:
+  ++pBot->stats.uiRejectedMessages;
 }
 
 static void NetBotReceiveSnapshot(tNetBot *pBot,
@@ -71,6 +222,15 @@ static void NetBotReceiveSnapshot(tNetBot *pBot,
   if (!iDecoded || snapshot.byNumCars != numcars ||
       snapshot.byNumRamps != totalramps)
     goto reject;
+  if (pBot->state == NET_BOT_RECOVERING) {
+    if (!pBot->byCheckpointInstalled ||
+        !NetBotTickNewer(snapshot.uiTick, pBot->checkpoint.header.uiTick))
+      return;
+    pBot->uiNextTick = snapshot.uiTick + 1u;
+    pBot->uiInputBaseTick = pBot->uiNextTick;
+    pBot->state = NET_BOT_RACING;
+    ++pBot->stats.uiRejoins;
+  }
   pBot->aSnapshots[snapshot.uiTick % NET_BOT_SNAPSHOT_RING].snapshot = snapshot;
   pBot->aSnapshots[snapshot.uiTick % NET_BOT_SNAPSHOT_RING].byValid = 1;
   if (!pBot->stats.uiSnapshots ||
@@ -111,9 +271,15 @@ static void NetBotRaceMessage(void *pContext, const tNetMessage *pMessage)
     if (!NetInputFeedbackDecode(pMessage->abData, pMessage->unLength,
                                 &feedback))
       ++pBot->stats.uiRejectedMessages;
+  } else if (pMessage->byType == NET_MSG_CHECKPOINT_HEADER ||
+             pMessage->byType == NET_MSG_CHECKPOINT_CARS ||
+             pMessage->byType == NET_MSG_CHECKPOINT_PLAYERS ||
+             pMessage->byType == NET_MSG_CHECKPOINT_WORLD ||
+             pMessage->byType == NET_MSG_CHECKPOINT_END) {
+    NetBotReceiveCheckpoint(pBot, pMessage);
   }
-  /* Own-car state, world changes, pause and checkpoint traffic are safe to
-     ignore here.  This bot never installs a simulation world. */
+  /* Own-car state, world changes and pause are safe to ignore here.  This
+     endpoint bot validates recovery checkpoints but installs no world. */
 }
 
 tNetBot *NetBotCreate(tNetConnection *pConnection, const char *szName,
@@ -179,6 +345,17 @@ void NetBotPump(tNetBot *pBot)
   }
   if (joinState != NET_JOIN_ACCEPTED)
     return;
+  if (pBot->state == NET_BOT_RECOVERING) {
+    uint64 ullNowMs = NetConnectionNowMs(
+        NetSessionClientConnection(pBot->pSession));
+    if (ullNowMs - pBot->ullCheckpointRequestMs >= 2000u) {
+      NetConnectionQueueMessage(NetSessionClientConnection(pBot->pSession),
+          NET_MSG_CHECKPOINT_REQUEST, NET_MSG_RELIABLE | NET_MSG_ORDERED,
+          NULL, 0);
+      pBot->ullCheckpointRequestMs = ullNowMs;
+    }
+    return;
+  }
   if (!pBot->byHasConfig) {
     if (!NetSessionClientGetConfig(pBot->pSession, &pBot->config))
       return;
@@ -216,6 +393,7 @@ void NetBotPump(tNetBot *pBot)
     pBot->byLoadedSent = 1;
     pBot->stats.uiStartTick = uiStartTick;
     pBot->uiNextTick = uiStartTick;
+    pBot->uiInputBaseTick = uiStartTick;
     pBot->state = NET_BOT_LOADING;
   }
   if (NetLobbyClientRaceReleased(pBot->pLobby, &uiStartTick)) {
@@ -238,6 +416,30 @@ eNetJoinRefuseReason NetBotRefuseReason(const tNetBot *pBot)
       NET_JOIN_REFUSE_INVALID_REQUEST;
 }
 
+uint64 NetBotSessionToken(const tNetBot *pBot)
+{
+  return pBot ? NetSessionClientToken(pBot->pSession) : 0;
+}
+
+uint8 NetBotGeneration(const tNetBot *pBot)
+{
+  return pBot ? NetSessionClientGeneration(pBot->pSession) : 0;
+}
+
+int NetBotBeginRejoin(tNetBot *pBot, tNetConnection *pConnection)
+{
+  if (!pBot || !pConnection || pBot->state != NET_BOT_RACING ||
+      !NetSessionClientRejoin(pBot->pSession, pConnection))
+    return 0;
+  memset(pBot->aInputs, 0, sizeof(pBot->aInputs));
+  memset(pBot->aSnapshots, 0, sizeof(pBot->aSnapshots));
+  memset(&pBot->checkpoint, 0, sizeof(pBot->checkpoint));
+  pBot->byCheckpointInstalled = 0;
+  pBot->ullCheckpointRequestMs = NetConnectionNowMs(pConnection);
+  pBot->state = NET_BOT_RECOVERING;
+  return 1;
+}
+
 int NetBotTick(tNetBot *pBot, uint32 uiTick,
                const tCarInputData *pInput)
 {
@@ -257,8 +459,8 @@ int NetBotTick(tNetBot *pBot, uint32 uiTick,
   pBot->aInputs[uiTick % NET_INPUT_REDUNDANCY].uiTick = uiTick;
   pBot->aInputs[uiTick % NET_INPUT_REDUNDANCY].input = input;
   pBot->aInputs[uiTick % NET_INPUT_REDUNDANCY].byValid = 1;
-  if (uiTick - pBot->stats.uiStartTick < NET_INPUT_REDUNDANCY - 1u)
-    uiFirstTick = pBot->stats.uiStartTick;
+  if (uiTick - pBot->uiInputBaseTick < NET_INPUT_REDUNDANCY - 1u)
+    uiFirstTick = pBot->uiInputBaseTick;
   else
     uiFirstTick = uiTick - (NET_INPUT_REDUNDANCY - 1u);
   memset(&batch, 0, sizeof(batch));
@@ -283,6 +485,11 @@ int NetBotTick(tNetBot *pBot, uint32 uiTick,
   ++pBot->uiNextTick;
   ++pBot->stats.uiInputsSent;
   return 1;
+}
+
+uint32 NetBotNextTick(const tNetBot *pBot)
+{
+  return pBot ? pBot->uiNextTick : 0;
 }
 
 int NetBotStats(const tNetBot *pBot, tNetBotStats *pStats)
