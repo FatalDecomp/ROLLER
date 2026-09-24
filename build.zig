@@ -619,6 +619,44 @@ fn configureRenderQueue3DTests(
         .name = "roller-server",
         .root_module = net_server_mod,
     });
+    const net_bot_process_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_bot_process_mod.sanitize_c = .off;
+    net_bot_process_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_bot_process_mod.addIncludePath(sdl.builder.path("include"));
+    net_bot_process_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_bot_process_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_bot_process_mod.addIncludePath(libcdio.builder.path("include"));
+    net_bot_process_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_bot_process_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_bot_process_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_bot_process_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_bot_process_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_bot_process_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_bot_process_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_bot_process_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_bot_process_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLERSRV/roller_bot.c",
+            "PROJECTS/ROLLER/net_transport.c",
+        },
+    });
+    if (target.result.os.tag == .windows) {
+        net_bot_process_mod.linkSystemLibrary("ws2_32", .{});
+        net_bot_process_mod.linkSystemLibrary("iphlpapi", .{});
+        net_bot_process_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_bot_process_exe = b.addExecutable(.{
+        .name = "roller-bot",
+        .root_module = net_bot_process_mod,
+    });
     const net_foundations_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -882,6 +920,22 @@ fn configureRenderQueue3DTests(
     run_net_harness.addDirectoryArg(assets_path);
     const net_harness_tests = b.step("test-net-harness", "Run deterministic two-process NET-E0 smoke test");
     net_harness_tests.dependOn(&run_net_harness.step);
+
+    const run_net_multiprocess = b.addSystemCommand(&.{
+        "python", "tests/net_multiprocess_race.py", "--server",
+    });
+    run_net_multiprocess.addArtifactArg(net_server_exe);
+    run_net_multiprocess.addArg("--bot");
+    run_net_multiprocess.addArtifactArg(net_bot_process_exe);
+    run_net_multiprocess.addArg("--track");
+    run_net_multiprocess.addFileArg(assets_path.path(b, soak_track));
+    run_net_multiprocess.addArg("--assets");
+    run_net_multiprocess.addDirectoryArg(assets_path);
+    const net_multiprocess_tests = b.step(
+        "test-net-multiprocess",
+        "Run NET-E8-S4 real-UDP multi-process race",
+    );
+    net_multiprocess_tests.dependOn(&run_net_multiprocess.step);
 
     const editor_track_only_mod = b.createModule(.{
         .target = target,

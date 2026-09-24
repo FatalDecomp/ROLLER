@@ -193,6 +193,12 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_link_libraries(net-server PRIVATE ROLLER::core SDL3::SDL3)
     set_target_properties(net-server PROPERTIES OUTPUT_NAME "roller-server")
     roller_configure_c_target(net-server)
+    add_executable(net-bot-process
+        PROJECTS/ROLLERSRV/roller_bot.c
+        PROJECTS/ROLLER/net_transport.c)
+    target_link_libraries(net-bot-process PRIVATE ROLLER::core SDL3::SDL3)
+    set_target_properties(net-bot-process PROPERTIES OUTPUT_NAME "roller-bot")
+    roller_configure_c_target(net-bot-process)
     add_executable(net-netsim PROJECTS/ROLLERSRV/roller_netsim.c PROJECTS/ROLLER/net_transport_sim.c)
     target_compile_features(net-netsim PRIVATE c_std_11)
     target_include_directories(net-netsim PRIVATE PROJECTS/ROLLER)
@@ -200,6 +206,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     roller_configure_c_target(net-netsim)
     if(WIN32)
         target_link_libraries(net-server PRIVATE ws2_32 iphlpapi bcrypt)
+        target_link_libraries(net-bot-process PRIVATE ws2_32 iphlpapi bcrypt)
         target_link_libraries(net-netsim PRIVATE ws2_32)
     endif()
 
@@ -320,11 +327,17 @@ if(ROLLER_BUILD_EDITOR_CORE)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
+        if(UNIX AND NOT APPLE)
+            add_test(NAME net-multiprocess COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_multiprocess_race.py"
+                --server "$<TARGET_FILE:net-server>" --bot "$<TARGET_FILE:net-bot-process>"
+                --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
+            set_tests_properties(net-multiprocess PROPERTIES TIMEOUT 150)
+        endif()
         set_tests_properties(net-foundations net-full-state-coherence net-replay-output net-host net-client net-bot net-harness PROPERTIES TIMEOUT 30)
     endif()
     get_target_property(ROLLER_SDL3_TARGET_TYPE SDL3::SDL3 TYPE)
     if(WIN32 AND NOT ROLLER_SDL3_TARGET_TYPE STREQUAL "INTERFACE_LIBRARY")
-        foreach(net_target IN ITEMS net-foundations-test net-replay-output-test net-host-test net-client-test net-bot-test net-server)
+        foreach(net_target IN ITEMS net-foundations-test net-replay-output-test net-host-test net-client-test net-bot-test net-server net-bot-process)
             add_custom_command(TARGET ${net_target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"

@@ -155,10 +155,10 @@ jobs:
         run: >-
           zig build test-net-foundations test-net-full-state-coherence test-net-host test-net-client test-net-harness -Doptimize=ReleaseSafe
           '-Dassets-path=${{ github.workspace }}/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
-      - name: Run dedicated two-bot race
+      - name: Run dedicated bot races
         if: runner.os == 'Linux'
         run: >-
-          zig build test-net-dedicated -Doptimize=ReleaseSafe
+          zig build test-net-dedicated test-net-multiprocess -Doptimize=ReleaseSafe
           '-Dassets-path=${{ github.workspace }}/zig-out/fatdata-demo' '-Dsoak-track=TRACK5.TRK'
       - name: Check source manifests
         run: zig build check-source-set-drift check-roller-core-manifest
