@@ -98,7 +98,7 @@ struct tNetClient
   uint8 abyGroup[NET_INPUT_MAX_LOCAL_PLAYERS];
   /* Timeline (4.4).  uiClientTick is the newest simulated tick; it moves by
      exactly one per NetClientTick. */
-  uint32 uiStartTick, uiClientTick, uiRampTick;
+  uint32 uiStartTick, uiClientTick, uiRampTick, uiPuppetTick;
   uint64 ullRaceBaseMs, ullLastPumpMs, ullLastBiasMs, ullNewestSnapshotMs;
   double dAccumTicks;
   /* Host clock relative to uiStartTick: (now - ullRaceBaseMs) * dTicksPerMs
@@ -422,7 +422,7 @@ static void NetClientPuppetHook(void)
   if (!pClient || !pClient->byRacing)
     return;
   ++pClient->stats.uiPuppetHookCalls;
-  dTargetRelative = NetClientRelative(pClient, pClient->uiClientTick + 1u) -
+  dTargetRelative = NetClientRelative(pClient, pClient->uiPuppetTick) -
       pClient->stats.iLeadTicks -
       pClient->stats.fInterpolationDelayMs * pClient->dTicksPerMs;
   pClient->stats.fRenderTick = (float)(pClient->uiStartTick + dTargetRelative);
@@ -1370,6 +1370,7 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->uiStartTick = uiStartTick;
   pClient->uiClientTick = uiStartTick - 1u;
   pClient->uiRampTick = uiStartTick - 1u;
+  pClient->uiPuppetTick = uiStartTick;
   pClient->ullRaceBaseMs = NetClientNowMs(pClient);
   pClient->ullLastPumpMs = pClient->ullRaceBaseMs;
   pClient->ullLastBiasMs = pClient->ullRaceBaseMs;
@@ -1613,6 +1614,7 @@ static int NetClientTryFinishResync(tNetClient *pClient)
   net_sim_replaying = 1;
   for (uint32 uiTick = uiSnapshotTick + 1u;
        (int32)(uiDestTick - uiTick) >= 0; ++uiTick) {
+    pClient->uiPuppetTick = uiTick;
     control_one_tick();
     if (!NetClientRecordPostTick(pClient, uiTick, 1)) {
       net_sim_replaying = iSavedReplaying;
@@ -1944,6 +1946,7 @@ static int NetClientReplayFrom(tNetClient *pClient, uint32 uiTick)
   net_sim_replaying = 1;
   for (uint32 uiReplay = uiTick + 1u;
        (int32)(uiCurrent - uiReplay) >= 0; ++uiReplay) {
+    pClient->uiPuppetTick = uiReplay;
     control_one_tick();
     if (!NetClientRecordPostTick(pClient, uiReplay, 1)) {
       net_sim_replaying = iSavedReplaying;
@@ -2186,6 +2189,7 @@ int NetClientTick(tNetClient *pClient, const tCarInputData *pLocalInputs)
   /* 4.3 step 6: the client simulates movement only (4.14). */
   iSavedAuthority = net_sim_authority;
   net_sim_authority = NET_AUTHORITY_REMOTE;
+  pClient->uiPuppetTick = uiTick;
   control_one_tick();
   net_sim_authority = iSavedAuthority;
   pClient->uiClientTick = uiTick;

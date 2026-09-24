@@ -8,6 +8,7 @@
 
 void NetFrontendSetLocalPort(uint16 unPort);
 int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort);
+int NetFrontendSetLocalPlayers(int iLocalPlayers);
 
 int NetFrontendOpen(void);
 void NetFrontendClose(void);

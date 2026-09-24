@@ -176,3 +176,37 @@ The related timer/input audit found the legacy `net_time[]` timeout and
 current source layout. Modern mode cannot reach those lockstep functions.
 Strategy-key sampling is also mode-gated so `readuserdata` cannot call the
 legacy message sender during a modern race start.
+
+## E2-S5 two local players on one node
+
+Implemented on 2026-09-23.
+
+The native frontend now accepts `--net-local-players 1|2` (default 1). A
+two-player node presents that count in its join request, sends both selected
+cars in `NET_MSG_PLAYER_INFO`, expands its roster entry into two legacy player
+slots, and assigns `player1_car` and `player2_car` to those slots. This keeps
+the original split-screen renderer and `readuserdata(0/1)` input mappings in
+use during a modern race. If the cached selections name the same car, the
+second local player takes the other of cars 0 and 1 rather than sending an
+invalid duplicate claim.
+
+The focused 36 Hz client acceptance now creates a real two-local-player
+session and proves that the host consumes distinct canonical input for both
+cars. A deliberately incomplete one-car own-state message cannot complete a
+two-car correction. Once the full pair arrives, the correction restores the
+group atomically, replays both cars, regenerates both prediction histories,
+and reproduces the uninterrupted second car's complete D19 movement set;
+only the documented sub-millimetre world/local position rounding is allowed.
+Authoritative result and time fields are deliberately re-published from the
+host state at the correction tick and are not part of that movement equality.
+
+The same run raises RTT from 120 ms to 600 ms and checks that both cars become
+puppets together, have no prediction history while delayed, and both return
+to full prediction after RTT recovers. It exposed a replay bug in the shared
+puppet hook: historical replay sampled remote cars using the live client tick
+on every replayed step. The client now supplies the actual simulation tick to
+the hook during live ticks, correction replay, and checkpoint catch-up.
+
+The final E2-S5 drop requirement remains covered end to end by E5-S2's host
+acceptance: expiring a split-screen connection transfers both airborne cars
+to AI in one ownership commit without changing either car's physics state.

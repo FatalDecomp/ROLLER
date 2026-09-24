@@ -33,7 +33,7 @@ typedef struct
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
-  uint8 bySelectedCar, bySelectedControl;
+  uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
   uint8 byAppResumePending;
   uint64 ullRejoinStartedMs;
   char szStatus[96];
@@ -41,7 +41,8 @@ typedef struct
 } tNetFrontendLobbyState;
 
 static tNetFrontendLobbyState s_frontend = {
-  .unLocalPort = ROLLER_DEFAULT_PORT
+  .unLocalPort = ROLLER_DEFAULT_PORT,
+  .byLocalPlayers = 1
 };
 
 static void NetFrontendStatus(const char *szStatus)
@@ -74,6 +75,14 @@ int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort)
     return 0;
   s_frontend.peer = peer;
   s_frontend.byHasPeer = 1;
+  return 1;
+}
+
+int NetFrontendSetLocalPlayers(int iLocalPlayers)
+{
+  if ((iLocalPlayers != 1 && iLocalPlayers != 2) || s_frontend.byOpen)
+    return 0;
+  s_frontend.byLocalPlayers = (uint8)iLocalPlayers;
   return 1;
 }
 
@@ -200,7 +209,8 @@ static int NetFrontendCreateClient(const tNetAddress *pPeer)
   if (!pConnection)
     return 0;
   s_frontend.pClient = NetSessionClientCreate(
-      pConnection, NET_PROTOCOL_VERSION, 1, NetFrontendPlayerName());
+      pConnection, NET_PROTOCOL_VERSION, s_frontend.byLocalPlayers,
+      NetFrontendPlayerName());
   if (!s_frontend.pClient)
     return 0;
   s_frontend.pClientLobby = NetLobbyClientCreate(s_frontend.pClient);
@@ -213,8 +223,18 @@ int NetFrontendLobbyBegin(void)
   tNetAddress peer;
   if (!s_frontend.byOpen || s_frontend.byLobbyStarted)
     return s_frontend.byLobbyStarted;
-  s_frontend.bySelectedCar =
+  if (player1_car < 0 || player1_car >= MAX_CARS ||
+      (s_frontend.byLocalPlayers == 2 &&
+       (player2_car < 0 || player2_car >= MAX_CARS ||
+        player2_car == player1_car)))
+    return NetFrontendLobbyFailure("LOCAL PLAYER SELECTION INVALID");
+  s_frontend.bySelectedCar0 =
       (uint8)(Players_Cars[player1_car] < 0 ? 0 : Players_Cars[player1_car]);
+  s_frontend.bySelectedCar1 = s_frontend.byLocalPlayers == 2 ?
+      (uint8)(Players_Cars[player2_car] < 0 ? 1 : Players_Cars[player2_car]) :
+      NET_LOBBY_NO_PLAYER;
+  if (s_frontend.bySelectedCar0 == s_frontend.bySelectedCar1)
+    s_frontend.bySelectedCar1 = s_frontend.bySelectedCar0 ? 0 : 1;
   s_frontend.bySelectedControl =
       (uint8)(manual_control[player1_car] == 2 ? 2 : 1);
 
@@ -269,20 +289,30 @@ static void NetFrontendSyncLegacyRoster(void)
   int iReady = 0;
   for (iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
     tNetPlayerEntry player;
+    uint8 abyCars[2];
+    int iCars;
     if (!NetLobbyClientPlayer(s_frontend.pClientLobby, (uint8)iPlayer,
                               &player))
       continue;
-    if (iPlayer == byLocalPlayer)
+    abyCars[0] = player.byCarIdx0;
+    abyCars[1] = player.byCarIdx1;
+    iCars = player.byCarIdx1 == NET_LOBBY_NO_PLAYER ? 1 : 2;
+    if (iPlayer == byLocalPlayer) {
       iLocalDisplay = iDisplay;
-    Players_Cars[iDisplay] = player.byCarIdx0;
-    manual_control[iDisplay] = player.byHumanControl;
-    player_started[iDisplay] = player.byState >= NET_PLAYER_READY ? -1 : 0;
-    memset(player_names[iDisplay], 0, sizeof(player_names[iDisplay]));
-    memcpy(player_names[iDisplay], player.szName,
-           sizeof(player_names[iDisplay]));
-    if (player_started[iDisplay])
-      ++iReady;
-    ++iDisplay;
+      player2_car = iCars == 2 ? iDisplay + 1 : -1;
+    }
+    for (int iCar = 0; iCar < iCars; ++iCar) {
+      Players_Cars[iDisplay] = abyCars[iCar];
+      manual_control[iDisplay] = player.byHumanControl;
+      player_started[iDisplay] =
+          player.byState >= NET_PLAYER_READY ? -1 : 0;
+      memset(player_names[iDisplay], 0, sizeof(player_names[iDisplay]));
+      memcpy(player_names[iDisplay], player.szName,
+             sizeof(player_names[iDisplay]));
+      if (player_started[iDisplay])
+        ++iReady;
+      ++iDisplay;
+    }
   }
   for (iPlayer = iDisplay; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
     Players_Cars[iPlayer] = -1;
@@ -293,6 +323,7 @@ static void NetFrontendSyncLegacyRoster(void)
   players = network_on;
   players_waiting = iReady;
   player1_car = iLocalDisplay;
+  player_type = s_frontend.byLocalPlayers == 2 ? 2 : 1;
   wConsoleNode = (int16)iLocalDisplay;
   master = s_frontend.byHost ? -1 : 0;
 }
@@ -383,8 +414,8 @@ void NetFrontendPump(void)
   }
   if (!s_frontend.byPlayerInfoSent) {
     s_frontend.byPlayerInfoSent = (uint8)NetLobbyClientSetPlayerInfo(
-        s_frontend.pClientLobby, s_frontend.bySelectedCar,
-        NET_LOBBY_NO_PLAYER, s_frontend.bySelectedControl);
+        s_frontend.pClientLobby, s_frontend.bySelectedCar0,
+        s_frontend.bySelectedCar1, s_frontend.bySelectedControl);
   }
   if (s_frontend.byPlayerInfoSent && !s_frontend.byReadySent) {
     s_frontend.byReadySent = (uint8)NetLobbyClientSetReady(

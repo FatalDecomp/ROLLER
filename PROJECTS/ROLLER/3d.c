@@ -615,6 +615,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
   cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern\n");
+  cli_fprintf(f, " --net-local-players N  local players on a modern node: 1 or 2\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
   cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
@@ -2982,6 +2983,24 @@ int main(int argc, const char **argv, const char **envp)
         return 1;
       }
       consumed = 2;
+    } else if (strcmp(argv[i], "--net-local-players") == 0) {
+#if !defined(IS_WASM)
+      if (i + 1 >= argc) {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-local-players' needs an argument\n");
+        return 1;
+      }
+      if (!NetFrontendSetLocalPlayers(atoi(argv[i + 1]))) {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-local-players' expects 1 or 2\n");
+        return 1;
+      }
+      consumed = 2;
+#else
+      cli_fprintf(stderr,
+                  "ERROR: '--net-local-players' is unavailable on wasm\n");
+      return 1;
+#endif
     } else if (strcmp(argv[i], "--snapshot") == 0) {
       if (i + 1 < argc) {
         SnapshotSetReplay(argv[i + 1]);

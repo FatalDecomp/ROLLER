@@ -84,8 +84,21 @@ typedef struct
   int aiHumanControl[16];
 } tNetTestMoment;
 
+typedef struct
+{
+  tNetClient *pClient;
+  uint8 abyCars[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint8 bySwapped;
+  tCar aSavedCars[NET_INPUT_MAX_LOCAL_PLAYERS];
+  int aiSavedHumanControl[NET_INPUT_MAX_LOCAL_PLAYERS];
+  int aiSavedFinished[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint32 auiMatchingInputs[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint32 uiDistinctInputTicks;
+} tNetTestTwoRun;
+
 static tNetTestHostRun s_hostRun;
 static tNetTestMoment s_pristine;
+static tNetTestTwoRun s_twoRun;
 
 static int NetTestRandomBytes(void *pContext, void *pData, int iLength)
 {
@@ -134,6 +147,63 @@ static tCarInputData NetTestScript(uint32 uiTick, int iCar)
   if (iPhase >= 60 && iPhase < 68)
     input.unFlags = BUTTON_FLAG_BRAKE;
   return input;
+}
+
+static void NetTestTwoInputs(uint32 uiTick, const uint8 *pbyCars,
+                             tCarInputData *pInputs)
+{
+  pInputs[0] = NetTestScript(uiTick, pbyCars[0]);
+  pInputs[1] = NetTestScript(uiTick + 31u, pbyCars[1]);
+  pInputs[0].unFlags = BUTTON_FLAG_BRAKE;
+  pInputs[1].unInput = (uint16)(int16)-(int16)pInputs[1].unInput;
+  pInputs[1].unFlags = BUTTON_FLAG_BRAKE;
+  NetSimCanonicaliseInput(&pInputs[0]);
+  NetSimCanonicaliseInput(&pInputs[1]);
+}
+
+static int NetTestMovementIdentical(const tNetCarFullState *pExpected,
+                                    const tNetCarFullState *pActual)
+{
+  const tNetCarState *pA = &pExpected->state;
+  const tNetCarState *pB = &pActual->state;
+  const tNetCarExtra *pEA = &pExpected->extra;
+  const tNetCarExtra *pEB = &pActual->extra;
+  return fabsf(pA->fWorldPosX - pB->fWorldPosX) < 0.001f &&
+      fabsf(pA->fWorldPosY - pB->fWorldPosY) < 0.001f &&
+      fabsf(pA->fWorldPosZ - pB->fWorldPosZ) < 0.001f &&
+      pA->fFinalSpeed == pB->fFinalSpeed &&
+      pA->fHorizontalSpeed == pB->fHorizontalSpeed &&
+      pA->fVelX == pB->fVelX && pA->fVelY == pB->fVelY &&
+      pA->fVelZ == pB->fVelZ &&
+      pA->nCurrChunk == pB->nCurrChunk &&
+      pA->nReferenceChunk == pB->nReferenceChunk &&
+      pA->nLastValidChunk == pB->nLastValidChunk &&
+      pA->nWorldRoll == pB->nWorldRoll &&
+      pA->nWorldPitch == pB->nWorldPitch &&
+      pA->nWorldYaw == pB->nWorldYaw &&
+      pA->nActualYaw == pB->nActualYaw &&
+      pA->nJumpMomentum == pB->nJumpMomentum &&
+      pA->byGearAyMax == pB->byGearAyMax &&
+      pA->byControlType == pB->byControlType &&
+      pEA->fBaseSpeed == pEB->fBaseSpeed &&
+      pEA->fSpeedOverflow == pEB->fSpeedOverflow &&
+      pEA->fPower == pEB->fPower && pEA->fRPMRatio == pEB->fRPMRatio &&
+      pEA->fHealth == pEB->fHealth &&
+      pEA->iRollMomentum == pEB->iRollMomentum &&
+      pEA->iRollMotion == pEB->iRollMotion &&
+      pEA->iPitchMotion == pEB->iPitchMotion &&
+      pEA->iYawMotion == pEB->iYawMotion &&
+      pEA->iEngineState == pEB->iEngineState &&
+      pEA->iSteeringInput == pEB->iSteeringInput &&
+      pEA->iBankingSteerOffset == pEB->iBankingSteerOffset &&
+      pEA->nTargetChunk == pEB->nTargetChunk &&
+      pEA->nChangeMateCooldown == pEB->nChangeMateCooldown &&
+      pEA->byEngineStartTimer == pEB->byEngineStartTimer &&
+      pEA->byThrottlePressed == pEB->byThrottlePressed &&
+      pEA->byAccelerating == pEB->byAccelerating &&
+      pEA->byAIThrottleControl == pEB->byAIThrottleControl &&
+      pEA->byPitLaneActiveFlag == pEB->byPitLaneActiveFlag &&
+      pEA->byCollisionTimer == pEB->byCollisionTimer;
 }
 
 static tNetWorldPose NetTestRemotePose(const tNetTestHostRun *pRun,
@@ -255,6 +325,53 @@ static void NetTestRestoreClientWorld(tNetTestHostRun *pRun)
   human_control[pRun->byCar] = pRun->iSavedHumanControl;
   finished_car[pRun->byCar] = pRun->iSavedFinished;
   pRun->byLocalSwapped = 0;
+}
+
+static int NetTestTwoHostSimulate(void *pContext, uint32 uiTick,
+                                  const tCopyData *pInputs, int iNumCars)
+{
+  tNetTestTwoRun *pRun = (tNetTestTwoRun *)pContext;
+  tCarInputData aExpected[NET_INPUT_MAX_LOCAL_PLAYERS];
+  CHECK(iNumCars == numcars);
+  NetTestTwoInputs(uiTick, pRun->abyCars, aExpected);
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    int iCar = pRun->abyCars[iMember];
+    if (!memcmp(&pInputs[iCar].data, &aExpected[iMember],
+                sizeof(aExpected[iMember])))
+      ++pRun->auiMatchingInputs[iMember];
+  }
+  if (memcmp(&pInputs[pRun->abyCars[0]].data,
+             &pInputs[pRun->abyCars[1]].data,
+             sizeof(tCarInputData)))
+    ++pRun->uiDistinctInputTicks;
+
+  pRun->bySwapped = 0;
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    int iCar = pRun->abyCars[iMember];
+    tNetCarFullState predicted;
+    NetSimSaveCar(iCar, &pRun->aSavedCars[iMember]);
+    pRun->aiSavedHumanControl[iMember] = human_control[iCar];
+    pRun->aiSavedFinished[iMember] = finished_car[iCar];
+    if (pRun->pClient &&
+        NetClientPredictionAt(pRun->pClient, iMember, uiTick, &predicted)) {
+      CHECK(NetSnapshotDecodeCarFull(iCar, &predicted));
+    }
+  }
+  pRun->bySwapped = 1;
+  return 1;
+}
+
+static void NetTestRestoreTwoClientWorld(tNetTestTwoRun *pRun)
+{
+  if (!pRun->bySwapped)
+    return;
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    int iCar = pRun->abyCars[iMember];
+    NetSimRestoreCar(iCar, &pRun->aSavedCars[iMember]);
+    human_control[iCar] = pRun->aiSavedHumanControl[iMember];
+    finished_car[iCar] = pRun->aiSavedFinished[iMember];
+  }
+  pRun->bySwapped = 0;
 }
 
 typedef struct
@@ -1800,6 +1917,323 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   NetTransportSimDestroy(nodes.pSim);
 }
 
+static void NetTestRunTwoDuration(tNetTestNodes *pNodes,
+                                  uint64 *pullNowMs,
+                                  uint64 ullDurationMs,
+                                  uint64 ullReleaseMs,
+                                  int *piHostTickIndex,
+                                  uint16 unTickRateHz)
+{
+  uint64 ullStartMs = *pullNowMs;
+  uint64 ullEndMs = ullStartMs + ullDurationMs;
+  uint64 ullFrame = 0;
+  uint64 ullNextFrameMs = ullStartMs;
+  for (; *pullNowMs <= ullEndMs; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    while (*pullNowMs >= ullReleaseMs +
+           (uint64)*piHostTickIndex * 1000u / unTickRateHz) {
+      CHECK(NetHostTick(pNodes->pHost, NetHostNextTick(pNodes->pHost)));
+      NetTestRestoreTwoClientWorld(&s_twoRun);
+      ++*piHostTickIndex;
+    }
+    if (*pullNowMs < ullNextFrameMs)
+      continue;
+    ++ullFrame;
+    ullNextFrameMs = ullStartMs + ullFrame * NET_TEST_FRAME_NUMERATOR / 3u;
+    NetTestPumpClient(pNodes);
+    NetClientPump(pNodes->pClient);
+    while (NetClientTicksDue(pNodes->pClient) > 0) {
+      tCarInputData aInputs[NET_INPUT_MAX_LOCAL_PLAYERS];
+      NetTestTwoInputs(NetClientCurrentTick(pNodes->pClient) + 1u,
+                       s_twoRun.abyCars, aInputs);
+      CHECK(NetClientTick(pNodes->pClient, aInputs));
+    }
+  }
+}
+
+static void NetTestTwoCarCorrection(tNetTestNodes *pNodes,
+                                    uint64 *pullNowMs,
+                                    uint16 unTickRateHz)
+{
+  tNetConnection *pConnection = NetSessionHostPlayerConnection(
+      pNodes->pSessionHost,
+      NetSessionClientPlayerIndex(pNodes->pSessionClient));
+  tNetSimLink link = {0, 0, 0, 0, 0};
+  tNetClientStats before, deferred, corrected;
+  tNetSnapshot snapshot;
+  tNetCarFullState aHost[NET_INPUT_MAX_LOCAL_PLAYERS];
+  tNetCarFullState uninterruptedSecond, replayedSecond;
+  tCarInputData aInputs[NET_INPUT_MAX_LOCAL_PLAYERS];
+  tNetCorrection correction;
+  tNetCarExtra aReadExtras[NET_INPUT_MAX_LOCAL_PLAYERS];
+  uint8 abMessage[NET_MAX_PAYLOAD];
+  uint32 uiBaseTick, uiTick, uiUninterruptedTick;
+  int iLength, iDepth;
+
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(pNodes->pSim, iEndpoint, &link));
+  /* Drain the old link, then advance only the client far enough to leave a
+     useful replay span beyond the newest retained host snapshot. */
+  for (uint64 ullEndMs = *pullNowMs + 400u;
+       *pullNowMs <= ullEndMs; ++*pullNowMs) {
+    CHECK(NetTransportSimAdvance(pNodes->pSim, *pullNowMs));
+    NetTestPumpHost(pNodes);
+    NetTestPumpClient(pNodes);
+  }
+  NetClientPump(pNodes->pClient);
+  while (NetClientTicksDue(pNodes->pClient) > 0) {
+    NetTestTwoInputs(NetClientCurrentTick(pNodes->pClient) + 1u,
+                     s_twoRun.abyCars, aInputs);
+    CHECK(NetClientTick(pNodes->pClient, aInputs));
+  }
+
+  CHECK(NetClientStats(pNodes->pClient, &before));
+  uiBaseTick = before.uiNewestSnapshotTick;
+  uiTick = NetClientCurrentTick(pNodes->pClient) - 15u;
+  CHECK((int32)(uiTick - uiBaseTick) > 0);
+  CHECK(NetClientSnapshotAt(pNodes->pClient, uiBaseTick, &snapshot));
+  for (int iRamp = 0; iRamp < snapshot.byNumRamps; ++iRamp)
+    CHECK(NetSimAdvanceRampStateCopy(
+        iRamp, &snapshot.aRamps[iRamp], (int)(uiTick - uiBaseTick)));
+  snapshot.uiTick = uiTick;
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    int iCar = s_twoRun.abyCars[iMember];
+    CHECK(NetClientPredictionAt(pNodes->pClient, iMember, uiTick,
+                                &aHost[iMember]));
+    snapshot.aCars[iCar] = aHost[iMember].state;
+  }
+  /* Only car zero disagrees.  Car one's replay must nevertheless be part of
+     the atomic group and reproduce its uninterrupted movement state. */
+  snapshot.aCars[s_twoRun.abyCars[0]].fWorldPosY += 2.0f;
+  aHost[0].state = snapshot.aCars[s_twoRun.abyCars[0]];
+  CHECK(NetSnapshotCarFullValid(s_twoRun.abyCars[0], &aHost[0]));
+  iLength = NetSnapshotEncode(&snapshot, abMessage, sizeof(abMessage));
+  CHECK(iLength == (int)sizeof(snapshot));
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_SNAPSHOT, 0,
+                                  abMessage, (uint16)iLength));
+  /* A one-entry own-state message cannot complete a two-car correction. */
+  iLength = NetSnapshotEncodeOwnCarState(
+      uiTick, s_twoRun.abyCars, &aHost[0].extra, 1,
+      abMessage, sizeof(abMessage));
+  CHECK(iLength > 0);
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_OWN_CAR_STATE, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  NetTestTwoInputs(NetClientCurrentTick(pNodes->pClient) + 1u,
+                   s_twoRun.abyCars, aInputs);
+  CHECK(NetClientTick(pNodes->pClient, aInputs));
+  CHECK(NetClientStats(pNodes->pClient, &deferred));
+  CHECK(deferred.uiDeferredCorrections ==
+        before.uiDeferredCorrections + 1u);
+  CHECK(deferred.uiCorrections == before.uiCorrections);
+
+  uiUninterruptedTick = NetClientCurrentTick(pNodes->pClient);
+  CHECK(NetClientPredictionAt(pNodes->pClient, 1, uiUninterruptedTick,
+                              &uninterruptedSecond));
+  iDepth = (int)(uiUninterruptedTick - uiTick);
+  CHECK(iDepth > 0 && iDepth <= deferred.iReplayBudgetTicks);
+  iLength = NetSnapshotEncodeOwnCarState(
+      uiTick, s_twoRun.abyCars, (const tNetCarExtra[]){
+        aHost[0].extra, aHost[1].extra
+      }, NET_INPUT_MAX_LOCAL_PLAYERS, abMessage, sizeof(abMessage));
+  CHECK(iLength > 0);
+  CHECK(NetConnectionQueueMessage(pConnection, NET_MSG_OWN_CAR_STATE, 0,
+                                  abMessage, (uint16)iLength));
+  NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
+  NetTestTwoInputs(NetClientCurrentTick(pNodes->pClient) + 1u,
+                   s_twoRun.abyCars, aInputs);
+  CHECK(NetClientTick(pNodes->pClient, aInputs));
+  CHECK(NetClientStats(pNodes->pClient, &corrected));
+  CHECK(corrected.uiCorrections == before.uiCorrections + 1u);
+  CHECK(corrected.uiReplayTicksTotal ==
+        deferred.uiReplayTicksTotal + (uint32)iDepth);
+  CHECK(corrected.iReplayDepth == iDepth);
+  CHECK(NetClientPredictionAt(pNodes->pClient, 1, uiUninterruptedTick,
+                              &replayedSecond));
+  /* D19's movement assignment is identical to the uninterrupted second car.
+     Result/time fields are deliberately re-published from authoritative T,
+     and world/local conversion permits sub-millimetre position rounding. */
+  CHECK(NetTestMovementIdentical(&uninterruptedSecond, &replayedSecond));
+  CHECK(NetSimRenderCorrectionAt(s_twoRun.abyCars[0], &correction));
+  CHECK(correction.iTicksRemaining == NET_CLIENT_CORRECTION_TICKS);
+  CHECK(NetSimRenderCorrectionAt(s_twoRun.abyCars[1], &correction));
+  CHECK(correction.iTicksRemaining == NET_CLIENT_CORRECTION_TICKS);
+  CHECK(NetClientOwnCarStateAt(pNodes->pClient, uiTick, aReadExtras));
+  CHECK(!memcmp(aReadExtras, (const tNetCarExtra[]){
+          aHost[0].extra, aHost[1].extra
+        }, sizeof(aReadExtras)));
+  for (uint32 uiReplay = uiTick + 1u;
+       (int32)(uiUninterruptedTick - uiReplay) >= 0; ++uiReplay) {
+    tNetSimTickContext context;
+    tCarInputData aRecorded[NET_INPUT_MAX_LOCAL_PLAYERS];
+    tNetCarFullState state;
+    CHECK(NetClientContextAt(pNodes->pClient, uiReplay, &context));
+    CHECK(NetClientInputAt(pNodes->pClient, uiReplay, aRecorded));
+    CHECK(NetClientPredictionAt(pNodes->pClient, 0, uiReplay, &state));
+    CHECK(NetClientPredictionAt(pNodes->pClient, 1, uiReplay, &state));
+  }
+  puts("NET-E2-S5 two-car correction deferred atomically, replayed both histories");
+}
+
+static void NetTestTwoLocalPlayers(void)
+{
+  const uint16 unTickRateHz = 36;
+  tNetTestRandom random = {0xe2e5u};
+  tNetTestNodes nodes;
+  tNetSessionConfig config;
+  tNetAddress hostAddress;
+  tNetSimLink low = {60, 0, 0, 0, 0};
+  tNetSimLink high = {300, 0, 0, 0, 0};
+  tNetClientStats beforeDelayed, delayed, recovered;
+  uint64 ullNowMs = 0, ullReleaseMs;
+  int iHostTickIndex = 0;
+  uint8 abyGroup[NET_INPUT_MAX_LOCAL_PLAYERS];
+
+  NetTestRestore(&s_pristine);
+  memset(&nodes, 0, sizeof(nodes));
+  memset(&s_twoRun, 0, sizeof(s_twoRun));
+  nodes.pSim = NetTransportSimCreate(0xe2e5u);
+  CHECK(nodes.pSim);
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(nodes.pSim, iEndpoint, &low));
+  memset(&hostAddress, 0, sizeof(hostAddress));
+  hostAddress.abAddress[0] = 127;
+  hostAddress.abAddress[3] = 1;
+  hostAddress.byFamily = NET_ADDR_IPV4;
+  memset(&config, 0, sizeof(config));
+  config.unProtocolVersion = NET_PROTOCOL_VERSION;
+  config.unTickRateHz = unTickRateHz;
+  config.bySnapshotInterval = NET_SESSION_DEFAULT_SNAPSHOT_INTERVAL;
+  config.byMaxPlayers = 4;
+  config.byPauseAllowed = 1;
+  config.iTrackLoad = 7;
+  config.iManualControl = 1;
+  config.iCompetitors = 16;
+  config.iDamageLevel = 1;
+  config.uiRandomSeed = 12345;
+  config.uiTrackCRC = 0xe2e5e2e5u;
+  memcpy(config.szBuildHash, "e2-s5-test", 11);
+  CHECK(NetSessionConfigValidate(&config));
+
+  nodes.pHostChannel = NetChannelCreate(NetTransportSimEndpoint(nodes.pSim, 0));
+  nodes.pSessionHost = NetSessionHostCreate(nodes.pHostChannel,
+      config.byMaxPlayers, NetTestRandomBytes, &random);
+  CHECK(nodes.pHostChannel && nodes.pSessionHost &&
+        NetSessionHostSetConfig(nodes.pSessionHost, &config));
+  nodes.pLobbyHost = NetLobbyHostCreate(nodes.pSessionHost);
+  nodes.pHost = NetHostCreate(nodes.pSessionHost, nodes.pLobbyHost);
+  CHECK(nodes.pLobbyHost && nodes.pHost);
+  nodes.pClientChannel = NetChannelCreate(NetTransportSimEndpoint(nodes.pSim, 1));
+  nodes.pClientConnection = NetChannelAddConnection(nodes.pClientChannel,
+                                                    &hostAddress, 0, 0);
+  nodes.pSessionClient = NetSessionClientCreate(nodes.pClientConnection,
+      NET_PROTOCOL_VERSION, 2, "Split");
+  nodes.pLobbyClient = NetLobbyClientCreate(nodes.pSessionClient);
+  nodes.pClient = NetClientCreate(nodes.pSessionClient, nodes.pLobbyClient);
+  CHECK(nodes.pClientChannel && nodes.pClientConnection &&
+        nodes.pSessionClient && nodes.pLobbyClient && nodes.pClient &&
+        NetSessionClientStart(nodes.pSessionClient));
+
+  for (; ullNowMs <= 1500u; ++ullNowMs) {
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  CHECK(NetSessionClientState(nodes.pSessionClient) == NET_JOIN_ACCEPTED);
+  CHECK(NetLobbyClientSetPlayerInfo(nodes.pLobbyClient, 0, 1, 1));
+  for (; ullNowMs <= 1800u; ++ullNowMs) {
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  CHECK(NetLobbyClientSetReady(nodes.pLobbyClient, 1, config.uiTrackCRC));
+  for (; ullNowMs <= 2200u; ++ullNowMs) {
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  CHECK(NetLobbyHostStart(nodes.pLobbyHost, NET_TEST_START_TICK));
+  for (; ullNowMs <= 2500u; ++ullNowMs) {
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  CHECK(NetLobbyClientSetRaceLoaded(nodes.pLobbyClient));
+  for (; !NetLobbyHostRaceReleased(nodes.pLobbyHost); ++ullNowMs) {
+    CHECK(ullNowMs < 5000u);
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  for (;;) {
+    uint32 uiStartTick;
+    if (NetLobbyClientRaceReleased(nodes.pLobbyClient, &uiStartTick)) {
+      CHECK(uiStartTick == NET_TEST_START_TICK);
+      break;
+    }
+    CHECK(ullNowMs < 6000u);
+    CHECK(NetTransportSimAdvance(nodes.pSim, ullNowMs++));
+    NetTestPumpHost(&nodes);
+    NetTestPumpClient(&nodes);
+  }
+  CHECK(NetHostBeginRace(nodes.pHost));
+  CHECK(NetClientBeginRace(nodes.pClient));
+  CHECK(NetClientGroup(nodes.pClient, abyGroup) == 2);
+  CHECK(abyGroup[0] == 0 && abyGroup[1] == 1);
+  memcpy(s_twoRun.abyCars, abyGroup, sizeof(abyGroup));
+  s_twoRun.pClient = nodes.pClient;
+  NetHostSetSimulation(nodes.pHost, NetTestTwoHostSimulate, &s_twoRun);
+  ullReleaseMs = ullNowMs;
+
+  NetTestRunTwoDuration(&nodes, &ullNowMs, 8000u, ullReleaseMs,
+                        &iHostTickIndex, unTickRateHz);
+  CHECK(s_twoRun.auiMatchingInputs[0] > 100u);
+  CHECK(s_twoRun.auiMatchingInputs[1] > 100u);
+  CHECK(s_twoRun.uiDistinctInputTicks > 100u);
+  CHECK(human_control[0] == 1 && human_control[1] == 1);
+  NetTestTwoCarCorrection(&nodes, &ullNowMs, unTickRateHz);
+
+  CHECK(NetClientStats(nodes.pClient, &beforeDelayed));
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(nodes.pSim, iEndpoint, &high));
+  NetTestRunTwoDuration(&nodes, &ullNowMs, 5000u, ullReleaseMs,
+                        &iHostTickIndex, unTickRateHz);
+  CHECK(NetClientStats(nodes.pClient, &delayed));
+  CHECK(delayed.iPredictionMode == NET_PREDICT_DELAYED);
+  CHECK(delayed.iPredictionTransitions ==
+        beforeDelayed.iPredictionTransitions + 1);
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    CHECK(net_puppet_car[abyGroup[iMember]]);
+    CHECK(!NetClientPredictionAt(nodes.pClient, iMember,
+          NetClientCurrentTick(nodes.pClient), &(tNetCarFullState){0}));
+  }
+  for (int iEndpoint = 0; iEndpoint < 2; ++iEndpoint)
+    CHECK(NetTransportSimSetLink(nodes.pSim, iEndpoint, &low));
+  NetTestRunTwoDuration(&nodes, &ullNowMs, 5000u, ullReleaseMs,
+                        &iHostTickIndex, unTickRateHz);
+  CHECK(NetClientStats(nodes.pClient, &recovered));
+  CHECK(recovered.iPredictionMode == NET_PREDICT_FULL);
+  CHECK(recovered.iPredictionTransitions ==
+        delayed.iPredictionTransitions + 1);
+  for (int iMember = 0; iMember < NET_INPUT_MAX_LOCAL_PLAYERS; ++iMember) {
+    CHECK(!net_puppet_car[abyGroup[iMember]]);
+    CHECK(NetClientPredictionAt(nodes.pClient, iMember,
+          NetClientCurrentTick(nodes.pClient), &(tNetCarFullState){0}));
+  }
+  puts("NET-E2-S5 distinct two-car inputs and group delayed-mode recovery passed");
+
+  NetClientDestroy(nodes.pClient);
+  NetLobbyClientDestroy(nodes.pLobbyClient);
+  NetSessionClientDestroy(nodes.pSessionClient);
+  NetChannelDestroy(nodes.pClientChannel);
+  NetHostDestroy(nodes.pHost);
+  NetLobbyHostDestroy(nodes.pLobbyHost);
+  NetSessionHostDestroy(nodes.pSessionHost);
+  NetChannelDestroy(nodes.pHostChannel);
+  NetTransportSimDestroy(nodes.pSim);
+}
+
 int main(int iArgc, const char **ppArgv)
 {
   char szError[512];
@@ -1814,6 +2248,7 @@ int main(int iArgc, const char **ppArgv)
   /* Five minutes of virtual race time is E4-S2's steady puppet soak. */
   NetTestRace(36, 285000, 15000);
   puts("NET-E4-S1/S2/S3/S4 client acceptance passed at 36 Hz");
+  NetTestTwoLocalPlayers();
   NetTestRace(100, 8000, 8000);
   puts("NET-E4-S1/S2/S3/S4 client acceptance passed at 100 Hz");
   return 0;
