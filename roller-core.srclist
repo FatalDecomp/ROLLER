@@ -117,6 +117,7 @@ KEEP|PROJECTS/ROLLER/net_checkpoint.c
 KEEP|PROJECTS/ROLLER/net_host.c
 KEEP|PROJECTS/ROLLER/net_input.c
 KEEP|PROJECTS/ROLLER/net_client.c
+KEEP|PROJECTS/ROLLER/net_bot.c
 KEEP|PROJECTS/ROLLER/net_rendezvous.c
 KEEP|PROJECTS/ROLLER/net_sim_seam.c
 EXCLUDE|PROJECTS/ROLLER/net_transport_sim.c

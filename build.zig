@@ -786,6 +786,44 @@ fn configureRenderQueue3DTests(
     const net_client_tests = b.step("test-net-client", "Run NET-E4 client prediction acceptance");
     net_client_tests.dependOn(&run_net_client.step);
     net_client_tests.dependOn(&run_net_replay_output.step);
+    const net_bot_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_bot_mod.sanitize_c = .off;
+    net_bot_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_bot_mod.addIncludePath(sdl.builder.path("include"));
+    net_bot_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_bot_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_bot_mod.addIncludePath(libcdio.builder.path("include"));
+    net_bot_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_bot_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_bot_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_bot_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_bot_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_bot_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_bot_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_bot_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_bot_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_bot_test.c",
+        },
+    });
+    const net_bot_exe = b.addExecutable(.{
+        .name = "net_bot_acceptance",
+        .root_module = net_bot_mod,
+    });
+    const run_net_bot = b.addRunArtifact(net_bot_exe);
+    run_net_bot.addFileArg(assets_path.path(b, soak_track));
+    run_net_bot.addDirectoryArg(assets_path);
+    const net_bot_tests = b.step("test-net-bot", "Run NET-E2-S7 bot client acceptance");
+    net_bot_tests.dependOn(&run_net_bot.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);

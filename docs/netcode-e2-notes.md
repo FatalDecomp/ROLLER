@@ -210,3 +210,47 @@ the hook during live ticks, correction replay, and checkpoint catch-up.
 The final E2-S5 drop requirement remains covered end to end by E5-S2's host
 acceptance: expiring a split-screen connection transfers both airborne cars
 to AI in one ownership commit without changing either car's physics state.
+
+## E2-S7 bot client
+
+Implemented on 2026-09-23.
+
+`net_bot.c` is a lightweight protocol client for harness and dedicated-server
+races. It owns the client session and lobby objects, automatically sends its
+single-car player selection and ready state after the authenticated join,
+acknowledges the loading countdown, and exposes the resulting Joining, Lobby,
+Loading, Racing, Refused, or Error state. The caller still owns the channel
+and decides when the host starts; this keeps transport pumping in the frame
+loop and makes the component usable with both the deterministic transport and
+real UDP.
+
+During a race, `NetBotTick` accepts exactly the next host-labelled tick and
+sends the current input plus up to seven retained ticks in the ordinary
+redundant `NET_MSG_INPUT` batch. A NULL input selects the deliberately small
+E2-S7 driver: centred steering and full throttle. Supplied inputs have the
+same canonical flag filtering as a native client. The host remains the final
+D9 clamp and the only simulation authority.
+
+The bot does not create or step a prediction world. It decodes full and delta
+snapshots only far enough to retain exact named baselines and report the
+newest decoded tick in its next input batch. It also validates input feedback
+and semantic events, counts its lap-complete events, and observes its finish.
+Ignoring own-car state, pause, world-change, and checkpoint payloads is
+intentional for this first bot story; E8-S3 extends bots through recovery.
+This endpoint-only shape lets the acceptance share a process with the harness
+host without violating D13's one-world rule.
+
+`test-net-bot` runs the real authoritative headless simulation on TRACK5. The
+bot completes the full join, ready, loading, and release flow, then holds the
+default throttle through the pre-start crossing and one scored lap. The host
+records the car advancing from lap 1 to lap 2 and finished in a one-lap race;
+the bot receives exactly one lap event and the finish event. The run completed
+in 2,839 host ticks with 1,420 decoded snapshots, no late or clamped host
+inputs, no rejected batches, and no rejected bot messages.
+
+The new source is registered in `roller-core.srclist`, Zig, and CMake. The
+focused ReleaseSafe netcode suite, the full native ReleaseSafe build, source
+set and manifest checks, and all 18 selected Python tests pass. Source counts
+remain Linux 95, macOS 95, Windows 98, Android 95 and Emscripten 93; the
+roller-core manifest now contains 110 translation units. A CMake configure,
+Android build, real-UDP bot process, and E7-S1 legacy-call trap were not run.
