@@ -214,10 +214,19 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_include_directories(net-netsim PRIVATE PROJECTS/ROLLER)
     set_target_properties(net-netsim PROPERTIES OUTPUT_NAME "roller-netsim")
     roller_configure_c_target(net-netsim)
+    add_executable(net-rendezvous
+        PROJECTS/ROLLERSRV/roller_rendezvous.c
+        PROJECTS/ROLLER/net_rendezvous.c
+        PROJECTS/ROLLER/net_transport.c)
+    target_compile_features(net-rendezvous PRIVATE c_std_11)
+    target_include_directories(net-rendezvous PRIVATE PROJECTS/ROLLER)
+    set_target_properties(net-rendezvous PROPERTIES OUTPUT_NAME "roller-rendezvous")
+    roller_configure_c_target(net-rendezvous)
     if(WIN32)
         target_link_libraries(net-server PRIVATE ws2_32 iphlpapi bcrypt)
         target_link_libraries(net-bot-process PRIVATE ws2_32 iphlpapi bcrypt)
         target_link_libraries(net-netsim PRIVATE ws2_32)
+        target_link_libraries(net-rendezvous PRIVATE ws2_32 iphlpapi bcrypt)
     endif()
 
     add_executable(net-transport-test
@@ -288,6 +297,15 @@ if(ROLLER_BUILD_EDITOR_CORE)
     target_include_directories(net-lobby-test PRIVATE PROJECTS/ROLLER)
     roller_configure_c_target(net-lobby-test)
     add_test(NAME net-lobby COMMAND net-lobby-test)
+
+    add_executable(net-rendezvous-test
+        tests/net_rendezvous_test.c
+        PROJECTS/ROLLER/net_rendezvous.c)
+    target_compile_features(net-rendezvous-test PRIVATE c_std_11)
+    target_include_directories(net-rendezvous-test PRIVATE PROJECTS/ROLLER)
+    roller_configure_c_target(net-rendezvous-test)
+    add_test(NAME net-rendezvous COMMAND net-rendezvous-test)
+    set_tests_properties(net-rendezvous PROPERTIES TIMEOUT 30)
 
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)

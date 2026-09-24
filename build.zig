@@ -606,6 +606,26 @@ fn configureRenderQueue3DTests(
         "Run NET-E2-S2 lobby state acceptance",
     );
     net_lobby_tests.dependOn(&run_net_lobby.step);
+    const net_rendezvous_test_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_rendezvous_test_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_rendezvous_test_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "tests/net_rendezvous_test.c",
+    } });
+    const net_rendezvous_test_exe = b.addExecutable(.{
+        .name = "net_rendezvous_test",
+        .root_module = net_rendezvous_test_mod,
+    });
+    const run_net_rendezvous = b.addRunArtifact(net_rendezvous_test_exe);
+    const net_rendezvous_tests = b.step(
+        "test-net-rendezvous",
+        "Run NET-E6-S1 rendezvous daemon acceptance and virtual 24 h soak",
+    );
+    net_rendezvous_tests.dependOn(&run_net_rendezvous.step);
     const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
@@ -613,6 +633,32 @@ fn configureRenderQueue3DTests(
     } });
     if (target.result.os.tag == .windows) netsim_mod.linkSystemLibrary("ws2_32", .{});
     const netsim_exe = b.addExecutable(.{ .name = "roller-netsim", .root_module = netsim_mod });
+    const rendezvous_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    rendezvous_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    rendezvous_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLERSRV/roller_rendezvous.c",
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "PROJECTS/ROLLER/net_transport.c",
+    } });
+    if (target.result.os.tag == .windows) {
+        rendezvous_mod.linkSystemLibrary("ws2_32", .{});
+        rendezvous_mod.linkSystemLibrary("iphlpapi", .{});
+        rendezvous_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const rendezvous_exe = b.addExecutable(.{
+        .name = "roller-rendezvous",
+        .root_module = rendezvous_mod,
+    });
+    const install_rendezvous = b.addInstallArtifact(rendezvous_exe, .{});
+    const rendezvous_build = b.step(
+        "build-net-rendezvous",
+        "Build the NET-E6-S1 rendezvous UDP daemon",
+    );
+    rendezvous_build.dependOn(&install_rendezvous.step);
     const net_server_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -734,6 +780,7 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_session.step);
     net_foundations_tests.dependOn(&run_net_config.step);
     net_foundations_tests.dependOn(&run_net_lobby.step);
+    net_foundations_tests.dependOn(&run_net_rendezvous.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);
