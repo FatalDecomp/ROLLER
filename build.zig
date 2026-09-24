@@ -923,6 +923,22 @@ fn configureRenderQueue3DTests(
     const net_harness_tests = b.step("test-net-harness", "Run deterministic two-process NET-E0 smoke test");
     net_harness_tests.dependOn(&run_net_harness.step);
 
+    const run_net_performance = b.addSystemCommand(&.{
+        "python", "tests/net_performance.py", "--server",
+    });
+    run_net_performance.addArtifactArg(net_server_exe);
+    run_net_performance.addArg("--proxy");
+    run_net_performance.addArtifactArg(netsim_exe);
+    run_net_performance.addArg("--track");
+    run_net_performance.addFileArg(assets_path.path(b, soak_track));
+    run_net_performance.addArg("--assets");
+    run_net_performance.addDirectoryArg(assets_path);
+    const net_performance = b.step(
+        "measure-net-performance",
+        "Measure NET-E8-S5 bandwidth and prediction crossover",
+    );
+    net_performance.dependOn(&run_net_performance.step);
+
     const run_net_multiprocess = b.addSystemCommand(&.{
         "python", "tests/net_multiprocess_race.py", "--server",
     });

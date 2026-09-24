@@ -1,5 +1,32 @@
 # Netcode E8 notes
 
+## NET-E8-S5: bandwidth, latency, and replay-cost report
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted. Full
+methodology and measurements are in `docs/netcode-performance.md`.
+
+The race harness now counts actual protocol bytes at its transport boundary
+and exposes the host's existing full/delta snapshot counters. The counters
+exclude only the four-byte harness routing envelope. The reusable scenario
+returns its exact post-start-gate baseline and virtual measurement duration,
+so setup traffic is not mixed into race bandwidth.
+
+`tests/net_performance.py`, exposed as `zig build measure-net-performance`,
+runs the 16-car, three-client race for 5,000 ticks, calculates per-node byte
+rates and snapshot compression, sweeps sustained RTT until prediction
+degrades, and verifies recovery after the link improves.
+
+On Windows the clients downloaded 13.06 KB/s and uploaded 2.67 KB/s each;
+host aggregate traffic was 39.55 KB/s out and 7.92 KB/s in. Deltas were 97.24
+percent of 7,500 snapshots and the average snapshot payload was 548.80 bytes.
+The first delayed-prediction step was 400 ms configured / 416 ms measured RTT,
+and full prediction recovered at 120 ms configured / 128 ms measured RTT.
+The existing direct ReleaseSafe benchmark measured 0.016 ms per replay tick.
+
+The Windows performance run and `test-net-foundations` passed with Zig 0.15.2.
+Linux, macOS and Android performance rows remain explicitly unmeasured; the
+report does not invent cross-platform figures.
+
 ## NET-E8-S1: harness race scenarios library
 
 Implemented on 2026-09-24. The changes are intentionally uncommitted.

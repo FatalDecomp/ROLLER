@@ -26,6 +26,7 @@ struct tNetRaceHarness
   struct sockaddr_in proxyAddress;
   uint64 ullNowMs, ullLastFrameMs;
   uint64 ullRandomState;
+  uint64 ullBytesSent, ullBytesReceived;
   double dHostTickCredit;
   int iEndpoint, iExpectedClients;
   uint8 byRole, byStarted, byReadySent, byLoadedSent, byAbility;
@@ -119,6 +120,7 @@ static int NetRaceHarnessSend(void *pContext, const tNetAddress *pTo,
              sizeof(pHarness->proxyAddress)) !=
       iFilteredLength + NET_HARNESS_ENVELOPE_SIZE)
     return -1;
+  pHarness->ullBytesSent += (uint64)iFilteredLength;
   return iLength;
 }
 
@@ -143,6 +145,7 @@ static int NetRaceHarnessReceive(void *pContext, tNetAddress *pFrom,
     return -1;
   iLength -= NET_HARNESS_ENVELOPE_SIZE;
   memcpy(pData, abDatagram + NET_HARNESS_ENVELOPE_SIZE, (size_t)iLength);
+  pHarness->ullBytesReceived += (uint64)iLength;
   if (pFrom) {
     memset(pFrom, 0, sizeof(*pFrom));
     pFrom->abAddress[0] = 127;
@@ -402,19 +405,34 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
 {
   if (pHarness->byRole == NET_HARNESS_RACE_HOST) {
     int iFinishers = 0, iHumanFinishers = 0;
+    uint32 uiFullSnapshots = 0, uiDeltaSnapshots = 0;
+    uint64 ullSnapshotBytes = 0;
     uint32 uiTick = pHarness->byStarted ?
         NetHostNextTick(pHarness->pHost) - 1u : 0;
     NetHostResults(pHarness->pHost, &iFinishers, &iHumanFinishers);
+    for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+      tNetHostPlayerStats playerStats;
+      if (NetHostPlayerStats(pHarness->pHost, (uint8)iPlayer, &playerStats)) {
+        uiFullSnapshots += playerStats.uiFullSnapshots;
+        uiDeltaSnapshots += playerStats.uiDeltaSnapshots;
+        ullSnapshotBytes += playerStats.ullSnapshotBytes;
+      }
+    }
     snprintf(szReply, (size_t)iReplyCapacity,
         "{\"role\":\"host\",\"running\":%s,\"tick\":%u,"
         "\"game_frame\":%d,\"players\":%d,\"released\":%s,"
         "\"paused\":%d,\"race_state\":%d,\"finishers\":%d,"
-        "\"human_finishers\":%d}\n",
+        "\"human_finishers\":%d,\"full_snapshots\":%u,"
+        "\"delta_snapshots\":%u,\"snapshot_bytes\":%llu,"
+        "\"wire_bytes_sent\":%llu,\"wire_bytes_received\":%llu}\n",
         pHarness->byStarted ? "true" : "false", uiTick, game_frame,
         NetLobbyHostPlayerCount(pHarness->pLobbyHost),
         NetLobbyHostRaceReleased(pHarness->pLobbyHost) ? "true" : "false",
         NetHostPaused(pHarness->pHost), NetHostRaceState(pHarness->pHost),
-        iFinishers, iHumanFinishers);
+        iFinishers, iHumanFinishers, uiFullSnapshots, uiDeltaSnapshots,
+        (unsigned long long)ullSnapshotBytes,
+        (unsigned long long)pHarness->ullBytesSent,
+        (unsigned long long)pHarness->ullBytesReceived);
   } else if (pHarness->byRole == NET_HARNESS_RACE_CLIENT) {
     tNetClientStats stats;
     uint8 abyCars[NET_INPUT_MAX_LOCAL_PLAYERS] = {NET_LOBBY_NO_PLAYER,
@@ -433,7 +451,8 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"prediction_mode\":%d,\"prediction_transitions\":%d,"
         "\"time_degraded_ms\":%u,\"recovery\":%d,"
         "\"rejected_messages\":%u,"
-        "\"rtt_ms\":%.9g,\"status\":\"%s\"}\n",
+        "\"rtt_ms\":%.9g,\"wire_bytes_sent\":%llu,"
+        "\"wire_bytes_received\":%llu,\"status\":\"%s\"}\n",
         pHarness->byStarted ? "true" : "false",
         pHarness->byStarted ? NetClientCurrentTick(pHarness->pClient) : 0,
         game_frame, NetSessionClientState(pHarness->pSessionClient),
@@ -444,8 +463,10 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         (double)stats.fReplayMsTotal, (double)stats.fReplayMsWorst,
         stats.iPredictionMode, stats.iPredictionTransitions,
         stats.uiTimeDegradedMs, NetClientRecoveryState(pHarness->pClient),
-        stats.uiRejectedMessages,
-        (double)stats.fRttMs, NetClientStatus(pHarness->pClient));
+        stats.uiRejectedMessages, (double)stats.fRttMs,
+        (unsigned long long)pHarness->ullBytesSent,
+        (unsigned long long)pHarness->ullBytesReceived,
+        NetClientStatus(pHarness->pClient));
   } else {
     snprintf(szReply, (size_t)iReplyCapacity,
              "{\"role\":\"none\",\"running\":false}\n");

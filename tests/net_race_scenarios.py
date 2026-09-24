@@ -76,6 +76,8 @@ class RaceScenario:
             15000, "race did not release")
         self._run_until(lambda states: states[0]["game_frame"] > 145,
                         10000, "host did not pass the start gate")
+        measurement_start_ms = self.now_ms
+        measurement_start = self.stats()
         first_tick = self.last[0]["tick"]
         self._run_until(lambda states: states[0]["tick"] >=
                         first_tick + running_ticks,
@@ -94,7 +96,9 @@ class RaceScenario:
                 assert field in client, client
         assert elapsed < 90, elapsed
         return {"nodes": report, "wall_seconds": elapsed,
-                "running_ticks": running_ticks}
+                "running_ticks": running_ticks,
+                "measurement_ms": self.now_ms - measurement_start_ms,
+                "measurement_start": measurement_start}
 
     def disturb(self, client_index, car, dx=1.0, dy=0.0, dz=0.0):
         return self.clients[client_index].command(
