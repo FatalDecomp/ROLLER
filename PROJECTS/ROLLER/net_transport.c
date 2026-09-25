@@ -73,7 +73,8 @@ int NetPlatformRandomBytes(void *pContext, void *pData, int iLength)
 }
 
 struct tNetTransportUdp {
-  tNetSocket socketHandle;
+  tNetSocket socketV4;
+  tNetSocket socketV6;
   uint16 unPort;
   tNetClockFn pClock;
   void *pClockContext;
@@ -286,18 +287,23 @@ static int NetAddressFromSockaddr(tNetAddress *pAddress,
 }
 
 static int NetAddressToSockaddr(const tNetAddress *pAddress,
-                                struct sockaddr_in6 *pSocketAddress)
+                                struct sockaddr_storage *pSocketAddress,
+                                tNetSocketLength *pSocketAddressLength)
 {
-  static const uint8 abMappedPrefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
   memset(pSocketAddress, 0, sizeof(*pSocketAddress));
-  pSocketAddress->sin6_family = AF_INET6;
-  pSocketAddress->sin6_port = htons(pAddress->unPort);
   if (pAddress->byFamily == NET_ADDR_IPV4) {
-    memcpy(&pSocketAddress->sin6_addr, abMappedPrefix, sizeof(abMappedPrefix));
-    memcpy((uint8 *)&pSocketAddress->sin6_addr + 12, pAddress->abAddress, 4);
+    struct sockaddr_in *pV4 = (struct sockaddr_in *)pSocketAddress;
+    pV4->sin_family = AF_INET;
+    pV4->sin_port = htons(pAddress->unPort);
+    memcpy(&pV4->sin_addr, pAddress->abAddress, 4);
+    *pSocketAddressLength = (tNetSocketLength)sizeof(*pV4);
   } else if (pAddress->byFamily == NET_ADDR_IPV6) {
-    memcpy(&pSocketAddress->sin6_addr, pAddress->abAddress, 16);
-    pSocketAddress->sin6_scope_id = pAddress->uiScopeId;
+    struct sockaddr_in6 *pV6 = (struct sockaddr_in6 *)pSocketAddress;
+    pV6->sin6_family = AF_INET6;
+    pV6->sin6_port = htons(pAddress->unPort);
+    memcpy(&pV6->sin6_addr, pAddress->abAddress, 16);
+    pV6->sin6_scope_id = pAddress->uiScopeId;
+    *pSocketAddressLength = (tNetSocketLength)sizeof(*pV6);
   } else {
     return 0;
   }
@@ -373,14 +379,18 @@ static int NetUdpSend(void *pContext, const tNetAddress *pTo,
                       const void *pData, int iLength)
 {
   tNetTransportUdp *pUdp = (tNetTransportUdp *)pContext;
-  struct sockaddr_in6 destination;
+  struct sockaddr_storage destination;
+  tNetSocketLength iDestinationLength;
+  tNetSocket socketHandle;
   int iSent;
   if (!pUdp || !pData || iLength < 1 || iLength > NET_MAX_PAYLOAD ||
-      !NetAddressToSockaddr(pTo, &destination))
+      !NetAddressToSockaddr(pTo, &destination, &iDestinationLength))
     return -1;
-  iSent = (int)sendto(pUdp->socketHandle, (const char *)pData, iLength, 0,
+  socketHandle = pTo->byFamily == NET_ADDR_IPV4 ?
+      pUdp->socketV4 : pUdp->socketV6;
+  iSent = (int)sendto(socketHandle, (const char *)pData, iLength, 0,
                       (const struct sockaddr *)&destination,
-                      (tNetSocketLength)sizeof(destination));
+                      iDestinationLength);
   return iSent == iLength ? iSent : -1;
 }
 
@@ -393,17 +403,14 @@ static int NetSocketWouldBlock(void)
 #endif
 }
 
-static int NetUdpReceive(void *pContext, tNetAddress *pFrom,
-                         void *pData, int iCapacity)
+static int NetUdpReceiveSocket(tNetSocket socketHandle, tNetAddress *pFrom,
+                               void *pData, int iCapacity)
 {
-  tNetTransportUdp *pUdp = (tNetTransportUdp *)pContext;
-  struct sockaddr_in6 source;
+  struct sockaddr_storage source;
   tNetSocketLength iSourceLength = (tNetSocketLength)sizeof(source);
   int iReceived;
-  if (!pUdp || !pData || iCapacity < 1)
-    return -1;
 #ifdef _WIN32
-  iReceived = (int)recvfrom(pUdp->socketHandle, (char *)pData, iCapacity, 0,
+  iReceived = (int)recvfrom(socketHandle, (char *)pData, iCapacity, 0,
                             (struct sockaddr *)&source, &iSourceLength);
 #else
   {
@@ -416,7 +423,7 @@ static int NetUdpReceive(void *pContext, tNetAddress *pFrom,
     message.msg_namelen = iSourceLength;
     message.msg_iov = &buffer;
     message.msg_iovlen = 1;
-    iReceived = (int)recvmsg(pUdp->socketHandle, &message, 0);
+    iReceived = (int)recvmsg(socketHandle, &message, 0);
     iSourceLength = (tNetSocketLength)message.msg_namelen;
     if (iReceived >= 0 && (message.msg_flags & MSG_TRUNC))
       return -1;
@@ -427,6 +434,18 @@ static int NetUdpReceive(void *pContext, tNetAddress *pFrom,
   if (pFrom && !NetAddressFromSockaddr(pFrom, (const struct sockaddr *)&source))
     return -1;
   return iReceived;
+}
+
+static int NetUdpReceive(void *pContext, tNetAddress *pFrom,
+                         void *pData, int iCapacity)
+{
+  tNetTransportUdp *pUdp = (tNetTransportUdp *)pContext;
+  int iReceived;
+  if (!pUdp || !pData || iCapacity < 1)
+    return -1;
+  iReceived = NetUdpReceiveSocket(pUdp->socketV6, pFrom, pData, iCapacity);
+  return iReceived ? iReceived :
+      NetUdpReceiveSocket(pUdp->socketV4, pFrom, pData, iCapacity);
 }
 
 static uint64 NetPlatformNowMs(tNetTransportUdp *pUdp)
@@ -455,9 +474,10 @@ static uint64 NetUdpNowMs(void *pContext)
 tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
 {
   tNetTransportUdp *pUdp;
-  struct sockaddr_in6 bindAddress;
+  struct sockaddr_in6 bindAddressV6;
+  struct sockaddr_in bindAddressV4;
   tNetSocketLength iAddressLength;
-  int iV6Only = 0;
+  int iV6Only = 1;
   int iBroadcast = 1;
 #ifdef _WIN32
   u_long ulNonBlocking = 1;
@@ -469,43 +489,70 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
     NetSocketsStop();
     return NULL;
   }
-  pUdp->socketHandle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
-  if (pUdp->socketHandle == NET_INVALID_SOCKET ||
-      setsockopt(pUdp->socketHandle, IPPROTO_IPV6, IPV6_V6ONLY,
-                 (const char *)&iV6Only, sizeof(iV6Only)) ||
-      setsockopt(pUdp->socketHandle, SOL_SOCKET, SO_BROADCAST,
-                 (const char *)&iBroadcast, sizeof(iBroadcast)))
+  pUdp->socketV4 = NET_INVALID_SOCKET;
+  pUdp->socketV6 = NET_INVALID_SOCKET;
+  /* Native sockets are required here: IPv4-mapped IPv6 sockets do not
+     portably send or receive IPv4 limited broadcasts on macOS. */
+  pUdp->socketV6 = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+  if (pUdp->socketV6 == NET_INVALID_SOCKET ||
+      setsockopt(pUdp->socketV6, IPPROTO_IPV6, IPV6_V6ONLY,
+                 (const char *)&iV6Only, sizeof(iV6Only)))
     goto fail;
 #ifdef _WIN32
-  if (ioctlsocket(pUdp->socketHandle, FIONBIO, &ulNonBlocking))
+  if (ioctlsocket(pUdp->socketV6, FIONBIO, &ulNonBlocking))
     goto fail;
   if (!QueryPerformanceFrequency(&pUdp->clockFrequency) ||
       pUdp->clockFrequency.QuadPart <= 0)
     goto fail;
 #else
   {
-    int iFlags = fcntl(pUdp->socketHandle, F_GETFL, 0);
-    if (iFlags < 0 || fcntl(pUdp->socketHandle, F_SETFL, iFlags | O_NONBLOCK))
+    int iFlags = fcntl(pUdp->socketV6, F_GETFL, 0);
+    if (iFlags < 0 || fcntl(pUdp->socketV6, F_SETFL, iFlags | O_NONBLOCK))
       goto fail;
   }
 #endif
-  memset(&bindAddress, 0, sizeof(bindAddress));
-  bindAddress.sin6_family = AF_INET6;
-  bindAddress.sin6_addr = in6addr_any;
-  bindAddress.sin6_port = htons(unPort);
-  if (bind(pUdp->socketHandle, (const struct sockaddr *)&bindAddress,
-           (tNetSocketLength)sizeof(bindAddress)))
+  memset(&bindAddressV6, 0, sizeof(bindAddressV6));
+  bindAddressV6.sin6_family = AF_INET6;
+  bindAddressV6.sin6_addr = in6addr_any;
+  bindAddressV6.sin6_port = htons(unPort);
+  if (bind(pUdp->socketV6, (const struct sockaddr *)&bindAddressV6,
+           (tNetSocketLength)sizeof(bindAddressV6)))
     goto fail;
-  iAddressLength = (tNetSocketLength)sizeof(bindAddress);
-  if (getsockname(pUdp->socketHandle, (struct sockaddr *)&bindAddress,
+  iAddressLength = (tNetSocketLength)sizeof(bindAddressV6);
+  if (getsockname(pUdp->socketV6, (struct sockaddr *)&bindAddressV6,
                   &iAddressLength))
     goto fail;
-  pUdp->unPort = ntohs(bindAddress.sin6_port);
+  pUdp->unPort = ntohs(bindAddressV6.sin6_port);
+
+  pUdp->socketV4 = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (pUdp->socketV4 == NET_INVALID_SOCKET ||
+      setsockopt(pUdp->socketV4, SOL_SOCKET, SO_BROADCAST,
+                 (const char *)&iBroadcast, sizeof(iBroadcast)))
+    goto fail;
+#ifdef _WIN32
+  if (ioctlsocket(pUdp->socketV4, FIONBIO, &ulNonBlocking))
+    goto fail;
+#else
+  {
+    int iFlags = fcntl(pUdp->socketV4, F_GETFL, 0);
+    if (iFlags < 0 || fcntl(pUdp->socketV4, F_SETFL, iFlags | O_NONBLOCK))
+      goto fail;
+  }
+#endif
+  memset(&bindAddressV4, 0, sizeof(bindAddressV4));
+  bindAddressV4.sin_family = AF_INET;
+  bindAddressV4.sin_addr.s_addr = htonl(INADDR_ANY);
+  bindAddressV4.sin_port = htons(pUdp->unPort);
+  if (bind(pUdp->socketV4, (const struct sockaddr *)&bindAddressV4,
+           (tNetSocketLength)sizeof(bindAddressV4)))
+    goto fail;
   return pUdp;
 
 fail:
-  if (pUdp->socketHandle != NET_INVALID_SOCKET)
-    NetCloseSocket(pUdp->socketHandle);
+  if (pUdp->socketV4 != NET_INVALID_SOCKET)
+    NetCloseSocket(pUdp->socketV4);
+  if (pUdp->socketV6 != NET_INVALID_SOCKET)
+    NetCloseSocket(pUdp->socketV6);
   free(pUdp);
   NetSocketsStop();
   return NULL;
@@ -515,7 +562,8 @@ void NetTransportUdpDestroy(tNetTransportUdp *pUdp)
 {
   if (!pUdp)
     return;
-  NetCloseSocket(pUdp->socketHandle);
+  NetCloseSocket(pUdp->socketV4);
+  NetCloseSocket(pUdp->socketV6);
   free(pUdp);
   NetSocketsStop();
 }
