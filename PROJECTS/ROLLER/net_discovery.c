@@ -19,7 +19,8 @@ struct tNetDiscovery {
   uint64 ullNonce, ullToken, ullNextSendMs, ullNextRefreshMs;
   uint64 ullPunchNonce, ullPunchDeadlineMs, ullNextPunchMs;
   uint64 ullNextPunchRequestMs;
-  uint32 uiSessionId, uiResolveId, uiPunchSessionId;
+  uint64 ullRelayToken;
+  uint32 uiSessionId, uiResolveId, uiPunchSessionId, uiRelayId;
   uint16 unSequence, unListPage;
   int iSessionCount, iLocalCandidateCount, iPunchCandidateCount;
   int iNextPunchCandidate;
@@ -194,6 +195,28 @@ static void NetDiscoverySendPunchRequest(tNetDiscovery *pDiscovery)
                    abRequest, sizeof(abRequest));
 }
 
+static void NetDiscoverySendRelayRequest(tNetDiscovery *pDiscovery)
+{
+  uint8 abRequest[sizeof(tRvzRelayRequest)];
+  NetDiscoveryWrite32(abRequest, pDiscovery->uiPunchSessionId);
+  NetDiscoveryWrite64(abRequest + 4, pDiscovery->ullPunchNonce);
+  NetDiscoverySend(pDiscovery, NET_RVZ_MSG_RELAY_REQUEST, 0,
+                   abRequest, sizeof(abRequest));
+}
+
+static int NetDiscoveryDecodeRelayAllocation(
+    const tNetRendezvousPacket *pPacket, uint32 *puiSessionId,
+    uint32 *puiRelayId, uint64 *pullRelayToken, tNetAddress *pPeer)
+{
+  if (pPacket->unPayloadLength != sizeof(tRvzRelayAllocation) ||
+      !NetRendezvousDecodeCandidate(pPeer, pPacket->pPayload + 16))
+    return 0;
+  *puiSessionId = NetDiscoveryRead32(pPacket->pPayload);
+  *puiRelayId = NetDiscoveryRead32(pPacket->pPayload + 4);
+  *pullRelayToken = NetDiscoveryRead64(pPacket->pPayload + 8);
+  return *puiSessionId && *puiRelayId && *pullRelayToken;
+}
+
 static int NetDiscoveryHandleDirect(tNetDiscovery *pDiscovery,
                                     const tNetAddress *pPeer,
                                     const uint8 *pData, int iLength)
@@ -319,6 +342,41 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
     pDiscovery->byPunchHasAnswer = 1;
     pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
     pDiscovery->ullNextPunchMs = ullNowMs;
+  } else if ((packet.byType == NET_RVZ_MSG_RELAY_OFFER ||
+              packet.byType == NET_RVZ_MSG_RELAY_ALLOCATED)) {
+    tNetAddress relayPeer;
+    uint32 uiSessionId, uiRelayId;
+    uint64 ullRelayToken;
+    if (!NetDiscoveryDecodeRelayAllocation(&packet, &uiSessionId,
+            &uiRelayId, &ullRelayToken, &relayPeer))
+      return;
+    if (packet.byType == NET_RVZ_MSG_RELAY_OFFER) {
+      if (!pDiscovery->byRegistered ||
+          packet.ullToken != pDiscovery->ullToken ||
+          uiSessionId != pDiscovery->uiSessionId)
+        return;
+    } else if (packet.ullToken ||
+               pDiscovery->ePunchState != NET_PUNCH_RELAY_IN_PROGRESS ||
+               uiSessionId != pDiscovery->uiPunchSessionId)
+      return;
+    if (!NetChannelSetRelayRoute(pDiscovery->pChannel, &relayPeer,
+            &pDiscovery->rendezvous, uiRelayId, ullRelayToken))
+      return;
+    if (packet.byType == NET_RVZ_MSG_RELAY_ALLOCATED) {
+      pDiscovery->uiRelayId = uiRelayId;
+      pDiscovery->ullRelayToken = ullRelayToken;
+      pDiscovery->tPunchAddress = relayPeer;
+      pDiscovery->ePunchState = NET_PUNCH_RELAY_SUCCEEDED;
+    }
+  } else if (packet.byType == NET_RVZ_MSG_RELAY_THROTTLED &&
+             !packet.ullToken &&
+             packet.unPayloadLength == sizeof(tRvzRelayThrottle) &&
+             !packet.pPayload[5] && !packet.pPayload[6] &&
+             !packet.pPayload[7] && packet.pPayload[4] <= 1 &&
+             (pDiscovery->byHosting ||
+              NetDiscoveryRead32(packet.pPayload) ==
+                  pDiscovery->uiRelayId)) {
+    pDiscovery->ePunchState = NET_PUNCH_RELAY_THROTTLED;
   }
 }
 
@@ -346,6 +404,7 @@ void NetDiscoveryDestroy(tNetDiscovery *pDiscovery)
   if (!pDiscovery)
     return;
   NetDiscoveryHostStop(pDiscovery);
+  NetChannelClearRelayRoutes(pDiscovery->pChannel);
   NetChannelSetDatagramCallback(pDiscovery->pChannel, NULL, NULL);
   free(pDiscovery);
 }
@@ -491,6 +550,7 @@ int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
       !pDiscovery->ullPunchNonce)
     return 0;
   ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+  NetChannelClearRelayRoutes(pDiscovery->pChannel);
   pDiscovery->uiPunchSessionId = uiSessionId;
   pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
   pDiscovery->byPunchHasAnswer = 0;
@@ -509,6 +569,9 @@ eNetPunchState NetDiscoveryPunchState(const tNetDiscovery *pDiscovery,
   if (!pDiscovery)
     return NET_PUNCH_IDLE;
   if (pAddress && pDiscovery->ePunchState == NET_PUNCH_SUCCEEDED)
+    *pAddress = pDiscovery->tPunchAddress;
+  if (pAddress && (pDiscovery->ePunchState == NET_PUNCH_RELAY_SUCCEEDED ||
+                   pDiscovery->ePunchState == NET_PUNCH_RELAY_THROTTLED))
     *pAddress = pDiscovery->tPunchAddress;
   return pDiscovery->ePunchState;
 }
@@ -539,7 +602,10 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
   }
   if (pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS) {
     if (ullNowMs >= pDiscovery->ullPunchDeadlineMs) {
-      pDiscovery->ePunchState = NET_PUNCH_TIMED_OUT;
+      pDiscovery->ePunchState = NET_PUNCH_RELAY_IN_PROGRESS;
+      NetDiscoverySendRelayRequest(pDiscovery);
+      pDiscovery->ullNextPunchRequestMs = ullNowMs +
+          NET_RELAY_REQUEST_RETRY_MS;
     } else if (!pDiscovery->byPunchHasAnswer &&
                ullNowMs >= pDiscovery->ullNextPunchRequestMs) {
       NetDiscoverySendPunchRequest(pDiscovery);
@@ -558,5 +624,11 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
           pDiscovery->iPunchCandidateCount;
       pDiscovery->ullNextPunchMs = ullNowMs + NET_PUNCH_RETRY_MS;
     }
+  }
+  if (pDiscovery->ePunchState == NET_PUNCH_RELAY_IN_PROGRESS &&
+      ullNowMs >= pDiscovery->ullNextPunchRequestMs) {
+    NetDiscoverySendRelayRequest(pDiscovery);
+    pDiscovery->ullNextPunchRequestMs = ullNowMs +
+        NET_RELAY_REQUEST_RETRY_MS;
   }
 }

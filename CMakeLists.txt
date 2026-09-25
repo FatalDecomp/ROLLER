@@ -374,6 +374,12 @@ if(ROLLER_BUILD_EDITOR_CORE)
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         add_test(NAME net-dedicated COMMAND net-dedicated-test
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        add_test(NAME net-relay-race-36 COMMAND net-dedicated-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
+            36 relay)
+        add_test(NAME net-relay-race-100 COMMAND net-dedicated-test
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
+            100 relay)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
@@ -385,6 +391,8 @@ if(ROLLER_BUILD_EDITOR_CORE)
             set_tests_properties(net-multiprocess PROPERTIES TIMEOUT 150)
         endif()
         set_tests_properties(net-foundations net-full-state-coherence net-replay-output net-host net-client net-bot net-harness PROPERTIES TIMEOUT 30)
+        set_tests_properties(net-dedicated net-relay-race-36
+            net-relay-race-100 PROPERTIES TIMEOUT 150)
     endif()
     get_target_property(ROLLER_SDL3_TARGET_TYPE SDL3::SDL3 TYPE)
     if(WIN32 AND NOT ROLLER_SDL3_TARGET_TYPE STREQUAL "INTERFACE_LIBRARY")

@@ -78,6 +78,75 @@ Not run: deployment on `fatal.racing`, a CMake configure, Android, or a
 native macOS build. In-game registration/listing is E6-S2, NAT punching is
 E6-S3, and relay allocation and byte/packet budgets are E6-S4.
 
+## NET-E6-S4: relay fallback with relay budgets
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+After the three-second direct-punch deadline, discovery now requests a relay
+instead of ending the join attempt. The daemon allocates one of 64 fixed relay
+slots, creates a nonzero CSPRNG relay id and 64-bit token, and sends an
+authenticated offer to the registered host plus the allocation to the client.
+Repeating the request is idempotent, so a lost offer or answer is recovered by
+the one-second retry. Each endpoint installs a channel route for the original
+logical peer address; the existing session and channel layers therefore keep
+their normal peer identity while game packets travel inside a 20-byte `RLY1`
+envelope through the rendezvous endpoint.
+
+The daemon authenticates the relay id, token and exact source endpoint before
+forwarding. Each direction has independent token buckets capped at
+`4 * unTickRateHz` packets/s and 96 KiB/s with a one-second burst. An
+over-budget packet is dropped and produces a rate-limited
+`RELAY_THROTTLED` control message to its sender. The frontend reports
+`RELAY BANDWIDTH LIMIT REACHED`. Relay packet and payload-byte totals,
+throttled packets, live/high-water counts and expiry counts are exposed in
+`tNetRendezvousStats`. Relays expire after 30 seconds without game traffic and
+are removed with their host registration; host heartbeat address migration
+also updates every attached relay endpoint.
+
+`test-net-discovery` forces direct punching to time out, completes the relay
+allocation and sends a reliable channel message through the daemon while both
+channels retain the real logical peer addresses. `test-net-rendezvous` proves
+that three clients sharing one simulated public IP receive distinct relays,
+that the 36 Hz and 100 Hz packet ceilings pass exactly, that the independent
+96 KiB byte ceiling rejects its first excess packet, that both directions
+forward, and that throttle messages and accounting are exact.
+
+The existing two-bot dedicated acceptance also has a forced-relay mode.
+`test-net-relay-race` runs a complete one-lap TRACK5 race at both 36 Hz and
+100 Hz through two separate relays. Both runs completed in 1,715 authoritative
+ticks with no relay throttling. The endpoint-only bots do not run prediction,
+so prediction mode is recorded as not applicable rather than inventing a
+client-mode result. The 36 Hz run forwarded 5,352/5,400 packets and
+282,370/531,072 payload bytes; the 100 Hz run forwarded 5,230/5,248 packets
+and 279,686/492,806 payload bytes (client-to-host/host-to-client).
+
+Verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-discovery test-net-rendezvous test-net-dedicated `
+  test-net-relay-race -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The focused relay tests, direct dedicated regression, complete focused
+netcode suite, full native ReleaseSafe build, source/manifest checks and all
+18 selected Python tests pass. Source counts remain Linux 99, macOS 99,
+Windows 102, Android 99 and Emscripten 96; roller-core remains 115 translation
+units. CMake registrations were source-checked but not configured locally.
+Android, native Linux/macOS and a real deployed-daemon relay race were not
+run.
+
 ## NET-E6-S2: host registration and client listing in the game
 
 Implemented on 2026-09-24. The changes are intentionally uncommitted.

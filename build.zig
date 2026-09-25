@@ -1010,6 +1010,20 @@ fn configureRenderQueue3DTests(
         "Run NET-E2-S6 two-bot dedicated server acceptance",
     );
     net_dedicated_tests.dependOn(&run_net_dedicated.step);
+    const run_net_relay_36 = b.addRunArtifact(net_dedicated_exe);
+    run_net_relay_36.addFileArg(assets_path.path(b, soak_track));
+    run_net_relay_36.addDirectoryArg(assets_path);
+    run_net_relay_36.addArgs(&.{ "36", "relay" });
+    const run_net_relay_100 = b.addRunArtifact(net_dedicated_exe);
+    run_net_relay_100.addFileArg(assets_path.path(b, soak_track));
+    run_net_relay_100.addDirectoryArg(assets_path);
+    run_net_relay_100.addArgs(&.{ "100", "relay" });
+    const net_relay_race_tests = b.step(
+        "test-net-relay-race",
+        "Run NET-E6-S4 relayed races at 36 and 100 Hz",
+    );
+    net_relay_race_tests.dependOn(&run_net_relay_36.step);
+    net_relay_race_tests.dependOn(&run_net_relay_100.step);
     const run_net_audit = b.addRunArtifact(net_foundations_exe);
     run_net_audit.addFileArg(assets_path.path(b, soak_track));
     run_net_audit.addDirectoryArg(assets_path);

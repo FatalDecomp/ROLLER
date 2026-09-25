@@ -11,10 +11,10 @@
 typedef struct {
   uint64 ullNowMs;
   tNetAddress source;
-  uint8 abIncoming[NET_MAX_PAYLOAD];
+  uint8 abIncoming[NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE];
   int iIncomingLength, iIncomingReady;
   tNetAddress destination;
-  uint8 abOutgoing[NET_MAX_PAYLOAD];
+  uint8 abOutgoing[NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE];
   int iOutgoingLength, iSendCount;
 } tRvzTestTransport;
 
@@ -58,7 +58,8 @@ static int TestSend(void *pContext, const tNetAddress *pTo,
                     const void *pData, int iLength)
 {
   tRvzTestTransport *pTransport = (tRvzTestTransport *)pContext;
-  CHECK(pTo && pData && iLength > 0 && iLength <= NET_MAX_PAYLOAD);
+  CHECK(pTo && pData && iLength > 0 &&
+        iLength <= NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE);
   pTransport->destination = *pTo;
   memcpy(pTransport->abOutgoing, pData, (size_t)iLength);
   pTransport->iOutgoingLength = iLength;
@@ -437,12 +438,156 @@ static void TestSyntheticDay(void)
   NetRendezvousDestroy(pRendezvous);
 }
 
+static void TestAllocateRelay(tNetRendezvous *pRendezvous,
+                              tRvzTestTransport *pTransport,
+                              const tNetAddress *pClient,
+                              uint32 uiSessionId, uint64 ullPunchNonce,
+                              uint32 *puiRelayId, uint64 *pullRelayToken)
+{
+  uint8 abRequest[sizeof(tRvzRelayRequest)];
+  tNetRendezvousPacket response;
+  int iBefore = pTransport->iSendCount;
+  TestWrite32(abRequest, uiSessionId);
+  TestWrite64(abRequest + 4, ullPunchNonce);
+  pTransport->source = *pClient;
+  pTransport->iIncomingLength = NetRendezvousBuildPacket(
+      pTransport->abIncoming, sizeof(pTransport->abIncoming), 77, 0,
+      NET_RVZ_MSG_RELAY_REQUEST, abRequest, sizeof(abRequest));
+  CHECK(pTransport->iIncomingLength > 0);
+  pTransport->iIncomingReady = 1;
+  CHECK(NetRendezvousPump(pRendezvous) == 1);
+  CHECK(pTransport->iSendCount == iBefore + 2);
+  CHECK(pTransport->destination.unPort == pClient->unPort);
+  CHECK(NetRendezvousParsePacket(pTransport->abOutgoing,
+                                 pTransport->iOutgoingLength, &response));
+  CHECK(response.byType == NET_RVZ_MSG_RELAY_ALLOCATED &&
+        response.unPayloadLength == sizeof(tRvzRelayAllocation));
+  CHECK(TestRead32(response.pPayload) == uiSessionId);
+  *puiRelayId = TestRead32(response.pPayload + 4);
+  *pullRelayToken = (uint64)TestRead32(response.pPayload + 8) |
+      ((uint64)TestRead32(response.pPayload + 12) << 32);
+  CHECK(*puiRelayId && *pullRelayToken);
+}
+
+static void TestSendRelayData(tNetRendezvous *pRendezvous,
+                              tRvzTestTransport *pTransport,
+                              const tNetAddress *pSource,
+                              uint32 uiRelayId, uint64 ullRelayToken,
+                              int iPayloadLength)
+{
+  int iLength = NET_RELAY_HEADER_SIZE + iPayloadLength;
+  CHECK(iPayloadLength > 0 && iLength <= (int)sizeof(pTransport->abIncoming));
+  memset(pTransport->abIncoming, 0, (size_t)iLength);
+  TestWrite32(pTransport->abIncoming, NET_RELAY_PROTOCOL_ID);
+  TestWrite32(pTransport->abIncoming + 4, uiRelayId);
+  TestWrite64(pTransport->abIncoming + 8, ullRelayToken);
+  TestWrite16(pTransport->abIncoming + 16, (uint16)iPayloadLength);
+  pTransport->source = *pSource;
+  pTransport->iIncomingLength = iLength;
+  pTransport->iIncomingReady = 1;
+  CHECK(NetRendezvousPump(pRendezvous) == 1);
+}
+
+static void TestRelayBudgets(void)
+{
+  tRvzTestTransport transport = {0};
+  tRvzTestRandom random = {4000, 0};
+  tNetRendezvous *pRendezvous = NetRendezvousCreate(
+      TestEndpoint(&transport), TestRandom, &random);
+  tNetAddress host36 = TestAddress(7000, 52000);
+  tNetAddress host100 = TestAddress(7001, 52001);
+  tNetAddress aClients[3] = {
+    TestAddress(7100, 53000), TestAddress(7100, 53001),
+    TestAddress(7100, 53002)
+  };
+  tRvzSessionInfo info = TestInfo("RELAY 36", "build-relay", 1);
+  tNetRendezvousPacket response;
+  tNetRendezvousStats stats;
+  uint32 uiSession36, uiSession100, auiRelayId[4];
+  uint64 ullToken, aullRelayToken[4];
+  int iClient, iPacket, iBefore;
+  CHECK(pRendezvous);
+  TestRegister(pRendezvous, &transport, &host36, 1, &info, 1,
+               &uiSession36, &ullToken);
+  for (iClient = 0; iClient < 3; ++iClient)
+    TestAllocateRelay(pRendezvous, &transport, &aClients[iClient],
+                      uiSession36, (uint64)(100 + iClient),
+                      &auiRelayId[iClient], &aullRelayToken[iClient]);
+  CHECK(auiRelayId[0] != auiRelayId[1] &&
+        auiRelayId[1] != auiRelayId[2] &&
+        auiRelayId[0] != auiRelayId[2]);
+
+  /* One full second of the 36 Hz packet budget passes without throttling. */
+  for (iPacket = 0; iPacket < 4 * 36; ++iPacket) {
+    iBefore = transport.iSendCount;
+    TestSendRelayData(pRendezvous, &transport, &aClients[0],
+                      auiRelayId[0], aullRelayToken[0], 1);
+    CHECK(transport.iSendCount == iBefore + 1);
+    CHECK(transport.destination.unPort == host36.unPort);
+  }
+  iBefore = transport.iSendCount;
+  TestSendRelayData(pRendezvous, &transport, &aClients[0],
+                    auiRelayId[0], aullRelayToken[0], 1);
+  CHECK(transport.iSendCount == iBefore + 1);
+  CHECK(NetRendezvousParsePacket(transport.abOutgoing,
+                                 transport.iOutgoingLength, &response));
+  CHECK(response.byType == NET_RVZ_MSG_RELAY_THROTTLED &&
+        TestRead32(response.pPayload) == auiRelayId[0]);
+
+  /* The byte bucket is independent: 81 full payloads fit in 96 KiB, while
+     the 82nd is rejected before the packet ceiling is reached. */
+  for (iPacket = 0; iPacket < 81; ++iPacket) {
+    iBefore = transport.iSendCount;
+    TestSendRelayData(pRendezvous, &transport, &aClients[2],
+                      auiRelayId[2], aullRelayToken[2], NET_MAX_PAYLOAD);
+    CHECK(transport.iSendCount == iBefore + 1);
+  }
+  iBefore = transport.iSendCount;
+  TestSendRelayData(pRendezvous, &transport, &aClients[2],
+                    auiRelayId[2], aullRelayToken[2], NET_MAX_PAYLOAD);
+  CHECK(transport.iSendCount == iBefore + 1);
+  CHECK(NetRendezvousParsePacket(transport.abOutgoing,
+                                 transport.iOutgoingLength, &response));
+  CHECK(response.byType == NET_RVZ_MSG_RELAY_THROTTLED &&
+        TestRead32(response.pPayload) == auiRelayId[2]);
+
+  for (iPacket = 0; iPacket < 10; ++iPacket) {
+    iBefore = transport.iSendCount;
+    TestSendRelayData(pRendezvous, &transport, &host36,
+                      auiRelayId[0], aullRelayToken[0], 2);
+    CHECK(transport.iSendCount == iBefore + 1);
+    CHECK(transport.destination.unPort == aClients[0].unPort);
+  }
+
+  info = TestInfo("RELAY 100", "build-relay", 1);
+  info.unTickRateHz = 100;
+  TestRegister(pRendezvous, &transport, &host100, 2, &info, 2,
+               &uiSession100, &ullToken);
+  TestAllocateRelay(pRendezvous, &transport, &aClients[1], uiSession100,
+                    200, &auiRelayId[3], &aullRelayToken[3]);
+  for (iPacket = 0; iPacket < 4 * 100; ++iPacket) {
+    iBefore = transport.iSendCount;
+    TestSendRelayData(pRendezvous, &transport, &aClients[1],
+                      auiRelayId[3], aullRelayToken[3], 1);
+    CHECK(transport.iSendCount == iBefore + 1);
+  }
+  NetRendezvousGetStats(pRendezvous, &stats);
+  CHECK(stats.iActiveRelays == 4 && stats.iRelayHighWater == 4);
+  CHECK(stats.ullRelayPackets[0] == 4 * 36 + 81 + 4 * 100);
+  CHECK(stats.ullRelayBytes[0] == 4 * 36 +
+        81 * NET_MAX_PAYLOAD + 4 * 100);
+  CHECK(stats.ullRelayPackets[1] == 10 && stats.ullRelayBytes[1] == 20);
+  CHECK(stats.ullRelayThrottledPackets == 2);
+  NetRendezvousDestroy(pRendezvous);
+}
+
 int main(void)
 {
   TestProtocolAndLifecycle();
   TestLimitsPaginationAndExpiry();
   TestRateLimit();
+  TestRelayBudgets();
   TestSyntheticDay();
-  puts("NET-E6-S1 rendezvous limits and virtual 24 h soak passed");
+  puts("NET-E6-S4 rendezvous relay budgets and virtual 24 h soak passed");
   return 0;
 }

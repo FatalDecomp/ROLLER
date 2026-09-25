@@ -63,6 +63,7 @@ int main(void)
   tNetAddress browserAddress = TestAddress(20, 7780);
   tNetAddress rendezvousAddress = TestAddress(30, 7778);
   tNetChannel *pHost, *pBrowser;
+  tNetConnection *pHostConnection, *pBrowserConnection;
   tNetRendezvous *pRendezvous;
   tNetDiscovery *pHostDiscovery, *pBrowserDiscovery;
   tRvzSessionInfo info, listed;
@@ -152,7 +153,33 @@ int main(void)
   TestBrowserCycle(pSim, pRendezvous, pBrowser, pBrowserDiscovery,
                    3201);
   CHECK(NetDiscoveryPunchState(pBrowserDiscovery, NULL) ==
-        NET_PUNCH_TIMED_OUT);
+        NET_PUNCH_RELAY_IN_PROGRESS);
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 3202);
+  CHECK(NetDiscoveryPunchState(pBrowserDiscovery, &resolved) ==
+        NET_PUNCH_RELAY_SUCCEEDED);
+  CHECK(resolved.byFamily == hostAddress.byFamily &&
+        resolved.unPort == hostAddress.unPort &&
+        memcmp(resolved.abAddress, hostAddress.abAddress, 4) == 0);
+
+  /* The channel sees the original logical peers while RLY1 carries the
+     complete game packet through the rendezvous endpoint. */
+  pHostConnection = NetChannelAddConnection(pHost, &browserAddress,
+                                             0x12345678ull, 1);
+  pBrowserConnection = NetChannelAddConnection(pBrowser, &hostAddress,
+                                                0x12345678ull, 1);
+  CHECK(pHostConnection && pBrowserConnection);
+  CHECK(NetConnectionQueueMessage(pBrowserConnection, NET_MSG_CHAT,
+                                  NET_MSG_RELIABLE, "relay", 6));
+  NetChannelPump(pBrowser);
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 3203);
+  {
+    tNetMessage message;
+    CHECK(NetConnectionReceiveMessage(pHostConnection, &message));
+    CHECK(message.byType == NET_MSG_CHAT && message.unLength == 6 &&
+          memcmp(message.abData, "relay", 6) == 0);
+  }
   info.byPlayers = 3;
   NetDiscoveryHostUpdate(pHostDiscovery, &info);
   TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
@@ -181,6 +208,6 @@ int main(void)
   NetChannelDestroy(pBrowser);
   NetChannelDestroy(pHost);
   NetTransportSimDestroy(pSim);
-  puts("NET-E6-S3 ordered UDP hole punching and timeout passed");
+  puts("NET-E6-S4 direct punching and authenticated relay fallback passed");
   return 0;
 }

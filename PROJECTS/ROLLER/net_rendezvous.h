@@ -19,6 +19,13 @@
 #define NET_PUNCH_RETRY_MS 100
 #define NET_PUNCH_REQUEST_RETRY_MS 1000
 #define NET_PUNCH_TIMEOUT_MS 3000
+#define NET_RELAY_PROTOCOL_ID 0x524C5931u /* 'RLY1' */
+#define NET_RVZ_MAX_RELAYS 64
+#define NET_RELAY_BYTES_PER_SECOND (96 * 1024)
+#define NET_RELAY_PACKETS_PER_TICK 4
+#define NET_RELAY_REQUEST_RETRY_MS 1000
+#define NET_RELAY_IDLE_MS 30000
+#define NET_RELAY_HEADER_SIZE 20
 
 enum {
   NET_RVZ_SESSION_PASSWORD = 1,
@@ -41,7 +48,11 @@ typedef enum {
   NET_RVZ_MSG_RESOLVED,
   NET_RVZ_MSG_PUNCH_REQUEST,
   NET_RVZ_MSG_PUNCH_OFFER,
-  NET_RVZ_MSG_PUNCH_ANSWER
+  NET_RVZ_MSG_PUNCH_ANSWER,
+  NET_RVZ_MSG_RELAY_REQUEST,
+  NET_RVZ_MSG_RELAY_OFFER,
+  NET_RVZ_MSG_RELAY_ALLOCATED,
+  NET_RVZ_MSG_RELAY_THROTTLED
 } eNetRendezvousMessageType;
 
 typedef enum {
@@ -116,6 +127,22 @@ typedef struct {
   uint64 ullPunchNonce;
   uint8 byType, byPad[3];
 } tNetPunchPacket;
+
+typedef struct {
+  uint32 uiSessionId;
+  uint64 ullPunchNonce;
+} tRvzRelayRequest;
+
+typedef struct {
+  uint32 uiSessionId, uiRelayId;
+  uint64 ullRelayToken;
+  tRvzCandidate peer;
+} tRvzRelayAllocation;
+
+typedef struct {
+  uint32 uiRelayId;
+  uint8 byDirection, byPad[3];
+} tRvzRelayThrottle;
 #pragma pack(pop)
 
 _Static_assert(sizeof(tRvzCandidate) == 24, "rendezvous candidate wire size");
@@ -133,6 +160,12 @@ _Static_assert(sizeof(tRvzListPageHeader) == 8,
 _Static_assert(sizeof(tRvzError) == 4, "rendezvous error wire size");
 _Static_assert(sizeof(tRvzResolved) == 32, "rendezvous resolve wire size");
 _Static_assert(sizeof(tNetPunchPacket) == 20, "punch packet wire size");
+_Static_assert(sizeof(tRvzRelayRequest) == 12,
+               "relay request wire size");
+_Static_assert(sizeof(tRvzRelayAllocation) == 40,
+               "relay allocation wire size");
+_Static_assert(sizeof(tRvzRelayThrottle) == 8,
+               "relay throttle wire size");
 _Static_assert(sizeof(tRvzRegisterRequest) + sizeof(tNetPacketHeader) +
                    sizeof(tNetMessageHeader) <= NET_MAX_PAYLOAD,
                "rendezvous registration fits");
@@ -156,6 +189,9 @@ typedef struct {
   uint64 ullPacketsReceived, ullPacketsSent, ullMalformedPackets;
   uint64 ullRateLimitedPackets, ullCapacityRejects, ullAuthRejects;
   uint64 ullExpiredSessions;
+  int iActiveRelays, iRelayHighWater;
+  uint64 ullRelayPackets[2], ullRelayBytes[2];
+  uint64 ullRelayThrottledPackets, ullExpiredRelays;
 } tNetRendezvousStats;
 
 typedef struct {

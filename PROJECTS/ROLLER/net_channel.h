@@ -56,6 +56,13 @@ void NetChannelSetDatagramCallback(tNetChannel *pChannel,
 int NetChannelSendDatagram(tNetChannel *pChannel,
                            const tNetAddress *pPeer,
                            const void *pData, int iLength);
+/* Routes channel packets for pPeer through pRelay using an authenticated
+   RLY1 envelope. Repeating an id or peer replaces the route. */
+int NetChannelSetRelayRoute(tNetChannel *pChannel,
+                            const tNetAddress *pPeer,
+                            const tNetAddress *pRelay,
+                            uint32 uiRelayId, uint64 ullRelayToken);
+void NetChannelClearRelayRoutes(tNetChannel *pChannel);
 /* The transport clock the channel runs on (simulated in tests). */
 uint64 NetChannelNowMs(const tNetChannel *pChannel);
 

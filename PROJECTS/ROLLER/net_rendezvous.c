@@ -22,12 +22,23 @@ typedef struct {
   uint64 ullLastMs, ullLastSeenMs, ullMilliTokens;
 } tNetRendezvousRate;
 
+typedef struct {
+  uint8 byActive;
+  uint32 uiSessionId, uiRelayId;
+  uint64 ullPunchNonce, ullRelayToken, ullLastActivityMs;
+  uint64 aullLastBudgetMs[2], aullPacketMilliTokens[2];
+  uint64 aullByteMilliTokens[2], aullLastThrottleMs[2];
+  uint16 unTickRateHz;
+  tNetAddress aEndpoint[2]; /* client, host */
+} tNetRendezvousRelay;
+
 struct tNetRendezvous {
   tNetTransport transport;
   tNetRendezvousRandomFn pRandom;
   void *pRandomContext;
   tNetRendezvousSession aSessions[NET_RVZ_MAX_SESSIONS];
   tNetRendezvousRate aRates[NET_RVZ_RATE_SOURCES];
+  tNetRendezvousRelay aRelays[NET_RVZ_MAX_RELAYS];
   tNetRendezvousStats stats;
 };
 
@@ -272,20 +283,39 @@ static int NetRvzAppendCandidate(tNetAddress *pCandidates, int iCount,
 static void NetRvzDeactivateSession(tNetRendezvous *pRendezvous,
                                     tNetRendezvousSession *pSession)
 {
+  int iRelay;
   if (!pSession->byActive)
     return;
+  for (iRelay = 0; iRelay < NET_RVZ_MAX_RELAYS; ++iRelay) {
+    tNetRendezvousRelay *pRelay = &pRendezvous->aRelays[iRelay];
+    if (pRelay->byActive &&
+        pRelay->uiSessionId == pSession->info.uiSessionId) {
+      memset(pRelay, 0, sizeof(*pRelay));
+      --pRendezvous->stats.iActiveRelays;
+      ++pRendezvous->stats.ullExpiredRelays;
+    }
+  }
   memset(pSession, 0, sizeof(*pSession));
   --pRendezvous->stats.iActiveSessions;
 }
 
 static void NetRvzExpire(tNetRendezvous *pRendezvous, uint64 ullNowMs)
 {
-  int iSession;
+  int iSession, iRelay;
   for (iSession = 0; iSession < NET_RVZ_MAX_SESSIONS; ++iSession) {
     tNetRendezvousSession *pSession = &pRendezvous->aSessions[iSession];
     if (pSession->byActive && ullNowMs >= pSession->ullExpiresMs) {
       NetRvzDeactivateSession(pRendezvous, pSession);
       ++pRendezvous->stats.ullExpiredSessions;
+    }
+  }
+  for (iRelay = 0; iRelay < NET_RVZ_MAX_RELAYS; ++iRelay) {
+    tNetRendezvousRelay *pRelay = &pRendezvous->aRelays[iRelay];
+    if (pRelay->byActive &&
+        ullNowMs - pRelay->ullLastActivityMs >= NET_RELAY_IDLE_MS) {
+      memset(pRelay, 0, sizeof(*pRelay));
+      --pRendezvous->stats.iActiveRelays;
+      ++pRendezvous->stats.ullExpiredRelays;
     }
   }
 }
@@ -536,6 +566,7 @@ static void NetRvzHeartbeat(tNetRendezvous *pRendezvous,
 {
   tNetRendezvousSession *pSession;
   tRvzSessionInfo info;
+  int iRelay;
   if (!pPacket->ullToken ||
       pPacket->unPayloadLength != sizeof(tRvzSessionInfo)) {
     NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
@@ -560,6 +591,10 @@ static void NetRvzHeartbeat(tNetRendezvous *pRendezvous,
     return;
   }
   info.unPort = pSource->unPort;
+  for (iRelay = 0; iRelay < NET_RVZ_MAX_RELAYS; ++iRelay)
+    if (pRendezvous->aRelays[iRelay].byActive &&
+        pRendezvous->aRelays[iRelay].uiSessionId == info.uiSessionId)
+      pRendezvous->aRelays[iRelay].aEndpoint[1] = *pSource;
   pSession->source = *pSource;
   pSession->info = info;
   pSession->ullExpiresMs = ullNowMs + NET_RVZ_SESSION_LEASE_MS;
@@ -778,6 +813,238 @@ static void NetRvzPunchRequest(tNetRendezvous *pRendezvous,
              NET_RVZ_MSG_PUNCH_ANSWER, abHostSet, sizeof(abHostSet));
 }
 
+static tNetRendezvousRelay *NetRvzFindRelay(tNetRendezvous *pRendezvous,
+                                            uint32 uiRelayId)
+{
+  int iRelay;
+  for (iRelay = 0; iRelay < NET_RVZ_MAX_RELAYS; ++iRelay)
+    if (pRendezvous->aRelays[iRelay].byActive &&
+        pRendezvous->aRelays[iRelay].uiRelayId == uiRelayId)
+      return &pRendezvous->aRelays[iRelay];
+  return NULL;
+}
+
+static void NetRvzEncodeRelayAllocation(uint8 *pWire,
+                                        const tNetRendezvousRelay *pRelay,
+                                        int iRecipient)
+{
+  memset(pWire, 0, sizeof(tRvzRelayAllocation));
+  NetRvzWrite32(pWire, pRelay->uiSessionId);
+  NetRvzWrite32(pWire + 4, pRelay->uiRelayId);
+  NetRvzWrite64(pWire + 8, pRelay->ullRelayToken);
+  NetRendezvousEncodeCandidate(pWire + 16,
+                               &pRelay->aEndpoint[1 - iRecipient]);
+}
+
+static void NetRvzSendRelayAllocation(tNetRendezvous *pRendezvous,
+                                      tNetRendezvousSession *pSession,
+                                      tNetRendezvousRelay *pRelay,
+                                      uint16 unSequence)
+{
+  uint8 abAllocation[sizeof(tRvzRelayAllocation)];
+  NetRvzEncodeRelayAllocation(abAllocation, pRelay, 1);
+  NetRvzSend(pRendezvous, &pRelay->aEndpoint[1], unSequence,
+             pSession->ullToken, NET_RVZ_MSG_RELAY_OFFER,
+             abAllocation, sizeof(abAllocation));
+  NetRvzEncodeRelayAllocation(abAllocation, pRelay, 0);
+  NetRvzSend(pRendezvous, &pRelay->aEndpoint[0], unSequence, 0,
+             NET_RVZ_MSG_RELAY_ALLOCATED,
+             abAllocation, sizeof(abAllocation));
+}
+
+static void NetRvzRelayRequest(tNetRendezvous *pRendezvous,
+                               const tNetAddress *pSource,
+                               const tNetRendezvousPacket *pPacket,
+                               uint64 ullNowMs)
+{
+  tNetRendezvousSession *pSession;
+  tNetRendezvousRelay *pRelay = NULL;
+  uint32 uiSessionId, uiRelayId;
+  uint64 ullPunchNonce, ullRelayToken;
+  uint8 abRandom[12];
+  int iRelay, iAttempt;
+  if (pPacket->ullToken ||
+      pPacket->unPayloadLength != sizeof(tRvzRelayRequest)) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_INVALID);
+    return;
+  }
+  uiSessionId = NetRvzRead32(pPacket->pPayload);
+  ullPunchNonce = NetRvzRead64(pPacket->pPayload + 4);
+  pSession = NetRvzFindSession(pRendezvous, uiSessionId);
+  if (!pSession || !ullPunchNonce ||
+      NetRvzAddressEqual(pSource, &pSession->source)) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_NOT_FOUND);
+    return;
+  }
+  for (iRelay = 0; iRelay < NET_RVZ_MAX_RELAYS; ++iRelay) {
+    tNetRendezvousRelay *pCandidate = &pRendezvous->aRelays[iRelay];
+    if (pCandidate->byActive && pCandidate->uiSessionId == uiSessionId &&
+        pCandidate->ullPunchNonce == ullPunchNonce &&
+        NetRvzAddressEqual(&pCandidate->aEndpoint[0], pSource)) {
+      pRelay = pCandidate;
+      break;
+    }
+    if (!pRelay && !pCandidate->byActive)
+      pRelay = pCandidate;
+  }
+  if (pRelay && pRelay->byActive) {
+    pRelay->ullLastActivityMs = ullNowMs;
+    NetRvzSendRelayAllocation(pRendezvous, pSession, pRelay,
+                              pPacket->unSequence);
+    return;
+  }
+  if (!pRelay) {
+    ++pRendezvous->stats.ullCapacityRejects;
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_FULL);
+    return;
+  }
+  uiRelayId = 0;
+  ullRelayToken = 0;
+  for (iAttempt = 0; iAttempt < 16; ++iAttempt) {
+    if (!pRendezvous->pRandom(pRendezvous->pRandomContext,
+                              abRandom, sizeof(abRandom)))
+      break;
+    uiRelayId = NetRvzRead32(abRandom);
+    ullRelayToken = NetRvzRead64(abRandom + 4);
+    if (uiRelayId && ullRelayToken &&
+        !NetRvzFindRelay(pRendezvous, uiRelayId))
+      break;
+    uiRelayId = 0;
+    ullRelayToken = 0;
+  }
+  if (!uiRelayId || !ullRelayToken) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_RANDOM_UNAVAILABLE);
+    return;
+  }
+  memset(pRelay, 0, sizeof(*pRelay));
+  pRelay->byActive = 1;
+  pRelay->uiSessionId = uiSessionId;
+  pRelay->uiRelayId = uiRelayId;
+  pRelay->ullPunchNonce = ullPunchNonce;
+  pRelay->ullRelayToken = ullRelayToken;
+  pRelay->ullLastActivityMs = ullNowMs;
+  pRelay->unTickRateHz = pSession->info.unTickRateHz;
+  pRelay->aEndpoint[0] = *pSource;
+  pRelay->aEndpoint[1] = pSession->source;
+  for (iRelay = 0; iRelay < 2; ++iRelay) {
+    pRelay->aullLastBudgetMs[iRelay] = ullNowMs;
+    pRelay->aullPacketMilliTokens[iRelay] =
+        (uint64)NET_RELAY_PACKETS_PER_TICK *
+        pRelay->unTickRateHz * 1000ull;
+    pRelay->aullByteMilliTokens[iRelay] =
+        (uint64)NET_RELAY_BYTES_PER_SECOND * 1000ull;
+  }
+  ++pRendezvous->stats.iActiveRelays;
+  if (pRendezvous->stats.iActiveRelays >
+      pRendezvous->stats.iRelayHighWater)
+    pRendezvous->stats.iRelayHighWater =
+        pRendezvous->stats.iActiveRelays;
+  NetRvzSendRelayAllocation(pRendezvous, pSession, pRelay,
+                            pPacket->unSequence);
+}
+
+static int NetRvzRelayBudgetAllow(tNetRendezvousRelay *pRelay,
+                                  int iDirection, int iBytes,
+                                  uint64 ullNowMs)
+{
+  uint64 ullPacketCapacity = (uint64)NET_RELAY_PACKETS_PER_TICK *
+      pRelay->unTickRateHz * 1000ull;
+  uint64 ullByteCapacity =
+      (uint64)NET_RELAY_BYTES_PER_SECOND * 1000ull;
+  if (ullNowMs > pRelay->aullLastBudgetMs[iDirection]) {
+    uint64 ullElapsed = ullNowMs - pRelay->aullLastBudgetMs[iDirection];
+    pRelay->aullPacketMilliTokens[iDirection] += ullElapsed *
+        NET_RELAY_PACKETS_PER_TICK * pRelay->unTickRateHz;
+    pRelay->aullByteMilliTokens[iDirection] += ullElapsed *
+        NET_RELAY_BYTES_PER_SECOND;
+    if (pRelay->aullPacketMilliTokens[iDirection] > ullPacketCapacity)
+      pRelay->aullPacketMilliTokens[iDirection] = ullPacketCapacity;
+    if (pRelay->aullByteMilliTokens[iDirection] > ullByteCapacity)
+      pRelay->aullByteMilliTokens[iDirection] = ullByteCapacity;
+    pRelay->aullLastBudgetMs[iDirection] = ullNowMs;
+  }
+  if (pRelay->aullPacketMilliTokens[iDirection] < 1000ull ||
+      pRelay->aullByteMilliTokens[iDirection] <
+          (uint64)iBytes * 1000ull)
+    return 0;
+  pRelay->aullPacketMilliTokens[iDirection] -= 1000ull;
+  pRelay->aullByteMilliTokens[iDirection] -= (uint64)iBytes * 1000ull;
+  return 1;
+}
+
+static void NetRvzRelayThrottle(tNetRendezvous *pRendezvous,
+                                tNetRendezvousRelay *pRelay,
+                                int iDirection, uint64 ullNowMs)
+{
+  uint8 abThrottle[sizeof(tRvzRelayThrottle)] = {0};
+  if (pRelay->aullLastThrottleMs[iDirection] &&
+      ullNowMs + 1 - pRelay->aullLastThrottleMs[iDirection] < 1000)
+    return;
+  pRelay->aullLastThrottleMs[iDirection] = ullNowMs + 1;
+  NetRvzWrite32(abThrottle, pRelay->uiRelayId);
+  abThrottle[4] = (uint8)iDirection;
+  NetRvzSend(pRendezvous, &pRelay->aEndpoint[iDirection], 0, 0,
+             NET_RVZ_MSG_RELAY_THROTTLED,
+             abThrottle, sizeof(abThrottle));
+}
+
+static void NetRvzRelayData(tNetRendezvous *pRendezvous,
+                            const tNetAddress *pSource,
+                            const uint8 *pData, int iLength,
+                            uint64 ullNowMs)
+{
+  tNetRendezvousRelay *pRelay;
+  uint32 uiRelayId;
+  uint64 ullRelayToken;
+  uint16 unInnerLength;
+  int iDirection;
+  ++pRendezvous->stats.ullPacketsReceived;
+  if (!NetRvzSourceValid(pSource) || iLength < NET_RELAY_HEADER_SIZE ||
+      NetRvzRead32(pData) != NET_RELAY_PROTOCOL_ID || pData[18] || pData[19]) {
+    ++pRendezvous->stats.ullMalformedPackets;
+    return;
+  }
+  uiRelayId = NetRvzRead32(pData + 4);
+  ullRelayToken = NetRvzRead64(pData + 8);
+  unInnerLength = NetRvzRead16(pData + 16);
+  if (!uiRelayId || !ullRelayToken || !unInnerLength ||
+      unInnerLength > NET_MAX_PAYLOAD ||
+      iLength != NET_RELAY_HEADER_SIZE + unInnerLength) {
+    ++pRendezvous->stats.ullMalformedPackets;
+    return;
+  }
+  pRelay = NetRvzFindRelay(pRendezvous, uiRelayId);
+  if (!pRelay || pRelay->ullRelayToken != ullRelayToken) {
+    ++pRendezvous->stats.ullAuthRejects;
+    return;
+  }
+  if (NetRvzAddressEqual(pSource, &pRelay->aEndpoint[0]))
+    iDirection = 0;
+  else if (NetRvzAddressEqual(pSource, &pRelay->aEndpoint[1]))
+    iDirection = 1;
+  else {
+    ++pRendezvous->stats.ullAuthRejects;
+    return;
+  }
+  if (!NetRvzRelayBudgetAllow(pRelay, iDirection, unInnerLength,
+                              ullNowMs)) {
+    ++pRendezvous->stats.ullRelayThrottledPackets;
+    NetRvzRelayThrottle(pRendezvous, pRelay, iDirection, ullNowMs);
+    return;
+  }
+  if (pRendezvous->transport.pSend(pRendezvous->transport.pContext,
+          &pRelay->aEndpoint[1 - iDirection], pData, iLength) != iLength)
+    return;
+  pRelay->ullLastActivityMs = ullNowMs;
+  ++pRendezvous->stats.ullPacketsSent;
+  ++pRendezvous->stats.ullRelayPackets[iDirection];
+  pRendezvous->stats.ullRelayBytes[iDirection] += unInnerLength;
+}
+
 static void NetRvzHandle(tNetRendezvous *pRendezvous,
                          const tNetAddress *pSource, const uint8 *pData,
                          int iLength, uint64 ullNowMs)
@@ -810,6 +1077,9 @@ static void NetRvzHandle(tNetRendezvous *pRendezvous,
     case NET_RVZ_MSG_PUNCH_REQUEST:
       NetRvzPunchRequest(pRendezvous, pSource, &packet);
       break;
+    case NET_RVZ_MSG_RELAY_REQUEST:
+      NetRvzRelayRequest(pRendezvous, pSource, &packet, ullNowMs);
+      break;
     default:
       NetRvzSendError(pRendezvous, pSource, packet.unSequence,
                       NET_RVZ_ERROR_INVALID);
@@ -841,7 +1111,7 @@ void NetRendezvousDestroy(tNetRendezvous *pRendezvous)
 
 int NetRendezvousPump(tNetRendezvous *pRendezvous)
 {
-  uint8 abPacket[NET_MAX_PAYLOAD];
+  uint8 abPacket[NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE];
   tNetAddress source;
   uint64 ullNowMs;
   int iLength, iPackets = 0;
@@ -854,7 +1124,10 @@ int NetRendezvousPump(tNetRendezvous *pRendezvous)
          (iLength = pRendezvous->transport.pReceive(
               pRendezvous->transport.pContext, &source, abPacket,
               sizeof(abPacket))) > 0) {
-    NetRvzHandle(pRendezvous, &source, abPacket, iLength, ullNowMs);
+    if (iLength >= 4 && NetRvzRead32(abPacket) == NET_RELAY_PROTOCOL_ID)
+      NetRvzRelayData(pRendezvous, &source, abPacket, iLength, ullNowMs);
+    else
+      NetRvzHandle(pRendezvous, &source, abPacket, iLength, ullNowMs);
     ++iPackets;
   }
   return iPackets;

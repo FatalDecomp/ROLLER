@@ -1,4 +1,5 @@
 #include "net_channel.h"
+#include "net_rendezvous.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -6,6 +7,13 @@
 #define NET_MAX_CONNECTIONS 16
 #define NET_PACKET_HISTORY 256
 #define NET_ORDER_WINDOW NET_RELIABLE_QUEUE
+
+typedef struct {
+  uint8 byActive;
+  tNetAddress peer, relay;
+  uint32 uiRelayId;
+  uint64 ullRelayToken;
+} tNetRelayRoute;
 
 typedef struct {
   uint8 byActive, byType, byFlags, bySent;
@@ -56,6 +64,7 @@ struct tNetChannel {
   void *pAcceptContext;
   tNetChannelDatagramFn pDatagram;
   void *pDatagramContext;
+  tNetRelayRoute aRelayRoutes[NET_RVZ_MAX_RELAYS];
   struct tNetChannel *pNext;
 };
 
@@ -167,6 +176,74 @@ static int NetChannelAddressEqual(const tNetAddress *pA,
   return iLength &&
       (pA->byFamily != NET_ADDR_IPV6 || pA->uiScopeId == pB->uiScopeId) &&
       memcmp(pA->abAddress, pB->abAddress, (size_t)iLength) == 0;
+}
+
+static tNetRelayRoute *NetFindRelayRoute(tNetChannel *pChannel,
+                                         const tNetAddress *pPeer)
+{
+  int iRoute;
+  for (iRoute = 0; iRoute < NET_RVZ_MAX_RELAYS; ++iRoute)
+    if (pChannel->aRelayRoutes[iRoute].byActive &&
+        NetChannelAddressEqual(&pChannel->aRelayRoutes[iRoute].peer, pPeer))
+      return &pChannel->aRelayRoutes[iRoute];
+  return NULL;
+}
+
+static int NetChannelTransportSend(tNetChannel *pChannel,
+                                   const tNetAddress *pPeer,
+                                   const void *pData, int iLength)
+{
+  tNetRelayRoute *pRoute = NetFindRelayRoute(pChannel, pPeer);
+  uint8 abRelay[NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE];
+  if (!pRoute)
+    return pChannel->transport.pSend(pChannel->transport.pContext,
+                                     pPeer, pData, iLength);
+  if (iLength < 0 || iLength > NET_MAX_PAYLOAD)
+    return 0;
+  NetWrite32(abRelay, NET_RELAY_PROTOCOL_ID);
+  NetWrite32(abRelay + 4, pRoute->uiRelayId);
+  NetWrite64(abRelay + 8, pRoute->ullRelayToken);
+  NetWrite16(abRelay + 16, (uint16)iLength);
+  abRelay[18] = abRelay[19] = 0;
+  memcpy(abRelay + NET_RELAY_HEADER_SIZE, pData, (size_t)iLength);
+  if (pChannel->transport.pSend(pChannel->transport.pContext,
+                               &pRoute->relay, abRelay,
+                               iLength + NET_RELAY_HEADER_SIZE) !=
+      iLength + NET_RELAY_HEADER_SIZE)
+    return 0;
+  return iLength;
+}
+
+static int NetChannelUnwrapRelay(tNetChannel *pChannel,
+                                 const tNetAddress *pFrom,
+                                 uint8 *pPacket, int iLength,
+                                 tNetAddress *pLogicalFrom)
+{
+  uint32 uiRelayId;
+  uint64 ullRelayToken;
+  uint16 unInnerLength;
+  int iRoute;
+  if (iLength < NET_RELAY_HEADER_SIZE ||
+      NetRead32(pPacket) != NET_RELAY_PROTOCOL_ID)
+    return 0;
+  uiRelayId = NetRead32(pPacket + 4);
+  ullRelayToken = NetRead64(pPacket + 8);
+  unInnerLength = NetRead16(pPacket + 16);
+  if (!uiRelayId || !ullRelayToken || pPacket[18] || pPacket[19] ||
+      unInnerLength > NET_MAX_PAYLOAD ||
+      iLength != NET_RELAY_HEADER_SIZE + unInnerLength)
+    return -1;
+  for (iRoute = 0; iRoute < NET_RVZ_MAX_RELAYS; ++iRoute) {
+    tNetRelayRoute *pRoute = &pChannel->aRelayRoutes[iRoute];
+    if (pRoute->byActive && pRoute->uiRelayId == uiRelayId &&
+        pRoute->ullRelayToken == ullRelayToken &&
+        NetChannelAddressEqual(&pRoute->relay, pFrom)) {
+      *pLogicalFrom = pRoute->peer;
+      memmove(pPacket, pPacket + NET_RELAY_HEADER_SIZE, unInnerLength);
+      return unInnerLength;
+    }
+  }
+  return -1;
 }
 
 static int NetDeliveryPush(tNetConnection *pConnection, uint8 byType,
@@ -506,8 +583,8 @@ static int NetSendPacket(tNetConnection *pConnection, uint8 *pPacket,
   uint16 unSequence = pConnection->unNextPacketSequence;
   int iEntry;
   NetBuildPacketHeader(pConnection, pPacket, unSequence, byMessageCount);
-  if (pChannel->transport.pSend(pChannel->transport.pContext,
-                                &pConnection->peer, pPacket, iLength) != iLength)
+  if (NetChannelTransportSend(pChannel, &pConnection->peer,
+                              pPacket, iLength) != iLength)
     return 0;
   ++pConnection->unNextPacketSequence;
   pConnection->ullLastSendMs = ullNowMs;
@@ -736,6 +813,43 @@ int NetChannelSendDatagram(tNetChannel *pChannel,
                                 pData, iLength) == iLength;
 }
 
+int NetChannelSetRelayRoute(tNetChannel *pChannel,
+                            const tNetAddress *pPeer,
+                            const tNetAddress *pRelay,
+                            uint32 uiRelayId, uint64 ullRelayToken)
+{
+  tNetRelayRoute *pRoute = NULL;
+  int iRoute;
+  if (!pChannel || !pPeer || !pRelay || !uiRelayId || !ullRelayToken)
+    return 0;
+  for (iRoute = 0; iRoute < NET_RVZ_MAX_RELAYS; ++iRoute) {
+    if (pChannel->aRelayRoutes[iRoute].byActive &&
+        (pChannel->aRelayRoutes[iRoute].uiRelayId == uiRelayId ||
+         NetChannelAddressEqual(&pChannel->aRelayRoutes[iRoute].peer,
+                                pPeer))) {
+      pRoute = &pChannel->aRelayRoutes[iRoute];
+      break;
+    }
+    if (!pRoute && !pChannel->aRelayRoutes[iRoute].byActive)
+      pRoute = &pChannel->aRelayRoutes[iRoute];
+  }
+  if (!pRoute)
+    return 0;
+  memset(pRoute, 0, sizeof(*pRoute));
+  pRoute->byActive = 1;
+  pRoute->peer = *pPeer;
+  pRoute->relay = *pRelay;
+  pRoute->uiRelayId = uiRelayId;
+  pRoute->ullRelayToken = ullRelayToken;
+  return 1;
+}
+
+void NetChannelClearRelayRoutes(tNetChannel *pChannel)
+{
+  if (pChannel)
+    memset(pChannel->aRelayRoutes, 0, sizeof(pChannel->aRelayRoutes));
+}
+
 static int NetOrderedWindowAvailable(const tNetConnection *pConnection)
 {
   uint16 unOldest = pConnection->unNextOrderedSend;
@@ -881,7 +995,7 @@ int NetConnectionPeer(const tNetConnection *pConnection,
 
 void NetChannelPump(tNetChannel *pChannel)
 {
-  uint8 abPacket[NET_MAX_PAYLOAD];
+  uint8 abPacket[NET_MAX_PAYLOAD + NET_RELAY_HEADER_SIZE];
   tNetAddress from;
   uint64 ullNowMs;
   int iLength, iConnection;
@@ -891,6 +1005,14 @@ void NetChannelPump(tNetChannel *pChannel)
   while ((iLength = pChannel->transport.pReceive(
               pChannel->transport.pContext, &from, abPacket,
               sizeof(abPacket))) > 0) {
+    if (iLength >= 4 && NetRead32(abPacket) == NET_RELAY_PROTOCOL_ID) {
+      tNetAddress logicalFrom;
+      iLength = NetChannelUnwrapRelay(pChannel, &from, abPacket,
+                                      iLength, &logicalFrom);
+      if (iLength <= 0)
+        continue;
+      from = logicalFrom;
+    }
     if (iLength >= 4 && NetRead32(abPacket) == NET_PROTOCOL_ID)
       NetProcessPacket(pChannel, &from, abPacket, iLength, ullNowMs);
     else if (pChannel->pDatagram)

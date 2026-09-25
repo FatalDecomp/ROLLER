@@ -35,7 +35,7 @@ typedef struct
   tRvzSessionInfo hostInfo;
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
-  uint8 byHasRendezvous, byResolvePending;
+  uint8 byHasRendezvous, byResolvePending, byRelayThrottleShown;
   uint8 byHostInfo;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
@@ -452,18 +452,23 @@ void NetFrontendPump(void)
       s_frontend.byResolvePending = (uint8)NetDiscoveryPunch(
           s_frontend.pDiscovery, info.uiSessionId);
     }
-    if (s_frontend.byResolvePending &&
-        NetDiscoveryPunchState(s_frontend.pDiscovery,
-                               &s_frontend.peer) == NET_PUNCH_SUCCEEDED) {
-      s_frontend.byHasPeer = 1;
-      s_frontend.byResolvePending = 0;
-      NetFrontendStatus("GAME FOUND");
-    } else if (s_frontend.byResolvePending &&
-               NetDiscoveryPunchState(s_frontend.pDiscovery, NULL) ==
-                   NET_PUNCH_TIMED_OUT) {
-      s_frontend.byResolvePending = 0;
-      NetFrontendStatus("DIRECT CONNECTION TIMED OUT");
+    if (s_frontend.byResolvePending) {
+      eNetPunchState ePunchState = NetDiscoveryPunchState(
+          s_frontend.pDiscovery, &s_frontend.peer);
+      if (ePunchState == NET_PUNCH_SUCCEEDED ||
+          ePunchState == NET_PUNCH_RELAY_SUCCEEDED) {
+        s_frontend.byHasPeer = 1;
+        s_frontend.byResolvePending = 0;
+        NetFrontendStatus(ePunchState == NET_PUNCH_SUCCEEDED ?
+                          "GAME FOUND" : "GAME FOUND VIA RELAY");
+      }
     }
+  }
+  if (!s_frontend.byRelayThrottleShown && s_frontend.pDiscovery &&
+      NetDiscoveryPunchState(s_frontend.pDiscovery, NULL) ==
+          NET_PUNCH_RELAY_THROTTLED) {
+    s_frontend.byRelayThrottleShown = 1;
+    NetFrontendStatus("RELAY BANDWIDTH LIMIT REACHED");
   }
   if (!s_frontend.byLobbyStarted)
     return;
