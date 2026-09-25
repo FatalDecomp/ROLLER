@@ -3,21 +3,21 @@
 #include "network.h"
 #include "rollercomms.h"
 
+#include <SDL3/SDL_atomic.h>
+
 #include <assert.h>
-#include <stdatomic.h>
 #include <stdio.h>
 
-static atomic_int s_iLegacyEntryCount;
-static atomic_int s_iLegacyViolationCount;
+static SDL_AtomicInt s_iLegacyEntryCount;
+static SDL_AtomicInt s_iLegacyViolationCount;
 
 static void NetLegacyCallTrap(const char *szEntryPoint)
 {
-  atomic_fetch_add_explicit(&s_iLegacyEntryCount, 1, memory_order_relaxed);
+  SDL_AddAtomicInt(&s_iLegacyEntryCount, 1);
   if (net_mode != NET_MODE_MODERN)
     return;
 
-  atomic_fetch_add_explicit(&s_iLegacyViolationCount, 1,
-                            memory_order_relaxed);
+  SDL_AddAtomicInt(&s_iLegacyViolationCount, 1);
 #ifndef NDEBUG
   fprintf(stderr, "legacy network entry point called in MODERN mode: %s\n",
           szEntryPoint);
@@ -29,19 +29,18 @@ static void NetLegacyCallTrap(const char *szEntryPoint)
 
 void NetLegacyTrapReset(void)
 {
-  atomic_store_explicit(&s_iLegacyEntryCount, 0, memory_order_relaxed);
-  atomic_store_explicit(&s_iLegacyViolationCount, 0, memory_order_relaxed);
+  SDL_SetAtomicInt(&s_iLegacyEntryCount, 0);
+  SDL_SetAtomicInt(&s_iLegacyViolationCount, 0);
 }
 
 int NetLegacyTrapEntryCount(void)
 {
-  return atomic_load_explicit(&s_iLegacyEntryCount, memory_order_relaxed);
+  return SDL_GetAtomicInt(&s_iLegacyEntryCount);
 }
 
 int NetLegacyTrapViolationCount(void)
 {
-  return atomic_load_explicit(&s_iLegacyViolationCount,
-                              memory_order_relaxed);
+  return SDL_GetAtomicInt(&s_iLegacyViolationCount);
 }
 
 /* network.c implementations, renamed by NET_LEGACY_NETWORK_IMPLEMENTATION. */

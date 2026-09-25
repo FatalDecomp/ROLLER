@@ -42,6 +42,18 @@ class CMakeRollerCoreTests(unittest.TestCase):
         )
         self.assertNotIn("add_compile_options(", cmake_lists)
         self.assertIn("target_compile_options(${target_name} PRIVATE", cmake_lists)
+        self.assertIn(
+            "target_compile_definitions(roller-core PUBLIC ROLLER_EDITOR_CORE=1)",
+            cmake_lists,
+        )
+
+    def test_legacy_trap_uses_portable_sdl_atomics(self) -> None:
+        legacy_trap = (
+            REPOSITORY_ROOT / "PROJECTS" / "ROLLER" / "net_legacy.c"
+        ).read_text(encoding="ascii")
+        self.assertIn("#include <SDL3/SDL_atomic.h>", legacy_trap)
+        self.assertIn("SDL_AtomicInt", legacy_trap)
+        self.assertNotIn("#include <stdatomic.h>", legacy_trap)
 
     def test_core_only_configuration_has_no_game_target_or_dependencies(self) -> None:
         cmake = shutil.which("cmake")

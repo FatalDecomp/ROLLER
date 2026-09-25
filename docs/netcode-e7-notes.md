@@ -1,5 +1,70 @@
 # Netcode E7 notes
 
+## NET-E7-S3: ADR and retirement plan
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+`docs/adr/0006-online-netcode.md` records the accepted host-authoritative
+architecture and decisions D1 through D21. The correction section preserves
+the design history behind D16 through D21: the E0 state audit rejected a
+second physics model, rollback depends only on local determinism, restoration
+uses one matched post-tick moment, results remain host commits, replay cannot
+alter random draws, and over-budget correction changes prediction mode instead
+of entering a hitch or resync loop.
+
+The ADR also records D22 and D23 as hardening amendments because they are part
+of the implemented contract in plan v9.3. They do not expand E7-S3's scope.
+
+The retirement checklist is deliberately gated rather than scheduled. Modern
+networking must first ship, complete a release cycle of real use, pass the
+supported-platform multiplayer matrix, remain within its cost budgets, keep
+the legacy-call trap silent, and preserve GSS replay compatibility. Removal is
+then staged: make MODERN the default for a release, remove the user-facing
+selector, remove audited lockstep code, remove the trap and mode only after no
+call sites remain, and retain `replay.c` plus replay compatibility coverage.
+The deletion series remains isolated and revertible.
+
+Documentation-only verification checks the ADR and notes for ASCII text,
+confirms all decision identifiers D1 through D23 occur in the ADR, and checks
+the working-tree diff for whitespace errors. No game source, build manifest,
+wire format, or replay implementation changed.
+
+### Roller-core CMake CI follow-up
+
+Fixed on 2026-09-25 after all three `roller-core CMake` jobs failed on
+`ee4e543`.
+
+- `net_legacy.c` used C11 `<stdatomic.h>`. MSVC requires a separate
+  experimental compiler option for that header, while the rest of ROLLER
+  already uses SDL's portable atomic boundary. The legacy-call counters now
+  use `SDL_AtomicInt` and `SDL_AddAtomicInt`/`SDL_SetAtomicInt`/
+  `SDL_GetAtomicInt`; their relaxed diagnostic-counter semantics are
+  unchanged.
+- `ROLLER_EDITOR_CORE=1` was private to the `roller-core` target even though
+  it changes public headers. Consequently `roller_server.c` saw `3d.h`'s
+  three-argument game `main` declaration and then defined the normal
+  two-argument server `main`. The definition is now PUBLIC so every
+  `ROLLER::core` consumer parses the headers in the library's mode.
+- `tests/test_cmake_roller_core.py` locks both boundaries: the core definition
+  must remain PUBLIC and the trap must not return to direct C11 atomics.
+
+The actual Visual Studio CMake core-only build completed and linked
+`roller-core.lib`, `roller-server.exe`, `roller-bot.exe`, the editor link
+consumer, and all CMake net test executables. The editor link consumer and
+`roller-server --help` both ran successfully. The CMake-built foundations
+acceptance also passed, including the legacy trap, headless stepping, rollback,
+snapshot validation, and replay suppression. Linux x86_64 and macOS arm64
+compiler checks of `roller_server.c` passed with the propagated core define.
+The 19 selected Python configuration, source-set, manifest, and build-matrix
+tests pass; the source-set, manifest, CMake-CI policy, and whitespace checks
+also pass.
+
+One broader Zig foundations rerun was inconclusive for unrelated local
+reasons: several component tests passed, then the existing transport test hit
+its `iReceived == sizeof(szPayload)` assertion and Zig reported cache
+`AccessDenied` errors while rebuilding compiler runtimes. Neither failure was
+in a changed translation unit or the CMake path repaired here.
+
 ## NET-E7-S2: replay compatibility check
 
 Implemented on 2026-09-24. The changes are intentionally uncommitted.
