@@ -37,6 +37,8 @@
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #iCondition); exit(1); \
 } } while (0)
 
+#include "net_replay_compat.h"
+
 #define NET_TEST_START_TICK 5000u
 #define NET_TEST_LATENCY_MS 60      /* 120 ms RTT */
 #define NET_TEST_JITTER_MS 10       /* +/- 10 ms each way: 20 ms on the RTT */
@@ -99,6 +101,7 @@ typedef struct
 static tNetTestHostRun s_hostRun;
 static tNetTestMoment s_pristine;
 static tNetTestTwoRun s_twoRun;
+static int s_iClientReplayFrames;
 
 static int NetTestRandomBytes(void *pContext, void *pData, int iLength)
 {
@@ -668,6 +671,7 @@ static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
   int iDepth;
   double dCorrectionMs;
   clock_t tickStarted;
+  int iReplayFrames = 0;
   /* Let every packet from the steady-state link arrive, then advance only
      the client.  This creates a clean 15-tick retained span with no newer
      automatic host snapshot waiting to supersede the synthetic one. */
@@ -701,9 +705,16 @@ static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
                              0.0f, 1, &host);
   NetTestDeliverRaceMessages(pNodes, pullNowMs, unTickRateHz);
   input = NetTestScript(NetClientCurrentTick(pNodes->pClient) + 1u, byCar);
+  if (unTickRateHz == 36)
+    CHECK(NetReplayTestBegin("NET_CLIENT.GSS"));
   tickStarted = clock();
   CHECK(NetClientTick(pNodes->pClient, &input));
   dCorrectionMs = 1000.0 * (clock() - tickStarted) / CLOCKS_PER_SEC;
+  if (unTickRateHz == 36) {
+    iReplayFrames = NetReplayTestEnd();
+    CHECK(iReplayFrames == 1);
+    s_iClientReplayFrames = iReplayFrames;
+  }
   CHECK(NetClientStats(pNodes->pClient, &after));
   if (after.uiCorrections != before.uiCorrections + 1u)
     fprintf(stderr, "forced correction: tick %u current %u newest %u, "
@@ -808,6 +819,8 @@ static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
   printf("%u Hz: forced %d-tick correction in %.3f ms, "
          "authoritative-only no-op, and one deferred correction\n",
          unTickRateHz, iDepth, dCorrectionMs);
+  if (unTickRateHz == 36)
+    printf("NET-E7-S2 %d-tick correction wrote one replay frame\n", iDepth);
 }
 
 static void NetTestContinueRace(tNetTestNodes *pNodes, uint64 *pullNowMs,
@@ -1915,6 +1928,10 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   NetSessionHostDestroy(nodes.pSessionHost);
   NetChannelDestroy(nodes.pHostChannel);
   NetTransportSimDestroy(nodes.pSim);
+  if (unTickRateHz == 36) {
+    CHECK(NetReplayTestLoad("NET_CLIENT.GSS", s_iClientReplayFrames));
+    puts("NET-E7-S2 client replay loaded through the legacy reader");
+  }
 }
 
 static void NetTestRunTwoDuration(tNetTestNodes *pNodes,

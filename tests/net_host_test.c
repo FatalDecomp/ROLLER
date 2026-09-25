@@ -28,6 +28,8 @@
   fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #iCondition); exit(1); \
 } } while (0)
 
+#include "net_replay_compat.h"
+
 #define NET_TEST_CLIENTS 3
 #define NET_TEST_LATENCY_MS 100
 #define NET_TEST_LEAD_TICKS 8
@@ -518,6 +520,7 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
   tNetRaceStartClock clock;
   uint64 ullNowMs = 0, ullReleaseMs;
   int iTickIndex = 0, iRunning = -1, iProbed = 0, iLocalInputProbed = 0;
+  int iReplayFrames = 0;
   tNetHostPlayerStats probeStats;
   tNetWorldChangeEntry aWorldBefore[MAX_TRACK_CHUNKS];
 
@@ -669,10 +672,16 @@ static void NetTestRace(tNetTestRun *pRun, int iPhone, int iRunningTicks)
       if (iRunningTicks == NET_TEST_RUNNING_TICKS && iRunning >= 0 &&
           iIndex - iRunning == iRunningTicks - 4)
         pRun->uiSettleTick = uiTick;
+      if (pRun == &s_phoneRun && iIndex == 10)
+        CHECK(NetReplayTestBegin("NET_HOST.GSS"));
       if (!NetHostTick(pHost, uiTick)) {
         fprintf(stderr, "host tick %u failed (events %u, LOVEBUN uses %d)\n",
                 uiTick, NetHostLastEventSeq(pHost), pRun->iLovebunUses);
         CHECK(0);
+      }
+      if (pRun == &s_phoneRun && iIndex == 10) {
+        iReplayFrames = NetReplayTestEnd();
+        CHECK(iReplayFrames == 1);
       }
       if (iIndex == NET_TEST_BLACKOUT_START + NET_TEST_BLACKOUT_TICKS - 1) {
         s_aClients[0].uiBlackoutEndTick = uiTick;
@@ -1438,6 +1447,8 @@ int main(int iArgc, const char **ppArgv)
 
   NetTestRace(&s_phoneRun, 1, NET_TEST_RUNNING_TICKS);
   NetTestCheckAcceptance(&s_phoneRun);
+  CHECK(NetReplayTestLoad("NET_HOST.GSS", 1));
+  puts("NET-E7-S2 host replay loaded through the legacy reader");
   puts("NET-E3-S1/S2 host tick and commit acceptance passed");
 
   /* Phone throttle on a desktop host: the same race with client 1 sending

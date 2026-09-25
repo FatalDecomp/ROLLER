@@ -1,5 +1,49 @@
 # Netcode E7 notes
 
+## NET-E7-S2: replay compatibility check
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+The legacy replay implementation and format remain unchanged. A shared test
+fixture writes the existing fixed-width GSS header, lets the real simulation
+append frames through `DoReplayData`, and then reopens the file through
+`startreplay` and reads its first frame through `DoReplayData`.
+
+The host acceptance records one real `NetHostTick` and proves that its replay
+contains one frame and loads through the legacy reader. The client acceptance
+records the live `NetClientTick` which performs a forced 15-tick correction.
+The correction re-simulates those 15 retained ticks with `net_sim_replaying`
+set, but the resulting replay contains exactly one frame: the live tick. That
+file also loads through the legacy reader. Playback is delayed until the test
+world's other assertions are complete because replay loading intentionally
+mutates the live car array.
+
+`git diff master -- PROJECTS/ROLLER/replay.c` and the working-tree diff for
+that file are empty. This checkout has no local branch named `main`; `master`
+is its upstream baseline.
+
+Verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The complete focused netcode suite, the full native ReleaseSafe build,
+source/manifest checks, and all 18 selected Python tests passed. Source counts
+remain Linux 99, macOS 99, Windows 102, Android 99, and Emscripten 96;
+roller-core remains 115 translation units.
+
+Not run: CMake configure, Android, Linux, macOS, or a manual replay UI check.
+
 ## NET-E7-S1: runtime mode switch and legacy-call trap
 
 Implemented on 2026-09-24. The changes are intentionally uncommitted.
