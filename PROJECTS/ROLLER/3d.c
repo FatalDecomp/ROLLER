@@ -2873,6 +2873,8 @@ int main(int argc, const char **argv, const char **envp)
   int iPlayer1NameOverride = 0;
   int iNetLocalPort = 0;
   int iNetPeerPort = 0;
+  int iNetSlotOverride = 0;
+  int iNetSlotValue = 0;
   char whiplash_root[260] = { 0 };
   char szNetPeer[64] = { 0 };
   char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
@@ -2960,7 +2962,9 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--net-slot") == 0) {
       if (i + 1 < argc) {
-        network_slot = atoi(argv[i + 1]);
+        iNetSlotValue = atoi(argv[i + 1]);
+        network_slot = iNetSlotValue;
+        iNetSlotOverride = 1;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
@@ -3270,6 +3274,10 @@ int main(int argc, const char **argv, const char **envp)
   } else {
     load_fatal_config();
   }
+  /* fatal.ini contains the legacy NetSlot setting.  Command-line role
+     selection must win over it, especially modern --net-slot -1 clients. */
+  if (iNetSlotOverride)
+    network_slot = iNetSlotValue;
   if (iPlayer1NameOverride) {
     player_name_copy_bytes(player_names[player1_car], szPlayer1NameOverride);
     player_name_copy_bytes(my_name, szPlayer1NameOverride);

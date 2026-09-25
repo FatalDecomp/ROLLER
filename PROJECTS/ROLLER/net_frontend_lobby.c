@@ -68,6 +68,27 @@ static const char *NetFrontendPlayerName(void)
   return "PLAYER";
 }
 
+static void NetFrontendBuildHostInfo(tRvzSessionInfo *pInfo,
+                                     const tNetSessionConfig *pConfig)
+{
+  tNetSessionConfigOptions options;
+  int iTrackLoad = pConfig ? pConfig->iTrackLoad : TrackLoad;
+  const char *szTrack = iTrackLoad > 0 && iTrackLoad < 8 &&
+      names[iTrackLoad] ? names[iTrackLoad] : "COMMUNITY";
+  NetSessionConfigOptionsDefault(&options);
+  memset(pInfo, 0, sizeof(*pInfo));
+  pInfo->unTickRateHz = pConfig ? pConfig->unTickRateHz : 36;
+  pInfo->byPlayers = 1;
+  pInfo->byMaxPlayers = pConfig ? pConfig->byMaxPlayers :
+                                  options.byMaxPlayers;
+  snprintf(pInfo->szName, sizeof(pInfo->szName), "%s'S GAME",
+           NetFrontendPlayerName());
+  snprintf(pInfo->szTrack, sizeof(pInfo->szTrack), "%s", szTrack);
+  memcpy(pInfo->szBuildHash,
+         pConfig ? pConfig->szBuildHash : options.szBuildHash,
+         sizeof(pInfo->szBuildHash));
+}
+
 void NetFrontendSetLocalPort(uint16 unPort)
 {
   if (unPort)
@@ -203,7 +224,17 @@ int NetFrontendOpen(void)
     if (iCandidates > 0)
       NetDiscoverySetLocalCandidates(s_frontend.pDiscovery,
                                       aCandidates, iCandidates);
-    if (!s_frontend.byHost && !s_frontend.byHasPeer) {
+    if (s_frontend.byHost) {
+      tRvzSessionInfo info;
+      NetFrontendBuildHostInfo(&info, NULL);
+      if (!NetDiscoveryHostStart(s_frontend.pDiscovery, &info)) {
+        NetFrontendClose();
+        NetFrontendStatus("DISCOVERY REGISTRATION FAILED");
+        return 0;
+      }
+      s_frontend.hostInfo = info;
+      s_frontend.byHostInfo = 1;
+    } else if (!s_frontend.byHasPeer) {
       tNetSessionConfigOptions options;
       NetSessionConfigOptionsDefault(&options);
       NetDiscoveryList(s_frontend.pDiscovery, options.szBuildHash);
@@ -314,18 +345,10 @@ int NetFrontendLobbyBegin(void)
       return NetFrontendLobbyFailure("SECURE SESSION START FAILED");
     if (s_frontend.pDiscovery) {
       tRvzSessionInfo info;
-      memset(&info, 0, sizeof(info));
-      info.unTickRateHz = config.unTickRateHz;
-      info.byPlayers = 1;
-      info.byMaxPlayers = config.byMaxPlayers;
-      snprintf(info.szName, sizeof(info.szName), "%s'S GAME",
-               NetFrontendPlayerName());
-      snprintf(info.szTrack, sizeof(info.szTrack), "%s",
-               config.iTrackLoad >= 0 && config.iTrackLoad < 8 ?
-                   names[config.iTrackLoad] : "COMMUNITY");
-      memcpy(info.szBuildHash, config.szBuildHash,
-             sizeof(info.szBuildHash));
-      if (!NetDiscoveryHostStart(s_frontend.pDiscovery, &info))
+      NetFrontendBuildHostInfo(&info, &config);
+      if (s_frontend.byHostInfo)
+        NetDiscoveryHostUpdate(s_frontend.pDiscovery, &info);
+      else if (!NetDiscoveryHostStart(s_frontend.pDiscovery, &info))
         return NetFrontendLobbyFailure("DISCOVERY REGISTRATION FAILED");
       s_frontend.hostInfo = info;
       s_frontend.byHostInfo = 1;
