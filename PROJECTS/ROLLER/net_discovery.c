@@ -13,12 +13,19 @@ struct tNetDiscovery {
   void *pRandomContext;
   tRvzSessionInfo hostInfo;
   tRvzSessionInfo aSessions[NET_RVZ_MAX_SESSIONS];
+  tNetAddress aLocalCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
+  tNetAddress aPunchCandidates[NET_RVZ_MAX_CANDIDATES];
+  tNetAddress tPunchAddress;
   uint64 ullNonce, ullToken, ullNextSendMs, ullNextRefreshMs;
-  uint32 uiSessionId, uiResolveId;
+  uint64 ullPunchNonce, ullPunchDeadlineMs, ullNextPunchMs;
+  uint64 ullNextPunchRequestMs;
+  uint32 uiSessionId, uiResolveId, uiPunchSessionId;
   uint16 unSequence, unListPage;
-  int iSessionCount;
+  int iSessionCount, iLocalCandidateCount, iPunchCandidateCount;
+  int iNextPunchCandidate;
   uint8 byHosting, byRegistered, byListing, byListReady, byResolved;
-  uint8 byFilterBuild;
+  uint8 byFilterBuild, byPunchHasAnswer;
+  eNetPunchState ePunchState;
   char szBuildHash[16];
 };
 
@@ -45,6 +52,12 @@ static uint32 NetDiscoveryRead32(const uint8 *pData)
 {
   return (uint32)pData[0] | ((uint32)pData[1] << 8) |
       ((uint32)pData[2] << 16) | ((uint32)pData[3] << 24);
+}
+
+static uint64 NetDiscoveryRead64(const uint8 *pData)
+{
+  return (uint64)NetDiscoveryRead32(pData) |
+      ((uint64)NetDiscoveryRead32(pData + 4) << 32);
 }
 
 static int NetDiscoveryAddressEqual(const tNetAddress *pA,
@@ -79,9 +92,18 @@ static int NetDiscoverySend(tNetDiscovery *pDiscovery, uint8 byType,
 
 static void NetDiscoverySendRegister(tNetDiscovery *pDiscovery)
 {
-  uint8 abRequest[sizeof(tRvzRegisterRequest)];
+  uint8 abRequest[sizeof(tRvzRegisterRequest)] = {0};
+  int iCandidate;
   NetDiscoveryWrite64(abRequest, pDiscovery->ullNonce);
   NetRendezvousEncodeSessionInfo(abRequest + 8, &pDiscovery->hostInfo);
+  abRequest[8 + sizeof(tRvzSessionInfo)] =
+      (uint8)pDiscovery->iLocalCandidateCount;
+  for (iCandidate = 0; iCandidate < pDiscovery->iLocalCandidateCount;
+       ++iCandidate)
+    NetRendezvousEncodeCandidate(
+        abRequest + 8 + sizeof(tRvzSessionInfo) + 4 +
+            iCandidate * sizeof(tRvzCandidate),
+        &pDiscovery->aLocalCandidates[iCandidate]);
   NetDiscoverySend(pDiscovery, NET_RVZ_MSG_REGISTER, 0,
                    abRequest, sizeof(abRequest));
 }
@@ -105,14 +127,116 @@ static void NetDiscoverySendList(tNetDiscovery *pDiscovery)
                    abRequest, sizeof(abRequest));
 }
 
+static int NetDiscoveryDecodeCandidateSet(tNetAddress *pCandidates,
+                                          int *piCount,
+                                          const tNetRendezvousPacket *pPacket,
+                                          uint32 *puiSessionId,
+                                          uint64 *pullPunchNonce)
+{
+  uint8 byCount;
+  int iCandidate, iByte;
+  if (pPacket->unPayloadLength != sizeof(tRvzCandidateSet) ||
+      pPacket->pPayload[13] || pPacket->pPayload[14] ||
+      pPacket->pPayload[15])
+    return 0;
+  byCount = pPacket->pPayload[12];
+  if (!byCount || byCount > NET_RVZ_MAX_CANDIDATES)
+    return 0;
+  for (iCandidate = 0; iCandidate < byCount; ++iCandidate) {
+    int iPrior;
+    if (!NetRendezvousDecodeCandidate(
+          &pCandidates[iCandidate],
+          pPacket->pPayload + 16 + iCandidate * sizeof(tRvzCandidate)))
+      return 0;
+    for (iPrior = 0; iPrior < iCandidate; ++iPrior)
+      if (NetDiscoveryAddressEqual(
+            &pCandidates[iPrior], &pCandidates[iCandidate]))
+        return 0;
+  }
+  for (iByte = 16 + byCount * (int)sizeof(tRvzCandidate);
+       iByte < (int)sizeof(tRvzCandidateSet); ++iByte)
+    if (pPacket->pPayload[iByte])
+      return 0;
+  *puiSessionId = NetDiscoveryRead32(pPacket->pPayload);
+  *pullPunchNonce = NetDiscoveryRead64(pPacket->pPayload + 4);
+  if (!*puiSessionId || !*pullPunchNonce)
+    return 0;
+  *piCount = byCount;
+  return 1;
+}
+
+static int NetDiscoverySendPunchPacket(tNetDiscovery *pDiscovery,
+                                       const tNetAddress *pPeer,
+                                       uint8 byType)
+{
+  uint8 abPacket[sizeof(tNetPunchPacket)] = {0};
+  NetDiscoveryWrite32(abPacket, NET_PUNCH_PROTOCOL_ID);
+  NetDiscoveryWrite32(abPacket + 4, pDiscovery->uiPunchSessionId);
+  NetDiscoveryWrite64(abPacket + 8, pDiscovery->ullPunchNonce);
+  abPacket[16] = byType;
+  return NetChannelSendDatagram(pDiscovery->pChannel, pPeer,
+                                abPacket, sizeof(abPacket));
+}
+
+static void NetDiscoverySendPunchRequest(tNetDiscovery *pDiscovery)
+{
+  uint8 abRequest[sizeof(tRvzCandidateSet)] = {0};
+  int iCandidate;
+  NetDiscoveryWrite32(abRequest, pDiscovery->uiPunchSessionId);
+  NetDiscoveryWrite64(abRequest + 4, pDiscovery->ullPunchNonce);
+  abRequest[12] = (uint8)pDiscovery->iLocalCandidateCount;
+  for (iCandidate = 0; iCandidate < pDiscovery->iLocalCandidateCount;
+       ++iCandidate)
+    NetRendezvousEncodeCandidate(
+        abRequest + 16 + iCandidate * sizeof(tRvzCandidate),
+        &pDiscovery->aLocalCandidates[iCandidate]);
+  NetDiscoverySend(pDiscovery, NET_RVZ_MSG_PUNCH_REQUEST, 0,
+                   abRequest, sizeof(abRequest));
+}
+
+static int NetDiscoveryHandleDirect(tNetDiscovery *pDiscovery,
+                                    const tNetAddress *pPeer,
+                                    const uint8 *pData, int iLength)
+{
+  uint8 byType;
+  if (iLength != sizeof(tNetPunchPacket) ||
+      NetDiscoveryRead32(pData) != NET_PUNCH_PROTOCOL_ID ||
+      NetDiscoveryRead32(pData + 4) != pDiscovery->uiPunchSessionId ||
+      NetDiscoveryRead64(pData + 8) != pDiscovery->ullPunchNonce ||
+      pData[17] || pData[18] || pData[19])
+    return 0;
+  byType = pData[16];
+  if (pDiscovery->ePunchState != NET_PUNCH_IN_PROGRESS &&
+      pDiscovery->ePunchState != NET_PUNCH_SUCCEEDED)
+    return 1;
+  if (byType == NET_PUNCH_PROBE)
+    NetDiscoverySendPunchPacket(pDiscovery, pPeer, NET_PUNCH_ACK);
+  else if (byType != NET_PUNCH_ACK)
+    return 1;
+  if (pDiscovery->ePunchState == NET_PUNCH_SUCCEEDED)
+    return 1;
+  pDiscovery->tPunchAddress = *pPeer;
+  pDiscovery->ePunchState = NET_PUNCH_SUCCEEDED;
+  return 1;
+}
+
 static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
                                  const void *pData, int iLength)
 {
   tNetDiscovery *pDiscovery = (tNetDiscovery *)pContext;
   tNetRendezvousPacket packet;
-  if (!pDiscovery || !NetDiscoveryAddressEqual(
-          pPeer, &pDiscovery->rendezvous) ||
-      !NetRendezvousParsePacket(pData, iLength, &packet))
+  tNetAddress aPunchCandidates[NET_RVZ_MAX_CANDIDATES];
+  int iPunchCandidateCount;
+  uint32 uiPunchSessionId;
+  uint64 ullPunchNonce;
+  if (!pDiscovery)
+    return;
+  if (!NetDiscoveryAddressEqual(pPeer, &pDiscovery->rendezvous)) {
+    NetDiscoveryHandleDirect(pDiscovery, pPeer,
+                             (const uint8 *)pData, iLength);
+    return;
+  }
+  if (!NetRendezvousParsePacket(pData, iLength, &packet))
     return;
   if (packet.byType == NET_RVZ_MSG_REGISTERED && pDiscovery->byHosting &&
       packet.unPayloadLength == sizeof(tRvzAck) && packet.ullToken) {
@@ -167,6 +291,34 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
     pDiscovery->resolved.uiScopeId = NetDiscoveryRead32(packet.pPayload + 12);
     memcpy(pDiscovery->resolved.abAddress, packet.pPayload + 16, 16);
     pDiscovery->byResolved = pDiscovery->resolved.unPort != 0;
+  } else if ((packet.byType == NET_RVZ_MSG_PUNCH_OFFER ||
+              packet.byType == NET_RVZ_MSG_PUNCH_ANSWER) &&
+             NetDiscoveryDecodeCandidateSet(aPunchCandidates,
+                                             &iPunchCandidateCount, &packet,
+                                             &uiPunchSessionId,
+                                             &ullPunchNonce) &&
+             ((packet.byType == NET_RVZ_MSG_PUNCH_OFFER &&
+               pDiscovery->byRegistered &&
+               packet.ullToken == pDiscovery->ullToken &&
+               uiPunchSessionId == pDiscovery->uiSessionId &&
+               !(pDiscovery->ePunchState == NET_PUNCH_SUCCEEDED &&
+                 ullPunchNonce == pDiscovery->ullPunchNonce)) ||
+              (packet.byType == NET_RVZ_MSG_PUNCH_ANSWER &&
+               packet.ullToken == 0 &&
+               pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS &&
+               uiPunchSessionId == pDiscovery->uiPunchSessionId &&
+               ullPunchNonce == pDiscovery->ullPunchNonce))) {
+    uint64 ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+    pDiscovery->uiPunchSessionId = uiPunchSessionId;
+    pDiscovery->ullPunchNonce = ullPunchNonce;
+    memcpy(pDiscovery->aPunchCandidates, aPunchCandidates,
+           iPunchCandidateCount * sizeof(tNetAddress));
+    pDiscovery->iPunchCandidateCount = iPunchCandidateCount;
+    pDiscovery->iNextPunchCandidate = 0;
+    pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
+    pDiscovery->byPunchHasAnswer = 1;
+    pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
+    pDiscovery->ullNextPunchMs = ullNowMs;
   }
 }
 
@@ -196,6 +348,33 @@ void NetDiscoveryDestroy(tNetDiscovery *pDiscovery)
   NetDiscoveryHostStop(pDiscovery);
   NetChannelSetDatagramCallback(pDiscovery->pChannel, NULL, NULL);
   free(pDiscovery);
+}
+
+int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
+                                   const tNetAddress *pCandidates,
+                                   int iCount)
+{
+  tNetAddress aValidated[NET_RVZ_MAX_LOCAL_CANDIDATES];
+  uint8 abWire[sizeof(tRvzCandidate)];
+  int iCandidate, iPrior;
+  if (!pDiscovery || iCount < 0 ||
+      iCount > NET_RVZ_MAX_LOCAL_CANDIDATES ||
+      (iCount && !pCandidates) || pDiscovery->byHosting)
+    return 0;
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate) {
+    NetRendezvousEncodeCandidate(abWire, &pCandidates[iCandidate]);
+    if (!NetRendezvousDecodeCandidate(&aValidated[iCandidate], abWire))
+      return 0;
+    for (iPrior = 0; iPrior < iCandidate; ++iPrior)
+      if (NetDiscoveryAddressEqual(&aValidated[iPrior],
+                                   &aValidated[iCandidate]))
+        return 0;
+  }
+  if (iCount)
+    memcpy(pDiscovery->aLocalCandidates, aValidated,
+           iCount * sizeof(tNetAddress));
+  pDiscovery->iLocalCandidateCount = iCount;
+  return 1;
 }
 
 int NetDiscoveryHostStart(tNetDiscovery *pDiscovery,
@@ -302,6 +481,38 @@ int NetDiscoveryResolved(tNetDiscovery *pDiscovery, uint32 uiSessionId,
   return 1;
 }
 
+int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
+{
+  uint64 ullNowMs;
+  if (!pDiscovery || !uiSessionId || pDiscovery->byHosting ||
+      !pDiscovery->pRandom(pDiscovery->pRandomContext,
+                           &pDiscovery->ullPunchNonce,
+                           sizeof(pDiscovery->ullPunchNonce)) ||
+      !pDiscovery->ullPunchNonce)
+    return 0;
+  ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+  pDiscovery->uiPunchSessionId = uiSessionId;
+  pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
+  pDiscovery->byPunchHasAnswer = 0;
+  pDiscovery->iPunchCandidateCount = 0;
+  pDiscovery->iNextPunchCandidate = 0;
+  pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
+  pDiscovery->ullNextPunchRequestMs = ullNowMs +
+      NET_PUNCH_REQUEST_RETRY_MS;
+  NetDiscoverySendPunchRequest(pDiscovery);
+  return 1;
+}
+
+eNetPunchState NetDiscoveryPunchState(const tNetDiscovery *pDiscovery,
+                                      tNetAddress *pAddress)
+{
+  if (!pDiscovery)
+    return NET_PUNCH_IDLE;
+  if (pAddress && pDiscovery->ePunchState == NET_PUNCH_SUCCEEDED)
+    *pAddress = pDiscovery->tPunchAddress;
+  return pDiscovery->ePunchState;
+}
+
 void NetDiscoveryPump(tNetDiscovery *pDiscovery)
 {
   uint64 ullNowMs;
@@ -325,5 +536,27 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
       szFilter = szBuildHash;
     }
     NetDiscoveryList(pDiscovery, szFilter);
+  }
+  if (pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS) {
+    if (ullNowMs >= pDiscovery->ullPunchDeadlineMs) {
+      pDiscovery->ePunchState = NET_PUNCH_TIMED_OUT;
+    } else if (!pDiscovery->byPunchHasAnswer &&
+               ullNowMs >= pDiscovery->ullNextPunchRequestMs) {
+      NetDiscoverySendPunchRequest(pDiscovery);
+      pDiscovery->ullNextPunchRequestMs = ullNowMs +
+          NET_PUNCH_REQUEST_RETRY_MS;
+    }
+    if (pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS &&
+        pDiscovery->byPunchHasAnswer &&
+        pDiscovery->iPunchCandidateCount &&
+        ullNowMs >= pDiscovery->ullNextPunchMs) {
+      NetDiscoverySendPunchPacket(pDiscovery,
+          &pDiscovery->aPunchCandidates[pDiscovery->iNextPunchCandidate],
+          NET_PUNCH_PROBE);
+      pDiscovery->iNextPunchCandidate =
+          (pDiscovery->iNextPunchCandidate + 1) %
+          pDiscovery->iPunchCandidateCount;
+      pDiscovery->ullNextPunchMs = ullNowMs + NET_PUNCH_RETRY_MS;
+    }
   }
 }

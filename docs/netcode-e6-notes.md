@@ -123,6 +123,12 @@ python tools/check_roller_core_manifest.py
 python -m unittest tests.test_source_set_drift `
   tests.test_roller_core_manifest tests.test_game_build_matrix `
   tests.test_cmake_roller_core
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
 ```
 
 The focused discovery/daemon tests, complete focused netcode regressions and
@@ -130,3 +136,65 @@ the full native build pass. Source counts are Linux 99, macOS 99, Windows
 102, Android 99 and Emscripten 96; roller-core contains 115 translation
 units. The selected Python suite has 18 tests. A real-daemon two-network
 manual check, CMake configure, Android and native macOS were not run.
+
+## NET-E6-S3: UDP hole punching
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+The rendezvous registration now carries up to seven ordered local interface
+candidates. A punch request carries the joining endpoint's local candidates
+and a CSPRNG 64-bit nonce. The daemon appends each endpoint's observed source
+address, removes duplicates without changing order, sends an authenticated
+offer to the registered host, and returns the host set to the joining client.
+Candidate messages are fixed-width, explicitly little-endian, size-asserted,
+and completely validated, including reserved and unused bytes, before use.
+
+Peers then exchange 20-byte `PNC1` probes directly on the shared game socket;
+punch packets never pass through the daemon. Local candidates are tried in
+enumeration order before the server-observed candidate, one every 100 ms and
+then round-robin until a three-second deadline. Either a matching probe or its
+acknowledgement selects the packet's observed source address, which is the
+address handed to the existing channel/session join. Rendezvous requests retry
+once per second until an answer arrives. The existing direct-connect and
+`RESOLVE` paths remain available and unchanged.
+
+The native browser now enumerates local addresses with the bound game port,
+starts punching for its selected listing, and does not create a game
+connection until a direct path succeeds. It reports `DIRECT CONNECTION TIMED
+OUT` when every candidate remains unanswered. This is the terminal outcome for
+E6-S3; NET-E6-S4 owns relay allocation and fallback.
+
+`test-net-discovery` covers the complete daemon/host/client exchange. Both
+peers first try an unreachable local candidate, remain in progress, then
+select the observed public endpoints in the next candidate slot. A second
+attempt receives candidates while the host endpoint is deliberately not
+pumped and reaches the exact timeout instead of retrying forever.
+
+Manual NAT matrix (not run on this Windows development machine):
+
+| Host NAT | Client NAT | Expected E6-S3 result | Status |
+|---|---|---|---|
+| Same LAN | Same LAN | Local candidate selected | Not run |
+| Full-cone/restricted | Full-cone/restricted | Observed candidates select | Not run |
+| Port-restricted | Port-restricted | Simultaneous probes select | Not run |
+| IPv6 global | IPv6 global | IPv6 candidate selects | Not run |
+| Symmetric | Any NAT | May time out; E6-S4 relay required | Not run |
+| Any NAT | Symmetric | May time out; E6-S4 relay required | Not run |
+
+Verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-discovery test-net-rendezvous -Doptimize=ReleaseSafe
+zig build test-net-foundations test-net-full-state-coherence test-net-host `
+  test-net-client test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+```
+
+The focused candidate-order/timeout test, rendezvous limits and virtual 24-hour
+soak, broader foundations, coherence, host, client and harness suite, full
+native ReleaseSafe build, source/manifest checks, and all 18 selected Python
+tests pass. Source counts remain Linux 99, macOS 99, Windows 102, Android 99
+and Emscripten 96; roller-core remains 115 translation units. The manual NAT
+matrix, CMake configure, Android, macOS, and the real-daemon two-network check
+were not run.

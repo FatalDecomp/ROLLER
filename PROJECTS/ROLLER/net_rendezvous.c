@@ -12,6 +12,8 @@ typedef struct {
   tNetAddress source;
   uint64 ullRegistrationNonce, ullToken, ullExpiresMs;
   tRvzSessionInfo info;
+  uint8 byCandidateCount;
+  tNetAddress aCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
 } tNetRendezvousSession;
 
 typedef struct {
@@ -93,6 +95,37 @@ void NetRendezvousDecodeSessionInfo(tRvzSessionInfo *pInfo,
   memcpy(pInfo->szName, pWire + 11, sizeof(pInfo->szName));
   memcpy(pInfo->szTrack, pWire + 43, sizeof(pInfo->szTrack));
   memcpy(pInfo->szBuildHash, pWire + 69, sizeof(pInfo->szBuildHash));
+}
+
+void NetRendezvousEncodeCandidate(uint8 *pWire,
+                                  const tNetAddress *pAddress)
+{
+  memset(pWire, 0, sizeof(tRvzCandidate));
+  pWire[0] = pAddress->byFamily;
+  NetRvzWrite16(pWire + 2, pAddress->unPort);
+  NetRvzWrite32(pWire + 4, pAddress->uiScopeId);
+  memcpy(pWire + 8, pAddress->abAddress, 16);
+}
+
+int NetRendezvousDecodeCandidate(tNetAddress *pAddress,
+                                 const uint8 *pWire)
+{
+  int iByte;
+  if (!pAddress || !pWire || pWire[1] ||
+      (pWire[0] != NET_ADDR_IPV4 && pWire[0] != NET_ADDR_IPV6) ||
+      !NetRvzRead16(pWire + 2) ||
+      (pWire[0] == NET_ADDR_IPV4 && NetRvzRead32(pWire + 4)))
+    return 0;
+  if (pWire[0] == NET_ADDR_IPV4)
+    for (iByte = 12; iByte < 24; ++iByte)
+      if (pWire[iByte])
+        return 0;
+  memset(pAddress, 0, sizeof(*pAddress));
+  pAddress->byFamily = pWire[0];
+  pAddress->unPort = NetRvzRead16(pWire + 2);
+  pAddress->uiScopeId = NetRvzRead32(pWire + 4);
+  memcpy(pAddress->abAddress, pWire + 8, 16);
+  return 1;
 }
 
 int NetRendezvousBuildPacket(uint8 *pPacket, int iCapacity,
@@ -192,6 +225,48 @@ static int NetRvzSourceValid(const tNetAddress *pSource)
   return pSource && pSource->unPort &&
       (pSource->byFamily == NET_ADDR_IPV4 ||
        pSource->byFamily == NET_ADDR_IPV6);
+}
+
+static int NetRvzAddressEqual(const tNetAddress *pA,
+                              const tNetAddress *pB)
+{
+  int iLength;
+  if (!pA || !pB || pA->byFamily != pB->byFamily ||
+      pA->unPort != pB->unPort || pA->uiScopeId != pB->uiScopeId)
+    return 0;
+  iLength = pA->byFamily == NET_ADDR_IPV4 ? 4 : 16;
+  return memcmp(pA->abAddress, pB->abAddress, (size_t)iLength) == 0;
+}
+
+static int NetRvzDecodeCandidates(tNetAddress *pCandidates, int iCapacity,
+                                  const uint8 *pWire, int iCount)
+{
+  int iCandidate, iPrior;
+  if (iCount < 0 || iCount > iCapacity)
+    return 0;
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate) {
+    if (!NetRendezvousDecodeCandidate(&pCandidates[iCandidate],
+          pWire + iCandidate * sizeof(tRvzCandidate)))
+      return 0;
+    for (iPrior = 0; iPrior < iCandidate; ++iPrior)
+      if (NetRvzAddressEqual(&pCandidates[iPrior],
+                             &pCandidates[iCandidate]))
+        return 0;
+  }
+  return 1;
+}
+
+static int NetRvzAppendCandidate(tNetAddress *pCandidates, int iCount,
+                                 int iCapacity,
+                                 const tNetAddress *pCandidate)
+{
+  int iCandidate;
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate)
+    if (NetRvzAddressEqual(&pCandidates[iCandidate], pCandidate))
+      return iCount;
+  if (iCount < iCapacity)
+    pCandidates[iCount++] = *pCandidate;
+  return iCount;
 }
 
 static void NetRvzDeactivateSession(tNetRendezvous *pRendezvous,
@@ -370,8 +445,10 @@ static void NetRvzRegister(tNetRendezvous *pRendezvous,
 {
   tNetRendezvousSession *pSession = NULL;
   tRvzSessionInfo info;
+  tNetAddress aCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
   uint64 ullNonce;
-  int iSession;
+  uint8 byCandidateCount;
+  int iSession, iPad, iByte;
   if (pPacket->ullToken ||
       pPacket->unPayloadLength != sizeof(tRvzRegisterRequest)) {
     NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
@@ -380,7 +457,21 @@ static void NetRvzRegister(tNetRendezvous *pRendezvous,
   }
   ullNonce = NetRvzRead64(pPacket->pPayload);
   NetRendezvousDecodeSessionInfo(&info, pPacket->pPayload + 8);
-  if (!ullNonce || !NetRvzInfoValid(&info, 1)) {
+  byCandidateCount = pPacket->pPayload[8 + sizeof(tRvzSessionInfo)];
+  for (iPad = 1; iPad < 4; ++iPad)
+    if (pPacket->pPayload[8 + sizeof(tRvzSessionInfo) + iPad])
+      byCandidateCount = NET_RVZ_MAX_LOCAL_CANDIDATES + 1;
+  for (iByte = 8 + (int)sizeof(tRvzSessionInfo) + 4 +
+           byCandidateCount * (int)sizeof(tRvzCandidate);
+       byCandidateCount <= NET_RVZ_MAX_LOCAL_CANDIDATES &&
+       iByte < (int)sizeof(tRvzRegisterRequest); ++iByte)
+    if (pPacket->pPayload[iByte])
+      byCandidateCount = NET_RVZ_MAX_LOCAL_CANDIDATES + 1;
+  if (!ullNonce || !NetRvzInfoValid(&info, 1) ||
+      byCandidateCount > NET_RVZ_MAX_LOCAL_CANDIDATES ||
+      !NetRvzDecodeCandidates(aCandidates, NET_RVZ_MAX_LOCAL_CANDIDATES,
+          pPacket->pPayload + 8 + sizeof(tRvzSessionInfo) + 4,
+          byCandidateCount)) {
     NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
                     NET_RVZ_ERROR_INVALID);
     return;
@@ -424,6 +515,10 @@ static void NetRvzRegister(tNetRendezvous *pRendezvous,
   pSession->ullRegistrationNonce = ullNonce;
   pSession->ullExpiresMs = ullNowMs + NET_RVZ_SESSION_LEASE_MS;
   pSession->info = info;
+  pSession->byCandidateCount = byCandidateCount;
+  if (byCandidateCount)
+    memcpy(pSession->aCandidates, aCandidates,
+           byCandidateCount * sizeof(tNetAddress));
   ++pRendezvous->stats.iActiveSessions;
   if (pRendezvous->stats.iActiveSessions >
       pRendezvous->stats.iSessionHighWater)
@@ -596,6 +691,93 @@ static void NetRvzResolve(tNetRendezvous *pRendezvous,
              NET_RVZ_MSG_RESOLVED, abResolved, sizeof(abResolved));
 }
 
+static int NetRvzDecodeCandidateSet(tNetAddress *pCandidates, int *piCount,
+                                    uint32 *puiSessionId,
+                                    uint64 *pullPunchNonce,
+                                    const tNetRendezvousPacket *pPacket)
+{
+  int iByte;
+  uint8 byCount;
+  if (pPacket->unPayloadLength != sizeof(tRvzCandidateSet) ||
+      pPacket->pPayload[13] || pPacket->pPayload[14] ||
+      pPacket->pPayload[15])
+    return 0;
+  byCount = pPacket->pPayload[12];
+  if (byCount > NET_RVZ_MAX_LOCAL_CANDIDATES ||
+      !NetRvzDecodeCandidates(pCandidates, NET_RVZ_MAX_LOCAL_CANDIDATES,
+                              pPacket->pPayload + 16, byCount))
+    return 0;
+  for (iByte = 16 + byCount * (int)sizeof(tRvzCandidate);
+       iByte < (int)sizeof(tRvzCandidateSet); ++iByte)
+    if (pPacket->pPayload[iByte])
+      return 0;
+  *piCount = byCount;
+  *puiSessionId = NetRvzRead32(pPacket->pPayload);
+  *pullPunchNonce = NetRvzRead64(pPacket->pPayload + 4);
+  return *puiSessionId && *pullPunchNonce;
+}
+
+static void NetRvzEncodeCandidateSet(uint8 *pWire, uint32 uiSessionId,
+                                     uint64 ullPunchNonce,
+                                     const tNetAddress *pCandidates,
+                                     int iCount)
+{
+  int iCandidate;
+  memset(pWire, 0, sizeof(tRvzCandidateSet));
+  NetRvzWrite32(pWire, uiSessionId);
+  NetRvzWrite64(pWire + 4, ullPunchNonce);
+  pWire[12] = (uint8)iCount;
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate)
+    NetRendezvousEncodeCandidate(
+        pWire + 16 + iCandidate * sizeof(tRvzCandidate),
+        &pCandidates[iCandidate]);
+}
+
+static void NetRvzPunchRequest(tNetRendezvous *pRendezvous,
+                               const tNetAddress *pSource,
+                               const tNetRendezvousPacket *pPacket)
+{
+  tNetRendezvousSession *pSession;
+  tNetAddress aClientCandidates[NET_RVZ_MAX_CANDIDATES];
+  tNetAddress aHostCandidates[NET_RVZ_MAX_CANDIDATES];
+  uint8 abClientSet[sizeof(tRvzCandidateSet)];
+  uint8 abHostSet[sizeof(tRvzCandidateSet)];
+  uint32 uiSessionId;
+  uint64 ullPunchNonce;
+  int iClientCount, iHostCount;
+  if (pPacket->ullToken || !NetRvzDecodeCandidateSet(
+          aClientCandidates, &iClientCount, &uiSessionId,
+          &ullPunchNonce, pPacket)) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_INVALID);
+    return;
+  }
+  pSession = NetRvzFindSession(pRendezvous, uiSessionId);
+  if (!pSession) {
+    NetRvzSendError(pRendezvous, pSource, pPacket->unSequence,
+                    NET_RVZ_ERROR_NOT_FOUND);
+    return;
+  }
+  iClientCount = NetRvzAppendCandidate(aClientCandidates, iClientCount,
+                                       NET_RVZ_MAX_CANDIDATES, pSource);
+  iHostCount = pSession->byCandidateCount;
+  if (iHostCount)
+    memcpy(aHostCandidates, pSession->aCandidates,
+           iHostCount * sizeof(tNetAddress));
+  iHostCount = NetRvzAppendCandidate(aHostCandidates, iHostCount,
+                                     NET_RVZ_MAX_CANDIDATES,
+                                     &pSession->source);
+  NetRvzEncodeCandidateSet(abClientSet, uiSessionId, ullPunchNonce,
+                           aClientCandidates, iClientCount);
+  NetRvzEncodeCandidateSet(abHostSet, uiSessionId, ullPunchNonce,
+                           aHostCandidates, iHostCount);
+  NetRvzSend(pRendezvous, &pSession->source, pPacket->unSequence,
+             pSession->ullToken, NET_RVZ_MSG_PUNCH_OFFER,
+             abClientSet, sizeof(abClientSet));
+  NetRvzSend(pRendezvous, pSource, pPacket->unSequence, 0,
+             NET_RVZ_MSG_PUNCH_ANSWER, abHostSet, sizeof(abHostSet));
+}
+
 static void NetRvzHandle(tNetRendezvous *pRendezvous,
                          const tNetAddress *pSource, const uint8 *pData,
                          int iLength, uint64 ullNowMs)
@@ -624,6 +806,9 @@ static void NetRvzHandle(tNetRendezvous *pRendezvous,
       break;
     case NET_RVZ_MSG_RESOLVE:
       NetRvzResolve(pRendezvous, pSource, &packet);
+      break;
+    case NET_RVZ_MSG_PUNCH_REQUEST:
+      NetRvzPunchRequest(pRendezvous, pSource, &packet);
       break;
     default:
       NetRvzSendError(pRendezvous, pSource, packet.unSequence,

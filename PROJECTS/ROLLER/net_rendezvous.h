@@ -13,6 +13,12 @@
 #define NET_RVZ_CONTROL_BURST 40
 #define NET_RVZ_SESSION_LEASE_MS 30000
 #define NET_RVZ_HEARTBEAT_MS 10000
+#define NET_RVZ_MAX_LOCAL_CANDIDATES 7
+#define NET_RVZ_MAX_CANDIDATES (NET_RVZ_MAX_LOCAL_CANDIDATES + 1)
+#define NET_PUNCH_PROTOCOL_ID 0x504E4331u /* 'PNC1' */
+#define NET_PUNCH_RETRY_MS 100
+#define NET_PUNCH_REQUEST_RETRY_MS 1000
+#define NET_PUNCH_TIMEOUT_MS 3000
 
 enum {
   NET_RVZ_SESSION_PASSWORD = 1,
@@ -32,8 +38,16 @@ typedef enum {
   NET_RVZ_MSG_ACK,
   NET_RVZ_MSG_ERROR,
   NET_RVZ_MSG_RESOLVE,
-  NET_RVZ_MSG_RESOLVED
+  NET_RVZ_MSG_RESOLVED,
+  NET_RVZ_MSG_PUNCH_REQUEST,
+  NET_RVZ_MSG_PUNCH_OFFER,
+  NET_RVZ_MSG_PUNCH_ANSWER
 } eNetRendezvousMessageType;
+
+typedef enum {
+  NET_PUNCH_PROBE = 1,
+  NET_PUNCH_ACK
+} eNetPunchMessageType;
 
 typedef enum {
   NET_RVZ_ERROR_INVALID = 1,
@@ -45,8 +59,24 @@ typedef enum {
 
 #pragma pack(push, 1)
 typedef struct {
+  uint8 byFamily, byPad;
+  uint16 unPort;
+  uint32 uiScopeId;
+  uint8 abAddress[16];
+} tRvzCandidate;
+
+typedef struct {
+  uint32 uiSessionId;
+  uint64 ullPunchNonce;
+  uint8 byCount, byPad[3];
+  tRvzCandidate aCandidates[NET_RVZ_MAX_CANDIDATES];
+} tRvzCandidateSet;
+
+typedef struct {
   uint64 ullRegistrationNonce;
   tRvzSessionInfo info;
+  uint8 byCandidateCount, byPad[3];
+  tRvzCandidate aCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
 } tRvzRegisterRequest;
 
 typedef struct {
@@ -80,9 +110,18 @@ typedef struct {
   uint32 uiScopeId;
   uint8 abAddress[16];
 } tRvzResolved;
+
+typedef struct {
+  uint32 uiProtocolId, uiSessionId;
+  uint64 ullPunchNonce;
+  uint8 byType, byPad[3];
+} tNetPunchPacket;
 #pragma pack(pop)
 
-_Static_assert(sizeof(tRvzRegisterRequest) == 93,
+_Static_assert(sizeof(tRvzCandidate) == 24, "rendezvous candidate wire size");
+_Static_assert(sizeof(tRvzCandidateSet) == 208,
+               "rendezvous candidate set wire size");
+_Static_assert(sizeof(tRvzRegisterRequest) == 265,
                "rendezvous registration wire size");
 _Static_assert(sizeof(tRvzAck) == 8, "rendezvous ack wire size");
 _Static_assert(sizeof(tRvzUnregisterRequest) == 4,
@@ -93,6 +132,13 @@ _Static_assert(sizeof(tRvzListPageHeader) == 8,
                "rendezvous list header wire size");
 _Static_assert(sizeof(tRvzError) == 4, "rendezvous error wire size");
 _Static_assert(sizeof(tRvzResolved) == 32, "rendezvous resolve wire size");
+_Static_assert(sizeof(tNetPunchPacket) == 20, "punch packet wire size");
+_Static_assert(sizeof(tRvzRegisterRequest) + sizeof(tNetPacketHeader) +
+                   sizeof(tNetMessageHeader) <= NET_MAX_PAYLOAD,
+               "rendezvous registration fits");
+_Static_assert(sizeof(tRvzCandidateSet) + sizeof(tNetPacketHeader) +
+                   sizeof(tNetMessageHeader) <= NET_MAX_PAYLOAD,
+               "rendezvous candidate set fits");
 _Static_assert(sizeof(tRvzListPageHeader) +
                    NET_RVZ_MAX_PAGE_SESSIONS * sizeof(tRvzSessionInfo) +
                    sizeof(tNetPacketHeader) + sizeof(tNetMessageHeader) <=
@@ -138,5 +184,9 @@ void NetRendezvousEncodeSessionInfo(uint8 *pWire,
                                     const tRvzSessionInfo *pInfo);
 void NetRendezvousDecodeSessionInfo(tRvzSessionInfo *pInfo,
                                     const uint8 *pWire);
+void NetRendezvousEncodeCandidate(uint8 *pWire,
+                                  const tNetAddress *pAddress);
+int NetRendezvousDecodeCandidate(tNetAddress *pAddress,
+                                 const uint8 *pWire);
 
 #endif

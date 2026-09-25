@@ -43,6 +43,19 @@ static void TestCycle(tNetTransportSim *pSim, tNetRendezvous *pRendezvous,
   NetDiscoveryPump(pBrowserDiscovery);
 }
 
+static void TestBrowserCycle(tNetTransportSim *pSim,
+                             tNetRendezvous *pRendezvous,
+                             tNetChannel *pBrowser,
+                             tNetDiscovery *pBrowserDiscovery,
+                             uint64 ullNowMs)
+{
+  NetTransportSimAdvance(pSim, ullNowMs);
+  NetRendezvousPump(pRendezvous);
+  NetTransportSimAdvance(pSim, ullNowMs);
+  NetChannelPump(pBrowser);
+  NetDiscoveryPump(pBrowserDiscovery);
+}
+
 int main(void)
 {
   tNetTransportSim *pSim = NetTransportSimCreate(1);
@@ -54,6 +67,9 @@ int main(void)
   tNetDiscovery *pHostDiscovery, *pBrowserDiscovery;
   tRvzSessionInfo info, listed;
   tNetAddress resolved;
+  tNetAddress hostLocal = TestAddress(110, 7777);
+  tNetAddress browserLocal = TestAddress(120, 7780);
+  eNetPunchState ePunchState;
   uint32 uiRandom = 100, uiServerRandom = 1000, uiSessionId;
   CHECK(pSim);
   CHECK(NetTransportSimSetEndpointAddress(pSim, 0, &hostAddress));
@@ -69,6 +85,8 @@ int main(void)
   pBrowserDiscovery = NetDiscoveryCreate(pBrowser, &rendezvousAddress,
                                          TestRandom, &uiRandom);
   CHECK(pHostDiscovery && pBrowserDiscovery);
+  CHECK(NetDiscoverySetLocalCandidates(pHostDiscovery, &hostLocal, 1));
+  CHECK(NetDiscoverySetLocalCandidates(pBrowserDiscovery, &browserLocal, 1));
   memset(&info, 0, sizeof(info));
   info.unTickRateHz = 36;
   info.byPlayers = 1;
@@ -103,6 +121,38 @@ int main(void)
   CHECK(resolved.byFamily == hostAddress.byFamily);
   CHECK(resolved.unPort == hostAddress.unPort);
   CHECK(memcmp(resolved.abAddress, hostAddress.abAddress, 4) == 0);
+  CHECK(NetDiscoveryPunch(pBrowserDiscovery, uiSessionId));
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 6);
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 7);
+  CHECK(NetDiscoveryPunchState(pBrowserDiscovery, NULL) ==
+        NET_PUNCH_IN_PROGRESS);
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 106);
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 107);
+  ePunchState = NetDiscoveryPunchState(pBrowserDiscovery, &resolved);
+  CHECK(ePunchState == NET_PUNCH_SUCCEEDED);
+  CHECK(resolved.byFamily == hostAddress.byFamily &&
+        resolved.unPort == hostAddress.unPort &&
+        memcmp(resolved.abAddress, hostAddress.abAddress, 4) == 0);
+  CHECK(NetDiscoveryPunchState(pHostDiscovery, &resolved) ==
+        NET_PUNCH_SUCCEEDED);
+  CHECK(resolved.byFamily == browserAddress.byFamily &&
+        resolved.unPort == browserAddress.unPort &&
+        memcmp(resolved.abAddress, browserAddress.abAddress, 4) == 0);
+
+  /* A fresh attempt receives candidates but cannot complete while the host
+     endpoint is not pumped. It must stop at the fixed deadline. */
+  CHECK(NetDiscoveryPunch(pBrowserDiscovery, uiSessionId));
+  TestBrowserCycle(pSim, pRendezvous, pBrowser, pBrowserDiscovery, 200);
+  TestBrowserCycle(pSim, pRendezvous, pBrowser, pBrowserDiscovery, 201);
+  TestBrowserCycle(pSim, pRendezvous, pBrowser, pBrowserDiscovery, 301);
+  TestBrowserCycle(pSim, pRendezvous, pBrowser, pBrowserDiscovery,
+                   3201);
+  CHECK(NetDiscoveryPunchState(pBrowserDiscovery, NULL) ==
+        NET_PUNCH_TIMED_OUT);
   info.byPlayers = 3;
   NetDiscoveryHostUpdate(pHostDiscovery, &info);
   TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
@@ -131,6 +181,6 @@ int main(void)
   NetChannelDestroy(pBrowser);
   NetChannelDestroy(pHost);
   NetTransportSimDestroy(pSim);
-  puts("NET-E6-S2 host registration, listing and resolve passed");
+  puts("NET-E6-S3 ordered UDP hole punching and timeout passed");
   return 0;
 }

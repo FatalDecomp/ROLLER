@@ -187,8 +187,10 @@ int NetFrontendOpen(void)
   players = 1;
   players_waiting = 0;
   if (s_frontend.byHasRendezvous) {
+    tNetAddress aCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
     tNetChannel *pChannel = s_frontend.byHost ? s_frontend.pServerChannel :
                                                 s_frontend.pClientChannel;
+    int iCandidates;
     s_frontend.pDiscovery = NetDiscoveryCreate(
         pChannel, &s_frontend.rendezvous, NetPlatformRandomBytes, NULL);
     if (!s_frontend.pDiscovery) {
@@ -196,6 +198,12 @@ int NetFrontendOpen(void)
       NetFrontendStatus("RENDEZVOUS START FAILED");
       return 0;
     }
+    iCandidates = NetAddressEnumerateLocal(
+        aCandidates, NET_RVZ_MAX_LOCAL_CANDIDATES,
+        NetTransportUdpPort(s_frontend.pServerUdp));
+    if (iCandidates > 0)
+      NetDiscoverySetLocalCandidates(s_frontend.pDiscovery,
+                                      aCandidates, iCandidates);
     if (!s_frontend.byHost && !s_frontend.byHasPeer) {
       tNetSessionConfigOptions options;
       NetSessionConfigOptionsDefault(&options);
@@ -274,6 +282,10 @@ int NetFrontendLobbyBegin(void)
   tNetAddress peer;
   if (!s_frontend.byOpen || s_frontend.byLobbyStarted)
     return s_frontend.byLobbyStarted;
+  if (!s_frontend.byHost && !s_frontend.byHasPeer) {
+    NetFrontendStatus("WAITING FOR DIRECT CONNECTION");
+    return 0;
+  }
   if (player1_car < 0 || player1_car >= MAX_CARS ||
       (s_frontend.byLocalPlayers == 2 &&
        (player2_car < 0 || player2_car >= MAX_CARS ||
@@ -437,16 +449,20 @@ void NetFrontendPump(void)
     tRvzSessionInfo info;
     if (!s_frontend.byResolvePending &&
         NetDiscoverySession(s_frontend.pDiscovery, 0, &info)) {
-      s_frontend.byResolvePending = (uint8)NetDiscoveryResolve(
+      s_frontend.byResolvePending = (uint8)NetDiscoveryPunch(
           s_frontend.pDiscovery, info.uiSessionId);
     }
     if (s_frontend.byResolvePending &&
-        NetDiscoverySession(s_frontend.pDiscovery, 0, &info) &&
-        NetDiscoveryResolved(s_frontend.pDiscovery, info.uiSessionId,
-                             &s_frontend.peer)) {
+        NetDiscoveryPunchState(s_frontend.pDiscovery,
+                               &s_frontend.peer) == NET_PUNCH_SUCCEEDED) {
       s_frontend.byHasPeer = 1;
       s_frontend.byResolvePending = 0;
       NetFrontendStatus("GAME FOUND");
+    } else if (s_frontend.byResolvePending &&
+               NetDiscoveryPunchState(s_frontend.pDiscovery, NULL) ==
+                   NET_PUNCH_TIMED_OUT) {
+      s_frontend.byResolvePending = 0;
+      NetFrontendStatus("DIRECT CONNECTION TIMED OUT");
     }
   }
   if (!s_frontend.byLobbyStarted)

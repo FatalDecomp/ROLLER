@@ -167,6 +167,7 @@ static int TestTransact(tNetRendezvous *pRendezvous,
 static void TestEncodeRegister(uint8 *pPayload, uint64 ullNonce,
                                const tRvzSessionInfo *pInfo)
 {
+  memset(pPayload, 0, sizeof(tRvzRegisterRequest));
   TestWrite64(pPayload, ullNonce);
   NetRendezvousEncodeSessionInfo(pPayload + 8, pInfo);
 }
