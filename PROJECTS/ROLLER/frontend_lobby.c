@@ -519,6 +519,10 @@ void frontend_lobby_update(void)
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
   if (net_mode == NET_MODE_MODERN) {
     uint32 uiStartTick;
+    /* A discovery client can enter this screen before rendezvous has found
+       the host.  frontend_lobby_enter() makes the first start attempt, then
+       retry here so the lobby is created as soon as punching/relay succeeds. */
+    (void)NetFrontendLobbyBegin();
     lobby_draw_frame();
     if (lobby_handle_mouse())
       return;
