@@ -9,12 +9,12 @@ Implemented on 2026-09-21 and committed in `cd162d2`.
 `net_race_state.c/.h` owns the small on-track lifecycle shared by host and
 client. A race object starts in `NET_RACE_PRE_START`; the authority publishes
 the transition to `NET_RACE_RUNNING` when the simulated `game_frame` reaches
-145, then publishes `NET_RACE_OUTCOME_SETTLED` when every active player's car
-or cars have finished or been destroyed. `NET_RACE_STOPPED` is reserved for a
-later explicit race-exit workflow.
+145, then publishes `NET_RACE_OUTCOME_SETTLED` when every active player's car or
+cars have finished or been destroyed. `NET_RACE_STOPPED` is reserved for a later
+explicit race-exit workflow.
 
-Both transitions are reliable ordered `NET_EV_RACE_STATE` commits. The host
-then publishes one `NET_EV_RESULTS` commit containing the authoritative total
+Both transitions are reliable ordered `NET_EV_RACE_STATE` commits. The host then
+publishes one `NET_EV_RESULTS` commit containing the authoritative total
 finishers and human finishers. These events use the same `uiEventSeq` as lap,
 kill, finish, destruction and world-change commits, and snapshots carry their
 watermark plus the current lifecycle state.
@@ -52,8 +52,8 @@ session. Networking continues to pump from the frame loop throughout.
   message-only client receives the same gap-free stream and final snapshot
   watermark; result totals are 3/3.
 - The client acceptance extends the existing three-lap/collision result probe
-  with Outcome-Settled and Results behind the same deliberate sequence gap.
-  It verifies exact result totals and idempotent re-publication.
+  with Outcome-Settled and Results behind the same deliberate sequence gap. It
+  verifies exact result totals and idempotent re-publication.
 - At both 36 and 100 Hz, the integrated client test pauses for 30 seconds of
   virtual time with 5 percent loss and the normal 10 second connection timeout.
   Both connections remain live, neither timeline advances, the first resumed
@@ -101,8 +101,8 @@ validated as one ownership group, then all of its cars transfer together:
 
 No `tCar` field is changed by takeover. In particular, `iControlType` remains
 the authoritative physics mode, so an airborne car continues its existing
-flight, lands through the normal simulation, and only then reaches ordinary
-AI driving. This also avoids calling `SetEngine` or rebuilding a car at the
+flight, lands through the normal simulation, and only then reaches ordinary AI
+driving. This also avoids calling `SetEngine` or rebuilding a car at the
 ownership boundary.
 
 The host publishes one reliable ordered `NET_EV_AI_TAKEOVER` commit for the
@@ -111,10 +111,10 @@ whole group. `byCarIdx` is the first car, `byPlayerIdx` is the dropped player,
 codec validates that shape before client mutation. One commit makes the
 split-screen transition atomic in the shared sequence.
 
-Clients retain takeover per car and republish `human_control[car] = 0` with
-the other host commits. An older puppet snapshot or a rollback therefore
-cannot restore stale human ownership. E5-S3 must clear that retained bit when
-it applies `NET_EV_PLAYER_REJOINED` and restores the checkpoint roster.
+Clients retain takeover per car and republish `human_control[car] = 0` with the
+other host commits. An older puppet snapshot or a rollback therefore cannot
+restore stale human ownership. E5-S3 must clear that retained bit when it
+applies `NET_EV_PLAYER_REJOINED` and restores the checkpoint roster.
 
 ### Acceptance topology
 
@@ -129,15 +129,15 @@ simulation ticks run. The test proves:
   dropped;
 - the observer receives exactly one correctly shaped takeover commit;
 - after resume both cars land and move under real AI simulation, then finish;
-- the remaining human car settles the race, with authoritative results of
-  three finishers and one human finisher;
+- the remaining human car settles the race, with authoritative results of three
+  finishers and one human finisher;
 - a later snapshot carries AI ownership for both dropped cars.
 
 The client acceptance inserts an AI takeover into the existing deliberately
-gapped commit stream at 36 and 100 Hz. It forces an older snapshot and a
-manual stale ownership write after the commit, and verifies idempotent
-republication returns the remote car to AI both times. The event codec test
-also rejects inconsistent one-car/two-car payloads.
+gapped commit stream at 36 and 100 Hz. It forces an older snapshot and a manual
+stale ownership write after the commit, and verifies idempotent republication
+returns the remote car to AI both times. The event codec test also rejects
+inconsistent one-car/two-car payloads.
 
 ### Verification
 
@@ -152,9 +152,9 @@ python tools/check_roller_core_manifest.py
 python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
 ```
 
-Source counts remain Linux 94, macOS 94, Windows 97, Android 94 and
-Emscripten 92. The roller-core manifest remains 108 translation units. All 18
-selected Python tests pass.
+Source counts remain Linux 94, macOS 94, Windows 97, Android 94 and Emscripten
+92\. The roller-core manifest remains 108 translation units. All 18 selected
+Python tests pass.
 
 Not run: Android `assembleDebug`, a CMake configure, a manual two-instance
 disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
@@ -165,23 +165,23 @@ Implemented on 2026-09-22 and committed in `310cfbc`.
 
 ### Authenticated generation replacement
 
-A recovering client keeps its session token and opens a fresh channel
-connection at generation + 1. `NET_MSG_REJOIN_REQUEST` repeats the token,
-generation and player index from the packet identity. The channel accepts this
-one credentialled replacement operation, resets every reliability window, and
-drops later packets from the old generation before delivery. The session then
+A recovering client keeps its session token and opens a fresh channel connection
+at generation + 1. `NET_MSG_REJOIN_REQUEST` repeats the token, generation and
+player index from the packet identity. The channel accepts this one
+credentialled replacement operation, resets every reliability window, and drops
+later packets from the old generation before delivery. The session then
 cross-checks all three values and asks the race host to authorize the retained
 player against the channel clock and `NET_REJOIN_GRACE_MS`.
 
 An active player may replace its connection before host-side timeout detection;
-ownership stays unchanged and no AI-takeover commit is emitted. A dropped
-player inside the grace window reclaims the same player index and complete car
-group, clears old queued input, restores `human_control[]` and host ownership,
-and publishes one group-shaped `NET_EV_PLAYER_REJOINED`. A token presented
-after the grace window is refused and cannot claim a new roster index.
-The remote frontend detects an expired race connection from the frame pump,
-opens the generation+1 connection to its retained peer, and starts the same
-client recovery path without blocking rendering or network pumping.
+ownership stays unchanged and no AI-takeover commit is emitted. A dropped player
+inside the grace window reclaims the same player index and complete car group,
+clears old queued input, restores `human_control[]` and host ownership, and
+publishes one group-shaped `NET_EV_PLAYER_REJOINED`. A token presented after the
+grace window is refused and cannot claim a new roster index. The remote frontend
+detects an expired race connection from the frame pump, opens the generation+1
+connection to its retained peer, and starts the same client recovery path
+without blocking rendering or network pumping.
 
 ### Ordered checkpoint
 
@@ -194,15 +194,15 @@ watermark, wire tick context, pause revision, RNG state, all ramp timing and
 part counts. A forced full snapshot follows on the next simulated tick.
 
 The client stages all parts without touching the world. It rejects duplicate
-cars or chunks, inconsistent counts, invalid roster ownership, hostile full
-car state, invalid loaded-world bounds and invalid ramp timing. END installs
-only a complete transaction, in D18 order: lifecycle/roster/world and RNG,
-ramps plus rebuilt geometry, then every car. Re-encoded world poses are
-asserted against the checkpoint. Non-local cars become puppets and the local
-group clears retained AI-takeover state before human ownership is restored.
+cars or chunks, inconsistent counts, invalid roster ownership, hostile full car
+state, invalid loaded-world bounds and invalid ramp timing. END installs only a
+complete transaction, in D18 order: lifecycle/roster/world and RNG, ramps plus
+rebuilt geometry, then every car. Re-encoded world poses are asserted against
+the checkpoint. Non-local cars become puppets and the local group clears
+retained AI-takeover state before human ownership is restored.
 
-Phase 1 clears the input, prediction and context rings plus snapshots and
-render corrections. `NetSimBootstrapContext` builds `context[C]` solely from
+Phase 1 clears the input, prediction and context rings plus snapshots and render
+corrections. `NetSimBootstrapContext` builds `context[C]` solely from
 `tNetSimContextWire`, `uiRandomState` and a fresh input-ring position; it does
 not read pre-drop history. The client enters Resyncing and issues a new
 checkpoint request after two channel-clock seconds without a qualifying
@@ -211,8 +211,8 @@ snapshot.
 ### Simulated catch-up
 
 The first paired snapshot and own-car state at S > C starts Phase 2. The client
-installs ramps before the complete rollback group, bootstraps `context[S]`
-from that snapshot, fills `[S, destination]` with neutral input including the
+installs ramps before the complete rollback group, bootstraps `context[S]` from
+that snapshot, fills `[S, destination]` with neutral input including the
 preceding slot, and replays `(S, destination]` through `control_one_tick` with
 `net_sim_replaying` set. Prediction and context history are rebuilt after every
 tick, so `uiRampTick == uiClientTick == destination` and `iGameFrame` is
@@ -227,20 +227,20 @@ Installing or Resyncing.
 
 ### Acceptance topology
 
-- The session test replaces an active generation-1 connection with generation
-  2 on the same channel. The host keeps the same connection/player identity,
+- The session test replaces an active generation-1 connection with generation 2
+  on the same channel. The host keeps the same connection/player identity,
   accepts traffic from generation 2, and counts but never delivers a scripted
   stale generation-1 packet.
 - The integrated client acceptance runs at 36 and 100 Hz. It stops the client
-  for 15 seconds, observes the ordinary 10-second drop-to-AI transition,
-  rejoins with the retained token, and delays the checkpoint over a 750 ms
-  one-way link. The ordered checkpoint restores a deliberately corrupted
-  mutated-chunk grip, both recovery phases begin with empty history, neutral
-  catch-up rebuilds consecutive contexts, and the recovered high-RTT client is
-  playable in delayed mode.
+  for 15 seconds, observes the ordinary 10-second drop-to-AI transition, rejoins
+  with the retained token, and delays the checkpoint over a 750 ms one-way link.
+  The ordered checkpoint restores a deliberately corrupted mutated-chunk grip,
+  both recovery phases begin with empty history, neutral catch-up rebuilds
+  consecutive contexts, and the recovered high-RTT client is playable in delayed
+  mode.
 - The host acceptance advances beyond the 60-second rejoin grace and verifies
-  that generation 2 is refused while the dropped roster entry and both
-  reserved split-screen cars remain unchanged.
+  that generation 2 is refused while the dropped roster entry and both reserved
+  split-screen cars remain unchanged.
 
 The one-process client acceptance follows D13: the host uses its existing
 simulation seam, queues the checkpoint and forced newer snapshot, then freezes
@@ -260,9 +260,9 @@ python tools/check_roller_core_manifest.py
 python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
 ```
 
-Source counts are Linux 95, macOS 95, Windows 98, Android 95 and Emscripten
-93. The roller-core manifest contains 109 translation units. All 18 selected
-Python tests pass.
+Source counts are Linux 95, macOS 95, Windows 98, Android 95 and Emscripten 93.
+The roller-core manifest contains 109 translation units. All 18 selected Python
+tests pass.
 
 Not run: Android `assembleDebug`, a CMake configure, a manual two-instance
 disconnect/rejoin race, or the E7-S1 legacy-call trap (it does not exist yet).
@@ -298,17 +298,17 @@ GPU renderer.
 
 Each active host player now exposes smoothed channel RTT plus a one-second
 late-input rate. The warning threshold is 10 percent of simulated ticks; its
-window stops while paused because no input is consumed, and it is cleared when
-a player successfully rejoins. The listen-host HUD renders one row per active
+window stops while paused because no input is consumed, and it is cleared when a
+player successfully rejoins. The listen-host HUD renders one row per active
 player as `NAME: N ms`; a trailing `!` is the warning icon while that player's
 latest complete window is at or above the threshold.
 
-The host acceptance proves the warm-up loss crosses the warning threshold,
-the channel RTT is populated, and a later healthy window clears the warning.
-The client acceptance checks the retry indicator during generation replacement
-and the delayed-controls indicator throughout the existing 600 ms RTT hold at
-both 36 and 100 Hz. Session tests cover every refusal string, and the late
-rejoin acceptance now requires the dedicated expiry reason.
+The host acceptance proves the warm-up loss crosses the warning threshold, the
+channel RTT is populated, and a later healthy window clears the warning. The
+client acceptance checks the retry indicator during generation replacement and
+the delayed-controls indicator throughout the existing 600 ms RTT hold at both
+36 and 100 Hz. Session tests cover every refusal string, and the late rejoin
+acceptance now requires the dedicated expiry reason.
 
 ### Verification
 
@@ -323,9 +323,9 @@ python tools/check_roller_core_manifest.py
 python -m unittest tests.test_source_set_drift tests.test_roller_core_manifest tests.test_game_build_matrix tests.test_cmake_roller_core
 ```
 
-Source counts remain Linux 95, macOS 95, Windows 98, Android 95 and
-Emscripten 93. The roller-core manifest remains 109 translation units. All 18
-selected Python tests pass.
+Source counts remain Linux 95, macOS 95, Windows 98, Android 95 and Emscripten
+93\. The roller-core manifest remains 109 translation units. All 18 selected
+Python tests pass.
 
 Not run: the story's manual two-instance proxy check at 100 percent mid-race
 loss and sustained 600 ms, Android `assembleDebug`, a CMake configure, or the
@@ -346,34 +346,34 @@ old accelerometer handle so it is reopened on demand, and notifies the modern
 frontend before its normal network pumps run.
 
 An active race always resumes through the existing authenticated
-generation-replacement and checkpoint path, even if the old connection is
-still inside the ten-second transport timeout. This prevents time asleep from
-becoming hundreds of locally owed ticks on a short suspension. For a longer
-suspension the same path takes the car back from AI. Listen hosts retain their
-loopback peer address so their in-process client can use the same recovery.
-After the session has moved to the replacement connection, the frontend
-removes the retired generation from the channel. A channel acceptance cycles
-32 replacements through the bounded 16-connection table, so repeated app
-switches cannot exhaust it.
+generation-replacement and checkpoint path, even if the old connection is still
+inside the ten-second transport timeout. This prevents time asleep from becoming
+hundreds of locally owed ticks on a short suspension. For a longer suspension
+the same path takes the car back from AI. Listen hosts retain their loopback
+peer address so their in-process client can use the same recovery. After the
+session has moved to the replacement connection, the frontend removes the
+retired generation from the channel. A channel acceptance cycles 32 replacements
+through the bounded 16-connection table, so repeated app switches cannot exhaust
+it.
 
 The normal `Connection lost, retrying`, `Resynchronising`, and delayed-controls
 statuses remain the only recovery UI states.
 
-Android also disables the SDL screen saver for the game process and restores
-the default at shutdown. This keeps the display awake without a Java-only
-window flag and therefore covers the native SDL window for the whole run.
+Android also disables the SDL screen saver for the game process and restores the
+default at shutdown. This keeps the display awake without a Java-only window
+flag and therefore covers the native SDL window for the whole run.
 
 ### Acceptance coverage
 
 The existing host acceptance proves that `BUTTON_FLAG_PHONE_THROTTLE` received
 from a phone is byte-identical to ordinary acceleration over 546 host ticks,
-including RNG state. The client acceptance at 36 and 100 Hz proves that a
-600 ms RTT enters delayed prediction, holds it for 20 seconds with zero replay,
-then recovers at 120 ms only after the three-second hysteresis. It also measures
-100 forced 14-tick corrections; the final Windows run averaged 0.230 ms at
-36 Hz and 0.240 ms at 100 Hz, respectively 0.83 and 2.40 percent of one tick.
-The 15-second generation-2 recovery case covers the longer-than-timeout sleep
-shape and returns ownership through a checkpoint at both rates.
+including RNG state. The client acceptance at 36 and 100 Hz proves that a 600 ms
+RTT enters delayed prediction, holds it for 20 seconds with zero replay, then
+recovers at 120 ms only after the three-second hysteresis. It also measures 100
+forced 14-tick corrections; the final Windows run averaged 0.230 ms at 36 Hz and
+0.240 ms at 100 Hz, respectively 0.83 and 2.40 percent of one tick. The
+15-second generation-2 recovery case covers the longer-than-timeout sleep shape
+and returns ownership through a checkpoint at both rates.
 
 ### Verification
 

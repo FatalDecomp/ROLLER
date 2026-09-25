@@ -21,8 +21,8 @@ track loading remain real.
 `roller-core.srclist` excludes `sound.c` and `rollersound.c` deliberately, so
 the deterministic core never links audio. The consequence is that every test
 linking `roller-core` exercises the stubs: `sound_stub_test` proves the stub
-behaves, not that audio works. No `roller-core` test covers real audio
-playback; only the full game target links it.
+behaves, not that audio works. No `roller-core` test covers real audio playback;
+only the full game target links it.
 
 ## Tick context enumeration
 
@@ -115,14 +115,14 @@ display-grade for puppets only. The additions make `tNetCarExtra` 96 bytes and
 `tNetCarFullState` 160 bytes. Seven checkpoint cars fit in one packet (1122
 payload bytes).
 
-`NetSnapshotDecodeCarFull` validates the whole full state before copying any
-of it (R1 NET-FIX-1): chunks within the loaded track, the four local angles
-within the trig tables, `byAttacker`, `byRacePosition` and `byFinishPosition`
-within `numcars`, the gear within -2 (reverse) to the car's own engine gear
-count, the replay bit fields (`byWheelAnimationFrame` 0..15, `byDamageState`
-0..1), lives at most 3 as a signed byte (any negative value is a dead or
-non-competitor car), laps within `NoOfLaps + 1`, and health finite within
-0..100. A rejected state leaves `Car[]` byte-identical.
+`NetSnapshotDecodeCarFull` validates the whole full state before copying any of
+it (R1 NET-FIX-1): chunks within the loaded track, the four local angles within
+the trig tables, `byAttacker`, `byRacePosition` and `byFinishPosition` within
+`numcars`, the gear within -2 (reverse) to the car's own engine gear count, the
+replay bit fields (`byWheelAnimationFrame` 0..15, `byDamageState` 0..1), lives
+at most 3 as a signed byte (any negative value is a dead or non-competitor car),
+laps within `NoOfLaps + 1`, and health finite within 0..100. A rejected state
+leaves `Car[]` byte-identical.
 
 ## Replay cost
 
