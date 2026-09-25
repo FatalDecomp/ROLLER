@@ -175,6 +175,12 @@ void snapshot_render_menu_select_players(void)
 static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
                                                          int iAction)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
+    return;
+  }
+#endif
   iFrontendPlayersBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
@@ -203,6 +209,14 @@ static void frontend_players_select_finish_broadcast_wait(void)
 
 static int frontend_players_select_update_broadcast_wait(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  /* Modern sessions never use the lockstep broadcast waiter.  This helper is
+     polled every Players-screen frame, including immediately after
+     NetFrontendOpen(), so falling through here trips the legacy-call trap. */
+  if (net_mode == NET_MODE_MODERN)
+    return 0;
+#endif
+
   if (iFrontendPlayersCloseNetworkPending) {
     if ((uint16)(frames - iFrontendPlayersCloseNetworkStartFrame) < 3)
       return -1;
