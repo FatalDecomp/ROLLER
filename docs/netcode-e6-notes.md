@@ -267,3 +267,57 @@ tests pass. Source counts remain Linux 99, macOS 99, Windows 102, Android 99
 and Emscripten 96; roller-core remains 115 translation units. The manual NAT
 matrix, CMake configure, Android, macOS, and the real-daemon two-network check
 were not run.
+
+## NET-E6-S5: LAN discovery on the modern protocol
+
+Implemented on 2026-09-24. The changes are intentionally uncommitted.
+
+The game now creates discovery even when no rendezvous address or direct peer
+was configured. `LND1` uses the existing game UDP socket and a 24-byte query
+sent to the IPv4 limited-broadcast address on the configured game port. A
+listen host answers the source address with a 93-byte advertisement containing
+the same fixed-width session entry used by rendezvous. Queries retry every two
+seconds and advertisements expire after six seconds without refresh.
+
+The LAN wire structs are packed and size-asserted. Version, type, reserved
+bytes, filter values, tick rate, player counts, flags and printable terminated
+display fields are validated before a browser entry changes. The full 16-byte
+build identifier remains valid without a terminator, matching the rendezvous
+contract. A browser records the datagram's source address rather than trusting
+an advertised address or port, and selecting that entry goes directly to the
+existing authenticated session join path without punching or relay allocation.
+Internet browsing, direct connect, punching and relay fallback remain
+unchanged; LAN replies can coexist with rendezvous results.
+
+The UDP transport enables `SO_BROADCAST`, and the addressed simulated
+transport models limited-broadcast fan-out by destination port. The discovery
+acceptance now covers a host and browser with no rendezvous object, build
+filtering, malformed-advertisement rejection, direct address selection and
+stale-entry expiry. The foundations suite also sends a real limited-broadcast
+datagram between two Windows UDP endpoints, so the platform socket path is
+exercised in addition to the simulated LAN.
+
+Verification passed on Windows with Zig 0.15.2:
+
+```powershell
+zig build test-net-foundations -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build test-net-full-state-coherence test-net-host test-net-client `
+  test-net-harness -Doptimize=ReleaseSafe `
+  '-Dassets-path=D:/source/repos/ROLLER/zig-out/fatdata-demo' `
+  '-Dsoak-track=TRACK5.TRK'
+zig build -Doptimize=ReleaseSafe
+python tools/check_source_set_drift.py
+python tools/check_roller_core_manifest.py
+python -m unittest tests.test_source_set_drift `
+  tests.test_roller_core_manifest tests.test_game_build_matrix `
+  tests.test_cmake_roller_core
+```
+
+The focused LAN/rendezvous test, real UDP broadcast check, complete foundations
+suite, coherence, host, client and harness regressions, full native build,
+source/manifest checks and all 18 selected Python tests pass. Source counts
+remain Linux 99, macOS 99, Windows 102, Android 99 and Emscripten 96;
+roller-core remains 115 translation units. Not run: the plan's physical
+two-machine LAN check, CMake configure, Android, or native Linux/macOS.

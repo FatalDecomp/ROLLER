@@ -458,6 +458,7 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
   struct sockaddr_in6 bindAddress;
   tNetSocketLength iAddressLength;
   int iV6Only = 0;
+  int iBroadcast = 1;
 #ifdef _WIN32
   u_long ulNonBlocking = 1;
 #endif
@@ -471,7 +472,9 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
   pUdp->socketHandle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
   if (pUdp->socketHandle == NET_INVALID_SOCKET ||
       setsockopt(pUdp->socketHandle, IPPROTO_IPV6, IPV6_V6ONLY,
-                 (const char *)&iV6Only, sizeof(iV6Only)))
+                 (const char *)&iV6Only, sizeof(iV6Only)) ||
+      setsockopt(pUdp->socketHandle, SOL_SOCKET, SO_BROADCAST,
+                 (const char *)&iBroadcast, sizeof(iBroadcast)))
     goto fail;
 #ifdef _WIN32
   if (ioctlsocket(pUdp->socketHandle, FIONBIO, &ulNonBlocking))

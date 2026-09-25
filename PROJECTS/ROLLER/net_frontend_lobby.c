@@ -158,11 +158,6 @@ int NetFrontendOpen(void)
   tNetTransport transport;
   NetFrontendClose();
   s_frontend.byHost = network_slot >= 0;
-  if (!s_frontend.byHost && !s_frontend.byHasPeer &&
-      !s_frontend.byHasRendezvous) {
-    NetFrontendStatus("DIRECT CONNECT ADDRESS REQUIRED");
-    return 0;
-  }
 
   s_frontend.pServerUdp = NetTransportUdpCreate(s_frontend.unLocalPort);
   if (!s_frontend.pServerUdp) {
@@ -186,16 +181,20 @@ int NetFrontendOpen(void)
   network_on = 1;
   players = 1;
   players_waiting = 0;
-  if (s_frontend.byHasRendezvous) {
+  if (s_frontend.byHost || !s_frontend.byHasPeer ||
+      s_frontend.byHasRendezvous) {
     tNetAddress aCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
     tNetChannel *pChannel = s_frontend.byHost ? s_frontend.pServerChannel :
                                                 s_frontend.pClientChannel;
     int iCandidates;
     s_frontend.pDiscovery = NetDiscoveryCreate(
-        pChannel, &s_frontend.rendezvous, NetPlatformRandomBytes, NULL);
-    if (!s_frontend.pDiscovery) {
+        pChannel, s_frontend.byHasRendezvous ? &s_frontend.rendezvous : NULL,
+        NetPlatformRandomBytes, NULL);
+    if (!s_frontend.pDiscovery ||
+        !NetDiscoveryEnableLan(s_frontend.pDiscovery,
+                               s_frontend.unLocalPort)) {
       NetFrontendClose();
-      NetFrontendStatus("RENDEZVOUS START FAILED");
+      NetFrontendStatus("DISCOVERY START FAILED");
       return 0;
     }
     iCandidates = NetAddressEnumerateLocal(
@@ -327,7 +326,7 @@ int NetFrontendLobbyBegin(void)
       memcpy(info.szBuildHash, config.szBuildHash,
              sizeof(info.szBuildHash));
       if (!NetDiscoveryHostStart(s_frontend.pDiscovery, &info))
-        return NetFrontendLobbyFailure("RENDEZVOUS REGISTRATION FAILED");
+        return NetFrontendLobbyFailure("DISCOVERY REGISTRATION FAILED");
       s_frontend.hostInfo = info;
       s_frontend.byHostInfo = 1;
     }

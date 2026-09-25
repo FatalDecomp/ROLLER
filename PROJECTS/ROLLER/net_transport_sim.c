@@ -48,44 +48,72 @@ static int NetSimSend(void *pContext, const tNetAddress *pTo, const void *pData,
   tNetSimEndpoint *pEndpoint = pContext;
   tNetTransportSim *pSim = pEndpoint->pSim;
   const tNetSimLink *pLink = &pSim->aLinks[pEndpoint->iIndex];
-  int iCopies, iDestination;
-  int aiFree[2], iFree = 0;
+  int iCopies, iDestination, iFirstDestination, iLastDestination;
+  int aiFree[NET_SIM_MAX_ENDPOINTS * 2], iFree = 0, iNeeded = 0;
+  int iBroadcast = pTo && pTo->byFamily == NET_ADDR_IPV4 &&
+      pTo->abAddress[0] == 255 && pTo->abAddress[1] == 255 &&
+      pTo->abAddress[2] == 255 && pTo->abAddress[3] == 255;
   if (!pData || iLength < 1 || iLength > NET_MAX_PAYLOAD)
     return -1;
-  if (!pTo) {
+  if (iBroadcast) {
+    iFirstDestination = 0;
+    iLastDestination = NET_SIM_MAX_ENDPOINTS;
+  } else if (!pTo) {
     if (pEndpoint->iIndex > 1)
       return -1;
     iDestination = 1 - pEndpoint->iIndex;
+    iFirstDestination = iDestination;
+    iLastDestination = iDestination + 1;
   } else {
     for (iDestination = 0; iDestination < NET_SIM_MAX_ENDPOINTS;
          ++iDestination)
       if (NetSimAddressEqual(pTo, &pSim->aEndpoints[iDestination].address))
         break;
+    iFirstDestination = iDestination;
+    iLastDestination = iDestination + 1;
   }
-  if (iDestination == NET_SIM_MAX_ENDPOINTS ||
-      iDestination == pEndpoint->iIndex)
+  if (!iBroadcast && (iDestination == NET_SIM_MAX_ENDPOINTS ||
+      iDestination == pEndpoint->iIndex))
     return -1;
   if (NetSimRandom(pSim) % 1000 < pLink->unLossPermille)
     return iLength;
   iCopies = 1 + (NetSimRandom(pSim) % 1000 < pLink->unDuplicatePermille);
-  for (int iPacket = 0; iPacket < NET_SIM_PACKETS && iFree < iCopies; ++iPacket)
+  for (iDestination = iFirstDestination; iDestination < iLastDestination;
+       ++iDestination)
+    if (iDestination != pEndpoint->iIndex &&
+        (!iBroadcast || pSim->aEndpoints[iDestination].address.unPort ==
+                           pTo->unPort))
+      iNeeded += iCopies;
+  if (!iNeeded)
+    return iLength;
+  for (int iPacket = 0; iPacket < NET_SIM_PACKETS && iFree < iNeeded; ++iPacket)
     if (!pSim->aPackets[iPacket].iLength)
       aiFree[iFree++] = iPacket;
-  if (iFree < iCopies)
+  if (iFree < iNeeded)
     return -1;
-  for (int iCopy = 0; iCopy < iCopies; ++iCopy) {
-    tNetSimPacket *pPacket = &pSim->aPackets[aiFree[iCopy]];
-    int64 llDelay = (int64)pLink->uiLatencyMs;
-    if (pLink->uiJitterMs)
-      llDelay += (int64)(NetSimRandom(pSim) % (2 * pLink->uiJitterMs + 1)) - pLink->uiJitterMs;
-    if (NetSimRandom(pSim) % 1000 < pLink->unReorderPermille)
-      llDelay += pLink->uiLatencyMs + pLink->uiJitterMs + 1;
-    pPacket->ullDueMs = pSim->ullNowMs + (uint64)(llDelay > 0 ? llDelay : 0);
-    pPacket->ullOrder = pSim->ullOrder++;
-    pPacket->iSource = pEndpoint->iIndex;
-    pPacket->iDestination = iDestination;
-    pPacket->iLength = iLength;
-    memcpy(pPacket->abData, pData, (size_t)iLength);
+  iFree = 0;
+  for (iDestination = iFirstDestination; iDestination < iLastDestination;
+       ++iDestination) {
+    if (iDestination == pEndpoint->iIndex ||
+        (iBroadcast && pSim->aEndpoints[iDestination].address.unPort !=
+                           pTo->unPort))
+      continue;
+    for (int iCopy = 0; iCopy < iCopies; ++iCopy) {
+      tNetSimPacket *pPacket = &pSim->aPackets[aiFree[iFree++]];
+      int64 llDelay = (int64)pLink->uiLatencyMs;
+      if (pLink->uiJitterMs)
+        llDelay += (int64)(NetSimRandom(pSim) %
+            (2 * pLink->uiJitterMs + 1)) - pLink->uiJitterMs;
+      if (NetSimRandom(pSim) % 1000 < pLink->unReorderPermille)
+        llDelay += pLink->uiLatencyMs + pLink->uiJitterMs + 1;
+      pPacket->ullDueMs = pSim->ullNowMs +
+          (uint64)(llDelay > 0 ? llDelay : 0);
+      pPacket->ullOrder = pSim->ullOrder++;
+      pPacket->iSource = pEndpoint->iIndex;
+      pPacket->iDestination = iDestination;
+      pPacket->iLength = iLength;
+      memcpy(pPacket->abData, pData, (size_t)iLength);
+    }
   }
   return iLength;
 }

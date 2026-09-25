@@ -68,6 +68,8 @@ int main(void)
   tNetDiscovery *pHostDiscovery, *pBrowserDiscovery;
   tRvzSessionInfo info, listed;
   tNetAddress resolved;
+  tNetTransport attacker;
+  uint8 abLanPacket[sizeof(tNetLanAdvertisement)];
   tNetAddress hostLocal = TestAddress(110, 7777);
   tNetAddress browserLocal = TestAddress(120, 7780);
   eNetPunchState ePunchState;
@@ -208,6 +210,87 @@ int main(void)
   NetChannelDestroy(pBrowser);
   NetChannelDestroy(pHost);
   NetTransportSimDestroy(pSim);
-  puts("NET-E6-S4 direct punching and authenticated relay fallback passed");
+
+  /* LAN discovery uses only the game sockets: no rendezvous endpoint exists.
+     A broadcast query receives a validated unicast advertisement, and the
+     cached source address goes straight into the normal session join path. */
+  pSim = NetTransportSimCreate(2);
+  hostAddress = TestAddress(40, 7777);
+  browserAddress = TestAddress(41, 7777);
+  CHECK(pSim);
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 0, &hostAddress));
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 1, &browserAddress));
+  pHost = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  pBrowser = NetChannelCreate(NetTransportSimEndpoint(pSim, 1));
+  CHECK(pHost && pBrowser);
+  pHostDiscovery = NetDiscoveryCreate(pHost, NULL, TestRandom, &uiRandom);
+  pBrowserDiscovery = NetDiscoveryCreate(pBrowser, NULL,
+                                         TestRandom, &uiRandom);
+  CHECK(pHostDiscovery && pBrowserDiscovery);
+  CHECK(NetDiscoveryEnableLan(pHostDiscovery, 7777));
+  CHECK(NetDiscoveryEnableLan(pBrowserDiscovery, 7777));
+
+  /* Hostile advertisements are discarded before they can populate the
+     browser. This one has a non-terminated display name. */
+  memset(&listed, 0, sizeof(listed));
+  listed.uiSessionId = 99;
+  listed.unPort = 7777;
+  listed.unTickRateHz = 36;
+  listed.byPlayers = 1;
+  listed.byMaxPlayers = 8;
+  memset(listed.szName, 'A', sizeof(listed.szName));
+  memcpy(listed.szTrack, "TRACK5", 7);
+  memcpy(listed.szBuildHash, "build-lan", 10);
+  memset(abLanPacket, 0, sizeof(abLanPacket));
+  abLanPacket[0] = (uint8)NET_LAN_PROTOCOL_ID;
+  abLanPacket[1] = (uint8)(NET_LAN_PROTOCOL_ID >> 8);
+  abLanPacket[2] = (uint8)(NET_LAN_PROTOCOL_ID >> 16);
+  abLanPacket[3] = (uint8)(NET_LAN_PROTOCOL_ID >> 24);
+  abLanPacket[4] = NET_LAN_PROTOCOL_VERSION;
+  abLanPacket[5] = NET_LAN_MSG_ADVERTISE;
+  NetRendezvousEncodeSessionInfo(abLanPacket + 8, &listed);
+  attacker = NetTransportSimEndpoint(pSim, 2);
+  CHECK(attacker.pSend(attacker.pContext, &browserAddress, abLanPacket,
+                       sizeof(abLanPacket)) == sizeof(abLanPacket));
+  NetTransportSimAdvance(pSim, 0);
+  NetChannelPump(pBrowser);
+  CHECK(NetDiscoverySessionCount(pBrowserDiscovery) == 0);
+
+  memset(&info, 0, sizeof(info));
+  info.unTickRateHz = 100;
+  info.byPlayers = 2;
+  info.byMaxPlayers = 8;
+  memcpy(info.szName, "LAN HOST", 9);
+  memcpy(info.szTrack, "TRACK5", 7);
+  memcpy(info.szBuildHash, "build-lan", 10);
+  CHECK(NetDiscoveryHostStart(pHostDiscovery, &info));
+  CHECK(NetDiscoveryList(pBrowserDiscovery, "build-lan"));
+  NetTransportSimAdvance(pSim, 0);
+  NetChannelPump(pHost);
+  NetDiscoveryPump(pHostDiscovery);
+  NetChannelPump(pBrowser);
+  NetDiscoveryPump(pBrowserDiscovery);
+  CHECK(NetDiscoveryListReady(pBrowserDiscovery));
+  CHECK(NetDiscoverySessionCount(pBrowserDiscovery) == 1);
+  CHECK(NetDiscoverySession(pBrowserDiscovery, 0, &listed));
+  CHECK(!strcmp(listed.szName, "LAN HOST"));
+  CHECK(listed.unPort == 7777);
+  CHECK(NetDiscoveryPunch(pBrowserDiscovery, listed.uiSessionId));
+  CHECK(NetDiscoveryPunchState(pBrowserDiscovery, &resolved) ==
+        NET_PUNCH_SUCCEEDED);
+  CHECK(resolved.byFamily == hostAddress.byFamily &&
+        resolved.unPort == hostAddress.unPort &&
+        !memcmp(resolved.abAddress, hostAddress.abAddress, 4));
+
+  NetDiscoveryHostStop(pHostDiscovery);
+  NetTransportSimAdvance(pSim, NET_LAN_SESSION_TIMEOUT_MS + 1);
+  NetDiscoveryPump(pBrowserDiscovery);
+  CHECK(NetDiscoverySessionCount(pBrowserDiscovery) == 0);
+  NetDiscoveryDestroy(pBrowserDiscovery);
+  NetDiscoveryDestroy(pHostDiscovery);
+  NetChannelDestroy(pBrowser);
+  NetChannelDestroy(pHost);
+  NetTransportSimDestroy(pSim);
+  puts("NET-E6-S5 rendezvous, punch, relay and LAN discovery passed");
   return 0;
 }

@@ -82,6 +82,33 @@ static void NetTestLoopback(const char *szLoopback, int iFamily)
   NetTransportUdpDestroy(pSender);
 }
 
+static void NetTestBroadcast(void)
+{
+  static const char szPayload[] = "ROLLER LAN discovery";
+  tNetTransportUdp *pSender = NetTransportUdpCreate(0);
+  tNetTransportUdp *pReceiver = NetTransportUdpCreate(0);
+  tNetTransport sender, receiver;
+  tNetAddress destination;
+  uint64 ullDeadline;
+  char szReceived[64];
+  int iReceived = 0;
+  CHECK(pSender && pReceiver);
+  sender = NetTransportUdpEndpoint(pSender);
+  receiver = NetTransportUdpEndpoint(pReceiver);
+  CHECK(NetAddressParse(&destination, "255.255.255.255",
+                        NetTransportUdpPort(pReceiver)));
+  CHECK(sender.pSend(sender.pContext, &destination, szPayload,
+                     sizeof(szPayload)) == sizeof(szPayload));
+  ullDeadline = receiver.pNowMs(receiver.pContext) + 2000;
+  while (receiver.pNowMs(receiver.pContext) <= ullDeadline && !iReceived)
+    iReceived = receiver.pReceive(receiver.pContext, NULL, szReceived,
+                                 sizeof(szReceived));
+  CHECK(iReceived == sizeof(szPayload));
+  CHECK(!memcmp(szReceived, szPayload, sizeof(szPayload)));
+  NetTransportUdpDestroy(pReceiver);
+  NetTransportUdpDestroy(pSender);
+}
+
 static void NetTestClockOverride(void)
 {
   tNetTransportUdp *pUdp = NetTransportUdpCreate(0);
@@ -155,6 +182,7 @@ int main(void)
   NetTestAddress();
   NetTestLoopback("127.0.0.1", NET_ADDR_IPV4);
   NetTestLoopback("::1", NET_ADDR_IPV6);
+  NetTestBroadcast();
   NetTestClockOverride();
   NetTestPlatformRandom();
   CHECK(NetTestRun(2718, 0, 0) == NetTestRun(2718, 0, 0));

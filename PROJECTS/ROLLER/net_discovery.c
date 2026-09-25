@@ -8,27 +8,63 @@
 
 struct tNetDiscovery {
   tNetChannel *pChannel;
-  tNetAddress rendezvous, resolved;
+  tNetAddress rendezvous, resolved, lanBroadcast;
   tNetRendezvousRandomFn pRandom;
   void *pRandomContext;
   tRvzSessionInfo hostInfo;
   tRvzSessionInfo aSessions[NET_RVZ_MAX_SESSIONS];
+  tNetAddress aSessionAddresses[NET_RVZ_MAX_SESSIONS];
+  uint64 aSessionSeenMs[NET_RVZ_MAX_SESSIONS];
   tNetAddress aLocalCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
   tNetAddress aPunchCandidates[NET_RVZ_MAX_CANDIDATES];
   tNetAddress tPunchAddress;
   uint64 ullNonce, ullToken, ullNextSendMs, ullNextRefreshMs;
+  uint64 ullNextLanQueryMs;
   uint64 ullPunchNonce, ullPunchDeadlineMs, ullNextPunchMs;
   uint64 ullNextPunchRequestMs;
   uint64 ullRelayToken;
-  uint32 uiSessionId, uiResolveId, uiPunchSessionId, uiRelayId;
+  uint32 uiSessionId, uiLanSessionId, uiResolveId, uiPunchSessionId, uiRelayId;
   uint16 unSequence, unListPage;
   int iSessionCount, iLocalCandidateCount, iPunchCandidateCount;
   int iNextPunchCandidate;
   uint8 byHosting, byRegistered, byListing, byListReady, byResolved;
+  uint8 byHasRendezvous, byLanEnabled;
   uint8 byFilterBuild, byPunchHasAnswer;
   eNetPunchState ePunchState;
   char szBuildHash[16];
 };
+
+static int NetDiscoveryTextValid(const char *szText, int iCapacity,
+                                 int iAllowFull)
+{
+  int iChar, iTerminated = 0;
+  if (!szText || iCapacity < 1 || !szText[0])
+    return 0;
+  for (iChar = 0; iChar < iCapacity; ++iChar) {
+    unsigned char byChar = (unsigned char)szText[iChar];
+    if (!byChar) {
+      iTerminated = 1;
+      continue;
+    }
+    if (iTerminated || byChar < 32 || byChar > 126)
+      return 0;
+  }
+  return iAllowFull || iTerminated;
+}
+
+static int NetDiscoveryValidSessionInfo(const tRvzSessionInfo *pInfo)
+{
+  return pInfo && pInfo->uiSessionId && pInfo->unPort &&
+      (pInfo->unTickRateHz == 36 || pInfo->unTickRateHz == 50 ||
+       pInfo->unTickRateHz == 100) && pInfo->byPlayers &&
+      pInfo->byMaxPlayers && pInfo->byPlayers <= pInfo->byMaxPlayers &&
+      pInfo->byMaxPlayers <= MAX_CARS &&
+      !(pInfo->byFlags & ~NET_RVZ_SESSION_FLAGS) &&
+      NetDiscoveryTextValid(pInfo->szName, sizeof(pInfo->szName), 0) &&
+      NetDiscoveryTextValid(pInfo->szTrack, sizeof(pInfo->szTrack), 0) &&
+      NetDiscoveryTextValid(pInfo->szBuildHash,
+                            sizeof(pInfo->szBuildHash), 1);
+}
 
 static void NetDiscoveryWrite16(uint8 *pData, uint16 unValue)
 {
@@ -80,11 +116,97 @@ static void NetDiscoveryWrite64(uint8 *pData, uint64 ullValue)
   NetDiscoveryWrite32(pData + 4, (uint32)(ullValue >> 32));
 }
 
+static int NetDiscoverySendLanQuery(tNetDiscovery *pDiscovery)
+{
+  uint8 abPacket[sizeof(tNetLanQuery)] = {0};
+  NetDiscoveryWrite32(abPacket, NET_LAN_PROTOCOL_ID);
+  abPacket[4] = NET_LAN_PROTOCOL_VERSION;
+  abPacket[5] = NET_LAN_MSG_QUERY;
+  abPacket[6] = pDiscovery->byFilterBuild;
+  memcpy(abPacket + 8, pDiscovery->szBuildHash, 16);
+  return NetChannelSendDatagram(pDiscovery->pChannel,
+      &pDiscovery->lanBroadcast, abPacket, sizeof(abPacket));
+}
+
+static int NetDiscoverySendLanAdvertisement(
+    tNetDiscovery *pDiscovery, const tNetAddress *pDestination)
+{
+  uint8 abPacket[sizeof(tNetLanAdvertisement)] = {0};
+  tRvzSessionInfo info = pDiscovery->hostInfo;
+  info.uiSessionId = pDiscovery->uiLanSessionId;
+  info.unPort = pDiscovery->lanBroadcast.unPort;
+  NetDiscoveryWrite32(abPacket, NET_LAN_PROTOCOL_ID);
+  abPacket[4] = NET_LAN_PROTOCOL_VERSION;
+  abPacket[5] = NET_LAN_MSG_ADVERTISE;
+  NetRendezvousEncodeSessionInfo(abPacket + 8, &info);
+  return NetChannelSendDatagram(pDiscovery->pChannel, pDestination,
+                                abPacket, sizeof(abPacket));
+}
+
+static void NetDiscoveryRememberLan(tNetDiscovery *pDiscovery,
+                                    const tNetAddress *pPeer,
+                                    const tRvzSessionInfo *pInfo)
+{
+  int iSession, iFree = -1;
+  uint64 ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+  for (iSession = 0; iSession < pDiscovery->iSessionCount; ++iSession) {
+    if (pDiscovery->aSessions[iSession].uiSessionId == pInfo->uiSessionId) {
+      iFree = iSession;
+      break;
+    }
+  }
+  if (iFree < 0 && pDiscovery->iSessionCount < NET_RVZ_MAX_SESSIONS)
+    iFree = pDiscovery->iSessionCount++;
+  if (iFree < 0)
+    return;
+  pDiscovery->aSessions[iFree] = *pInfo;
+  pDiscovery->aSessions[iFree].unPort = pPeer->unPort;
+  pDiscovery->aSessionAddresses[iFree] = *pPeer;
+  pDiscovery->aSessionSeenMs[iFree] = ullNowMs;
+  pDiscovery->byListReady = 1;
+}
+
+static int NetDiscoveryHandleLan(tNetDiscovery *pDiscovery,
+                                 const tNetAddress *pPeer,
+                                 const uint8 *pData, int iLength)
+{
+  uint8 byType;
+  if (!pDiscovery->byLanEnabled || !pPeer || iLength < 8 ||
+      NetDiscoveryRead32(pData) != NET_LAN_PROTOCOL_ID)
+    return 0;
+  if (pData[4] != NET_LAN_PROTOCOL_VERSION || pData[7])
+    return 1;
+  byType = pData[5];
+  if (byType == NET_LAN_MSG_QUERY) {
+    if (iLength != sizeof(tNetLanQuery) || pData[6] > 1 ||
+        (pData[6] && !NetDiscoveryTextValid(
+            (const char *)pData + 8, 16, 1)))
+      return 1;
+    if (pDiscovery->byHosting &&
+        (!pData[6] || !memcmp(pData + 8,
+                              pDiscovery->hostInfo.szBuildHash, 16)))
+      NetDiscoverySendLanAdvertisement(pDiscovery, pPeer);
+  } else if (byType == NET_LAN_MSG_ADVERTISE) {
+    tRvzSessionInfo info;
+    if (iLength != sizeof(tNetLanAdvertisement) || pData[6] || pData[7] ||
+        pDiscovery->byHosting)
+      return 1;
+    NetRendezvousDecodeSessionInfo(&info, pData + 8);
+    if (NetDiscoveryValidSessionInfo(&info) &&
+        (!pDiscovery->byFilterBuild ||
+         !memcmp(info.szBuildHash, pDiscovery->szBuildHash, 16)))
+      NetDiscoveryRememberLan(pDiscovery, pPeer, &info);
+  }
+  return 1;
+}
+
 static int NetDiscoverySend(tNetDiscovery *pDiscovery, uint8 byType,
                             uint64 ullToken, const void *pPayload,
                             uint16 unLength)
 {
   uint8 abPacket[NET_MAX_PAYLOAD];
+  if (!pDiscovery->byHasRendezvous)
+    return 0;
   int iLength = NetRendezvousBuildPacket(abPacket, sizeof(abPacket),
       ++pDiscovery->unSequence, ullToken, byType, pPayload, unLength);
   return iLength && NetChannelSendDatagram(pDiscovery->pChannel,
@@ -254,6 +376,11 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
   uint64 ullPunchNonce;
   if (!pDiscovery)
     return;
+  if (NetDiscoveryHandleLan(pDiscovery, pPeer,
+                            (const uint8 *)pData, iLength))
+    return;
+  if (!pDiscovery->byHasRendezvous)
+    return;
   if (!NetDiscoveryAddressEqual(pPeer, &pDiscovery->rendezvous)) {
     NetDiscoveryHandleDirect(pDiscovery, pPeer,
                              (const uint8 *)pData, iLength);
@@ -386,17 +513,32 @@ tNetDiscovery *NetDiscoveryCreate(tNetChannel *pChannel,
                                   void *pRandomContext)
 {
   tNetDiscovery *pDiscovery;
-  if (!pChannel || !pRendezvous || !pRandom)
+  if (!pChannel || !pRandom)
     return NULL;
   pDiscovery = (tNetDiscovery *)calloc(1, sizeof(*pDiscovery));
   if (!pDiscovery)
     return NULL;
   pDiscovery->pChannel = pChannel;
-  pDiscovery->rendezvous = *pRendezvous;
+  if (pRendezvous) {
+    pDiscovery->rendezvous = *pRendezvous;
+    pDiscovery->byHasRendezvous = 1;
+  }
   pDiscovery->pRandom = pRandom;
   pDiscovery->pRandomContext = pRandomContext;
   NetChannelSetDatagramCallback(pChannel, NetDiscoveryDatagram, pDiscovery);
   return pDiscovery;
+}
+
+int NetDiscoveryEnableLan(tNetDiscovery *pDiscovery, uint16 unPort)
+{
+  if (!pDiscovery || !unPort)
+    return 0;
+  memset(&pDiscovery->lanBroadcast, 0, sizeof(pDiscovery->lanBroadcast));
+  pDiscovery->lanBroadcast.byFamily = NET_ADDR_IPV4;
+  memset(pDiscovery->lanBroadcast.abAddress, 255, 4);
+  pDiscovery->lanBroadcast.unPort = unPort;
+  pDiscovery->byLanEnabled = 1;
+  return 1;
 }
 
 void NetDiscoveryDestroy(tNetDiscovery *pDiscovery)
@@ -439,14 +581,30 @@ int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
 int NetDiscoveryHostStart(tNetDiscovery *pDiscovery,
                           const tRvzSessionInfo *pInfo)
 {
-  if (!pDiscovery || !pInfo || !pDiscovery->pRandom(
+  tRvzSessionInfo validated;
+  if (!pDiscovery || !pInfo)
+    return 0;
+  if (pDiscovery->byLanEnabled) {
+    validated = *pInfo;
+    validated.uiSessionId = 1;
+    validated.unPort = pDiscovery->lanBroadcast.unPort;
+    if (!NetDiscoveryValidSessionInfo(&validated))
+      return 0;
+  }
+  if (!pDiscovery->pRandom(
           pDiscovery->pRandomContext, &pDiscovery->ullNonce,
           sizeof(pDiscovery->ullNonce)) || !pDiscovery->ullNonce)
     return 0;
   pDiscovery->hostInfo = *pInfo;
   pDiscovery->hostInfo.uiSessionId = 0;
+  pDiscovery->uiLanSessionId = (uint32)pDiscovery->ullNonce;
+  if (!pDiscovery->uiLanSessionId)
+    pDiscovery->uiLanSessionId = (uint32)(pDiscovery->ullNonce >> 32);
+  if (!pDiscovery->uiLanSessionId)
+    pDiscovery->uiLanSessionId = 1;
   pDiscovery->byHosting = 1;
-  NetDiscoverySendRegister(pDiscovery);
+  if (pDiscovery->byHasRendezvous)
+    NetDiscoverySendRegister(pDiscovery);
   pDiscovery->ullNextSendMs = NetChannelNowMs(pDiscovery->pChannel) +
       NET_DISCOVERY_RETRY_MS;
   return 1;
@@ -467,7 +625,7 @@ void NetDiscoveryHostStop(tNetDiscovery *pDiscovery)
   uint8 abRequest[4];
   if (!pDiscovery || !pDiscovery->byHosting)
     return;
-  if (pDiscovery->byRegistered) {
+  if (pDiscovery->byRegistered && pDiscovery->byHasRendezvous) {
     NetDiscoveryWrite32(abRequest, pDiscovery->uiSessionId);
     NetDiscoverySend(pDiscovery, NET_RVZ_MSG_UNREGISTER,
                      pDiscovery->ullToken, abRequest, sizeof(abRequest));
@@ -478,10 +636,13 @@ void NetDiscoveryHostStop(tNetDiscovery *pDiscovery)
 int NetDiscoveryHostRegistered(const tNetDiscovery *pDiscovery,
                                uint32 *puiSessionId)
 {
-  if (!pDiscovery || !pDiscovery->byRegistered)
+  if (!pDiscovery || (!pDiscovery->byRegistered &&
+                      !(pDiscovery->byHosting &&
+                        pDiscovery->byLanEnabled)))
     return 0;
   if (puiSessionId)
-    *puiSessionId = pDiscovery->uiSessionId;
+    *puiSessionId = pDiscovery->byRegistered ? pDiscovery->uiSessionId :
+                                               pDiscovery->uiLanSessionId;
   return 1;
 }
 
@@ -490,6 +651,10 @@ int NetDiscoveryList(tNetDiscovery *pDiscovery, const char *szBuildHash)
   if (!pDiscovery)
     return 0;
   pDiscovery->iSessionCount = 0;
+  memset(pDiscovery->aSessionAddresses, 0,
+         sizeof(pDiscovery->aSessionAddresses));
+  memset(pDiscovery->aSessionSeenMs, 0,
+         sizeof(pDiscovery->aSessionSeenMs));
   pDiscovery->unListPage = 0;
   pDiscovery->byListing = 1;
   pDiscovery->byListReady = 0;
@@ -500,7 +665,15 @@ int NetDiscoveryList(tNetDiscovery *pDiscovery, const char *szBuildHash)
     for (iChar = 0; iChar < 16 && szBuildHash[iChar]; ++iChar)
       pDiscovery->szBuildHash[iChar] = szBuildHash[iChar];
   }
-  NetDiscoverySendList(pDiscovery);
+  if (pDiscovery->byHasRendezvous)
+    NetDiscoverySendList(pDiscovery);
+  else
+    pDiscovery->byListing = 0;
+  if (pDiscovery->byLanEnabled) {
+    NetDiscoverySendLanQuery(pDiscovery);
+    pDiscovery->ullNextLanQueryMs = NetChannelNowMs(pDiscovery->pChannel) +
+        NET_LAN_QUERY_INTERVAL_MS;
+  }
   return 1;
 }
 
@@ -543,7 +716,20 @@ int NetDiscoveryResolved(tNetDiscovery *pDiscovery, uint32 uiSessionId,
 int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
 {
   uint64 ullNowMs;
-  if (!pDiscovery || !uiSessionId || pDiscovery->byHosting ||
+  int iSession;
+  if (!pDiscovery || !uiSessionId || pDiscovery->byHosting)
+    return 0;
+  for (iSession = 0; iSession < pDiscovery->iSessionCount; ++iSession) {
+    if (pDiscovery->aSessions[iSession].uiSessionId == uiSessionId &&
+        pDiscovery->aSessionAddresses[iSession].byFamily) {
+      pDiscovery->uiPunchSessionId = uiSessionId;
+      pDiscovery->tPunchAddress =
+          pDiscovery->aSessionAddresses[iSession];
+      pDiscovery->ePunchState = NET_PUNCH_SUCCEEDED;
+      return 1;
+    }
+  }
+  if (!pDiscovery->byHasRendezvous ||
       !pDiscovery->pRandom(pDiscovery->pRandomContext,
                            &pDiscovery->ullPunchNonce,
                            sizeof(pDiscovery->ullPunchNonce)) ||
@@ -579,10 +765,12 @@ eNetPunchState NetDiscoveryPunchState(const tNetDiscovery *pDiscovery,
 void NetDiscoveryPump(tNetDiscovery *pDiscovery)
 {
   uint64 ullNowMs;
+  int iSession;
   if (!pDiscovery)
     return;
   ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
-  if (pDiscovery->byHosting && ullNowMs >= pDiscovery->ullNextSendMs) {
+  if (pDiscovery->byHosting && pDiscovery->byHasRendezvous &&
+      ullNowMs >= pDiscovery->ullNextSendMs) {
     if (pDiscovery->byRegistered)
       NetDiscoverySendHeartbeat(pDiscovery);
     else
@@ -591,7 +779,30 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
         (pDiscovery->byRegistered ? NET_RVZ_HEARTBEAT_MS :
                                     NET_DISCOVERY_RETRY_MS);
   }
-  if (pDiscovery->byListReady && ullNowMs >= pDiscovery->ullNextRefreshMs) {
+  if (!pDiscovery->byHosting && pDiscovery->byLanEnabled) {
+    for (iSession = 0; iSession < pDiscovery->iSessionCount;) {
+      if (pDiscovery->aSessionAddresses[iSession].byFamily &&
+          ullNowMs - pDiscovery->aSessionSeenMs[iSession] >
+              NET_LAN_SESSION_TIMEOUT_MS) {
+        --pDiscovery->iSessionCount;
+        pDiscovery->aSessions[iSession] =
+            pDiscovery->aSessions[pDiscovery->iSessionCount];
+        pDiscovery->aSessionAddresses[iSession] =
+            pDiscovery->aSessionAddresses[pDiscovery->iSessionCount];
+        pDiscovery->aSessionSeenMs[iSession] =
+            pDiscovery->aSessionSeenMs[pDiscovery->iSessionCount];
+        continue;
+      }
+      ++iSession;
+    }
+    if (ullNowMs >= pDiscovery->ullNextLanQueryMs) {
+      NetDiscoverySendLanQuery(pDiscovery);
+      pDiscovery->ullNextLanQueryMs = ullNowMs +
+          NET_LAN_QUERY_INTERVAL_MS;
+    }
+  }
+  if (pDiscovery->byHasRendezvous && pDiscovery->byListReady &&
+      ullNowMs >= pDiscovery->ullNextRefreshMs) {
     char szBuildHash[16];
     const char *szFilter = NULL;
     if (pDiscovery->byFilterBuild) {
