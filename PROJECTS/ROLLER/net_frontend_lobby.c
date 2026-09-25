@@ -38,7 +38,7 @@ typedef struct
   uint8 byHasRendezvous, byResolvePending, byRelayThrottleShown;
   uint8 byHostInfo;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
-  uint8 byRaceScheduled, byRaceLoadedSent, byRaceStarted;
+  uint8 byRaceScheduled, byRaceLoadedSent, byRaceCarsMapped, byRaceStarted;
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
   uint8 byAppResumePending;
   uint64 ullRejoinStartedMs;
@@ -143,6 +143,7 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byReadySent = 0;
   s_frontend.byRaceScheduled = 0;
   s_frontend.byRaceLoadedSent = 0;
+  s_frontend.byRaceCarsMapped = 0;
   s_frontend.byRaceStarted = 0;
   s_frontend.byAppResumePending = 0;
   s_frontend.ullRejoinStartedMs = 0;
@@ -431,6 +432,54 @@ static void NetFrontendSyncLegacyRoster(void)
   master = s_frontend.byHost ? -1 : 0;
 }
 
+/* The lobby carries selected car designs so the old frontend can display
+   them.  AllocateCars() turns those selections into real Car[] slots while
+   loading; race ownership must use those slots, not the design numbers. */
+static int NetFrontendMapRaceCars(void)
+{
+  uint8 abyCarIdx0[NET_SESSION_MAX_PLAYERS];
+  uint8 abyCarIdx1[NET_SESSION_MAX_PLAYERS];
+  uint8 abyCarUsed[MAX_CARS] = {0};
+  int iDisplay = 0;
+  int iSlots = NetLobbyClientPlayerSlots(s_frontend.pClientLobby);
+  int iPlayer;
+  if (iSlots < 1 || iSlots > NET_SESSION_MAX_PLAYERS)
+    return 0;
+  memset(abyCarIdx0, NET_LOBBY_NO_PLAYER, sizeof(abyCarIdx0));
+  memset(abyCarIdx1, NET_LOBBY_NO_PLAYER, sizeof(abyCarIdx1));
+  for (iPlayer = 0; iPlayer < iSlots; ++iPlayer) {
+    tNetPlayerEntry player;
+    int iCars;
+    if (!NetLobbyClientPlayer(s_frontend.pClientLobby, (uint8)iPlayer,
+                              &player))
+      continue;
+    iCars = player.byCarIdx1 == NET_LOBBY_NO_PLAYER ? 1 : 2;
+    for (int iCar = 0; iCar < iCars; ++iCar) {
+      int iRaceCar;
+      if (iDisplay >= network_on)
+        return 0;
+      iRaceCar = player_to_car[iDisplay++];
+      if (iRaceCar < 0 || iRaceCar >= numcars || iRaceCar >= MAX_CARS ||
+          abyCarUsed[iRaceCar])
+        return 0;
+      abyCarUsed[iRaceCar] = 1;
+      if (!iCar)
+        abyCarIdx0[iPlayer] = (uint8)iRaceCar;
+      else
+        abyCarIdx1[iPlayer] = (uint8)iRaceCar;
+    }
+  }
+  if (iDisplay != network_on ||
+      !NetLobbyClientSetRaceCars(s_frontend.pClientLobby, abyCarIdx0,
+                                  abyCarIdx1, iSlots) ||
+      (s_frontend.byHost &&
+       !NetLobbyHostSetRaceCars(s_frontend.pHostLobby, abyCarIdx0,
+                                abyCarIdx1, iSlots)))
+    return 0;
+  s_frontend.byRaceCarsMapped = 1;
+  return 1;
+}
+
 static int NetFrontendBeginRejoin(void)
 {
   tNetConnection *pOldConnection;
@@ -563,7 +612,8 @@ void NetFrontendPump(void)
         s_frontend.pClientLobby, 1,
         NetFrontendLocalTrackCRC(&config));
   }
-  NetFrontendSyncLegacyRoster();
+  if (!s_frontend.byRaceCarsMapped)
+    NetFrontendSyncLegacyRoster();
   if (s_frontend.byReadySent)
     NetFrontendStatus(s_frontend.byHost ? "READY - WAITING FOR PLAYERS" :
                       "READY");
@@ -611,6 +661,10 @@ int NetFrontendRaceSynchronise(void)
   if (NetRaceStartPhase() == NET_RACE_START_LOADING &&
       !NetRaceStartRelease(uiStartTick))
     return 0;
+  if (!s_frontend.byRaceCarsMapped && !NetFrontendMapRaceCars()) {
+    NetFrontendStatus("RACE CAR ASSIGNMENT FAILED");
+    return 0;
+  }
   if (!s_frontend.byRaceStarted) {
     memset(&g_netStats, 0, sizeof(g_netStats));
     g_netStats.iPredictionMode = NET_PREDICT_FULL;

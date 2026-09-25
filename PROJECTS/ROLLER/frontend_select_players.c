@@ -792,14 +792,15 @@ void frontend_players_select_update(void)
            iPlayerIndex < NetFrontendBrowserSessionCount() &&
            iPlayerIndex < 12; ++iPlayerIndex) {
         tRvzSessionInfo info;
-        char szSession[96];
+        char szSession[64];
         if (!NetFrontendBrowserSession(iPlayerIndex, &info))
           continue;
-        snprintf(szSession, sizeof(szSession), "%s  %u/%u  %s",
-                 info.szName, info.byPlayers, info.byMaxPlayers,
-                 info.szTrack);
+        snprintf(szSession, sizeof(szSession), "%s  %u/%u",
+                 info.szName, info.byPlayers, info.byMaxPlayers);
         menu_render_scaled_text(mr, 15, szSession, font1_ascii,
             font1_offsets, 336, iY, 143, 2u, 200, 640, pal_addr);
+        menu_render_scaled_text(mr, 15, info.szTrack, font1_ascii,
+            font1_offsets, 342, iY, 143, 0u, 200, 640, pal_addr);
         iY += 18;
         ++iPlayerListCount;
       }

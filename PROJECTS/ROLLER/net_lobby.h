@@ -17,6 +17,11 @@ int NetLobbyHostPlayerCount(const tNetLobbyHost *pLobby);
 int NetLobbyHostPlayerSlots(const tNetLobbyHost *pLobby);
 int NetLobbyHostPlayer(const tNetLobbyHost *pLobby, uint8 byPlayerIdx,
                        tNetPlayerEntry *pPlayer);
+/* Replace pre-race car-design selections with the allocated race car slots.
+   This is local state installed after every peer has loaded the track. */
+int NetLobbyHostSetRaceCars(tNetLobbyHost *pLobby,
+                            const uint8 *pabyCarIdx0,
+                            const uint8 *pabyCarIdx1, int iCount);
 int NetLobbyHostAllReady(const tNetLobbyHost *pLobby);
 int NetLobbyHostStartTick(const tNetLobbyHost *pLobby, uint32 *puiStartTick);
 int NetLobbyHostRaceReleased(const tNetLobbyHost *pLobby);
@@ -40,11 +45,15 @@ int NetLobbyClientSendStrategy(tNetLobbyClient *pLobby,
                                uint8 byTargetPlayerIdx,
                                uint8 byStrategy);
 int NetLobbyClientPlayerCount(const tNetLobbyClient *pLobby);
+int NetLobbyClientPlayerSlots(const tNetLobbyClient *pLobby);
 int NetLobbyClientPlayer(const tNetLobbyClient *pLobby, uint8 byPlayerIdx,
                          tNetPlayerEntry *pPlayer);
 int NetLobbyClientInstallPlayers(tNetLobbyClient *pLobby,
                                  const tNetPlayerEntry *pPlayers,
                                  int iCount);
+int NetLobbyClientSetRaceCars(tNetLobbyClient *pLobby,
+                              const uint8 *pabyCarIdx0,
+                              const uint8 *pabyCarIdx1, int iCount);
 int NetLobbyClientStartTick(const tNetLobbyClient *pLobby,
                             uint32 *puiStartTick);
 int NetLobbyClientSetRaceLoaded(tNetLobbyClient *pLobby);

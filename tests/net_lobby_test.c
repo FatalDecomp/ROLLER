@@ -116,6 +116,7 @@ static void NetTestHostAndThreeClients(void)
   uint8 abBadList[sizeof(tNetPlayerListHeader) +
                   4 * sizeof(tNetPlayerEntry)] = {0};
   uint8 abBadCountdown[sizeof(tNetCountdown)] = {0};
+  uint8 abyRaceCar0[4], abyRaceCar1[4], abyBadRaceCar0[4];
   uint32 uiStartTick;
   tNetRaceStartClock aRaceClocks[NET_TEST_CLIENTS];
   int iClient, iPlayer;
@@ -300,6 +301,37 @@ static void NetTestHostAndThreeClients(void)
     CHECK(NetRaceClockRelease(&aRaceClocks[iClient], uiReleaseTick));
     CHECK(NetRaceClockPhase(&aRaceClocks[iClient]) ==
           NET_RACE_START_PRE_START);
+  }
+
+  /* Car selections are frontend design indices until AllocateCars() has
+     produced the real, potentially non-contiguous Car[] slots. */
+  memset(abyRaceCar0, NET_LOBBY_NO_PLAYER, sizeof(abyRaceCar0));
+  memset(abyRaceCar1, NET_LOBBY_NO_PLAYER, sizeof(abyRaceCar1));
+  iClient = 0;
+  for (iPlayer = 0; iPlayer < config.byMaxPlayers; ++iPlayer) {
+    if (!NetLobbyHostPlayer(pHostLobby, (uint8)iPlayer, &player))
+      continue;
+    abyRaceCar0[iPlayer] = (uint8)(iClient * 2);
+    ++iClient;
+  }
+  memcpy(abyBadRaceCar0, abyRaceCar0, sizeof(abyBadRaceCar0));
+  abyBadRaceCar0[NetSessionClientPlayerIndex(aClients[1].pSession)] =
+      abyBadRaceCar0[NetSessionClientPlayerIndex(aClients[0].pSession)];
+  CHECK(!NetLobbyHostSetRaceCars(pHostLobby, abyBadRaceCar0,
+                                  abyRaceCar1, config.byMaxPlayers));
+  CHECK(NetLobbyHostSetRaceCars(pHostLobby, abyRaceCar0, abyRaceCar1,
+                                config.byMaxPlayers));
+  for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
+    CHECK(NetLobbyClientSetRaceCars(aClients[iClient].pLobby,
+                                    abyRaceCar0, abyRaceCar1,
+                                    config.byMaxPlayers));
+    for (iPlayer = 0; iPlayer < config.byMaxPlayers; ++iPlayer) {
+      if (!NetLobbyClientPlayer(aClients[iClient].pLobby,
+                                (uint8)iPlayer, &player))
+        continue;
+      CHECK(player.byCarIdx0 == abyRaceCar0[iPlayer]);
+      CHECK(player.byCarIdx1 == NET_LOBBY_NO_PLAYER);
+    }
   }
   for (iPlayer = 0; iPlayer <= 145; ++iPlayer) {
     uint32 uiReferenceTick = 0;
