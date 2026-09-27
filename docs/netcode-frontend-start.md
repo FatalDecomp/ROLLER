@@ -8,9 +8,9 @@ lobby player 0 choosing design 3 becomes `Car[6]` after `AllocateCars()`.
 lobby fade and loading screen. The main loop continues pumping networking.
 
 Previously, `NetFrontendPump()` kept copying the lobby display roster into
-`player1_car` and `player2_car` until the loading barrier released. This restored
-display indices after allocation, while `ViewType[]` still held race car slots.
-The track loader seeded the correct camera using `ViewType[]`, but
+`player1_car` and `player2_car` until the loading barrier released. This
+restored display indices after allocation, while `ViewType[]` still held race
+car slots. The track loader seeded the correct camera using `ViewType[]`, but
 `play_game_init()` then reseeded it using the overwritten local player indices.
 Consequently, the camera could begin at a different car or in the pits, then
 swing around as the actual car moved. Other local-car setup also read those
@@ -46,18 +46,18 @@ local car indices across every pump and world-space camera positions before
 either car moves. The split-screen case with a converted second-car slot equal
 to a later player's roster index is included.
 
-On TRACK3, temporarily restoring the old roster guard reproduced the failure
-on both sides: host car 6 became player index 0, client car 2 became index 1,
-and stationary camera error was approximately 8,993/8,994 world units. With the
-fix, all seven cases passed with worst error below 0.02 units.
-All seven cases also passed on TRACK16 (worst error below 0.005 units) and
-TRACK5 (worst error below 0.01 units). The startup gate is also a dependency
-of `test-net-foundations` so it cannot be skipped by the normal foundation run.
+On TRACK3, temporarily restoring the old roster guard reproduced the failure on
+both sides: host car 6 became player index 0, client car 2 became index 1, and
+stationary camera error was approximately 8,993/8,994 world units. With the fix,
+all seven cases passed with worst error below 0.02 units. All seven cases also
+passed on TRACK16 (worst error below 0.005 units) and TRACK5 (worst error below
+0.01 units). The startup gate is also a dependency of `test-net-foundations` so
+it cannot be skipped by the normal foundation run.
 
 The equivalent CMake/CTest test is `net-frontend-start`, enabled with
-`ROLLER_NET_TEST_ASSETS`. `test-net-lobby` also checks that 8-slot sessions allow
-one player per design and 16-slot sessions allow two, on both host and clients.
-Competitor count and session player capacity are separate settings.
+`ROLLER_NET_TEST_ASSETS`. `test-net-lobby` also checks that 8-slot sessions
+allow one player per design and 16-slot sessions allow two, on both host and
+clients. Competitor count and session player capacity are separate settings.
 
 Validation also passed the foundation, host, and real-UDP multi-process race
 suites, and the client suite on its usual TRACK5 fixture. The client suite on
