@@ -19,6 +19,9 @@
 #include "menu_render.h"
 #include "snapshot.h"
 #include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -75,8 +78,12 @@ void snapshot_render_menu_select_car(void)
 
 static void frontend_car_select_begin_broadcast_wait(int iBroadcastMode)
 {
-  if (net_mode == NET_MODE_MODERN)
+  if (net_mode == NET_MODE_MODERN) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    NetFrontendLobbyUpdatePlayerInfo();
+#endif
     return;
+  }
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
 

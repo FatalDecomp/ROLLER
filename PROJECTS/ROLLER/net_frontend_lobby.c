@@ -2,6 +2,7 @@
 
 #include "3d.h"
 #include "frontend.h"
+#include "func3.h"
 #include "loadtrak.h"
 #include "net_channel.h"
 #include "net_client.h"
@@ -31,14 +32,20 @@ typedef struct
   tNetClient *pRaceClient;
   tNetDiscovery *pDiscovery;
   tNetAddress peer;
+  tNetAddress directPeer;
   tNetAddress rendezvous;
   tRvzSessionInfo hostInfo;
-  tRvzSessionInfo aBrowserSessions[12];
+  tRvzSessionInfo aBrowserSessions[NET_RVZ_MAX_SESSIONS];
+  char szRendezvous[320];
+  uint16 unRendezvousPort;
+  uint8 byRendezvousOverride, byHasDirectPeer, byJoinSelected;
+  uint8 abyDisplayPlayers[NET_SESSION_MAX_PLAYERS];
+  tNetSessionConfig appliedConfig;
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byHasRendezvous, byResolvePending, byRelayThrottleShown;
   uint8 byHostInfo;
-  uint8 byBrowserSessionCount;
+  int iBrowserSessionCount;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceCarsMapped, byRaceStarted;
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
@@ -50,6 +57,8 @@ typedef struct
 
 static tNetFrontendLobbyState s_frontend = {
   .unLocalPort = ROLLER_DEFAULT_PORT,
+  .szRendezvous = "rvz.fatal.racing:7778",
+  .unRendezvousPort = NET_RVZ_DEFAULT_PORT,
   .byLocalPlayers = 1
 };
 
@@ -102,19 +111,33 @@ int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort)
   tNetAddress peer;
   if (!NetAddressParse(&peer, szAddress, unDefaultPort))
     return 0;
-  s_frontend.peer = peer;
-  s_frontend.byHasPeer = 1;
+  s_frontend.directPeer = peer;
+  s_frontend.byHasDirectPeer = 1;
   return 1;
 }
 
 int NetFrontendSetRendezvous(const char *szAddress, uint16 unDefaultPort)
 {
-  tNetAddress rendezvous;
-  if (!NetAddressParse(&rendezvous, szAddress, unDefaultPort))
+  if (!szAddress || strlen(szAddress) >= sizeof(s_frontend.szRendezvous) ||
+      (*szAddress && !NetAddressEndpointValid(szAddress, unDefaultPort)))
     return 0;
-  s_frontend.rendezvous = rendezvous;
-  s_frontend.byHasRendezvous = 1;
+  snprintf(s_frontend.szRendezvous, sizeof(s_frontend.szRendezvous), "%s", szAddress);
+  s_frontend.unRendezvousPort = unDefaultPort;
+  s_frontend.byRendezvousOverride = 1;
   return 1;
+}
+
+void NetFrontendLoadRendezvous(const char *szAddress)
+{
+  if (!s_frontend.byRendezvousOverride) {
+    NetFrontendSetRendezvous(szAddress, NET_RVZ_DEFAULT_PORT);
+    s_frontend.byRendezvousOverride = 0;
+  }
+}
+
+const char *NetFrontendRendezvous(void)
+{
+  return s_frontend.szRendezvous;
 }
 
 int NetFrontendSetLocalPlayers(int iLocalPlayers)
@@ -169,7 +192,10 @@ void NetFrontendClose(void)
   s_frontend.byHost = 0;
   s_frontend.byResolvePending = 0;
   s_frontend.byHostInfo = 0;
-  s_frontend.byBrowserSessionCount = 0;
+  s_frontend.iBrowserSessionCount = 0;
+  s_frontend.byHasPeer = 0;
+  s_frontend.byJoinSelected = 0;
+  send_message_to = -1;
   net_listen_host = 0;
   NetRaceStartReset();
   network_on = 0;
@@ -183,6 +209,12 @@ int NetFrontendOpen(void)
   tNetTransport transport;
   NetFrontendClose();
   s_frontend.byHost = network_slot >= 0;
+  s_frontend.byHasPeer = !s_frontend.byHost && s_frontend.byHasDirectPeer;
+  if (s_frontend.byHasPeer)
+    s_frontend.peer = s_frontend.directPeer;
+  s_frontend.byHasRendezvous = (uint8)(s_frontend.szRendezvous[0] &&
+      NetAddressResolve(&s_frontend.rendezvous, s_frontend.szRendezvous,
+                         s_frontend.unRendezvousPort));
 
   s_frontend.pServerUdp = NetTransportUdpCreate(s_frontend.unLocalPort);
   if (!s_frontend.pServerUdp) {
@@ -263,16 +295,105 @@ int NetFrontendIsHost(void)
 int NetFrontendBrowserSessionCount(void)
 {
   return s_frontend.pDiscovery && !s_frontend.byHost ?
-      s_frontend.byBrowserSessionCount : 0;
+      s_frontend.iBrowserSessionCount + s_frontend.byHasDirectPeer :
+      (!s_frontend.byHost && s_frontend.byHasDirectPeer ? 1 : 0);
 }
 
 int NetFrontendBrowserSession(int iIndex, tRvzSessionInfo *pInfo)
 {
-  if (!s_frontend.pDiscovery || s_frontend.byHost || !pInfo || iIndex < 0 ||
-      iIndex >= s_frontend.byBrowserSessionCount)
+  if (s_frontend.byHost || !pInfo || iIndex < 0 ||
+      iIndex >= NetFrontendBrowserSessionCount())
     return 0;
+  if (s_frontend.byHasDirectPeer) {
+    if (!iIndex) {
+      memset(pInfo, 0, sizeof(*pInfo));
+      snprintf(pInfo->szName, sizeof(pInfo->szName), "DIRECT CONNECTION");
+      pInfo->byMaxPlayers = NET_SESSION_MAX_PLAYERS;
+      return 1;
+    }
+    --iIndex;
+  }
   *pInfo = s_frontend.aBrowserSessions[iIndex];
   return 1;
+}
+
+int NetFrontendBrowserSelect(uint32 uiSessionId)
+{
+  if (!s_frontend.byOpen || s_frontend.byHost || s_frontend.byLobbyStarted)
+    return 0;
+  if (!uiSessionId && s_frontend.byHasDirectPeer) {
+    s_frontend.peer = s_frontend.directPeer;
+    s_frontend.byHasPeer = 1;
+  } else {
+    int iSession;
+    for (iSession = 0; iSession < s_frontend.iBrowserSessionCount; ++iSession)
+      if (s_frontend.aBrowserSessions[iSession].uiSessionId == uiSessionId)
+        break;
+    if (iSession == s_frontend.iBrowserSessionCount ||
+        s_frontend.aBrowserSessions[iSession].byPlayers >=
+            s_frontend.aBrowserSessions[iSession].byMaxPlayers ||
+        (s_frontend.aBrowserSessions[iSession].byFlags & NET_RVZ_SESSION_IN_RACE) ||
+        !NetDiscoveryPunch(s_frontend.pDiscovery, uiSessionId))
+      return 0;
+    s_frontend.byHasPeer = 0;
+    s_frontend.byResolvePending = 1;
+  }
+  s_frontend.byJoinSelected = 1;
+  NetFrontendStatus("CONNECTING TO SELECTED GAME");
+  return 1;
+}
+
+int NetFrontendLobbyJoined(void)
+{
+  return s_frontend.pClient &&
+      NetSessionClientState(s_frontend.pClient) == NET_JOIN_ACCEPTED;
+}
+
+int NetFrontendMessagePlayer(int iSelection)
+{
+  /* The legacy composer reserves row zero for ALL PLAYERS. */
+  int iDisplay = iSelection - 1;
+  if (iDisplay >= player1_car)
+    ++iDisplay;
+  return iSelection > 0 && iDisplay < network_on ? iDisplay : -1;
+}
+
+void NetFrontendLobbyUpdatePlayerInfo(void)
+{
+  if (!s_frontend.byLobbyStarted || s_frontend.byRaceScheduled ||
+      player1_car < 0 || player1_car >= MAX_CARS)
+    return;
+  s_frontend.bySelectedCar0 = (uint8)(Players_Cars[player1_car] < 0 ? 0 : Players_Cars[player1_car]);
+  s_frontend.bySelectedCar1 = s_frontend.byLocalPlayers == 2 ?
+      (uint8)(Players_Cars[player2_car] < 0 ? 1 : Players_Cars[player2_car]) : NET_LOBBY_NO_PLAYER;
+  s_frontend.bySelectedControl = (uint8)(manual_control[player1_car] == 2 ? 2 : 1);
+  s_frontend.byPlayerInfoSent = 0;
+}
+
+void NetFrontendLobbyUpdateConfig(void)
+{
+  tNetSessionConfigOptions options;
+  tNetSessionConfig config;
+  if (!s_frontend.byLobbyStarted || s_frontend.byRaceScheduled)
+    return;
+  if (!s_frontend.byHost) {
+    if (s_frontend.byConfigApplied)
+      NetSessionConfigApply(&s_frontend.appliedConfig);
+    return;
+  }
+  NetSessionConfigOptionsDefault(&options);
+  if (s_frontend.byConfigApplied && NetSessionConfigBuild(&config, &options) &&
+      !memcmp(&config, &s_frontend.appliedConfig, sizeof(config)))
+    return;
+  if (!NetSessionConfigBuild(&config, &options) ||
+      !NetLobbyHostUpdateConfig(s_frontend.pHostLobby, &config)) {
+    if (s_frontend.byConfigApplied)
+      NetSessionConfigApply(&s_frontend.appliedConfig);
+    NetFrontendStatus("SETTINGS CONFLICT WITH CONNECTED PLAYERS");
+    return;
+  }
+  NetFrontendBuildHostInfo(&s_frontend.hostInfo, &config);
+  NetDiscoveryHostUpdate(s_frontend.pDiscovery, &s_frontend.hostInfo);
 }
 
 void NetFrontendAppResumed(void)
@@ -407,18 +528,21 @@ static void NetFrontendSyncLegacyRoster(void)
     abyCars[0] = player.byCarIdx0;
     abyCars[1] = player.byCarIdx1;
     iCars = player.byCarIdx1 == NET_LOBBY_NO_PLAYER ? 1 : 2;
+    if (iDisplay + iCars > NET_SESSION_MAX_PLAYERS)
+      return;
     if (iPlayer == byLocalPlayer) {
       iLocalDisplay = iDisplay;
       player2_car = iCars == 2 ? iDisplay + 1 : -1;
     }
     for (int iCar = 0; iCar < iCars; ++iCar) {
       Players_Cars[iDisplay] = abyCars[iCar];
+      s_frontend.abyDisplayPlayers[iDisplay] = (uint8)iPlayer;
       manual_control[iDisplay] = player.byHumanControl;
       player_started[iDisplay] =
           player.byState >= NET_PLAYER_READY ? -1 : 0;
       memset(player_names[iDisplay], 0, sizeof(player_names[iDisplay]));
       memcpy(player_names[iDisplay], player.szName,
-             sizeof(player_names[iDisplay]));
+             sizeof(player_names[iDisplay]) - 1);
       if (player_started[iDisplay])
         ++iReady;
       ++iDisplay;
@@ -436,6 +560,7 @@ static void NetFrontendSyncLegacyRoster(void)
   player_type = s_frontend.byLocalPlayers == 2 ? 2 : 1;
   wConsoleNode = (int16)iLocalDisplay;
   master = s_frontend.byHost ? -1 : 0;
+  check_cars();
 }
 
 /* The lobby carries selected car designs so the old frontend can display
@@ -529,19 +654,13 @@ void NetFrontendPump(void)
                           sizeof(s_frontend.aBrowserSessions[0])))
       iSessions = (int)(sizeof(s_frontend.aBrowserSessions) /
                         sizeof(s_frontend.aBrowserSessions[0]));
-    s_frontend.byBrowserSessionCount = (uint8)iSessions;
+    s_frontend.iBrowserSessionCount = iSessions;
     for (int iSession = 0; iSession < iSessions; ++iSession)
       NetDiscoverySession(s_frontend.pDiscovery, iSession,
                           &s_frontend.aBrowserSessions[iSession]);
   }
   if (!s_frontend.byHost && !s_frontend.byHasPeer &&
       s_frontend.pDiscovery) {
-    tRvzSessionInfo info;
-    if (!s_frontend.byResolvePending &&
-        NetDiscoverySession(s_frontend.pDiscovery, 0, &info)) {
-      s_frontend.byResolvePending = (uint8)NetDiscoveryPunch(
-          s_frontend.pDiscovery, info.uiSessionId);
-    }
     if (s_frontend.byResolvePending) {
       eNetPunchState ePunchState = NetDiscoveryPunchState(
           s_frontend.pDiscovery, &s_frontend.peer);
@@ -554,6 +673,8 @@ void NetFrontendPump(void)
       }
     }
   }
+  if (s_frontend.byJoinSelected && s_frontend.byHasPeer && !s_frontend.byLobbyStarted)
+    NetFrontendLobbyBegin();
   if (!s_frontend.byRelayThrottleShown && s_frontend.pDiscovery &&
       NetDiscoveryPunchState(s_frontend.pDiscovery, NULL) ==
           NET_PUNCH_RELAY_THROTTLED) {
@@ -564,7 +685,12 @@ void NetFrontendPump(void)
     return;
 
   if (s_frontend.byHostInfo && s_frontend.pHostLobby) {
-    int iPlayers = NetLobbyHostPlayerCount(s_frontend.pHostLobby);
+    int iPlayers = 0;
+    for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+      tNetPlayerEntry player;
+      if (NetLobbyHostPlayer(s_frontend.pHostLobby, (uint8)iPlayer, &player))
+        iPlayers += player.byCarIdx1 == NET_LOBBY_NO_PLAYER ? 1 : 2;
+    }
     s_frontend.hostInfo.byPlayers = (uint8)(iPlayers > 0 ? iPlayers : 1);
     if (s_frontend.byRaceStarted)
       s_frontend.hostInfo.byFlags |= NET_RVZ_SESSION_IN_RACE;
@@ -585,6 +711,25 @@ void NetFrontendPump(void)
       return;
   }
   NetSessionClientPump(s_frontend.pClient);
+  if (send_message_to >= 0) {
+    int iDisplay = NetFrontendMessagePlayer(send_message_to);
+    uint8 byTarget = send_message_to == 0 ? NET_LOBBY_NO_PLAYER :
+        (iDisplay >= 0 ? s_frontend.abyDisplayPlayers[iDisplay] : NET_LOBBY_NO_PLAYER);
+    send_mes_buf[sizeof(send_mes_buf) - 1] = 0;
+    send_status = (send_message_to == 0 || iDisplay >= 0) &&
+        NetLobbyClientSendText(s_frontend.pClientLobby, byTarget, send_mes_buf) ? 18 : -18;
+    send_message_to = -1;
+  }
+  if (!rec_status) {
+    tNetChat chat;
+    tNetPlayerEntry sender;
+    if (NetLobbyClientTakeText(s_frontend.pClientLobby, &chat) &&
+        NetLobbyClientPlayer(s_frontend.pClientLobby, chat.bySenderPlayerIdx, &sender)) {
+      snprintf(rec_mes_name, sizeof(rec_mes_name), "%.8s", sender.szName);
+      snprintf(rec_mes_buf, sizeof(rec_mes_buf), "%.31s", chat.szText);
+      rec_status = 36;
+    }
+  }
   NetHostPump(s_frontend.pRaceHost);
   NetClientPump(s_frontend.pRaceClient);
   if (s_frontend.pRaceClient &&
@@ -614,12 +759,16 @@ void NetFrontendPump(void)
       !NetSessionClientGetConfig(s_frontend.pClient, &config))
     return;
 
-  if (!s_frontend.byConfigApplied) {
+  if (!s_frontend.byConfigApplied ||
+      (!s_frontend.byRaceScheduled &&
+       memcmp(&config, &s_frontend.appliedConfig, sizeof(config)))) {
     if (!NetSessionConfigApply(&config)) {
       NetFrontendStatus("SESSION CONFIGURATION REJECTED");
       return;
     }
     s_frontend.byConfigApplied = 1;
+    s_frontend.appliedConfig = config;
+    s_frontend.byReadySent = 0;
   }
   if (!s_frontend.byPlayerInfoSent) {
     s_frontend.byPlayerInfoSent = (uint8)NetLobbyClientSetPlayerInfo(

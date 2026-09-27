@@ -6218,6 +6218,17 @@ int select_messages_active(void)
   return s_SelectMessages.iActive;
 }
 
+static char *select_messages_player_name(int iSelection)
+{
+  int iDisplay = iSelection;
+  if (net_mode == NET_MODE_MODERN) {
+    iDisplay = iSelection - 1;
+    if (iDisplay >= player1_car)
+      ++iDisplay;
+  }
+  return player_names[iDisplay >= 0 && iDisplay < MAX_CARS ? iDisplay : 0];
+}
+
 static void select_messages_update_message_length(void)
 {
   s_SelectMessages.iMessageLength = 0;
@@ -6486,7 +6497,7 @@ MAIN_UI_LOOP:
       case 0u:
         // Menu 0: Send to player selection screen
         if (iSelectedPlayer)
-          sprintf(buffer, "%s", player_names[iSelectedPlayer]);
+          sprintf(buffer, "%s", select_messages_player_name(iSelectedPlayer));
         else
           sprintf(buffer, "%s", &language_buffer[7360]);
         scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 190, 66, 143, 0, 180, 640);
@@ -6511,7 +6522,7 @@ MAIN_UI_LOOP:
         iPlayerIndex = 1;
         scale_text(front_vga[15], &language_buffer[7360], font2_ascii, font2_offsets, 400, 98, byTextColor, 1u, 200, 640);
         if (network_on > 1) {
-          pPlayerName = player_names[1];
+          pPlayerName = select_messages_player_name(1);
           iY = 116;
           do {
             if (iPlayerIndex == iMenuSelection)
@@ -6520,7 +6531,8 @@ MAIN_UI_LOOP:
               byPlayerTextColor = -113;
             scale_text(front_vga[15], pPlayerName, font2_ascii, font2_offsets, 400, iY, byPlayerTextColor, 1u, 200, 640);
             ++iPlayerIndex;
-            pPlayerName += 9;
+            if (iPlayerIndex < network_on)
+              pPlayerName = select_messages_player_name(iPlayerIndex);
             iY += 18;
           } while (iPlayerIndex < network_on);
         }
@@ -6540,7 +6552,7 @@ MAIN_UI_LOOP:
       case 3u:
         // Menu 3: Send confirmation screen
         if (iSelectedPlayer)
-          sprintf(buffer, "%s", player_names[iSelectedPlayer]);
+          sprintf(buffer, "%s", select_messages_player_name(iSelectedPlayer));
         else
           sprintf(buffer, "%s", &language_buffer[7360]);
         scale_text(front_vga[15], buffer, font1_ascii, font1_offsets, 190, 66, 143, 0, 180, 640);

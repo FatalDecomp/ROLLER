@@ -267,6 +267,9 @@ void snapshot_render_menu_configure(void);
 void front_displaycalibrationbar(int iY, int iX, int iValue);
 void front_volumebar(MenuRenderer *pRenderer, int iY, int iVolumeLevel, int iFillColor, const tColor *pal);
 void snapshot_render_menu_select_players(void);
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+void snapshot_render_menu_network(int iRoster);
+#endif
 void snapshot_render_menu_select_type(void);
 void snapshot_render_menu_select_track(void);
 void loadcheatnames();

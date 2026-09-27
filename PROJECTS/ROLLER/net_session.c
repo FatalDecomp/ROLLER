@@ -233,7 +233,11 @@ static void NetSessionAcceptRequest(tNetSessionHost *pHost,
     NetSessionQueueRefuse(pSlot, NET_JOIN_REFUSE_INVALID_REQUEST);
     return;
   }
-  if (NetSessionPlayerCount(pHost) >= pHost->byMaxPlayers) {
+  int iReserved = 0;
+  for (int iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot)
+    if (pHost->aSlots[iSlot].byState == NET_HOST_SLOT_JOINED)
+      iReserved += pHost->aSlots[iSlot].byLocalPlayers;
+  if (iReserved + pData[2] > pHost->byMaxPlayers) {
     NetSessionQueueRefuse(pSlot, NET_JOIN_REFUSE_SERVER_FULL);
     return;
   }
@@ -374,6 +378,31 @@ int NetSessionHostSetConfig(tNetSessionHost *pHost,
     return 0;
   pHost->config = *pConfig;
   pHost->byHasConfig = 1;
+  return 1;
+}
+
+int NetSessionHostUpdateConfig(tNetSessionHost *pHost,
+                               const tNetSessionConfig *pConfig)
+{
+  int iReserved = 0;
+  if (!pHost || !NetSessionConfigValidate(pConfig))
+    return 0;
+  for (int iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot) {
+    tNetHostSlot *pSlot = &pHost->aSlots[iSlot];
+    if (pSlot->byState == NET_HOST_SLOT_JOINED) {
+      iReserved += pSlot->byLocalPlayers;
+      if (pSlot->byPlayerIdx >= pConfig->byMaxPlayers)
+        return 0;
+    }
+  }
+  if (iReserved > pConfig->byMaxPlayers)
+    return 0;
+  pHost->config = *pConfig;
+  pHost->byMaxPlayers = pConfig->byMaxPlayers;
+  pHost->byHasConfig = 1;
+  for (int iSlot = 0; iSlot < NET_SESSION_MAX_PLAYERS; ++iSlot)
+    if (pHost->aSlots[iSlot].byState == NET_HOST_SLOT_JOINED)
+      NetSessionQueueConfig(pHost, &pHost->aSlots[iSlot]);
   return 1;
 }
 

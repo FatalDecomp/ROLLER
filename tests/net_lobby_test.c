@@ -247,13 +247,46 @@ static void NetTestHostAndThreeClients(void)
     CHECK(chat.byValue == 2);
   }
 
+  /* Text messages share the reliable ordered channel. Private text is only
+     forwarded to its recipient, and repeated identical text is not lost. */
+  CHECK(NetLobbyClientSendText(aClients[0].pLobby, NET_LOBBY_NO_PLAYER, "HELLO ALL"));
+  CHECK(NetLobbyClientSendText(aClients[0].pLobby, NET_LOBBY_NO_PLAYER, "HELLO ALL"));
+  CHECK(!NetLobbyClientSendText(aClients[0].pLobby, NET_LOBBY_NO_PLAYER, "BAD\nTEXT"));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS, 1201, 1250);
+  for (iClient = 1; iClient < NET_TEST_CLIENTS; ++iClient) {
+    CHECK(NetLobbyClientTakeText(aClients[iClient].pLobby, &chat));
+    CHECK(!strcmp(chat.szText, "HELLO ALL"));
+    CHECK(NetLobbyClientTakeText(aClients[iClient].pLobby, &chat));
+    CHECK(!strcmp(chat.szText, "HELLO ALL"));
+    CHECK(!NetLobbyClientTakeText(aClients[iClient].pLobby, &chat));
+  }
+  CHECK(!NetLobbyClientTakeText(aClients[0].pLobby, &chat));
+  CHECK(NetLobbyClientSendText(aClients[1].pLobby,
+      NetSessionClientPlayerIndex(aClients[0].pSession), "PRIVATE"));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS, 1251, 1300);
+  CHECK(NetLobbyClientTakeText(aClients[0].pLobby, &chat));
+  CHECK(!strcmp(chat.szText, "PRIVATE"));
+  CHECK(!NetLobbyClientTakeText(aClients[1].pLobby, &chat));
+  CHECK(!NetLobbyClientTakeText(aClients[2].pLobby, &chat));
+  /* An unterminated text packet cannot reach the display. */
+  memset(&chat, 'X', sizeof(chat));
+  chat.bySenderPlayerIdx = NET_LOBBY_NO_PLAYER;
+  chat.byTargetPlayerIdx = NET_LOBBY_NO_PLAYER;
+  chat.byKind = NET_CHAT_TEXT;
+  chat.byValue = 0;
+  CHECK(NetConnectionQueueMessage(aClients[0].pConnection, NET_MSG_CHAT,
+      NET_MSG_RELIABLE | NET_MSG_ORDERED, &chat, sizeof(chat)));
+  NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS, 1301, 1350);
+  for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient)
+    CHECK(!NetLobbyClientTakeText(aClients[iClient].pLobby, &chat));
+
   CHECK(NetLobbyHostStart(pHostLobby, 4242));
   CHECK(!NetLobbyHostAllReady(pHostLobby));
   CHECK(!NetLobbyHostRaceReleased(pHostLobby));
   CHECK(NetLobbyHostStartTick(pHostLobby, &uiStartTick));
   CHECK(uiStartTick == 4242);
   NetTestPump(pSim, pHost, pHostLobby, aClients, NET_TEST_CLIENTS,
-              1201, 1500);
+              1351, 1500);
   for (iClient = 0; iClient < NET_TEST_CLIENTS; ++iClient) {
     CHECK(NetLobbyClientStartTick(aClients[iClient].pLobby, &uiStartTick));
     CHECK(uiStartTick == 4242);
@@ -575,8 +608,59 @@ static void NetTestDesignCapacity(int iMaxPlayers)
   NetTransportSimDestroy(pSim);
 }
 
+static void NetTestCapacityUpdate(void)
+{
+  tNetTransportSim *pSim = NetTransportSimCreate(0x1616);
+  tNetAddress address = NetTestAddress(0);
+  tNetTestRandom random = {0x123456789abcdef0ull};
+  tNetSessionConfig config = NetTestConfig(2), received;
+  tNetChannel *pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  tNetSessionHost *pHost = NetSessionHostCreate(pChannel, 2, NetTestRandomBytes, &random);
+  tNetTestClient clients[3] = {0};
+  config.iCompetitors = 2;
+  CHECK(NetSessionHostSetConfig(pHost, &config));
+  tNetLobbyHost *pLobby = NetLobbyHostCreate(pHost);
+  CHECK(pLobby);
+  for (int iClient = 0; iClient < 3; ++iClient) {
+    if (iClient == 2) {
+      config.byMaxPlayers = 16;
+      config.iCompetitors = 16;
+      CHECK(NetLobbyHostUpdateConfig(pLobby, &config));
+    }
+    clients[iClient].pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, iClient + 1));
+    clients[iClient].pConnection = NetChannelAddConnection(clients[iClient].pChannel, &address, 0, 0);
+    clients[iClient].pSession = NetSessionClientCreate(clients[iClient].pConnection,
+        NET_PROTOCOL_VERSION, iClient ? 1 : 2, "CAPACITY");
+    clients[iClient].pLobby = NetLobbyClientCreate(clients[iClient].pSession);
+    CHECK(NetSessionClientStart(clients[iClient].pSession));
+    NetTestPump(pSim, pHost, pLobby, clients, iClient + 1, iClient * 500, iClient * 500 + 499);
+    if (iClient == 1) {
+      CHECK(NetSessionClientState(clients[iClient].pSession) == NET_JOIN_REFUSED);
+      CHECK(NetSessionClientRefuseReason(clients[iClient].pSession) == NET_JOIN_REFUSE_SERVER_FULL);
+    } else {
+      CHECK(NetSessionClientState(clients[iClient].pSession) == NET_JOIN_ACCEPTED);
+    }
+  }
+  CHECK(NetSessionClientGetConfig(clients[0].pSession, &received));
+  CHECK(received.byMaxPlayers == 16 && received.iCompetitors == 16);
+  CHECK(NetSessionClientGetConfig(clients[2].pSession, &received));
+  CHECK(received.byMaxPlayers == 16);
+  CHECK(NetLobbyClientPlayerSlots(clients[0].pLobby) == 16);
+  config.byMaxPlayers = 2;
+  config.iCompetitors = 2;
+  CHECK(!NetLobbyHostUpdateConfig(pLobby, &config));
+  CHECK(NetSessionHostGetConfig(pHost, &received));
+  CHECK(received.byMaxPlayers == 16);
+  NetTestDestroyClients(clients, 3);
+  NetLobbyHostDestroy(pLobby);
+  NetSessionHostDestroy(pHost);
+  NetChannelDestroy(pChannel);
+  NetTransportSimDestroy(pSim);
+}
+
 int main(void)
 {
+  NetTestCapacityUpdate();
   NetTestHostAndThreeClients();
   NetTestDesignCapacity(8);
   NetTestDesignCapacity(16);

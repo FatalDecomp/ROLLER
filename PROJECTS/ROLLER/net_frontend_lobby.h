@@ -9,6 +9,13 @@
 void NetFrontendSetLocalPort(uint16 unPort);
 int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort);
 int NetFrontendSetRendezvous(const char *szAddress, uint16 unDefaultPort);
+void NetFrontendLoadRendezvous(const char *szAddress);
+const char *NetFrontendRendezvous(void);
+int NetFrontendBrowserSelect(uint32 uiSessionId);
+int NetFrontendLobbyJoined(void);
+int NetFrontendMessagePlayer(int iSelection);
+void NetFrontendLobbyUpdatePlayerInfo(void);
+void NetFrontendLobbyUpdateConfig(void);
 int NetFrontendSetLocalPlayers(int iLocalPlayers);
 
 int NetFrontendOpen(void);

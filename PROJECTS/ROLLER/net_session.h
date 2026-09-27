@@ -36,6 +36,9 @@ void NetSessionHostPump(tNetSessionHost *pHost);
 /* Configuration must be installed before the first player joins. */
 int NetSessionHostSetConfig(tNetSessionHost *pHost,
                             const tNetSessionConfig *pConfig);
+/* Pre-race updates are authorized and validated by the lobby. */
+int NetSessionHostUpdateConfig(tNetSessionHost *pHost,
+                               const tNetSessionConfig *pConfig);
 int NetSessionHostGetConfig(const tNetSessionHost *pHost,
                             tNetSessionConfig *pConfig);
 void NetSessionHostSetMessageCallback(tNetSessionHost *pHost,

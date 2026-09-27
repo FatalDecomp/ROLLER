@@ -12,6 +12,7 @@ typedef struct tNetLobbyClient tNetLobbyClient;
 tNetLobbyHost *NetLobbyHostCreate(tNetSessionHost *pSession);
 void NetLobbyHostDestroy(tNetLobbyHost *pLobby);
 void NetLobbyHostPump(tNetLobbyHost *pLobby);
+int NetLobbyHostUpdateConfig(tNetLobbyHost *pLobby, const tNetSessionConfig *pConfig);
 int NetLobbyHostStart(tNetLobbyHost *pLobby, uint32 uiStartTick);
 int NetLobbyHostPlayerCount(const tNetLobbyHost *pLobby);
 int NetLobbyHostPlayerSlots(const tNetLobbyHost *pLobby);
@@ -44,6 +45,10 @@ int NetLobbyClientSetReady(tNetLobbyClient *pLobby, int iReady,
 int NetLobbyClientSendStrategy(tNetLobbyClient *pLobby,
                                uint8 byTargetPlayerIdx,
                                uint8 byStrategy);
+int NetLobbyClientSendText(tNetLobbyClient *pLobby, uint8 byTargetPlayerIdx,
+                           const char *szText);
+/* Consume each received text once, including repeated identical messages. */
+int NetLobbyClientTakeText(tNetLobbyClient *pLobby, tNetChat *pChat);
 int NetLobbyClientPlayerCount(const tNetLobbyClient *pLobby);
 int NetLobbyClientPlayerSlots(const tNetLobbyClient *pLobby);
 int NetLobbyClientPlayer(const tNetLobbyClient *pLobby, uint8 byPlayerIdx,

@@ -23,6 +23,8 @@ struct tNetLobbyClient
   tNetSessionClient *pSession;
   tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetChat lastChat;
+  tNetChat aText[16];
+  uint8 byTextRead, byTextCount;
   uint32 uiStartTick;
   uint16 unRevision, unStartRevision, unRaceRevision;
   uint8 byPlayerSlots, byHasStart, byRaceReleased, byRaceLoadedSent,
@@ -266,12 +268,21 @@ static int NetLobbyDecodeStrategy(tNetChat *pChat, const tNetMessage *pMessage,
   if (pMessage->unLength != sizeof(tNetChat))
     return 0;
   memcpy(pChat, pMessage->abData, sizeof(*pChat));
-  if (pChat->byKind != NET_CHAT_STRATEGY ||
-      pChat->byValue >= NET_LOBBY_STRATEGY_COUNT || pChat->szText[0])
-    return 0;
-  for (iChar = 0; iChar < (int)sizeof(pChat->szText); ++iChar)
-    if (pChat->szText[iChar])
+  if (pChat->byKind == NET_CHAT_TEXT) {
+    if (pChat->byValue || !pChat->szText[0] ||
+        !memchr(pChat->szText, 0, sizeof(pChat->szText)))
       return 0;
+    for (iChar = 0; pChat->szText[iChar]; ++iChar)
+      if ((uint8)pChat->szText[iChar] < 32 || (uint8)pChat->szText[iChar] > 126)
+        return 0;
+  } else {
+    if (pChat->byKind != NET_CHAT_STRATEGY ||
+        pChat->byValue >= NET_LOBBY_STRATEGY_COUNT)
+      return 0;
+    for (iChar = 0; iChar < (int)sizeof(pChat->szText); ++iChar)
+      if (pChat->szText[iChar])
+        return 0;
+  }
   if (iFromClient)
     return pChat->bySenderPlayerIdx == NET_LOBBY_NO_PLAYER;
   return pChat->bySenderPlayerIdx < NET_SESSION_MAX_PLAYERS;
@@ -358,7 +369,14 @@ static void NetLobbyHostMessage(void *pContext, uint8 byPlayerIdx,
     chat.bySenderPlayerIdx = byPlayerIdx;
     pLobby->lastChat = chat;
     pLobby->byHasChat = 1;
-    NetLobbyHostQueueAll(pLobby, NET_MSG_CHAT, &chat, sizeof(chat));
+    if (chat.byKind == NET_CHAT_TEXT && chat.byTargetPlayerIdx != NET_LOBBY_NO_PLAYER) {
+      tNetConnection *pTarget = NetSessionHostPlayerConnection(
+          pLobby->pSession, chat.byTargetPlayerIdx);
+      if (pTarget)
+        NetConnectionQueueMessage(pTarget, NET_MSG_CHAT,
+            NET_MSG_RELIABLE | NET_MSG_ORDERED, &chat, sizeof(chat));
+    } else
+      NetLobbyHostQueueAll(pLobby, NET_MSG_CHAT, &chat, sizeof(chat));
   }
 }
 
@@ -388,6 +406,30 @@ void NetLobbyHostDestroy(tNetLobbyHost *pLobby)
     return;
   NetSessionHostSetMessageCallback(pLobby->pSession, NULL, NULL);
   free(pLobby);
+}
+
+int NetLobbyHostUpdateConfig(tNetLobbyHost *pLobby, const tNetSessionConfig *pConfig)
+{
+  int aiUses[MAX_CARS] = {0};
+  if (!pLobby || pLobby->byHasStart || !NetSessionConfigValidate(pConfig))
+    return 0;
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer) {
+    tNetPlayerEntry *pPlayer = &pLobby->aPlayers[iPlayer];
+    if (pPlayer->byState != NET_PLAYER_EMPTY) {
+      if (++aiUses[pPlayer->byCarIdx0] > (pConfig->byMaxPlayers == 16 ? 2 : 1) ||
+          (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER &&
+           ++aiUses[pPlayer->byCarIdx1] > (pConfig->byMaxPlayers == 16 ? 2 : 1)))
+        return 0;
+    }
+  }
+  if (!NetSessionHostUpdateConfig(pLobby->pSession, pConfig))
+    return 0;
+  pLobby->config = *pConfig;
+  for (int iPlayer = 0; iPlayer < NET_SESSION_MAX_PLAYERS; ++iPlayer)
+    if (pLobby->aPlayers[iPlayer].byState == NET_PLAYER_READY)
+      pLobby->aPlayers[iPlayer].byState = NET_PLAYER_LOBBY;
+  NetLobbyHostBroadcastPlayers(pLobby, 1);
+  return 1;
 }
 
 void NetLobbyHostPump(tNetLobbyHost *pLobby)
@@ -610,7 +652,7 @@ static int NetLobbyClientDecodePlayers(tNetLobbyClient *pLobby,
   uint8 abyCarUsed[MAX_CARS] = {0};
   uint16 unRevision;
   uint8 byCount;
-  int iPlayer;
+  int iPlayer, iCars = 0;
   if (pMessage->unLength < sizeof(tNetPlayerListHeader))
     return 0;
   unRevision = NetLobbyRead16(pMessage->abData);
@@ -638,6 +680,9 @@ static int NetLobbyClientDecodePlayers(tNetLobbyClient *pLobby,
     if (!NetLobbyPlayerValid(pPlayer))
       return 0;
     if (pPlayer->byState != NET_PLAYER_EMPTY) {
+      iCars += pPlayer->byCarIdx1 == NET_LOBBY_NO_PLAYER ? 1 : 2;
+      if (iCars > config.byMaxPlayers)
+        return 0;
       int iCapacity = config.byMaxPlayers == NET_SESSION_MAX_PLAYERS ? 2 : 1;
       if (++abyCarUsed[pPlayer->byCarIdx0] > iCapacity)
         return 0;
@@ -701,6 +746,17 @@ static void NetLobbyClientMessage(void *pContext,
               NET_PLAYER_EMPTY))) {
       pLobby->lastChat = chat;
       pLobby->byHasChat = 1;
+      if (chat.byKind == NET_CHAT_TEXT &&
+          chat.bySenderPlayerIdx != NetSessionClientPlayerIndex(pLobby->pSession) &&
+          (chat.byTargetPlayerIdx == NET_LOBBY_NO_PLAYER ||
+           chat.byTargetPlayerIdx == NetSessionClientPlayerIndex(pLobby->pSession))) {
+        if (pLobby->byTextCount == 16) {
+          pLobby->byTextRead = (uint8)((pLobby->byTextRead + 1) % 16);
+          --pLobby->byTextCount;
+        }
+        pLobby->aText[(pLobby->byTextRead + pLobby->byTextCount) % 16] = chat;
+        ++pLobby->byTextCount;
+      }
     }
   }
 }
@@ -776,6 +832,42 @@ int NetLobbyClientSendStrategy(tNetLobbyClient *pLobby,
   return NetConnectionQueueMessage(
       NetSessionClientConnection(pLobby->pSession), NET_MSG_CHAT,
       NET_MSG_RELIABLE | NET_MSG_ORDERED, &chat, sizeof(chat));
+}
+
+int NetLobbyClientSendText(tNetLobbyClient *pLobby, uint8 byTargetPlayerIdx,
+                           const char *szText)
+{
+  tNetChat chat;
+  size_t iLength;
+  if (!pLobby || !szText || !*szText ||
+      NetSessionClientState(pLobby->pSession) != NET_JOIN_ACCEPTED ||
+      (byTargetPlayerIdx != NET_LOBBY_NO_PLAYER &&
+       (byTargetPlayerIdx >= pLobby->byPlayerSlots ||
+        pLobby->aPlayers[byTargetPlayerIdx].byState == NET_PLAYER_EMPTY)))
+    return 0;
+  iLength = strlen(szText);
+  if (iLength >= sizeof(chat.szText))
+    return 0;
+  for (size_t iChar = 0; iChar < iLength; ++iChar)
+    if ((uint8)szText[iChar] < 32 || (uint8)szText[iChar] > 126)
+      return 0;
+  memset(&chat, 0, sizeof(chat));
+  chat.bySenderPlayerIdx = NET_LOBBY_NO_PLAYER;
+  chat.byTargetPlayerIdx = byTargetPlayerIdx;
+  chat.byKind = NET_CHAT_TEXT;
+  memcpy(chat.szText, szText, iLength);
+  return NetConnectionQueueMessage(NetSessionClientConnection(pLobby->pSession),
+      NET_MSG_CHAT, NET_MSG_RELIABLE | NET_MSG_ORDERED, &chat, sizeof(chat));
+}
+
+int NetLobbyClientTakeText(tNetLobbyClient *pLobby, tNetChat *pChat)
+{
+  if (!pLobby || !pChat || !pLobby->byTextCount)
+    return 0;
+  *pChat = pLobby->aText[pLobby->byTextRead];
+  pLobby->byTextRead = (uint8)((pLobby->byTextRead + 1) % 16);
+  --pLobby->byTextCount;
+  return 1;
 }
 
 int NetLobbyClientPlayerCount(const tNetLobbyClient *pLobby)

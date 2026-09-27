@@ -152,6 +152,7 @@ static void NetTestBuildEncodeApply(void)
 
   NetTestSetHostGlobals();
   NetSessionConfigOptionsDefault(&options);
+  CHECK(options.byMaxPlayers == competitors);
   options.byMaxPlayers = 8;
   memcpy(options.szBuildHash, "abc1234", 8);
   CHECK(NetSessionConfigBuild(&hostConfig, &options));

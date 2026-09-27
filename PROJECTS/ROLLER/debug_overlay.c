@@ -1,5 +1,9 @@
 #include "debug_overlay.h"
 #include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#include "net_rendezvous.h"
+#endif
 #include "types.h"
 #if defined(IS_WASM)
 #include "nuklear_sdl_renderer.h"
@@ -956,6 +960,32 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       NET_STAT("In %d B/s  out %d B/s", g_netStats.iBytesInPerSec, g_netStats.iBytesOutPerSec);
 #undef NET_STAT
     } else {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    {
+      static char szRendezvous[320];
+      static int iLength, iInvalid;
+      static nk_flags uiLastEdit;
+      if (!(uiLastEdit & NK_EDIT_ACTIVE)) {
+        snprintf(szRendezvous, sizeof(szRendezvous), "%s", NetFrontendRendezvous());
+        iLength = (int)strlen(szRendezvous);
+      }
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+      nk_label(pCtx, "Rendezvous server", NK_TEXT_LEFT);
+      uiLastEdit = nk_edit_string(pCtx,
+          NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_AUTO_SELECT,
+          szRendezvous, &iLength, sizeof(szRendezvous) - 1, nk_filter_ascii);
+      if (uiLastEdit & (NK_EDIT_DEACTIVATED | NK_EDIT_COMMITED)) {
+        szRendezvous[iLength] = 0;
+        iInvalid = !NetFrontendSetRendezvous(szRendezvous, NET_RVZ_DEFAULT_PORT);
+        if (!iInvalid)
+          InputSaveConfig();
+      }
+      if (iInvalid)
+        nk_label(pCtx, "Enter a hostname or IP, optionally :port", NK_TEXT_LEFT);
+      else if (NetFrontendIsOpen())
+        nk_label(pCtx, "Changes apply when you next host or browse", NK_TEXT_LEFT);
+    }
+#endif
 #if defined(IS_WASM)
     static const char *apszMusic[] = { "MIDI (OPL3)", "CD" };
     int iMusicSel = (MusicCD != 0) ? 1 : 0;

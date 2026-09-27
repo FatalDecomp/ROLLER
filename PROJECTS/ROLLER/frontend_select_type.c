@@ -1142,6 +1142,10 @@ void frontend_type_select_update(void)
 
 void frontend_type_select_exit(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN)
+    NetFrontendLobbyUpdateConfig();
+#endif
   iFrontendTypeExitFading = 0;
   if (!SnapshotShouldStop())
     frontend_type_select_black_palette();

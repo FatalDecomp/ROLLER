@@ -29,6 +29,7 @@ typedef int tNetSocketLength;
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -123,7 +124,7 @@ static int NetParseUnsigned(const char *szText, uint32 uiMaximum, uint32 *pValue
 {
   char *szEnd;
   unsigned long ulValue;
-  if (!szText || !*szText)
+  if (!szText || !*szText || strspn(szText, "0123456789") != strlen(szText))
     return 0;
   errno = 0;
   ulValue = strtoul(szText, &szEnd, 10);
@@ -222,6 +223,98 @@ int NetAddressParse(tNetAddress *pAddress, const char *szText, uint16 unDefaultP
   *pAddress = result;
   NetSocketsStop();
   return 1;
+}
+
+static int NetAddressSplitEndpoint(const char *szText, uint16 unDefaultPort,
+                                   char *szHost, uint16 *punPort)
+{
+  const char *szPort = NULL;
+  size_t iLength;
+  uint32 uiPort = unDefaultPort;
+  tNetAddress numeric;
+  if (!szText || !*szText)
+    return 0;
+  if (!strncmp(szText, "udp://", 6))
+    szText += 6;
+  if (NetAddressParse(&numeric, szText, unDefaultPort)) {
+    if (!numeric.unPort)
+      return 0;
+    /* Resolve handles numeric forms separately, including IPv6 scopes. */
+    szHost[0] = 0;
+    *punPort = numeric.unPort;
+    return 1;
+  }
+  szPort = strchr(szText, ':');
+  iLength = szPort ? (size_t)(szPort - szText) : strlen(szText);
+  if (!iLength || iLength > 253 ||
+      (szPort && (!szPort[1] ||
+                  strspn(szPort + 1, "0123456789") != strlen(szPort + 1) ||
+                  !NetParseUnsigned(szPort + 1, 65535, &uiPort))) || !uiPort)
+    return 0;
+  for (size_t iChar = 0; iChar < iLength; ++iChar) {
+    unsigned char byChar = (unsigned char)szText[iChar];
+    if (!((byChar >= 'a' && byChar <= 'z') ||
+          (byChar >= 'A' && byChar <= 'Z') ||
+          (byChar >= '0' && byChar <= '9') || byChar == '-' || byChar == '.'))
+      return 0;
+  }
+  memcpy(szHost, szText, iLength);
+  szHost[iLength] = 0;
+  *punPort = (uint16)uiPort;
+  return 1;
+}
+
+int NetAddressEndpointValid(const char *szText, uint16 unDefaultPort)
+{
+  char szHost[254];
+  uint16 unPort;
+  return NetAddressSplitEndpoint(szText, unDefaultPort, szHost, &unPort);
+}
+
+int NetAddressResolve(tNetAddress *pAddress, const char *szText, uint16 unDefaultPort)
+{
+  char szHost[254];
+  uint16 unPort;
+  struct addrinfo hints, *pResults = NULL, *pResult;
+  tNetAddress address;
+  int iFound = 0;
+  if (!pAddress || !NetAddressSplitEndpoint(szText, unDefaultPort, szHost, &unPort))
+    return 0;
+  if (!szHost[0])
+    return NetAddressParse(pAddress, !strncmp(szText, "udp://", 6) ?
+                           szText + 6 : szText, unDefaultPort);
+  if (!NetSocketsStart())
+    return 0;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_DGRAM;
+  if (!getaddrinfo(szHost, NULL, &hints, &pResults)) {
+    /* Prefer IPv4 where both exist, matching the rendezvous deployment and
+       allowing clients without a routed IPv6 interface to reach it. */
+    for (int iPass = 0; iPass < 2 && !iFound; ++iPass) {
+      for (pResult = pResults; pResult; pResult = pResult->ai_next) {
+        memset(&address, 0, sizeof(address));
+        address.unPort = unPort;
+        if (!iPass && pResult->ai_family == AF_INET) {
+          address.byFamily = NET_ADDR_IPV4;
+          memcpy(address.abAddress,
+                 &((struct sockaddr_in *)pResult->ai_addr)->sin_addr, 4);
+        } else if (iPass && pResult->ai_family == AF_INET6) {
+          address.byFamily = NET_ADDR_IPV6;
+          memcpy(address.abAddress,
+                 &((struct sockaddr_in6 *)pResult->ai_addr)->sin6_addr, 16);
+          address.uiScopeId = ((struct sockaddr_in6 *)pResult->ai_addr)->sin6_scope_id;
+        } else
+          continue;
+        *pAddress = address;
+        iFound = 1;
+        break;
+      }
+    }
+    freeaddrinfo(pResults);
+  }
+  NetSocketsStop();
+  return iFound;
 }
 
 int NetAddressFormat(const tNetAddress *pAddress, char *szText, int iCapacity)
