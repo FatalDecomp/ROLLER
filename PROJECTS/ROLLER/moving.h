@@ -63,6 +63,8 @@ tStuntData *initramp(
         int iRampSideLength,
         int iFlags);
 void reinitramp(tStuntData *pStunt);
+void advancerampstate(int *piTick, int *piGroup, int *piTimer, const tStuntData *pStunt);
+void rebuildrampgeometry(tStuntData *pStunt);
 void updateramp(tStuntData *pStunt);
 void updatestunts();
 void freestunts(uint8 **pTrackData, int *pBuf);

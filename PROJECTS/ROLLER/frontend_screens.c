@@ -18,6 +18,10 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -774,7 +778,7 @@ static void frontend_main_menu_setup(void)
   if (game_type >= 3)
     game_type = last_type;
   replaytype = 0;
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     remove_messages(-1);
     reset_network(0);
   }
@@ -833,7 +837,7 @@ static void frontend_main_menu_setup(void)
   holdmusic = -1;
   ticks = 0;
   frames = 0;
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_SETUP_SYNC, -667, 1);
   }
 
@@ -1287,6 +1291,13 @@ static void frontend_main_menu_prepare_to_start(void)
   my_control = manual_control[player1_car];
   last_replay = replaytype;
   if (quit_game && network_on) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN) {
+      NetFrontendClose();
+      frontend_main_menu_finish_prepare_to_start();
+      return;
+    }
+#endif
     frontend_main_menu_begin_network_wait(eMAIN_MENU_NET_WAIT_QUIT_BROADCAST, -666, 1);
     return;
   }
@@ -1678,7 +1689,7 @@ void frontend_menu_update(void)
     iFrontendMainMenuDiscardFadeInput = -1;
     menu_render_begin_fade(mr, 1, 32);
     frames = 0;
-    if (network_on) {
+    if (network_on && net_mode == NET_MODE_LEGACY) {
       iFrontendMainMenuNetworkFadeInWait = -1;
     }
   }

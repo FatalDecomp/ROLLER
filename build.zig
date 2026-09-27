@@ -63,6 +63,10 @@ pub fn build(b: *std.Build) void {
         &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char" }
     else
         &.{ "-fwrapv", "-fsigned-char" };
+    const c_legacy_comms_flags: []const []const u8 = if (crash_debug)
+        &.{ "-fwrapv", "-fno-omit-frame-pointer", "-fsigned-char", "-DROLLERCOMMS_LEGACY_IMPLEMENTATION" }
+    else
+        &.{ "-fwrapv", "-fsigned-char", "-DROLLERCOMMS_LEGACY_IMPLEMENTATION" };
     const python_checks = b.option(
         bool,
         "python-checks",
@@ -136,6 +140,26 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/scene_render.c",
             "PROJECTS/ROLLER/scene_render_software.c",
             "PROJECTS/ROLLER/moving.c",
+            "PROJECTS/ROLLER/net_event.c",
+            "PROJECTS/ROLLER/net_checkpoint.c",
+            "PROJECTS/ROLLER/net_headless.c",
+            "PROJECTS/ROLLER/net_snapshot.c",
+            "PROJECTS/ROLLER/net_sim_seam.c",
+            "PROJECTS/ROLLER/net_stats.c",
+            "PROJECTS/ROLLER/net_legacy.c",
+            "PROJECTS/ROLLER/net_channel.c",
+            "PROJECTS/ROLLER/net_capture.c",
+            "PROJECTS/ROLLER/net_session.c",
+            "PROJECTS/ROLLER/net_lobby.c",
+            "PROJECTS/ROLLER/net_race_start.c",
+            "PROJECTS/ROLLER/net_race_state.c",
+            "PROJECTS/ROLLER/net_config.c",
+            "PROJECTS/ROLLER/net_config_codec.c",
+            "PROJECTS/ROLLER/net_host.c",
+            "PROJECTS/ROLLER/net_input.c",
+            "PROJECTS/ROLLER/net_client.c",
+            "PROJECTS/ROLLER/net_rendezvous.c",
+            "PROJECTS/ROLLER/net_discovery.c",
             "PROJECTS/ROLLER/network.c",
             "PROJECTS/ROLLER/plans.c",
             "PROJECTS/ROLLER/platform_log.c",
@@ -178,13 +202,20 @@ pub fn build(b: *std.Build) void {
             .flags = c_flags,
             .files = &.{
                 "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/net_harness.c",
+                "PROJECTS/ROLLER/net_race_harness.c",
+                "PROJECTS/ROLLER/net_frontend_lobby.c",
+                "PROJECTS/ROLLER/net_transport.c",
                 "PROJECTS/ROLLER/crashdump.c",
                 "PROJECTS/ROLLER/menu_render_gpu.c",
                 "PROJECTS/ROLLER/crt_filter.c",
                 "PROJECTS/ROLLER/game_render_hardware.c",
                 "PROJECTS/ROLLER/scene_render_gpu.c",
-                "PROJECTS/ROLLER/rollercomms.c",
             },
+        });
+        exe_mod.addCSourceFiles(.{
+            .flags = c_legacy_comms_flags,
+            .files = &.{"PROJECTS/ROLLER/rollercomms.c"},
         });
     }
 
@@ -261,6 +292,7 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("user32");
             exe.linkSystemLibrary("ws2_32");
             exe.linkSystemLibrary("iphlpapi");
+            exe.linkSystemLibrary("bcrypt");
             exe.linkSystemLibrary("winmm");
 
             // rtmidi: OS MIDI output (WinMM backend); needs libc++ for RtMidi.cpp
@@ -345,8 +377,15 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&wildmidi_config_install.step);
 
     configureRenderQueue3DTests(
-        b, target, optimize, c_flags, python_checks, assets_path,
-        under_valgrind, soak_track, soak_cycles,
+        b,
+        target,
+        optimize,
+        c_flags,
+        python_checks,
+        assets_path,
+        under_valgrind,
+        soak_track,
+        soak_cycles,
     );
 
     // Snapshot regression harness: drive the snapshot binary serially across
@@ -436,6 +475,647 @@ fn configureRenderQueue3DTests(
         .target = target,
         .optimize = optimize,
     });
+    const net_transport_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_transport_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_transport_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_transport.c", "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_transport_test.c",
+    } });
+    if (target.result.os.tag == .windows) {
+        net_transport_mod.linkSystemLibrary("ws2_32", .{});
+        net_transport_mod.linkSystemLibrary("iphlpapi", .{});
+        net_transport_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_transport_exe = b.addExecutable(.{ .name = "net_transport_test", .root_module = net_transport_mod });
+    const run_net_transport = b.addRunArtifact(net_transport_exe);
+    const net_channel_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_channel_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_channel_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_channel.c", "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_channel_test.c",
+    } });
+    const net_channel_exe = b.addExecutable(.{
+        .name = "net_channel_test",
+        .root_module = net_channel_mod,
+    });
+    const run_net_channel = b.addRunArtifact(net_channel_exe);
+    const net_channel_tests = b.step(
+        "test-net-channel",
+        "Run NET-E1-S2 packet/channel reliability acceptance",
+    );
+    net_channel_tests.dependOn(&run_net_channel.step);
+    const net_capture_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_capture_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_capture_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_capture.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "PROJECTS/ROLLER/net_stats.c",
+        "tests/net_capture_test.c",
+    } });
+    const net_capture_exe = b.addExecutable(.{
+        .name = "net_capture_test",
+        .root_module = net_capture_mod,
+    });
+    const run_net_capture = b.addRunArtifact(net_capture_exe);
+    const net_capture_tests = b.step(
+        "test-net-capture",
+        "Run NET-E8-S2 packet capture/playback acceptance",
+    );
+    net_capture_tests.dependOn(&run_net_capture.step);
+    const net_session_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_session_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_session_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_session.c",
+        "PROJECTS/ROLLER/net_config_codec.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_session_test.c",
+    } });
+    const net_session_exe = b.addExecutable(.{
+        .name = "net_session_test",
+        .root_module = net_session_mod,
+    });
+    const run_net_session = b.addRunArtifact(net_session_exe);
+    const net_session_tests = b.step(
+        "test-net-session",
+        "Run NET-E1-S3 join/session-token acceptance",
+    );
+    net_session_tests.dependOn(&run_net_session.step);
+    const net_config_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_config_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_config_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_config.c",
+        "PROJECTS/ROLLER/net_config_codec.c",
+        "PROJECTS/ROLLER/net_session.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_config_test.c",
+    } });
+    const net_config_exe = b.addExecutable(.{
+        .name = "net_config_test",
+        .root_module = net_config_mod,
+    });
+    const run_net_config = b.addRunArtifact(net_config_exe);
+    const net_config_tests = b.step(
+        "test-net-config",
+        "Run NET-E2-S1 session configuration acceptance",
+    );
+    net_config_tests.dependOn(&run_net_config.step);
+    const net_lobby_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_lobby_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_lobby_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_lobby.c",
+        "PROJECTS/ROLLER/net_race_start.c",
+        "PROJECTS/ROLLER/net_session.c",
+        "PROJECTS/ROLLER/net_config_codec.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_lobby_test.c",
+    } });
+    const net_lobby_exe = b.addExecutable(.{
+        .name = "net_lobby_test",
+        .root_module = net_lobby_mod,
+    });
+    const run_net_lobby = b.addRunArtifact(net_lobby_exe);
+    const net_lobby_tests = b.step(
+        "test-net-lobby",
+        "Run NET-E2-S2 lobby state acceptance",
+    );
+    net_lobby_tests.dependOn(&run_net_lobby.step);
+    const net_rendezvous_test_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_rendezvous_test_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_rendezvous_test_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "tests/net_rendezvous_test.c",
+    } });
+    const net_rendezvous_test_exe = b.addExecutable(.{
+        .name = "net_rendezvous_test",
+        .root_module = net_rendezvous_test_mod,
+    });
+    const run_net_rendezvous = b.addRunArtifact(net_rendezvous_test_exe);
+    const net_rendezvous_tests = b.step(
+        "test-net-rendezvous",
+        "Run NET-E6-S1 rendezvous daemon acceptance and virtual 24 h soak",
+    );
+    net_rendezvous_tests.dependOn(&run_net_rendezvous.step);
+    const net_discovery_test_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_discovery_test_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_discovery_test_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLER/net_discovery.c",
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "PROJECTS/ROLLER/net_channel.c",
+        "PROJECTS/ROLLER/net_transport_sim.c",
+        "tests/net_discovery_test.c",
+    } });
+    const net_discovery_test_exe = b.addExecutable(.{
+        .name = "net_discovery_test",
+        .root_module = net_discovery_test_mod,
+    });
+    const run_net_discovery = b.addRunArtifact(net_discovery_test_exe);
+    const net_discovery_tests = b.step(
+        "test-net-discovery",
+        "Run NET-E6-S2 registration and browser acceptance",
+    );
+    net_discovery_tests.dependOn(&run_net_discovery.step);
+    const netsim_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    netsim_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    netsim_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLERSRV/roller_netsim.c", "PROJECTS/ROLLER/net_transport_sim.c",
+    } });
+    if (target.result.os.tag == .windows) netsim_mod.linkSystemLibrary("ws2_32", .{});
+    const netsim_exe = b.addExecutable(.{ .name = "roller-netsim", .root_module = netsim_mod });
+    const rendezvous_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    rendezvous_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    rendezvous_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "PROJECTS/ROLLERSRV/roller_rendezvous.c",
+        "PROJECTS/ROLLER/net_rendezvous.c",
+        "PROJECTS/ROLLER/net_transport.c",
+    } });
+    if (target.result.os.tag == .windows) {
+        rendezvous_mod.linkSystemLibrary("ws2_32", .{});
+        rendezvous_mod.linkSystemLibrary("iphlpapi", .{});
+        rendezvous_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const rendezvous_exe = b.addExecutable(.{
+        .name = "roller-rendezvous",
+        .root_module = rendezvous_mod,
+    });
+    const install_rendezvous = b.addInstallArtifact(rendezvous_exe, .{});
+    const rendezvous_build = b.step(
+        "build-net-rendezvous",
+        "Build the NET-E6-S1 rendezvous UDP daemon",
+    );
+    rendezvous_build.dependOn(&install_rendezvous.step);
+    const net_server_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_server_mod.sanitize_c = .off;
+    net_server_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_server_mod.addIncludePath(sdl.builder.path("include"));
+    net_server_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_server_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_server_mod.addIncludePath(libcdio.builder.path("include"));
+    net_server_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_server_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_server_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_server_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_server_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_server_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_server_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_server_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_server_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLERSRV/roller_server.c",
+            "PROJECTS/ROLLER/net_harness.c",
+            "PROJECTS/ROLLER/net_race_harness.c",
+            "PROJECTS/ROLLER/net_transport.c",
+        },
+    });
+    if (target.result.os.tag == .windows) {
+        net_server_mod.linkSystemLibrary("ws2_32", .{});
+        net_server_mod.linkSystemLibrary("iphlpapi", .{});
+        net_server_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_server_exe = b.addExecutable(.{
+        .name = "roller-server",
+        .root_module = net_server_mod,
+    });
+    const net_bot_process_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_bot_process_mod.sanitize_c = .off;
+    net_bot_process_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_bot_process_mod.addIncludePath(sdl.builder.path("include"));
+    net_bot_process_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_bot_process_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_bot_process_mod.addIncludePath(libcdio.builder.path("include"));
+    net_bot_process_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_bot_process_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_bot_process_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_bot_process_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_bot_process_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_bot_process_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_bot_process_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_bot_process_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_bot_process_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLERSRV/roller_bot.c",
+            "PROJECTS/ROLLER/net_transport.c",
+        },
+    });
+    if (target.result.os.tag == .windows) {
+        net_bot_process_mod.linkSystemLibrary("ws2_32", .{});
+        net_bot_process_mod.linkSystemLibrary("iphlpapi", .{});
+        net_bot_process_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_bot_process_exe = b.addExecutable(.{
+        .name = "roller-bot",
+        .root_module = net_bot_process_mod,
+    });
+    const net_foundations_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_foundations_mod.sanitize_c = .off;
+    net_foundations_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_foundations_mod.addIncludePath(sdl.builder.path("include"));
+    net_foundations_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_foundations_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_foundations_mod.addIncludePath(libcdio.builder.path("include"));
+    net_foundations_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_foundations_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_foundations_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_foundations_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_foundations_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_foundations_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_foundations_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_foundations_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_foundations_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "tests/net_foundations_test.c",
+        },
+    });
+    const net_foundations_exe = b.addExecutable(.{
+        .name = "net_foundations_acceptance",
+        .root_module = net_foundations_mod,
+    });
+    const run_net_foundations = b.addRunArtifact(net_foundations_exe);
+    run_net_foundations.addFileArg(assets_path.path(b, soak_track));
+    run_net_foundations.addDirectoryArg(assets_path);
+    const net_foundations_tests = b.step("test-net-foundations", "Run NET-E0 foundation acceptance");
+    net_foundations_tests.dependOn(&run_net_foundations.step);
+    net_foundations_tests.dependOn(&run_net_transport.step);
+    net_foundations_tests.dependOn(&run_net_channel.step);
+    net_foundations_tests.dependOn(&run_net_capture.step);
+    net_foundations_tests.dependOn(&run_net_session.step);
+    net_foundations_tests.dependOn(&run_net_config.step);
+    net_foundations_tests.dependOn(&run_net_lobby.step);
+    net_foundations_tests.dependOn(&run_net_rendezvous.step);
+    net_foundations_tests.dependOn(&run_net_discovery.step);
+    // Exercise the real frontend's lobby -> car allocation -> loading barrier.
+    // The simulation-only harness deliberately bypasses this transition.
+    const net_frontend_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_frontend_mod.sanitize_c = .off;
+    net_frontend_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_frontend_mod.addIncludePath(sdl.builder.path("include"));
+    net_frontend_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_frontend_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_frontend_mod.addIncludePath(libcdio.builder.path("include"));
+    net_frontend_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_frontend_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_frontend_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_frontend_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_frontend_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_frontend_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_frontend_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_frontend_mod.addCSourceFiles(.{ .flags = c_flags, .files = rollerCoreSources(b) });
+    net_frontend_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "tests/net_frontend_start_test.c",
+        "PROJECTS/ROLLER/net_frontend_lobby.c",
+        "PROJECTS/ROLLER/net_transport.c",
+    } });
+    if (target.result.os.tag == .windows) {
+        net_frontend_mod.linkSystemLibrary("ws2_32", .{});
+        net_frontend_mod.linkSystemLibrary("iphlpapi", .{});
+        net_frontend_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_frontend_exe = b.addExecutable(.{
+        .name = "net_frontend_start_acceptance",
+        .root_module = net_frontend_mod,
+    });
+    const run_net_frontend = b.addSystemCommand(&.{ pythonExe(), "tests/net_frontend_start.py" });
+    run_net_frontend.addArtifactArg(net_frontend_exe);
+    run_net_frontend.addFileArg(assets_path.path(b, soak_track));
+    run_net_frontend.addDirectoryArg(assets_path);
+    const net_frontend_tests = b.step("test-net-frontend-start", "Check real-UDP frontend race loading and startup cameras");
+    net_frontend_tests.dependOn(&run_net_frontend.step);
+    net_foundations_tests.dependOn(&run_net_frontend.step);
+    const run_net_coherence = b.addRunArtifact(net_foundations_exe);
+    run_net_coherence.addFileArg(assets_path.path(b, soak_track));
+    run_net_coherence.addDirectoryArg(assets_path);
+    run_net_coherence.addArg("--full-state-coherence");
+    const net_coherence_tests = b.step("test-net-full-state-coherence", "Run NET-E0-S4 bounded wire replay coherence gate");
+    net_coherence_tests.dependOn(&run_net_coherence.step);
+    // D20 suppression has to exercise real sound.c.  The low-level
+    // rollersound stub is the device-boundary mock; only sound_stub.c is
+    // swapped out of the ordinary roller-core source set.
+    const net_replay_output_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_replay_output_mod.sanitize_c = .off;
+    net_replay_output_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_replay_output_mod.addIncludePath(sdl.builder.path("include"));
+    net_replay_output_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_replay_output_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_replay_output_mod.addIncludePath(libcdio.builder.path("include"));
+    net_replay_output_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_replay_output_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_replay_output_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_replay_output_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_replay_output_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_replay_output_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_replay_output_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_replay_output_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSourcesRealSound(b),
+    });
+    net_replay_output_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{"tests/net_foundations_test.c"},
+    });
+    const net_replay_output_exe = b.addExecutable(.{
+        .name = "net_replay_output_acceptance",
+        .root_module = net_replay_output_mod,
+    });
+    const run_net_replay_output = b.addRunArtifact(net_replay_output_exe);
+    run_net_replay_output.addFileArg(assets_path.path(b, soak_track));
+    run_net_replay_output.addDirectoryArg(assets_path);
+    run_net_replay_output.addArg("--replay-output-only");
+    const net_replay_output_tests = b.step(
+        "test-net-replay-output",
+        "Run D20 replay suppression against real sound.c",
+    );
+    net_replay_output_tests.dependOn(&run_net_replay_output.step);
+    const net_host_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_host_mod.sanitize_c = .off;
+    net_host_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_host_mod.addIncludePath(sdl.builder.path("include"));
+    net_host_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_host_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_host_mod.addIncludePath(libcdio.builder.path("include"));
+    net_host_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_host_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_host_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_host_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_host_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_host_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_host_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_host_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_host_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_host_test.c",
+        },
+    });
+    const net_host_exe = b.addExecutable(.{
+        .name = "net_host_acceptance",
+        .root_module = net_host_mod,
+    });
+    const run_net_host = b.addRunArtifact(net_host_exe);
+    run_net_host.addFileArg(assets_path.path(b, soak_track));
+    run_net_host.addDirectoryArg(assets_path);
+    const net_host_tests = b.step("test-net-host", "Run NET-E3 host acceptance");
+    net_host_tests.dependOn(&run_net_host.step);
+    const net_client_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_client_mod.sanitize_c = .off;
+    net_client_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_client_mod.addIncludePath(sdl.builder.path("include"));
+    net_client_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_client_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_client_mod.addIncludePath(libcdio.builder.path("include"));
+    net_client_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_client_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_client_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_client_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_client_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_client_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_client_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_client_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_client_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_client_test.c",
+        },
+    });
+    const net_client_exe = b.addExecutable(.{
+        .name = "net_client_acceptance",
+        .root_module = net_client_mod,
+    });
+    const run_net_client = b.addRunArtifact(net_client_exe);
+    run_net_client.addFileArg(assets_path.path(b, soak_track));
+    run_net_client.addDirectoryArg(assets_path);
+    const net_client_tests = b.step("test-net-client", "Run NET-E4 client prediction acceptance");
+    net_client_tests.dependOn(&run_net_client.step);
+    net_client_tests.dependOn(&run_net_replay_output.step);
+    const net_bot_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_bot_mod.sanitize_c = .off;
+    net_bot_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_bot_mod.addIncludePath(sdl.builder.path("include"));
+    net_bot_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_bot_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_bot_mod.addIncludePath(libcdio.builder.path("include"));
+    net_bot_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_bot_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_bot_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_bot_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_bot_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_bot_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_bot_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_bot_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_bot_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_bot_test.c",
+        },
+    });
+    const net_bot_exe = b.addExecutable(.{
+        .name = "net_bot_acceptance",
+        .root_module = net_bot_mod,
+    });
+    const run_net_bot = b.addRunArtifact(net_bot_exe);
+    run_net_bot.addFileArg(assets_path.path(b, soak_track));
+    run_net_bot.addDirectoryArg(assets_path);
+    const net_bot_tests = b.step("test-net-bot", "Run NET-E2-S7/E8-S3 bot acceptance");
+    net_bot_tests.dependOn(&run_net_bot.step);
+    const net_dedicated_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_dedicated_mod.sanitize_c = .off;
+    net_dedicated_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_dedicated_mod.addIncludePath(sdl.builder.path("include"));
+    net_dedicated_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_dedicated_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_dedicated_mod.addIncludePath(libcdio.builder.path("include"));
+    net_dedicated_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_dedicated_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_dedicated_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_dedicated_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_dedicated_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_dedicated_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_dedicated_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_dedicated_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = rollerCoreSources(b),
+    });
+    net_dedicated_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_transport_sim.c",
+            "tests/net_dedicated_test.c",
+        },
+    });
+    const net_dedicated_exe = b.addExecutable(.{
+        .name = "net_dedicated_acceptance",
+        .root_module = net_dedicated_mod,
+    });
+    const run_net_dedicated = b.addRunArtifact(net_dedicated_exe);
+    run_net_dedicated.addFileArg(assets_path.path(b, soak_track));
+    run_net_dedicated.addDirectoryArg(assets_path);
+    const net_dedicated_tests = b.step(
+        "test-net-dedicated",
+        "Run NET-E2-S6 two-bot dedicated server acceptance",
+    );
+    net_dedicated_tests.dependOn(&run_net_dedicated.step);
+    const run_net_relay_36 = b.addRunArtifact(net_dedicated_exe);
+    run_net_relay_36.addFileArg(assets_path.path(b, soak_track));
+    run_net_relay_36.addDirectoryArg(assets_path);
+    run_net_relay_36.addArgs(&.{ "36", "relay" });
+    const run_net_relay_100 = b.addRunArtifact(net_dedicated_exe);
+    run_net_relay_100.addFileArg(assets_path.path(b, soak_track));
+    run_net_relay_100.addDirectoryArg(assets_path);
+    run_net_relay_100.addArgs(&.{ "100", "relay" });
+    const net_relay_race_tests = b.step(
+        "test-net-relay-race",
+        "Run NET-E6-S4 relayed races at 36 and 100 Hz",
+    );
+    net_relay_race_tests.dependOn(&run_net_relay_36.step);
+    net_relay_race_tests.dependOn(&run_net_relay_100.step);
+    const run_net_audit = b.addRunArtifact(net_foundations_exe);
+    run_net_audit.addFileArg(assets_path.path(b, soak_track));
+    run_net_audit.addDirectoryArg(assets_path);
+    run_net_audit.addArg("--field-audit");
+    const net_audit = b.step("audit-net-car-fields", "Report every tCar field and zero-field replay sensitivity");
+    net_audit.dependOn(&run_net_audit.step);
+
+    const run_net_harness = b.addSystemCommand(&.{ "python", "tests/net_harness.py", "--server" });
+    run_net_harness.addArtifactArg(net_server_exe);
+    run_net_harness.addArg("--proxy");
+    run_net_harness.addArtifactArg(netsim_exe);
+    run_net_harness.addArg("--track");
+    run_net_harness.addFileArg(assets_path.path(b, soak_track));
+    run_net_harness.addArg("--assets");
+    run_net_harness.addDirectoryArg(assets_path);
+    const net_harness_tests = b.step("test-net-harness", "Run deterministic two-process NET-E0 smoke test");
+    net_harness_tests.dependOn(&run_net_harness.step);
+
+    const run_net_performance = b.addSystemCommand(&.{
+        "python", "tests/net_performance.py", "--server",
+    });
+    run_net_performance.addArtifactArg(net_server_exe);
+    run_net_performance.addArg("--proxy");
+    run_net_performance.addArtifactArg(netsim_exe);
+    run_net_performance.addArg("--track");
+    run_net_performance.addFileArg(assets_path.path(b, soak_track));
+    run_net_performance.addArg("--assets");
+    run_net_performance.addDirectoryArg(assets_path);
+    const net_performance = b.step(
+        "measure-net-performance",
+        "Measure NET-E8-S5 bandwidth and prediction crossover",
+    );
+    net_performance.dependOn(&run_net_performance.step);
+
+    const run_net_multiprocess = b.addSystemCommand(&.{
+        "python", "tests/net_multiprocess_race.py", "--server",
+    });
+    run_net_multiprocess.addArtifactArg(net_server_exe);
+    run_net_multiprocess.addArg("--bot");
+    run_net_multiprocess.addArtifactArg(net_bot_process_exe);
+    run_net_multiprocess.addArg("--track");
+    run_net_multiprocess.addFileArg(assets_path.path(b, soak_track));
+    run_net_multiprocess.addArg("--assets");
+    run_net_multiprocess.addDirectoryArg(assets_path);
+    const net_multiprocess_tests = b.step(
+        "test-net-multiprocess",
+        "Run NET-E8-S4 real-UDP multi-process race",
+    );
+    net_multiprocess_tests.dependOn(&run_net_multiprocess.step);
+
     const editor_track_only_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -572,14 +1252,11 @@ fn configureRenderQueue3DTests(
     editor_overlay_toggle_mod.sanitize_c = .off;
     editor_overlay_toggle_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
     editor_overlay_toggle_mod.addIncludePath(sdl.builder.path("include"));
-    editor_overlay_toggle_mod.addIncludePath(
-        sdl_image_source.builder.path("include"));
+    editor_overlay_toggle_mod.addIncludePath(sdl_image_source.builder.path("include"));
     editor_overlay_toggle_mod.addIncludePath(wildmidi.builder.path("include"));
     editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("include"));
-    editor_overlay_toggle_mod.addIncludePath(
-        libcdio.builder.path("zig-config"));
-    editor_overlay_toggle_mod.addIncludePath(
-        b.path("external/Nuklear-4.13.2"));
+    editor_overlay_toggle_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    editor_overlay_toggle_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
     editor_overlay_toggle_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
     editor_overlay_toggle_mod.linkLibrary(sdl.artifact("SDL3"));
     editor_overlay_toggle_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
@@ -1772,6 +2449,20 @@ fn rollerCoreSources(b: *Build) []const []const u8 {
             b.allocator.dupe(u8, source) catch @panic("out of memory"),
         ) catch @panic("out of memory");
     }
+    return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
+}
+
+fn rollerCoreSourcesRealSound(b: *Build) []const []const u8 {
+    var sources: ArrayList([]const u8) = .empty;
+    for (rollerCoreSources(b)) |source| {
+        if (std.mem.eql(u8, source, "PROJECTS/ROLLER/sound_stub.c"))
+            continue;
+        sources.append(b.allocator, source) catch @panic("out of memory");
+    }
+    sources.append(
+        b.allocator,
+        "PROJECTS/ROLLER/sound.c",
+    ) catch @panic("out of memory");
     return sources.toOwnedSlice(b.allocator) catch @panic("out of memory");
 }
 

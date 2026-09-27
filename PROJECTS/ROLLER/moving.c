@@ -201,7 +201,35 @@ void reinitramp(tStuntData *pStunt)
 
 //-------------------------------------------------------------------------------------------------
 //00074440
+void advancerampstate(int *piTick, int *piGroup, int *piTimer, const tStuntData *pStunt)
+{
+  if (*piTimer)
+    --*piTimer;
+  else if (*piGroup == 1) {
+    if (*piTick == pStunt->iNumTicks - 1) {
+      *piGroup = -1;
+      *piTimer = pStunt->iTimeBulging;
+    } else
+      ++*piTick;
+  } else if (*piTick)
+    --*piTick;
+  else {
+    *piGroup = 1;
+    *piTimer = pStunt->iTimeFlat;
+  }
+}
+
 void updateramp(tStuntData *pStunt)
+{
+  int iPreviousTick = pStunt->iTickStartIdx;
+  if (replaytype != 2)
+    advancerampstate(&pStunt->iTickStartIdx, &pStunt->iTimingGroup2,
+                     &pStunt->iRunningTimer, pStunt);
+  if (iPreviousTick != pStunt->iTickStartIdx || replaytype == 2)
+    rebuildrampgeometry(pStunt);
+}
+
+void rebuildrampgeometry(tStuntData *pStunt)
 {
   int iTickStartIdx; // edx
   int iTimer; // ecx
@@ -266,31 +294,7 @@ void updateramp(tStuntData *pStunt)
   float fInterpolation; // [esp+94h] [ebp-20h]
   float fRotZX; // [esp+98h] [ebp-1Ch]
 
-  iTickStartIdx = pStunt->iTickStartIdx;        // Get current tick position for ramp animation timing
-  if (replaytype != 2)                        // Skip timing updates during replay mode
-  {
-    iTimer = pStunt->iRunningTimer;
-    if (iTimer)                               // Handle ramp animation state machine for timing control
-    {
-      pStunt->iRunningTimer = iTimer - 1;
-    } else if (pStunt->iTimingGroup2 == 1) {                                           // Check if reached end of ramp animation sequence
-      if (iTickStartIdx == pStunt->iNumTicks - 1) {
-        pStunt->iTimingGroup2 = -1;
-        pStunt->iRunningTimer = pStunt->iTimeBulging;
-      } else {
-        ++iTickStartIdx;
-      }
-    } else if (iTickStartIdx) {
-      --iTickStartIdx;
-    } else {
-      pStunt->iTimingGroup2 = 1;
-      pStunt->iRunningTimer = pStunt->iTimeFlat;
-    }
-  }
-  if (iTickStartIdx != pStunt->iTickStartIdx || replaytype == 2)// Update geometry only when timing changed or in replay mode
-  {
-    iHeightOffset = iTickStartIdx * pStunt->iHeight;// Calculate height offset based on current tick position
-    pStunt->iTickStartIdx = iTickStartIdx;
+    iHeightOffset = pStunt->iTickStartIdx * pStunt->iHeight;// Calculate height offset based on current tick position
     iAngle = pStunt->iAngle;
     iHeightValue = iHeightOffset;
     fAngleSin = tsin[iAngle];                   // Get trigonometric values from lookup tables for rotation matrix
@@ -441,7 +445,6 @@ void updateramp(tStuntData *pStunt)
     pCurrentData->pointAy[3].fZ = (float)(-(dMidZ + dNextMidZ) * 0.5);
     pCurrentData->fTrackHalfLength = (float)sqrt((dNextMidX - dMidX) * (dNextMidX - dMidX) + (dNextMidY - dMidY) * (dNextMidY - dMidY) + (dNextMidZ - dMidZ) * (dNextMidZ - dMidZ))
       * 0.5f;       // Calculate distance between ramp endpoints for track half-length
-  }
 }
 
 //-------------------------------------------------------------------------------------------------

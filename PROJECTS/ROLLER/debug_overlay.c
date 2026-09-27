@@ -1,4 +1,5 @@
 #include "debug_overlay.h"
+#include "net_types.h"
 #include "types.h"
 #if defined(IS_WASM)
 #include "nuklear_sdl_renderer.h"
@@ -938,6 +939,23 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "General",
                nk_rect(PANEL_MARGIN, PANEL_Y, iGeneralW, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+    static int iNetworkPage;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    nk_checkbox_label(pCtx, "Network statistics", &iNetworkPage);
+    if (iNetworkPage) {
+      char szStat[160];
+#define NET_STAT(...) do { snprintf(szStat, sizeof(szStat), __VA_ARGS__); nk_label(pCtx, szStat, NK_TEXT_LEFT); } while (0)
+      NET_STAT("RTT %.1f ms  jitter %.1f ms  loss %d%%", g_netStats.fRttMs, g_netStats.fJitterMs, g_netStats.iLossPercent);
+      NET_STAT("Snapshot %d ms old%s", g_netStats.iSnapshotAgeMs, g_netStats.iStalled ? " (stalled)" : "");
+      NET_STAT("Corrections %d  magnitude %.3f", g_netStats.iCorrectionCount, g_netStats.fCorrectionMagnitude);
+      NET_STAT("Deferred %d  ramp corrections %d", g_netStats.iDeferredCorrections, g_netStats.iRampCorrections);
+      NET_STAT("Replay depth %d  total ticks %d", g_netStats.iReplayDepth, g_netStats.iReplayTicksTotal);
+      NET_STAT("Replay cost %.3f ms  worst %.3f ms", g_netStats.fReplayMsTotal, g_netStats.fReplayMsWorst);
+      NET_STAT("Prediction %s  transitions %d", g_netStats.iPredictionMode == NET_PREDICT_DELAYED ? "delayed" : "full", g_netStats.iPredictionTransitions);
+      NET_STAT("Time delayed %.1f s", g_netStats.uiTimeDegradedMs / 1000.0);
+      NET_STAT("In %d B/s  out %d B/s", g_netStats.iBytesInPerSec, g_netStats.iBytesOutPerSec);
+#undef NET_STAT
+    } else {
 #if defined(IS_WASM)
     static const char *apszMusic[] = { "MIDI (OPL3)", "CD" };
     int iMusicSel = (MusicCD != 0) ? 1 : 0;
@@ -1082,6 +1100,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       }
     }
 #endif
+    }
   }
   nk_end(pCtx);
 

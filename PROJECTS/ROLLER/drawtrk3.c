@@ -15,6 +15,7 @@
 #include "editor_overlay.h"
 #include "editor_reference_mesh.h"
 #include "editor_surface.h"
+#include "net_sim_seam.h"
 #include "graphics.h"
 #include <float.h>
 #include <math.h>
@@ -3318,6 +3319,8 @@ LABEL_357:
             .pitch = Car[iCarCommandIdx].nPitch,
             .roll = Car[iCarCommandIdx].nRoll,
           };
+          NetSimApplyRenderCorrection(iCarCommandIdx, &pose.position,
+                                      &pose.yaw, &pose.pitch, &pose.roll);
           GameRenderCarOptions options = {
             .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
             .color_remap = NULL,
@@ -3611,6 +3614,8 @@ LABEL_393:
               pose.yaw = Car[iSectionNum].nYaw;
               pose.pitch = Car[iSectionNum].nPitch;
               pose.roll = Car[iSectionNum].nRoll;
+              NetSimApplyRenderCorrection(iCarRenderIdx, &pose.position,
+                                          &pose.yaw, &pose.pitch, &pose.roll);
               options.anim_frame = Car[iSectionNum].byWheelAnimationFrame;
               options.color_remap = NULL;
               pCarPose = &pose;

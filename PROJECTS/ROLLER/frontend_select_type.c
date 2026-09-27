@@ -17,6 +17,9 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -296,6 +299,18 @@ static void frontend_type_select_finish_exit(void)
 
 static void frontend_type_select_begin_broadcast_wait(int iMode, int iAction)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    if (iAction == eTYPE_BROADCAST_WAIT_EXIT) {
+      frontend_type_select_finish_exit();
+    } else if (iAction == eTYPE_BROADCAST_WAIT_CLOSE_NETWORK) {
+      NetFrontendClose();
+      network_champ_on = 0;
+    }
+    iFrontendTypeBroadcastWaitAction = eTYPE_BROADCAST_WAIT_NONE;
+    return;
+  }
+#endif
   iFrontendTypeBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iMode, 1);
 }
@@ -324,6 +339,10 @@ static void frontend_type_select_finish_broadcast_wait(void)
 
 static int frontend_type_select_update_broadcast_wait(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN)
+    return 0;
+#endif
   if (iFrontendTypeCloseNetworkPending) {
     if ((uint16)(frames - iFrontendTypeCloseNetworkStartFrame) < 3)
       return -1;

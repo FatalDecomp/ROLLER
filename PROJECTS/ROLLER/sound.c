@@ -1,4 +1,10 @@
 #include "sound.h"
+#include "net_sim_seam.h"
+#include "net_race_start.h"
+#include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include "frontend.h"
 #include "moving.h"
 #include "cdx.h"
@@ -536,7 +542,7 @@ void tick_clock_step(void)
 
   int iTickAdvance = 1;
 
-  if (network_on && syncleft) {
+  if (network_on && net_mode == NET_MODE_LEGACY && syncleft) {
     ROLLERCommsPumpSendQueue();
     do_sync_stuff();
     ROLLERCommsPumpSendQueue();
@@ -596,25 +602,26 @@ void tick_clock_step(void)
       fraction = 0;
   } else {
     ticks++;
-    if (!paused && !frontend_on) {
+    if (!paused && !frontend_on && net_mode == NET_MODE_LEGACY) {
       network_master_input_tick();
       network_slave_input_tick();
     }
   }
 
   if (tick_on) {
-    if (network_on && (replaytype == 2 || game_type > 2)) {
+    if (network_on && net_mode == NET_MODE_LEGACY &&
+        (replaytype == 2 || game_type > 2)) {
       CheckNewNodes();
       SendAMessage();
       BroadcastNews();
     } else if (replaytype != 2 && game_type < 3) {
       if (frontend_on) {
-        if (network_on) {
+        if (network_on && net_mode == NET_MODE_LEGACY) {
           CheckNewNodes();
           SendAMessage();
           BroadcastNews();
         }
-      } else if (network_on && winner_mode) {
+      } else if (network_on && net_mode == NET_MODE_LEGACY && winner_mode) {
         CheckNewNodes();
         SendAMessage();
         BroadcastNews();
@@ -622,10 +629,11 @@ void tick_clock_step(void)
     }
   }
 
-  if (network_on)
+  if (network_on && net_mode == NET_MODE_LEGACY)
     ROLLERCommsPumpSendQueue();
 
-  if (!frontend_on && iTickAdvance != 0)
+  if (!frontend_on && iTickAdvance != 0 &&
+      !(network_on && net_mode == NET_MODE_MODERN && !net_listen_host))
     SDL_AddAtomicInt(&iTicksPending, iTickAdvance);
 }
 
@@ -635,10 +643,53 @@ void game_tick_step(void)
 {
   int iControlTicks = 1;
   int iDrainEngineDelay = 0;
+  int iModernRaceTick = 0;
+  int iModernSimulated = 0;
+  uint32 uiModernTick;
 
   if (tick_on && replaytype != 2 && game_type < 3 && !frontend_on) {
     if (!network_on || winner_mode) {
       local_input_tick();
+      iDrainEngineDelay = start_race;
+    } else if (net_mode == NET_MODE_MODERN) {
+      /* This early return also skips the firework branch below.  That branch
+         cannot be reached here: champ_mode only reaches 16 inside race_update's
+         winner_mode block, and winner_mode takes the branch above.  The clock
+         labels each tick as it hands it out, so every tick it gives must be
+         simulated; E3-S1 builds on that numbering. */
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      if (NetFrontendRacePaused())
+        return;
+#endif
+      if (!NetRaceStartBeginTick(&uiModernTick))
+        return;
+      iModernRaceTick = 1;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+      {
+        tCarInputData aInputs[2] = {{0}};
+        int iLocalPlayers = NetFrontendRaceLocalPlayers();
+        if (iLocalPlayers < 1 || iLocalPlayers > 2) {
+          racing = 0;
+          return;
+        }
+        if (start_race && !paused) {
+          for (int iPlayer = 0; iPlayer < iLocalPlayers; ++iPlayer) {
+            tCopyData input;
+            readuserdata(iPlayer);
+            input.uiFullData = (uint32)user_inp;
+            aInputs[iPlayer] = input.data;
+            last_inp[iPlayer] = user_inp;
+          }
+        }
+        if (!NetFrontendRaceTick(uiModernTick, aInputs, iLocalPlayers)) {
+          racing = 0;
+          return;
+        }
+        iModernSimulated = 1;
+      }
+#else
+      local_input_tick();
+#endif
       iDrainEngineDelay = start_race;
     } else if (start_race) {
       ticks_received = 0;
@@ -660,13 +711,18 @@ void game_tick_step(void)
     iDrainEngineDelay = 1;
 
   for (int i = 0; i < iControlTicks; i++) {
-    if (champ_mode < 16)
-      control_one_tick();
-    else
-      firework_display_one_tick();
+    /* The modern race object has already simulated this exact tick. */
+    if (!iModernSimulated) {
+      if (champ_mode < 16)
+        control_one_tick();
+      else
+        firework_display_one_tick();
+    }
     if (iDrainEngineDelay)
       DrainEngineDelay();
   }
+  if (iModernRaceTick)
+    NetRaceStartEndTick(game_frame);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1300,7 +1356,7 @@ void readuserdata(int iPlayer)
     goto LABEL_107;
 
   // Handle network messages for strategy buttons
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     message_node = network_mes_mode;
     // Validate target node for messaging
     if (network_mes_mode >= 0) {
@@ -1338,6 +1394,20 @@ void readuserdata(int iPlayer)
       send_mes(iMessageIdx, iNode);
       goto LABEL_105;
     }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  } else if (network_on && net_mode == NET_MODE_MODERN) {
+    if ((iStrategyFlags & 0x40) != 0)
+      iMessageIdx = 0;
+    else if ((iStrategyFlags & 0x80) != 0)
+      iMessageIdx = 1;
+    else if ((iStrategyFlags & 0x100) != 0)
+      iMessageIdx = 2;
+    else
+      iMessageIdx = 3;
+    NetFrontendSendStrategy((uint8)iMessageIdx);
+    iStrategyFlags = 0;
+    goto LABEL_106;
+#endif
   }
 LABEL_106:
   nButtonFlags_1 |= iStrategyFlags;               // add strategy buttons to buttons state
@@ -2041,7 +2111,9 @@ void speechsample(int iSampleIdx, int iVolume, int iDelay, int iCarIdx)
       if (player_type != 2 || iGameOverCount == 2)// Disable further messages after 2 game overs in multiplayer or any in single player
         disable_messages = -1;
     }
-    if (!winner_mode || iSampleIdx >= 89)     // Only queue certain samples when in winner mode (samples >= 89)
+    /* Queue insertion is an output side effect and consumes no RNG.  Keep all
+       selection and game-over bookkeeping above it during replay. */
+    if ((!winner_mode || iSampleIdx >= 89) && !net_sim_replaying)
     {
       iCurrentWriteIndex = writesample;         // Queue speech sample data into the circular buffer
       speechinfo[iCurrentWriteIndex].iSampleIdx = iSampleIdx;
@@ -2302,6 +2374,9 @@ void analysespeechsamples()
 //0003CAD0
 void dospeechsample(int iSampleIdx, int iVolume)
 {
+  /* Output sink has no RNG draws or simulation bookkeeping. */
+  if (net_sim_replaying)
+    return;
   int iUseVolume;
   int iHandle, iSampleHandle;
 
@@ -2504,6 +2579,9 @@ int cheatsampleok(int iCarIdx)
 //0003CEF0
 void sfxsample(int iSample, int iVol)
 {
+  /* Output sink has no RNG draws or simulation bookkeeping. */
+  if (net_sim_replaying)
+    return;
   if (SamplePtr[iSample] == 0) {
     SDL_Log("sfxsample: Sample pointer is NULL for sample index %d", iSample);
     return;
@@ -2630,7 +2708,7 @@ void sfxpend(int iSampleIdx, int iDriverIdx, int iVolume)
     //repvolume[iDriverIdx] = (unsigned __int16)(iClampedVolume - (__CFSHL__(iClampedVolume >> 31, 8) + ((unsigned __int16)(iClampedVolume >> 31) << 8))) >> 8;
   }
   iAdjustedVolume = iClampedVolume * SFXVolume / 127;// Calculate final volume based on global SFX volume setting
-  if (soundon && Pending[iDriverIdx] != 5)    // Only queue sample if sound is enabled and pending queue isn't full
+  if (!net_sim_replaying && soundon && Pending[iDriverIdx] != 5)    // Only queue sample if sound is enabled and pending queue isn't full
   {
 
     // Check if this sample is already pending for this driver

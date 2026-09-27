@@ -5,6 +5,44 @@
 #include <stdint.h>
 #include <stdbool.h>
 //-------------------------------------------------------------------------------------------------
+
+#ifdef ROLLERCOMMS_LEGACY_IMPLEMENTATION
+#define ROLLERCommsSetLocalPort NetLegacyImpl_ROLLERCommsSetLocalPort
+#define ROLLERCommsSetPeer NetLegacyImpl_ROLLERCommsSetPeer
+#define ROLLERCommsSetLocalIP NetLegacyImpl_ROLLERCommsSetLocalIP
+#define ROLLERCommsInitSystem NetLegacyImpl_ROLLERCommsInitSystem
+#define ROLLERCommsUnInitSystem NetLegacyImpl_ROLLERCommsUnInitSystem
+#define ROLLERCommsSetType NetLegacyImpl_ROLLERCommsSetType
+#define ROLLERCommsGetType NetLegacyImpl_ROLLERCommsGetType
+#define ROLLERCommsUpdateLocalAddrForPeer \
+  NetLegacyImpl_ROLLERCommsUpdateLocalAddrForPeer
+#define ROLLERCommsGetActiveNodes NetLegacyImpl_ROLLERCommsGetActiveNodes
+#define ROLLERCommsGetConsoleNode NetLegacyImpl_ROLLERCommsGetConsoleNode
+#define ROLLERCommsAddNode NetLegacyImpl_ROLLERCommsAddNode
+#define ROLLERCommsUpdateNodeTransportAddr \
+  NetLegacyImpl_ROLLERCommsUpdateNodeTransportAddr
+#define ROLLERCommsDeleteNode NetLegacyImpl_ROLLERCommsDeleteNode
+#define ROLLERCommsSortNodes NetLegacyImpl_ROLLERCommsSortNodes
+#define ROLLERCommsNetAddrToNode NetLegacyImpl_ROLLERCommsNetAddrToNode
+#define ROLLERCommsGetNetworkAddr NetLegacyImpl_ROLLERCommsGetNetworkAddr
+#define ROLLERCommsGetLastPacketAddr NetLegacyImpl_ROLLERCommsGetLastPacketAddr
+#define ROLLERCommsGetNodeAddrStr NetLegacyImpl_ROLLERCommsGetNodeAddrStr
+#define ROLLERCommsFormatAddr NetLegacyImpl_ROLLERCommsFormatAddr
+#define ROLLERCommsEnumLocalAddrs NetLegacyImpl_ROLLERCommsEnumLocalAddrs
+#define ROLLERCommsSendData NetLegacyImpl_ROLLERCommsSendData
+#define ROLLERCommsQueueSend NetLegacyImpl_ROLLERCommsQueueSend
+#define ROLLERCommsPumpSendQueue NetLegacyImpl_ROLLERCommsPumpSendQueue
+#define ROLLERCommsSendQueueDepth NetLegacyImpl_ROLLERCommsSendQueueDepth
+#define ROLLERCommsBroadcastData NetLegacyImpl_ROLLERCommsBroadcastData
+#define ROLLERCommsSendDataToAddr NetLegacyImpl_ROLLERCommsSendDataToAddr
+#define ROLLERCommsGetHeader NetLegacyImpl_ROLLERCommsGetHeader
+#define ROLLERCommsGetBlock NetLegacyImpl_ROLLERCommsGetBlock
+#define ROLLERCommsPostListen NetLegacyImpl_ROLLERCommsPostListen
+#define ROLLERCommsSetCommandBase NetLegacyImpl_ROLLERCommsSetCommandBase
+#define ROLLERCommsSetComPort NetLegacyImpl_ROLLERCommsSetComPort
+#define ROLLERclrrx NetLegacyImpl_ROLLERclrrx
+#define ROLLERclrtx NetLegacyImpl_ROLLERclrtx
+#endif
 #define ROLLER_MAX_NODES 16
 #define ROLLER_DEFAULT_PORT 7777
 #define ROLLER_MAX_PACKET_SIZE 2048
@@ -23,7 +61,7 @@ typedef struct
   uint32 uiIPAddress;      // IPv4 address in network byte order
   uint16 unPort;           // Port number
   uint16 unPadding;
-  uint64 ullReserved;    // Must be zero — pads to 16 bytes to match _NETNOW_NODE_ADDR
+  uint64 ullReserved;    // Must be zero - pads to 16 bytes to match _NETNOW_NODE_ADDR
 } tROLLERNetAddr;
 
 //-------------------------------------------------------------------------------------------------

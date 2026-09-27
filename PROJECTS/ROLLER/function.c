@@ -1,4 +1,5 @@
 #include "function.h"
+#include "net_sim_seam.h"
 #include "loadtrak.h"
 #include "control.h"
 #include "sound.h"
@@ -816,6 +817,8 @@ void initpits()
 //000377D0
 void dodamage(tCar *pCar, float fDamage)
 {
+  if (NetSimIsPuppet(pCar) || net_sim_authority == NET_AUTHORITY_REMOTE)
+    return;
   tCarEngine *pCarEngine; // edi
   int iDriverIdx; // eax
   tCarSpray *pCarSpray; // ebx

@@ -16,6 +16,10 @@
 #include "rollercomms.h"
 #include "menu_render.h"
 #include "snapshot.h"
+#include "net_types.h"
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+#include "net_frontend_lobby.h"
+#endif
 #include <fcntl.h>
 #include <string.h>
 #ifdef IS_WINDOWS
@@ -119,6 +123,13 @@ static void frontend_players_select_handle_mouse(void)
           select_messages();
       } else if (iClicked == FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT) {
         if (network_on)
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+          if (net_mode == NET_MODE_MODERN) {
+            NetFrontendClose();
+            iFrontendPlayersNetworkMode = 0;
+            iFrontendPlayersSelectedPlayerType = 0;
+          } else
+#endif
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
       } else if (!frontend_players_network_prompt_hovered(
@@ -164,6 +175,12 @@ void snapshot_render_menu_select_players(void)
 static void frontend_players_select_begin_broadcast_wait(int iBroadcastMode,
                                                          int iAction)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    iFrontendPlayersBroadcastWaitAction = ePLAYERS_BROADCAST_WAIT_NONE;
+    return;
+  }
+#endif
   iFrontendPlayersBroadcastWaitAction = iAction;
   network_broadcast_wait_start(iBroadcastMode, 1);
 }
@@ -192,13 +209,26 @@ static void frontend_players_select_finish_broadcast_wait(void)
 
 static int frontend_players_select_update_broadcast_wait(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  /* Modern sessions never use the lockstep broadcast waiter.  This helper is
+     polled every Players-screen frame, including immediately after
+     NetFrontendOpen(), so falling through here trips the legacy-call trap. */
+  if (net_mode == NET_MODE_MODERN)
+    return 0;
+#endif
+
   if (iFrontendPlayersCloseNetworkPending) {
     if ((uint16)(frames - iFrontendPlayersCloseNetworkStartFrame) < 3)
       return -1;
 
     iFrontendPlayersCloseNetworkPending = 0;
     iFrontendPlayersCloseNetworkStartFrame = 0;
-    close_network();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN)
+      NetFrontendClose();
+    else
+#endif
+      close_network();
     iFrontendPlayersNetworkMode = 0;
     iFrontendPlayersSelectedPlayerType = 0;
     return -1;
@@ -279,6 +309,14 @@ static void frontend_players_select_finish_network_setup(void)
 
 static void frontend_players_select_begin_net_slot(void)
 {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN) {
+    iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
+    iFrontendPlayersNetworkStatus = NetFrontendOpen() ? 0 : -1;
+    frontend_players_select_finish_network_setup();
+    return;
+  }
+#endif
   network_slot = -1;
   iFrontendPlayersNetSlotCurrent = 0;
   iFrontendPlayersNetworkStatus = 0;
@@ -585,14 +623,19 @@ static int frontend_players_net_slot_update(void)
     frontend_players_net_slot_drain_mouse();
     if (!network_broadcast_wait_update())
       return -1;
-    close_network();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN)
+      NetFrontendClose();
+    else
+#endif
+      close_network();
     iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
     iFrontendPlayersNetworkMode = 0;
     iFrontendPlayersNetworkStatus = 0;
     return -1;
   }
 
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     CheckNewNodes();
     BroadcastNews();
     ROLLERCommsPumpSendQueue();
@@ -741,6 +784,27 @@ void frontend_players_select_update(void)
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
     iPlayerListCount = 0;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN && !NetFrontendIsHost()) {
+      iY = 80;
+      for (iPlayerIndex = 0;
+           iPlayerIndex < NetFrontendBrowserSessionCount() &&
+           iPlayerIndex < 12; ++iPlayerIndex) {
+        tRvzSessionInfo info;
+        char szSessionDetails[64];
+        if (!NetFrontendBrowserSession(iPlayerIndex, &info))
+          continue;
+        snprintf(szSessionDetails, sizeof(szSessionDetails), "%u/%u  %s",
+                 info.byPlayers, info.byMaxPlayers, info.szTrack);
+        menu_render_scaled_text(mr, 15, info.szName, font1_ascii,
+            font1_offsets, 336, iY, 143, 2u, 200, 640, pal_addr);
+        menu_render_scaled_text(mr, 15, szSessionDetails, font1_ascii,
+            font1_offsets, 342, iY, 143, 0u, 200, 640, pal_addr);
+        iY += 18;
+        ++iPlayerListCount;
+      }
+    } else
+#endif
     if (network_on > 0) {                     // Display connected players and their selected cars
       iPlayerIndex = 0;
       iY = 80;
@@ -891,7 +955,8 @@ void frontend_players_select_update(void)
             goto LABEL_128;
           case 1u:
             net_type = 0;
-            ROLLERCommsSetType(net_type);
+            if (net_mode == NET_MODE_LEGACY)
+              ROLLERCommsSetType(net_type);
             if (iFrontendPlayersNetworkMode) {
             LABEL_128:
               frontend_players_select_request_exit();
@@ -924,6 +989,14 @@ void frontend_players_select_update(void)
       if (byInputKey == 113) {                // Q/q keys: Quit network and return to player selection
       LABEL_121:
         if (network_on) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+          if (net_mode == NET_MODE_MODERN) {
+            NetFrontendClose();
+            iFrontendPlayersNetworkMode = 0;
+            iFrontendPlayersSelectedPlayerType = 0;
+            continue;
+          }
+#endif
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
           return;

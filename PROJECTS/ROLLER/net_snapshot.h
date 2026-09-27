@@ -1,0 +1,41 @@
+#ifndef ROLLER_NET_SNAPSHOT_H
+#define ROLLER_NET_SNAPSHOT_H
+#include "net_protocol.h"
+#include "car.h"
+
+int NetSnapshotBuild(tNetSnapshot *pSnapshot, uint32 uiTick, uint32 uiLastEventSeq,
+                     uint8 byRaceState, uint8 byPaused);
+int NetSnapshotEncodeCarFull(int iCar, tNetCarFullState *pState);
+int NetSnapshotCarFullValid(int iCar, const tNetCarFullState *pState);
+int NetSnapshotDecodeCarFull(int iCar, const tNetCarFullState *pState);
+int NetSnapshotEncodeCarFullWire(const tNetCarFullState *pState,
+                                 uint8 *pBytes, int iCapacity);
+int NetSnapshotDecodeCarFullWire(const uint8 *pBytes, int iLength,
+                                 tNetCarFullState *pState);
+/* Write only the host-owned half of a validated full state (D19). */
+int NetSnapshotApplyAuthoritative(int iCar,
+                                  const tNetCarFullState *pState);
+/* Install display-grade snapshot state for a puppet.  The world pose is
+   converted against the caller's current ramp geometry; no full-state-only
+   field is touched. */
+int NetSnapshotApplyPuppet(int iCar, const tNetCarState *pState);
+int NetSnapshotInterpolate(const tNetCarState *pOlder, const tNetCarState *pNewer,
+                           float fFraction, tNetCarState *pResult);
+int NetSnapshotEncode(const tNetSnapshot *pSnapshot, uint8 *pBytes, int iCapacity);
+int NetSnapshotDecode(const uint8 *pBytes, int iLength, tNetSnapshot *pSnapshot);
+int NetSnapshotEncodeDelta(const tNetSnapshot *pBase, const tNetSnapshot *pCurrent,
+                           uint8 *pBytes, int iCapacity);
+/* Reads only the two identifying ticks needed to locate a baseline.  The
+   complete message is still validated by NetSnapshotDecodeDelta before use. */
+int NetSnapshotDeltaTicks(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                          uint32 *puiBaseTick);
+/* NET_MSG_OWN_CAR_STATE (5.6): header, then per car { byCarIdx, pad[3], extra }. */
+#define NET_OWN_CAR_ENTRY_SIZE (4 + (int)sizeof(tNetCarExtra))
+int NetSnapshotEncodeOwnCarState(uint32 uiTick, const uint8 *pbyCars,
+                                 const tNetCarExtra *pExtras, int iCount,
+                                 uint8 *pBytes, int iCapacity);
+int NetSnapshotDecodeOwnCarState(const uint8 *pBytes, int iLength, uint32 *puiTick,
+                                 uint8 *pbyCars, tNetCarExtra *pExtras, int *piCount);
+int NetSnapshotDecodeDelta(const tNetSnapshot *pBase, const uint8 *pBytes, int iLength,
+                           tNetSnapshot *pResult);
+#endif

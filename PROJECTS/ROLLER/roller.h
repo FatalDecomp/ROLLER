@@ -116,6 +116,8 @@ void ROLLERsrand(unsigned int uiSeed);
 int ROLLERrandRaw(void);
 int ROLLERrand();
 uint32 ROLLERrandStateGet(void);
+uint64 ROLLERrandDrawCountGet(void);
+void ROLLERrandDrawCountSet(uint64 ullCount);
 void ROLLERrandStateSet(uint32 uiState);
 Uint64 SDLTickTimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);
 Uint64 SDLS7TimerCallback(void *userdata, SDL_TimerID timerID, Uint64 interval);

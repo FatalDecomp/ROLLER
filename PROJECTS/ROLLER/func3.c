@@ -18,6 +18,7 @@
 #include "function.h"
 #include "loadtrak.h"
 #include "rollercomms.h"
+#include "net_types.h"
 #include "scene_render.h"
 #include "snapshot.h"
 #include <memory.h>
@@ -3991,7 +3992,8 @@ int load_champ_begin(int iSlot)
       net_type = iNetType;
       if (player_type == 1 && net_type)
         net_type = 0;
-      ROLLERCommsSetType(net_type);
+      if (net_mode == NET_MODE_LEGACY)
+        ROLLERCommsSetType(net_type);
       iStatsLoop = 0;
       if (numcars > 0)                        // INDIVIDUAL STATISTICS: Load championship points, kills, fastest laps, wins for each car
       {
@@ -4247,23 +4249,25 @@ int load_champ_begin(int iSlot)
       }
       Race = ((uint8)TrackLoad - 1) & 7;        // FINALIZATION: Set race number, enable game timer, configure network
       tick_on = -1;
-      if (ROLLERCommsGetType())                  // NETWORK RESTORATION: Reinitialize network connections if saved game used networking
-      {
-        iHighestPoints = 0;
-        ROLLERCommsUnInitSystem();
-        network_on = 0;
-        net_started = 0;
-      }
-      ROLLERCommsSetType(net_type);
-      if (network_on) {
-        if (player_type == 1) {
-          reset_network(0);
-        } else {
-          close_network();
-          time_to_start = 0;
+      if (net_mode == NET_MODE_LEGACY) {
+        if (ROLLERCommsGetType())                // NETWORK RESTORATION: Reinitialize legacy network connections
+        {
+          iHighestPoints = 0;
+          ROLLERCommsUnInitSystem();
+          network_on = 0;
+          net_started = 0;
         }
-      } else if (player_type == 1 && net_type != 2) {
-        load_champ_begin_network_init();
+        ROLLERCommsSetType(net_type);
+        if (network_on) {
+          if (player_type == 1) {
+            reset_network(0);
+          } else {
+            close_network();
+            time_to_start = 0;
+          }
+        } else if (player_type == 1 && net_type != 2) {
+          load_champ_begin_network_init();
+        }
       }
     }
     fre((void **)&pFileBuf);                    // Cleanup: Free file buffer and return success/failure status
@@ -5837,6 +5841,9 @@ uint8 *load_picture(const char *szFile)
 //0005DDA0
 void AllocateCars()
 {
+  /* This is a roster index on entry, but becomes a Car[] slot below. Keep
+     the original index so later remote players cannot match that new slot. */
+  int iSecondLocalPlayer = player2_car;
   int iCarIdx; // esi
   char *pszNextDefaultNamePtr; // ebp
   int iDriverIdx; // edi
@@ -5973,7 +5980,7 @@ void AllocateCars()
         player1_car = iAvailableSlot;
         ViewType[0] = iAvailableSlot;
       }
-      if (player_type == 2 && iPlayerIdx == player2_car)// Configure player 2 camera in split-screen mode
+      if (player_type == 2 && iPlayerIdx == iSecondLocalPlayer)// Configure player 2 camera in split-screen mode
       {
         player2_car = iAvailableSlot;
         ViewType[1] = iAvailableSlot;
@@ -6153,6 +6160,10 @@ void check_cars()
     iPlayerCount = network_on;
     goto LABEL_7;
   }
+  /* Modern network rosters include both local split-screen players and
+     remote players. Two is the local view count, not the roster size. */
+  if (player_type == 2 && net_mode == NET_MODE_MODERN && network_on)
+    iPlayerCount = network_on;
   if (player_type == 2)
     LABEL_7:
   players = iPlayerCount;

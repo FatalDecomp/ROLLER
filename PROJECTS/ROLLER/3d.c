@@ -1,3 +1,12 @@
+#include "net_types.h"
+#include "net_race_start.h"
+#if !defined(__EMSCRIPTEN__)
+#include "net_harness.h"
+#if !defined(IS_WASM)
+#include "net_frontend_lobby.h"
+#include "net_rendezvous.h"
+#endif
+#endif
 #include "3d.h"
 #include "game_render_hw.h"
 #include "cdx.h"
@@ -355,11 +364,15 @@ static void frontend_shutdown_begin(void)
   iFrontendShutdownStarted = -1;
   exiting = -1;
   quit_game = -1;
-  if (network_on) {
+  if (network_on && net_mode == NET_MODE_LEGACY) {
     tick_on = -1;
     frontend_on = -1;
     network_broadcast_wait_start(-666, 1);
     iFrontendShutdownWaitingForNetwork = -1;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  } else if (network_on && net_mode == NET_MODE_MODERN) {
+    NetFrontendClose();
+#endif
   }
 }
 
@@ -375,7 +388,8 @@ static void frontend_shutdown_finish(void)
   }
 
   iFrontendShutdownFinishing = -1;
-  close_network();
+  if (net_mode == NET_MODE_LEGACY)
+    close_network();
   if (!g_bSnapshotMode) SaveRecords();
   fre((void**)&mirbuf);
   for (int i = 0; i < 16; ++i) {
@@ -598,10 +612,13 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --whiplash-root DIR    specify Whiplash data directory\n");
   cli_fprintf(f, " --midi-root DIR        specify midi data directory\n");
   cli_fprintf(f, " --player1name NAME     set player 1 name (letters, digits, spaces; max 8 chars)\n");
-  cli_fprintf(f, " --local-ip IP          local IPv4 address to advertise for multiplayer\n");
+  cli_fprintf(f, " --local-ip IP          legacy local IPv4 address to advertise\n");
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
+  cli_fprintf(f, " --rendezvous IP:PORT   register or browse through a rendezvous daemon\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
+  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern\n");
+  cli_fprintf(f, " --net-local-players N  local players on a modern node: 1 or 2\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
   cli_fprintf(f, " --snapshot-scene NAME render a headless named scene snapshot\n");
@@ -1130,7 +1147,7 @@ void frontend_results_update(void)
       game_type = 0;
       network_champ_on = 0;
     }
-    if (net_quit)
+    if (net_quit && net_mode == NET_MODE_LEGACY)
       close_network();
   }
   if (cd_error) {
@@ -1541,17 +1558,20 @@ void race_enter(void)
   play_game_init();                             // Initialize game systems and memory tracking
   if (quit_game)
     return;
-  reset_net_wait();
+  if (net_mode == NET_MODE_LEGACY)
+    reset_net_wait();
   max_mem = mem_used_low + mem_used;
   enable_keyboard();
   pend_view_init = ViewType[0];
   //_disable();
   network_limit = 4320;                         // Disable interrupts and setup network timing arrays
   iNetTimeItr = 0;
-  do {
-    iNetTimeItr_1 = (int16)iNetTimeItr++;       // Initialize network timing array with current frame count
-    net_time[iNetTimeItr_1] = frames;
-  } while ((int16)iNetTimeItr < 16);
+  if (net_mode == NET_MODE_LEGACY) {
+    do {
+      iNetTimeItr_1 = (int16)iNetTimeItr++;
+      net_time[iNetTimeItr_1] = frames;
+    } while ((int16)iNetTimeItr < 16);
+  }
   network_timeout = frames;
   network_error = 0;
   network_sync_error = 0;
@@ -1656,7 +1676,7 @@ void race_update(void)
     stopallsamples();
     dostopsamps = 0;
   }
-  if (network_on)                               // Handle network game timing and synchronization
+  if (network_on && net_mode == NET_MODE_LEGACY)// Legacy ready and timeout handling
   {                                             // Set countdown for network games after frame 250
     if (frame_number >= 250)
       countdown = -75;
@@ -1701,6 +1721,22 @@ void race_update(void)
       }
     }
   }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (network_on && net_mode == NET_MODE_MODERN && fadedin) {
+    if (!NetFrontendRaceSynchronise())
+      SDL_SetAtomicInt(&iTicksPending, 0);
+    else {
+      int iNetPaused = NetFrontendRacePaused();
+      if (iNetPaused && !paused)
+        stopallsamples();
+      paused = iNetPaused;
+      if (paused)
+        SDL_SetAtomicInt(&iTicksPending, 0);
+      else if (!net_listen_host)
+        SDL_SetAtomicInt(&iTicksPending, NetFrontendRaceTicksDue());
+    }
+  }
+#endif
   updates = 0;
   if (g_bSnapshotMode) {
     // No SDL tick timer in snapshot mode: drive one logical tick per
@@ -1737,7 +1773,7 @@ void race_update(void)
   //  RepeatTrack();
   //  start_cd = frames;
   //}
-  if (network_on && net_quit && !intro)         // Handle network quit requests
+  if (network_on && net_mode == NET_MODE_LEGACY && net_quit && !intro)
     racing = 0;
   if (player_type == 2)                         // Handle end-of-race conditions for different player modes
   {                                             // 2-player mode: end race when both cars dead and sound finished
@@ -1800,7 +1836,18 @@ void race_update(void)
   if (pause_request && !intro)                  // Handle pause requests (excluding intro mode)
   {
     if (!pausewindow || !paused) {                                         // Network pause handling - master/slave coordination
-      if (network_on && replaytype != 2) {
+      if (network_on && net_mode == NET_MODE_MODERN && replaytype != 2) {
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+        if (net_listen_host && !finished_car[player1_car] &&
+            NetFrontendRaceSetPaused(!NetFrontendRacePaused())) {
+          paused = NetFrontendRacePaused();
+          if (paused) {
+            stopallsamples();
+            pauser = wConsoleNode;
+          }
+        }
+#endif
+      } else if (network_on && net_mode == NET_MODE_LEGACY && replaytype != 2) {
         if (wConsoleNode == master) {
           if (!finished_car[player1_car]) {
             paused = paused == 0;
@@ -1819,7 +1866,8 @@ void race_update(void)
     }
     pause_request = 0;
   }
-  if (network_on && slave_pause && wConsoleNode == master)// Handle slave pause requests in network games
+  if (network_on && net_mode == NET_MODE_LEGACY &&
+      slave_pause && wConsoleNode == master)
   {
     paused = paused == 0;
     if (paused)
@@ -2814,12 +2862,24 @@ int SDL_main(int argc, char *argv[])
 
 int main(int argc, const char **argv, const char **envp)
 {
+#if !defined(IS_WASM)
+  int iHarnessResult = NetHarnessMain(argc, argv);
+  if (iHarnessResult >= 0)
+    return iHarnessResult;
+#endif
+
   int consumed = 0;
   int iCrashHandlerEnabled = 1;
   int iPlayer1NameOverride = 0;
+  int iNetLocalPort = 0;
+  int iNetPeerPort = 0;
+  int iNetSlotOverride = 0;
+  int iNetSlotValue = 0;
   char whiplash_root[260] = { 0 };
+  char szNetPeer[64] = { 0 };
   char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
   const char *midi_root = NULL;
+  const char *szNetLocalIP = NULL;
   const char *szGpuParityBackend = NULL;
 
   for (int i = 1; i < argc;) {
@@ -2860,7 +2920,7 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--local-ip") == 0) {
       if (i + 1 < argc) {
-        ROLLERCommsSetLocalIP(argv[i + 1]);
+        szNetLocalIP = argv[i + 1];
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--local-ip' needs an argument\n");
@@ -2873,7 +2933,7 @@ int main(int argc, const char **argv, const char **envp)
           cli_fprintf(stderr, "ERROR: '--port' must be 1-65535\n");
           return 1;
         }
-        ROLLERCommsSetLocalPort((uint16_t)iPort);
+        iNetLocalPort = iPort;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--port' needs an argument\n");
@@ -2881,10 +2941,9 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--peer") == 0) {
       if (i + 1 < argc) {
-        char szPeerBuf[64];
-        strncpy(szPeerBuf, argv[i + 1], sizeof(szPeerBuf) - 1);
-        szPeerBuf[sizeof(szPeerBuf) - 1] = '\0';
-        char *pszColon = strrchr(szPeerBuf, ':');
+        strncpy(szNetPeer, argv[i + 1], sizeof(szNetPeer) - 1);
+        szNetPeer[sizeof(szNetPeer) - 1] = '\0';
+        char *pszColon = strrchr(szNetPeer, ':');
         if (!pszColon) {
           cli_fprintf(stderr, "ERROR: '--peer' expects IP:PORT format\n");
           return 1;
@@ -2895,7 +2954,7 @@ int main(int argc, const char **argv, const char **envp)
           cli_fprintf(stderr, "ERROR: '--peer' port must be 1-65535\n");
           return 1;
         }
-        ROLLERCommsSetPeer(szPeerBuf, (uint16_t)iPeerPort);
+        iNetPeerPort = iPeerPort;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--peer' needs an argument\n");
@@ -2903,12 +2962,60 @@ int main(int argc, const char **argv, const char **envp)
       }
     } else if (strcmp(argv[i], "--net-slot") == 0) {
       if (i + 1 < argc) {
-        network_slot = atoi(argv[i + 1]);
+        iNetSlotValue = atoi(argv[i + 1]);
+        network_slot = iNetSlotValue;
+        iNetSlotOverride = 1;
         consumed = 2;
       } else {
         cli_fprintf(stderr, "ERROR: '--net-slot' needs an argument\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "--rendezvous") == 0) {
+#if !defined(IS_WASM)
+      if (i + 1 >= argc ||
+          !NetFrontendSetRendezvous(argv[i + 1], NET_RVZ_DEFAULT_PORT)) {
+        cli_fprintf(stderr,
+                    "ERROR: '--rendezvous' expects a numeric IP[:PORT]\n");
+        return 1;
+      }
+      consumed = 2;
+#else
+      cli_fprintf(stderr, "ERROR: '--rendezvous' is unavailable on wasm\n");
+      return 1;
+#endif
+    } else if (strcmp(argv[i], "--net-mode") == 0) {
+      if (i + 1 >= argc) {
+        cli_fprintf(stderr, "ERROR: '--net-mode' needs an argument\n");
+        return 1;
+      }
+      if (strcmp(argv[i + 1], "legacy") == 0)
+        net_mode = NET_MODE_LEGACY;
+      else if (strcmp(argv[i + 1], "modern") == 0)
+        net_mode = NET_MODE_MODERN;
+      else {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-mode' expects legacy or modern\n");
+        return 1;
+      }
+      consumed = 2;
+    } else if (strcmp(argv[i], "--net-local-players") == 0) {
+#if !defined(IS_WASM)
+      if (i + 1 >= argc) {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-local-players' needs an argument\n");
+        return 1;
+      }
+      if (!NetFrontendSetLocalPlayers(atoi(argv[i + 1]))) {
+        cli_fprintf(stderr,
+                    "ERROR: '--net-local-players' expects 1 or 2\n");
+        return 1;
+      }
+      consumed = 2;
+#else
+      cli_fprintf(stderr,
+                  "ERROR: '--net-local-players' is unavailable on wasm\n");
+      return 1;
+#endif
     } else if (strcmp(argv[i], "--snapshot") == 0) {
       if (i + 1 < argc) {
         SnapshotSetReplay(argv[i + 1]);
@@ -3024,6 +3131,30 @@ int main(int argc, const char **argv, const char **envp)
     i += consumed;
   }
 
+  if (net_mode == NET_MODE_LEGACY) {
+    if (szNetLocalIP)
+      ROLLERCommsSetLocalIP(szNetLocalIP);
+    if (iNetLocalPort)
+      ROLLERCommsSetLocalPort((uint16_t)iNetLocalPort);
+    if (iNetPeerPort)
+      ROLLERCommsSetPeer(szNetPeer, (uint16_t)iNetPeerPort);
+  } else {
+    if (szNetLocalIP) {
+      cli_fprintf(stderr,
+                  "ERROR: '--local-ip' is only available in legacy mode\n");
+      return 1;
+    }
+#if !defined(IS_WASM)
+    if (iNetLocalPort)
+      NetFrontendSetLocalPort((uint16)iNetLocalPort);
+    if (iNetPeerPort &&
+        !NetFrontendSetPeer(szNetPeer, (uint16)iNetPeerPort)) {
+      cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
+      return 1;
+    }
+#endif
+  }
+
   if (szGpuParityBackend) {
     if (g_bSnapshotMode || g_szDirectTrackPath) {
       cli_fprintf(stderr, "ERROR: '--gpu-parity' cannot be combined with snapshot or track-path mode\n");
@@ -3111,7 +3242,8 @@ int main(int argc, const char **argv, const char **envp)
     ROLLERGetAudioInfo();
   }
 
-  ROLLERCommsSetCommandBase(0x686C6361u);          // Initialize communication system with base command
+  if (net_mode == NET_MODE_LEGACY)
+    ROLLERCommsSetCommandBase(0x686C6361u);       // Initialize legacy communication system
   oldmode = readmode();                         // Save current video mode
   blankpal();
   SVGA_ON = 0;                                  // Disable SVGA mode for initial screen setup
@@ -3142,6 +3274,10 @@ int main(int argc, const char **argv, const char **envp)
   } else {
     load_fatal_config();
   }
+  /* fatal.ini contains the legacy NetSlot setting.  Command-line role
+     selection must win over it, especially modern --net-slot -1 clients. */
+  if (iNetSlotOverride)
+    network_slot = iNetSlotValue;
   if (iPlayer1NameOverride) {
     player_name_copy_bytes(player_names[player1_car], szPlayer1NameOverride);
     player_name_copy_bytes(my_name, szPlayer1NameOverride);
@@ -4386,7 +4522,8 @@ void game_keys()
               } else if (!network_on || replaytype == 2) {
               REQUEST_PAUSE:
                 pause_request = -1;
-              } else if (active_nodes == network_on) {
+              } else if (net_mode == NET_MODE_MODERN ||
+                         active_nodes == network_on) {
                 if (I_Would_Like_To_Quit == -1) {
                   if (Quit_Count <= 0)
                     I_Would_Like_To_Quit = 0;
@@ -5132,7 +5269,8 @@ void game_copypic(uint8 *pSrc, uint8 *pDest, int iCarIdx)
         iPlayerCar = player1_car;
         goto PLAY_COUNTDOWN_SOUND;
       }
-      if (gosound >= 1 && active_nodes == network_on) {
+      if (gosound >= 1 &&
+          (net_mode == NET_MODE_MODERN || active_nodes == network_on)) {
         iSoundSample = SOUND_SAMPLE_GO;                       // SOUND_SAMPLE_GO
         iPlayerCar = player1_car;
         gosound = 0;
@@ -5173,7 +5311,11 @@ HANDLE_SPECIAL_MODES:
   }
   if (!winner_mode && replaytype != 2)        // Network status and waiting messages
   {                                             // Waiting for players message (blinking)
-    if (network_on && active_nodes < network_on && (frames & 0xFu) < 8) {
+    if (network_on &&
+        ((net_mode == NET_MODE_LEGACY && active_nodes < network_on) ||
+         (net_mode == NET_MODE_MODERN &&
+          NetRaceStartPhase() == NET_RACE_START_LOADING)) &&
+        (frames & 0xFu) < 8) {
       if (winh >= 200) {
         prt_centrecol(rev_vga[1], "WAITING FOR PLAYERS", 160, 100, 207);
       } else {
@@ -5205,6 +5347,27 @@ HANDLE_SPECIAL_MODES:
       scr_size = iSavedScrSize3;
     }
   }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (network_on && net_mode == NET_MODE_MODERN && draw_type != 2) {
+    const char *szRaceStatus = NetFrontendRaceStatus();
+    int iSavedStatusScale = scr_size;
+    scr_size = 64;
+    if (szRaceStatus[0])
+      mini_prt_centre(rev_vga[0], szRaceStatus, winw / 2, 4);
+    if (net_listen_host) {
+      int iStatusY = 4;
+      for (int iPlayer = 0; iPlayer < MAX_CARS; ++iPlayer) {
+        char szPlayerStatus[32];
+        if (NetFrontendHostNetworkStatus(iPlayer, szPlayerStatus,
+                                         sizeof(szPlayerStatus))) {
+          mini_prt_string(rev_vga[0], szPlayerStatus, 4, iStatusY);
+          iStatusY += 8;
+        }
+      }
+    }
+    scr_size = iSavedStatusScale;
+  }
+#endif
   if (draw_type != 2)                         // Frame rate calculation and timing
   {
     curr_time = ticks;
