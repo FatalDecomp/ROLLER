@@ -806,6 +806,48 @@ fn configureRenderQueue3DTests(
     net_foundations_tests.dependOn(&run_net_lobby.step);
     net_foundations_tests.dependOn(&run_net_rendezvous.step);
     net_foundations_tests.dependOn(&run_net_discovery.step);
+    // Exercise the real frontend's lobby -> car allocation -> loading barrier.
+    // The simulation-only harness deliberately bypasses this transition.
+    const net_frontend_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_frontend_mod.sanitize_c = .off;
+    net_frontend_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_frontend_mod.addIncludePath(sdl.builder.path("include"));
+    net_frontend_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_frontend_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_frontend_mod.addIncludePath(libcdio.builder.path("include"));
+    net_frontend_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_frontend_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_frontend_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_frontend_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_frontend_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_frontend_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_frontend_mod.linkLibrary(libcdio.artifact("cdio"));
+    net_frontend_mod.addCSourceFiles(.{ .flags = c_flags, .files = rollerCoreSources(b) });
+    net_frontend_mod.addCSourceFiles(.{ .flags = c_flags, .files = &.{
+        "tests/net_frontend_start_test.c",
+        "PROJECTS/ROLLER/net_frontend_lobby.c",
+        "PROJECTS/ROLLER/net_transport.c",
+    } });
+    if (target.result.os.tag == .windows) {
+        net_frontend_mod.linkSystemLibrary("ws2_32", .{});
+        net_frontend_mod.linkSystemLibrary("iphlpapi", .{});
+        net_frontend_mod.linkSystemLibrary("bcrypt", .{});
+    }
+    const net_frontend_exe = b.addExecutable(.{
+        .name = "net_frontend_start_acceptance",
+        .root_module = net_frontend_mod,
+    });
+    const run_net_frontend = b.addSystemCommand(&.{ pythonExe(), "tests/net_frontend_start.py" });
+    run_net_frontend.addArtifactArg(net_frontend_exe);
+    run_net_frontend.addFileArg(assets_path.path(b, soak_track));
+    run_net_frontend.addDirectoryArg(assets_path);
+    const net_frontend_tests = b.step("test-net-frontend-start", "Check real-UDP frontend race loading and startup cameras");
+    net_frontend_tests.dependOn(&run_net_frontend.step);
+    net_foundations_tests.dependOn(&run_net_frontend.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

@@ -177,14 +177,18 @@ static int NetLobbyHostBroadcastPlayers(tNetLobbyHost *pLobby,
 static int NetLobbyHostCarAvailable(const tNetLobbyHost *pLobby,
                                     uint8 byPlayerIdx, uint8 byCarIdx)
 {
+  int iUses = 0;
+  int iCapacity = pLobby->config.byMaxPlayers == NET_SESSION_MAX_PLAYERS ?
+      2 : 1;
   int iPlayer;
   for (iPlayer = 0; iPlayer < pLobby->config.byMaxPlayers; ++iPlayer) {
     const tNetPlayerEntry *pPlayer = &pLobby->aPlayers[iPlayer];
-    if (iPlayer != byPlayerIdx && pPlayer->byState != NET_PLAYER_EMPTY &&
-        (pPlayer->byCarIdx0 == byCarIdx || pPlayer->byCarIdx1 == byCarIdx))
-      return 0;
+    if (iPlayer != byPlayerIdx && pPlayer->byState != NET_PLAYER_EMPTY) {
+      iUses += pPlayer->byCarIdx0 == byCarIdx;
+      iUses += pPlayer->byCarIdx1 == byCarIdx;
+    }
   }
-  return 1;
+  return iUses < iCapacity;
 }
 
 static int NetLobbyHostTryReleaseRace(tNetLobbyHost *pLobby)
@@ -603,7 +607,7 @@ static int NetLobbyClientDecodePlayers(tNetLobbyClient *pLobby,
 {
   tNetPlayerEntry aPlayers[NET_SESSION_MAX_PLAYERS];
   tNetSessionConfig config;
-  uint8 abyCarUsed[NET_SESSION_MAX_PLAYERS] = {0};
+  uint8 abyCarUsed[MAX_CARS] = {0};
   uint16 unRevision;
   uint8 byCount;
   int iPlayer;
@@ -634,14 +638,12 @@ static int NetLobbyClientDecodePlayers(tNetLobbyClient *pLobby,
     if (!NetLobbyPlayerValid(pPlayer))
       return 0;
     if (pPlayer->byState != NET_PLAYER_EMPTY) {
-      if (abyCarUsed[pPlayer->byCarIdx0])
+      int iCapacity = config.byMaxPlayers == NET_SESSION_MAX_PLAYERS ? 2 : 1;
+      if (++abyCarUsed[pPlayer->byCarIdx0] > iCapacity)
         return 0;
-      abyCarUsed[pPlayer->byCarIdx0] = 1;
-      if (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER) {
-        if (abyCarUsed[pPlayer->byCarIdx1])
-          return 0;
-        abyCarUsed[pPlayer->byCarIdx1] = 1;
-      }
+      if (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER &&
+          ++abyCarUsed[pPlayer->byCarIdx1] > iCapacity)
+        return 0;
     }
   }
   memcpy(pLobby->aPlayers, aPlayers, sizeof(aPlayers));

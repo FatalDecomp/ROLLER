@@ -33,10 +33,12 @@ typedef struct
   tNetAddress peer;
   tNetAddress rendezvous;
   tRvzSessionInfo hostInfo;
+  tRvzSessionInfo aBrowserSessions[12];
   uint16 unLocalPort;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byHasRendezvous, byResolvePending, byRelayThrottleShown;
   uint8 byHostInfo;
+  uint8 byBrowserSessionCount;
   uint8 byConfigApplied, byPlayerInfoSent, byReadySent;
   uint8 byRaceScheduled, byRaceLoadedSent, byRaceCarsMapped, byRaceStarted;
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
@@ -167,6 +169,7 @@ void NetFrontendClose(void)
   s_frontend.byHost = 0;
   s_frontend.byResolvePending = 0;
   s_frontend.byHostInfo = 0;
+  s_frontend.byBrowserSessionCount = 0;
   net_listen_host = 0;
   NetRaceStartReset();
   network_on = 0;
@@ -260,13 +263,16 @@ int NetFrontendIsHost(void)
 int NetFrontendBrowserSessionCount(void)
 {
   return s_frontend.pDiscovery && !s_frontend.byHost ?
-      NetDiscoverySessionCount(s_frontend.pDiscovery) : 0;
+      s_frontend.byBrowserSessionCount : 0;
 }
 
 int NetFrontendBrowserSession(int iIndex, tRvzSessionInfo *pInfo)
 {
-  return s_frontend.pDiscovery && !s_frontend.byHost &&
-      NetDiscoverySession(s_frontend.pDiscovery, iIndex, pInfo);
+  if (!s_frontend.pDiscovery || s_frontend.byHost || !pInfo || iIndex < 0 ||
+      iIndex >= s_frontend.byBrowserSessionCount)
+    return 0;
+  *pInfo = s_frontend.aBrowserSessions[iIndex];
+  return 1;
 }
 
 void NetFrontendAppResumed(void)
@@ -515,6 +521,19 @@ void NetFrontendPump(void)
     return;
 
   NetDiscoveryPump(s_frontend.pDiscovery);
+  if (!s_frontend.byHost && s_frontend.pDiscovery &&
+      (NetDiscoveryListReady(s_frontend.pDiscovery) ||
+       !s_frontend.byHasRendezvous)) {
+    int iSessions = NetDiscoverySessionCount(s_frontend.pDiscovery);
+    if (iSessions > (int)(sizeof(s_frontend.aBrowserSessions) /
+                          sizeof(s_frontend.aBrowserSessions[0])))
+      iSessions = (int)(sizeof(s_frontend.aBrowserSessions) /
+                        sizeof(s_frontend.aBrowserSessions[0]));
+    s_frontend.byBrowserSessionCount = (uint8)iSessions;
+    for (int iSession = 0; iSession < iSessions; ++iSession)
+      NetDiscoverySession(s_frontend.pDiscovery, iSession,
+                          &s_frontend.aBrowserSessions[iSession]);
+  }
   if (!s_frontend.byHost && !s_frontend.byHasPeer &&
       s_frontend.pDiscovery) {
     tRvzSessionInfo info;
@@ -612,7 +631,11 @@ void NetFrontendPump(void)
         s_frontend.pClientLobby, 1,
         NetFrontendLocalTrackCRC(&config));
   }
-  if (!s_frontend.byRaceCarsMapped)
+  /* The roster is frozen once loading begins.  AllocateCars() replaces the
+     frontend display indices in player1_car/player2_car with real Car[]
+     slots; applying the lobby roster after that would corrupt the camera and
+     other local-player state while waiting at the load barrier. */
+  if (!s_frontend.byRaceScheduled)
     NetFrontendSyncLegacyRoster();
   if (s_frontend.byReadySent)
     NetFrontendStatus(s_frontend.byHost ? "READY - WAITING FOR PLAYERS" :

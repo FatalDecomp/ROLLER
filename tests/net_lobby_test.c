@@ -528,9 +528,58 @@ static void NetTestLoadDeadline(int iCrash)
          iReleaseMs - iStartMs);
 }
 
+/* Selection carries designs, not allocated race slots. One of each design
+   is available with eight player slots, two with sixteen. Check both host
+   enforcement and the client decoder, without assuming join index order. */
+static void NetTestDesignCapacity(int iMaxPlayers)
+{
+  tNetTransportSim *pSim = NetTransportSimCreate(0xd351u);
+  tNetAddress address = NetTestAddress(0);
+  tNetTestRandom random = {0x123456789abcdef0ull};
+  tNetSessionConfig config = NetTestConfig((uint8)iMaxPlayers);
+  tNetTestClient clients[3] = {0};
+  tNetChannel *pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, 0));
+  tNetSessionHost *pHost = NetSessionHostCreate(pChannel, (uint8)iMaxPlayers,
+                                               NetTestRandomBytes, &random);
+  CHECK(pHost && NetSessionHostSetConfig(pHost, &config));
+  tNetLobbyHost *pLobby = NetLobbyHostCreate(pHost);
+  CHECK(pLobby);
+  for (int i = 0; i < 3; ++i) {
+    clients[i].pChannel = NetChannelCreate(NetTransportSimEndpoint(pSim, i + 1));
+    clients[i].pConnection = NetChannelAddConnection(clients[i].pChannel, &address, 0, 0);
+    clients[i].pSession = NetSessionClientCreate(clients[i].pConnection,
+                                                 NET_PROTOCOL_VERSION, 1, "DESIGN");
+    clients[i].pLobby = NetLobbyClientCreate(clients[i].pSession);
+    CHECK(clients[i].pLobby && NetSessionClientStart(clients[i].pSession));
+  }
+  NetTestPump(pSim, pHost, pLobby, clients, 3, 0, 500);
+  int iCapacity = iMaxPlayers == 16 ? 2 : 1;
+  for (int i = 0; i < 3; ++i) {
+    tNetPlayerEntry before, after, received;
+    uint8 byPlayer = NetSessionClientPlayerIndex(clients[i].pSession);
+    CHECK(NetLobbyHostPlayer(pLobby, byPlayer, &before));
+    CHECK(before.byCarIdx0 != 6);
+    CHECK(NetLobbyClientSetPlayerInfo(clients[i].pLobby, 6, NET_LOBBY_NO_PLAYER, 1));
+    NetTestPump(pSim, pHost, pLobby, clients, 3, 501 + i * 300, 800 + i * 300);
+    CHECK(NetLobbyHostPlayer(pLobby, byPlayer, &after));
+    CHECK(after.byCarIdx0 == (i < iCapacity ? 6 : before.byCarIdx0));
+    for (int j = 0; j < 3; ++j) {
+      CHECK(NetLobbyClientPlayer(clients[j].pLobby, byPlayer, &received));
+      CHECK(!memcmp(&after, &received, sizeof(after)));
+    }
+  }
+  NetTestDestroyClients(clients, 3);
+  NetLobbyHostDestroy(pLobby);
+  NetSessionHostDestroy(pHost);
+  NetChannelDestroy(pChannel);
+  NetTransportSimDestroy(pSim);
+}
+
 int main(void)
 {
   NetTestHostAndThreeClients();
+  NetTestDesignCapacity(8);
+  NetTestDesignCapacity(16);
   NetTestTrackMismatchRefused();
   NetTestLoadDeadline(0);
   NetTestLoadDeadline(1);

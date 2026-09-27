@@ -326,6 +326,15 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-foundations-test tests/net_foundations_test.c)
     target_link_libraries(net-foundations-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-foundations-test)
+    add_executable(net-frontend-start-test
+        tests/net_frontend_start_test.c
+        PROJECTS/ROLLER/net_frontend_lobby.c
+        PROJECTS/ROLLER/net_transport.c)
+    target_link_libraries(net-frontend-start-test PRIVATE ROLLER::core SDL3::SDL3)
+    roller_configure_c_target(net-frontend-start-test)
+    if(WIN32)
+        target_link_libraries(net-frontend-start-test PRIVATE ws2_32 iphlpapi bcrypt)
+    endif()
     set(ROLLER_CORE_REAL_SOUND_SOURCES ${ROLLER_CORE_SOURCES})
     list(REMOVE_ITEM ROLLER_CORE_REAL_SOUND_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/sound_stub.c")
@@ -385,6 +394,11 @@ if(ROLLER_BUILD_EDITOR_CORE)
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}"
             100 relay)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME net-frontend-start COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_frontend_start.py"
+            "$<TARGET_FILE:net-frontend-start-test>"
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
+        set_tests_properties(net-frontend-start PROPERTIES TIMEOUT 180)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
@@ -400,7 +414,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     endif()
     get_target_property(ROLLER_SDL3_TARGET_TYPE SDL3::SDL3 TYPE)
     if(WIN32 AND NOT ROLLER_SDL3_TARGET_TYPE STREQUAL "INTERFACE_LIBRARY")
-        foreach(net_target IN ITEMS net-foundations-test net-replay-output-test net-host-test net-client-test net-bot-test net-server net-bot-process)
+        foreach(net_target IN ITEMS net-foundations-test net-frontend-start-test net-replay-output-test net-host-test net-client-test net-bot-test net-server net-bot-process)
             add_custom_command(TARGET ${net_target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"

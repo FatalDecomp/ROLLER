@@ -785,21 +785,20 @@ void frontend_players_select_update(void)
     menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
     iPlayerListCount = 0;
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
-    if (net_mode == NET_MODE_MODERN && !NetFrontendIsHost() &&
-        NetFrontendBrowserSessionCount() > 0) {
+    if (net_mode == NET_MODE_MODERN && !NetFrontendIsHost()) {
       iY = 80;
       for (iPlayerIndex = 0;
            iPlayerIndex < NetFrontendBrowserSessionCount() &&
            iPlayerIndex < 12; ++iPlayerIndex) {
         tRvzSessionInfo info;
-        char szSession[64];
+        char szSessionDetails[64];
         if (!NetFrontendBrowserSession(iPlayerIndex, &info))
           continue;
-        snprintf(szSession, sizeof(szSession), "%s  %u/%u",
-                 info.szName, info.byPlayers, info.byMaxPlayers);
-        menu_render_scaled_text(mr, 15, szSession, font1_ascii,
+        snprintf(szSessionDetails, sizeof(szSessionDetails), "%u/%u  %s",
+                 info.byPlayers, info.byMaxPlayers, info.szTrack);
+        menu_render_scaled_text(mr, 15, info.szName, font1_ascii,
             font1_offsets, 336, iY, 143, 2u, 200, 640, pal_addr);
-        menu_render_scaled_text(mr, 15, info.szTrack, font1_ascii,
+        menu_render_scaled_text(mr, 15, szSessionDetails, font1_ascii,
             font1_offsets, 342, iY, 143, 0u, 200, 640, pal_addr);
         iY += 18;
         ++iPlayerListCount;
