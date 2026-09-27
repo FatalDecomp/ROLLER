@@ -88,7 +88,8 @@ void NetSessionConfigOptionsDefault(tNetSessionConfigOptions *pOptions)
     return;
   memset(pOptions, 0, sizeof(*pOptions));
   pOptions->bySnapshotInterval = NET_SESSION_DEFAULT_SNAPSHOT_INTERVAL;
-  pOptions->byMaxPlayers = 8;
+  pOptions->byMaxPlayers = (uint8)(competitors > 0 &&
+      competitors <= NET_SESSION_MAX_PLAYERS ? competitors : 16);
   pOptions->byPauseAllowed = 1;
   memcpy(&pOptions->uiRandomSeed, &random_seed,
          sizeof(pOptions->uiRandomSeed));

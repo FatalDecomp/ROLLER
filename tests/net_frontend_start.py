@@ -57,6 +57,8 @@ def run_case(exe, track, assets, host_car, client_car, local_players,
 
 def main():
     exe, track, assets = (str(Path(p).resolve()) for p in sys.argv[1:])
+    browser_port, _ = ports()
+    subprocess.run([exe, "--browser", str(browser_port)], check=True, timeout=10)
     cases = [
         (3, 1, 1, 8, 12345, False),
         (7, 4, 1, 8, 67890, True),

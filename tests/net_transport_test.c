@@ -38,6 +38,19 @@ static void NetTestAddress(void)
   CHECK(!NetAddressParse(&address, "127.0.0.1:65536", 0));
   CHECK(!NetAddressParse(&address, "[::1", 0));
   CHECK(!NetAddressParse(&address, "localhost:1234", 0));
+  CHECK(NetAddressResolve(&address, "localhost:1234", 7778));
+  CHECK(address.unPort == 1234);
+  CHECK(NetAddressResolve(&address, "udp://127.0.0.1:7778", 9));
+  CHECK(address.byFamily == NET_ADDR_IPV4 && address.unPort == 7778);
+  CHECK(NetAddressResolve(&address, "[::1]:7778", 9));
+  CHECK(address.byFamily == NET_ADDR_IPV6 && address.unPort == 7778);
+  CHECK(NetAddressEndpointValid("rvz.fatal.racing:7778", 9));
+  CHECK(NetAddressEndpointValid("rvz.fatal.racing", 7778));
+  CHECK(!NetAddressEndpointValid("rvz.fatal.racing:0", 7778));
+  CHECK(!NetAddressEndpointValid("rvz.fatal.racing:65536", 7778));
+  CHECK(!NetAddressEndpointValid("rvz.fatal.racing:abc", 7778));
+  CHECK(!NetAddressEndpointValid("host name:7778", 7778));
+  CHECK(!NetAddressEndpointValid("https://rvz.fatal.racing/path", 7778));
   CHECK(!NetAddressFormat(&roundTrip, szAddress, 4));
 
   iCount = NetAddressEnumerateLocal(localAddresses, 64, 2468);

@@ -15,6 +15,7 @@ struct tNetDiscovery {
   tRvzSessionInfo aSessions[NET_RVZ_MAX_SESSIONS];
   tNetAddress aSessionAddresses[NET_RVZ_MAX_SESSIONS];
   uint64 aSessionSeenMs[NET_RVZ_MAX_SESSIONS];
+  uint64 ullNextListSendMs;
   tNetAddress aLocalCandidates[NET_RVZ_MAX_LOCAL_CANDIDATES];
   tNetAddress aPunchCandidates[NET_RVZ_MAX_CANDIDATES];
   tNetAddress tPunchAddress;
@@ -248,6 +249,8 @@ static void NetDiscoverySendList(tNetDiscovery *pDiscovery)
   memcpy(abRequest + 4, pDiscovery->szBuildHash, 16);
   NetDiscoverySend(pDiscovery, NET_RVZ_MSG_LIST, 0,
                    abRequest, sizeof(abRequest));
+  pDiscovery->ullNextListSendMs = NetChannelNowMs(pDiscovery->pChannel) +
+      NET_DISCOVERY_RETRY_MS;
 }
 
 static int NetDiscoveryDecodeCandidateSet(tNetAddress *pCandidates,
@@ -408,6 +411,7 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
     uint16 unPages = NetDiscoveryRead16(packet.pPayload + 2);
     uint16 unTotal = NetDiscoveryRead16(packet.pPayload + 4);
     uint8 byCount = packet.pPayload[6], byMore = packet.pPayload[7];
+    tRvzSessionInfo aPage[NET_RVZ_MAX_PAGE_SESSIONS];
     int iEntry;
     if (unPage != pDiscovery->unListPage || unPages > 43 ||
         unTotal > NET_RVZ_MAX_SESSIONS || byCount > NET_RVZ_MAX_PAGE_SESSIONS ||
@@ -416,11 +420,16 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
         byMore != (uint8)(unPage + 1 < unPages) ||
         pDiscovery->iSessionCount + byCount > NET_RVZ_MAX_SESSIONS)
       return;
-    for (iEntry = 0; iEntry < byCount; ++iEntry)
+    for (iEntry = 0; iEntry < byCount; ++iEntry) {
       NetRendezvousDecodeSessionInfo(
-          &pDiscovery->aSessions[pDiscovery->iSessionCount++],
+          &aPage[iEntry],
           packet.pPayload + sizeof(tRvzListPageHeader) +
               iEntry * sizeof(tRvzSessionInfo));
+      if (!NetDiscoveryValidSessionInfo(&aPage[iEntry]))
+        return;
+    }
+    for (iEntry = 0; iEntry < byCount; ++iEntry)
+      pDiscovery->aSessions[pDiscovery->iSessionCount++] = aPage[iEntry];
     if (byMore) {
       ++pDiscovery->unListPage;
       NetDiscoverySendList(pDiscovery);
@@ -801,7 +810,10 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
           NET_LAN_QUERY_INTERVAL_MS;
     }
   }
-  if (pDiscovery->byHasRendezvous && pDiscovery->byListReady &&
+  if (pDiscovery->byHasRendezvous && pDiscovery->byListing &&
+      ullNowMs >= pDiscovery->ullNextListSendMs)
+    NetDiscoverySendList(pDiscovery);
+  if (pDiscovery->byHasRendezvous && pDiscovery->byListReady && !pDiscovery->byListing &&
       ullNowMs >= pDiscovery->ullNextRefreshMs) {
     char szBuildHash[16];
     const char *szFilter = NULL;

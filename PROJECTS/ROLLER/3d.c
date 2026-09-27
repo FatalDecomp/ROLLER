@@ -615,9 +615,9 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --local-ip IP          legacy local IPv4 address to advertise\n");
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
-  cli_fprintf(f, " --rendezvous IP:PORT   register or browse through a rendezvous daemon\n");
+  cli_fprintf(f, " --rendezvous HOST[:PORT] rendezvous server (default: rvz.fatal.racing:7778)\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
-  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern\n");
+  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern (default)\n");
   cli_fprintf(f, " --net-local-players N  local players on a modern node: 1 or 2\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
@@ -2975,7 +2975,7 @@ int main(int argc, const char **argv, const char **envp)
       if (i + 1 >= argc ||
           !NetFrontendSetRendezvous(argv[i + 1], NET_RVZ_DEFAULT_PORT)) {
         cli_fprintf(stderr,
-                    "ERROR: '--rendezvous' expects a numeric IP[:PORT]\n");
+                    "ERROR: '--rendezvous' expects a hostname or IP[:PORT]\n");
         return 1;
       }
       consumed = 2;

@@ -19,6 +19,7 @@
 #include "net_types.h"
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
 #include "net_frontend_lobby.h"
+#include "net_rendezvous.h"
 #endif
 #include <fcntl.h>
 #include <string.h>
@@ -44,6 +45,12 @@ static int iFrontendPlayersNetSlotCurrent = 0;
 static int iFrontendPlayersBroadcastWaitAction = 0;
 static int iFrontendPlayersCloseNetworkStartFrame = 0;
 static int iFrontendPlayersCloseNetworkPending = 0;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+static int iModernNetworkPage;
+static int iModernNetworkSelection;
+static int iModernNetworkScroll;
+static uint32 uiModernSelectedSession;
+#endif
 
 enum {
   ePLAYERS_NET_SLOT_NONE = 0,
@@ -122,7 +129,7 @@ static void frontend_players_select_handle_mouse(void)
         if (network_on)
           select_messages();
       } else if (iClicked == FRONTEND_PLAYERS_NETWORK_MOUSE_QUIT) {
-        if (network_on)
+        if (network_on) {
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
           if (net_mode == NET_MODE_MODERN) {
             NetFrontendClose();
@@ -132,6 +139,7 @@ static void frontend_players_select_handle_mouse(void)
 #endif
           frontend_players_select_begin_broadcast_wait(
               -666, ePLAYERS_BROADCAST_WAIT_CLOSE_NETWORK);
+        }
       } else if (!frontend_players_network_prompt_hovered(
                      frontend_mouse_peek_hovered_id())) {
         frontend_players_select_request_exit();
@@ -311,9 +319,11 @@ static void frontend_players_select_begin_net_slot(void)
 {
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
   if (net_mode == NET_MODE_MODERN) {
-    iFrontendPlayersNetSlotPhase = ePLAYERS_NET_SLOT_NONE;
-    iFrontendPlayersNetworkStatus = NetFrontendOpen() ? 0 : -1;
-    frontend_players_select_finish_network_setup();
+    iModernNetworkPage = 1;
+    iModernNetworkSelection = 0;
+    iModernNetworkScroll = 0;
+    uiModernSelectedSession = 0;
+    iFrontendPlayersNetworkStatus = 0;
     return;
   }
 #endif
@@ -662,6 +672,146 @@ static void frontend_players_select_request_exit(void)
 
 //-------------------------------------------------------------------------------------------------
 
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+static int frontend_players_modern_network_update(void)
+{
+  enum { iVisibleRows = 10, iRowBase = 200, iBack = 220, iUp = 221, iDown = 222 };
+  MenuRenderer *pRenderer = GetMenuRenderer();
+  int iCount, iWheel, iHovered, iClicked;
+  int iAccept = 0, iCancel = 0;
+  tRvzSessionInfo info;
+  if (!iModernNetworkPage)
+    return 0;
+  iCount = iModernNetworkPage == 1 ? 2 : NetFrontendBrowserSessionCount();
+  /* Keep the highlighted identity stable when periodic discovery reorders rows. */
+  if (iModernNetworkPage == 2 && uiModernSelectedSession) {
+    for (int iRow = 0; iRow < iCount; ++iRow)
+      if (NetFrontendBrowserSession(iRow, &info) &&
+          info.uiSessionId == uiModernSelectedSession) {
+        iModernNetworkSelection = iRow;
+        break;
+      }
+  }
+  if (iModernNetworkSelection >= iCount)
+    iModernNetworkSelection = iCount > 0 ? iCount - 1 : 0;
+  if (iModernNetworkSelection < iModernNetworkScroll)
+    iModernNetworkScroll = iModernNetworkSelection;
+  if (iModernNetworkSelection >= iModernNetworkScroll + iVisibleRows)
+    iModernNetworkScroll = iModernNetworkSelection - iVisibleRows + 1;
+
+  frontend_mouse_begin_frame(640, 400);
+  menu_render_begin_frame(pRenderer);
+  if (!front_fade) {
+    front_fade = -1;
+    menu_render_begin_fade(pRenderer, 1, 32);
+  }
+  menu_render_background(pRenderer, 0);
+  menu_render_sprite(pRenderer, 1, 3, head_x, head_y, 0, pal_addr);
+  menu_render_sprite(pRenderer, 6, 0, 36, 2, 0, pal_addr);
+  menu_render_scaled_text(pRenderer, 15,
+      iModernNetworkPage == 1 ? "NETWORK" : "JOIN GAME", font1_ascii,
+      font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
+  for (int iRow = iModernNetworkScroll;
+       iRow < iCount && iRow < iModernNetworkScroll + iVisibleRows; ++iRow) {
+    char szRow[96];
+    int iY = 100 + (iRow - iModernNetworkScroll) * 22;
+    if (iModernNetworkPage == 1)
+      snprintf(szRow, sizeof(szRow), "%s", iRow ? "JOIN GAME" : "HOST SERVER");
+    else {
+      if (!NetFrontendBrowserSession(iRow, &info))
+        continue;
+      snprintf(szRow, sizeof(szRow), "%s  %u/%u%s", info.szName,
+          info.byPlayers, info.byMaxPlayers,
+          (info.byFlags & NET_RVZ_SESSION_IN_RACE) ? "  RACING" :
+          (info.byPlayers >= info.byMaxPlayers ? "  FULL" : ""));
+    }
+    menu_render_scaled_text(pRenderer, 15, szRow, font1_ascii,
+        font1_offsets, 400, iY, iRow == iModernNetworkSelection ? 171 : 143,
+        1u, 200, 640, pal_addr);
+    frontend_mouse_register_rect(iRowBase + iRow - iModernNetworkScroll,
+                                  210, iY - 2, 420, 20);
+  }
+  if (iModernNetworkPage == 2) {
+    char szPosition[80];
+    snprintf(szPosition, sizeof(szPosition), iCount ? "%d / %d  -  SELECT A SERVER" :
+             "SEARCHING FOR GAMES", iCount ? iModernNetworkSelection + 1 : 0, iCount);
+    menu_render_scaled_text(pRenderer, 15, szPosition, font1_ascii,
+        font1_offsets, 400, 326, 143, 1u, 200, 640, pal_addr);
+    menu_render_scaled_text(pRenderer, 15, "UP", font1_ascii,
+        font1_offsets, 240, 350, 143, 1u, 200, 640, pal_addr);
+    menu_render_scaled_text(pRenderer, 15, "DOWN", font1_ascii,
+        font1_offsets, 560, 350, 143, 1u, 200, 640, pal_addr);
+    frontend_mouse_register_rect(iUp, 215, 345, 60, 20);
+    frontend_mouse_register_rect(iDown, 515, 345, 95, 20);
+  }
+  menu_render_scaled_text(pRenderer, 15, "BACK", font1_ascii,
+      font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
+  frontend_mouse_register_rect(iBack, 350, 373, 100, 24);
+  if (iFrontendPlayersNetworkStatus)
+    menu_render_scaled_text(pRenderer, 15, NetFrontendLobbyStatus(), font1_ascii,
+        font1_offsets, 400, 304, 231, 1u, 200, 640, pal_addr);
+  menu_render_end_frame(pRenderer);
+
+  iWheel = frontend_mouse_take_wheel_y();
+  iHovered = frontend_mouse_take_hovered_id();
+  iClicked = frontend_mouse_peek_clicked_id();
+  if (iHovered >= iRowBase && iHovered < iRowBase + iVisibleRows)
+    iModernNetworkSelection = iModernNetworkScroll + iHovered - iRowBase;
+  if (frontend_mouse_consume_click_anywhere()) {
+    iCancel = iClicked == iBack;
+    if (iClicked == iUp) iWheel = 1;
+    if (iClicked == iDown) iWheel = -1;
+    if (iClicked >= iRowBase && iClicked < iRowBase + iVisibleRows) {
+      iModernNetworkSelection = iModernNetworkScroll + iClicked - iRowBase;
+      iAccept = 1;
+    }
+  }
+  iModernNetworkSelection -= iWheel;
+  while (fatkbhit()) {
+    unsigned int uiKey = fatgetch();
+    if (!uiKey) {
+      uiKey = fatgetch();
+      if (uiKey == 72) --iModernNetworkSelection;
+      if (uiKey == 80) ++iModernNetworkSelection;
+      if (uiKey == 73) iModernNetworkSelection -= iVisibleRows;
+      if (uiKey == 81) iModernNetworkSelection += iVisibleRows;
+      if (uiKey == 71) iModernNetworkSelection = 0;
+      if (uiKey == 79) iModernNetworkSelection = iCount - 1;
+    } else if (uiKey == 13) iAccept = 1;
+    else if (uiKey == 27) iCancel = 1;
+  }
+  if (iModernNetworkSelection < 0) iModernNetworkSelection = 0;
+  if (iCount && iModernNetworkSelection >= iCount) iModernNetworkSelection = iCount - 1;
+  uiModernSelectedSession = iModernNetworkPage == 2 &&
+      NetFrontendBrowserSession(iModernNetworkSelection, &info) ? info.uiSessionId : 0;
+  if (iCancel) {
+    NetFrontendClose();
+    iModernNetworkPage = iModernNetworkPage == 2 ? 1 : 0;
+    iModernNetworkSelection = iModernNetworkScroll = 0;
+    iFrontendPlayersNetworkStatus = 0;
+  } else if (iAccept && iCount) {
+    if (iModernNetworkPage == 1) {
+      network_slot = iModernNetworkSelection == 0 ? 0 : -1;
+      if (!NetFrontendOpen() || (network_slot >= 0 && !NetFrontendLobbyBegin())) {
+        iFrontendPlayersNetworkStatus = -1;
+      } else if (network_slot >= 0) {
+        iModernNetworkPage = 0;
+        frontend_players_select_finish_network_setup();
+      } else {
+        iModernNetworkPage = 2;
+        iModernNetworkSelection = iModernNetworkScroll = 0;
+        uiModernSelectedSession = 0;
+      }
+    } else if (NetFrontendBrowserSession(iModernNetworkSelection, &info) &&
+               NetFrontendBrowserSelect(info.uiSessionId)) {
+      iModernNetworkPage = 0;
+      frontend_players_select_finish_network_setup();
+    }
+  }
+  return 1;
+}
+#endif
+
 void frontend_players_select_enter(void)
 {
   iFrontendPlayersExitFlag = 0;
@@ -690,6 +840,11 @@ void frontend_players_select_enter(void)
   else
     iFrontendPlayersNetworkMode = 0;
   iFrontendPlayersNetworkStatus = 0;
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  iModernNetworkPage = 0;
+  if (net_mode == NET_MODE_MODERN && !NetFrontendIsOpen())
+    iFrontendPlayersNetworkMode = 0;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -733,6 +888,10 @@ void frontend_players_select_update(void)
     }
   }
 
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (net_mode == NET_MODE_MODERN && frontend_players_modern_network_update())
+    return;
+#endif
   if (frontend_players_net_slot_update())
     return;
 
@@ -784,27 +943,6 @@ void frontend_players_select_update(void)
     }
     menu_render_scaled_text(mr, 15, &language_buffer[4096], font1_ascii, font1_offsets, 400, 60, 143, 1u, 200, 640, pal_addr);
     iPlayerListCount = 0;
-#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
-    if (net_mode == NET_MODE_MODERN && !NetFrontendIsHost()) {
-      iY = 80;
-      for (iPlayerIndex = 0;
-           iPlayerIndex < NetFrontendBrowserSessionCount() &&
-           iPlayerIndex < 12; ++iPlayerIndex) {
-        tRvzSessionInfo info;
-        char szSessionDetails[64];
-        if (!NetFrontendBrowserSession(iPlayerIndex, &info))
-          continue;
-        snprintf(szSessionDetails, sizeof(szSessionDetails), "%u/%u  %s",
-                 info.byPlayers, info.byMaxPlayers, info.szTrack);
-        menu_render_scaled_text(mr, 15, info.szName, font1_ascii,
-            font1_offsets, 336, iY, 143, 2u, 200, 640, pal_addr);
-        menu_render_scaled_text(mr, 15, szSessionDetails, font1_ascii,
-            font1_offsets, 342, iY, 143, 0u, 200, 640, pal_addr);
-        iY += 18;
-        ++iPlayerListCount;
-      }
-    } else
-#endif
     if (network_on > 0) {                     // Display connected players and their selected cars
       iPlayerIndex = 0;
       iY = 80;
@@ -818,11 +956,16 @@ void frontend_players_select_update(void)
           menu_render_scaled_text(mr, 15, CompanyNames[iPlayerCarIndex], font1_ascii, font1_offsets, 342, iY, 143, 0, 200, 640, pal_addr);
         ++iPlayerIndex;
         szText += 9;
-        iY += 18;
+        iY += 16;
         ++iPlayerListCount;
 
       } while (iPlayerListCount < network_on);
     }
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (net_mode == NET_MODE_MODERN)
+      menu_render_scaled_text(mr, 15, NetFrontendLobbyStatus(), font1_ascii,
+          font1_offsets, 400, 340, 143, 1u, 200, 640, pal_addr);
+#endif
     menu_render_scaled_text(mr, 15, &language_buffer[4224], font1_ascii, font1_offsets, 400, 380, 231, 1u, 200, 640, pal_addr);
     menu_render_scaled_text(mr, 15, &language_buffer[7104], font1_ascii, font1_offsets, 400, 360, 231, 1u, 200, 640, pal_addr);
     frontend_mouse_draw_menu_hover_box(
@@ -1043,5 +1186,29 @@ static void frontend_players_select_run_snapshot(void)
   if (!SnapshotShouldStop())
     frontend_players_select_exit();
 }
+
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+void snapshot_render_menu_network(int iRoster)
+{
+  snapshot_setup_frontend_menu_state(0);
+  frontend_players_select_enter();
+  iFrontendPlayersSelectedPlayerType = 1;
+  if (iRoster) {
+    network_on = players = 16;
+    iFrontendPlayersNetworkMode = -1;
+    for (int iPlayer = 0; iPlayer < 16; ++iPlayer) {
+      snprintf(player_names[iPlayer], sizeof(player_names[iPlayer]), "PLAYER%02d", iPlayer + 1);
+      Players_Cars[iPlayer] = iPlayer % 8;
+    }
+  } else
+    iModernNetworkPage = 1;
+  while (!SnapshotShouldStop()) {
+    frontend_players_select_update();
+    if (!SnapshotShouldStop())
+      UpdateSDLWindow();
+  }
+  network_on = 0;
+}
+#endif
 
 //-------------------------------------------------------------------------------------------------

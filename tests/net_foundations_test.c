@@ -37,7 +37,8 @@ static int NetAngleDifference(int iA, int iB);
 
 static void NetTestLegacyModeSwitch(void)
 {
-  CHECK(net_mode == NET_MODE_LEGACY);
+  CHECK(net_mode == NET_MODE_MODERN);
+  net_mode = NET_MODE_LEGACY;
   NetLegacyTrapReset();
   CHECK(!network_initialise_active());
   ROLLERCommsSetType(1);
@@ -45,7 +46,7 @@ static void NetTestLegacyModeSwitch(void)
   CHECK(NetLegacyTrapEntryCount() == 3);
   CHECK(NetLegacyTrapViolationCount() == 0);
   NetLegacyTrapReset();
-  puts("NET-E7-S1 legacy wrappers preserve the default path");
+  puts("NET-E7-S1 legacy wrappers preserve the explicitly selected path");
 }
 
 static void NetTestRaceLifecycle(void)

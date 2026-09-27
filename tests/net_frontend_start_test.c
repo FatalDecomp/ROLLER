@@ -9,10 +9,12 @@
 #include "colision.h"
 #include "frontend.h"
 #include "func2.h"
+#include "func3.h"
 #include "function.h"
 #include "loadtrak.h"
 #include "moving.h"
 #include "net_channel.h"
+#include "net_rendezvous.h"
 #include "net_frontend_lobby.h"
 #include "net_types.h"
 #include "network.h"
@@ -96,8 +98,104 @@ static void CheckCamera(int iPlayer)
     fWorstCameraError = fError;
 }
 
+/* A local wire-level directory fixture exercises the production frontend
+   cache and selection without creating another simulation world. */
+static void NetTestBrowser(uint16 unClientPort)
+{
+  tNetTransportUdp *pUdp = NetTransportUdpCreate(0);
+  CHECK(pUdp);
+  tNetTransport transport = NetTransportUdpEndpoint(pUdp);
+  CHECK(NetFrontendSetRendezvous("localhost", NetTransportUdpPort(pUdp)));
+  NetFrontendSetLocalPort(unClientPort);
+  net_mode = NET_MODE_MODERN;
+  network_slot = -1;
+  CHECK(NetFrontendOpen());
+  int iSelected = 0, iSawPunch = 0;
+  int iBadPageSent = 0, iPageDropped = 0;
+  uint64 ullListedMs = 0, ullDeadline = SDL_GetTicks() + 5000;
+  while (!iSawPunch) {
+    uint8 abPacket[NET_MAX_PAYLOAD];
+    tNetAddress peer;
+    int iLength;
+    CHECK(SDL_GetTicks() < ullDeadline);
+    Pump();
+    while ((iLength = transport.pReceive(transport.pContext, &peer,
+                                         abPacket, sizeof(abPacket))) > 0) {
+      tNetRendezvousPacket packet;
+      CHECK(NetRendezvousParsePacket(abPacket, iLength, &packet));
+      if (packet.byType == NET_RVZ_MSG_LIST) {
+        int iPage = packet.pPayload[0];
+        if (iPage == 1 && !iPageDropped) {
+          iPageDropped = 1;
+          continue;
+        }
+        int iCount = iPage == 0 ? 12 : 5;
+        uint8 abPayload[sizeof(tRvzListPageHeader) + 12 * sizeof(tRvzSessionInfo)] = {0};
+        abPayload[0] = (uint8)iPage;
+        abPayload[2] = 2;
+        abPayload[4] = 17;
+        abPayload[6] = (uint8)iCount;
+        abPayload[7] = (uint8)(iPage == 0);
+        for (int iRow = 0; iRow < iCount; ++iRow) {
+          tRvzSessionInfo info = {0};
+          info.uiSessionId = (uint32)(100 + iPage * 12 + iRow);
+          info.unPort = 7777;
+          info.unTickRateHz = 36;
+          info.byPlayers = 1;
+          info.byMaxPlayers = 16;
+          snprintf(info.szName, sizeof(info.szName), "SERVER %u", info.uiSessionId);
+          snprintf(info.szTrack, sizeof(info.szTrack), "TRACK3");
+          memcpy(info.szBuildHash, packet.pPayload + 4, sizeof(info.szBuildHash));
+          NetRendezvousEncodeSessionInfo(abPayload + sizeof(tRvzListPageHeader) +
+              iRow * sizeof(tRvzSessionInfo), &info);
+        }
+        if (!iBadPageSent) {
+          /* A server name with no terminator must reject the entire page. */
+          memset(abPayload + sizeof(tRvzListPageHeader) + 11, 'X', 32);
+          iBadPageSent = 1;
+        }
+        iLength = NetRendezvousBuildPacket(abPacket, sizeof(abPacket),
+            packet.unSequence, 0, NET_RVZ_MSG_LIST_PAGE, abPayload,
+            (uint16)(sizeof(tRvzListPageHeader) + iCount * sizeof(tRvzSessionInfo)));
+        CHECK(transport.pSend(transport.pContext, &peer, abPacket, iLength) == iLength);
+      } else if (packet.byType == NET_RVZ_MSG_PUNCH_REQUEST) {
+        CHECK(iSelected); /* Browsing alone must never punch the first server. */
+        CHECK(packet.pPayload[0] == 116 && !packet.pPayload[1] &&
+              !packet.pPayload[2] && !packet.pPayload[3]);
+        iSawPunch = 1;
+      } else {
+        CHECK(0);
+      }
+    }
+    CHECK(!NetFrontendLobbyJoined());
+    if (NetFrontendBrowserSessionCount() == 17) {
+      tRvzSessionInfo info;
+      CHECK(NetFrontendBrowserSession(16, &info));
+      CHECK(info.uiSessionId == 116);
+      if (!ullListedMs) ullListedMs = SDL_GetTicks();
+      if (!iSelected && SDL_GetTicks() - ullListedMs >= 150) {
+        CHECK(!NetFrontendBrowserSelect(999));
+        CHECK(NetFrontendBrowserSelect(info.uiSessionId));
+        iSelected = 1;
+      }
+    }
+  }
+  NetFrontendClose();
+  CHECK(NetFrontendBrowserSessionCount() == 0);
+  CHECK(NetFrontendOpen());
+  CHECK(!NetFrontendLobbyJoined());
+  NetFrontendClose();
+  NetTransportUdpDestroy(pUdp);
+  CHECK(iBadPageSent && iPageDropped);
+  puts("Frontend browser: 17 entries, explicit last-row selection, malformed/lost page recovery");
+}
+
 int main(int argc, char **argv)
 {
+  if (argc == 3 && !strcmp(argv[1], "--browser")) {
+    NetTestBrowser((uint16)atoi(argv[2]));
+    return 0;
+  }
   /* track assets role local-port host-port design locals competitors seed delay */
   CHECK(argc == 11);
   int iHost = !strcmp(argv[3], "host");
@@ -122,24 +220,55 @@ int main(int argc, char **argv)
   manual_control[0] = manual_control[1] = 1;
   snprintf(my_name, sizeof(my_name), "%s", iHost ? "HOST" : "CLIENT");
   NetFrontendSetLocalPort((uint16)atoi(argv[4]));
+  CHECK(NetFrontendSetRendezvous("", 7778));
   CHECK(NetFrontendSetLocalPlayers(iLocalPlayers));
   if (!iHost)
     CHECK(NetFrontendSetPeer("127.0.0.1", (uint16)atoi(argv[5])));
   CHECK(NetFrontendOpen());
-  CHECK(NetFrontendLobbyBegin());
+  if (iHost) {
+    CHECK(NetFrontendLobbyBegin());
+  } else {
+    tRvzSessionInfo info;
+    CHECK(NetFrontendBrowserSessionCount() == 1);
+    CHECK(NetFrontendBrowserSession(0, &info));
+    for (int iFrame = 0; iFrame < 100; ++iFrame) {
+      Pump();
+      CHECK(!NetFrontendLobbyJoined());
+    }
+    CHECK(NetFrontendBrowserSelect(info.uiSessionId));
+  }
   uint64 ullDeadline = SDL_GetTicks() + 15000;
   uint32 uiStartTick = 0;
   int iRequested = 0;
+  int iChatSent = 0, iChatReceived = 0;
   while (!NetFrontendLobbyStartTick(&uiStartTick)) {
     CHECK(SDL_GetTicks() < ullDeadline);
     Pump();
+    if (NetFrontendLobbyJoined() && players == 2 * iLocalPlayers && !iChatSent) {
+      /* Exercise the existing composer globals and received-message seam.
+         Clients must be able to address the host (display player zero). */
+      if (iHost) {
+        CHECK(!strcmp(player_names[0], "HOST"));
+        CHECK(!strcmp(player_names[iLocalPlayers], "CLIENT"));
+      }
+      snprintf(send_mes_buf, sizeof(send_mes_buf), "HELLO FROM %s", iHost ? "HOST" : "CLIENT");
+      send_message_to = iHost ? 0 : 1;
+      iChatSent = 1;
+    }
+    if (rec_status) {
+      CHECK(!strcmp(rec_mes_name, iHost ? "CLIENT" : "HOST"));
+      CHECK(!strcmp(rec_mes_buf, iHost ? "HELLO FROM CLIENT" : "HELLO FROM HOST"));
+      rec_status = 0;
+      iChatReceived = 1;
+    }
     if (iHost && !iRequested && players == 2 * iLocalPlayers &&
-        players_waiting == players && NetFrontendLobbyCanStart()) {
+        iChatReceived && players_waiting == players && NetFrontendLobbyCanStart()) {
       CHECK(NetFrontendLobbyRequestStart(0));
       iRequested = 1;
     }
   }
   CHECK(players == 2 * iLocalPlayers);
+  CHECK(iChatSent && iChatReceived);
   int iDisplay = player1_car;
   time_to_start = -1;
   frontend_main_menu_prepare_race_start();

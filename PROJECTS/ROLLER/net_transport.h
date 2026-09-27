@@ -31,6 +31,10 @@ typedef struct tNetTransportUdp tNetTransportUdp;
 /* Numeric forms are a.b.c.d[:port] and [ipv6%scope][:port].  An omitted
    port uses unDefaultPort.  IPv6 without a port may omit the brackets. */
 int NetAddressParse(tNetAddress *pAddress, const char *szText, uint16 unDefaultPort);
+/* User-entered hostname[:port], numeric address, or udp://host[:port].
+   Validation does no DNS; resolution may block and belongs outside a tick. */
+int NetAddressEndpointValid(const char *szText, uint16 unDefaultPort);
+int NetAddressResolve(tNetAddress *pAddress, const char *szText, uint16 unDefaultPort);
 int NetAddressFormat(const tNetAddress *pAddress, char *szText, int iCapacity);
 int NetAddressEqual(const tNetAddress *pA, const tNetAddress *pB);
 
