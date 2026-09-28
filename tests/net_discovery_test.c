@@ -140,6 +140,9 @@ int main(void)
   CHECK(resolved.byFamily == hostAddress.byFamily &&
         resolved.unPort == hostAddress.unPort &&
         memcmp(resolved.abAddress, hostAddress.abAddress, 4) == 0);
+  /* The host also needs its probe acknowledged, not merely received. */
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 108);
   CHECK(NetDiscoveryPunchState(pHostDiscovery, &resolved) ==
         NET_PUNCH_SUCCEEDED);
   CHECK(resolved.byFamily == browserAddress.byFamily &&

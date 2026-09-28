@@ -70,6 +70,10 @@ int NetDiscoveryResolve(tNetDiscovery *pDiscovery, uint32 uiSessionId);
 int NetDiscoveryResolved(tNetDiscovery *pDiscovery, uint32 uiSessionId,
                          tNetAddress *pAddress);
 int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId);
+/* Fall back after probes succeeded but the game handshake did not. */
+int NetDiscoveryRequestRelay(tNetDiscovery *pDiscovery);
+/* Stop relay setup retries once the game handshake has completed. */
+void NetDiscoveryConfirmJoin(tNetDiscovery *pDiscovery);
 eNetPunchState NetDiscoveryPunchState(const tNetDiscovery *pDiscovery,
                                       tNetAddress *pAddress);
 void NetDiscoveryPump(tNetDiscovery *pDiscovery);

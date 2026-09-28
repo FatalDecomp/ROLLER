@@ -927,6 +927,16 @@ int NetConnectionIsExpired(const tNetConnection *pConnection)
   return !pConnection || pConnection->byExpired;
 }
 
+int NetConnectionSetPeer(tNetConnection *pConnection,
+                         const tNetAddress *pPeer)
+{
+  if (!pConnection || pConnection->byExpired || !pPeer || !pPeer->unPort ||
+      (pPeer->byFamily != NET_ADDR_IPV4 && pPeer->byFamily != NET_ADDR_IPV6))
+    return 0;
+  pConnection->peer = *pPeer;
+  return 1;
+}
+
 int NetConnectionPendingReliable(const tNetConnection *pConnection)
 {
   int iCount = 0, iEntry;

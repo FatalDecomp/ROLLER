@@ -1,5 +1,45 @@
 # Netcode E6 notes
 
+## Internet join recovery (2026-09-28)
+
+A desktop listen host could be listed on an Android phone over mobile data, but
+joining stayed at `CONNECTING TO HOST`. LAN joining worked. The reported
+transition from `CONNECTING TO SELECTED GAME` took about half a second, before
+the three-second relay deadline.
+
+The direct-path check treated receipt of a probe as success. That proved only
+that host-to-client packets arrived; the client's replies could still be
+blocked. Success stopped the probe timeout, so the session handshake could wait
+forever without requesting a relay. A real-UDP regression reproduced that exact
+status by dropping direct client-to-host traffic.
+
+- Direct selection now requires a probe acknowledgement. On an incoming probe,
+  the endpoint also probes its observed source, which can differ from the
+  daemon's candidate when NAT assigns ports per destination.
+- The frontend requests a relay if the direct game handshake still has not
+  completed after three seconds. Route changes preserve queued reliable
+  messages. An initial handshake or relay-allocation timeout reports
+  `CONNECTION TIMED OUT - PLEASE TRY AGAIN` and closes the attempt.
+- Relay allocation retries continue until the session/configuration arrives
+  (bounded to ten seconds). Receipt of the client's allocation alone does not
+  prove the host received its offer. Only clients request relays; timed-out
+  hosts no longer allocate relays to themselves.
+- Repeated candidate notifications do not extend the original punch deadline. No
+  wire layout or rendezvous-daemon change is required.
+
+`test-net-frontend-start` now runs real UDP cases for a one-way direct path plus
+a lost first host relay offer, successful probes followed by a blocked game
+handshake, and an unavailable relay. Successful cases complete the real
+session/configuration/player-info/ready exchange; the unavailable relay exits
+with a visible timeout. Existing LAN/direct loading and race tests remain. These
+fixtures reproduce network failures locally; a physical Android 5G retest is
+still required to confirm the user's network.
+
+Validation passed: foundations, full-state coherence, host, client, harness,
+frontend startup, relay races at both rates, native Windows ReleaseSafe build,
+Android `assembleDebug` (arm64-v8a and x86_64), source/manifest checks, 19
+Python configuration tests, Markdown formatting, and `git diff --check`.
+
 ## NET-E6-S1: rendezvous daemon
 
 Implemented on 2026-09-24. The changes are intentionally uncommitted.

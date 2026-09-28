@@ -86,6 +86,9 @@ uint64 NetConnectionSessionToken(const tNetConnection *pConnection);
 uint8 NetConnectionGeneration(const tNetConnection *pConnection);
 int NetConnectionPeer(const tNetConnection *pConnection,
                       tNetAddress *pPeer);
+/* Locally selected route change; preserve identity and reliable messages. */
+int NetConnectionSetPeer(tNetConnection *pConnection,
+                         const tNetAddress *pPeer);
 
 void NetChannelPump(tNetChannel *pChannel);
 void NetPump(void);

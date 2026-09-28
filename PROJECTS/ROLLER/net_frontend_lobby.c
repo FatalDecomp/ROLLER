@@ -51,6 +51,7 @@ typedef struct
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
   uint8 byAppResumePending;
   uint64 ullRejoinStartedMs;
+  uint64 ullJoinStartedMs;
   char szStatus[96];
   char szRaceError[96];
 } tNetFrontendLobbyState;
@@ -172,6 +173,7 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byRaceStarted = 0;
   s_frontend.byAppResumePending = 0;
   s_frontend.ullRejoinStartedMs = 0;
+  s_frontend.ullJoinStartedMs = 0;
   s_frontend.szRaceError[0] = '\0';
 }
 
@@ -195,6 +197,7 @@ void NetFrontendClose(void)
   s_frontend.iBrowserSessionCount = 0;
   s_frontend.byHasPeer = 0;
   s_frontend.byJoinSelected = 0;
+  s_frontend.byRelayThrottleShown = 0;
   send_message_to = -1;
   net_listen_host = 0;
   NetRaceStartReset();
@@ -492,6 +495,7 @@ int NetFrontendLobbyBegin(void)
     return NetFrontendLobbyFailure("JOIN START FAILED");
 
   s_frontend.byLobbyStarted = 1;
+  s_frontend.ullJoinStartedMs = NetChannelNowMs(s_frontend.pClientChannel);
   NetFrontendStatus(s_frontend.byHost ? "WAITING FOR PLAYERS" :
                     "CONNECTING TO HOST");
   return 1;
@@ -658,17 +662,27 @@ void NetFrontendPump(void)
       NetDiscoverySession(s_frontend.pDiscovery, iSession,
                           &s_frontend.aBrowserSessions[iSession]);
   }
-  if (!s_frontend.byHost && !s_frontend.byHasPeer &&
+  if (!s_frontend.byHost &&
       s_frontend.pDiscovery) {
     if (s_frontend.byResolvePending) {
       eNetPunchState ePunchState = NetDiscoveryPunchState(
           s_frontend.pDiscovery, &s_frontend.peer);
       if (ePunchState == NET_PUNCH_SUCCEEDED ||
           ePunchState == NET_PUNCH_RELAY_SUCCEEDED) {
+        if (s_frontend.pClient && !NetConnectionSetPeer(
+                NetSessionClientConnection(s_frontend.pClient), &s_frontend.peer)) {
+          NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+          return;
+        }
         s_frontend.byHasPeer = 1;
         s_frontend.byResolvePending = 0;
         NetFrontendStatus(ePunchState == NET_PUNCH_SUCCEEDED ?
                           "GAME FOUND" : "GAME FOUND VIA RELAY");
+      } else if (ePunchState == NET_PUNCH_RELAY_IN_PROGRESS) {
+        NetFrontendStatus("CONNECTING VIA RELAY");
+      } else if (ePunchState == NET_PUNCH_TIMED_OUT) {
+        NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+        return;
       }
     }
   }
@@ -755,8 +769,24 @@ void NetFrontendPump(void)
     return;
   }
   if (state != NET_JOIN_ACCEPTED ||
-      !NetSessionClientGetConfig(s_frontend.pClient, &config))
+      !NetSessionClientGetConfig(s_frontend.pClient, &config)) {
+    if (!s_frontend.byHost && !s_frontend.pRaceClient) {
+      uint64 ullElapsedMs = NetChannelNowMs(s_frontend.pClientChannel) -
+          s_frontend.ullJoinStartedMs;
+      if (ullElapsedMs >= NET_CONNECTION_TIMEOUT_MS) {
+        NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+        return;
+      }
+      if (state == NET_JOIN_WAITING && !s_frontend.byResolvePending &&
+          ullElapsedMs >= NET_PUNCH_TIMEOUT_MS &&
+          NetDiscoveryRequestRelay(s_frontend.pDiscovery)) {
+        s_frontend.byResolvePending = 1;
+        NetFrontendStatus("CONNECTING VIA RELAY");
+      }
+    }
     return;
+  }
+  NetDiscoveryConfirmJoin(s_frontend.pDiscovery);
 
   if (!s_frontend.byConfigApplied ||
       (!s_frontend.byRaceScheduled &&
