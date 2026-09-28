@@ -1060,7 +1060,8 @@ static void frontend_type_select_handle_input(void)
       frontend_type_select_handle_championship_reset();
     }
 
-    if (network_broadcast_wait_active() || iFrontendTypeCloseNetworkPending)
+    if ((net_mode == NET_MODE_LEGACY && network_broadcast_wait_active()) ||
+        iFrontendTypeCloseNetworkPending)
       return;
 
     if (iFrontendTypeExitFlag)
