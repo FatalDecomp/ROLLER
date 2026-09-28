@@ -7,6 +7,7 @@
 #include "car.h"
 #include "moving.h"
 #include "network.h"
+#include "net_types.h"
 #include "loadtrak.h"
 #include "control.h"
 #include "drawtrk3.h"
