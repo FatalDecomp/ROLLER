@@ -646,6 +646,18 @@ static void NetTestCapacityUpdate(void)
   CHECK(NetSessionClientGetConfig(clients[2].pSession, &received));
   CHECK(received.byMaxPlayers == 16);
   CHECK(NetLobbyClientPlayerSlots(clients[0].pLobby) == 16);
+  /* Both local players can take the two copies of a design in a 16-car
+     game; a third player requesting that design is refused atomically. */
+  CHECK(NetLobbyClientSetPlayerInfo(clients[0].pLobby, 6, 6, 1));
+  NetTestPump(pSim, pHost, pLobby, clients, 3, 1500, 1800);
+  tNetPlayerEntry player;
+  CHECK(NetLobbyClientPlayer(clients[2].pLobby,
+      NetSessionClientPlayerIndex(clients[0].pSession), &player));
+  CHECK(player.byCarIdx0 == 6 && player.byCarIdx1 == 6);
+  CHECK(NetLobbyClientSetPlayerInfo(clients[2].pLobby, 6, NET_LOBBY_NO_PLAYER, 1));
+  NetTestPump(pSim, pHost, pLobby, clients, 3, 1801, 2100);
+  CHECK(NetLobbyHostPlayer(pLobby, NetSessionClientPlayerIndex(clients[2].pSession), &player));
+  CHECK(player.byCarIdx0 != 6);
   config.byMaxPlayers = 2;
   config.iCompetitors = 2;
   CHECK(!NetLobbyHostUpdateConfig(pLobby, &config));

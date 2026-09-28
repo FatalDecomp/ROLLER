@@ -57,7 +57,8 @@ it cannot be skipped by the normal foundation run.
 The equivalent CMake/CTest test is `net-frontend-start`, enabled with
 `ROLLER_NET_TEST_ASSETS`. `test-net-lobby` also checks that 8-slot sessions
 allow one player per design and 16-slot sessions allow two, on both host and
-clients. Competitor count and session player capacity are separate settings.
+clients. The modern menu now derives session capacity from the host's CARS
+setting; see [Modern networking menus](netcode-ui.md).
 
 Validation also passed the foundation, host, and real-UDP multi-process race
 suites, and the client suite on its usual TRACK5 fixture. The client suite on

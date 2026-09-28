@@ -66,6 +66,11 @@ static const char *s_aszFrontendCarMenuNames[8] = {
 
 static void frontend_car_select_run_snapshot(void);
 
+static int frontend_car_select_capacity(void)
+{
+  return network_on && net_mode == NET_MODE_MODERN && competitors != 16 ? 1 : 2;
+}
+
 //-------------------------------------------------------------------------------------------------
 
 void snapshot_render_menu_select_car(void)
@@ -505,7 +510,7 @@ void frontend_car_select_update(void)
         iCarAllocationStatus = allocated_cars[iFrontendCarSelectedCar];
         iFrontendCarZoomDistance = 40000;
         iFrontendCarZoomSpeed = -iFrontendCarZoomSpeed;
-        if (iCarAllocationStatus < 2) {
+        if (iCarAllocationStatus < frontend_car_select_capacity()) {
           if (iFrontendCarPlayer1Car >= CAR_DESIGN_AUTO) {
             MenuRenderer *mr = GetMenuRenderer();
             iCarDesignIndex = iFrontendCarPlayer1Car;
@@ -658,9 +663,9 @@ void frontend_car_select_update(void)
         if (iFrontendCarCurrentSelectorPos == 8) {
           frontend_car_select_request_exit();
         } else if (iFrontendCarPlayer1Car != iFrontendCarCurrentSelectorPos
-                   && (allocated_cars[iFrontendCarCurrentSelectorPos] < 2
+                   && (allocated_cars[iFrontendCarCurrentSelectorPos] < frontend_car_select_capacity()
                        || (game_type == 1 && Race > 0))) {
-          if (network_on) {
+          if (network_on && net_mode == NET_MODE_LEGACY) {
             car_request = g_bFixCarMenuBug ? iFrontendCarCurrentSelectorPos + 1 : iNextCarIndex;
             frontend_car_select_begin_broadcast_wait(-9999);
             return;
@@ -771,5 +776,49 @@ static void frontend_car_select_run_snapshot(void)
   if (!SnapshotShouldStop())
     frontend_car_select_exit();
 }
+
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+int snapshot_render_menu_network_car(void)
+{
+  int iStep = 0, iSecondCopy = 0, iChangedAgain = 0;
+  snapshot_setup_frontend_menu_state(0);
+  net_mode = NET_MODE_MODERN;
+  network_on = players = 3;
+  competitors = 16;
+  player_type = 1;
+  player1_car = 0;
+  Players_Cars[0] = 0;
+  Players_Cars[1] = 6;
+  Players_Cars[2] = 5;
+  check_cars();
+  frontend_car_select_enter();
+  while (!SnapshotShouldStop()) {
+    if (iStep == 1 || iStep == 70 || iStep == 140) {
+      if (iStep == 70) {
+        iSecondCopy = Players_Cars[0] == 6;
+      } else if (iStep == 140) {
+        iChangedAgain = Players_Cars[0] == 1;
+        Players_Cars[2] = 6;
+      }
+      check_cars();
+      iFrontendCarCurrentSelectorPos = iStep == 70 ? 1 : 6;
+      frontend_mouse_press_accept();
+    }
+    frames = 4;
+    frontend_car_select_update();
+    if (!SnapshotShouldStop())
+      UpdateSDLWindow();
+    ++iStep;
+  }
+  network_on = 0;
+  if (!iSecondCopy || !iChangedAgain || Players_Cars[0] != 1 || car_request) {
+    fprintf(stderr, "Network car menu failed: second=%d changed=%d car=%d request=%d\n",
+            iSecondCopy, iChangedAgain, Players_Cars[0], car_request);
+    return 0;
+  }
+  puts("Network car menu: changed twice, second copy allowed, third copy refused");
+  return 1;
+}
+#endif
 
 //-------------------------------------------------------------------------------------------------

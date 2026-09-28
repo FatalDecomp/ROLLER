@@ -15,6 +15,11 @@ static int SnapshotSceneCapturedAll(void)
 int SnapshotRunScene(void)
 {
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (!strcmp(g_SnapshotConfig.szSceneName, "menu-network-car-change")) {
+    if (!snapshot_render_menu_network_car())
+      return 1;
+    return SnapshotSceneCapturedAll();
+  }
   if (!strcmp(g_SnapshotConfig.szSceneName, "menu-network-options") ||
       !strcmp(g_SnapshotConfig.szSceneName, "menu-network-players")) {
     snapshot_render_menu_network(!strcmp(g_SnapshotConfig.szSceneName, "menu-network-players"));

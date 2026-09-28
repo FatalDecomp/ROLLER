@@ -269,6 +269,7 @@ void front_volumebar(MenuRenderer *pRenderer, int iY, int iVolumeLevel, int iFil
 void snapshot_render_menu_select_players(void);
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
 void snapshot_render_menu_network(int iRoster);
+int snapshot_render_menu_network_car(void);
 #endif
 void snapshot_render_menu_select_type(void);
 void snapshot_render_menu_select_track(void);

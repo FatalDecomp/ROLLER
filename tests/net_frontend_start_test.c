@@ -215,8 +215,8 @@ int main(int argc, char **argv)
   ROLLERsrand((unsigned int)random_seed);
   player1_car = 0;
   player2_car = iLocalPlayers == 2 ? 1 : -1;
-  Players_Cars[0] = iDesign;
-  Players_Cars[1] = (iDesign + 1) % 8;
+  Players_Cars[0] = (iDesign + (iLocalPlayers == 2 ? 1 : 4)) % 8;
+  Players_Cars[1] = iLocalPlayers == 2 ? iDesign : (iDesign + 1) % 8;
   manual_control[0] = manual_control[1] = 1;
   snprintf(my_name, sizeof(my_name), "%s", iHost ? "HOST" : "CLIENT");
   NetFrontendSetLocalPort((uint16)atoi(argv[4]));
@@ -241,10 +241,20 @@ int main(int argc, char **argv)
   uint32 uiStartTick = 0;
   int iRequested = 0;
   int iChatSent = 0, iChatReceived = 0;
+  int iCarChangeSent = 0;
   while (!NetFrontendLobbyStartTick(&uiStartTick)) {
     CHECK(SDL_GetTicks() < ullDeadline);
     Pump();
-    if (NetFrontendLobbyJoined() && players == 2 * iLocalPlayers && !iChatSent) {
+    if (NetFrontendLobbyJoined() && players == 2 * iLocalPlayers &&
+        players_waiting == players && !iCarChangeSent) {
+      Players_Cars[player1_car] = iDesign;
+      if (iLocalPlayers == 2)
+        Players_Cars[player2_car] = (iDesign + 1) % 8;
+      NetFrontendLobbyUpdatePlayerInfo();
+      iCarChangeSent = 1;
+      continue;
+    }
+    if (iCarChangeSent && Players_Cars[player1_car] == iDesign && !iChatSent) {
       /* Exercise the existing composer globals and received-message seam.
          Clients must be able to address the host (display player zero). */
       if (iHost) {
@@ -262,7 +272,7 @@ int main(int argc, char **argv)
       iChatReceived = 1;
     }
     if (iHost && !iRequested && players == 2 * iLocalPlayers &&
-        iChatReceived && players_waiting == players && NetFrontendLobbyCanStart()) {
+        iChatSent && iChatReceived && players_waiting == players && NetFrontendLobbyCanStart()) {
       CHECK(NetFrontendLobbyRequestStart(0));
       iRequested = 1;
     }

@@ -120,7 +120,6 @@ static int NetLobbyPlayerValid(const tNetPlayerEntry *pPlayer)
   if (pPlayer->byCarIdx0 >= MAX_CARS ||
       (pPlayer->byCarIdx1 != NET_LOBBY_NO_PLAYER &&
        pPlayer->byCarIdx1 >= MAX_CARS) ||
-      pPlayer->byCarIdx0 == pPlayer->byCarIdx1 ||
       (pPlayer->byHumanControl != 1 && pPlayer->byHumanControl != 2))
     return 0;
   return NetLobbyStringValid(pPlayer->szName, sizeof(pPlayer->szName), 1);
@@ -177,7 +176,8 @@ static int NetLobbyHostBroadcastPlayers(tNetLobbyHost *pLobby,
 }
 
 static int NetLobbyHostCarAvailable(const tNetLobbyHost *pLobby,
-                                    uint8 byPlayerIdx, uint8 byCarIdx)
+                                    uint8 byPlayerIdx, uint8 byCarIdx,
+                                    int iRequested)
 {
   int iUses = 0;
   int iCapacity = pLobby->config.byMaxPlayers == NET_SESSION_MAX_PLAYERS ?
@@ -190,7 +190,7 @@ static int NetLobbyHostCarAvailable(const tNetLobbyHost *pLobby,
       iUses += pPlayer->byCarIdx1 == byCarIdx;
     }
   }
-  return iUses < iCapacity;
+  return iUses + iRequested <= iCapacity;
 }
 
 static int NetLobbyHostTryReleaseRace(tNetLobbyHost *pLobby)
@@ -345,13 +345,14 @@ static void NetLobbyHostMessage(void *pContext, uint8 byPlayerIdx,
     if (pMessage->abData[3] || byCarIdx0 >= MAX_CARS ||
         (byCarIdx1 != NET_LOBBY_NO_PLAYER &&
          byCarIdx1 >= MAX_CARS) ||
-        byCarIdx0 == byCarIdx1 ||
         (byHumanControl != 1 && byHumanControl != 2) ||
         (byLocalPlayers == 1 && byCarIdx1 != NET_LOBBY_NO_PLAYER) ||
         (byLocalPlayers == 2 && byCarIdx1 == NET_LOBBY_NO_PLAYER) ||
-        !NetLobbyHostCarAvailable(pLobby, byPlayerIdx, byCarIdx0) ||
+        !NetLobbyHostCarAvailable(pLobby, byPlayerIdx, byCarIdx0,
+                                  byCarIdx0 == byCarIdx1 ? 2 : 1) ||
         (byCarIdx1 != NET_LOBBY_NO_PLAYER &&
-         !NetLobbyHostCarAvailable(pLobby, byPlayerIdx, byCarIdx1)))
+         !NetLobbyHostCarAvailable(pLobby, byPlayerIdx, byCarIdx1,
+                                   byCarIdx0 == byCarIdx1 ? 2 : 1)))
       return;
     pPlayer->byCarIdx0 = byCarIdx0;
     pPlayer->byCarIdx1 = byCarIdx1;

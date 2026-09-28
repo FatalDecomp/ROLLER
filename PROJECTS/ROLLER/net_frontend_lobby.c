@@ -361,7 +361,8 @@ int NetFrontendMessagePlayer(int iSelection)
 void NetFrontendLobbyUpdatePlayerInfo(void)
 {
   if (!s_frontend.byLobbyStarted || s_frontend.byRaceScheduled ||
-      player1_car < 0 || player1_car >= MAX_CARS)
+      player1_car < 0 || player1_car >= MAX_CARS ||
+      (s_frontend.byLocalPlayers == 2 && (player2_car < 0 || player2_car >= MAX_CARS)))
     return;
   s_frontend.bySelectedCar0 = (uint8)(Players_Cars[player1_car] < 0 ? 0 : Players_Cars[player1_car]);
   s_frontend.bySelectedCar1 = s_frontend.byLocalPlayers == 2 ?
@@ -454,8 +455,6 @@ int NetFrontendLobbyBegin(void)
   s_frontend.bySelectedCar1 = s_frontend.byLocalPlayers == 2 ?
       (uint8)(Players_Cars[player2_car] < 0 ? 1 : Players_Cars[player2_car]) :
       NET_LOBBY_NO_PLAYER;
-  if (s_frontend.bySelectedCar0 == s_frontend.bySelectedCar1)
-    s_frontend.bySelectedCar1 = s_frontend.bySelectedCar0 ? 0 : 1;
   s_frontend.bySelectedControl =
       (uint8)(manual_control[player1_car] == 2 ? 2 : 1);
 
