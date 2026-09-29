@@ -198,6 +198,7 @@ typedef struct {
   tNetTransport transport;
   int iHost, iAllowPunch, iDropOffer, iDropRelay;
   int iDroppedOffers, iRelayRequests;
+  int iLoopbackCandidate, iInjectedCandidates;
 } tNetTestInternetTransport;
 
 static int NetTestInternetSend(void *pContext, const tNetAddress *pPeer,
@@ -205,6 +206,36 @@ static int NetTestInternetSend(void *pContext, const tNetAddress *pPeer,
 {
   tNetTestInternetTransport *pTest = pContext;
   tNetRendezvousPacket packet;
+  if (pTest->iLoopbackCandidate &&
+      NetRendezvousParsePacket(pData, iLength, &packet) &&
+      packet.byType == NET_RVZ_MSG_PUNCH_ANSWER) {
+    uint8 abPayload[sizeof(tRvzCandidateSet)], abPacket[NET_MAX_PAYLOAD];
+    tNetAddress loopback = {0};
+    CHECK(packet.unPayloadLength == sizeof(abPayload));
+    CHECK(packet.pPayload[12] < NET_RVZ_MAX_CANDIDATES);
+    memcpy(abPayload, packet.pPayload, sizeof(abPayload));
+    memmove(abPayload + 16 + sizeof(tRvzCandidate), abPayload + 16,
+            abPayload[12] * sizeof(tRvzCandidate));
+    ++abPayload[12];
+    /* An older remote host advertises its loopback on the shared game port.
+       On the client this points back to the client's own real UDP socket. */
+    CHECK(NetAddressParse(&loopback,
+        pTest->iLoopbackCandidate == 2 ? "127.0.0.1" : "::1", pPeer->unPort));
+    if (pTest->iLoopbackCandidate == 3) {
+      /* Numeric parsing normally canonicalizes mapped IPv6 into IPv4;
+         encode the mapped form explicitly to exercise the received wire. */
+      loopback.abAddress[10] = loopback.abAddress[11] = 255;
+      loopback.abAddress[12] = 127;
+    }
+    NetRendezvousEncodeCandidate(abPayload + 16, &loopback);
+    int iSentLength = NetRendezvousBuildPacket(abPacket, sizeof(abPacket),
+        packet.unSequence, packet.ullToken, packet.byType,
+        abPayload, sizeof(abPayload));
+    CHECK(iSentLength == iLength);
+    ++pTest->iInjectedCandidates;
+    return pTest->transport.pSend(pTest->transport.pContext, pPeer,
+                                   abPacket, iSentLength);
+  }
   if (NetRendezvousParsePacket(pData, iLength, &packet) &&
       packet.byType == NET_RVZ_MSG_RELAY_OFFER && pTest->iDropOffer) {
     pTest->iDropOffer = 0;
@@ -274,6 +305,7 @@ static void NetTestInternetJoin(uint16 unClientPort, int iCase,
   rvzTransport.transport = NetTransportUdpEndpoint(pRvzUdp);
   rvzTransport.iDropOffer = iCase == 0;
   rvzTransport.iDropRelay = iCase == 2;
+  rvzTransport.iLoopbackCandidate = iCase >= 3 ? iCase - 2 : 0;
   CHECK(NetAddressParse(&rendezvous, "127.0.0.1", NetTransportUdpPort(pRvzUdp)));
   tNetChannel *pHostChannel = NetChannelCreate(NetTestInternetEndpoint(&hostTransport));
   tNetRendezvous *pRvz = NetRendezvousCreate(NetTestInternetEndpoint(&rvzTransport),
@@ -330,6 +362,8 @@ static void NetTestInternetJoin(uint16 unClientPort, int iCase,
     CHECK(NetFrontendLobbyJoined() && NetLobbyHostAllReady(pLobby));
   if (iCase == 0)
     CHECK(rvzTransport.iDroppedOffers == 1 && rvzTransport.iRelayRequests >= 2);
+  if (iCase >= 3)
+    CHECK(rvzTransport.iInjectedCandidates);
   /* Only the joining client requests a relay; the host must not relay to itself. */
   CHECK(NetDiscoveryPunchState(pDiscovery, NULL) != NET_PUNCH_RELAY_SUCCEEDED);
   NetFrontendClose();

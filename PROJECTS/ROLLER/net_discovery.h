@@ -51,6 +51,7 @@ tNetDiscovery *NetDiscoveryCreate(tNetChannel *pChannel,
                                   void *pRandomContext);
 int NetDiscoveryEnableLan(tNetDiscovery *pDiscovery, uint16 unPort);
 void NetDiscoveryDestroy(tNetDiscovery *pDiscovery);
+/* Validates the set and omits loopback addresses from advertisements. */
 int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
                                    const tNetAddress *pCandidates,
                                    int iCount);

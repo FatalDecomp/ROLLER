@@ -119,6 +119,28 @@ static void NetDiscoveryWrite64(uint8 *pData, uint64 ullValue)
   NetDiscoveryWrite32(pData + 4, (uint32)(ullValue >> 32));
 }
 
+static int NetDiscoveryPunchPeerAllowed(const tNetDiscovery *pDiscovery,
+                                         const tNetAddress *pPeer)
+{
+  int iCandidate;
+  int iLoopback = NetAddressIsLoopback(pPeer);
+  /* Public rendezvous replies can contain loopback from older hosts. Such
+     addresses identify this machine, never an Internet peer. A deliberately
+     local rendezvous may connect local processes on different ports. */
+  if (iLoopback && (!NetAddressIsLoopback(&pDiscovery->rendezvous) ||
+      (pDiscovery->byLanEnabled &&
+       pPeer->unPort == pDiscovery->lanBroadcast.unPort)))
+    return 0;
+  for (iCandidate = 0; iCandidate < pDiscovery->iLocalCandidateCount;
+       ++iCandidate) {
+    const tNetAddress *pLocal = &pDiscovery->aLocalCandidates[iCandidate];
+    if (NetDiscoveryAddressEqual(pPeer, pLocal) ||
+        (iLoopback && pPeer->unPort == pLocal->unPort))
+      return 0;
+  }
+  return 1;
+}
+
 static int NetDiscoverySendLanQuery(tNetDiscovery *pDiscovery)
 {
   uint8 abPacket[sizeof(tNetLanQuery)] = {0};
@@ -359,6 +381,8 @@ static int NetDiscoveryHandleDirect(tNetDiscovery *pDiscovery,
   if (pDiscovery->ePunchState != NET_PUNCH_IN_PROGRESS &&
       pDiscovery->ePunchState != NET_PUNCH_SUCCEEDED)
     return 1;
+  if (!NetDiscoveryPunchPeerAllowed(pDiscovery, pPeer))
+    return 1;
   if (byType == NET_PUNCH_PROBE) {
     NetDiscoverySendPunchPacket(pDiscovery, pPeer, NET_PUNCH_ACK);
     /* Receiving a probe only proves the inbound path. Probe its observed
@@ -481,9 +505,11 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
       pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
     pDiscovery->uiPunchSessionId = uiPunchSessionId;
     pDiscovery->ullPunchNonce = ullPunchNonce;
-    memcpy(pDiscovery->aPunchCandidates, aPunchCandidates,
-           iPunchCandidateCount * sizeof(tNetAddress));
-    pDiscovery->iPunchCandidateCount = iPunchCandidateCount;
+    pDiscovery->iPunchCandidateCount = 0;
+    for (int iCandidate = 0; iCandidate < iPunchCandidateCount; ++iCandidate)
+      if (NetDiscoveryPunchPeerAllowed(pDiscovery, &aPunchCandidates[iCandidate]))
+        pDiscovery->aPunchCandidates[pDiscovery->iPunchCandidateCount++] =
+            aPunchCandidates[iCandidate];
     pDiscovery->iNextPunchCandidate = 0;
     pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
     pDiscovery->byPunchHasAnswer = 1;
@@ -583,7 +609,7 @@ int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
 {
   tNetAddress aValidated[NET_RVZ_MAX_LOCAL_CANDIDATES];
   uint8 abWire[sizeof(tRvzCandidate)];
-  int iCandidate, iPrior;
+  int iCandidate, iPrior, iUsable = 0;
   if (!pDiscovery || iCount < 0 ||
       iCount > NET_RVZ_MAX_LOCAL_CANDIDATES ||
       (iCount && !pCandidates) || pDiscovery->byHosting)
@@ -597,10 +623,12 @@ int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
                                    &aValidated[iCandidate]))
         return 0;
   }
-  if (iCount)
-    memcpy(pDiscovery->aLocalCandidates, aValidated,
-           iCount * sizeof(tNetAddress));
-  pDiscovery->iLocalCandidateCount = iCount;
+  /* Loopback must never be advertised to another machine, even when an
+     external caller supplies candidates instead of interface enumeration. */
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate)
+    if (!NetAddressIsLoopback(&aValidated[iCandidate]))
+      pDiscovery->aLocalCandidates[iUsable++] = aValidated[iCandidate];
+  pDiscovery->iLocalCandidateCount = iUsable;
   return 1;
 }
 

@@ -408,7 +408,8 @@ static void NetAddressAppend(tNetAddress *pAddresses, int iCapacity, int *pCount
 {
   tNetAddress address;
   int iAddress;
-  if (*pCount >= iCapacity || !NetAddressFromSockaddr(&address, pSocketAddress))
+  if (*pCount >= iCapacity || !NetAddressFromSockaddr(&address, pSocketAddress) ||
+      NetAddressIsLoopback(&address))
     return;
   address.unPort = unPort;
   for (iAddress = 0; iAddress < *pCount; ++iAddress)
@@ -458,7 +459,7 @@ int NetAddressEnumerateLocal(tNetAddress *pAddresses, int iCapacity, uint16 unPo
   }
   for (pInterface = pInterfaces; pInterface && iCount < iCapacity;
        pInterface = pInterface->ifa_next) {
-    if (pInterface->ifa_addr)
+    if (pInterface->ifa_addr && (pInterface->ifa_flags & IFF_UP))
       NetAddressAppend(pAddresses, iCapacity, &iCount,
                        pInterface->ifa_addr, unPort);
   }

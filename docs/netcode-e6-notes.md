@@ -1,5 +1,78 @@
 # Netcode E6 notes
 
+## Loopback candidate fix (2026-09-28)
+
+The Pixel's captured failure showed a direct `JOIN_REQUEST` sent to `[::1]:7777`
+and received back from that same address. The desktop advertised loopback as a
+candidate; on the phone this addressed the phone itself. Its own probe
+acknowledgement selected a false direct route, and its own channel
+acknowledgement removed the reliable join request. The subsequent relay route
+had no join request left to send (`pending=0`, relay TX/RX `6/0`).
+
+- Interface enumeration now omits loopback and inactive interfaces. Discovery
+  also filters loopback supplied directly by callers before advertising it.
+- Replies from a public rendezvous cannot select IPv4 loopback (`127/8`), IPv6
+  loopback (`::1`), or IPv4-mapped loopback. Matching probe/acknowledgement
+  packets from those sources are ignored too. Candidates matching the local
+  endpoint are also excluded. Usable candidates in the same reply remain, and an
+  all-rejected reply still reaches the relay deadline.
+- Explicit direct loopback connections remain supported. A loopback rendezvous
+  can still discover processes on different local ports for development; the
+  frontend's own bound port is excluded.
+- There is no wire-format change or rendezvous redeployment requirement. An
+  updated client handles loopback candidates from an older desktop host.
+
+A new real-UDP frontend regression reproduced the phone's sequence before the
+fix: self-directed join, repeated relay allocations, no pending join, timeout.
+Coverage includes IPv6, IPv4 and mapped IPv4 loopback candidates injected into
+directory replies. The discovery test separately exercises public-rendezvous
+filtering, rejected inbound probes/acks, mixed usable/unusable candidates and an
+all-rejected set. The physical phone's 5G path still needs a retest.
+
+Validation passed: `test-net-foundations` (including transport, discovery and
+frontend startup), relay races at 36/100 Hz, source/manifest checks, the native
+Windows ReleaseSafe build and Android `assembleDebug` for arm64-v8a and x86_64.
+The refreshed artifacts are `zig-out/bin/roller.exe`, its diagnostic copy
+`zig-out/bin/roller-netdiag.exe`, and
+`android/app/build/outputs/apk/debug/app-debug.apk`. SDL remains at 3.2.22.
+
+## Live relay follow-up and diagnostics (2026-09-28)
+
+The user confirmed that `rvz.fatal.racing` runs this project's rendezvous daemon
+on a DigitalOcean droplet. The earlier handoff's "deployment not run" entries
+are historical; the deployment method and remote administration details have not
+been recorded here.
+
+The updated Android client reached `GAME FOUND VIA RELAY`, then timed out. From
+this Windows PC, a temporary diagnostic registration received both relay
+notifications and forwarded packets in both directions through the live daemon.
+A second test used the actual transport, discovery, channel and session sources
+and completed an authenticated join through that daemon. Both test endpoints
+were on this PC; this does not validate the phone's mobile-data path. Temporary
+listings were unregistered, and no deployment or server configuration changed.
+
+The frontend now logs `[NET]` status transitions, relay allocation/offer
+notifications, and the first join/control packet in each direction on both
+direct and relay paths. A failure includes packet counts, socket-error counts,
+join/route state, pending reliable messages and whether an identity was
+accepted. Logs contain endpoint addresses and message metadata, never payloads
+or tokens. Packet tracing stops once the race starts. These diagnostics captured
+the loopback failure described above.
+
+The Android debug APK was rebuilt with these diagnostics and SDL 3.2.22. The 16
+KB compatibility work was reverted at the user's request. The Windows diagnostic
+build is `zig-out/bin/roller-netdiag.exe`, alongside the running host's original
+executable. Frontend join/loading regressions, Windows and Android builds, and
+source/manifest checks passed.
+
+For the next test, restart the desktop host with `roller-netdiag.exe`, install
+the new debug APK, and retry with phone Wi-Fi off. Keep USB connected for ADB;
+it does not require switching the phone back to Wi-Fi. After the attempt:
+
+```powershell
+adb logcat -d -s ROLLER:I '*:S' | Select-String '\[NET\]'
+```
+
 ## Internet join recovery (2026-09-28)
 
 A desktop listen host could be listed on an Android phone over mobile data, but
