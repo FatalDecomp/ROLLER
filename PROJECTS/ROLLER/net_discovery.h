@@ -8,6 +8,7 @@ typedef struct tNetDiscovery tNetDiscovery;
 
 #define NET_LAN_PROTOCOL_ID 0x4C4E4431u /* 'LND1' */
 #define NET_LAN_PROTOCOL_VERSION 1
+#define NET_LAN_DEFAULT_PORT 7777
 #define NET_LAN_QUERY_INTERVAL_MS 2000
 #define NET_LAN_SESSION_TIMEOUT_MS 6000
 

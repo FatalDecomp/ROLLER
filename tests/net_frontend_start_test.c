@@ -102,6 +102,116 @@ static void CheckCamera(int iPlayer)
     fWorstCameraError = fError;
 }
 
+/* Observe real UDP traffic at a configured directory while switching server
+   types. LAN must remain discoverable and join directly even with that address
+   saved. Query the host over loopback so this does not depend on broadcast
+   loopback support on the machine running the test. */
+static void NetTestServerType(uint16 unLocalPort)
+{
+  tNetTransportUdp *pRvzUdp = NetTransportUdpCreate(0);
+  tNetTransportUdp *pLanUdp = NetTransportUdpCreate(0);
+  tNetAddress frontend;
+  tNetSessionConfigOptions options;
+  uint8 abLanPacket[sizeof(tNetLanAdvertisement)] = {0};
+  CHECK(pRvzUdp && pLanUdp);
+  tNetTransport rvzTransport = NetTransportUdpEndpoint(pRvzUdp);
+  tNetTransport lanTransport = NetTransportUdpEndpoint(pLanUdp);
+  CHECK(NetFrontendServerType() == NET_SERVER_PUBLIC);
+  CHECK(!NetFrontendSetServerType((eNetServerType)99));
+  CHECK(NetFrontendServerType() == NET_SERVER_PUBLIC);
+  CHECK(NetFrontendSetRendezvous("127.0.0.1", NetTransportUdpPort(pRvzUdp)));
+  CHECK(NetAddressParse(&frontend, "127.0.0.1", unLocalPort));
+  NetFrontendSetLocalPort(unLocalPort);
+  NetSessionConfigOptionsDefault(&options);
+  net_mode = NET_MODE_MODERN;
+  abLanPacket[0] = (uint8)NET_LAN_PROTOCOL_ID;
+  abLanPacket[1] = (uint8)(NET_LAN_PROTOCOL_ID >> 8);
+  abLanPacket[2] = (uint8)(NET_LAN_PROTOCOL_ID >> 16);
+  abLanPacket[3] = (uint8)(NET_LAN_PROTOCOL_ID >> 24);
+  abLanPacket[4] = NET_LAN_PROTOCOL_VERSION;
+  for (int iHost = 1; iHost >= 0; --iHost) {
+    for (int iCase = 0; iCase < 3; ++iCase) {
+      int iLan = iCase == 1;
+      int iSawDirectory = 0, iSawLan = 0, iSelected = 0;
+      int iLanLength;
+      uint64 ullDeadline = SDL_GetTicks() + 1200;
+      CHECK(NetFrontendSetServerType(iLan ? NET_SERVER_LAN : NET_SERVER_PUBLIC));
+      network_slot = iHost ? 0 : -1;
+      CHECK(NetFrontendOpen());
+      CHECK(!strcmp(NetFrontendRendezvous(), "127.0.0.1"));
+      if (iLan) {
+        if (iHost) {
+          abLanPacket[5] = NET_LAN_MSG_QUERY;
+          iLanLength = sizeof(tNetLanQuery);
+        } else {
+          tRvzSessionInfo info = {0};
+          info.uiSessionId = 123;
+          info.unPort = NetTransportUdpPort(pLanUdp);
+          info.unTickRateHz = 36;
+          info.byPlayers = 1;
+          info.byMaxPlayers = 16;
+          snprintf(info.szName, sizeof(info.szName), "LAN HOST");
+          snprintf(info.szTrack, sizeof(info.szTrack), "TRACK5");
+          memcpy(info.szBuildHash, options.szBuildHash, sizeof(info.szBuildHash));
+          abLanPacket[5] = NET_LAN_MSG_ADVERTISE;
+          NetRendezvousEncodeSessionInfo(abLanPacket + 8, &info);
+          iLanLength = sizeof(abLanPacket);
+        }
+        CHECK(lanTransport.pSend(lanTransport.pContext, &frontend,
+            abLanPacket, iLanLength) == iLanLength);
+        /* Updating the preference must not change the already-open session. */
+        CHECK(NetFrontendSetServerType(NET_SERVER_PUBLIC));
+      }
+      while (SDL_GetTicks() < ullDeadline) {
+        uint8 abPacket[NET_MAX_PAYLOAD];
+        tNetAddress peer;
+        int iLength;
+        Pump();
+        while ((iLength = rvzTransport.pReceive(rvzTransport.pContext, &peer,
+                                                abPacket, sizeof(abPacket))) > 0) {
+          tNetRendezvousPacket packet;
+          CHECK(!iLan);
+          CHECK(NetRendezvousParsePacket(abPacket, iLength, &packet));
+          CHECK(packet.byType == (iHost ? NET_RVZ_MSG_REGISTER : NET_RVZ_MSG_LIST));
+          iSawDirectory = 1;
+        }
+        if (!iLan && iSawDirectory)
+          break;
+        if (iLan && !iHost && !iSelected && NetFrontendBrowserSessionCount()) {
+          tRvzSessionInfo info;
+          CHECK(NetFrontendBrowserSessionCount() == 1);
+          CHECK(NetFrontendBrowserSession(0, &info));
+          CHECK(!strcmp(info.szName, "LAN HOST"));
+          CHECK(NetFrontendBrowserSelect(info.uiSessionId));
+          iSelected = 1;
+        }
+        while ((iLength = lanTransport.pReceive(lanTransport.pContext, &peer,
+                                                abPacket, sizeof(abPacket))) > 0) {
+          CHECK(iLan);
+          if (iHost) {
+            tRvzSessionInfo info;
+            CHECK(iLength == sizeof(tNetLanAdvertisement));
+            CHECK(abPacket[5] == NET_LAN_MSG_ADVERTISE);
+            NetRendezvousDecodeSessionInfo(&info, abPacket + 8);
+            CHECK(info.uiSessionId && info.unPort == unLocalPort);
+            CHECK(!memcmp(info.szBuildHash, options.szBuildHash, sizeof(info.szBuildHash)));
+          } else {
+            CHECK(iLength >= 28 && abPacket[22] == NET_MSG_JOIN_REQUEST);
+          }
+          iSawLan = 1;
+        }
+      }
+      CHECK(iLan ? iSawLan && !iSawDirectory : iSawDirectory);
+      NetFrontendClose();
+      CHECK(NetFrontendServerType() == NET_SERVER_PUBLIC);
+      CHECK(!strcmp(NetFrontendRendezvous(), "127.0.0.1"));
+    }
+  }
+  NetTransportUdpDestroy(pLanUdp);
+  NetTransportUdpDestroy(pRvzUdp);
+  puts("Frontend server type: Public default, LAN discovery/direct join without directory traffic, Public restored");
+}
+
 /* A local wire-level directory fixture exercises the production frontend
    cache and selection without creating another simulation world. */
 static void NetTestBrowser(uint16 unClientPort)
@@ -379,6 +489,10 @@ static void NetTestInternetJoin(uint16 unClientPort, int iCase,
 
 int main(int argc, char **argv)
 {
+  if (argc == 3 && !strcmp(argv[1], "--server-type")) {
+    NetTestServerType((uint16)atoi(argv[2]));
+    return 0;
+  }
   if (argc == 5 && !strcmp(argv[1], "--internet-join")) {
     NetTestInternetJoin((uint16)atoi(argv[2]), atoi(argv[3]), argv[4]);
     return 0;
@@ -387,8 +501,10 @@ int main(int argc, char **argv)
     NetTestBrowser((uint16)atoi(argv[2]));
     return 0;
   }
-  /* track assets role local-port host-port design locals competitors seed delay */
-  CHECK(argc == 11);
+  /* track assets role local-port host-port design locals competitors seed delay
+     [--lan-discovery] */
+  CHECK(argc == 11 || (argc == 12 && !strcmp(argv[11], "--lan-discovery")));
+  int iLanDiscovery = argc == 12;
   int iHost = !strcmp(argv[3], "host");
   int iDesign = atoi(argv[6]);
   iLocalPlayers = atoi(argv[7]);
@@ -411,17 +527,36 @@ int main(int argc, char **argv)
   manual_control[0] = manual_control[1] = 1;
   snprintf(my_name, sizeof(my_name), "%s", iHost ? "HOST" : "CLIENT");
   NetFrontendSetLocalPort((uint16)atoi(argv[4]));
-  CHECK(NetFrontendSetRendezvous("", 7778));
+  if (iHost || iLanDiscovery) {
+    CHECK(NetFrontendServerType() == NET_SERVER_PUBLIC);
+    CHECK(NetFrontendSetServerType(NET_SERVER_LAN));
+    /* A nonempty configured address must not prevent a complete LAN game. */
+    CHECK(NetFrontendSetRendezvous("unused.invalid:7778", 7778));
+  } else {
+    CHECK(NetFrontendSetRendezvous("", 7778));
+  }
   CHECK(NetFrontendSetLocalPlayers(iLocalPlayers));
-  if (!iHost)
+  if (!iHost && !iLanDiscovery)
     CHECK(NetFrontendSetPeer("127.0.0.1", (uint16)atoi(argv[5])));
   CHECK(NetFrontendOpen());
   if (iHost) {
     CHECK(NetFrontendLobbyBegin());
   } else {
     tRvzSessionInfo info;
+    if (iLanDiscovery) {
+      uint64 ullDiscoveryDeadline = SDL_GetTicks() + 5000;
+      while (!NetFrontendBrowserSessionCount()) {
+        CHECK(SDL_GetTicks() < ullDiscoveryDeadline);
+        Pump();
+        CHECK(!NetFrontendLobbyJoined());
+      }
+    }
     CHECK(NetFrontendBrowserSessionCount() == 1);
     CHECK(NetFrontendBrowserSession(0, &info));
+    if (iLanDiscovery) {
+      CHECK(!strcmp(info.szName, "HOST'S GAME"));
+      CHECK(info.unPort == (uint16)atoi(argv[5]));
+    }
     for (int iFrame = 0; iFrame < 100; ++iFrame) {
       Pump();
       CHECK(!NetFrontendLobbyJoined());

@@ -3650,6 +3650,13 @@ int InputLoadConfig(void)
     szValue = InputTrim(szEquals + 1);
 
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+    if (InputStringEqualsNoCase(szText, "ServerType")) {
+      if (InputStringEqualsNoCase(szValue, "Public"))
+        NetFrontendSetServerType(NET_SERVER_PUBLIC);
+      else if (InputStringEqualsNoCase(szValue, "LAN"))
+        NetFrontendSetServerType(NET_SERVER_LAN);
+      continue;
+    }
     if (InputStringEqualsNoCase(szText, "RendezvousServer")) {
       NetFrontendLoadRendezvous(szValue);
       continue;
@@ -3745,6 +3752,8 @@ void InputSaveConfig(void)
   fprintf(fp, "InfiniteDrawDistance=%.2f\n", g_fDrawDistanceFraction);
   fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  fprintf(fp, "ServerType=%s\n",
+          NetFrontendServerType() == NET_SERVER_LAN ? "LAN" : "Public");
   fprintf(fp, "RendezvousServer=%s\n", NetFrontendRendezvous());
 #endif
   fprintf(fp, "AirborneCollisions=%d\n", g_bAirborneCollisions ? 1 : 0);

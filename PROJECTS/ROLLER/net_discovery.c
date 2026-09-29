@@ -144,13 +144,31 @@ static int NetDiscoveryPunchPeerAllowed(const tNetDiscovery *pDiscovery,
 static int NetDiscoverySendLanQuery(tNetDiscovery *pDiscovery)
 {
   uint8 abPacket[sizeof(tNetLanQuery)] = {0};
+  uint16 aunPorts[2] = {NET_LAN_DEFAULT_PORT, pDiscovery->lanBroadcast.unPort};
+  int iSent = 0;
   NetDiscoveryWrite32(abPacket, NET_LAN_PROTOCOL_ID);
   abPacket[4] = NET_LAN_PROTOCOL_VERSION;
   abPacket[5] = NET_LAN_MSG_QUERY;
   abPacket[6] = pDiscovery->byFilterBuild;
   memcpy(abPacket + 8, pDiscovery->szBuildHash, 16);
-  return NetChannelSendDatagram(pDiscovery->pChannel,
-      &pDiscovery->lanBroadcast, abPacket, sizeof(abPacket));
+  /* A client's source port is independent of the host's listening port.
+     Always search the standard host port; keep searching the configured port
+     too for existing custom-port LAN setups. Explicit loopback queries also
+     find a host on this PC when broadcast is not routed or looped back. */
+  for (int iPort = 0; iPort < 2; ++iPort) {
+    tNetAddress destination = pDiscovery->lanBroadcast;
+    if (iPort && aunPorts[iPort] == aunPorts[0])
+      continue;
+    destination.unPort = aunPorts[iPort];
+    iSent |= NetChannelSendDatagram(pDiscovery->pChannel, &destination,
+                                    abPacket, sizeof(abPacket));
+    memset(destination.abAddress, 0, sizeof(destination.abAddress));
+    destination.abAddress[0] = 127;
+    destination.abAddress[3] = 1;
+    iSent |= NetChannelSendDatagram(pDiscovery->pChannel, &destination,
+                                    abPacket, sizeof(abPacket));
+  }
+  return iSent;
 }
 
 static int NetDiscoverySendLanAdvertisement(

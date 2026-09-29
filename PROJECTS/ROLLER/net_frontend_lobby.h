@@ -6,6 +6,14 @@
 
 #include <stddef.h>
 
+typedef enum {
+  NET_SERVER_PUBLIC = 0,
+  NET_SERVER_LAN
+} eNetServerType;
+
+/* Settings apply the next time the host or browser is opened. */
+int NetFrontendSetServerType(eNetServerType eServerType);
+eNetServerType NetFrontendServerType(void);
 void NetFrontendSetLocalPort(uint16 unPort);
 int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort);
 int NetFrontendSetRendezvous(const char *szAddress, uint16 unDefaultPort);

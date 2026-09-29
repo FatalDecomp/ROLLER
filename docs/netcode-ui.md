@@ -3,13 +3,28 @@
 Modern networking is the default. `--net-mode legacy` still selects lockstep.
 WASM still has no network-play menu.
 
-In the backtick menu, **Rendezvous server** is a single-line address field,
-initially `rvz.fatal.racing:7778`. Enter or leaving the field saves it in
-`ROLLER.INI` as `RendezvousServer`. Changes take effect the next time a host or
-browser is opened. `--rendezvous HOST[:PORT]` overrides the saved value;
-hostnames, numeric IPv4, bracketed IPv6, and `udp://` addresses are accepted. An
-omitted rendezvous port means 7778. An empty field enables LAN-only discovery.
-The game socket port remains `--port N` (default 7777).
+In the backtick menu, **Server type** offers **Public** (the default) and
+**LAN**. Public uses the configured rendezvous server and also supports LAN
+discovery. LAN hosts and browses with modern networking using only local
+discovery and direct connections, without resolving or contacting the rendezvous
+server. The choice is saved in `ROLLER.INI` as `ServerType=Public` or
+`ServerType=LAN` and takes effect the next time a host or browser is opened. The
+rendezvous address is retained when switching types.
+
+**Rendezvous server** is a single-line address field, initially
+`rvz.fatal.racing:7778`. Enter or leaving the field saves it in `ROLLER.INI` as
+`RendezvousServer`. Changes take effect the next time a host or browser is
+opened. `--rendezvous HOST[:PORT]` overrides the saved value; hostnames, numeric
+IPv4, bracketed IPv6, and `udp://` addresses are accepted. An omitted rendezvous
+port means 7778. An empty field still enables LAN-only discovery; selecting LAN
+also bypasses any `--rendezvous` override.
+
+Hosts listen on port 7777 by default. Modern clients choose a free local port
+unless `--port N` explicitly selects one. LAN discovery always searches port
+7777, as well as a different configured port, using broadcast and loopback. For
+example, a client using `--port 7779` discovers a host on 7777 on the same PC;
+both instances can also use their defaults. For a host on another port,
+`--peer HOST:PORT` provides a direct connection.
 
 Use **PLAYERS -> NETWORK -> HOST SERVER** to create a lobby, or **JOIN GAME** to
 browse. Browsing does not initiate a join. Click a server or select it with
@@ -54,9 +69,18 @@ Windows, Zig 0.15.2, ReleaseSafe:
 - Real UDP frontend test: 17 directory entries, explicit selection of the last
   entry, no automatic connection, rejection of a malformed server name, retry
   after a lost page, and closing/reopening the browser.
+- Server-type regression: Public is the default; LAN hosts answer discovery
+  queries and LAN browsers join directly with zero traffic to the configured
+  directory. Preference changes leave open sessions intact, retain the saved
+  rendezvous address, and restore public registration/listing after reopening.
+- Same-PC discovery reproduces a host on 7777 and client on 7779, plus automatic
+  client ports with either instance opened first. All three cases select the
+  discovered entry and reach race start without an explicit peer. A simulated
+  discovery test also finds the local host with broadcast sends disabled.
 - Seven real UDP host/client loading cases covering 8/16 competitors,
   single/split-screen players, both loading orders, roster names, broadcast and
-  private text, car changes after joining, and startup camera assignments.
+  private text, car changes after joining, and startup camera assignments. The
+  hosts select LAN with an unreachable, nonempty rendezvous address configured.
 - Lobby coverage for repeated/private/malformed text, two places consumed by
   split-screen, full refusal, live capacity changes, invalid reductions, and two
   same-design local players occupying both available copies.

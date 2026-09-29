@@ -962,6 +962,17 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     } else {
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
     {
+      static const char *apszServerTypes[] = { "Public", "LAN" };
+      int iServerType = (int)NetFrontendServerType();
+      nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
+      nk_label(pCtx, "Server type", NK_TEXT_LEFT);
+      int iNewServerType = nk_combo(pCtx, apszServerTypes, NK_LEN(apszServerTypes),
+          iServerType, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
+      if (iNewServerType != iServerType &&
+          NetFrontendSetServerType((eNetServerType)iNewServerType))
+        InputSaveConfig();
+    }
+    {
       static char szRendezvous[320];
       static int iLength, iInvalid;
       static nk_flags uiLastEdit;
@@ -984,6 +995,8 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
         nk_label(pCtx, "Enter a hostname or IP, optionally :port", NK_TEXT_LEFT);
       else if (NetFrontendIsOpen())
         nk_label(pCtx, "Changes apply when you next host or browse", NK_TEXT_LEFT);
+      else if (NetFrontendServerType() == NET_SERVER_LAN)
+        nk_label(pCtx, "LAN bypasses the rendezvous server", NK_TEXT_LEFT);
     }
 #endif
 #if defined(IS_WASM)

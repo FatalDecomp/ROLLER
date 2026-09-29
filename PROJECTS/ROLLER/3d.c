@@ -614,6 +614,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --player1name NAME     set player 1 name (letters, digits, spaces; max 8 chars)\n");
   cli_fprintf(f, " --local-ip IP          legacy local IPv4 address to advertise\n");
   cli_fprintf(f, " --port N               UDP port to bind (default: %d)\n", ROLLER_DEFAULT_PORT);
+  cli_fprintf(f, "                        modern clients choose a free port unless specified\n");
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   cli_fprintf(f, " --rendezvous HOST[:PORT] rendezvous server (default: rvz.fatal.racing:7778)\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");

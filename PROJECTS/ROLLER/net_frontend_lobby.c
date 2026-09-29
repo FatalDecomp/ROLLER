@@ -45,12 +45,14 @@ typedef struct
   tNetAddress rendezvous;
   tRvzSessionInfo hostInfo;
   tRvzSessionInfo aBrowserSessions[NET_RVZ_MAX_SESSIONS];
+  eNetServerType eServerType;
   char szRendezvous[320];
   uint16 unRendezvousPort;
   uint8 byRendezvousOverride, byHasDirectPeer, byJoinSelected;
   uint8 abyDisplayPlayers[NET_SESSION_MAX_PLAYERS];
   tNetSessionConfig appliedConfig;
   uint16 unLocalPort;
+  uint8 byLocalPortOverride;
   uint8 byHasPeer, byOpen, byHost, byLobbyStarted;
   uint8 byHasRendezvous, byResolvePending, byRelayThrottleShown;
   uint8 byHostInfo;
@@ -67,6 +69,7 @@ typedef struct
 
 static tNetFrontendLobbyState s_frontend = {
   .unLocalPort = ROLLER_DEFAULT_PORT,
+  .eServerType = NET_SERVER_PUBLIC,
   .szRendezvous = "rvz.fatal.racing:7778",
   .unRendezvousPort = NET_RVZ_DEFAULT_PORT,
   .byLocalPlayers = 1
@@ -207,10 +210,25 @@ static void NetFrontendBuildHostInfo(tRvzSessionInfo *pInfo,
          sizeof(pInfo->szBuildHash));
 }
 
+int NetFrontendSetServerType(eNetServerType eServerType)
+{
+  if (eServerType != NET_SERVER_PUBLIC && eServerType != NET_SERVER_LAN)
+    return 0;
+  s_frontend.eServerType = eServerType;
+  return 1;
+}
+
+eNetServerType NetFrontendServerType(void)
+{
+  return s_frontend.eServerType;
+}
+
 void NetFrontendSetLocalPort(uint16 unPort)
 {
-  if (unPort)
+  if (unPort) {
     s_frontend.unLocalPort = unPort;
+    s_frontend.byLocalPortOverride = 1;
+  }
 }
 
 int NetFrontendSetPeer(const char *szAddress, uint16 unDefaultPort)
@@ -321,11 +339,17 @@ int NetFrontendOpen(void)
   s_frontend.byHasPeer = !s_frontend.byHost && s_frontend.byHasDirectPeer;
   if (s_frontend.byHasPeer)
     s_frontend.peer = s_frontend.directPeer;
-  s_frontend.byHasRendezvous = (uint8)(s_frontend.szRendezvous[0] &&
+  s_frontend.byHasRendezvous = (uint8)(
+      s_frontend.eServerType == NET_SERVER_PUBLIC && s_frontend.szRendezvous[0] &&
       NetAddressResolve(&s_frontend.rendezvous, s_frontend.szRendezvous,
                          s_frontend.unRendezvousPort));
 
-  s_frontend.pServerUdp = NetTransportUdpCreate(s_frontend.unLocalPort);
+  /* Hosts own the advertised port. Browsers need a distinct source port so
+     another instance can host on this machine, even if browsing began first.
+     An explicit --port still selects the client's source port. */
+  s_frontend.pServerUdp = NetTransportUdpCreate(
+      s_frontend.byHost || s_frontend.byLocalPortOverride ?
+          s_frontend.unLocalPort : 0);
   if (!s_frontend.pServerUdp) {
     NetFrontendStatus("UNABLE TO OPEN NETWORK PORT");
     return 0;

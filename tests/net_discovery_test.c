@@ -56,6 +56,29 @@ static void TestBrowserCycle(tNetTransportSim *pSim,
   NetDiscoveryPump(pBrowserDiscovery);
 }
 
+/* Same-machine discovery must survive platforms without broadcast routing. */
+static int TestNoBroadcastSend(void *pContext, const tNetAddress *pTo,
+                               const void *pData, int iLength)
+{
+  tNetTransport *pTransport = pContext;
+  if (pTo->byFamily == NET_ADDR_IPV4 && pTo->abAddress[0] == 255)
+    return -1;
+  return pTransport->pSend(pTransport->pContext, pTo, pData, iLength);
+}
+
+static int TestNoBroadcastReceive(void *pContext, tNetAddress *pFrom,
+                                  void *pData, int iCapacity)
+{
+  tNetTransport *pTransport = pContext;
+  return pTransport->pReceive(pTransport->pContext, pFrom, pData, iCapacity);
+}
+
+static uint64 TestNoBroadcastNowMs(void *pContext)
+{
+  tNetTransport *pTransport = pContext;
+  return pTransport->pNowMs(pTransport->pContext);
+}
+
 static void TestLoopbackCandidates(void)
 {
   tNetTransportSim *pSim = NetTransportSimCreate(3);
@@ -323,7 +346,7 @@ int main(void)
      cached source address goes straight into the normal session join path. */
   pSim = NetTransportSimCreate(2);
   hostAddress = TestAddress(40, 7777);
-  browserAddress = TestAddress(41, 7777);
+  browserAddress = TestAddress(41, 7779);
   CHECK(pSim);
   CHECK(NetTransportSimSetEndpointAddress(pSim, 0, &hostAddress));
   CHECK(NetTransportSimSetEndpointAddress(pSim, 1, &browserAddress));
@@ -335,7 +358,7 @@ int main(void)
                                          TestRandom, &uiRandom);
   CHECK(pHostDiscovery && pBrowserDiscovery);
   CHECK(NetDiscoveryEnableLan(pHostDiscovery, 7777));
-  CHECK(NetDiscoveryEnableLan(pBrowserDiscovery, 7777));
+  CHECK(NetDiscoveryEnableLan(pBrowserDiscovery, 7779));
 
   /* Hostile advertisements are discarded before they can populate the
      browser. This one has a non-terminated display name. */
@@ -393,6 +416,32 @@ int main(void)
   NetTransportSimAdvance(pSim, NET_LAN_SESSION_TIMEOUT_MS + 1);
   NetDiscoveryPump(pBrowserDiscovery);
   CHECK(NetDiscoverySessionCount(pBrowserDiscovery) == 0);
+  NetDiscoveryDestroy(pBrowserDiscovery);
+  NetChannelDestroy(pBrowser);
+
+  /* Find the default-port host from a different source port using loopback
+     alone. Neither broadcast send is allowed by this transport. */
+  memset(hostAddress.abAddress, 0, sizeof(hostAddress.abAddress));
+  hostAddress.abAddress[0] = 127;
+  hostAddress.abAddress[3] = 1;
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 0, &hostAddress));
+  tNetTransport browserTransport = NetTransportSimEndpoint(pSim, 1);
+  tNetTransport noBroadcast = {&browserTransport, TestNoBroadcastSend,
+                               TestNoBroadcastReceive, TestNoBroadcastNowMs};
+  pBrowser = NetChannelCreate(noBroadcast);
+  CHECK(pBrowser);
+  pBrowserDiscovery = NetDiscoveryCreate(pBrowser, NULL, TestRandom, &uiRandom);
+  CHECK(pBrowserDiscovery);
+  CHECK(NetDiscoveryEnableLan(pBrowserDiscovery, 7779));
+  CHECK(NetDiscoveryHostStart(pHostDiscovery, &info));
+  CHECK(NetDiscoveryList(pBrowserDiscovery, "build-lan"));
+  NetChannelPump(pHost);
+  NetChannelPump(pBrowser);
+  CHECK(NetDiscoverySessionCount(pBrowserDiscovery) == 1);
+  CHECK(NetDiscoverySession(pBrowserDiscovery, 0, &listed));
+  CHECK(NetDiscoveryPunch(pBrowserDiscovery, listed.uiSessionId));
+  CHECK(NetDiscoveryPunchState(pBrowserDiscovery, &resolved) == NET_PUNCH_SUCCEEDED);
+  CHECK(NetAddressIsLoopback(&resolved) && resolved.unPort == 7777);
   NetDiscoveryDestroy(pBrowserDiscovery);
   NetDiscoveryDestroy(pHostDiscovery);
   NetChannelDestroy(pBrowser);
