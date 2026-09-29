@@ -59,6 +59,10 @@ def main():
     exe, track, assets = (str(Path(p).resolve()) for p in sys.argv[1:])
     browser_port, _ = ports()
     subprocess.run([exe, "--browser", str(browser_port)], check=True, timeout=10)
+    for case in range(6):
+        client_port, _ = ports()
+        subprocess.run([exe, "--internet-join", str(client_port), str(case), track],
+                       check=True, timeout=25)
     cases = [
         (3, 1, 1, 8, 12345, False),
         (7, 4, 1, 8, 67890, True),

@@ -23,6 +23,7 @@ struct tNetDiscovery {
   uint64 ullNextLanQueryMs;
   uint64 ullPunchNonce, ullPunchDeadlineMs, ullNextPunchMs;
   uint64 ullNextPunchRequestMs;
+  uint64 ullRelayDeadlineMs;
   uint64 ullRelayToken;
   uint32 uiSessionId, uiLanSessionId, uiResolveId, uiPunchSessionId, uiRelayId;
   uint16 unSequence, unListPage;
@@ -31,6 +32,7 @@ struct tNetDiscovery {
   uint8 byHosting, byRegistered, byListing, byListReady, byResolved;
   uint8 byHasRendezvous, byLanEnabled;
   uint8 byFilterBuild, byPunchHasAnswer;
+  uint8 byInternetPunch, byJoinConfirmed;
   eNetPunchState ePunchState;
   char szBuildHash[16];
 };
@@ -115,6 +117,28 @@ static void NetDiscoveryWrite64(uint8 *pData, uint64 ullValue)
 {
   NetDiscoveryWrite32(pData, (uint32)ullValue);
   NetDiscoveryWrite32(pData + 4, (uint32)(ullValue >> 32));
+}
+
+static int NetDiscoveryPunchPeerAllowed(const tNetDiscovery *pDiscovery,
+                                         const tNetAddress *pPeer)
+{
+  int iCandidate;
+  int iLoopback = NetAddressIsLoopback(pPeer);
+  /* Public rendezvous replies can contain loopback from older hosts. Such
+     addresses identify this machine, never an Internet peer. A deliberately
+     local rendezvous may connect local processes on different ports. */
+  if (iLoopback && (!NetAddressIsLoopback(&pDiscovery->rendezvous) ||
+      (pDiscovery->byLanEnabled &&
+       pPeer->unPort == pDiscovery->lanBroadcast.unPort)))
+    return 0;
+  for (iCandidate = 0; iCandidate < pDiscovery->iLocalCandidateCount;
+       ++iCandidate) {
+    const tNetAddress *pLocal = &pDiscovery->aLocalCandidates[iCandidate];
+    if (NetDiscoveryAddressEqual(pPeer, pLocal) ||
+        (iLoopback && pPeer->unPort == pLocal->unPort))
+      return 0;
+  }
+  return 1;
 }
 
 static int NetDiscoverySendLanQuery(tNetDiscovery *pDiscovery)
@@ -357,9 +381,16 @@ static int NetDiscoveryHandleDirect(tNetDiscovery *pDiscovery,
   if (pDiscovery->ePunchState != NET_PUNCH_IN_PROGRESS &&
       pDiscovery->ePunchState != NET_PUNCH_SUCCEEDED)
     return 1;
-  if (byType == NET_PUNCH_PROBE)
+  if (!NetDiscoveryPunchPeerAllowed(pDiscovery, pPeer))
+    return 1;
+  if (byType == NET_PUNCH_PROBE) {
     NetDiscoverySendPunchPacket(pDiscovery, pPeer, NET_PUNCH_ACK);
-  else if (byType != NET_PUNCH_ACK)
+    /* Receiving a probe only proves the inbound path. Probe its observed
+       source too: a NAT can use a different port for each destination. */
+    if (pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS)
+      NetDiscoverySendPunchPacket(pDiscovery, pPeer, NET_PUNCH_PROBE);
+    return 1;
+  } else if (byType != NET_PUNCH_ACK)
     return 1;
   if (pDiscovery->ePunchState == NET_PUNCH_SUCCEEDED)
     return 1;
@@ -468,15 +499,20 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
                uiPunchSessionId == pDiscovery->uiPunchSessionId &&
                ullPunchNonce == pDiscovery->ullPunchNonce))) {
     uint64 ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+    /* Retransmitted offers/answers must not keep extending the deadline. */
+    if (pDiscovery->uiPunchSessionId != uiPunchSessionId ||
+        pDiscovery->ullPunchNonce != ullPunchNonce)
+      pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
     pDiscovery->uiPunchSessionId = uiPunchSessionId;
     pDiscovery->ullPunchNonce = ullPunchNonce;
-    memcpy(pDiscovery->aPunchCandidates, aPunchCandidates,
-           iPunchCandidateCount * sizeof(tNetAddress));
-    pDiscovery->iPunchCandidateCount = iPunchCandidateCount;
+    pDiscovery->iPunchCandidateCount = 0;
+    for (int iCandidate = 0; iCandidate < iPunchCandidateCount; ++iCandidate)
+      if (NetDiscoveryPunchPeerAllowed(pDiscovery, &aPunchCandidates[iCandidate]))
+        pDiscovery->aPunchCandidates[pDiscovery->iPunchCandidateCount++] =
+            aPunchCandidates[iCandidate];
     pDiscovery->iNextPunchCandidate = 0;
     pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
     pDiscovery->byPunchHasAnswer = 1;
-    pDiscovery->ullPunchDeadlineMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
     pDiscovery->ullNextPunchMs = ullNowMs;
   } else if ((packet.byType == NET_RVZ_MSG_RELAY_OFFER ||
               packet.byType == NET_RVZ_MSG_RELAY_ALLOCATED)) {
@@ -492,8 +528,15 @@ static void NetDiscoveryDatagram(void *pContext, const tNetAddress *pPeer,
           uiSessionId != pDiscovery->uiSessionId)
         return;
     } else if (packet.ullToken ||
-               pDiscovery->ePunchState != NET_PUNCH_RELAY_IN_PROGRESS ||
+               (pDiscovery->ePunchState != NET_PUNCH_RELAY_IN_PROGRESS &&
+                pDiscovery->ePunchState != NET_PUNCH_RELAY_SUCCEEDED) ||
                uiSessionId != pDiscovery->uiPunchSessionId)
+      return;
+    /* A retry is idempotent; it must not switch an installed route. */
+    if (packet.byType == NET_RVZ_MSG_RELAY_ALLOCATED &&
+        pDiscovery->ePunchState == NET_PUNCH_RELAY_SUCCEEDED &&
+        (uiRelayId != pDiscovery->uiRelayId ||
+         ullRelayToken != pDiscovery->ullRelayToken))
       return;
     if (!NetChannelSetRelayRoute(pDiscovery->pChannel, &relayPeer,
             &pDiscovery->rendezvous, uiRelayId, ullRelayToken))
@@ -566,7 +609,7 @@ int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
 {
   tNetAddress aValidated[NET_RVZ_MAX_LOCAL_CANDIDATES];
   uint8 abWire[sizeof(tRvzCandidate)];
-  int iCandidate, iPrior;
+  int iCandidate, iPrior, iUsable = 0;
   if (!pDiscovery || iCount < 0 ||
       iCount > NET_RVZ_MAX_LOCAL_CANDIDATES ||
       (iCount && !pCandidates) || pDiscovery->byHosting)
@@ -580,10 +623,12 @@ int NetDiscoverySetLocalCandidates(tNetDiscovery *pDiscovery,
                                    &aValidated[iCandidate]))
         return 0;
   }
-  if (iCount)
-    memcpy(pDiscovery->aLocalCandidates, aValidated,
-           iCount * sizeof(tNetAddress));
-  pDiscovery->iLocalCandidateCount = iCount;
+  /* Loopback must never be advertised to another machine, even when an
+     external caller supplies candidates instead of interface enumeration. */
+  for (iCandidate = 0; iCandidate < iCount; ++iCandidate)
+    if (!NetAddressIsLoopback(&aValidated[iCandidate]))
+      pDiscovery->aLocalCandidates[iUsable++] = aValidated[iCandidate];
+  pDiscovery->iLocalCandidateCount = iUsable;
   return 1;
 }
 
@@ -728,6 +773,8 @@ int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
   int iSession;
   if (!pDiscovery || !uiSessionId || pDiscovery->byHosting)
     return 0;
+  pDiscovery->byInternetPunch = 0;
+  pDiscovery->byJoinConfirmed = 0;
   for (iSession = 0; iSession < pDiscovery->iSessionCount; ++iSession) {
     if (pDiscovery->aSessions[iSession].uiSessionId == uiSessionId &&
         pDiscovery->aSessionAddresses[iSession].byFamily) {
@@ -746,6 +793,7 @@ int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
     return 0;
   ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
   NetChannelClearRelayRoutes(pDiscovery->pChannel);
+  pDiscovery->byInternetPunch = 1;
   pDiscovery->uiPunchSessionId = uiSessionId;
   pDiscovery->ePunchState = NET_PUNCH_IN_PROGRESS;
   pDiscovery->byPunchHasAnswer = 0;
@@ -756,6 +804,27 @@ int NetDiscoveryPunch(tNetDiscovery *pDiscovery, uint32 uiSessionId)
       NET_PUNCH_REQUEST_RETRY_MS;
   NetDiscoverySendPunchRequest(pDiscovery);
   return 1;
+}
+
+int NetDiscoveryRequestRelay(tNetDiscovery *pDiscovery)
+{
+  uint64 ullNowMs;
+  if (!pDiscovery || pDiscovery->byHosting || !pDiscovery->byInternetPunch ||
+      (pDiscovery->ePunchState != NET_PUNCH_IN_PROGRESS &&
+       pDiscovery->ePunchState != NET_PUNCH_SUCCEEDED))
+    return 0;
+  ullNowMs = NetChannelNowMs(pDiscovery->pChannel);
+  pDiscovery->ePunchState = NET_PUNCH_RELAY_IN_PROGRESS;
+  pDiscovery->ullRelayDeadlineMs = ullNowMs + NET_CONNECTION_TIMEOUT_MS;
+  pDiscovery->ullNextPunchRequestMs = ullNowMs + NET_RELAY_REQUEST_RETRY_MS;
+  NetDiscoverySendRelayRequest(pDiscovery);
+  return 1;
+}
+
+void NetDiscoveryConfirmJoin(tNetDiscovery *pDiscovery)
+{
+  if (pDiscovery)
+    pDiscovery->byJoinConfirmed = 1;
 }
 
 eNetPunchState NetDiscoveryPunchState(const tNetDiscovery *pDiscovery,
@@ -825,10 +894,10 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
   }
   if (pDiscovery->ePunchState == NET_PUNCH_IN_PROGRESS) {
     if (ullNowMs >= pDiscovery->ullPunchDeadlineMs) {
-      pDiscovery->ePunchState = NET_PUNCH_RELAY_IN_PROGRESS;
-      NetDiscoverySendRelayRequest(pDiscovery);
-      pDiscovery->ullNextPunchRequestMs = ullNowMs +
-          NET_RELAY_REQUEST_RETRY_MS;
+      /* The joining client owns fallback. A host must never allocate a
+         relay whose two endpoints are itself. */
+      if (!NetDiscoveryRequestRelay(pDiscovery))
+        pDiscovery->ePunchState = NET_PUNCH_TIMED_OUT;
     } else if (!pDiscovery->byPunchHasAnswer &&
                ullNowMs >= pDiscovery->ullNextPunchRequestMs) {
       NetDiscoverySendPunchRequest(pDiscovery);
@@ -849,6 +918,14 @@ void NetDiscoveryPump(tNetDiscovery *pDiscovery)
     }
   }
   if (pDiscovery->ePunchState == NET_PUNCH_RELAY_IN_PROGRESS &&
+      ullNowMs >= pDiscovery->ullRelayDeadlineMs)
+    pDiscovery->ePunchState = NET_PUNCH_TIMED_OUT;
+  /* Allocation reaching the client does not prove the host received its
+     offer. Retry both notifications until the actual session joins. */
+  if (!pDiscovery->byHosting && !pDiscovery->byJoinConfirmed &&
+      (pDiscovery->ePunchState == NET_PUNCH_RELAY_IN_PROGRESS ||
+       pDiscovery->ePunchState == NET_PUNCH_RELAY_SUCCEEDED) &&
+      ullNowMs < pDiscovery->ullRelayDeadlineMs &&
       ullNowMs >= pDiscovery->ullNextPunchRequestMs) {
     NetDiscoverySendRelayRequest(pDiscovery);
     pDiscovery->ullNextPunchRequestMs = ullNowMs +

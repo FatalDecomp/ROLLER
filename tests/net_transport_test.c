@@ -14,10 +14,11 @@ static void NetTestAddress(void)
   tNetAddress address, roundTrip;
   tNetAddress localAddresses[64];
   char szAddress[NET_ADDRESS_STRING_CAPACITY];
-  int iCount, iSawV4 = 0, iSawV6 = 0;
+  int iCount;
 
   CHECK(NetAddressParse(&address, "127.0.0.1:4321", 9));
   CHECK(address.byFamily == NET_ADDR_IPV4 && address.unPort == 4321);
+  CHECK(NetAddressIsLoopback(&address));
   CHECK(NetAddressFormat(&address, szAddress, sizeof(szAddress)));
   CHECK(strcmp(szAddress, "127.0.0.1:4321") == 0);
   CHECK(NetAddressParse(&roundTrip, szAddress, 0));
@@ -25,6 +26,7 @@ static void NetTestAddress(void)
 
   CHECK(NetAddressParse(&address, "::1", 8765));
   CHECK(address.byFamily == NET_ADDR_IPV6 && address.unPort == 8765);
+  CHECK(NetAddressIsLoopback(&address));
   CHECK(NetAddressFormat(&address, szAddress, sizeof(szAddress)));
   CHECK(strcmp(szAddress, "[::1]:8765") == 0);
   CHECK(NetAddressParse(&roundTrip, szAddress, 0));
@@ -32,6 +34,7 @@ static void NetTestAddress(void)
 
   CHECK(NetAddressParse(&address, "[fe80::1%7]:55", 0));
   CHECK(address.uiScopeId == 7 && address.unPort == 55);
+  CHECK(!NetAddressIsLoopback(&address));
   CHECK(NetAddressFormat(&address, szAddress, sizeof(szAddress)));
   CHECK(NetAddressParse(&roundTrip, szAddress, 0));
   CHECK(NetAddressEqual(&address, &roundTrip));
@@ -54,13 +57,20 @@ static void NetTestAddress(void)
   CHECK(!NetAddressFormat(&roundTrip, szAddress, 4));
 
   iCount = NetAddressEnumerateLocal(localAddresses, 64, 2468);
-  CHECK(iCount > 0);
+  CHECK(iCount >= 0);
   for (int iAddress = 0; iAddress < iCount; ++iAddress) {
     CHECK(localAddresses[iAddress].unPort == 2468);
-    iSawV4 |= localAddresses[iAddress].byFamily == NET_ADDR_IPV4;
-    iSawV6 |= localAddresses[iAddress].byFamily == NET_ADDR_IPV6;
+    CHECK(localAddresses[iAddress].byFamily == NET_ADDR_IPV4 ||
+          localAddresses[iAddress].byFamily == NET_ADDR_IPV6);
+    CHECK(!NetAddressIsLoopback(&localAddresses[iAddress]));
   }
-  CHECK(iSawV4 && iSawV6);
+  /* Numeric/direct loopback remains supported, including all of 127/8. */
+  CHECK(NetAddressParse(&address, "127.42.5.9", 7777));
+  CHECK(NetAddressIsLoopback(&address));
+  CHECK(NetAddressParse(&address, "::ffff:127.0.0.1", 7777));
+  CHECK(NetAddressIsLoopback(&address));
+  CHECK(NetAddressParse(&address, "192.168.1.10", 7777));
+  CHECK(!NetAddressIsLoopback(&address));
 }
 
 static void NetTestLoopback(const char *szLoopback, int iFamily)

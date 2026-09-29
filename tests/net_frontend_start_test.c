@@ -14,7 +14,11 @@
 #include "loadtrak.h"
 #include "moving.h"
 #include "net_channel.h"
+#include "net_config.h"
+#include "net_discovery.h"
 #include "net_rendezvous.h"
+#include "net_session.h"
+#include "net_lobby.h"
 #include "net_frontend_lobby.h"
 #include "net_types.h"
 #include "network.h"
@@ -190,8 +194,195 @@ static void NetTestBrowser(uint16 unClientPort)
   puts("Frontend browser: 17 entries, explicit last-row selection, malformed/lost page recovery");
 }
 
+typedef struct {
+  tNetTransport transport;
+  int iHost, iAllowPunch, iDropOffer, iDropRelay;
+  int iDroppedOffers, iRelayRequests;
+  int iLoopbackCandidate, iInjectedCandidates;
+} tNetTestInternetTransport;
+
+static int NetTestInternetSend(void *pContext, const tNetAddress *pPeer,
+                                const void *pData, int iLength)
+{
+  tNetTestInternetTransport *pTest = pContext;
+  tNetRendezvousPacket packet;
+  if (pTest->iLoopbackCandidate &&
+      NetRendezvousParsePacket(pData, iLength, &packet) &&
+      packet.byType == NET_RVZ_MSG_PUNCH_ANSWER) {
+    uint8 abPayload[sizeof(tRvzCandidateSet)], abPacket[NET_MAX_PAYLOAD];
+    tNetAddress loopback = {0};
+    CHECK(packet.unPayloadLength == sizeof(abPayload));
+    CHECK(packet.pPayload[12] < NET_RVZ_MAX_CANDIDATES);
+    memcpy(abPayload, packet.pPayload, sizeof(abPayload));
+    memmove(abPayload + 16 + sizeof(tRvzCandidate), abPayload + 16,
+            abPayload[12] * sizeof(tRvzCandidate));
+    ++abPayload[12];
+    /* An older remote host advertises its loopback on the shared game port.
+       On the client this points back to the client's own real UDP socket. */
+    CHECK(NetAddressParse(&loopback,
+        pTest->iLoopbackCandidate == 2 ? "127.0.0.1" : "::1", pPeer->unPort));
+    if (pTest->iLoopbackCandidate == 3) {
+      /* Numeric parsing normally canonicalizes mapped IPv6 into IPv4;
+         encode the mapped form explicitly to exercise the received wire. */
+      loopback.abAddress[10] = loopback.abAddress[11] = 255;
+      loopback.abAddress[12] = 127;
+    }
+    NetRendezvousEncodeCandidate(abPayload + 16, &loopback);
+    int iSentLength = NetRendezvousBuildPacket(abPacket, sizeof(abPacket),
+        packet.unSequence, packet.ullToken, packet.byType,
+        abPayload, sizeof(abPayload));
+    CHECK(iSentLength == iLength);
+    ++pTest->iInjectedCandidates;
+    return pTest->transport.pSend(pTest->transport.pContext, pPeer,
+                                   abPacket, iSentLength);
+  }
+  if (NetRendezvousParsePacket(pData, iLength, &packet) &&
+      packet.byType == NET_RVZ_MSG_RELAY_OFFER && pTest->iDropOffer) {
+    pTest->iDropOffer = 0;
+    ++pTest->iDroppedOffers;
+    return iLength;
+  }
+  return pTest->transport.pSend(pTest->transport.pContext, pPeer, pData, iLength);
+}
+
+static int NetTestInternetReceive(void *pContext, tNetAddress *pPeer,
+                                   void *pData, int iCapacity)
+{
+  tNetTestInternetTransport *pTest = pContext;
+  int iLength;
+  while ((iLength = pTest->transport.pReceive(pTest->transport.pContext,
+                                               pPeer, pData, iCapacity)) > 0) {
+    const uint8 *pBytes = pData;
+    uint32 uiProtocol = iLength >= 4 ? (uint32)pBytes[0] |
+        ((uint32)pBytes[1] << 8) | ((uint32)pBytes[2] << 16) |
+        ((uint32)pBytes[3] << 24) : 0;
+    tNetRendezvousPacket packet;
+    /* Direct game traffic is unreachable. Relay envelopes still arrive.
+       One case lets probes succeed before blackholing the game handshake. */
+    if (pTest->iHost && (uiProtocol == NET_PROTOCOL_ID ||
+        (!pTest->iAllowPunch && uiProtocol == NET_PUNCH_PROTOCOL_ID)))
+      continue;
+    if (NetRendezvousParsePacket(pData, iLength, &packet) &&
+        packet.byType == NET_RVZ_MSG_RELAY_REQUEST) {
+      ++pTest->iRelayRequests;
+      if (pTest->iDropRelay)
+        continue;
+    }
+    return iLength;
+  }
+  return iLength;
+}
+
+static uint64 NetTestInternetNow(void *pContext)
+{
+  tNetTestInternetTransport *pTest = pContext;
+  return pTest->transport.pNowMs(pTest->transport.pContext);
+}
+
+static tNetTransport NetTestInternetEndpoint(tNetTestInternetTransport *pTest)
+{
+  tNetTransport transport = {pTest, NetTestInternetSend,
+                             NetTestInternetReceive, NetTestInternetNow};
+  return transport;
+}
+
+static void NetTestInternetJoin(uint16 unClientPort, int iCase,
+                                 const char *szTrack)
+{
+  tNetTransportUdp *pHostUdp = NetTransportUdpCreate(0);
+  tNetTransportUdp *pRvzUdp = NetTransportUdpCreate(0);
+  tNetTestInternetTransport hostTransport = {0}, rvzTransport = {0};
+  tNetAddress rendezvous;
+  tRvzSessionInfo info = {0};
+  tNetSessionConfigOptions options;
+  tNetSessionConfig config;
+  uint32 uiSessionId = 0;
+  int iSelected = 0;
+  CHECK(pHostUdp && pRvzUdp);
+  hostTransport.transport = NetTransportUdpEndpoint(pHostUdp);
+  hostTransport.iHost = 1;
+  hostTransport.iAllowPunch = iCase == 1;
+  rvzTransport.transport = NetTransportUdpEndpoint(pRvzUdp);
+  rvzTransport.iDropOffer = iCase == 0;
+  rvzTransport.iDropRelay = iCase == 2;
+  rvzTransport.iLoopbackCandidate = iCase >= 3 ? iCase - 2 : 0;
+  CHECK(NetAddressParse(&rendezvous, "127.0.0.1", NetTransportUdpPort(pRvzUdp)));
+  tNetChannel *pHostChannel = NetChannelCreate(NetTestInternetEndpoint(&hostTransport));
+  tNetRendezvous *pRvz = NetRendezvousCreate(NetTestInternetEndpoint(&rvzTransport),
+                                           NetPlatformRandomBytes, NULL);
+  tNetDiscovery *pDiscovery = NetDiscoveryCreate(pHostChannel, &rendezvous,
+                                                 NetPlatformRandomBytes, NULL);
+  tNetSessionHost *pHost = NetSessionHostCreate(pHostChannel, 16,
+                                               NetPlatformRandomBytes, NULL);
+  CHECK(pHostChannel && pRvz && pDiscovery && pHost);
+  names[3] = (char *)szTrack;
+  TrackLoad = 3;
+  competitors = 16;
+  level = damage_level = manual_control[0] = 1;
+  NetSessionConfigOptionsDefault(&options);
+  CHECK(NetSessionConfigBuild(&config, &options));
+  CHECK(NetSessionHostSetConfig(pHost, &config));
+  tNetLobbyHost *pLobby = NetLobbyHostCreate(pHost);
+  CHECK(pLobby);
+  memcpy(info.szBuildHash, options.szBuildHash, sizeof(info.szBuildHash));
+  snprintf(info.szName, sizeof(info.szName), "INTERNET JOIN TEST");
+  snprintf(info.szTrack, sizeof(info.szTrack), "TRACK5");
+  info.unTickRateHz = 36;
+  info.byPlayers = 1;
+  info.byMaxPlayers = 16;
+  CHECK(NetDiscoveryHostStart(pDiscovery, &info));
+  CHECK(NetFrontendSetRendezvous("127.0.0.1", rendezvous.unPort));
+  NetFrontendSetLocalPort(unClientPort);
+  net_mode = NET_MODE_MODERN;
+  network_slot = -1;
+  player1_car = 0;
+  player2_car = -1;
+  Players_Cars[0] = 0;
+  manual_control[0] = 1;
+  CHECK(NetFrontendOpen());
+  uint64 ullDeadline = SDL_GetTicks() + 18000;
+  while ((!NetFrontendLobbyJoined() || !NetLobbyHostAllReady(pLobby)) &&
+         !strstr(NetFrontendLobbyStatus(), "TIMED OUT")) {
+    CHECK(SDL_GetTicks() < ullDeadline);
+    NetRendezvousPump(pRvz);
+    Pump();
+    NetDiscoveryPump(pDiscovery);
+    NetSessionHostPump(pHost);
+    NetLobbyHostPump(pLobby);
+    if (!iSelected && NetFrontendBrowserSessionCount()) {
+      CHECK(NetDiscoveryHostRegistered(pDiscovery, &uiSessionId));
+      CHECK(NetFrontendBrowserSelect(uiSessionId));
+      iSelected = 1;
+    }
+  }
+  CHECK(iSelected && rvzTransport.iRelayRequests);
+  if (iCase == 2)
+    CHECK(!NetFrontendLobbyJoined() && !NetFrontendIsOpen());
+  else
+    CHECK(NetFrontendLobbyJoined() && NetLobbyHostAllReady(pLobby));
+  if (iCase == 0)
+    CHECK(rvzTransport.iDroppedOffers == 1 && rvzTransport.iRelayRequests >= 2);
+  if (iCase >= 3)
+    CHECK(rvzTransport.iInjectedCandidates);
+  /* Only the joining client requests a relay; the host must not relay to itself. */
+  CHECK(NetDiscoveryPunchState(pDiscovery, NULL) != NET_PUNCH_RELAY_SUCCEEDED);
+  NetFrontendClose();
+  NetLobbyHostDestroy(pLobby);
+  NetSessionHostDestroy(pHost);
+  NetDiscoveryDestroy(pDiscovery);
+  NetRendezvousDestroy(pRvz);
+  NetChannelDestroy(pHostChannel);
+  NetTransportUdpDestroy(pHostUdp);
+  NetTransportUdpDestroy(pRvzUdp);
+  printf("Frontend Internet join case %d passed\n", iCase);
+}
+
 int main(int argc, char **argv)
 {
+  if (argc == 5 && !strcmp(argv[1], "--internet-join")) {
+    NetTestInternetJoin((uint16)atoi(argv[2]), atoi(argv[3]), argv[4]);
+    return 0;
+  }
   if (argc == 3 && !strcmp(argv[1], "--browser")) {
     NetTestBrowser((uint16)atoi(argv[2]));
     return 0;

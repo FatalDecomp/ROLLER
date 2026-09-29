@@ -22,7 +22,16 @@
 
 typedef struct
 {
+  tNetTransport transport;
+  uint32 auiGamePackets[2], auiRelayPackets[2];
+  uint32 auiLoggedMessages[4];
+  uint32 uiSendErrors, uiReceiveErrors;
+} tNetFrontendTransportTrace;
+
+typedef struct
+{
   tNetTransportUdp *pServerUdp, *pClientUdp;
+  tNetFrontendTransportTrace serverTrace, clientTrace;
   tNetChannel *pServerChannel, *pClientChannel;
   tNetSessionHost *pHost;
   tNetSessionClient *pClient;
@@ -51,6 +60,7 @@ typedef struct
   uint8 byLocalPlayers, bySelectedCar0, bySelectedCar1, bySelectedControl;
   uint8 byAppResumePending;
   uint64 ullRejoinStartedMs;
+  uint64 ullJoinStartedMs;
   char szStatus[96];
   char szRaceError[96];
 } tNetFrontendLobbyState;
@@ -62,10 +72,107 @@ static tNetFrontendLobbyState s_frontend = {
   .byLocalPlayers = 1
 };
 
+static uint32 NetFrontendReadProtocol(const uint8 *pData)
+{
+  return (uint32)pData[0] | ((uint32)pData[1] << 8) |
+      ((uint32)pData[2] << 16) | ((uint32)pData[3] << 24);
+}
+
+static void NetFrontendTracePacket(tNetFrontendTransportTrace *pTrace,
+                                    const tNetAddress *pPeer,
+                                    const void *pData, int iLength, int iReceive)
+{
+  const uint8 *pBytes = pData;
+  uint32 uiProtocol;
+  int iOffset = 0;
+  int iLogPath;
+  uint8 byType;
+  char szPeer[NET_ADDRESS_STRING_CAPACITY];
+  if (iLength < 4 || s_frontend.byRaceStarted)
+    return;
+  uiProtocol = NetFrontendReadProtocol(pBytes);
+  if (uiProtocol == NET_RELAY_PROTOCOL_ID) {
+    ++pTrace->auiRelayPackets[iReceive];
+    iOffset = NET_RELAY_HEADER_SIZE;
+  } else if (uiProtocol == NET_PROTOCOL_ID) {
+    ++pTrace->auiGamePackets[iReceive];
+  } else if (uiProtocol == NET_RVZ_PROTOCOL_ID && iLength >= 28) {
+    byType = pBytes[22];
+    if (byType != NET_RVZ_MSG_RELAY_OFFER &&
+        byType != NET_RVZ_MSG_RELAY_ALLOCATED && byType != NET_RVZ_MSG_ERROR)
+      return;
+    NetAddressFormat(pPeer, szPeer, sizeof(szPeer));
+    SDL_Log("[NET] %s directory type=%u bytes=%d endpoint=%s",
+            iReceive ? "RX" : "TX", (unsigned)byType, iLength, szPeer);
+    return;
+  } else {
+    return;
+  }
+  if (iLength < iOffset + 28 ||
+      NetFrontendReadProtocol(pBytes + iOffset) != NET_PROTOCOL_ID ||
+      !pBytes[iOffset + 21])
+    return;
+  byType = pBytes[iOffset + 22];
+  iLogPath = iReceive + (iOffset ? 2 : 0);
+  if (byType < NET_MSG_JOIN_REQUEST || byType > NET_MSG_SESSION_CONFIG ||
+      (pTrace->auiLoggedMessages[iLogPath] & (1u << byType)))
+    return;
+  pTrace->auiLoggedMessages[iLogPath] |= 1u << byType;
+  NetAddressFormat(pPeer, szPeer, sizeof(szPeer));
+  /* Metadata only: never log payloads, session credentials or relay tokens. */
+  SDL_Log("[NET] %s %s first-message=%u bytes=%d endpoint=%s",
+          iReceive ? "RX" : "TX", iOffset ? "relay" : "direct",
+          (unsigned)byType, iLength, szPeer);
+}
+
+static int NetFrontendTraceSend(void *pContext, const tNetAddress *pPeer,
+                                const void *pData, int iLength)
+{
+  tNetFrontendTransportTrace *pTrace = pContext;
+  int iSent = pTrace->transport.pSend(pTrace->transport.pContext,
+                                      pPeer, pData, iLength);
+  if (iSent != iLength)
+    ++pTrace->uiSendErrors;
+  else
+    NetFrontendTracePacket(pTrace, pPeer, pData, iLength, 0);
+  return iSent;
+}
+
+static int NetFrontendTraceReceive(void *pContext, tNetAddress *pPeer,
+                                   void *pData, int iCapacity)
+{
+  tNetFrontendTransportTrace *pTrace = pContext;
+  int iLength = pTrace->transport.pReceive(pTrace->transport.pContext,
+                                          pPeer, pData, iCapacity);
+  if (iLength < 0)
+    ++pTrace->uiReceiveErrors;
+  else if (iLength > 0)
+    NetFrontendTracePacket(pTrace, pPeer, pData, iLength, 1);
+  return iLength;
+}
+
+static uint64 NetFrontendTraceNowMs(void *pContext)
+{
+  tNetFrontendTransportTrace *pTrace = pContext;
+  return pTrace->transport.pNowMs(pTrace->transport.pContext);
+}
+
+static tNetTransport NetFrontendTraceEndpoint(
+    tNetFrontendTransportTrace *pTrace, tNetTransportUdp *pUdp)
+{
+  tNetTransport transport = {pTrace, NetFrontendTraceSend,
+                             NetFrontendTraceReceive, NetFrontendTraceNowMs};
+  memset(pTrace, 0, sizeof(*pTrace));
+  pTrace->transport = NetTransportUdpEndpoint(pUdp);
+  return transport;
+}
+
 static void NetFrontendStatus(const char *szStatus)
 {
   if (!szStatus)
     szStatus = "";
+  if (*szStatus && strcmp(s_frontend.szStatus, szStatus))
+    SDL_Log("[NET] %s", szStatus);
   snprintf(s_frontend.szStatus, sizeof(s_frontend.szStatus), "%s",
            szStatus);
 }
@@ -172,6 +279,7 @@ static void NetFrontendDestroyLobby(void)
   s_frontend.byRaceStarted = 0;
   s_frontend.byAppResumePending = 0;
   s_frontend.ullRejoinStartedMs = 0;
+  s_frontend.ullJoinStartedMs = 0;
   s_frontend.szRaceError[0] = '\0';
 }
 
@@ -195,6 +303,7 @@ void NetFrontendClose(void)
   s_frontend.iBrowserSessionCount = 0;
   s_frontend.byHasPeer = 0;
   s_frontend.byJoinSelected = 0;
+  s_frontend.byRelayThrottleShown = 0;
   send_message_to = -1;
   net_listen_host = 0;
   NetRaceStartReset();
@@ -221,7 +330,8 @@ int NetFrontendOpen(void)
     NetFrontendStatus("UNABLE TO OPEN NETWORK PORT");
     return 0;
   }
-  transport = NetTransportUdpEndpoint(s_frontend.pServerUdp);
+  transport = NetFrontendTraceEndpoint(&s_frontend.serverTrace,
+                                        s_frontend.pServerUdp);
   if (s_frontend.byHost)
     s_frontend.pServerChannel = NetChannelCreate(transport);
   else
@@ -405,6 +515,23 @@ void NetFrontendAppResumed(void)
 
 static int NetFrontendLobbyFailure(const char *szStatus)
 {
+  const tNetFrontendTransportTrace *pTrace = &s_frontend.serverTrace;
+  tNetConnection *pConnection = s_frontend.pClient ?
+      NetSessionClientConnection(s_frontend.pClient) : NULL;
+  char szPeer[NET_ADDRESS_STRING_CAPACITY] = "none";
+  if (s_frontend.byHasPeer)
+    NetAddressFormat(&s_frontend.peer, szPeer, sizeof(szPeer));
+  SDL_Log("[NET] join failed: %s; role=%s state=%d route=%d peer=%s "
+          "direct tx/rx=%u/%u relay tx/rx=%u/%u socket errors tx/rx=%u/%u "
+          "authenticated=%d expired=%d pending=%d",
+          szStatus, s_frontend.byHost ? "host" : "client",
+          (int)NetSessionClientState(s_frontend.pClient),
+          (int)NetDiscoveryPunchState(s_frontend.pDiscovery, NULL), szPeer,
+          (unsigned)pTrace->auiGamePackets[0], (unsigned)pTrace->auiGamePackets[1],
+          (unsigned)pTrace->auiRelayPackets[0], (unsigned)pTrace->auiRelayPackets[1],
+          (unsigned)pTrace->uiSendErrors, (unsigned)pTrace->uiReceiveErrors,
+          NetConnectionSessionToken(pConnection) != 0,
+          NetConnectionIsExpired(pConnection), NetConnectionPendingReliable(pConnection));
   NetFrontendClose();
   NetFrontendStatus(szStatus);
   return 0;
@@ -418,7 +545,8 @@ static int NetFrontendCreateClient(const tNetAddress *pPeer)
     if (!s_frontend.pClientUdp)
       return 0;
     s_frontend.pClientChannel = NetChannelCreate(
-        NetTransportUdpEndpoint(s_frontend.pClientUdp));
+        NetFrontendTraceEndpoint(&s_frontend.clientTrace,
+                                  s_frontend.pClientUdp));
   }
   if (!s_frontend.pClientChannel)
     return 0;
@@ -492,6 +620,7 @@ int NetFrontendLobbyBegin(void)
     return NetFrontendLobbyFailure("JOIN START FAILED");
 
   s_frontend.byLobbyStarted = 1;
+  s_frontend.ullJoinStartedMs = NetChannelNowMs(s_frontend.pClientChannel);
   NetFrontendStatus(s_frontend.byHost ? "WAITING FOR PLAYERS" :
                     "CONNECTING TO HOST");
   return 1;
@@ -658,17 +787,27 @@ void NetFrontendPump(void)
       NetDiscoverySession(s_frontend.pDiscovery, iSession,
                           &s_frontend.aBrowserSessions[iSession]);
   }
-  if (!s_frontend.byHost && !s_frontend.byHasPeer &&
+  if (!s_frontend.byHost &&
       s_frontend.pDiscovery) {
     if (s_frontend.byResolvePending) {
       eNetPunchState ePunchState = NetDiscoveryPunchState(
           s_frontend.pDiscovery, &s_frontend.peer);
       if (ePunchState == NET_PUNCH_SUCCEEDED ||
           ePunchState == NET_PUNCH_RELAY_SUCCEEDED) {
+        if (s_frontend.pClient && !NetConnectionSetPeer(
+                NetSessionClientConnection(s_frontend.pClient), &s_frontend.peer)) {
+          NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+          return;
+        }
         s_frontend.byHasPeer = 1;
         s_frontend.byResolvePending = 0;
         NetFrontendStatus(ePunchState == NET_PUNCH_SUCCEEDED ?
                           "GAME FOUND" : "GAME FOUND VIA RELAY");
+      } else if (ePunchState == NET_PUNCH_RELAY_IN_PROGRESS) {
+        NetFrontendStatus("CONNECTING VIA RELAY");
+      } else if (ePunchState == NET_PUNCH_TIMED_OUT) {
+        NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+        return;
       }
     }
   }
@@ -755,8 +894,24 @@ void NetFrontendPump(void)
     return;
   }
   if (state != NET_JOIN_ACCEPTED ||
-      !NetSessionClientGetConfig(s_frontend.pClient, &config))
+      !NetSessionClientGetConfig(s_frontend.pClient, &config)) {
+    if (!s_frontend.byHost && !s_frontend.pRaceClient) {
+      uint64 ullElapsedMs = NetChannelNowMs(s_frontend.pClientChannel) -
+          s_frontend.ullJoinStartedMs;
+      if (ullElapsedMs >= NET_CONNECTION_TIMEOUT_MS) {
+        NetFrontendLobbyFailure("CONNECTION TIMED OUT - PLEASE TRY AGAIN");
+        return;
+      }
+      if (state == NET_JOIN_WAITING && !s_frontend.byResolvePending &&
+          ullElapsedMs >= NET_PUNCH_TIMEOUT_MS &&
+          NetDiscoveryRequestRelay(s_frontend.pDiscovery)) {
+        s_frontend.byResolvePending = 1;
+        NetFrontendStatus("CONNECTING VIA RELAY");
+      }
+    }
     return;
+  }
+  NetDiscoveryConfirmJoin(s_frontend.pDiscovery);
 
   if (!s_frontend.byConfigApplied ||
       (!s_frontend.byRaceScheduled &&

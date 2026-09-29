@@ -56,8 +56,112 @@ static void TestBrowserCycle(tNetTransportSim *pSim,
   NetDiscoveryPump(pBrowserDiscovery);
 }
 
+static void TestLoopbackCandidates(void)
+{
+  tNetTransportSim *pSim = NetTransportSimCreate(3);
+  tNetAddress browserAddress = TestAddress(20, 7777);
+  tNetAddress rendezvousAddress = TestAddress(30, 7778);
+  tNetAddress aCandidates[5] = {0}, resolved;
+  tNetTransport directory, peer, reflected;
+  tNetChannel *pBrowser;
+  tNetDiscovery *pDiscovery;
+  tNetRendezvousPacket packet;
+  uint32 uiRandom = 100;
+  uint8 abPacket[NET_MAX_PAYLOAD], abPayload[sizeof(tRvzCandidateSet)];
+  uint8 abProbe[sizeof(tNetPunchPacket)];
+  int iLength, iCandidate;
+  aCandidates[0].byFamily = NET_ADDR_IPV4;
+  aCandidates[0].abAddress[0] = 127;
+  aCandidates[0].abAddress[3] = 42;
+  aCandidates[0].unPort = 9000;
+  aCandidates[1].byFamily = NET_ADDR_IPV6;
+  aCandidates[1].abAddress[15] = 1;
+  aCandidates[1].unPort = 9000;
+  aCandidates[2].byFamily = NET_ADDR_IPV6;
+  aCandidates[2].abAddress[10] = aCandidates[2].abAddress[11] = 255;
+  aCandidates[2].abAddress[12] = 127;
+  aCandidates[2].abAddress[15] = 1;
+  aCandidates[2].unPort = 9000;
+  aCandidates[3] = browserAddress;
+  aCandidates[4] = TestAddress(10, 7777);
+  CHECK(pSim);
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 0, &aCandidates[4]));
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 1, &browserAddress));
+  CHECK(NetTransportSimSetEndpointAddress(pSim, 2, &rendezvousAddress));
+  peer = NetTransportSimEndpoint(pSim, 0);
+  directory = NetTransportSimEndpoint(pSim, 2);
+  reflected = NetTransportSimEndpoint(pSim, 3);
+  pBrowser = NetChannelCreate(NetTransportSimEndpoint(pSim, 1));
+  CHECK(pBrowser);
+  pDiscovery = NetDiscoveryCreate(pBrowser, &rendezvousAddress,
+                                   TestRandom, &uiRandom);
+  CHECK(pDiscovery);
+  CHECK(NetDiscoverySetLocalCandidates(pDiscovery, aCandidates, 4));
+  for (int iAttempt = 0; iAttempt < 2; ++iAttempt) {
+    CHECK(NetDiscoveryPunch(pDiscovery, 123));
+    iLength = directory.pReceive(directory.pContext, NULL,
+                                 abPacket, sizeof(abPacket));
+    CHECK(NetRendezvousParsePacket(abPacket, iLength, &packet));
+    CHECK(packet.byType == NET_RVZ_MSG_PUNCH_REQUEST);
+    /* Loopback supplied by a caller is never advertised. */
+    CHECK(packet.pPayload[12] == 1);
+    CHECK(NetRendezvousDecodeCandidate(&resolved, packet.pPayload + 16));
+    CHECK(!memcmp(&resolved, &browserAddress, sizeof(resolved)));
+    memcpy(abPayload, packet.pPayload, sizeof(abPayload));
+    abPayload[12] = (uint8)(iAttempt ? 4 : 5);
+    for (iCandidate = 0; iCandidate < abPayload[12]; ++iCandidate)
+      NetRendezvousEncodeCandidate(abPayload + 16 +
+          iCandidate * sizeof(tRvzCandidate), &aCandidates[iCandidate]);
+    iLength = NetRendezvousBuildPacket(abPacket, sizeof(abPacket),
+        packet.unSequence, 0, NET_RVZ_MSG_PUNCH_ANSWER,
+        abPayload, sizeof(abPayload));
+    CHECK(directory.pSend(directory.pContext, &browserAddress,
+                            abPacket, iLength) == iLength);
+    NetChannelPump(pBrowser);
+    NetDiscoveryPump(pDiscovery);
+    CHECK(NetDiscoveryPunchState(pDiscovery, NULL) == NET_PUNCH_IN_PROGRESS);
+    if (iAttempt) {
+      /* An all-rejected set still reaches the bounded relay fallback. */
+      CHECK(peer.pReceive(peer.pContext, NULL, abProbe, sizeof(abProbe)) == 0);
+      NetTransportSimAdvance(pSim, NET_PUNCH_TIMEOUT_MS);
+      NetDiscoveryPump(pDiscovery);
+      CHECK(NetDiscoveryPunchState(pDiscovery, NULL) == NET_PUNCH_RELAY_IN_PROGRESS);
+      iLength = directory.pReceive(directory.pContext, NULL,
+                                   abPacket, sizeof(abPacket));
+      CHECK(NetRendezvousParsePacket(abPacket, iLength, &packet));
+      CHECK(packet.byType == NET_RVZ_MSG_RELAY_REQUEST);
+      continue;
+    }
+    /* Bad entries from an older host do not prevent probing a usable peer. */
+    CHECK(peer.pReceive(peer.pContext, NULL, abProbe, sizeof(abProbe)) == sizeof(abProbe));
+    CHECK(abProbe[16] == NET_PUNCH_PROBE);
+    for (iCandidate = 0; iCandidate < 4; ++iCandidate) {
+      CHECK(NetTransportSimSetEndpointAddress(pSim, 3, &aCandidates[iCandidate]));
+      for (int iAck = 0; iAck < 2; ++iAck) {
+        abProbe[16] = iAck ? NET_PUNCH_ACK : NET_PUNCH_PROBE;
+        CHECK(reflected.pSend(reflected.pContext, &browserAddress,
+                                abProbe, sizeof(abProbe)) == sizeof(abProbe));
+        NetChannelPump(pBrowser);
+        CHECK(NetDiscoveryPunchState(pDiscovery, NULL) == NET_PUNCH_IN_PROGRESS);
+        CHECK(reflected.pReceive(reflected.pContext, NULL,
+                                  abPacket, sizeof(abPacket)) == 0);
+      }
+    }
+    abProbe[16] = NET_PUNCH_ACK;
+    CHECK(peer.pSend(peer.pContext, &browserAddress,
+                      abProbe, sizeof(abProbe)) == sizeof(abProbe));
+    NetChannelPump(pBrowser);
+    CHECK(NetDiscoveryPunchState(pDiscovery, &resolved) == NET_PUNCH_SUCCEEDED);
+    CHECK(!memcmp(&resolved, &aCandidates[4], sizeof(resolved)));
+  }
+  NetDiscoveryDestroy(pDiscovery);
+  NetChannelDestroy(pBrowser);
+  NetTransportSimDestroy(pSim);
+}
+
 int main(void)
 {
+  TestLoopbackCandidates();
   tNetTransportSim *pSim = NetTransportSimCreate(1);
   tNetAddress hostAddress = TestAddress(10, 7777);
   tNetAddress browserAddress = TestAddress(20, 7780);
@@ -140,6 +244,9 @@ int main(void)
   CHECK(resolved.byFamily == hostAddress.byFamily &&
         resolved.unPort == hostAddress.unPort &&
         memcmp(resolved.abAddress, hostAddress.abAddress, 4) == 0);
+  /* The host also needs its probe acknowledged, not merely received. */
+  TestCycle(pSim, pRendezvous, pHost, pBrowser, pHostDiscovery,
+            pBrowserDiscovery, 108);
   CHECK(NetDiscoveryPunchState(pHostDiscovery, &resolved) ==
         NET_PUNCH_SUCCEEDED);
   CHECK(resolved.byFamily == browserAddress.byFamily &&

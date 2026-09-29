@@ -18,6 +18,28 @@ typedef struct {
 } tNetAddr;
 typedef tNetAddr tNetAddress;
 
+/* Pure address classification, also usable by the socket-free discovery core. */
+static inline int NetAddressIsLoopback(const tNetAddress *pAddress)
+{
+  int iByte;
+  if (!pAddress)
+    return 0;
+  if (pAddress->byFamily == NET_ADDR_IPV4)
+    return pAddress->abAddress[0] == 127;
+  if (pAddress->byFamily != NET_ADDR_IPV6)
+    return 0;
+  for (iByte = 0; iByte < 10; ++iByte)
+    if (pAddress->abAddress[iByte])
+      return 0;
+  /* Include IPv4-mapped loopback addresses supplied on the wire. */
+  if (pAddress->abAddress[10] == 255 && pAddress->abAddress[11] == 255)
+    return pAddress->abAddress[12] == 127;
+  for (iByte = 10; iByte < 15; ++iByte)
+    if (pAddress->abAddress[iByte])
+      return 0;
+  return pAddress->abAddress[15] == 1;
+}
+
 typedef struct {
   void *pContext;
   int (*pSend)(void *pContext, const tNetAddress *pTo, const void *pData, int iLength);
@@ -38,7 +60,8 @@ int NetAddressResolve(tNetAddress *pAddress, const char *szText, uint16 unDefaul
 int NetAddressFormat(const tNetAddress *pAddress, char *szText, int iCapacity);
 int NetAddressEqual(const tNetAddress *pA, const tNetAddress *pB);
 
-/* Returns the number of unique addresses written, or -1 on error. */
+/* Returns unique non-loopback addresses on active interfaces, or -1 on error.
+   Zero is valid when no usable network interface is available. */
 int NetAddressEnumerateLocal(tNetAddress *pAddresses, int iCapacity, uint16 unPort);
 
 /* A single non-blocking IPv6 socket with IPv4-mapped addressing.  unPort == 0

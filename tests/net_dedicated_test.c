@@ -165,7 +165,9 @@ int main(int iArgc, char **ppArgv)
           &rendezvousAddress, NetDedicatedTestRandomBytes, &random);
       CHECK(apBotDiscovery[iBot]);
       CHECK(NetDiscoveryPunch(apBotDiscovery[iBot], uiSessionId));
-      for (uint64 ullEndMs = ullNowMs + NET_PUNCH_TIMEOUT_MS;
+      /* The fixed deadline starts at the transport clock when Punch runs;
+         receiving its answer must not extend it. */
+      for (uint64 ullEndMs = NetChannelNowMs(apBotChannels[iBot]) + NET_PUNCH_TIMEOUT_MS;
            ullNowMs <= ullEndMs; ++ullNowMs) {
         CHECK(NetTransportSimAdvance(pSim, ullNowMs));
         NetRendezvousPump(pRendezvous);
@@ -212,8 +214,11 @@ int main(int iArgc, char **ppArgv)
     CHECK(NetDedicatedPump(pDedicated));
     for (int iBot = 0; iBot < 2; ++iBot) {
       NetDedicatedTestPumpBot(apBotChannels[iBot], apBots[iBot], pDedicated);
-      if (apBotDiscovery[iBot])
+      if (apBotDiscovery[iBot]) {
+        if (NetBotSessionToken(apBots[iBot]))
+          NetDiscoveryConfirmJoin(apBotDiscovery[iBot]);
         NetDiscoveryPump(apBotDiscovery[iBot]);
+      }
     }
     CHECK(NetDedicatedPump(pDedicated));
     if (NetDedicatedState(pDedicated) == NET_DEDICATED_COMPLETE) {
