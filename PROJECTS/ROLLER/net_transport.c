@@ -576,6 +576,7 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
   tNetSocketLength iAddressLength;
   int iV6Only = 1;
   int iBroadcast = 1;
+  int iBindAttempt = 0;
 #ifdef _WIN32
   u_long ulNonBlocking = 1;
 #endif
@@ -588,6 +589,7 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
   }
   pUdp->socketV4 = NET_INVALID_SOCKET;
   pUdp->socketV6 = NET_INVALID_SOCKET;
+retry_ephemeral_port:
   /* Native sockets are required here: IPv4-mapped IPv6 sockets do not
      portably send or receive IPv4 limited broadcasts on macOS. */
   pUdp->socketV6 = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
@@ -641,8 +643,24 @@ tNetTransportUdp *NetTransportUdpCreate(uint16 unPort)
   bindAddressV4.sin_addr.s_addr = htonl(INADDR_ANY);
   bindAddressV4.sin_port = htons(pUdp->unPort);
   if (bind(pUdp->socketV4, (const struct sockaddr *)&bindAddressV4,
-           (tNetSocketLength)sizeof(bindAddressV4)))
+           (tNetSocketLength)sizeof(bindAddressV4))) {
+    int iAddressInUse;
+#ifdef _WIN32
+    iAddressInUse = WSAGetLastError() == WSAEADDRINUSE;
+#else
+    iAddressInUse = errno == EADDRINUSE;
+#endif
+    /* A port selected by the IPv6-only socket may be claimed on IPv4 before
+       its companion socket binds. Retry that ephemeral allocation race. */
+    if (!unPort && iAddressInUse && iBindAttempt++ < 7) {
+      NetCloseSocket(pUdp->socketV4);
+      NetCloseSocket(pUdp->socketV6);
+      pUdp->socketV4 = NET_INVALID_SOCKET;
+      pUdp->socketV6 = NET_INVALID_SOCKET;
+      goto retry_ephemeral_port;
+    }
     goto fail;
+  }
   return pUdp;
 
 fail:

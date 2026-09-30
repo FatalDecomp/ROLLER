@@ -399,16 +399,29 @@ static tNetTransport NetTestInternetEndpoint(tNetTestInternetTransport *pTest)
 static void NetTestInternetJoin(uint16 unClientPort, int iCase,
                                  const char *szTrack)
 {
-  tNetTransportUdp *pHostUdp = NetTransportUdpCreate(0);
-  tNetTransportUdp *pRvzUdp = NetTransportUdpCreate(0);
+  tNetTransportUdp *pHostUdp = NULL, *pRvzUdp = NULL;
+  tNetChannel *pHostChannel = NULL;
+  tNetRendezvous *pRvz = NULL;
+  tNetDiscovery *pDiscovery = NULL;
+  tNetSessionHost *pHost = NULL;
+  tNetLobbyHost *pLobby = NULL;
   tNetTestInternetTransport hostTransport = {0}, rvzTransport = {0};
   tNetAddress rendezvous;
   tRvzSessionInfo info = {0};
   tNetSessionConfigOptions options;
   tNetSessionConfig config;
   uint32 uiSessionId = 0;
-  int iSelected = 0;
-  CHECK(pHostUdp && pRvzUdp);
+  int iSelected = 0, iResult = 1;
+
+#define CHECK_INTERNET_JOIN(condition) do { if (!(condition)) { \
+  fprintf(stderr, "%s:%d: %s (%s)\n", __FILE__, __LINE__, #condition, \
+          NetFrontendLobbyStatus()); \
+  goto cleanup; \
+} } while (0)
+
+  pHostUdp = NetTransportUdpCreate(0);
+  pRvzUdp = NetTransportUdpCreate(0);
+  CHECK_INTERNET_JOIN(pHostUdp && pRvzUdp);
   hostTransport.transport = NetTransportUdpEndpoint(pHostUdp);
   hostTransport.iHost = 1;
   hostTransport.iAllowPunch = iCase == 1;
@@ -416,32 +429,32 @@ static void NetTestInternetJoin(uint16 unClientPort, int iCase,
   rvzTransport.iDropOffer = iCase == 0;
   rvzTransport.iDropRelay = iCase == 2;
   rvzTransport.iLoopbackCandidate = iCase >= 3 ? iCase - 2 : 0;
-  CHECK(NetAddressParse(&rendezvous, "127.0.0.1", NetTransportUdpPort(pRvzUdp)));
-  tNetChannel *pHostChannel = NetChannelCreate(NetTestInternetEndpoint(&hostTransport));
-  tNetRendezvous *pRvz = NetRendezvousCreate(NetTestInternetEndpoint(&rvzTransport),
-                                           NetPlatformRandomBytes, NULL);
-  tNetDiscovery *pDiscovery = NetDiscoveryCreate(pHostChannel, &rendezvous,
-                                                 NetPlatformRandomBytes, NULL);
-  tNetSessionHost *pHost = NetSessionHostCreate(pHostChannel, 16,
-                                               NetPlatformRandomBytes, NULL);
-  CHECK(pHostChannel && pRvz && pDiscovery && pHost);
+  CHECK_INTERNET_JOIN(NetAddressParse(&rendezvous, "127.0.0.1",
+                                      NetTransportUdpPort(pRvzUdp)));
+  pHostChannel = NetChannelCreate(NetTestInternetEndpoint(&hostTransport));
+  pRvz = NetRendezvousCreate(NetTestInternetEndpoint(&rvzTransport),
+                             NetPlatformRandomBytes, NULL);
+  pDiscovery = NetDiscoveryCreate(pHostChannel, &rendezvous,
+                                  NetPlatformRandomBytes, NULL);
+  pHost = NetSessionHostCreate(pHostChannel, 16, NetPlatformRandomBytes, NULL);
+  CHECK_INTERNET_JOIN(pHostChannel && pRvz && pDiscovery && pHost);
   names[3] = (char *)szTrack;
   TrackLoad = 3;
   competitors = 16;
   level = damage_level = manual_control[0] = 1;
   NetSessionConfigOptionsDefault(&options);
-  CHECK(NetSessionConfigBuild(&config, &options));
-  CHECK(NetSessionHostSetConfig(pHost, &config));
-  tNetLobbyHost *pLobby = NetLobbyHostCreate(pHost);
-  CHECK(pLobby);
+  CHECK_INTERNET_JOIN(NetSessionConfigBuild(&config, &options));
+  CHECK_INTERNET_JOIN(NetSessionHostSetConfig(pHost, &config));
+  pLobby = NetLobbyHostCreate(pHost);
+  CHECK_INTERNET_JOIN(pLobby);
   memcpy(info.szBuildHash, options.szBuildHash, sizeof(info.szBuildHash));
   snprintf(info.szName, sizeof(info.szName), "INTERNET JOIN TEST");
   snprintf(info.szTrack, sizeof(info.szTrack), "TRACK5");
   info.unTickRateHz = 36;
   info.byPlayers = 1;
   info.byMaxPlayers = 16;
-  CHECK(NetDiscoveryHostStart(pDiscovery, &info));
-  CHECK(NetFrontendSetRendezvous("127.0.0.1", rendezvous.unPort));
+  CHECK_INTERNET_JOIN(NetDiscoveryHostStart(pDiscovery, &info));
+  CHECK_INTERNET_JOIN(NetFrontendSetRendezvous("127.0.0.1", rendezvous.unPort));
   NetFrontendSetLocalPort(unClientPort);
   net_mode = NET_MODE_MODERN;
   network_slot = -1;
@@ -449,42 +462,53 @@ static void NetTestInternetJoin(uint16 unClientPort, int iCase,
   player2_car = -1;
   Players_Cars[0] = 0;
   manual_control[0] = 1;
-  CHECK(NetFrontendOpen());
+  CHECK_INTERNET_JOIN(NetFrontendOpen());
   uint64 ullDeadline = SDL_GetTicks() + 18000;
   while ((!NetFrontendLobbyJoined() || !NetLobbyHostAllReady(pLobby)) &&
          !strstr(NetFrontendLobbyStatus(), "TIMED OUT")) {
-    CHECK(SDL_GetTicks() < ullDeadline);
+    CHECK_INTERNET_JOIN(SDL_GetTicks() < ullDeadline);
     NetRendezvousPump(pRvz);
     Pump();
     NetDiscoveryPump(pDiscovery);
     NetSessionHostPump(pHost);
     NetLobbyHostPump(pLobby);
     if (!iSelected && NetFrontendBrowserSessionCount()) {
-      CHECK(NetDiscoveryHostRegistered(pDiscovery, &uiSessionId));
-      CHECK(NetFrontendBrowserSelect(uiSessionId));
+      CHECK_INTERNET_JOIN(NetDiscoveryHostRegistered(pDiscovery, &uiSessionId));
+      CHECK_INTERNET_JOIN(NetFrontendBrowserSelect(uiSessionId));
       iSelected = 1;
     }
   }
-  CHECK(iSelected && rvzTransport.iRelayRequests);
+  CHECK_INTERNET_JOIN(iSelected && rvzTransport.iRelayRequests);
   if (iCase == 2)
-    CHECK(!NetFrontendLobbyJoined() && !NetFrontendIsOpen());
+    CHECK_INTERNET_JOIN(!NetFrontendLobbyJoined() && !NetFrontendIsOpen());
   else
-    CHECK(NetFrontendLobbyJoined() && NetLobbyHostAllReady(pLobby));
+    CHECK_INTERNET_JOIN(NetFrontendLobbyJoined() && NetLobbyHostAllReady(pLobby));
   if (iCase == 0)
-    CHECK(rvzTransport.iDroppedOffers == 1 && rvzTransport.iRelayRequests >= 2);
+    CHECK_INTERNET_JOIN(rvzTransport.iDroppedOffers == 1 &&
+                        rvzTransport.iRelayRequests >= 2);
   if (iCase >= 3)
-    CHECK(rvzTransport.iInjectedCandidates);
+    CHECK_INTERNET_JOIN(rvzTransport.iInjectedCandidates);
   /* Only the joining client requests a relay; the host must not relay to itself. */
-  CHECK(NetDiscoveryPunchState(pDiscovery, NULL) != NET_PUNCH_RELAY_SUCCEEDED);
+  CHECK_INTERNET_JOIN(NetDiscoveryPunchState(pDiscovery, NULL) !=
+                      NET_PUNCH_RELAY_SUCCEEDED);
+  iResult = 0;
+
+cleanup:
   NetFrontendClose();
-  NetLobbyHostDestroy(pLobby);
-  NetSessionHostDestroy(pHost);
-  NetDiscoveryDestroy(pDiscovery);
+  if (pLobby)
+    NetLobbyHostDestroy(pLobby);
+  if (pHost)
+    NetSessionHostDestroy(pHost);
+  if (pDiscovery)
+    NetDiscoveryDestroy(pDiscovery);
   NetRendezvousDestroy(pRvz);
   NetChannelDestroy(pHostChannel);
   NetTransportUdpDestroy(pHostUdp);
   NetTransportUdpDestroy(pRvzUdp);
-  printf("Frontend Internet join case %d passed\n", iCase);
+  if (!iResult)
+    printf("Frontend Internet join case %d passed\n", iCase);
+
+#undef CHECK_INTERNET_JOIN
 }
 
 int main(int argc, char **argv)
