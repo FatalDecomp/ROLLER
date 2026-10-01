@@ -36,6 +36,15 @@ typedef enum
   NET_RECOVERY_RESYNCING
 } eNetRecoveryState;
 
+typedef enum
+{
+  NET_DISPLAY_WARMUP = 0,
+  NET_DISPLAY_INTERPOLATING,
+  NET_DISPLAY_EXTRAPOLATING,
+  NET_DISPLAY_HOLDING,
+  NET_DISPLAY_OLDER_THAN_HISTORY
+} eNetDisplayMode;
+
 typedef struct
 {
   uint32 uiTicks;              /* client ticks simulated */
@@ -72,6 +81,20 @@ typedef struct
   float fInterpolationDelayMs;
   float fRenderTick, fAppliedRenderTick;
   float fCorrectionMagnitude, fReplayMsTotal, fReplayMsWorst;
+  /* S1: receive-time and actual in-tick display diagnostics.  Mode time is
+     counted once per frame; hook counters above also include replay. */
+  uint32 uiAdvancingArrivals, uiArrivalGapMinMs, uiArrivalGapMaxMs;
+  uint32 auiArrivalGapBuckets[6]; /* <=50, <=75, <=100, <=150, <=250, >250 ms */
+  uint32 uiSourceGapMaxTicks, uiDeliveryVariationMaxMs;
+  uint32 uiPresentationFrames, uiTimelineRegressions, uiPresentationEpochs;
+  uint32 uiRecoverySamples, uiRemoteBlendMs; /* blend is zero in S1 */
+  uint64 ullDisplayModeMs[5], ullPausedDisplayMs;
+  double dPresentationTick, dDesiredReserveMs, dActualReserveMs;
+  float fPlaybackSpeed, fHistoryCoverageMs, fExtrapolationMs;
+  float fConfiguredSnapshotIntervalMs;
+  float fRecoveryErrorWorldMax, fRecoveryYawErrorDegMax;
+  uint32 uiFrameMaxMs;
+  uint8 byDisplayMode;
 } tNetClientStats;
 
 /* Registers for race traffic on pLobby.  One client per session. */
@@ -95,6 +118,9 @@ const char *NetClientStatus(const tNetClient *pClient);
    dilated accumulator (4.4).  The accumulator owns the client's ticks: the
    frame runs exactly NetClientTicksDue() calls to NetClientTick. */
 void NetClientPump(tNetClient *pClient);
+/* Call after live ticks drain, once per visible frame.  Updates diagnostics
+   without changing simulation or puppet placement. */
+void NetClientPresentationFrame(tNetClient *pClient);
 int NetClientTicksDue(const tNetClient *pClient);
 
 /* One client tick N = NetClientCurrentTick() + 1 (4.3 steps 5 to 7): the

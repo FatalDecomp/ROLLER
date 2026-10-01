@@ -22,6 +22,19 @@ typedef struct {
   int iLateInputs, iFutureInputs;
   float fTickScale;
   int iBytesInPerSec, iBytesOutPerSec;
+  int iRouteType, iRelayThrottled; /* 0 unknown, 1 direct, 2 relay, 3 simulated */
+  uint32 uiAdvancingArrivals, uiDroppedDeltas;
+  uint32 uiLatestSnapshotTick;
+  uint32 uiArrivalGapMinMs, uiArrivalGapMaxMs, uiSourceGapMaxTicks;
+  uint32 uiDeliveryVariationMaxMs;
+  uint64 ullDisplayModeMs[5], ullPausedDisplayMs;
+  double dPresentationTick, dDesiredReserveMs, dActualReserveMs;
+  float fPlaybackSpeed, fHistoryCoverageMs, fExtrapolationMs, fFrameMs;
+  float fConfiguredSnapshotIntervalMs;
+  uint32 uiFrameMaxMs;
+  int iDisplayMode, iTimelineRegressions, iPresentationEpochs;
+  int iRecoverySamples, iRemoteBlendMs;
+  float fRecoveryErrorWorldMax, fRecoveryYawErrorDegMax;
 } tNetStats;
 extern tNetStats g_netStats;
 #endif

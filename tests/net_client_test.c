@@ -726,6 +726,9 @@ static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(after.uiCorrections == before.uiCorrections + 1u);
   CHECK(after.uiReplayTicksTotal ==
         before.uiReplayTicksTotal + (uint32)iDepth);
+  CHECK(after.uiPresentationFrames == before.uiPresentationFrames);
+  CHECK(!memcmp(after.ullDisplayModeMs, before.ullDisplayModeMs,
+                sizeof(after.ullDisplayModeMs)));
   CHECK(after.iReplayDepth == iDepth);
   CHECK(after.fCorrectionMagnitude > NET_CLIENT_POSITION_TOLERANCE);
   CHECK(NetSnapshotEncodeCarFull(byCar, &live));
@@ -1755,6 +1758,7 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
         iRunningIndex = (int)(NetClientCurrentTick(nodes.pClient) -
                               NET_TEST_START_TICK);
     }
+    NetClientPresentationFrame(nodes.pClient);
     if (ullNowMs == ullStepMs) {
       /* The +60 ms latency step, applied to both directions. */
       NetTestSetLinks(&nodes, NET_TEST_LATENCY_MS + NET_TEST_STEP_LATENCY_MS);
@@ -1803,6 +1807,13 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   CHECK(stats.uiRampTick == NetClientCurrentTick(nodes.pClient));
   CHECK(stats.uiPuppetHookCalls ==
         stats.uiTicks + stats.uiReplayTicksTotal);
+  CHECK(stats.uiPresentationFrames > 0u);
+  CHECK(stats.uiAdvancingArrivals > 0u &&
+        stats.uiAdvancingArrivals <= stats.uiSnapshots);
+  CHECK(stats.uiArrivalGapMaxMs >= stats.uiArrivalGapMinMs);
+  CHECK(stats.ullDisplayModeMs[NET_DISPLAY_INTERPOLATING] +
+        stats.ullDisplayModeMs[NET_DISPLAY_EXTRAPOLATING] +
+        stats.ullDisplayModeMs[NET_DISPLAY_HOLDING] > 0u);
   CHECK(stats.uiPuppetApplications > stats.uiPuppetHookCalls);
   CHECK(stats.fInterpolationDelayMs >= NET_CLIENT_INTERPOLATION_MIN_MS &&
         stats.fInterpolationDelayMs <= NET_CLIENT_INTERPOLATION_MAX_MS);

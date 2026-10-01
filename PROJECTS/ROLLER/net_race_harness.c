@@ -26,11 +26,15 @@ struct tNetRaceHarness
   tNetSocket udpSocket;
   struct sockaddr_in proxyAddress;
   uint64 ullNowMs, ullLastFrameMs;
+  uint64 ullLastSnapshotSendMs;
+  uint32 uiLastSnapshotSentCount, uiSnapshotSendEvents;
+  uint32 uiSnapshotSendGapMinMs, uiSnapshotSendGapMaxMs;
   uint64 ullRandomState;
   uint64 ullBytesSent, ullBytesReceived;
   double dHostTickCredit;
   int iEndpoint, iExpectedClients;
   uint8 byRole, byStarted, byReadySent, byLoadedSent, byAbility;
+  uint8 byHasSnapshotSend, byHasSnapshotSendGap;
   uint8 abySuppressOwnState[NET_SIM_MAX_ENDPOINTS];
   tNetChannel *pChannel;
   tNetSessionHost *pSessionHost;
@@ -341,6 +345,30 @@ static int NetRaceHarnessFrameHost(tNetRaceHarness *pHarness)
       pHarness->dHostTickCredit -= 1000.0;
     }
   }
+  if (pHarness->byStarted) {
+    tNetHostPlayerStats stats;
+    if (NetHostPlayerStats(pHarness->pHost, 0, &stats)) {
+      uint32 uiSent = stats.uiFullSnapshots + stats.uiDeltaSnapshots;
+      if (uiSent > pHarness->uiLastSnapshotSentCount) {
+        if (pHarness->byHasSnapshotSend) {
+          uint64 ullGap = pHarness->ullNowMs -
+              pHarness->ullLastSnapshotSendMs;
+          uint32 uiGap = ullGap > UINT32_MAX ? UINT32_MAX : (uint32)ullGap;
+          if (!pHarness->byHasSnapshotSendGap ||
+              uiGap < pHarness->uiSnapshotSendGapMinMs)
+            pHarness->uiSnapshotSendGapMinMs = uiGap;
+          if (uiGap > pHarness->uiSnapshotSendGapMaxMs)
+            pHarness->uiSnapshotSendGapMaxMs = uiGap;
+          pHarness->byHasSnapshotSendGap = 1;
+        }
+        pHarness->uiSnapshotSendEvents +=
+            uiSent - pHarness->uiLastSnapshotSentCount;
+        pHarness->uiLastSnapshotSentCount = uiSent;
+        pHarness->ullLastSnapshotSendMs = pHarness->ullNowMs;
+        pHarness->byHasSnapshotSend = 1;
+      }
+    }
+  }
   pHarness->ullLastFrameMs = pHarness->ullNowMs;
   return 1;
 }
@@ -387,6 +415,7 @@ static int NetRaceHarnessFrameClient(tNetRaceHarness *pHarness)
       if (!NetClientTick(pHarness->pClient, aInputs))
         return 0;
     }
+    NetClientPresentationFrame(pHarness->pClient);
   }
   pHarness->ullLastFrameMs = pHarness->ullNowMs;
   return 1;
@@ -427,6 +456,9 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"paused\":%d,\"race_state\":%d,\"finishers\":%d,"
         "\"human_finishers\":%d,\"full_snapshots\":%u,"
         "\"delta_snapshots\":%u,\"snapshot_bytes\":%llu,"
+        "\"snapshot_send_events\":%u,"
+        "\"snapshot_send_gap_min_ms\":%u,"
+        "\"snapshot_send_gap_max_ms\":%u,"
         "\"wire_bytes_sent\":%llu,\"wire_bytes_received\":%llu,"
         "\"legacy_calls\":%d,\"legacy_violations\":%d}\n",
         pHarness->byStarted ? "true" : "false", uiTick, game_frame,
@@ -435,6 +467,9 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         NetHostPaused(pHarness->pHost), NetHostRaceState(pHarness->pHost),
         iFinishers, iHumanFinishers, uiFullSnapshots, uiDeltaSnapshots,
         (unsigned long long)ullSnapshotBytes,
+        pHarness->uiSnapshotSendEvents,
+        pHarness->uiSnapshotSendGapMinMs,
+        pHarness->uiSnapshotSendGapMaxMs,
         (unsigned long long)pHarness->ullBytesSent,
         (unsigned long long)pHarness->ullBytesReceived,
         NetLegacyTrapEntryCount(), NetLegacyTrapViolationCount());
@@ -456,7 +491,25 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"prediction_mode\":%d,\"prediction_transitions\":%d,"
         "\"time_degraded_ms\":%u,\"recovery\":%d,"
         "\"rejected_messages\":%u,"
-        "\"rtt_ms\":%.9g,\"wire_bytes_sent\":%llu,"
+        "\"advancing_arrivals\":%u,\"dropped_deltas\":%u,"
+        "\"configured_snapshot_interval_ms\":%.9g,"
+        "\"arrival_gap_min_ms\":%u,\"arrival_gap_max_ms\":%u,"
+        "\"arrival_gap_buckets\":[%u,%u,%u,%u,%u,%u],"
+        "\"source_gap_max_ticks\":%u,\"delivery_variation_max_ms\":%u,"
+        "\"snapshot_received_ago_ms\":%u,\"latest_snapshot_tick\":%u,"
+        "\"presentation_tick_relative\":%.9g,\"display_mode\":%u,"
+        "\"display_mode_ms\":[%llu,%llu,%llu,%llu,%llu],"
+        "\"paused_display_ms\":%llu,\"presentation_frames\":%u,"
+        "\"desired_reserve_ms\":%.9g,\"actual_reserve_ms\":%.9g,"
+        "\"playback_speed\":%.9g,\"history_coverage_ms\":%.9g,"
+        "\"extrapolation_ms\":%.9g,\"timeline_regressions\":%u,"
+        "\"recovery_samples\":%u,\"recovery_error_world_max\":%.9g,"
+        "\"recovery_yaw_error_deg_max\":%.9g,\"remote_blend_ms\":%u,"
+        "\"presentation_epochs\":%u,\"frame_ms\":%.9g,"
+        "\"frame_max_ms\":%u,"
+        "\"route\":\"simulated\",\"relay_throttled\":false,"
+        "\"rtt_ms\":%.9g,\"jitter_ms\":%.9g,"
+        "\"wire_bytes_sent\":%llu,"
         "\"wire_bytes_received\":%llu,\"legacy_calls\":%d,"
         "\"legacy_violations\":%d,\"status\":\"%s\"}\n",
         pHarness->byStarted ? "true" : "false",
@@ -469,7 +522,31 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         (double)stats.fReplayMsTotal, (double)stats.fReplayMsWorst,
         stats.iPredictionMode, stats.iPredictionTransitions,
         stats.uiTimeDegradedMs, NetClientRecoveryState(pHarness->pClient),
-        stats.uiRejectedMessages, (double)stats.fRttMs,
+        stats.uiRejectedMessages,
+        stats.uiAdvancingArrivals, stats.uiDroppedDeltas,
+        (double)stats.fConfiguredSnapshotIntervalMs,
+        stats.uiArrivalGapMinMs, stats.uiArrivalGapMaxMs,
+        stats.auiArrivalGapBuckets[0], stats.auiArrivalGapBuckets[1],
+        stats.auiArrivalGapBuckets[2], stats.auiArrivalGapBuckets[3],
+        stats.auiArrivalGapBuckets[4], stats.auiArrivalGapBuckets[5],
+        stats.uiSourceGapMaxTicks, stats.uiDeliveryVariationMaxMs,
+        stats.uiSnapshotAgeMs, stats.uiNewestSnapshotTick,
+        stats.dPresentationTick, stats.byDisplayMode,
+        (unsigned long long)stats.ullDisplayModeMs[0],
+        (unsigned long long)stats.ullDisplayModeMs[1],
+        (unsigned long long)stats.ullDisplayModeMs[2],
+        (unsigned long long)stats.ullDisplayModeMs[3],
+        (unsigned long long)stats.ullDisplayModeMs[4],
+        (unsigned long long)stats.ullPausedDisplayMs,
+        stats.uiPresentationFrames, stats.dDesiredReserveMs,
+        stats.dActualReserveMs, (double)stats.fPlaybackSpeed,
+        (double)stats.fHistoryCoverageMs, (double)stats.fExtrapolationMs,
+        stats.uiTimelineRegressions, stats.uiRecoverySamples,
+        (double)stats.fRecoveryErrorWorldMax,
+        (double)stats.fRecoveryYawErrorDegMax, stats.uiRemoteBlendMs,
+        stats.uiPresentationEpochs,
+        (double)stats.fFrameMs, stats.uiFrameMaxMs,
+        (double)stats.fRttMs, (double)stats.fJitterMs,
         (unsigned long long)pHarness->ullBytesSent,
         (unsigned long long)pHarness->ullBytesReceived,
         NetLegacyTrapEntryCount(), NetLegacyTrapViolationCount(),

@@ -44,6 +44,7 @@ int NetFrontendLobbyRequestStart(uint32 uiStartTick);
 int NetFrontendLobbyStartTick(uint32 *puiStartTick);
 int NetFrontendRaceSynchronise(void);
 int NetFrontendRaceTicksDue(void);
+void NetFrontendRacePresentationFrame(void);
 int NetFrontendRaceLocalPlayers(void);
 int NetFrontendRaceTick(uint32 uiTick, const tCarInputData *pInputs,
                         int iCount);

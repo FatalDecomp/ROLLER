@@ -950,7 +950,46 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       char szStat[160];
 #define NET_STAT(...) do { snprintf(szStat, sizeof(szStat), __VA_ARGS__); nk_label(pCtx, szStat, NK_TEXT_LEFT); } while (0)
       NET_STAT("RTT %.1f ms  jitter %.1f ms  loss %d%%", g_netStats.fRttMs, g_netStats.fJitterMs, g_netStats.iLossPercent);
-      NET_STAT("Snapshot %d ms old%s", g_netStats.iSnapshotAgeMs, g_netStats.iStalled ? " (stalled)" : "");
+      NET_STAT("Newest received %d ms ago", g_netStats.iSnapshotAgeMs);
+      NET_STAT("Frame %.1f ms (max %u)  route %s%s", g_netStats.fFrameMs,
+               g_netStats.uiFrameMaxMs,
+               g_netStats.iRouteType == 2 ? "relay" :
+               g_netStats.iRouteType == 1 ? "direct" : "unknown",
+               g_netStats.iRelayThrottled ? " (throttled)" : "");
+      NET_STAT("Snapshots %.1f ms  arrivals %u  deltas dropped %u",
+               g_netStats.fConfiguredSnapshotIntervalMs,
+               g_netStats.uiAdvancingArrivals, g_netStats.uiDroppedDeltas);
+      NET_STAT("Arrival gap %u..%u ms",
+               g_netStats.uiArrivalGapMinMs, g_netStats.uiArrivalGapMaxMs);
+      NET_STAT("Source gap <=%u ticks  delivery variation <=%u ms",
+               g_netStats.uiSourceGapMaxTicks,
+               g_netStats.uiDeliveryVariationMaxMs);
+      NET_STAT("Display %s  P offset %.2f  L %u  speed %.2f",
+               g_netStats.iDisplayMode == 1 ? "interpolate" :
+               g_netStats.iDisplayMode == 2 ? "extrapolate" :
+               g_netStats.iDisplayMode == 3 ? "hold" :
+               g_netStats.iDisplayMode == 4 ? "old history" : "warmup",
+               g_netStats.dPresentationTick,
+               g_netStats.uiLatestSnapshotTick,
+               g_netStats.fPlaybackSpeed);
+      NET_STAT("Reserve desired %.1f  actual %.1f  history %.1f ms",
+               g_netStats.dDesiredReserveMs, g_netStats.dActualReserveMs,
+               g_netStats.fHistoryCoverageMs);
+      NET_STAT("Display ms W/I/E/H/O %llu/%llu/%llu/%llu/%llu",
+               (unsigned long long)g_netStats.ullDisplayModeMs[0],
+               (unsigned long long)g_netStats.ullDisplayModeMs[1],
+               (unsigned long long)g_netStats.ullDisplayModeMs[2],
+               (unsigned long long)g_netStats.ullDisplayModeMs[3],
+               (unsigned long long)g_netStats.ullDisplayModeMs[4]);
+      NET_STAT("Extra %.1f ms  regressions %d  epochs %d",
+               g_netStats.fExtrapolationMs,
+               g_netStats.iTimelineRegressions,
+               g_netStats.iPresentationEpochs);
+      NET_STAT("Recovery %d  max %.2f world / %.1f deg  blend %d ms",
+               g_netStats.iRecoverySamples,
+               g_netStats.fRecoveryErrorWorldMax,
+               g_netStats.fRecoveryYawErrorDegMax,
+               g_netStats.iRemoteBlendMs);
       NET_STAT("Corrections %d  magnitude %.3f", g_netStats.iCorrectionCount, g_netStats.fCorrectionMagnitude);
       NET_STAT("Deferred %d  ramp corrections %d", g_netStats.iDeferredCorrections, g_netStats.iRampCorrections);
       NET_STAT("Replay depth %d  total ticks %d", g_netStats.iReplayDepth, g_netStats.iReplayTicksTotal);

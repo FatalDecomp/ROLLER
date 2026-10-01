@@ -1056,6 +1056,19 @@ int NetFrontendRaceTicksDue(void)
       NetClientTicksDue(s_frontend.pRaceClient) : 0;
 }
 
+void NetFrontendRacePresentationFrame(void)
+{
+  if (s_frontend.pRaceClient) {
+    NetClientPresentationFrame(s_frontend.pRaceClient);
+    g_netStats.iRouteType =
+        s_frontend.clientTrace.auiRelayPackets[0] ||
+        s_frontend.clientTrace.auiRelayPackets[1] ? 2 :
+        s_frontend.clientTrace.auiGamePackets[0] ||
+        s_frontend.clientTrace.auiGamePackets[1] ? 1 : 0;
+    g_netStats.iRelayThrottled = s_frontend.byRelayThrottleShown;
+  }
+}
+
 int NetFrontendRaceLocalPlayers(void)
 {
   if (!s_frontend.byRaceStarted)

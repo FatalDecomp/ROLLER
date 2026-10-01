@@ -1084,6 +1084,23 @@ fn configureRenderQueue3DTests(
     const net_harness_tests = b.step("test-net-harness", "Run deterministic two-process NET-E0 smoke test");
     net_harness_tests.dependOn(&run_net_harness.step);
 
+    const run_net_smooth_baseline = b.addSystemCommand(&.{
+        "python", "tests/net_smooth_baseline.py", "--server",
+    });
+    run_net_smooth_baseline.addArtifactArg(net_server_exe);
+    run_net_smooth_baseline.addArg("--proxy");
+    run_net_smooth_baseline.addArtifactArg(netsim_exe);
+    run_net_smooth_baseline.addArg("--track");
+    run_net_smooth_baseline.addFileArg(assets_path.path(b, soak_track));
+    run_net_smooth_baseline.addArg("--assets");
+    run_net_smooth_baseline.addDirectoryArg(assets_path);
+    run_net_smooth_baseline.addArg("--output");
+    run_net_smooth_baseline.addArg("docs/netcode-smooth-s1-baseline.json");
+    const net_smooth_baseline = b.step(
+        "measure-net-smooth-s1", "Measure legacy remote presentation under simulated delivery",
+    );
+    net_smooth_baseline.dependOn(&run_net_smooth_baseline.step);
+
     const run_net_performance = b.addSystemCommand(&.{
         "python", "tests/net_performance.py", "--server",
     });

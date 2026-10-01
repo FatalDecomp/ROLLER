@@ -1765,6 +1765,10 @@ void race_update(void)
   }
   if (!g_bShiftFrozen && replaytype == 2 && !frontend_on && ticks != currentreplayframe)
     game_tick_step();
+#if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
+  if (network_on && net_mode == NET_MODE_MODERN && !net_listen_host && fadedin)
+    NetFrontendRacePresentationFrame();
+#endif
   if (!replayspeed && intro && !game_req)       // Exit replay if intro mode and no game requested
     racing = replayspeed;
   //removed by ROLLER, CD looping is handled in ROLLER code

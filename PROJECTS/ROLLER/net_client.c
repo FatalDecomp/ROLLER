@@ -111,6 +111,15 @@ struct tNetClient
   uint32 uiLastAppliedEventSeq, uiCommitWatermark;
   uint64 ullAboveBudgetSinceMs, ullBelowBudgetSinceMs;
   uint64 ullRecoveryStartedMs, ullCheckpointRequestMs;
+  uint64 ullLastArrivalMs, ullLastPresentationFrameMs;
+  uint32 uiLastArrivalTick;
+  double dLastPresentedRelative;
+  double dLastFramePresentedRelative;
+  uint8 byHasArrival, byHasArrivalGap;
+  uint8 byHasPresentationFrame, byHasLiveSample;
+  uint8 byHasRecoveryPair;
+  uint32 uiRecoveryPriorTick, uiRecoveryLatestTick;
+  tNetCarState aRecoveryPrior[MAX_CARS], aRecoveryLatest[MAX_CARS];
   uint32 uiInstalledCheckpointTick;
   tNetRaceLifecycle lifecycle;
   int iResultFinishers, iResultHumanFinishers;
@@ -388,6 +397,47 @@ static int NetClientPuppetSampleAt(tNetClient *pClient, double dTargetRelative,
   return 1;
 }
 
+static void NetClientRecordLiveSample(tNetClient *pClient,
+                                      const tNetClientPuppetSample *pSample,
+                                      double dTargetRelative)
+{
+  double dNewest = NetClientRelative(pClient,
+      pClient->stats.uiNewestSnapshotTick);
+  if (pClient->byHasLiveSample &&
+      pSample->dAppliedRelative <
+          pClient->dLastPresentedRelative - 0.000001)
+    ++pClient->stats.uiTimelineRegressions;
+  pClient->dLastPresentedRelative = pSample->dAppliedRelative;
+  pClient->byHasLiveSample = 1;
+  pClient->stats.dPresentationTick = pSample->dAppliedRelative;
+  pClient->stats.dDesiredReserveMs =
+      pClient->stats.fInterpolationDelayMs;
+  pClient->stats.dActualReserveMs =
+      (dNewest - dTargetRelative) / pClient->dTicksPerMs;
+  pClient->stats.fExtrapolationMs =
+      (float)(pSample->dExtraTicks / pClient->dTicksPerMs);
+  if (pSample->byUnderrun)
+    pClient->stats.byDisplayMode = NET_DISPLAY_OLDER_THAN_HISTORY;
+  else if (pSample->byExtrapolating)
+    pClient->stats.byDisplayMode =
+        pSample->dAppliedRelative < dTargetRelative - 0.000001 ?
+        NET_DISPLAY_HOLDING : NET_DISPLAY_EXTRAPOLATING;
+  else if (pSample->pOlder == pSample->pNewer &&
+           pClient->stats.uiAdvancingArrivals < 2)
+    pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
+  else
+    pClient->stats.byDisplayMode = NET_DISPLAY_INTERPOLATING;
+  if (pSample->byExtrapolating && pSample->pPrevious) {
+    pClient->uiRecoveryPriorTick = pSample->pPrevious->uiTick;
+    pClient->uiRecoveryLatestTick = pSample->pNewer->uiTick;
+    memcpy(pClient->aRecoveryPrior, pSample->pPrevious->aCars,
+           sizeof(pClient->aRecoveryPrior));
+    memcpy(pClient->aRecoveryLatest, pSample->pNewer->aCars,
+           sizeof(pClient->aRecoveryLatest));
+    pClient->byHasRecoveryPair = 1;
+  }
+}
+
 static int NetClientSamplePuppetCar(const tNetClient *pClient,
                                     const tNetClientPuppetSample *pSample,
                                     int iCar, tNetCarState *pState)
@@ -418,6 +468,8 @@ static void NetClientPuppetHook(void)
   tNetClient *pClient = s_pPuppetClient;
   tNetClientPuppetSample sample;
   double dTargetRelative;
+  uint8 byPreviousMode;
+  int iRecovering;
   int iApplied = 0;
   if (!pClient || !pClient->byRacing)
     return;
@@ -427,10 +479,21 @@ static void NetClientPuppetHook(void)
       pClient->stats.fInterpolationDelayMs * pClient->dTicksPerMs;
   pClient->stats.fRenderTick = (float)(pClient->uiStartTick + dTargetRelative);
   if (!NetClientPuppetSampleAt(pClient, dTargetRelative, &sample)) {
+    if (!net_sim_replaying)
+      pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
     pClient->stats.byStalled = 1;
     g_netStats.iStalled = 1;
     return;
   }
+  byPreviousMode = pClient->stats.byDisplayMode;
+  if (!net_sim_replaying)
+    NetClientRecordLiveSample(pClient, &sample, dTargetRelative);
+  iRecovering = !net_sim_replaying && pClient->byHasRecoveryPair &&
+      (byPreviousMode == NET_DISPLAY_EXTRAPOLATING ||
+       byPreviousMode == NET_DISPLAY_HOLDING) &&
+      pClient->stats.byDisplayMode == NET_DISPLAY_INTERPOLATING;
+  if (iRecovering)
+    ++pClient->stats.uiRecoverySamples;
   if (sample.byUnderrun)
     ++pClient->stats.uiInterpolationUnderruns;
   if (sample.byExtrapolating)
@@ -443,8 +506,41 @@ static void NetClientPuppetHook(void)
     tNetCarState state;
     if (!net_puppet_car[iCar])
       continue;
-    if (!NetClientSamplePuppetCar(pClient, &sample, iCar, &state) ||
-        !NetSnapshotApplyPuppet(iCar, &state)) {
+    if (!NetClientSamplePuppetCar(pClient, &sample, iCar, &state)) {
+      ++pClient->stats.uiRejectedMessages;
+      continue;
+    }
+    if (iRecovering) {
+      const tNetCarState *pPrior = &pClient->aRecoveryPrior[iCar];
+      const tNetCarState *pLatest = &pClient->aRecoveryLatest[iCar];
+      double dSpan = (double)(uint32)(pClient->uiRecoveryLatestTick -
+          pClient->uiRecoveryPriorTick);
+      double dExtra = dTargetRelative - NetClientRelative(pClient,
+          pClient->uiRecoveryLatestTick);
+      float fScale, fX, fY, fZ, fError, fYaw;
+      if (dExtra < 0.0)
+        dExtra = 0.0;
+      if (dExtra > NET_CLIENT_EXTRAPOLATION_MAX_MS * pClient->dTicksPerMs)
+        dExtra = NET_CLIENT_EXTRAPOLATION_MAX_MS * pClient->dTicksPerMs;
+      fScale = dSpan > 0.0 ? (float)(dExtra / dSpan) : 0.0f;
+      fX = pLatest->fWorldPosX +
+          (pLatest->fWorldPosX - pPrior->fWorldPosX) * fScale -
+          state.fWorldPosX;
+      fY = pLatest->fWorldPosY +
+          (pLatest->fWorldPosY - pPrior->fWorldPosY) * fScale -
+          state.fWorldPosY;
+      fZ = pLatest->fWorldPosZ +
+          (pLatest->fWorldPosZ - pPrior->fWorldPosZ) * fScale -
+          state.fWorldPosZ;
+      fError = sqrtf(fX * fX + fY * fY + fZ * fZ);
+      fYaw = NetClientAngleDifference(pLatest->nWorldYaw,
+          state.nWorldYaw) * (360.0f / 16384.0f);
+      if (fError > pClient->stats.fRecoveryErrorWorldMax)
+        pClient->stats.fRecoveryErrorWorldMax = fError;
+      if (fYaw > pClient->stats.fRecoveryYawErrorDegMax)
+        pClient->stats.fRecoveryYawErrorDegMax = fYaw;
+    }
+    if (!NetSnapshotApplyPuppet(iCar, &state)) {
       ++pClient->stats.uiRejectedMessages;
       continue;
     }
@@ -916,6 +1012,12 @@ static int NetClientInstallCheckpoint(tNetClient *pClient)
   pClient->byHasAuthoritative = 0;
   pClient->byResultsPublished = 0;
   pClient->dAccumTicks = 0.0;
+  pClient->byHasArrival = 0;
+  pClient->byHasLiveSample = 0;
+  pClient->byHasPresentationFrame = 0;
+  pClient->byHasRecoveryPair = 0;
+  pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
+  ++pClient->stats.uiPresentationEpochs;
   pClient->recovery = NET_RECOVERY_RESYNCING;
   pClient->ullRecoveryStartedMs = NetClientNowMs(pClient);
   pClient->ullCheckpointRequestMs = pClient->ullRecoveryStartedMs;
@@ -1061,6 +1163,32 @@ static void NetClientAcceptSnapshot(tNetClient *pClient,
     ++pClient->stats.uiFullSnapshots;
   if (!pClient->byHasSnapshot ||
       (int32)(snapshot.uiTick - pClient->stats.uiNewestSnapshotTick) > 0) {
+    if (pClient->byHasArrival && ullNowMs >= pClient->ullLastArrivalMs) {
+      uint64 ullGap = ullNowMs - pClient->ullLastArrivalMs;
+      uint32 uiGap = ullGap > UINT32_MAX ? UINT32_MAX : (uint32)ullGap;
+      uint32 uiSourceGap = snapshot.uiTick - pClient->uiLastArrivalTick;
+      double dVariation = (double)ullGap -
+          (double)uiSourceGap / pClient->dTicksPerMs;
+      int iBucket = uiGap <= 50 ? 0 : uiGap <= 75 ? 1 :
+          uiGap <= 100 ? 2 : uiGap <= 150 ? 3 :
+          uiGap <= 250 ? 4 : 5;
+      if (!pClient->byHasArrivalGap ||
+          uiGap < pClient->stats.uiArrivalGapMinMs)
+        pClient->stats.uiArrivalGapMinMs = uiGap;
+      pClient->byHasArrivalGap = 1;
+      if (uiGap > pClient->stats.uiArrivalGapMaxMs)
+        pClient->stats.uiArrivalGapMaxMs = uiGap;
+      if (uiSourceGap > pClient->stats.uiSourceGapMaxTicks)
+        pClient->stats.uiSourceGapMaxTicks = uiSourceGap;
+      if (dVariation > pClient->stats.uiDeliveryVariationMaxMs)
+        pClient->stats.uiDeliveryVariationMaxMs =
+            dVariation >= UINT32_MAX ? UINT32_MAX : (uint32)dVariation;
+      ++pClient->stats.auiArrivalGapBuckets[iBucket];
+    }
+    pClient->ullLastArrivalMs = ullNowMs;
+    pClient->uiLastArrivalTick = snapshot.uiTick;
+    pClient->byHasArrival = 1;
+    ++pClient->stats.uiAdvancingArrivals;
     pClient->stats.uiNewestSnapshotTick = snapshot.uiTick;
     pClient->ullNewestSnapshotMs = ullNowMs;
     pClient->byHasSnapshot = 1;
@@ -1393,6 +1521,13 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->byHasFeedback = 0;
   pClient->byHasSnapshot = 0;
   pClient->byHasFrame = 0;
+  pClient->byHasArrival = 0;
+  pClient->byHasArrivalGap = 0;
+  pClient->byHasLiveSample = 0;
+  pClient->byHasPresentationFrame = 0;
+  pClient->byHasRecoveryPair = 0;
+  pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
+  pClient->stats.uiPresentationEpochs = 1;
   pClient->byHasReconciled = 0;
   pClient->byHasAuthoritative = 0;
   pClient->byDeferredCounted = 0;
@@ -1402,6 +1537,8 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->recovery = NET_RECOVERY_RACING;
   pClient->stats.fTickScale = 1.0f;
   pClient->stats.fInterpolationDelayMs = NET_CLIENT_INTERPOLATION_MIN_MS;
+  pClient->stats.fConfiguredSnapshotIntervalMs =
+      (float)(config.bySnapshotInterval / pClient->dTicksPerMs);
   pClient->stats.iPredictionMode = NET_PREDICT_FULL;
   pClient->stats.iReplayBudgetTicks = pClient->iReplayBudgetTicks;
   memset(net_puppet_car, 0, sizeof(net_puppet_car));
@@ -1432,6 +1569,12 @@ int NetClientBeginRejoin(tNetClient *pClient,
   memset(&pClient->checkpoint, 0, sizeof(pClient->checkpoint));
   pClient->byHasSnapshot = 0;
   pClient->dAccumTicks = 0.0;
+  pClient->byHasArrival = 0;
+  pClient->byHasLiveSample = 0;
+  pClient->byHasPresentationFrame = 0;
+  pClient->byHasRecoveryPair = 0;
+  pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
+  ++pClient->stats.uiPresentationEpochs;
   pClient->recovery = NET_RECOVERY_INSTALLING;
   pClient->ullRecoveryStartedMs = NetClientNowMs(pClient);
   pClient->ullCheckpointRequestMs = pClient->ullRecoveryStartedMs;
@@ -1675,6 +1818,9 @@ void NetClientPump(tNetClient *pClient)
   dElapsedMs = (double)(ullNowMs - pClient->ullLastPumpMs);
   pClient->ullLastPumpMs = ullNowMs;
   if (dElapsedMs > 0.0) {
+    if (dElapsedMs > pClient->stats.uiFrameMaxMs)
+      pClient->stats.uiFrameMaxMs =
+          dElapsedMs >= UINT32_MAX ? UINT32_MAX : (uint32)dElapsedMs;
     if (!pClient->byHasFrame)
       pClient->stats.fFrameMs = (float)dElapsedMs;
     else
@@ -1759,6 +1905,88 @@ void NetClientPump(tNetClient *pClient)
   g_netStats.iLateInputs = (int)pClient->stats.uiHostLateInputs;
   g_netStats.iFutureInputs = (int)pClient->stats.uiHostFutureInputs;
   NetClientPublishReconciliationStats(pClient);
+}
+
+void NetClientPresentationFrame(tNetClient *pClient)
+{
+  uint64 ullNowMs, ullElapsedMs = 0;
+  double dOldest = 0.0, dNewest = 0.0;
+  int iFound = 0;
+  if (!pClient || !pClient->byRacing)
+    return;
+  ullNowMs = NetClientNowMs(pClient);
+  if (pClient->byHasPresentationFrame &&
+      ullNowMs >= pClient->ullLastPresentationFrameMs)
+    ullElapsedMs = ullNowMs - pClient->ullLastPresentationFrameMs;
+  if (pClient->byHasPresentationFrame && ullElapsedMs &&
+      !pClient->lifecycle.byPaused &&
+      pClient->recovery == NET_RECOVERY_RACING &&
+      pClient->byHasLiveSample)
+    pClient->stats.fPlaybackSpeed = (float)(
+        (pClient->dLastPresentedRelative -
+         pClient->dLastFramePresentedRelative) /
+        (ullElapsedMs * pClient->dTicksPerMs));
+  else
+    pClient->stats.fPlaybackSpeed = 0.0f;
+  if (pClient->lifecycle.byPaused)
+    pClient->stats.ullPausedDisplayMs += ullElapsedMs;
+  else if (pClient->recovery == NET_RECOVERY_RACING &&
+           pClient->stats.byDisplayMode <= NET_DISPLAY_OLDER_THAN_HISTORY)
+    pClient->stats.ullDisplayModeMs[pClient->stats.byDisplayMode] +=
+        ullElapsedMs;
+  pClient->ullLastPresentationFrameMs = ullNowMs;
+  pClient->byHasPresentationFrame = 1;
+  pClient->dLastFramePresentedRelative = pClient->dLastPresentedRelative;
+  ++pClient->stats.uiPresentationFrames;
+  for (int iSlot = 0; iSlot < NET_CLIENT_SNAPSHOT_BUFFER; ++iSlot) {
+    const tNetClientSnapshotSlot *pSlot = &pClient->aSnapshots[iSlot];
+    double dTick;
+    if (!pClient->byHasSnapshot || !pSlot->byValid ||
+        !NetClientInWindow(pClient, pSlot->snapshot.uiTick,
+                           pClient->stats.uiNewestSnapshotTick,
+                           pClient->iRetentionTicks + 1))
+      continue;
+    dTick = NetClientRelative(pClient, pSlot->snapshot.uiTick);
+    if (!iFound || dTick < dOldest)
+      dOldest = dTick;
+    if (!iFound || dTick > dNewest)
+      dNewest = dTick;
+    iFound = 1;
+  }
+  pClient->stats.fHistoryCoverageMs = iFound ?
+      (float)((dNewest - dOldest) / pClient->dTicksPerMs) : 0.0f;
+  g_netStats.uiAdvancingArrivals = pClient->stats.uiAdvancingArrivals;
+  g_netStats.uiDroppedDeltas = pClient->stats.uiDroppedDeltas;
+  g_netStats.uiLatestSnapshotTick = pClient->stats.uiNewestSnapshotTick;
+  g_netStats.uiArrivalGapMinMs = pClient->stats.uiArrivalGapMinMs;
+  g_netStats.uiArrivalGapMaxMs = pClient->stats.uiArrivalGapMaxMs;
+  g_netStats.uiSourceGapMaxTicks = pClient->stats.uiSourceGapMaxTicks;
+  g_netStats.uiDeliveryVariationMaxMs =
+      pClient->stats.uiDeliveryVariationMaxMs;
+  memcpy(g_netStats.ullDisplayModeMs, pClient->stats.ullDisplayModeMs,
+         sizeof(g_netStats.ullDisplayModeMs));
+  g_netStats.ullPausedDisplayMs = pClient->stats.ullPausedDisplayMs;
+  g_netStats.dPresentationTick = pClient->stats.dPresentationTick;
+  g_netStats.dDesiredReserveMs = pClient->stats.dDesiredReserveMs;
+  g_netStats.dActualReserveMs = pClient->stats.dActualReserveMs;
+  g_netStats.fPlaybackSpeed = pClient->stats.fPlaybackSpeed;
+  g_netStats.fHistoryCoverageMs = pClient->stats.fHistoryCoverageMs;
+  g_netStats.fExtrapolationMs = pClient->stats.fExtrapolationMs;
+  g_netStats.fFrameMs = pClient->stats.fFrameMs;
+  g_netStats.fConfiguredSnapshotIntervalMs =
+      pClient->stats.fConfiguredSnapshotIntervalMs;
+  g_netStats.uiFrameMaxMs = pClient->stats.uiFrameMaxMs;
+  g_netStats.iDisplayMode = pClient->stats.byDisplayMode;
+  g_netStats.iTimelineRegressions =
+      (int)pClient->stats.uiTimelineRegressions;
+  g_netStats.iPresentationEpochs =
+      (int)pClient->stats.uiPresentationEpochs;
+  g_netStats.iRecoverySamples = (int)pClient->stats.uiRecoverySamples;
+  g_netStats.iRemoteBlendMs = (int)pClient->stats.uiRemoteBlendMs;
+  g_netStats.fRecoveryErrorWorldMax =
+      pClient->stats.fRecoveryErrorWorldMax;
+  g_netStats.fRecoveryYawErrorDegMax =
+      pClient->stats.fRecoveryYawErrorDegMax;
 }
 
 int NetClientTicksDue(const tNetClient *pClient)
