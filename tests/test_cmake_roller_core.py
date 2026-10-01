@@ -122,7 +122,7 @@ class CMakeRollerCoreTests(unittest.TestCase):
             source_names = {
                 Path(source["path"]).name for source in core_target["sources"]
             }
-            self.assertEqual(len(source_names), 97)
+            self.assertEqual(len(source_names), 98)
             self.assertIn("editor_camera.c", source_names)
             self.assertIn("editor_overlay.c", source_names)
             self.assertIn("editor_helpers.c", source_names)
@@ -134,6 +134,7 @@ class CMakeRollerCoreTests(unittest.TestCase):
             self.assertIn("network.c", source_names)
             self.assertIn("roller_core_error.c", source_names)
             self.assertIn("net_client.c", source_names)
+            self.assertIn("net_presentation.c", source_names)
             self.assertIn("net_bot.c", source_names)
             self.assertIn("net_dedicated.c", source_names)
             self.assertIn("net_event.c", source_names)

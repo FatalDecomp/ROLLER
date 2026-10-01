@@ -158,6 +158,7 @@ pub fn build(b: *std.Build) void {
             "PROJECTS/ROLLER/net_host.c",
             "PROJECTS/ROLLER/net_input.c",
             "PROJECTS/ROLLER/net_client.c",
+            "PROJECTS/ROLLER/net_presentation.c",
             "PROJECTS/ROLLER/net_rendezvous.c",
             "PROJECTS/ROLLER/net_discovery.c",
             "PROJECTS/ROLLER/network.c",
@@ -973,6 +974,26 @@ fn configureRenderQueue3DTests(
     const net_client_tests = b.step("test-net-client", "Run NET-E4 client prediction acceptance");
     net_client_tests.dependOn(&run_net_client.step);
     net_client_tests.dependOn(&run_net_replay_output.step);
+    const net_presentation_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_presentation_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_presentation_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/net_presentation.c",
+            "tests/net_presentation_test.c",
+        },
+    });
+    const net_presentation_exe = b.addExecutable(.{
+        .name = "net_presentation_test",
+        .root_module = net_presentation_mod,
+    });
+    const run_net_presentation = b.addRunArtifact(net_presentation_exe);
+    const net_presentation_tests = b.step("test-net-presentation", "Run NET-SMOOTH-S2 clock tests");
+    net_presentation_tests.dependOn(&run_net_presentation.step);
     const net_bot_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -1100,6 +1121,22 @@ fn configureRenderQueue3DTests(
         "measure-net-smooth-s1", "Measure legacy remote presentation under simulated delivery",
     );
     net_smooth_baseline.dependOn(&run_net_smooth_baseline.step);
+    const run_net_smooth_s2 = b.addSystemCommand(&.{
+        "python", "tests/net_smooth_baseline.py", "--server",
+    });
+    run_net_smooth_s2.addArtifactArg(net_server_exe);
+    run_net_smooth_s2.addArg("--proxy");
+    run_net_smooth_s2.addArtifactArg(netsim_exe);
+    run_net_smooth_s2.addArg("--track");
+    run_net_smooth_s2.addFileArg(assets_path.path(b, soak_track));
+    run_net_smooth_s2.addArg("--assets");
+    run_net_smooth_s2.addDirectoryArg(assets_path);
+    run_net_smooth_s2.addArgs(&.{ "--story", "S2", "--output",
+        "docs/netcode-smooth-s2-measurement.json" });
+    const net_smooth_s2 = b.step(
+        "measure-net-smooth-s2", "Measure buffered clock under simulated delivery",
+    );
+    net_smooth_s2.dependOn(&run_net_smooth_s2.step);
 
     const run_net_performance = b.addSystemCommand(&.{
         "python", "tests/net_performance.py", "--server",

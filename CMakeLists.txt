@@ -84,6 +84,7 @@ set(ROLLER_GAME_BASE_SOURCES
     PROJECTS/ROLLER/net_host.c
     PROJECTS/ROLLER/net_input.c
     PROJECTS/ROLLER/net_client.c
+    PROJECTS/ROLLER/net_presentation.c
     PROJECTS/ROLLER/net_rendezvous.c
     PROJECTS/ROLLER/net_discovery.c
     PROJECTS/ROLLER/network.c
@@ -362,6 +363,14 @@ if(ROLLER_BUILD_EDITOR_CORE)
     add_executable(net-client-test tests/net_client_test.c PROJECTS/ROLLER/net_transport_sim.c)
     target_link_libraries(net-client-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-client-test)
+    add_executable(net-presentation-test tests/net_presentation_test.c
+        PROJECTS/ROLLER/net_presentation.c)
+    target_include_directories(net-presentation-test PRIVATE PROJECTS/ROLLER)
+    if(ROLLER_MATH_LIBRARY)
+        target_link_libraries(net-presentation-test PRIVATE "${ROLLER_MATH_LIBRARY}")
+    endif()
+    roller_configure_c_target(net-presentation-test)
+    add_test(NAME net-presentation COMMAND net-presentation-test)
     add_executable(net-bot-test tests/net_bot_test.c PROJECTS/ROLLER/net_transport_sim.c)
     target_link_libraries(net-bot-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-bot-test)

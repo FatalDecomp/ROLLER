@@ -975,6 +975,26 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       NET_STAT("Reserve desired %.1f  actual %.1f  history %.1f ms",
                g_netStats.dDesiredReserveMs, g_netStats.dActualReserveMs,
                g_netStats.fHistoryCoverageMs);
+      NET_STAT("Buffered %s  P %.2f  reserve %.1f/%.1f ms  speed %.2f",
+               g_netStats.iBufferedDisplayMode == 1 ? "interpolate" :
+               g_netStats.iBufferedDisplayMode == 2 ? "extrapolate" :
+               g_netStats.iBufferedDisplayMode == 3 ? "hold" :
+               g_netStats.iBufferedDisplayMode == 4 ? "old history" : "warmup",
+               g_netStats.dBufferedPresentationTick,
+               g_netStats.dBufferedReserveMs,
+               g_netStats.dBufferedActualReserveMs,
+               g_netStats.fBufferedPlaybackSpeed);
+      NET_STAT("Buffered ms W/I/E/H/O %llu/%llu/%llu/%llu/%llu",
+               (unsigned long long)g_netStats.ullBufferedDisplayModeMs[0],
+               (unsigned long long)g_netStats.ullBufferedDisplayModeMs[1],
+               (unsigned long long)g_netStats.ullBufferedDisplayModeMs[2],
+               (unsigned long long)g_netStats.ullBufferedDisplayModeMs[3],
+               (unsigned long long)g_netStats.ullBufferedDisplayModeMs[4]);
+      NET_STAT("Buffered resync %u  regress %u  long %u  cap %u",
+               g_netStats.uiBufferedForwardResyncs,
+               g_netStats.uiBufferedTimelineRegressions,
+               g_netStats.uiBufferedLongFrames,
+               g_netStats.uiBufferedReserveSaturations);
       NET_STAT("Display ms W/I/E/H/O %llu/%llu/%llu/%llu/%llu",
                (unsigned long long)g_netStats.ullDisplayModeMs[0],
                (unsigned long long)g_netStats.ullDisplayModeMs[1],

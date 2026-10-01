@@ -1,4 +1,4 @@
-"""NET-SMOOTH-S1: measure the existing remote-car presentation path."""
+"""Measure legacy presentation and the independent buffered clock."""
 
 import argparse
 import json
@@ -46,6 +46,9 @@ def measure(args, name, seed):
         modes = [right - left for left, right in zip(
             client_before["display_mode_ms"],
             client_after["display_mode_ms"])]
+        buffered_modes = [right - left for left, right in zip(
+            client_before["buffered_display_mode_ms"],
+            client_after["buffered_display_mode_ms"])]
         gaps = [right - left for left, right in zip(
             client_before["arrival_gap_buckets"],
             client_after["arrival_gap_buckets"])]
@@ -55,6 +58,13 @@ def measure(args, name, seed):
         assert client_after["advancing_arrivals"] > client_before["advancing_arrivals"]
         assert yaw_changes > 0, "the remote car did not turn during measurement"
         assert client_after["legacy_calls"] == 0
+        if args.story == "S2":
+            assert client_after["buffered_timeline_regressions"] == 0
+            assert client_after["buffered_forward_resyncs"] == 0
+            if name in ("lan5", "steady100"):
+                assert buffered_modes[2] + buffered_modes[3] == 0
+            if name == "variable60":
+                assert buffered_modes[1] >= measured_ms * 0.99
         report = {
             "profile": name,
             "seed": seed,
@@ -96,6 +106,26 @@ def measure(args, name, seed):
             "history_coverage_ms": client_after["history_coverage_ms"],
             "display_mode_ms": modes,
             "display_starvation_fraction": stalled_ms / measured_ms,
+            "buffered_display_mode_ms": buffered_modes,
+            "buffered_starvation_fraction":
+                (buffered_modes[2] + buffered_modes[3]) / measured_ms,
+            "buffered_presentation_tick_relative":
+                client_after["buffered_presentation_tick_relative"],
+            "buffered_reserve_ms": client_after["buffered_reserve_ms"],
+            "buffered_actual_reserve_ms":
+                client_after["buffered_actual_reserve_ms"],
+            "buffered_playback_speed":
+                client_after["buffered_playback_speed"],
+            "buffered_forward_resyncs": difference(
+                client_before, client_after, "buffered_forward_resyncs"),
+            "buffered_long_frames": difference(
+                client_before, client_after, "buffered_long_frames"),
+            "buffered_reserve_saturations": difference(
+                client_before, client_after,
+                "buffered_reserve_saturations"),
+            "buffered_timeline_regressions": difference(
+                client_before, client_after,
+                "buffered_timeline_regressions"),
             "timeline_regressions": difference(client_before, client_after,
                                                "timeline_regressions"),
             "recovery_samples": difference(client_before, client_after,
@@ -137,13 +167,16 @@ def main():
                         default="all")
     parser.add_argument("--duration-ms", type=int, default=10000)
     parser.add_argument("--output")
+    parser.add_argument("--story", choices=["S1", "S2"], default="S1")
     args = parser.parse_args()
     for key in ("server", "proxy", "track", "assets"):
         setattr(args, key, str(Path(getattr(args, key)).resolve()))
     names = list(PROFILES) if args.profile == "all" else [args.profile]
     result = {
-        "story": "NET-SMOOTH-S1",
-        "measurement": "legacy in-tick puppet pose, sampled once per frame",
+        "story": "NET-SMOOTH-" + args.story,
+        "measurement": ("legacy in-tick puppet and independent buffered clock"
+                        if args.story == "S2" else
+                        "legacy in-tick puppet pose, sampled once per frame"),
         "warmup_ms": 5000,
         "mode_order": ["warmup", "interpolating", "extrapolating",
                        "holding", "older_than_history"],

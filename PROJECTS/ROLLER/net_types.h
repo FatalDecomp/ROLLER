@@ -35,6 +35,13 @@ typedef struct {
   int iDisplayMode, iTimelineRegressions, iPresentationEpochs;
   int iRecoverySamples, iRemoteBlendMs;
   float fRecoveryErrorWorldMax, fRecoveryYawErrorDegMax;
+  uint64 ullBufferedDisplayModeMs[5];
+  double dBufferedPresentationTick, dBufferedReserveMs;
+  double dBufferedActualReserveMs;
+  float fBufferedPlaybackSpeed;
+  uint32 uiBufferedForwardResyncs, uiBufferedLongFrames;
+  uint32 uiBufferedReserveSaturations, uiBufferedTimelineRegressions;
+  int iBufferedDisplayMode;
 } tNetStats;
 extern tNetStats g_netStats;
 #endif

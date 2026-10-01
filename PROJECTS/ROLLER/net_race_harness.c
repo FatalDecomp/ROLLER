@@ -499,6 +499,16 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"snapshot_received_ago_ms\":%u,\"latest_snapshot_tick\":%u,"
         "\"presentation_tick_relative\":%.9g,\"display_mode\":%u,"
         "\"display_mode_ms\":[%llu,%llu,%llu,%llu,%llu],"
+        "\"buffered_presentation_tick_relative\":%.9g,"
+        "\"buffered_display_mode\":%u,"
+        "\"buffered_display_mode_ms\":[%llu,%llu,%llu,%llu,%llu],"
+        "\"buffered_reserve_ms\":%.9g,"
+        "\"buffered_actual_reserve_ms\":%.9g,"
+        "\"buffered_playback_speed\":%.9g,"
+        "\"buffered_forward_resyncs\":%u,"
+        "\"buffered_long_frames\":%u,"
+        "\"buffered_reserve_saturations\":%u,"
+        "\"buffered_timeline_regressions\":%u,"
         "\"paused_display_ms\":%llu,\"presentation_frames\":%u,"
         "\"desired_reserve_ms\":%.9g,\"actual_reserve_ms\":%.9g,"
         "\"playback_speed\":%.9g,\"history_coverage_ms\":%.9g,"
@@ -537,6 +547,17 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         (unsigned long long)stats.ullDisplayModeMs[2],
         (unsigned long long)stats.ullDisplayModeMs[3],
         (unsigned long long)stats.ullDisplayModeMs[4],
+        stats.dBufferedPresentationTick, stats.byBufferedDisplayMode,
+        (unsigned long long)stats.ullBufferedDisplayModeMs[0],
+        (unsigned long long)stats.ullBufferedDisplayModeMs[1],
+        (unsigned long long)stats.ullBufferedDisplayModeMs[2],
+        (unsigned long long)stats.ullBufferedDisplayModeMs[3],
+        (unsigned long long)stats.ullBufferedDisplayModeMs[4],
+        stats.dBufferedReserveMs, stats.dBufferedActualReserveMs,
+        (double)stats.fBufferedPlaybackSpeed,
+        stats.uiBufferedForwardResyncs, stats.uiBufferedLongFrames,
+        stats.uiBufferedReserveSaturations,
+        stats.uiBufferedTimelineRegressions,
         (unsigned long long)stats.ullPausedDisplayMs,
         stats.uiPresentationFrames, stats.dDesiredReserveMs,
         stats.dActualReserveMs, (double)stats.fPlaybackSpeed,

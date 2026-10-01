@@ -95,6 +95,15 @@ typedef struct
   float fRecoveryErrorWorldMax, fRecoveryYawErrorDegMax;
   uint32 uiFrameMaxMs;
   uint8 byDisplayMode;
+  /* S2 controller diagnostics.  The S1 fields above continue to describe
+     the existing in-tick pose until the renderer consumes this clock. */
+  uint64 ullBufferedDisplayModeMs[5];
+  double dBufferedPresentationTick, dBufferedReserveMs;
+  double dBufferedActualReserveMs;
+  float fBufferedPlaybackSpeed;
+  uint32 uiBufferedForwardResyncs, uiBufferedLongFrames;
+  uint32 uiBufferedReserveSaturations, uiBufferedTimelineRegressions;
+  uint8 byBufferedDisplayMode;
 } tNetClientStats;
 
 /* Registers for race traffic on pLobby.  One client per session. */

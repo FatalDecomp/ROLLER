@@ -15,6 +15,7 @@
 #include "net_headless.h"
 #include "net_host.h"
 #include "net_input.h"
+#include "net_presentation.h"
 #include "net_race_start.h"
 #include "net_race_state.h"
 #include "net_sim_seam.h"
@@ -729,6 +730,11 @@ static void NetTestCorrections(tNetTestNodes *pNodes, uint64 *pullNowMs,
   CHECK(after.uiPresentationFrames == before.uiPresentationFrames);
   CHECK(!memcmp(after.ullDisplayModeMs, before.ullDisplayModeMs,
                 sizeof(after.ullDisplayModeMs)));
+  CHECK(after.dBufferedPresentationTick ==
+        before.dBufferedPresentationTick);
+  CHECK(!memcmp(after.ullBufferedDisplayModeMs,
+                before.ullBufferedDisplayModeMs,
+                sizeof(after.ullBufferedDisplayModeMs)));
   CHECK(after.iReplayDepth == iDepth);
   CHECK(after.fCorrectionMagnitude > NET_CLIENT_POSITION_TOLERANCE);
   CHECK(NetSnapshotEncodeCarFull(byCar, &live));
@@ -1814,6 +1820,13 @@ static void NetTestRace(uint16 unTickRateHz, uint64 ullSteadyMs,
   CHECK(stats.ullDisplayModeMs[NET_DISPLAY_INTERPOLATING] +
         stats.ullDisplayModeMs[NET_DISPLAY_EXTRAPOLATING] +
         stats.ullDisplayModeMs[NET_DISPLAY_HOLDING] > 0u);
+  CHECK(stats.ullBufferedDisplayModeMs[NET_DISPLAY_INTERPOLATING] > 0u);
+  CHECK(stats.uiBufferedTimelineRegressions == 0u);
+  CHECK(stats.dBufferedReserveMs >= 50.0 &&
+        stats.dBufferedReserveMs <= NET_PRESENTATION_MAX_RESERVE_MS);
+  CHECK(stats.dBufferedPresentationTick <=
+        (double)(int32)(stats.uiNewestSnapshotTick - NET_TEST_START_TICK) +
+        NET_CLIENT_EXTRAPOLATION_MAX_MS * unTickRateHz / 1000.0 + 0.001);
   CHECK(stats.uiPuppetApplications > stats.uiPuppetHookCalls);
   CHECK(stats.fInterpolationDelayMs >= NET_CLIENT_INTERPOLATION_MIN_MS &&
         stats.fInterpolationDelayMs <= NET_CLIENT_INTERPOLATION_MAX_MS);
