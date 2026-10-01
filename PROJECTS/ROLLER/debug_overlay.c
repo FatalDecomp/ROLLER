@@ -964,7 +964,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       NET_STAT("Source gap <=%u ticks  delivery variation <=%u ms",
                g_netStats.uiSourceGapMaxTicks,
                g_netStats.uiDeliveryVariationMaxMs);
-      NET_STAT("Display %s  P offset %.2f  L %u  speed %.2f",
+      NET_STAT("In-tick proxy %s  P offset %.2f  L %u  speed %.2f",
                g_netStats.iDisplayMode == 1 ? "interpolate" :
                g_netStats.iDisplayMode == 2 ? "extrapolate" :
                g_netStats.iDisplayMode == 3 ? "hold" :
@@ -975,7 +975,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       NET_STAT("Reserve desired %.1f  actual %.1f  history %.1f ms",
                g_netStats.dDesiredReserveMs, g_netStats.dActualReserveMs,
                g_netStats.fHistoryCoverageMs);
-      NET_STAT("Buffered %s  P %.2f  reserve %.1f/%.1f ms  speed %.2f",
+      NET_STAT("Visual %s  P %.2f  reserve %.1f/%.1f ms  speed %.2f",
                g_netStats.iBufferedDisplayMode == 1 ? "interpolate" :
                g_netStats.iBufferedDisplayMode == 2 ? "extrapolate" :
                g_netStats.iBufferedDisplayMode == 3 ? "hold" :
@@ -984,7 +984,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
                g_netStats.dBufferedReserveMs,
                g_netStats.dBufferedActualReserveMs,
                g_netStats.fBufferedPlaybackSpeed);
-      NET_STAT("Buffered ms W/I/E/H/O %llu/%llu/%llu/%llu/%llu",
+      NET_STAT("Visual ms W/I/E/H/O %llu/%llu/%llu/%llu/%llu",
                (unsigned long long)g_netStats.ullBufferedDisplayModeMs[0],
                (unsigned long long)g_netStats.ullBufferedDisplayModeMs[1],
                (unsigned long long)g_netStats.ullBufferedDisplayModeMs[2],
@@ -1010,6 +1010,13 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
                g_netStats.fRecoveryErrorWorldMax,
                g_netStats.fRecoveryYawErrorDegMax,
                g_netStats.iRemoteBlendMs);
+      NET_STAT("Visual recovery %u  resets %u  max %.1f world / %.1f deg",
+               g_netStats.uiVisualRecoveryBlends,
+               g_netStats.uiVisualDiscontinuities,
+               g_netStats.fVisualRecoveryErrorWorldMax,
+               g_netStats.fVisualRecoveryYawErrorDegMax);
+      NET_STAT("Visual reset hold %llu ms",
+               (unsigned long long)g_netStats.ullVisualCutHoldMs);
       NET_STAT("Corrections %d  magnitude %.3f", g_netStats.iCorrectionCount, g_netStats.fCorrectionMagnitude);
       NET_STAT("Deferred %d  ramp corrections %d", g_netStats.iDeferredCorrections, g_netStats.iRampCorrections);
       NET_STAT("Replay depth %d  total ticks %d", g_netStats.iReplayDepth, g_netStats.iReplayTicksTotal);

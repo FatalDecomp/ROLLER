@@ -1373,14 +1373,14 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   // Init rendering params
   TrackSize = -1;                               // number of track chunks to render
   iExtraViewStart = -1;                         // start of extra view range (for tunnels?)
-  iCurrChunk = Car[iCarIdx].nCurrChunk;         // current track chunk the car is on
+  iCurrChunk = NetSimRenderCarAt(iCarIdx)->nCurrChunk; // current track chunk the car is on
   iHasExtraView = 0;
 
   // Set starting chunk idx based on whether the car is on track
   if (iCurrChunk == -1)
-    iChunkIdx = Car[iCarIdx].iLastValidChunk;   // use last valid chunk if off-track
+    iChunkIdx = NetSimRenderCarAt(iCarIdx)->iLastValidChunk; // use last valid chunk if off-track
   else
-    iChunkIdx = Car[iCarIdx].nCurrChunk;
+    iChunkIdx = NetSimRenderCarAt(iCarIdx)->nCurrChunk;
   alltrackflag = 0;                             // flag for rendering entire track
 
   // Set view params based on view mode
@@ -1415,7 +1415,7 @@ int CalcVisibleTrack(int iCarIdx, unsigned int uiViewMode)
   // Calculate view alignment with track direction
   if (iCurrChunk >= 0) {
     // use car's yaw angle to determine view alignment
-    fViewAlignment = tcos[Car[iCarIdx].nYaw];
+    fViewAlignment = tcos[NetSimRenderCarAt(iCarIdx)->nYaw];
   } else {
     // Search for nearest track chunk to camera pos
     iSearchIdx = -iSearchRadius;
@@ -3313,16 +3313,12 @@ LABEL_357:
         iCarProcessingFlag = cars_drawn;
         iCarCommandIdx = car_draw_order[iCarArrayIndex].iCarIdx;
         {
-          GameRenderCarPose pose = {
-            .position = Car[iCarCommandIdx].pos,
-            .yaw = Car[iCarCommandIdx].nYaw,
-            .pitch = Car[iCarCommandIdx].nPitch,
-            .roll = Car[iCarCommandIdx].nRoll,
-          };
-          NetSimApplyRenderCorrection(iCarCommandIdx, &pose.position,
-                                      &pose.yaw, &pose.pitch, &pose.roll);
+          const tCar *pRenderCar = NetSimRenderCarAt(iCarCommandIdx);
+          GameRenderCarPose pose;
+          NetSimRenderPoseAt(iCarCommandIdx, &pose.position, &pose.yaw,
+                             &pose.pitch, &pose.roll);
           GameRenderCarOptions options = {
-            .anim_frame = Car[iCarCommandIdx].byWheelAnimationFrame,
+            .anim_frame = pRenderCar->byWheelAnimationFrame,
             .color_remap = NULL,
           };
           render_queue_3d_add_car(pRenderQueue3D, iCarCommandIdx, fOffsetTmp1, &pose, &options);
@@ -3610,13 +3606,10 @@ LABEL_393:
               pCarPose = &pTypedRenderCommand->payload.car.pose;
               pCarOptions = &pTypedRenderCommand->payload.car.options;
             } else {
-              pose.position = Car[iSectionNum].pos;
-              pose.yaw = Car[iSectionNum].nYaw;
-              pose.pitch = Car[iSectionNum].nPitch;
-              pose.roll = Car[iSectionNum].nRoll;
-              NetSimApplyRenderCorrection(iCarRenderIdx, &pose.position,
-                                          &pose.yaw, &pose.pitch, &pose.roll);
-              options.anim_frame = Car[iSectionNum].byWheelAnimationFrame;
+              const tCar *pRenderCar = NetSimRenderCarAt(iCarRenderIdx);
+              NetSimRenderPoseAt(iCarRenderIdx, &pose.position, &pose.yaw,
+                                 &pose.pitch, &pose.roll);
+              options.anim_frame = pRenderCar->byWheelAnimationFrame;
               options.color_remap = NULL;
               pCarPose = &pose;
               pCarOptions = &options;

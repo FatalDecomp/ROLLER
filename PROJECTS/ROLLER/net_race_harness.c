@@ -2,6 +2,7 @@
 #include "net_legacy.h"
 
 #include "net_client.h"
+#include "net_config_internal.h"
 #include "net_host.h"
 #include "net_input.h"
 #include "net_sim_seam.h"
@@ -33,6 +34,7 @@ struct tNetRaceHarness
   uint64 ullBytesSent, ullBytesReceived;
   double dHostTickCredit;
   int iEndpoint, iExpectedClients;
+  uint16 unTickRateHz;
   uint8 byRole, byStarted, byReadySent, byLoadedSent, byAbility;
   uint8 byHasSnapshotSend, byHasSnapshotSendGap;
   uint8 abySuppressOwnState[NET_SIM_MAX_ENDPOINTS];
@@ -231,16 +233,22 @@ static int NetRaceHarnessInitTransport(tNetRaceHarness *pHarness,
 }
 
 static int NetRaceHarnessInitHost(tNetRaceHarness *pHarness, int iProxyPort,
-                                  int iEndpoint, int iClients)
+                                  int iEndpoint, int iClients,
+                                  int iTickRateHz)
 {
   tNetSessionConfig config;
   if (pHarness->byRole != NET_HARNESS_RACE_NONE || iEndpoint != 0 ||
       iClients < 1 || iClients > NET_SESSION_MAX_PLAYERS ||
+      (iTickRateHz != 36 && iTickRateHz != 50 && iTickRateHz != 100) ||
       !NetRaceHarnessInitTransport(pHarness, iProxyPort, iEndpoint))
     return 0;
   memset(&config, 0, sizeof(config));
   config.unProtocolVersion = NET_PROTOCOL_VERSION;
-  config.unTickRateHz = 36;
+  config.unTickRateHz = (uint16)iTickRateHz;
+  if (iTickRateHz >= 50)
+    config.iLevelFlags |= NET_SESSION_50HZ_FLAG;
+  if (iTickRateHz >= 100)
+    config.iLevelFlags |= NET_SESSION_100HZ_FLAG;
   config.bySnapshotInterval = NET_SESSION_DEFAULT_SNAPSHOT_INTERVAL;
   config.byMaxPlayers = (uint8)iClients;
   config.byPauseAllowed = 1;
@@ -263,6 +271,7 @@ static int NetRaceHarnessInitHost(tNetRaceHarness *pHarness, int iProxyPort,
     return 0;
   }
   pHarness->byRole = NET_HARNESS_RACE_HOST;
+  pHarness->unTickRateHz = (uint16)iTickRateHz;
   pHarness->iExpectedClients = iClients;
   pHarness->ullLastFrameMs = pHarness->ullNowMs;
   net_mode = NET_MODE_MODERN;
@@ -337,7 +346,8 @@ static int NetRaceHarnessFrameHost(tNetRaceHarness *pHarness)
   }
   NetHostPump(pHarness->pHost);
   if (pHarness->byStarted && !NetHostPaused(pHarness->pHost)) {
-    pHarness->dHostTickCredit += (double)ullDeltaMs * 36.0;
+    pHarness->dHostTickCredit +=
+        (double)ullDeltaMs * pHarness->unTickRateHz;
     while (pHarness->dHostTickCredit >= 1000.0) {
       if (!NetHostTick(pHarness->pHost,
                        NetHostNextTick(pHarness->pHost)))
@@ -515,6 +525,10 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         "\"extrapolation_ms\":%.9g,\"timeline_regressions\":%u,"
         "\"recovery_samples\":%u,\"recovery_error_world_max\":%.9g,"
         "\"recovery_yaw_error_deg_max\":%.9g,\"remote_blend_ms\":%u,"
+        "\"visual_recovery_blends\":%u,\"visual_discontinuities\":%u,"
+        "\"visual_cut_hold_ms\":%llu,"
+        "\"visual_recovery_error_world_max\":%.9g,"
+        "\"visual_recovery_yaw_error_deg_max\":%.9g,"
         "\"presentation_epochs\":%u,\"frame_ms\":%.9g,"
         "\"frame_max_ms\":%u,"
         "\"route\":\"simulated\",\"relay_throttled\":false,"
@@ -565,6 +579,10 @@ static void NetRaceHarnessStats(tNetRaceHarness *pHarness, char *szReply,
         stats.uiTimelineRegressions, stats.uiRecoverySamples,
         (double)stats.fRecoveryErrorWorldMax,
         (double)stats.fRecoveryYawErrorDegMax, stats.uiRemoteBlendMs,
+        stats.uiVisualRecoveryBlends, stats.uiVisualDiscontinuities,
+        (unsigned long long)stats.ullVisualCutHoldMs,
+        (double)stats.fVisualRecoveryErrorWorldMax,
+        (double)stats.fVisualRecoveryYawErrorDegMax,
         stats.uiPresentationEpochs,
         (double)stats.fFrameMs, stats.uiFrameMaxMs,
         (double)stats.fRttMs, (double)stats.fJitterMs,
@@ -602,13 +620,16 @@ int NetRaceHarnessCommand(tNetRaceHarness *pHarness, const char *szLine,
 {
   unsigned long long ullNowMs;
   int iProxyPort, iEndpoint, iClients, iCar, iValue, iTarget;
+  int iTickRateHz = 36, iParsed;
   float fX, fY, fZ;
   if (!pHarness || !szLine || !szReply || iReplyCapacity < 1)
     return 0;
-  if (sscanf(szLine, "race host %d %d %d", &iProxyPort, &iEndpoint,
-             &iClients) == 3) {
+  iParsed = sscanf(szLine, "race host %d %d %d %d", &iProxyPort,
+                   &iEndpoint, &iClients, &iTickRateHz);
+  if (iParsed >= 3) {
     snprintf(szReply, (size_t)iReplyCapacity, "{\"ok\":%s}\n",
-        NetRaceHarnessInitHost(pHarness, iProxyPort, iEndpoint, iClients) ?
+        NetRaceHarnessInitHost(pHarness, iProxyPort, iEndpoint, iClients,
+                               iTickRateHz) ?
             "true" : "false");
     return 1;
   }

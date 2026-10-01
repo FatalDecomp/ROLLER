@@ -1,5 +1,6 @@
 #include "net_types.h"
 #include "net_race_start.h"
+#include "net_sim_seam.h"
 #if !defined(__EMSCRIPTEN__)
 #include "net_harness.h"
 #if !defined(IS_WASM)
@@ -2805,7 +2806,7 @@ void draw_road(uint8 *pScrPtr, int iCarIdx, unsigned int uiViewMode, int iCopyIm
     iRenderChunkIdx = CalcVisibleTrackEditor(uiVisibilityViewMode);
   else
 #endif
-    iRenderChunkIdx = Car[iCarIdx].nCurrChunk;
+    iRenderChunkIdx = NetSimRenderCarAt(iCarIdx)->nCurrChunk;
   GameRenderCamera cam = {
       .viewX = viewx,
       .viewY = viewy,

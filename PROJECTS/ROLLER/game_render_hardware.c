@@ -4,6 +4,7 @@
 #include "scene_render_gpu.h"
 #include "carplans.h"    /* CarDesigns[], tPolygon, tCarDesign, car_flat_remap[] */
 #include "car.h"         /* car_texmap[], CarBox, CarPol, team_col, driver_names, CarBox */
+#include "net_sim_seam.h"
 #include "graphics.h"    /* num_textures[] */
 #include "3d.h"          /* cartex_vga[], Car[], localdata[], CarBox, g_pGameRenderer, names_on, winw/winh, viewx/y/z, xbase/ybase, scr_size, VIEWDIST, tcos/tsin, mirror, intro */
 #include "transfrm.h"    /* vk1-vk9 */
@@ -239,7 +240,7 @@ static bool build_car_mesh(SDL_GPUDevice *dev, int carIdx,
     bool hasAtlas = (out->atlas != NULL && numTiles > 0);
     float fAtlasH = hasAtlas ? (float)atlasH : 1.0f;
 
-    int designIdx = (carIdx >= 0 && carIdx < 16) ? (int)Car[carIdx].byCarDesignIdx : 0;
+    int designIdx = (carIdx >= 0 && carIdx < 16) ? (int)NetSimRenderCarAt(carIdx)->byCarDesignIdx : 0;
     if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
 
     if (!out->atlas) {
@@ -566,7 +567,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
 
     GRHWCarMesh *mesh = &r->meshes[carIdx];
     bool wantAdvanced = (textures_off & TEX_OFF_ADVANCED_CARS) != 0;
-    int wantDesign = (int)Car[carIdx].byCarDesignIdx;
+    int wantDesign = (int)NetSimRenderCarAt(carIdx)->byCarDesignIdx;
     if (mesh->built
         && (mesh->advancedCars != wantAdvanced || mesh->designIdx != wantDesign)) {
         for (int f = 0; f < GRHW_ANIM_FRAMES; f++) {
@@ -597,21 +598,21 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
      * yaw += iYawMotion; pitch += CameraOffset + Motion + DynamicOffset; same for roll. */
     GameRenderCarPose adjPose = *pose;
     adjPose.yaw   = (pose->yaw
-                     + (int)(int16)Car[carIdx].iYawMotion) & 0x3FFF;
+                     + (int)(int16)NetSimRenderCarAt(carIdx)->iYawMotion) & 0x3FFF;
     adjPose.pitch = (pose->pitch
-                     + Car[carIdx].iPitchCameraOffset
-                     + Car[carIdx].iPitchMotion
-                     + Car[carIdx].iPitchDynamicOffset) & 0x3FFF;
+                     + NetSimRenderCarAt(carIdx)->iPitchCameraOffset
+                     + NetSimRenderCarAt(carIdx)->iPitchMotion
+                     + NetSimRenderCarAt(carIdx)->iPitchDynamicOffset) & 0x3FFF;
     adjPose.roll  = (pose->roll
-                     + Car[carIdx].iRollCameraOffset
-                     + Car[carIdx].iRollMotion
-                     + Car[carIdx].iRollDynamicOffset) & 0x3FFF;
+                     + NetSimRenderCarAt(carIdx)->iRollCameraOffset
+                     + NetSimRenderCarAt(carIdx)->iRollMotion
+                     + NetSimRenderCarAt(carIdx)->iRollDynamicOffset) & 0x3FFF;
     car_model_matrix(M, &adjPose);
 
-    int chunk = Car[carIdx].nCurrChunk;
+    int chunk = NetSimRenderCarAt(carIdx)->nCurrChunk;
     bool airborne = (chunk < 0 || chunk >= MAX_TRACK_CHUNKS);
 
-    int designIdx = (int)Car[carIdx].byCarDesignIdx;
+    int designIdx = (int)NetSimRenderCarAt(carIdx)->byCarDesignIdx;
     if (designIdx < 0 || designIdx > CAR_DESIGN_DEATH) designIdx = 0;
     float fZLow = CarBox.hitboxAy[designIdx][0].fZ;
     M[14] -= fZLow;  /* lift body so bottom vertex lands at physics pos */
@@ -656,7 +657,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
          * since the chunk's local "up" axis is nearly horizontal on such a
          * steep slope, showed up as the shadow sliding far down-slope rather
          * than a small height error. */
-        bool physInverted = (Car[carIdx].iStunned != 0);
+        bool physInverted = (NetSimRenderCarAt(carIdx)->iStunned != 0);
         {
             static const float kToRad = (float)(2.0 * 3.14159265358979) / 16384.0f;
             float CY = cosf((float)pose->yaw * kToRad), SY = sinf((float)pose->yaw * kToRad);
@@ -696,7 +697,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
          *     chunk than the regular frame's own orientation, so it must
          *     stay gated to this case only or ordinary jumps get visible
          *     wobble. */
-        int shadowChunk = Car[carIdx].iLastValidChunk;
+        int shadowChunk = NetSimRenderCarAt(carIdx)->iLastValidChunk;
         if (shadowChunk >= 0 && shadowChunk < MAX_TRACK_CHUNKS) {
             float wx = M[12], wy = M[13], wz = M[14];
             const tData *sd0 = &localdata[shadowChunk];
@@ -763,7 +764,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
                                           : (float)getgroundz(localX0, localY0, shadowChunk);
                 bool onTrack = (iGroundColorType == -1);
                 if (!onTrack && withinBounds &&
-                    (TrakColour[shadowChunk][Car[carIdx].iLaneType] & SURFACE_FLAG_SKIP_RENDER) == 0 &&
+                    (TrakColour[shadowChunk][NetSimRenderCarAt(carIdx)->iLaneType] & SURFACE_FLAG_SKIP_RENDER) == 0 &&
                     roadHeight - 400.0f <= localZ0)
                     onTrack = true;
                 if (onTrack) {
@@ -772,7 +773,7 @@ void game_render_hw_draw_car(GameRendererHardware       *r,
                 }
             }
 
-            bool useSeparated = !havePointHeight && !(GroundColour[shadowChunk][2] < 2 || Car[carIdx].iControlType == 3);
+            bool useSeparated = !havePointHeight && !(GroundColour[shadowChunk][2] < 2 || NetSimRenderCarAt(carIdx)->iControlType == 3);
             float groundZ, sxA, syA;
 
             if (havePointHeight) {
@@ -853,7 +854,7 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
     if (intro) return;
     if (viewSlot < 0 || viewSlot >= GAME_RENDER_HW_MAX_VIEW_SLOTS) viewSlot = 0;
 
-    tCar *pCar = &Car[carIdx];
+    const tCar *pCar = NetSimRenderCarAt(carIdx);
     if (pCar->byStatusFlags & 2) { s_tagScrX[viewSlot][carIdx] = -1; s_tagScrY[viewSlot][carIdx] = -1; return; }
     if (!(names_on == 1 || (names_on == 2 && human_control[pCar->iDriverIdx])  || (names_on == 3 && !human_control[pCar->iDriverIdx]) )) return; // scf32
     
@@ -887,15 +888,15 @@ void game_render_hw_draw_car_name_tag(int carIdx, const GameRenderCarPose *pose,
      * puts another car's tag this close in frame). */
     GameRenderCarPose adjPose = *pose;
     adjPose.yaw   = (pose->yaw
-                     + (int)(int16)Car[carIdx].iYawMotion) & 0x3FFF;
+                     + (int)(int16)NetSimRenderCarAt(carIdx)->iYawMotion) & 0x3FFF;
     adjPose.pitch = (pose->pitch
-                     + Car[carIdx].iPitchCameraOffset
-                     + Car[carIdx].iPitchMotion
-                     + Car[carIdx].iPitchDynamicOffset) & 0x3FFF;
+                     + NetSimRenderCarAt(carIdx)->iPitchCameraOffset
+                     + NetSimRenderCarAt(carIdx)->iPitchMotion
+                     + NetSimRenderCarAt(carIdx)->iPitchDynamicOffset) & 0x3FFF;
     adjPose.roll  = (pose->roll
-                     + Car[carIdx].iRollCameraOffset
-                     + Car[carIdx].iRollMotion
-                     + Car[carIdx].iRollDynamicOffset) & 0x3FFF;
+                     + NetSimRenderCarAt(carIdx)->iRollCameraOffset
+                     + NetSimRenderCarAt(carIdx)->iRollMotion
+                     + NetSimRenderCarAt(carIdx)->iRollDynamicOffset) & 0x3FFF;
 
     float Mrot[16];
     car_model_matrix(Mrot, &adjPose);

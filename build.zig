@@ -1138,6 +1138,23 @@ fn configureRenderQueue3DTests(
     );
     net_smooth_s2.dependOn(&run_net_smooth_s2.step);
 
+    const run_net_smooth_s4 = b.addSystemCommand(&.{
+        "python", "tests/net_smooth_s4_matrix.py", "--server",
+    });
+    run_net_smooth_s4.addArtifactArg(net_server_exe);
+    run_net_smooth_s4.addArg("--proxy");
+    run_net_smooth_s4.addArtifactArg(netsim_exe);
+    run_net_smooth_s4.addArg("--track");
+    run_net_smooth_s4.addFileArg(assets_path.path(b, soak_track));
+    run_net_smooth_s4.addArg("--assets");
+    run_net_smooth_s4.addDirectoryArg(assets_path);
+    run_net_smooth_s4.addArgs(&.{ "--output",
+        "docs/netcode-smooth-s4-matrix.json" });
+    const net_smooth_s4 = b.step(
+        "measure-net-smooth-s4", "Run NET-SMOOTH-S4 delivery matrix",
+    );
+    net_smooth_s4.dependOn(&run_net_smooth_s4.step);
+
     const run_net_performance = b.addSystemCommand(&.{
         "python", "tests/net_performance.py", "--server",
     });

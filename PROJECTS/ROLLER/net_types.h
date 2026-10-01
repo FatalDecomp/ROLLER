@@ -42,6 +42,9 @@ typedef struct {
   uint32 uiBufferedForwardResyncs, uiBufferedLongFrames;
   uint32 uiBufferedReserveSaturations, uiBufferedTimelineRegressions;
   int iBufferedDisplayMode;
+  uint32 uiVisualRecoveryBlends, uiVisualDiscontinuities;
+  uint64 ullVisualCutHoldMs;
+  float fVisualRecoveryErrorWorldMax, fVisualRecoveryYawErrorDegMax;
 } tNetStats;
 extern tNetStats g_netStats;
 #endif

@@ -6,13 +6,15 @@ import time
 class RaceScenario:
     """One authoritative host and three predictive clients behind netsim."""
 
-    def __init__(self, node_factory, server, proxy, track, assets, seed=0xE8A1):
+    def __init__(self, node_factory, server, proxy, track, assets, seed=0xE8A1,
+                 tick_rate=36):
         self._node_factory = node_factory
         self._server = server
         self._proxy_path = proxy
         self._track = track
         self._assets = assets
         self._seed = seed
+        self._tick_rate = tick_rate
         self.proxy = None
         self.host = None
         self.clients = []
@@ -35,7 +37,8 @@ class RaceScenario:
             self.proxy.command(f"peer {endpoint} {node.ready['udp']}")
             self.proxy.command(f"link {endpoint} 20 2 10 0 0")
         self.host.command(
-            f"race host {self.proxy.ready['udp']} 0 {len(self.clients)}")
+            f"race host {self.proxy.ready['udp']} 0 {len(self.clients)} "
+            f"{self._tick_rate}")
         for endpoint, client in enumerate(self.clients, 1):
             client.command(
                 f"race client {self.proxy.ready['udp']} {endpoint}")

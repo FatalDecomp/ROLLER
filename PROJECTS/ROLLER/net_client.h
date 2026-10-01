@@ -81,13 +81,13 @@ typedef struct
   float fInterpolationDelayMs;
   float fRenderTick, fAppliedRenderTick;
   float fCorrectionMagnitude, fReplayMsTotal, fReplayMsWorst;
-  /* S1: receive-time and actual in-tick display diagnostics.  Mode time is
+  /* S1: receive-time and in-tick proxy diagnostics.  Mode time is
      counted once per frame; hook counters above also include replay. */
   uint32 uiAdvancingArrivals, uiArrivalGapMinMs, uiArrivalGapMaxMs;
   uint32 auiArrivalGapBuckets[6]; /* <=50, <=75, <=100, <=150, <=250, >250 ms */
   uint32 uiSourceGapMaxTicks, uiDeliveryVariationMaxMs;
   uint32 uiPresentationFrames, uiTimelineRegressions, uiPresentationEpochs;
-  uint32 uiRecoverySamples, uiRemoteBlendMs; /* blend is zero in S1 */
+  uint32 uiRecoverySamples, uiRemoteBlendMs;
   uint64 ullDisplayModeMs[5], ullPausedDisplayMs;
   double dPresentationTick, dDesiredReserveMs, dActualReserveMs;
   float fPlaybackSpeed, fHistoryCoverageMs, fExtrapolationMs;
@@ -95,8 +95,8 @@ typedef struct
   float fRecoveryErrorWorldMax, fRecoveryYawErrorDegMax;
   uint32 uiFrameMaxMs;
   uint8 byDisplayMode;
-  /* S2 controller diagnostics.  The S1 fields above continue to describe
-     the existing in-tick pose until the renderer consumes this clock. */
+  /* S2 controller diagnostics.  S3 draws remote puppets from this clock;
+     the S1 fields above continue to describe the in-tick collision proxy. */
   uint64 ullBufferedDisplayModeMs[5];
   double dBufferedPresentationTick, dBufferedReserveMs;
   double dBufferedActualReserveMs;
@@ -104,6 +104,9 @@ typedef struct
   uint32 uiBufferedForwardResyncs, uiBufferedLongFrames;
   uint32 uiBufferedReserveSaturations, uiBufferedTimelineRegressions;
   uint8 byBufferedDisplayMode;
+  uint32 uiVisualRecoveryBlends, uiVisualDiscontinuities;
+  uint64 ullVisualCutHoldMs;
+  float fVisualRecoveryErrorWorldMax, fVisualRecoveryYawErrorDegMax;
 } tNetClientStats;
 
 /* Registers for race traffic on pLobby.  One client per session. */

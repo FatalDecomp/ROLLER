@@ -97,4 +97,12 @@ void NetSimAdvanceRenderCorrections(void);
 int NetSimApplyRenderCorrection(int iCar, tVec3 *pPosition, int *piYaw,
                                 int *piPitch, int *piRoll);
 int NetSimRenderCorrectionAt(int iCar, tNetCorrection *pCorrection);
+/* Frame-local, presentation-only car copies.  Readers fall back to Car[] when
+   no modern client has prepared a pose for this car. */
+void NetSimClearPresentationCars(void);
+int NetSimSetPresentationCar(int iCar, const tCar *pCar);
+const tCar *NetSimRenderCarAt(int iCar);
+/* The pose used by both typed and fallback car draw commands. */
+int NetSimRenderPoseAt(int iCar, tVec3 *pPosition, int *piYaw,
+                       int *piPitch, int *piRoll);
 #endif

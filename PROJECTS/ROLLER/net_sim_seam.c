@@ -13,6 +13,44 @@ int net_sim_authority = NET_AUTHORITY_LOCAL;
 uint8 net_puppet_car[MAX_CARS];
 void (*net_sim_puppet_hook)(void);
 static tNetCorrection s_aRenderCorrections[MAX_CARS];
+static tCar s_aPresentationCars[MAX_CARS];
+static uint8 s_abyPresentationCars[MAX_CARS];
+
+void NetSimClearPresentationCars(void)
+{
+  memset(s_abyPresentationCars, 0, sizeof(s_abyPresentationCars));
+}
+
+int NetSimSetPresentationCar(int iCar, const tCar *pCar)
+{
+  if (iCar < 0 || iCar >= MAX_CARS || !pCar)
+    return 0;
+  s_aPresentationCars[iCar] = *pCar;
+  s_abyPresentationCars[iCar] = 1;
+  return 1;
+}
+
+const tCar *NetSimRenderCarAt(int iCar)
+{
+  if (iCar < 0 || iCar >= MAX_CARS)
+    return NULL;
+  return s_abyPresentationCars[iCar] ? &s_aPresentationCars[iCar] : &Car[iCar];
+}
+
+int NetSimRenderPoseAt(int iCar, tVec3 *pPosition, int *piYaw,
+                       int *piPitch, int *piRoll)
+{
+  const tCar *pCar = NetSimRenderCarAt(iCar);
+  if (!pCar || !pPosition || !piYaw || !piPitch || !piRoll)
+    return 0;
+  *pPosition = pCar->pos;
+  *piYaw = pCar->nYaw;
+  *piPitch = pCar->nPitch;
+  *piRoll = pCar->nRoll;
+  if (pCar == &Car[iCar])
+    NetSimApplyRenderCorrection(iCar, pPosition, piYaw, piPitch, piRoll);
+  return 1;
+}
 
 void NetSimCaptureContext(tNetSimTickContext *pContext)
 {

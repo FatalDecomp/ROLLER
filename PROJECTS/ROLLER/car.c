@@ -14,6 +14,7 @@
 #include "polyf.h"
 #include "polytex.h"
 #include "roller.h"
+#include "net_sim_seam.h"
 #include "scene_render_gpu.h"
 #include <math.h>
 #include <assert.h>
@@ -611,7 +612,7 @@ void DrawCars(int iCarIdx, int iViewMode)
   int iRoll; // [esp+14h] [ebp-60h]
   float fWorldX; // [esp+18h] [ebp-5Ch]
   int iCarIterator; // [esp+24h] [ebp-50h]
-  tCar *pCar; // [esp+28h] [ebp-4Ch]
+  const tCar *pCar; // [esp+28h] [ebp-4Ch]
   float fTransformM12; // [esp+2Ch] [ebp-48h]
   float fX; // [esp+30h] [ebp-44h]
   float fTransformM00; // [esp+34h] [ebp-40h]
@@ -628,9 +629,9 @@ void DrawCars(int iCarIdx, int iViewMode)
 
   iCarIterator = 0;                             // Initialize car iterator counter
   if (numcars > 0) {
-    pCar = Car;
     iCarDrawIdx = 0;
     do {
+      pCar = NetSimRenderCarAt(iCarIterator);
       fX = pCar->pos.fX;                        // Get car position and current track chunk
       iCurrChunk_1 = pCar->nCurrChunk;
       fY = pCar->pos.fY;
@@ -750,7 +751,6 @@ void DrawCars(int iCarIdx, int iViewMode)
       car_draw_order[iCarDrawIdx].iCarIdx = iCarIterator;
       iCarDrawIdx++;
       //CarZOrder[++iCarDrawIdx + 499].iPolygonIndex = iCarIterator;// references car_draw_order
-      ++pCar;
       ++iCarIterator;
     } while (iCarIterator < iNumCars);
   }
@@ -1081,7 +1081,7 @@ void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCa
   float fRotMat01; // [esp+248h] [ebp-50h]
   float fRotMat00; // [esp+24Ch] [ebp-4Ch]
   int iYaw; // [esp+250h] [ebp-48h]
-  tCar *pCar; // [esp+254h] [ebp-44h]
+  const tCar *pCar; // [esp+254h] [ebp-44h]
   tVec3 renderPosePos;
   float fPolygonVertex1Z; // [esp+264h] [ebp-34h]
   float fPolygonVertex1X; // [esp+268h] [ebp-30h]
@@ -1092,7 +1092,7 @@ void DisplayCarWithPose(int iCarIndex, uint8 *pScreenBuffer, float fDistanceToCa
   iCarIndexCopy = iCarIndex;                    // Store car index parameter
   pScrBuf = pScreenBuffer;
   set_starts(0);
-  pCar = &Car[iCarIndex];                       // Get pointer to car data structure
+  pCar = NetSimRenderCarAt(iCarIndex);         // Frame's visual car data
   renderPosePos = pose->position;
   carDesignIndex = pCar->byCarDesignIdx;        // Get car design index from car data
   iNumCoords = CarDesigns[carDesignIndex].byNumCoords;
@@ -2157,7 +2157,7 @@ LABEL_117:
  * In GPU mode DisplayCarWithPose does not run, so we call this separately. */
 void DisplayCarSmoke(int carIdx, const CarRenderPose *pose)
 {
-    tCar *pCar = &Car[carIdx];
+    const tCar *pCar = NetSimRenderCarAt(carIdx);
 
     int iMotionX = 0, iMotionY = 0, iMotionZ = 0;
     if (pCar->nCurrChunk != -1 && !paused) {

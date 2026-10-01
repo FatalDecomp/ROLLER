@@ -7,6 +7,35 @@
 #define NET_PRESENTATION_WINDOW_MS 5000u
 #define NET_PRESENTATION_MAX_RESERVE_MS 250.0
 #define NET_PRESENTATION_MAX_FRAME_MS 100u
+#define NET_PRESENTATION_RECOVERY_MS 100u
+#define NET_PRESENTATION_RECOVERY_MAX_WORLD 4096.0f
+
+typedef struct {
+  float afPosition[3];
+  int16 nYaw, nPitch, nRoll, nActualYaw;
+  uint8 byLives, byStatusFlags;
+} tNetPresentationPose;
+
+/* Per-car visual state.  The source pair is copied, never held as pointers to
+   slots in the client's snapshot ring. */
+typedef struct {
+  tNetPresentationPose prior, latest;
+  tNetPresentationPose offset;
+  double dPriorTick, dLatestTick;
+  uint32 uiBlendElapsedMs, uiBlendsStarted, uiDiscontinuities;
+  float fLastErrorWorld, fLastErrorYawDeg;
+  uint8 byStarved, byHasTrajectory, byActive;
+} tNetPresentationRecovery;
+
+void NetPresentationRecoveryReset(tNetPresentationRecovery *pRecovery);
+/* On the first bracketed frame after starvation, compare the old bounded
+   trajectory with the new sample at dCursor.  Returns the render-only pose. */
+void NetPresentationRecoverySample(tNetPresentationRecovery *pRecovery,
+    const tNetPresentationPose *pRaw, const tNetPresentationPose *pPrior,
+    const tNetPresentationPose *pLatest, double dPriorTick,
+    double dLatestTick, double dCursor, double dTicksPerMs,
+    uint32 uiElapsedMs, int iStarved, int iDiscontinuity,
+    tNetPresentationPose *pResult);
 
 typedef struct {
   uint64 ullArrivalMs;

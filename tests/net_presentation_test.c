@@ -136,6 +136,81 @@ static void NetTestTransitions(void)
   CHECK(clock.uiForwardResyncs == 0);
 }
 
+static void NetTestRecovery(void)
+{
+  tNetPresentationRecovery recovery = {0};
+  tNetPresentationPose prior = {0}, latest = {0};
+  tNetPresentationPose raw = {0}, result;
+  prior.nYaw = prior.nPitch = prior.nRoll = prior.nActualYaw = 16300;
+  latest = prior;
+  latest.afPosition[0] = 100.0f;
+  raw = latest;
+  raw.afPosition[0] = 150.0f;
+  NetPresentationRecoverySample(&recovery, &raw, &prior, &latest,
+      0.0, 2.0, 3.0, 0.036, 16, 1, 0, &result);
+  CHECK(result.afPosition[0] == 150.0f && recovery.byStarved);
+
+  /* Both trajectories are evaluated at tick 3.4.  The first recovered
+     draw must retain the old displayed trajectory, including wrapped angles. */
+  raw.afPosition[0] = 120.0f;
+  raw.nYaw = raw.nPitch = raw.nRoll = raw.nActualYaw = 100;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 3.4, 0.036, 16, 0, 0, &result);
+  CHECK(fabsf(result.afPosition[0] - 170.0f) < 0.001f);
+  CHECK(result.nYaw == 16300 && result.nPitch == 16300 &&
+        result.nRoll == 16300 && result.nActualYaw == 16300);
+  CHECK(recovery.byActive && recovery.uiBlendElapsedMs == 0);
+  CHECK(recovery.uiBlendsStarted == 1 &&
+        fabsf(recovery.fLastErrorWorld - 50.0f) < 0.001f);
+
+  raw.afPosition[0] = 130.0f;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 3.8, 0.036, 16, 0, 0, &result);
+  CHECK(fabsf(result.afPosition[0] - 172.0f) < 0.001f);
+  CHECK(recovery.uiBlendsStarted == 1);
+  raw.afPosition[0] = 180.0f;
+  NetPresentationRecoverySample(&recovery, &raw, &prior, &latest,
+      0.0, 2.0, 4.0, 0.036, 16, 1, 0, &result);
+  CHECK(recovery.byActive && recovery.uiBlendElapsedMs == 32);
+  raw.afPosition[0] = 140.0f;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 4.2, 0.036, 16, 0, 0, &result);
+  CHECK(fabsf(result.afPosition[0] - 236.0f) < 0.001f);
+  CHECK(recovery.uiBlendsStarted == 1 && recovery.uiBlendElapsedMs == 48);
+  raw.afPosition[0] = 200.0f;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 5.0, 0.036, 52, 0, 0, &result);
+  CHECK(result.afPosition[0] == raw.afPosition[0] && !recovery.byActive);
+
+  /* A longer outage holds at 100 ms beyond the old latest tick.  A real
+     reset or an oversized error is shown immediately, never swept. */
+  NetPresentationRecoverySample(&recovery, &latest, &prior, &latest,
+      0.0, 2.0, 10.0, 0.036, 16, 1, 0, &result);
+  raw.afPosition[0] = 9000.0f;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 10.0, 0.036, 16, 0, 0, &result);
+  CHECK(result.afPosition[0] == raw.afPosition[0]);
+  CHECK(!recovery.byActive && recovery.uiDiscontinuities == 1);
+  NetPresentationRecoverySample(&recovery, &latest, &prior, &latest,
+      0.0, 2.0, 3.0, 0.036, 16, 1, 0, &result);
+  raw = latest;
+  raw.byLives = 2;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 3.2, 0.036, 16, 0, 0, &result);
+  CHECK(!recovery.byActive && recovery.uiDiscontinuities == 2);
+  NetPresentationRecoveryReset(&recovery);
+  CHECK(!recovery.byStarved && !recovery.byActive &&
+        recovery.uiBlendsStarted == 0);
+  NetPresentationRecoverySample(&recovery, &latest, &prior, &latest,
+      0.0, 2.0, 3.0, 0.036, 16, 1, 0, &result);
+  raw = latest;
+  raw.afPosition[0] = 3000.0f;
+  NetPresentationRecoverySample(&recovery, &raw, NULL, NULL,
+      0.0, 0.0, 3.2, 0.036, 16, 0, 1, &result);
+  CHECK(result.afPosition[0] == raw.afPosition[0] &&
+        !recovery.byActive && recovery.uiDiscontinuities == 1);
+}
+
 int main(void)
 {
   const uint16 aunRates[] = {36, 50, 100};
@@ -145,6 +220,7 @@ int main(void)
       NetTestStable(aunRates[iRate], auiLatencies[iLatency],
                     iRate == 2 ? UINT32_MAX - 1000u : 1000u);
   NetTestTransitions();
+  NetTestRecovery();
   puts("net presentation controller passed");
   return 0;
 }

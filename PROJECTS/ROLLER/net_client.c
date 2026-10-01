@@ -131,6 +131,13 @@ struct tNetClient
   uint8 abyCommittedLap[MAX_CARS], abyCommittedKills[MAX_CARS];
   tNetClientStats stats;
   tNetPresentation presentation;
+  tNetPresentationRecovery aVisualRecovery[MAX_CARS];
+  tNetPresentationPose aLastVisualRaw[MAX_CARS];
+  uint32 auiVisualCutTick[MAX_CARS];
+  uint32 auiVisualRespawnTick[MAX_CARS];
+  uint8 abyVisualCutSeen[MAX_CARS];
+  uint8 abyVisualRespawnSeen[MAX_CARS];
+  uint8 abyHasLastVisualRaw[MAX_CARS];
   tNetClientInputSlot aInputs[NET_CLIENT_HISTORY];
   tNetClientPredictionSlot aPrediction[NET_INPUT_MAX_LOCAL_PLAYERS][NET_CLIENT_HISTORY];
   tNetClientContextSlot aContext[NET_CLIENT_HISTORY];
@@ -465,6 +472,141 @@ static int NetClientSamplePuppetCar(const tNetClient *pClient,
   return 1;
 }
 
+/* Copy the validated snapshot pose into a render-only car.  In particular the
+   source chunk travels with the world pose; a live collision proxy may already
+   be in a different chunk. */
+static tNetPresentationPose NetClientPresentationPose(
+    const tNetCarState *pState)
+{
+  tNetPresentationPose pose;
+  memset(&pose, 0, sizeof(pose));
+  pose.afPosition[0] = pState->fWorldPosX;
+  pose.afPosition[1] = pState->fWorldPosY;
+  pose.afPosition[2] = pState->fWorldPosZ;
+  pose.nYaw = pState->nWorldYaw;
+  pose.nPitch = pState->nWorldPitch;
+  pose.nRoll = pState->nWorldRoll;
+  pose.nActualYaw = pState->nActualYaw;
+  pose.byLives = pState->byLives;
+  pose.byStatusFlags = pState->byStatusFlags;
+  return pose;
+}
+
+static int NetClientPreparePresentationCars(tNetClient *pClient,
+    const tNetClientPuppetSample *pSample, double dCursor,
+    uint32 uiElapsedMs, int iRecoveryEnabled)
+{
+  int iAnySourceHold = 0;
+  for (int iCar = 0; iCar < numcars; ++iCar) {
+    tNetCarState state;
+    tNetPresentationPose raw, corrected, prior, latest;
+    tNetPresentationRecovery *pRecovery = &pClient->aVisualRecovery[iCar];
+    tNetWorldPose pose;
+    tCar car;
+    uint32 uiBlendsBefore, uiDiscontinuitiesBefore;
+    int iSourceCut = 0, iResetSample = 0;
+    if (!net_puppet_car[iCar] ||
+        !NetClientSamplePuppetCar(pClient, pSample, iCar, &state))
+      continue;
+    if (pSample->pOlder != pSample->pNewer) {
+      const tNetCarState *pOlder = &pSample->pOlder->aCars[iCar];
+      const tNetCarState *pNewer = &pSample->pNewer->aCars[iCar];
+      float fDx = pOlder->fWorldPosX - pNewer->fWorldPosX;
+      float fDy = pOlder->fWorldPosY - pNewer->fWorldPosY;
+      float fDz = pOlder->fWorldPosZ - pNewer->fWorldPosZ;
+      iSourceCut = pOlder->byLives != pNewer->byLives ||
+          fDx * fDx + fDy * fDy + fDz * fDz >
+          NET_PRESENTATION_RECOVERY_MAX_WORLD *
+              NET_PRESENTATION_RECOVERY_MAX_WORLD;
+      if (pClient->abyVisualRespawnSeen[iCar] &&
+          (int32)(pClient->auiVisualRespawnTick[iCar] -
+                  pSample->pOlder->uiTick) > 0 &&
+          (int32)(pSample->pNewer->uiTick -
+                  pClient->auiVisualRespawnTick[iCar]) >= 0)
+        iSourceCut = 1;
+      if (iSourceCut && pSample->dFraction < 1.0) {
+        state = *pOlder;
+        iAnySourceHold = 1;
+      }
+      if (iSourceCut) {
+        if (!pClient->abyVisualCutSeen[iCar] ||
+            pClient->auiVisualCutTick[iCar] != pSample->pNewer->uiTick) {
+          iResetSample = 1;
+          pClient->auiVisualCutTick[iCar] = pSample->pNewer->uiTick;
+          pClient->abyVisualCutSeen[iCar] = 1;
+        }
+      }
+    }
+    car = Car[iCar];
+    car.nCurrChunk = state.nCurrChunk;
+    car.nReferenceChunk = state.nReferenceChunk;
+    car.iLastValidChunk = state.nLastValidChunk;
+    car.byWheelAnimationFrame = state.byWheelAnimationFrame;
+    car.byLives = state.byLives;
+    car.byStatusFlags = state.byStatusFlags;
+    car.iStunned = state.byStunned;
+    raw = NetClientPresentationPose(&state);
+    if (pClient->abyHasLastVisualRaw[iCar]) {
+      const tNetPresentationPose *pLast =
+          &pClient->aLastVisualRaw[iCar];
+      float fDx = raw.afPosition[0] - pLast->afPosition[0];
+      float fDy = raw.afPosition[1] - pLast->afPosition[1];
+      float fDz = raw.afPosition[2] - pLast->afPosition[2];
+      if (raw.byLives != pLast->byLives ||
+          fDx * fDx + fDy * fDy + fDz * fDz >
+              NET_PRESENTATION_RECOVERY_MAX_WORLD *
+                  NET_PRESENTATION_RECOVERY_MAX_WORLD)
+        iResetSample = 1;
+    }
+    pClient->aLastVisualRaw[iCar] = raw;
+    pClient->abyHasLastVisualRaw[iCar] = 1;
+    uiBlendsBefore = pRecovery->uiBlendsStarted;
+    uiDiscontinuitiesBefore = pRecovery->uiDiscontinuities;
+    if (pSample->pPrevious) {
+      prior = NetClientPresentationPose(&pSample->pPrevious->aCars[iCar]);
+      latest = NetClientPresentationPose(&pSample->pNewer->aCars[iCar]);
+    }
+    NetPresentationRecoverySample(pRecovery, &raw,
+        pSample->pPrevious ? &prior : NULL,
+        pSample->pPrevious ? &latest : NULL,
+        pSample->pPrevious ? NetClientRelative(pClient,
+            pSample->pPrevious->uiTick) : 0.0,
+        NetClientRelative(pClient, pSample->pNewer->uiTick),
+        dCursor, pClient->dTicksPerMs, uiElapsedMs,
+        iRecoveryEnabled && pSample->byExtrapolating,
+        iResetSample, &corrected);
+    if (pRecovery->uiBlendsStarted > uiBlendsBefore) {
+      ++pClient->stats.uiVisualRecoveryBlends;
+      if (pRecovery->fLastErrorWorld >
+          pClient->stats.fVisualRecoveryErrorWorldMax)
+        pClient->stats.fVisualRecoveryErrorWorldMax =
+            pRecovery->fLastErrorWorld;
+      if (pRecovery->fLastErrorYawDeg >
+          pClient->stats.fVisualRecoveryYawErrorDegMax)
+        pClient->stats.fVisualRecoveryYawErrorDegMax =
+            pRecovery->fLastErrorYawDeg;
+    }
+    if (pRecovery->uiDiscontinuities > uiDiscontinuitiesBefore)
+      ++pClient->stats.uiVisualDiscontinuities;
+    if (pRecovery->byActive) {
+      uint32 uiRemaining = NET_PRESENTATION_RECOVERY_MS -
+          pRecovery->uiBlendElapsedMs;
+      if (uiRemaining > pClient->stats.uiRemoteBlendMs)
+        pClient->stats.uiRemoteBlendMs = uiRemaining;
+    }
+    pose.position.fX = corrected.afPosition[0];
+    pose.position.fY = corrected.afPosition[1];
+    pose.position.fZ = corrected.afPosition[2];
+    pose.nYaw = corrected.nYaw;
+    pose.nPitch = corrected.nPitch;
+    pose.nRoll = corrected.nRoll;
+    pose.nActualYaw = corrected.nActualYaw;
+    if (NetSimWorldToLegacy(&pose, &car))
+      NetSimSetPresentationCar(iCar, &car);
+  }
+  return iAnySourceHold;
+}
+
 static void NetClientPuppetHook(void)
 {
   tNetClient *pClient = s_pPuppetClient;
@@ -473,8 +615,9 @@ static void NetClientPuppetHook(void)
   uint8 byPreviousMode;
   int iRecovering;
   int iApplied = 0;
-  if (!pClient || !pClient->byRacing)
+  if (!pClient || !pClient->byRacing) {
     return;
+  }
   ++pClient->stats.uiPuppetHookCalls;
   dTargetRelative = NetClientRelative(pClient, pClient->uiPuppetTick) -
       pClient->stats.iLeadTicks -
@@ -808,6 +951,12 @@ static void NetClientApplyEvent(tNetClient *pClient,
       pClient->abyDestroyedCommitted[pEvent->byCarIdx] = 1;
       pClient->abyFinishOwner[pEvent->byCarIdx] = pEvent->byPlayerIdx;
       break;
+    case NET_EV_RESPAWN:
+      NetPresentationRecoveryReset(
+          &pClient->aVisualRecovery[pEvent->byCarIdx]);
+      pClient->auiVisualRespawnTick[pEvent->byCarIdx] = pEvent->uiTick;
+      pClient->abyVisualRespawnSeen[pEvent->byCarIdx] = 1;
+      break;
     case NET_EV_KILL:
       pClient->abyKillCommitted[pEvent->byCarIdx] = 1;
       pClient->abyCommittedKills[pEvent->byCarIdx] =
@@ -817,13 +966,23 @@ static void NetClientApplyEvent(tNetClient *pClient,
       break;
     case NET_EV_AI_TAKEOVER:
       pClient->abyAiTakeoverCommitted[pEvent->byCarIdx] = 1;
-      if (pEvent->iArg1 == 2)
+      NetPresentationRecoveryReset(
+          &pClient->aVisualRecovery[pEvent->byCarIdx]);
+      if (pEvent->iArg1 == 2) {
         pClient->abyAiTakeoverCommitted[pEvent->iArg0] = 1;
+        NetPresentationRecoveryReset(
+            &pClient->aVisualRecovery[pEvent->iArg0]);
+      }
       break;
     case NET_EV_PLAYER_REJOINED:
       pClient->abyAiTakeoverCommitted[pEvent->byCarIdx] = 0;
-      if (pEvent->iArg1 == 2)
+      NetPresentationRecoveryReset(
+          &pClient->aVisualRecovery[pEvent->byCarIdx]);
+      if (pEvent->iArg1 == 2) {
         pClient->abyAiTakeoverCommitted[pEvent->iArg0] = 0;
+        NetPresentationRecoveryReset(
+            &pClient->aVisualRecovery[pEvent->iArg0]);
+      }
       break;
     case NET_EV_RACE_STATE:
       if (!NetRaceTransition(&pClient->lifecycle, (uint8)pEvent->iArg0))
@@ -1018,8 +1177,15 @@ static int NetClientInstallCheckpoint(tNetClient *pClient)
   pClient->byHasLiveSample = 0;
   pClient->byHasPresentationFrame = 0;
   pClient->byHasRecoveryPair = 0;
+  memset(pClient->aVisualRecovery, 0, sizeof(pClient->aVisualRecovery));
+  memset(pClient->abyVisualCutSeen, 0, sizeof(pClient->abyVisualCutSeen));
+  memset(pClient->abyVisualRespawnSeen, 0,
+         sizeof(pClient->abyVisualRespawnSeen));
+  memset(pClient->abyHasLastVisualRaw, 0,
+         sizeof(pClient->abyHasLastVisualRaw));
   pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
   NetPresentationReset(&pClient->presentation);
+  NetSimClearPresentationCars();
   ++pClient->stats.uiPresentationEpochs;
   pClient->recovery = NET_RECOVERY_RESYNCING;
   pClient->ullRecoveryStartedMs = NetClientNowMs(pClient);
@@ -1416,6 +1582,7 @@ void NetClientDestroy(tNetClient *pClient)
   if (!pClient)
     return;
   if (s_pPuppetClient == pClient) {
+    NetSimClearPresentationCars();
     net_sim_puppet_hook = NULL;
     s_pPuppetClient = NULL;
     memset(net_puppet_car, 0, sizeof(net_puppet_car));
@@ -1532,10 +1699,17 @@ int NetClientBeginRace(tNetClient *pClient)
   pClient->byHasLiveSample = 0;
   pClient->byHasPresentationFrame = 0;
   pClient->byHasRecoveryPair = 0;
+  memset(pClient->aVisualRecovery, 0, sizeof(pClient->aVisualRecovery));
+  memset(pClient->abyVisualCutSeen, 0, sizeof(pClient->abyVisualCutSeen));
+  memset(pClient->abyVisualRespawnSeen, 0,
+         sizeof(pClient->abyVisualRespawnSeen));
+  memset(pClient->abyHasLastVisualRaw, 0,
+         sizeof(pClient->abyHasLastVisualRaw));
   pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
   pClient->stats.uiPresentationEpochs = 1;
   NetPresentationInit(&pClient->presentation, uiStartTick,
                       config.unTickRateHz, config.bySnapshotInterval);
+  NetSimClearPresentationCars();
   pClient->byHasReconciled = 0;
   pClient->byHasAuthoritative = 0;
   pClient->byDeferredCounted = 0;
@@ -1581,8 +1755,15 @@ int NetClientBeginRejoin(tNetClient *pClient,
   pClient->byHasLiveSample = 0;
   pClient->byHasPresentationFrame = 0;
   pClient->byHasRecoveryPair = 0;
+  memset(pClient->aVisualRecovery, 0, sizeof(pClient->aVisualRecovery));
+  memset(pClient->abyVisualCutSeen, 0, sizeof(pClient->abyVisualCutSeen));
+  memset(pClient->abyVisualRespawnSeen, 0,
+         sizeof(pClient->abyVisualRespawnSeen));
+  memset(pClient->abyHasLastVisualRaw, 0,
+         sizeof(pClient->abyHasLastVisualRaw));
   pClient->stats.byDisplayMode = NET_DISPLAY_WARMUP;
   NetPresentationReset(&pClient->presentation);
+  NetSimClearPresentationCars();
   ++pClient->stats.uiPresentationEpochs;
   pClient->recovery = NET_RECOVERY_INSTALLING;
   pClient->ullRecoveryStartedMs = NetClientNowMs(pClient);
@@ -1923,9 +2104,14 @@ void NetClientPresentationFrame(tNetClient *pClient)
   uint32 uiOldestTick = 0;
   tNetClientPuppetSample bufferedSample;
   uint8 byBufferedMode = NET_DISPLAY_WARMUP;
-  int iFound = 0;
-  if (!pClient || !pClient->byRacing)
+  int iFound = 0, iResuming;
+  if (!pClient || !pClient->byRacing) {
+    NetSimClearPresentationCars();
     return;
+  }
+  if (!pClient->lifecycle.byPaused)
+    NetSimClearPresentationCars();
+  iResuming = pClient->presentation.byWasPaused;
   ullNowMs = NetClientNowMs(pClient);
   if (pClient->byHasPresentationFrame &&
       ullNowMs >= pClient->ullLastPresentationFrameMs)
@@ -1973,7 +2159,11 @@ void NetClientPresentationFrame(tNetClient *pClient)
                        iFound && pClient->recovery == NET_RECOVERY_RACING,
                        pClient->lifecycle.byPaused ||
                            pClient->recovery != NET_RECOVERY_RACING);
-  if (pClient->presentation.byReady &&
+  if (pClient->presentation.uiForwardResyncs >
+      pClient->stats.uiBufferedForwardResyncs)
+    memset(pClient->aVisualRecovery, 0, sizeof(pClient->aVisualRecovery));
+  pClient->stats.uiRemoteBlendMs = 0;
+  if (!pClient->lifecycle.byPaused && pClient->presentation.byReady &&
       NetClientPuppetSampleAt(pClient, pClient->presentation.dCursor,
                               &bufferedSample)) {
     if (bufferedSample.byUnderrun)
@@ -1984,6 +2174,19 @@ void NetClientPresentationFrame(tNetClient *pClient)
           NET_DISPLAY_HOLDING : NET_DISPLAY_EXTRAPOLATING;
     else
       byBufferedMode = NET_DISPLAY_INTERPOLATING;
+    if (NetClientPreparePresentationCars(pClient, &bufferedSample,
+        pClient->presentation.dCursor,
+        iResuming ? 0u :
+            (uint32)(ullElapsedMs > NET_PRESENTATION_RECOVERY_MS ?
+                NET_PRESENTATION_RECOVERY_MS : ullElapsedMs),
+        pClient->recovery == NET_RECOVERY_RACING))
+      pClient->stats.ullVisualCutHoldMs +=
+          pClient->presentation.ullActiveFrameMs;
+  } else if (!pClient->lifecycle.byPaused && pClient->byHasSnapshot &&
+             NetClientPuppetSampleAt(pClient, dNewest, &bufferedSample)) {
+    /* A valid held pose is preferable to the live tick pose during warm-up. */
+    NetClientPreparePresentationCars(pClient, &bufferedSample,
+        dNewest, 0u, 0);
   }
   if (pClient->byHasPresentationFrame &&
       !pClient->lifecycle.byPaused &&
@@ -2054,6 +2257,16 @@ void NetClientPresentationFrame(tNetClient *pClient)
       pClient->stats.uiBufferedReserveSaturations;
   g_netStats.uiBufferedTimelineRegressions =
       pClient->stats.uiBufferedTimelineRegressions;
+  g_netStats.uiVisualRecoveryBlends =
+      pClient->stats.uiVisualRecoveryBlends;
+  g_netStats.uiVisualDiscontinuities =
+      pClient->stats.uiVisualDiscontinuities;
+  g_netStats.ullVisualCutHoldMs =
+      pClient->stats.ullVisualCutHoldMs;
+  g_netStats.fVisualRecoveryErrorWorldMax =
+      pClient->stats.fVisualRecoveryErrorWorldMax;
+  g_netStats.fVisualRecoveryYawErrorDegMax =
+      pClient->stats.fVisualRecoveryYawErrorDegMax;
   memcpy(g_netStats.ullBufferedDisplayModeMs,
          pClient->stats.ullBufferedDisplayModeMs,
          sizeof(g_netStats.ullBufferedDisplayModeMs));
@@ -2150,6 +2363,9 @@ static void NetClientEnterDelayed(tNetClient *pClient)
   for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember) {
     NetSimSetPuppet(pClient->abyGroup[iMember], 1);
     NetSimClearRenderCorrection(pClient->abyGroup[iMember]);
+    NetPresentationRecoveryReset(
+        &pClient->aVisualRecovery[pClient->abyGroup[iMember]]);
+    pClient->abyHasLastVisualRaw[pClient->abyGroup[iMember]] = 0;
   }
   NetClientPublishReconciliationStats(pClient);
 }
@@ -2432,6 +2648,11 @@ static int NetClientTryLeaveDelayed(tNetClient *pClient)
   ++pClient->stats.iPredictionTransitions;
   pClient->byExitReady = 0;
   pClient->byBelowBudget = 0;
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    NetPresentationRecoveryReset(
+        &pClient->aVisualRecovery[pClient->abyGroup[iMember]]);
+  for (int iMember = 0; iMember < pClient->byGroupCount; ++iMember)
+    pClient->abyHasLastVisualRaw[pClient->abyGroup[iMember]] = 0;
   NetClientPublishReconciliationStats(pClient);
   return 1;
 }

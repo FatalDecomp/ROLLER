@@ -7,6 +7,7 @@
 #include "control.h"
 #include "tower.h"
 #include "loadtrak.h"
+#include "net_sim_seam.h"
 #include <SDL3/SDL.h>
 #include <math.h>
 #include <float.h>
@@ -395,24 +396,24 @@ LABEL_9:
       mirror = 0;                               // Normal view modes (non-mirror)
       if (iViewMode == 1)                     // Check if cockpit view (mode 1)
       {                                         // Calculate pitch for cockpit view - check if car is stunned
-        if (Car[iCarIdx].iStunned)
-          iPitchCalculated = Car[iCarIdx].iPitchCameraOffset + Car[iCarIdx].nPitch;
+        if (NetSimRenderCarAt(iCarIdx)->iStunned)
+          iPitchCalculated = NetSimRenderCarAt(iCarIdx)->iPitchCameraOffset + NetSimRenderCarAt(iCarIdx)->nPitch;
         else
-          iPitchCalculated = Car[iCarIdx].iPitchDynamicOffset + Car[iCarIdx].iPitchCameraOffset + Car[iCarIdx].nPitch;
+          iPitchCalculated = NetSimRenderCarAt(iCarIdx)->iPitchDynamicOffset + NetSimRenderCarAt(iCarIdx)->iPitchCameraOffset + NetSimRenderCarAt(iCarIdx)->nPitch;
         iElevation2 = ((int16)iPitchCalculated + 0x2000) & 0x3FFF;
-        iRollCalculated = Car[iCarIdx].iRollDynamicOffset + Car[iCarIdx].iRollCameraOffset + Car[iCarIdx].nRoll + 0x2000;
+        iRollCalculated = NetSimRenderCarAt(iCarIdx)->iRollDynamicOffset + NetSimRenderCarAt(iCarIdx)->iRollCameraOffset + NetSimRenderCarAt(iCarIdx)->nRoll + 0x2000;
       } else {                                         // Calculate pitch for driver view - check if car is stunned
-        if (Car[iCarIdx].iStunned)
-          iPitchCalculated2 = Car[iCarIdx].iPitchCameraOffset + Car[iCarIdx].nPitch;
+        if (NetSimRenderCarAt(iCarIdx)->iStunned)
+          iPitchCalculated2 = NetSimRenderCarAt(iCarIdx)->iPitchCameraOffset + NetSimRenderCarAt(iCarIdx)->nPitch;
         else
-          iPitchCalculated2 = Car[iCarIdx].iPitchDynamicOffset + Car[iCarIdx].iPitchCameraOffset + Car[iCarIdx].nPitch;
+          iPitchCalculated2 = NetSimRenderCarAt(iCarIdx)->iPitchDynamicOffset + NetSimRenderCarAt(iCarIdx)->iPitchCameraOffset + NetSimRenderCarAt(iCarIdx)->nPitch;
         iElevation2 = ((int16)iPitchCalculated2 + 455) & 0x3FFF;
-        iRollCalculated = Car[iCarIdx].iRollDynamicOffset + Car[iCarIdx].iRollCameraOffset + Car[iCarIdx].nRoll;
+        iRollCalculated = NetSimRenderCarAt(iCarIdx)->iRollDynamicOffset + NetSimRenderCarAt(iCarIdx)->iRollCameraOffset + NetSimRenderCarAt(iCarIdx)->nRoll;
       }
     } else {
       mirror = -1;                              // Mirror view mode - set mirror flag
-      iElevation2 = ((uint16)(Car[iCarIdx].iPitchCameraOffset) + Car[iCarIdx].nPitch + 0x2000) & 0x3FFF;
-      iRollCalculated = Car[iCarIdx].iRollCameraOffset + Car[iCarIdx].nRoll + 0x2000;
+      iElevation2 = ((uint16)(NetSimRenderCarAt(iCarIdx)->iPitchCameraOffset) + NetSimRenderCarAt(iCarIdx)->nPitch + 0x2000) & 0x3FFF;
+      iRollCalculated = NetSimRenderCarAt(iCarIdx)->iRollCameraOffset + NetSimRenderCarAt(iCarIdx)->nRoll + 0x2000;
     }
     iTilt = iRollCalculated & 0x3FFF;
     NearTow = -1;
@@ -430,43 +431,43 @@ LABEL_9:
     fPosZ = DDZ - fCameraOffsetX;
     if (iViewMode == 1)                       // Check if cockpit view for special handling
     {
-      fZ = Car[iCarIdx].pos.fZ;                 // Cockpit view - get car position and orientation
-      fY = Car[iCarIdx].pos.fY;
-      fX = Car[iCarIdx].pos.fX;
-      iYaw = Car[iCarIdx].nYaw;
+      fZ = NetSimRenderCarAt(iCarIdx)->pos.fZ;                 // Cockpit view - get car position and orientation
+      fY = NetSimRenderCarAt(iCarIdx)->pos.fY;
+      fX = NetSimRenderCarAt(iCarIdx)->pos.fX;
+      iYaw = NetSimRenderCarAt(iCarIdx)->nYaw;
       VIEWDIST = 120;                           // Set closer view distance for cockpit
-      calculatetransform(Car[iCarIndex2].nCurrChunk, iYaw, iElevation2, iTilt, fX, fY, fZ, fPosX, fPosY, fPosZ);// Calculate transformation matrix for cockpit view
-      iCurrChunk = Car[iCarIndex2].nCurrChunk;
+      calculatetransform(NetSimRenderCarAt(iCarIndex2)->nCurrChunk, iYaw, iElevation2, iTilt, fX, fY, fZ, fPosX, fPosY, fPosZ);// Calculate transformation matrix for cockpit view
+      iCurrChunk = NetSimRenderCarAt(iCarIndex2)->nCurrChunk;
       if (iCurrChunk == -1)                   // Check if car is off-track (chunk = -1)
       {
-        worlddirn = Car[iCarIndex2].nYaw;       // Car off-track - use raw orientation values
+        worlddirn = NetSimRenderCarAt(iCarIndex2)->nYaw;       // Car off-track - use raw orientation values
         worldelev = iElevation2;
         worldtilt = iTilt;
         return;
       }
     } else {
-      calculatetransform(Car[iCarIdx].nCurrChunk, Car[iCarIdx].nYaw, iElevation2, iTilt, Car[iCarIdx].pos.fX, Car[iCarIdx].pos.fY, Car[iCarIdx].pos.fZ, fPosX, fPosY, fPosZ);// Driver view - calculate transformation matrix
-      iCurrChunk = Car[iCarIdx].nCurrChunk;
+      calculatetransform(NetSimRenderCarAt(iCarIdx)->nCurrChunk, NetSimRenderCarAt(iCarIdx)->nYaw, iElevation2, iTilt, NetSimRenderCarAt(iCarIdx)->pos.fX, NetSimRenderCarAt(iCarIdx)->pos.fY, NetSimRenderCarAt(iCarIdx)->pos.fZ, fPosX, fPosY, fPosZ);// Driver view - calculate transformation matrix
+      iCurrChunk = NetSimRenderCarAt(iCarIdx)->nCurrChunk;
       if (iCurrChunk == -1) {
-        worlddirn = Car[iCarIdx].nYaw;
+        worlddirn = NetSimRenderCarAt(iCarIdx)->nYaw;
         worldelev = iElevation2;
         worldtilt = iTilt;
         return;
       }
     }
-    getworldangles(Car[iCarIndex2].nYaw, iElevation2, iTilt, iCurrChunk, &worlddirn, &worldelev, &worldtilt);// Convert car angles to world coordinates
+    getworldangles(NetSimRenderCarAt(iCarIndex2)->nYaw, iElevation2, iTilt, iCurrChunk, &worlddirn, &worldelev, &worldtilt);// Convert car angles to world coordinates
   } else if (iViewMode == 3)                    // Tower/spectator view mode (mode 3)
   {
-    fCarPosX3 = Car[iCarIdx].pos.fX;            // Get car position for tower view
-    fCarPosY2 = Car[iCarIdx].pos.fY;
-    iChunkIndex = Car[iCarIdx].nCurrChunk;
-    fCarPosZ3 = Car[iCarIdx].pos.fZ;
+    fCarPosX3 = NetSimRenderCarAt(iCarIdx)->pos.fX;            // Get car position for tower view
+    fCarPosY2 = NetSimRenderCarAt(iCarIdx)->pos.fY;
+    iChunkIndex = NetSimRenderCarAt(iCarIdx)->nCurrChunk;
+    fCarPosZ3 = NetSimRenderCarAt(iCarIdx)->pos.fZ;
     iLastValidChunk = iChunkIndex;
     if (iChunkIndex == -1)                    // Check if car is off-track
     {
-      fWorldPosX2 = Car[iCarIdx].pos.fX;        // Car off-track - use raw position
-      fWorldPosZ = Car[iCarIdx].pos.fZ;
-      fWorldPosX = Car[iCarIdx].pos.fY;
+      fWorldPosX2 = NetSimRenderCarAt(iCarIdx)->pos.fX;        // Car off-track - use raw position
+      fWorldPosZ = NetSimRenderCarAt(iCarIdx)->pos.fZ;
+      fWorldPosX = NetSimRenderCarAt(iCarIdx)->pos.fY;
     } else {
       pTransformMatrix = &localdata[iChunkIndex];// Transform car position to world coordinates
       fWorldPosX2 = pTransformMatrix->pointAy[0].fY * fCarPosY2
@@ -491,7 +492,7 @@ LABEL_9:
       worldz = (float)dWorldZOffset;
     } else {                                           // Find closest tower to car position
       if (iLastValidChunk == -1)
-        iLastValidChunk = Car[iCarIdx].iLastValidChunk;
+        iLastValidChunk = NetSimRenderCarAt(iCarIdx)->iLastValidChunk;
       iClosestTowerIdx = 0;
       iTowerLoopIdx = 0;                        // Initialize tower search variables
       fMinTowerDistance = 9.9999998e17f;
@@ -615,11 +616,11 @@ LABEL_9:
       worldx = -localdata[2].pointAy[3].fX;     // Set map view position from chunk 2 data
       worldy = -localdata[2].pointAy[3].fY;
       VIEWDIST = 400;                           // Set map view distance
-      fCarPosX = Car[iCarIdx].pos.fX;           // Get car position for map view
-      fCarPosY3 = Car[iCarIdx].pos.fY;
-      fCarPosZ = Car[iCarIdx].pos.fZ;
-      fCarPosZ4 = Car[iCarIndex].pos.fZ;
-      iCarChunk = Car[iCarIndex].nCurrChunk;
+      fCarPosX = NetSimRenderCarAt(iCarIdx)->pos.fX;           // Get car position for map view
+      fCarPosY3 = NetSimRenderCarAt(iCarIdx)->pos.fY;
+      fCarPosZ = NetSimRenderCarAt(iCarIdx)->pos.fZ;
+      fCarPosZ4 = NetSimRenderCarAt(iCarIndex)->pos.fZ;
+      iCarChunk = NetSimRenderCarAt(iCarIndex)->nCurrChunk;
       worldz = 1024.0f - localdata[2].pointAy[3].fZ;
       if (iCarChunk == -1)                    // Transform car position if on track
       {
@@ -642,10 +643,10 @@ LABEL_9:
           - pCarTransform->pointAy[3].fZ;
       }
     } else {
-      fCarPosX2 = Car[iCarIdx].pos.fX;          // Top view mode (other modes)
-      fCarPosY = Car[iCarIdx].pos.fY;
-      fCarPosZ2 = Car[iCarIdx].pos.fZ;
-      iCarChunk2 = Car[iCarIndex].nCurrChunk;
+      fCarPosX2 = NetSimRenderCarAt(iCarIdx)->pos.fX;          // Top view mode (other modes)
+      fCarPosY = NetSimRenderCarAt(iCarIdx)->pos.fY;
+      fCarPosZ2 = NetSimRenderCarAt(iCarIdx)->pos.fZ;
+      iCarChunk2 = NetSimRenderCarAt(iCarIndex)->nCurrChunk;
       if (iCarChunk2 == -1)                   // Transform car position for top view
       {
         fTransformedPosX = fCarPosX2;
@@ -736,7 +737,7 @@ void initcarview(int iCarIdx, int iPlayer)
     iCarIdx = -iCarIdx - 1;
     LOOKZ[0] = viewdata[1].fChaseLookAhead;
   }
-  iControlType = Car[iCarIdx].iControlType;     // Get car control type (human player, AI, etc)
+  iControlType = NetSimRenderCarAt(iCarIdx)->iControlType;     // Get car control type (human player, AI, etc)
   if (!iControlType) {
     fChasePullDefault = viewdata[chaseview[iPlayer]].fChasePullDefault;// Human player: use default chase pull factor
   SET_PULL_FACTOR:
@@ -744,18 +745,18 @@ void initcarview(int iCarIdx, int iPlayer)
     goto CALCULATE_CAMERA_POSITION;
   }
   if (iControlType >= 2 && iControlType <= 3) {                                             // AI cars: choose pull factor based on crash state
-    if (Car[iCarIdx].iStunned)
+    if (NetSimRenderCarAt(iCarIdx)->iStunned)
       fChasePullDefault = viewdata[chaseview[iPlayer]].fChasePullCrash;
     else
       fChasePullDefault = viewdata[chaseview[iPlayer]].fChasePullNormal;
     goto SET_PULL_FACTOR;
   }
 CALCULATE_CAMERA_POSITION:
-  if (Car[iCarIdx].nCurrChunk == -1)          // Get car orientation: use actual angles if not in a chunk
+  if (NetSimRenderCarAt(iCarIdx)->nCurrChunk == -1)          // Get car orientation: use actual angles if not in a chunk
   {
-    iYaw = Car[iCarIdx].nYaw;
-    iPitch = Car[iCarIdx].nPitch;
-    iRoll = Car[iCarIdx].nRoll;
+    iYaw = NetSimRenderCarAt(iCarIdx)->nYaw;
+    iPitch = NetSimRenderCarAt(iCarIdx)->nPitch;
+    iRoll = NetSimRenderCarAt(iCarIdx)->nRoll;
   } else {
     iYaw = 0;                                   // Car is in a chunk: use neutral orientation
     iPitch = 0;
@@ -769,13 +770,13 @@ CALCULATE_CAMERA_POSITION:
   dChaseDistMul = -(dChaseDist * 2.0);
   fDirX = -tcos[iYaw] * fSinPitch * tcos[iRoll] - tsin[iYaw] * tsin[iRoll];// Calculate camera direction vector X component using rotation matrix
   fDirY = tcos[iYaw] * tcos[iPitch];            // Calculate camera direction vector Y component
-  fCameraX = (float)(dChaseDistMul * fDirY + PULLZ[iPlayer] * fDirX + Car[iCarIdx].pos.fX);// Calculate final camera X position with distance and pull factors
+  fCameraX = (float)(dChaseDistMul * fDirY + PULLZ[iPlayer] * fDirX + NetSimRenderCarAt(iCarIdx)->pos.fX);// Calculate final camera X position with distance and pull factors
   fDirZ = tsin[iYaw] * tcos[iPitch];
   fRightX = -tsin[iYaw] * fSinPitch * tcos[iRoll] + tcos[iYaw] * tsin[iRoll];
-  fCameraY = (float)(dChaseDistMul * fDirZ + PULLZ[iPlayer] * fRightX + Car[iCarIdx].pos.fY);// Calculate final camera Y position
+  fCameraY = (float)(dChaseDistMul * fDirZ + PULLZ[iPlayer] * fRightX + NetSimRenderCarAt(iCarIdx)->pos.fY);// Calculate final camera Y position
   fUpZ = tcos[iPitch] * tcos[iRoll];
-  fCameraZ = (float)(dChaseDistMul * fSinPitch + PULLZ[iPlayer] * fUpZ + Car[iCarIdx].pos.fZ);// Calculate final camera Z position
-  iCurrChunk = Car[iCarIdx].nCurrChunk;
+  fCameraZ = (float)(dChaseDistMul * fSinPitch + PULLZ[iPlayer] * fUpZ + NetSimRenderCarAt(iCarIdx)->pos.fZ);// Calculate final camera Z position
+  iCurrChunk = NetSimRenderCarAt(iCarIdx)->nCurrChunk;
   if (iCurrChunk == -1)                       // Branch: handle camera position based on chunk state
   {
     chase_x = fCameraX;                         // No chunk: directly set global chase position and lastpos array
@@ -877,12 +878,12 @@ void newchaseview(int iCarIdx, int iChaseCamIdx)
   float fTempAccumulatedDist; // [esp+78h] [ebp-18h]
 
   iCarIndex = iCarIdx;
-  nYaw = Car[iCarIndex].nYaw;                   // Get car orientation and position
-  nPitch = Car[iCarIndex].nPitch;
-  fX = Car[iCarIndex].pos.fX;
-  fY = Car[iCarIndex].pos.fY;
-  fZ = Car[iCarIndex].pos.fZ;
-  nRoll = Car[iCarIndex].nRoll;
+  nYaw = NetSimRenderCarAt(iCarIndex)->nYaw;                   // Get car orientation and position
+  nPitch = NetSimRenderCarAt(iCarIndex)->nPitch;
+  fX = NetSimRenderCarAt(iCarIndex)->pos.fX;
+  fY = NetSimRenderCarAt(iCarIndex)->pos.fY;
+  fZ = NetSimRenderCarAt(iCarIndex)->pos.fZ;
+  nRoll = NetSimRenderCarAt(iCarIndex)->nRoll;
   dBackwardX = -tcos[nYaw] * tsin[nPitch] * tcos[nRoll] - tsin[nYaw] * tsin[nRoll];// Calculate backward direction vector from car orientation
                                                 // Uses trigonometric transformation to get direction opposite to car's forward vector
   dBackwardY = -tsin[nYaw] * tsin[nPitch] * tcos[nRoll] + tcos[nYaw] * tsin[nRoll];
@@ -892,7 +893,7 @@ void newchaseview(int iCarIdx, int iChaseCamIdx)
   fCameraPosZ = PULLZ[iChaseCamIdx] * (float)dBackwardZ + fZ;
   fLookAtX = (float)dBackwardX * LOOKZ[iChaseCamIdx] + fX;// Calculate look-at position (in front of car) using LOOKZ distance
   fLookAtY = (float)dBackwardY * LOOKZ[iChaseCamIdx] + fY;
-  iCurrChunk = Car[iCarIndex].nCurrChunk;
+  iCurrChunk = NetSimRenderCarAt(iCarIndex)->nCurrChunk;
   fLookAtZ = (float)dBackwardZ * LOOKZ[iChaseCamIdx] + fZ;
   if (iCurrChunk != -1)                       // Transform positions to world coordinates if car is on track
   {
