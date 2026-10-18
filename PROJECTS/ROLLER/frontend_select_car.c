@@ -700,10 +700,6 @@ void frontend_car_select_update(void)
           frontend_car_select_begin_car_out(Players_Cars[player2_car]);
           iFrontendCarSpeechPending = 0;
         }
-      } else {
-        // Space: toggle basic/advanced car set
-        textures_off ^= TEX_OFF_ADVANCED_CARS;
-        switch_sets = -1;
       }
     } else if (byInputKey < 0x2Du) {
       if (byInputKey == 43)  // '+'
