@@ -71,7 +71,8 @@ typedef struct
   tNetClient *pClient;
   tCar savedLocalCar;
   int iSavedHumanControl, iSavedFinished;
-  tNetWorldPose remoteBase, lastPuppetPose;
+  tNetWorldPose remoteBase, lastPuppetPose, delayedHostPose;
+  uint8 byDelayedHostPose;
   float fLastPuppetTick, fMaxPuppetStepPerTick;
   int iPuppetSamples, iSawChunk0, iSawChunk1, iSawAirborne;
   tNetTestHostTick aTicks[NET_TEST_MAX_TICKS];
@@ -308,11 +309,20 @@ static int NetTestHostSimulate(void *pContext, uint32 uiTick,
     NetSimSaveCar(pRun->byCar, &pRun->savedLocalCar);
     pRun->iSavedHumanControl = human_control[pRun->byCar];
     pRun->iSavedFinished = finished_car[pRun->byCar];
-    CHECK(NetSimLegacyToWorld(&Car[pRun->byCar], &pose));
+    /* Advance the host's own pose, not the client's puppet copy: that copy
+       is sampled (and extrapolated) from these very snapshots, so building
+       on it feeds the extrapolation back into the host and runs away. */
+    if (!pRun->byDelayedHostPose)
+      CHECK(NetSimLegacyToWorld(&Car[pRun->byCar], &pRun->delayedHostPose));
+    pRun->byDelayedHostPose = 1;
+    pose = pRun->delayedHostPose;
     pose.position.fX += 4.0f;
+    pRun->delayedHostPose = pose;
     CHECK(NetSimWorldToLegacy(&pose, &Car[pRun->byCar]));
     pRun->byLocalSwapped = 1;
   }
+  if (!pRun->byLocalSwapped || !net_puppet_car[pRun->byCar])
+    pRun->byDelayedHostPose = 0;
   if (pRun->byRemoteReady)
     NetTestSetRemoteHostState(pRun, uiTick);
   pRun->aTicks[pRun->iTicks].uiTick = uiTick;
