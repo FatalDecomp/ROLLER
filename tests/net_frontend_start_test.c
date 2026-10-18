@@ -604,9 +604,12 @@ int main(int argc, char **argv)
       iCarChangeSent = 1;
       continue;
     }
-    if (iCarChangeSent && Players_Cars[player1_car] == iDesign && !iChatSent) {
+    if (iCarChangeSent && Players_Cars[player1_car] == iDesign && !iChatSent &&
+        (iHost || iChatReceived)) {
       /* Exercise the existing composer globals and received-message seam.
-         Clients must be able to address the host (display player zero). */
+         Clients must be able to address the host (display player zero).
+         The client only replies once the host's message has arrived, so the
+         host cannot request the start before the client has received it. */
       if (iHost) {
         CHECK(!strcmp(player_names[0], "HOST"));
         CHECK(!strcmp(player_names[iLocalPlayers], "CLIENT"));
