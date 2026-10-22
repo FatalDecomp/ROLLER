@@ -3895,7 +3895,8 @@ int load_champ_begin(int iSlot)
     }
     if (iChecksumOk) {
       iSavedRacers = racers;                    // NETWORK CLEANUP: Disconnect from network before loading saved state
-      if (!iBroadcastSettled) {
+      // Saved championships use the legacy disconnect broadcast only in legacy mode.
+      if (net_mode == NET_MODE_LEGACY && !iBroadcastSettled) {
         network_broadcast_wait_start(-666, 1);
         s_iLoadChampPendingSlot = iSlot;
         s_iLoadChampPendingPhase = LOAD_CHAMP_PENDING_BROADCAST;
