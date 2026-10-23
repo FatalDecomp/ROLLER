@@ -759,20 +759,12 @@ void DIGISetPanLocation(int iHandle, int iPan)
 /// <param name="e"></param>
 void UpdateSDLAudioEvents(SDL_Event e)
 {
-  if (e.type == SDL_EVENT_AUDIO_DEVICE_REMOVED) {
-    SDL_AudioDeviceEvent *ade = (SDL_AudioDeviceEvent *)&e;
-    SDL_Log("UpdateSDLAudioEvents: Audio device removed: %d", ade->which);
-    DIGIClearAllStream();
-    MIDIClearStream();
-  }
-  if (e.type == SDL_EVENT_AUDIO_DEVICE_ADDED) {
-    SDL_AudioDeviceEvent *ade = (SDL_AudioDeviceEvent *)&e;
-    SDL_Log("UpdateSDLAudioEvents: Audio device Added: %d", ade->which);
-    DIGIClearAllStream();
-    MIDIClearStream();
-    MIDIInitStream();
-    MIDIStartSong(); // Force music to continue playing
-  }
+  // All playback streams use SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK. SDL migrates
+  // them when the default output changes, including headphone hotplugging.
+  // Keep the streams and their playback state intact: destroying and reopening
+  // them here interrupts samples and can hit stale bindings in SDL's migration
+  // path. Capture-device events must not change playback either.
+  (void)e;
 }
 
 //-------------------------------------------------------------------------------------------------

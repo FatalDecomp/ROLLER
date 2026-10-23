@@ -1780,6 +1780,37 @@ fn configureRenderQueue3DTests(
     sound_stub_tests.dependOn(&run_sound_stub.step);
     test_step.dependOn(sound_stub_tests);
 
+    const audio_events_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    audio_events_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    audio_events_mod.addCMacro("WILDMIDI_STATIC", "1");
+    audio_events_mod.addCSourceFiles(.{
+        .flags = c_flags,
+        .files = &.{
+            "PROJECTS/ROLLER/rollersound.c",
+            "tests/audio_device_events_test.c",
+        },
+    });
+    const audio_events_exe = b.addExecutable(.{
+        .name = "audio_device_events_test",
+        .root_module = audio_events_mod,
+    });
+    audio_events_mod.addIncludePath(sdl.builder.path("include"));
+    audio_events_mod.linkLibrary(sdl.artifact("SDL3"));
+    const audio_wildmidi = b.dependency("wildmidi", .{ .target = target, .optimize = optimize });
+    audio_events_mod.addIncludePath(audio_wildmidi.builder.path("include"));
+    audio_events_mod.linkLibrary(audio_wildmidi.artifact("wildmidi"));
+    const audio_adlmidi = b.dependency("libadlmidi", .{ .target = target, .optimize = optimize });
+    audio_events_mod.addIncludePath(audio_adlmidi.builder.path("include"));
+    audio_events_mod.linkLibrary(audio_adlmidi.artifact("adlmidi"));
+    const run_audio_events = b.addRunArtifact(audio_events_exe);
+    const audio_events_tests = b.step("test-audio-device-events", "Verify audio hotplug preserves playback state");
+    audio_events_tests.dependOn(&run_audio_events.step);
+    test_step.dependOn(audio_events_tests);
+
     const editor_surface_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
