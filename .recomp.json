@@ -1,0 +1,8 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Whiplash / Fatal Racing",
+  "system": "PC (DOS)",
+  "type": "port",
+  "status": "complete",
+  "targets": ["Windows", "Linux", "macOS", "Android", "Browser"]
+}
