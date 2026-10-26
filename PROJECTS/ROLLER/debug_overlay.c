@@ -5,9 +5,9 @@
 #include "net_rendezvous.h"
 #endif
 #include "types.h"
+#include "present_sdlrenderer.h"
 #if defined(IS_WASM)
 #include "nuklear_sdl_renderer.h"
-#include "present_sdlrenderer.h"
 #else
 #include "debug_overlay_shaders.h"
 #include "crt_filter.h"
@@ -62,6 +62,7 @@ struct DebugOverlay {
 #if defined(IS_WASM)
   NuklearSDLRenderer    *pSDLRenderer;
 #else
+  SDL_Texture           *pSDLTexture;
   SDL_GPUDevice         *pDevice;
 #endif
   SDL_Window            *pWindow;
@@ -456,6 +457,19 @@ DebugOverlay *debug_overlay_create(SDL_GPUDevice *pDevice, SDL_Window *pWindow) 
 #if !defined(IS_WASM)
   pOverlay->pPixels = calloc(1, OVERLAY_W * OVERLAY_H * OVERLAY_BPP);
 
+  if (!pDevice) {
+    pOverlay->pSDLTexture = SDL_CreateTexture(
+        ROLLERPresentSDLRendererGetRenderer(), SDL_PIXELFORMAT_RGBA32,
+        SDL_TEXTUREACCESS_STREAMING, OVERLAY_W, OVERLAY_H);
+    if (!pOverlay->pSDLTexture) {
+      debug_overlay_destroy(pOverlay);
+      return NULL;
+    }
+    SDL_SetTextureBlendMode(pOverlay->pSDLTexture, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(pOverlay->pSDLTexture, SDL_SCALEMODE_LINEAR);
+    return pOverlay;
+  }
+
   SDL_GPUTextureCreateInfo ti = {0};
   ti.type   = SDL_GPU_TEXTURETYPE_2D;
   ti.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -530,8 +544,11 @@ void debug_overlay_destroy(DebugOverlay *pOverlay) {
 #else
   free(pOverlay->pAtlasPixels);
   free(pOverlay->pPixels);
-  SDL_ReleaseGPUTexture(pOverlay->pDevice, pOverlay->pTexture);
-  SDL_ReleaseGPUTransferBuffer(pOverlay->pDevice, pOverlay->pTransfer);
+  SDL_DestroyTexture(pOverlay->pSDLTexture);
+  if (pOverlay->pTexture)
+    SDL_ReleaseGPUTexture(pOverlay->pDevice, pOverlay->pTexture);
+  if (pOverlay->pTransfer)
+    SDL_ReleaseGPUTransferBuffer(pOverlay->pDevice, pOverlay->pTransfer);
   if (pOverlay->pPipeline)
     SDL_ReleaseGPUGraphicsPipeline(pOverlay->pDevice, pOverlay->pPipeline);
   if (pOverlay->pSampler)
@@ -1665,11 +1682,23 @@ void debug_overlay_render(DebugOverlay *pOverlay,
     RenderCommands(pOverlay);
     if (bShowLabels) DrawSurfaceLabels(pOverlay);
     else             DrawSurfaceOutline(pOverlay);
-    UploadAndBlit(pOverlay, pCmdBuf);
+    if (pOverlay->pDevice)
+      UploadAndBlit(pOverlay, pCmdBuf);
+    else
+      SDL_UpdateTexture(pOverlay->pSDLTexture, NULL, pOverlay->pPixels,
+                        OVERLAY_W * OVERLAY_BPP);
   } else {
     nk_clear(pCtx);
   }
 
+  if (!pOverlay->pDevice) {
+    SDL_FRect dstRect;
+    ROLLERGetPresentViewport(uiSwapchainW, uiSwapchainH, OVERLAY_ASPECT, &viewport);
+    dstRect = (SDL_FRect){ viewport.x, viewport.y, viewport.w, viewport.h };
+    SDL_RenderTexture(ROLLERPresentSDLRendererGetRenderer(),
+                       pOverlay->pSDLTexture, NULL, &dstRect);
+    return;
+  }
   if (!pOverlay->pPipeline || !pOverlay->pSampler) return;
 
   SDL_GPUColorTargetInfo ct = {0};

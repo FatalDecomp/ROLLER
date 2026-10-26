@@ -1,4 +1,5 @@
 #include "menu_render.h"
+#include "roller.h"
 #include "menu_render_gpu.h"
 #include "menu_render_software.h"
 #include "3d.h"
@@ -114,8 +115,6 @@ void menu_render_set_mode(MenuRenderer *renderer, MenuRenderMode mode) {
     renderer->pendingMode = MENU_RENDER_SOFTWARE;
     return;
 #else
-    if (mode == MENU_RENDER_GPU && !renderer->gpu)
-        mode = MENU_RENDER_SOFTWARE;
     if (mode == MENU_RENDER_GPU && renderer->pendingMode != MENU_RENDER_GPU) {
         for (int i = 0; i < MENU_RENDER_MAX_SLOTS; i++) {
             if (renderer->cachedBlocks[i])
@@ -169,8 +168,16 @@ void menu_render_begin_frame(MenuRenderer *renderer) {
     renderer->pendingMode = MENU_RENDER_SOFTWARE;
     menu_render_sw_begin_frame(renderer->sw);
 #else
-    if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu)
-        renderer->pendingMode = MENU_RENDER_SOFTWARE;
+    if (renderer->pendingMode == MENU_RENDER_GPU && !renderer->gpu) {
+#if !defined(ROLLER_EDITOR_CORE)
+        if (ROLLEREnsureGPUDevice()) {
+            renderer->device = ROLLERGetGPUDevice();
+            renderer->gpu = menu_render_gpu_create(renderer->device, renderer->window);
+        }
+#endif
+        if (!renderer->gpu)
+            renderer->pendingMode = MENU_RENDER_SOFTWARE;
+    }
 
     if (renderer->pendingMode == MENU_RENDER_GPU)
         menu_render_upload_dirty_gpu_blocks(renderer);

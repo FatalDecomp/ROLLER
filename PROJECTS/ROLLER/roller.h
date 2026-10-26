@@ -71,6 +71,10 @@ extern int  g_iFpsBackground;      /* background FPS cap: 0=off, else the target
 
 // GPU device accessors
 SDL_GPUDevice *ROLLERGetGPUDevice(void);
+/* Called at frame boundaries, outside debug_overlay_render. */
+bool ROLLEREnsureGPUDevice(void);
+struct GameRenderer;
+void ROLLERApplyGameRenderSettings(struct GameRenderer *pRenderer);
 SDL_Window *ROLLERGetWindow(void);
 
 // Debug overlay accessor

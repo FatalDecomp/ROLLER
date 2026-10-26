@@ -202,6 +202,7 @@ pub fn build(b: *std.Build) void {
             .flags = c_flags,
             .files = &.{
                 "PROJECTS/ROLLER/debug_overlay.c",
+                "PROJECTS/ROLLER/present_sdlrenderer.c",
                 "PROJECTS/ROLLER/net_harness.c",
                 "PROJECTS/ROLLER/net_race_harness.c",
                 "PROJECTS/ROLLER/net_frontend_lobby.c",
