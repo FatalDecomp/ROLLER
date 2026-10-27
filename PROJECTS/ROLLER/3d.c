@@ -980,6 +980,33 @@ static void frontend_run_game_loop(eFrontendState eInitialState);
 
 //-------------------------------------------------------------------------------------------------
 
+/* Reapply saved graphics options after a software session attaches its GPU. */
+void ROLLERApplyGameRenderSettings(GameRenderer *pRenderer)
+{
+  game_render_set_texture_filter(pRenderer, g_iTextureFilter);
+  game_render_set_anisotropy_level(pRenderer, g_iAnisotropyLevel);
+  game_render_set_trilinear(pRenderer, g_bTrilinear);
+  game_render_set_lod_bias(pRenderer, g_fLodBias);
+  game_render_set_render_scale(pRenderer, g_fRenderScale);
+  game_render_set_fog_density(pRenderer, g_fFogDensity);
+  game_render_set_fog_color(pRenderer,
+      ((g_uFogColor >> 16) & 0xFF) / 255.0f,
+      ((g_uFogColor >>  8) & 0xFF) / 255.0f,
+      ( g_uFogColor        & 0xFF) / 255.0f);
+  game_render_set_gamma(pRenderer, g_fGamma);
+  game_render_set_fog_start(pRenderer, g_fFogStart);
+  game_render_set_saturation(pRenderer, g_fSaturation);
+  game_render_set_contrast(pRenderer, g_fContrast);
+  game_render_set_vignette(pRenderer, g_fVigStrength);
+  game_render_set_brightness(pRenderer, g_fBrightness);
+  game_render_set_fov_multiplier(pRenderer, g_fFovMultiplier);
+  game_render_set_emulate_software_track_borders(pRenderer, g_bEmulateSoftwareTrackBorders);
+  game_render_set_antialiasing(pRenderer, g_iAntiAliasing);
+  game_render_set_vsync(pRenderer, g_bVsync);
+  game_render_set_wireframe(pRenderer, g_bWireframe);
+  game_render_set_cull_mode(pRenderer, g_iCullMode);
+}
+
 int main_loop_iteration(void)
 {
   if (quit_game &&
@@ -3910,26 +3937,7 @@ void play_game_init()
   }
   if (intro)
       game_render_set_force_gpu_load(g_pGameRenderer, true);
-  game_render_set_texture_filter(g_pGameRenderer, g_iTextureFilter);
-  game_render_set_anisotropy_level(g_pGameRenderer, g_iAnisotropyLevel);
-  game_render_set_trilinear(g_pGameRenderer, g_bTrilinear);
-  game_render_set_lod_bias(g_pGameRenderer, g_fLodBias);
-  game_render_set_render_scale(g_pGameRenderer, g_fRenderScale);
-  game_render_set_fog_density(g_pGameRenderer, g_fFogDensity);
-  game_render_set_fog_color(g_pGameRenderer,
-      ((g_uFogColor >> 16) & 0xFF) / 255.0f,
-      ((g_uFogColor >>  8) & 0xFF) / 255.0f,
-      ( g_uFogColor        & 0xFF) / 255.0f);
-  game_render_set_gamma(g_pGameRenderer, g_fGamma);
-  game_render_set_fog_start(g_pGameRenderer, g_fFogStart);
-  game_render_set_saturation(g_pGameRenderer, g_fSaturation);
-  game_render_set_contrast(g_pGameRenderer, g_fContrast);
-  game_render_set_vignette(g_pGameRenderer, g_fVigStrength);
-  game_render_set_brightness(g_pGameRenderer, g_fBrightness);
-  game_render_set_fov_multiplier(g_pGameRenderer, g_fFovMultiplier);
-  game_render_set_emulate_software_track_borders(g_pGameRenderer, g_bEmulateSoftwareTrackBorders);
-  game_render_set_antialiasing(g_pGameRenderer, g_iAntiAliasing);
-  game_render_set_vsync(g_pGameRenderer, g_bVsync);
+  ROLLERApplyGameRenderSettings(g_pGameRenderer);
 
   // Register already-loaded pixel textures with the renderer.
   // These were loaded before the renderer existed, so the NULL-guarded

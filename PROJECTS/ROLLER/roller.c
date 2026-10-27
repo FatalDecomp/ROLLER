@@ -21,8 +21,8 @@
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
 #include "net_frontend_lobby.h"
 #endif
-#if defined(IS_WASM)
 #include "present_sdlrenderer.h"
+#if defined(IS_WASM)
 #include "web_default_config.h"
 #include <emscripten/emscripten.h>
 #endif
@@ -532,10 +532,15 @@ void UpdateSDLWindow()
   if (!g_bPaletteSet) return;
   if (ROLLERGpuPresentationSuspended()) return;
 
-#if defined(IS_WASM)
-  ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh,
+#if !defined(IS_WASM)
+  if (!s_pGPUDevice)
+#endif
+  {
+    ROLLERPresentSDLRendererFrame(scrbuf, pal_addr, winw, winh,
                                 s_pDebugOverlay);
-#else
+    return;
+  }
+#if !defined(IS_WASM)
   // Acquire command buffer
   SDL_GPUCommandBuffer *cmdBuf = SDL_AcquireGPUCommandBuffer(s_pGPUDevice);
   if (!cmdBuf) return;
@@ -617,11 +622,16 @@ void UpdateSDLWindow()
 
 static void PresentDebugOverlayOnly(void)
 {
-#if defined(IS_WASM)
   if (!s_pWindow || !s_pDebugOverlay || ROLLERGpuPresentationSuspended())
     return;
-  ROLLERPresentSDLRendererOverlayOnly(s_pDebugOverlay);
-#else
+#if !defined(IS_WASM)
+  if (!s_pGPUDevice)
+#endif
+  {
+    ROLLERPresentSDLRendererOverlayOnly(s_pDebugOverlay);
+    return;
+  }
+#if !defined(IS_WASM)
   if (!s_pGPUDevice || !s_pWindow || !s_pDebugOverlay)
     return;
   if (ROLLERGpuPresentationSuspended())
@@ -777,6 +787,121 @@ static bool SDLCALL ROLLERAndroidLifecycleEvent(void *pUserData,
 
 //-------------------------------------------------------------------------------------------------
 
+#if !defined(IS_WASM)
+bool ROLLEREnsureGPUDevice(void)
+{
+  bool bOverlayVisible = debug_overlay_visible(s_pDebugOverlay);
+  bool bWindowClaimed = false;
+
+  if (s_pGPUDevice)
+    return true;
+  if (g_bSnapshotMode || !s_pWindow)
+    return false;
+
+  s_pGPUDevice = SDL_CreateGPUDevice(
+    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
+    false, NULL);
+  if (!s_pGPUDevice) {
+    SDL_Log("Couldn't create GPU device: %s", SDL_GetError());
+    goto fail;
+  }
+  SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(s_pGPUDevice));
+  SDL_Log("D32_FLOAT depth supported: %d",
+    SDL_GPUTextureSupportsFormat(s_pGPUDevice,
+      SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+      SDL_GPU_TEXTURETYPE_2D,
+      SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET));
+
+  debug_overlay_destroy(s_pDebugOverlay);
+  s_pDebugOverlay = NULL;
+  ROLLERPresentSDLRendererShutdown();
+
+  if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
+    SDL_Log("Couldn't claim window for GPU device: %s", SDL_GetError());
+    goto fail;
+  }
+
+  bWindowClaimed = true;
+
+  /* Apply vsync immediately after claiming — the present mode is a window-level
+   * setting that covers all GPU rendering (menu, overlay, scene).  The game
+   * renderer's deferred mechanism handles runtime changes but isn't called until
+   * a race begins, leaving menu frames uncapped otherwise.
+   * Vsync-on: MAILBOX (no tearing, lower latency than VSYNC/FIFO) if supported, else VSYNC.
+   * Vsync-off: IMMEDIATE (uncapped, no sync). */
+  {
+    bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
+            SDL_GPU_PRESENTMODE_MAILBOX);
+    SDL_GPUPresentMode mode = g_bVsync
+        ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
+        : SDL_GPU_PRESENTMODE_IMMEDIATE;
+    SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
+        SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
+  }
+
+  // GPU texture for game framebuffer presentation
+  SDL_GPUTextureCreateInfo texInfo = {0};
+  texInfo.type = SDL_GPU_TEXTURETYPE_2D;
+  texInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+  texInfo.width = 640;
+  texInfo.height = 400;
+  texInfo.layer_count_or_depth = 1;
+  texInfo.num_levels = 1;
+  texInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+  s_pGameTexture = SDL_CreateGPUTexture(s_pGPUDevice, &texInfo);
+  if (!s_pGameTexture) {
+    SDL_Log("Couldn't create GPU texture: %s", SDL_GetError());
+    goto fail;
+  }
+
+  s_pCRTFilter = crt_filter_create(s_pGPUDevice, s_pWindow);
+  if (!s_pCRTFilter)
+    SDL_Log("crt_filter: failed to create (CRT filter will be unavailable)");
+
+  // Transfer buffer for CPU->GPU framebuffer upload
+  SDL_GPUTransferBufferCreateInfo tbInfo = {0};
+  tbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+  tbInfo.size = 640 * 400 * 4;
+  s_pTransferBuffer = SDL_CreateGPUTransferBuffer(s_pGPUDevice, &tbInfo);
+  if (!s_pTransferBuffer) {
+    SDL_Log("Couldn't create GPU transfer buffer: %s", SDL_GetError());
+    goto fail;
+  }
+  s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
+  debug_overlay_set_visible(s_pDebugOverlay, bOverlayVisible);
+  game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
+  return true;
+
+fail:
+  if (s_pGPUDevice) {
+    if (s_pCRTFilter)
+      crt_filter_destroy(s_pCRTFilter);
+    if (s_pTransferBuffer)
+      SDL_ReleaseGPUTransferBuffer(s_pGPUDevice, s_pTransferBuffer);
+    if (s_pGameTexture)
+      SDL_ReleaseGPUTexture(s_pGPUDevice, s_pGameTexture);
+    if (bWindowClaimed)
+      SDL_ReleaseWindowFromGPUDevice(s_pGPUDevice, s_pWindow);
+    SDL_DestroyGPUDevice(s_pGPUDevice);
+  }
+  s_pGPUDevice = NULL;
+  s_pGameTexture = NULL;
+  s_pTransferBuffer = NULL;
+  s_pCRTFilter = NULL;
+  if (!ROLLERPresentSDLRendererGetRenderer()) {
+    if (!ROLLERPresentSDLRendererInit(s_pWindow, g_bVsync))
+      ErrorBoxExit("Couldn't restore SDL_Renderer presentation: %s", SDL_GetError());
+    s_pDebugOverlay = debug_overlay_create(NULL, s_pWindow);
+    debug_overlay_set_visible(s_pDebugOverlay, bOverlayVisible);
+    game_render_set_debug_overlay(g_pGameRenderer, s_pDebugOverlay);
+  }
+  SDL_Log("Hardware rendering unavailable; keeping software rendering");
+  return false;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 int InitSDL(char *whiplash_root, const char *midi_root)
 {
   RaiseFileDescriptorLimit();
@@ -883,84 +1008,14 @@ int InitSDL(char *whiplash_root, const char *midi_root)
   InitFATDATA(whiplash_root);
 #endif
 
-#if defined(IS_WASM)
   if (!ROLLERPresentSDLRendererInit(s_pWindow, g_bVsync)) {
     ErrorBoxExit("Couldn't create SDL_Renderer presentation: %s", SDL_GetError());
     return 1;
   }
-
   s_pMenuRenderer = menu_render_create(NULL, s_pWindow);
   s_pDebugOverlay = debug_overlay_create(NULL, s_pWindow);
   if (!s_pDebugOverlay)
     SDL_Log("debug_overlay: failed to create SDL_Renderer backend");
-#else
-  s_pGPUDevice = SDL_CreateGPUDevice(
-    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_DXIL,
-    false, NULL);
-  if (!s_pGPUDevice) {
-    ErrorBoxExit("Couldn't create GPU device: %s", SDL_GetError());
-    return 1;
-  }
-  SDL_Log("GPU driver: %s", SDL_GetGPUDeviceDriver(s_pGPUDevice));
-  SDL_Log("D32_FLOAT depth supported: %d",
-    SDL_GPUTextureSupportsFormat(s_pGPUDevice,
-      SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
-      SDL_GPU_TEXTURETYPE_2D,
-      SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET));
-
-  if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
-    ErrorBoxExit("Couldn't claim window for GPU device: %s", SDL_GetError());
-    return 1;
-  }
-
-  /* Apply vsync immediately after claiming — the present mode is a window-level
-   * setting that covers all GPU rendering (menu, overlay, scene).  The game
-   * renderer's deferred mechanism handles runtime changes but isn't called until
-   * a race begins, leaving menu frames uncapped otherwise.
-   * Vsync-on: MAILBOX (no tearing, lower latency than VSYNC/FIFO) if supported, else VSYNC.
-   * Vsync-off: IMMEDIATE (uncapped, no sync). */
-  {
-    bool supportsMailbox = SDL_WindowSupportsGPUPresentMode(s_pGPUDevice, s_pWindow,
-            SDL_GPU_PRESENTMODE_MAILBOX);
-    SDL_GPUPresentMode mode = g_bVsync
-        ? (supportsMailbox ? SDL_GPU_PRESENTMODE_MAILBOX : SDL_GPU_PRESENTMODE_VSYNC)
-        : SDL_GPU_PRESENTMODE_IMMEDIATE;
-    SDL_SetGPUSwapchainParameters(s_pGPUDevice, s_pWindow,
-        SDL_GPU_SWAPCHAINCOMPOSITION_SDR, mode);
-  }
-
-  s_pMenuRenderer = menu_render_create(s_pGPUDevice, s_pWindow);
-  s_pDebugOverlay = debug_overlay_create(s_pGPUDevice, s_pWindow);
-
-  // GPU texture for game framebuffer presentation
-  SDL_GPUTextureCreateInfo texInfo = {0};
-  texInfo.type = SDL_GPU_TEXTURETYPE_2D;
-  texInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-  texInfo.width = 640;
-  texInfo.height = 400;
-  texInfo.layer_count_or_depth = 1;
-  texInfo.num_levels = 1;
-  texInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-  s_pGameTexture = SDL_CreateGPUTexture(s_pGPUDevice, &texInfo);
-  if (!s_pGameTexture) {
-    ErrorBoxExit("Couldn't create GPU texture: %s", SDL_GetError());
-    return 1;
-  }
-
-  s_pCRTFilter = crt_filter_create(s_pGPUDevice, s_pWindow);
-  if (!s_pCRTFilter)
-    SDL_Log("crt_filter: failed to create (CRT filter will be unavailable)");
-
-  // Transfer buffer for CPU->GPU framebuffer upload
-  SDL_GPUTransferBufferCreateInfo tbInfo = {0};
-  tbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-  tbInfo.size = 640 * 400 * 4;
-  s_pTransferBuffer = SDL_CreateGPUTransferBuffer(s_pGPUDevice, &tbInfo);
-  if (!s_pTransferBuffer) {
-    ErrorBoxExit("Couldn't create GPU transfer buffer: %s", SDL_GetError());
-    return 1;
-  }
-#endif
 
 #if defined(IS_ANDROID)
   if (s_bAndroidDefaultConfigPending) {
@@ -1752,6 +1807,7 @@ void ShutdownSDL()
     s_pGameTexture = NULL;
     s_pTransferBuffer = NULL;
     s_pGPUDevice = NULL;
+    ROLLERPresentSDLRendererShutdown();
     if (s_pWindow)
       SDL_DestroyWindow(s_pWindow);
     s_pWindow = NULL;
@@ -2193,6 +2249,7 @@ void UpdateSDL()
     static GameRenderMode s_eRenderModeWas = (GameRenderMode)-1;
 
     if (g_bVsync != s_vsyncWas) {
+      ROLLERPresentSDLRendererSetVSync(g_bVsync);
       s_vsyncWas      = g_bVsync;
       s_targetFrameNs = 0;
       s_nextFrameNs   = 0;

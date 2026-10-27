@@ -114,6 +114,7 @@ set(ROLLER_GAME_NATIVE_SOURCES
     PROJECTS/ROLLER/net_frontend_lobby.c
     PROJECTS/ROLLER/net_transport.c
     PROJECTS/ROLLER/debug_overlay.c
+    PROJECTS/ROLLER/present_sdlrenderer.c
     PROJECTS/ROLLER/crashdump.c
     PROJECTS/ROLLER/menu_render_gpu.c
     PROJECTS/ROLLER/crt_filter.c
