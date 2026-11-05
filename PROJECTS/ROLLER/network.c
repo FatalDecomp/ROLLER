@@ -799,16 +799,19 @@ void send_single(uint32 uiData)
 {
   if (!network_on) return;
 
-  // Initialize header and data packet
-  p_header.uiId = PACKET_ID_SINGLE;
-  p_header.byConsoleNode = (uint8)player1_car;
+  /* The timer sends inputs while the main thread sends ready/resync packets.
+     Keep this packet independent of their shared p_header/slave_data. */
+  tSyncHeader header = {0};
+  tDataPacket packet = {0};
+  header.uiId = PACKET_ID_SINGLE;
+  header.byConsoleNode = (uint8)player1_car;
 
-  slave_data.uiData = uiData;
+  packet.uiData = uiData;
 
   // Calculate checksum or sequence number if valid read position
   if (read_check == write_check || read_check < 0) {
     // Invalid state - set default value
-    slave_data.nChecksum = 0xFE00;
+    packet.nChecksum = 0xFE00;
   } else {
     // Compute special value using player_checks array
     short nChecksum = player_checks[read_check][player1_car];
@@ -821,11 +824,11 @@ void send_single(uint32 uiData)
     uiComposite |= (read_check & 0x100);  // Bit 8
     uiComposite |= (read_check & 0xFF);    // Bits 0-7
 
-    slave_data.nChecksum = (short)uiComposite;
+    packet.nChecksum = (short)uiComposite;
   }
 
   //TODO network
-  ROLLERCommsSendData(&p_header, sizeof(p_header), &slave_data, sizeof(tDataPacket), master);
+  ROLLERCommsSendData(&header, sizeof(header), &packet, sizeof(packet), master);
 
   // Mark check as processed
   player_checks[read_check][player1_car] = -1;  // 0xFFFF
@@ -2227,8 +2230,9 @@ void SendPlayerInfo()
   tPlayerInfoPacket playerInfo; // [esp+0h] [ebp-44h] BYREF
 
   if (network_on) {
-    int iPlayerSlot = player1_car;
-    if (iPlayerSlot < 0 || iPlayerSlot >= MAX_PLAYERS) {
+    /* player1_car is already a race Car[] slot after AllocateCars(). */
+    int iPlayerSlot = wConsoleNode;
+    if (iPlayerSlot < 0 || iPlayerSlot >= network_on) {
       SDL_Log("[NET] invalid player slot %d while sending player info", iPlayerSlot);
       return;
     }
@@ -2250,7 +2254,7 @@ void SendPlayerInfo()
     playerInfo.iDamageLevel = damage_level;
     if (player_invul[iPlayerSlot])
       playerInfo.iDamageLevel |= 0x00000040;
-    playerInfo.iManualControl = manual_control[player1_car];
+    playerInfo.iManualControl = manual_control[iPlayerSlot];
     
     //setup header
     p_header.byConsoleNode = (uint8)wConsoleNode;

@@ -1017,17 +1017,8 @@ int ROLLERCommsAddNode(const void *pAddress)
   address.unPadding = 0;
   address.ullReserved = 0;
 
-  if (g_commsState.iActiveNodes > 0 &&
-      address.uiIPAddress == g_commsState.myAddress.uiIPAddress &&
-      address.unPort != g_commsState.myAddress.unPort &&
-      !IsLoopbackIPv4(address.uiIPAddress)) {
-    char szAddr[32];
-    ROLLERCommsFormatAddr(&address, szAddr, sizeof(szAddr));
-    SDL_Log("[NET-DISCOVERY] ignored local-address peer %s", szAddr);
-    return 2;
-  }
-
-  // Idempotent: if this address is already in the table, do nothing
+  // Instances on the same PC share an IP; the port distinguishes their nodes.
+  // Idempotent: if this complete address is already in the table, do nothing.
   for (int i = 0; i < g_commsState.iActiveNodes; i++) {
     if (memcmp(&g_commsState.nodes[i].address, &address, sizeof(tROLLERNetAddr)) == 0) {
       return 1;  // Already present (not an error — > 1 is the failure sentinel)

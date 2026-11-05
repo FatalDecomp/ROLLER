@@ -979,11 +979,7 @@ void NetFrontendPump(void)
         s_frontend.pClientLobby, 1,
         NetFrontendLocalTrackCRC(&config));
   }
-  /* The roster is frozen once loading begins.  AllocateCars() replaces the
-     frontend display indices in player1_car/player2_car with real Car[]
-     slots; applying the lobby roster after that would corrupt the camera and
-     other local-player state while waiting at the load barrier. */
-  if (!s_frontend.byRaceScheduled)
+  if (!s_frontend.byRaceCarsMapped)
     NetFrontendSyncLegacyRoster();
   if (s_frontend.byReadySent)
     NetFrontendStatus(s_frontend.byHost ? "READY - WAITING FOR PLAYERS" :

@@ -70,7 +70,7 @@ players may use both copies. Actual race car slots remain unique.
 
 The existing PLAY/loading flow and the distinction between lobby car designs and
 allocated race car slots are preserved. No wire layout, replay format,
-`replay.c`, or `rollercomms.c` changed. An updated rendezvous daemon is not
+or `replay.c` changed. An updated rendezvous daemon is not
 required.
 
 ## Validation
@@ -87,6 +87,15 @@ Windows, Zig 0.15.2, ReleaseSafe:
   queries and LAN browsers join directly with zero traffic to the configured
   directory. Preference changes leave open sessions intact, retain the saved
   rendezvous address, and restore public registration/listing after reopening.
+- Legacy same-PC lobby regression (`zig build test-net-legacy-lobby`): real UDP
+  discovery and slot joining with ports 7777 and 7790, both player names and car
+  selections in the roster, the actual pre-race setup and seed exchange,
+  production `play_game_init()` with TRACK3 at difficulty 2, camera seeds and
+  forward-facing camera calculations after loading, and 900 driving ticks with
+  the production timer thread, race update and lockstep simulation. This is a
+  headless check; it does not exercise GPU presentation. Three different-car pairings cover either
+  instance on port 7777. Distinct ports on the same LAN IP identify separate
+  legacy peers.
 - Same-PC discovery reproduces a host on 7777 and client on 7779, plus automatic
   client ports with either instance opened first. All three cases select the
   discovered entry and reach race start without an explicit peer. A simulated

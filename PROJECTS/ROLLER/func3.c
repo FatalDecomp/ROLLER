@@ -5842,9 +5842,6 @@ uint8 *load_picture(const char *szFile)
 //0005DDA0
 void AllocateCars()
 {
-  /* This is a roster index on entry, but becomes a Car[] slot below. Keep
-     the original index so later remote players cannot match that new slot. */
-  int iSecondLocalPlayer = player2_car;
   int iCarIdx; // esi
   char *pszNextDefaultNamePtr; // ebp
   int iDriverIdx; // edi
@@ -5981,7 +5978,7 @@ void AllocateCars()
         player1_car = iAvailableSlot;
         ViewType[0] = iAvailableSlot;
       }
-      if (player_type == 2 && iPlayerIdx == iSecondLocalPlayer)// Configure player 2 camera in split-screen mode
+      if (player_type == 2 && iPlayerIdx == player2_car)// Configure player 2 camera in split-screen mode
       {
         player2_car = iAvailableSlot;
         ViewType[1] = iAvailableSlot;
@@ -6161,10 +6158,6 @@ void check_cars()
     iPlayerCount = network_on;
     goto LABEL_7;
   }
-  /* Modern network rosters include both local split-screen players and
-     remote players. Two is the local view count, not the roster size. */
-  if (player_type == 2 && net_mode == NET_MODE_MODERN && network_on)
-    iPlayerCount = network_on;
   if (player_type == 2)
     LABEL_7:
   players = iPlayerCount;
