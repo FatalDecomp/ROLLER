@@ -816,6 +816,27 @@ bool ROLLEREnsureGPUDevice(void)
   s_pDebugOverlay = NULL;
   ROLLERPresentSDLRendererShutdown();
 
+  /* Android owns its EGLSurface on SDL_Window, not SDL_Renderer. Destroying
+   * the GLES renderer leaves that surface connected to the native window,
+   * preventing Vulkan from claiming it. Replace the SDL window after shutting
+   * down presentation, before any GPU backend captures its window pointer. */
+  if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "android") == 0 &&
+      (SDL_GetWindowFlags(s_pWindow) & SDL_WINDOW_OPENGL)) {
+    int iWidth, iHeight;
+    SDL_WindowFlags uiFlags = SDL_GetWindowFlags(s_pWindow) &
+        (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_RESIZABLE |
+         SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_BORDERLESS);
+    SDL_GetWindowSize(s_pWindow, &iWidth, &iHeight);
+    SDL_DestroyWindow(s_pWindow);
+    s_pWindow = SDL_CreateWindow("ROLLER", iWidth, iHeight, uiFlags);
+    if (!s_pWindow) {
+      ErrorBoxExit("Couldn't recreate presentation window: %s", SDL_GetError());
+      goto fail;
+    }
+    menu_render_set_window(s_pMenuRenderer, s_pWindow);
+    game_render_set_window(g_pGameRenderer, s_pWindow);
+  }
+
   if (!SDL_ClaimWindowForGPUDevice(s_pGPUDevice, s_pWindow)) {
     SDL_Log("Couldn't claim window for GPU device: %s", SDL_GetError());
     goto fail;

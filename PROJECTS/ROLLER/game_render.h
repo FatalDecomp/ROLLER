@@ -49,6 +49,8 @@ typedef struct GameRenderer GameRenderer;
 
 // Lifecycle
 GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window);
+/* Rebind a software-only renderer after replacing the presentation window. */
+void game_render_set_window(GameRenderer *pRenderer, SDL_Window *pWindow);
 void game_render_destroy(GameRenderer *renderer);
 void game_render_set_mode(GameRenderer *renderer, GameRenderMode mode);
 GameRenderMode game_render_get_mode(const GameRenderer *renderer);

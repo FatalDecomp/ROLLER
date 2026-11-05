@@ -43,6 +43,11 @@ MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device,
     return sw;
 }
 
+void menu_render_sw_set_window(MenuRendererSoftware *pRenderer, SDL_Window *pWindow) {
+    if (pRenderer)
+        scene_render_set_window(pRenderer->scene, pWindow);
+}
+
 void menu_render_sw_destroy(MenuRendererSoftware *sw) {
     if (!sw)
         return;
