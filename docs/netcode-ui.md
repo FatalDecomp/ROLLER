@@ -10,14 +10,13 @@ supports LAN discovery. LAN hosts and browses with modern networking using only
 local discovery and direct connections, without resolving or contacting the
 rendezvous server. The selection is saved in `ROLLER.INI` in the active FATDATA
 directory as `ServerType=Public`, `ServerType=LAN`, or `ServerType=Legacy`.
-Public and LAN take effect the next time a host or browser is opened.
-**Legacy (LAN)** selects the original lockstep
-netcode for local network play; it does not provide public online matchmaking.
-The saved setting is loaded on startup. `--net-mode` overrides it for that run
-without changing the preference in `ROLLER.INI`.
-Selecting Public or LAN returns to modern networking. The selector is disabled
-while a network session is active. The rendezvous address is retained when
-switching types.
+Public and LAN take effect the next time a host or browser is opened. **Legacy
+(LAN)** selects the original lockstep netcode for local network play; it does
+not provide public online matchmaking. The saved setting is loaded on startup.
+`--net-mode` overrides it for that run without changing the preference in
+`ROLLER.INI`. Selecting Public or LAN returns to modern networking. The selector
+is disabled while a network session is active. The rendezvous address is
+retained when switching types.
 
 **Rendezvous server** is a single-line address field, initially
 `rvz.fatal.racing:7778`. Enter or leaving the field saves it in `ROLLER.INI` as
@@ -36,9 +35,9 @@ both instances can also use their defaults. For a host on another port,
 
 `--port` is retained when switching between modern networking and Legacy (LAN)
 in the debug menu. To run two legacy instances on the same PC, launch the host
-normally and the other instance with `--port 7790`, then select Legacy (LAN)
-and NETWORK in each instance. The host keeps port 7777; the other instance
-binds to 7790 and discovers the host on 7777.
+normally and the other instance with `--port 7790`, then select Legacy (LAN) and
+NETWORK in each instance. The host keeps port 7777; the other instance binds to
+7790 and discovers the host on 7777.
 
 Use **PLAYERS -> NETWORK -> HOST SERVER** to create a lobby, or **JOIN GAME** to
 browse. Browsing does not initiate a join. Click a server or select it with
@@ -69,9 +68,8 @@ two copies of each type with 16 cars, one with 8 (or 2). Two local split-screen
 players may use both copies. Actual race car slots remain unique.
 
 The existing PLAY/loading flow and the distinction between lobby car designs and
-allocated race car slots are preserved. No wire layout, replay format,
-or `replay.c` changed. An updated rendezvous daemon is not
-required.
+allocated race car slots are preserved. No wire layout, replay format, or
+`replay.c` changed. An updated rendezvous daemon is not required.
 
 ## Validation
 
@@ -93,9 +91,9 @@ Windows, Zig 0.15.2, ReleaseSafe:
   production `play_game_init()` with TRACK3 at difficulty 2, camera seeds and
   forward-facing camera calculations after loading, and 900 driving ticks with
   the production timer thread, race update and lockstep simulation. This is a
-  headless check; it does not exercise GPU presentation. Three different-car pairings cover either
-  instance on port 7777. Distinct ports on the same LAN IP identify separate
-  legacy peers.
+  headless check; it does not exercise GPU presentation. Three different-car
+  pairings cover either instance on port 7777. Distinct ports on the same LAN IP
+  identify separate legacy peers.
 - Same-PC discovery reproduces a host on 7777 and client on 7779, plus automatic
   client ports with either instance opened first. All three cases select the
   discovered entry and reach race start without an explicit peer. A simulated

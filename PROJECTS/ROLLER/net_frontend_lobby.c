@@ -979,7 +979,9 @@ void NetFrontendPump(void)
         s_frontend.pClientLobby, 1,
         NetFrontendLocalTrackCRC(&config));
   }
-  if (!s_frontend.byRaceCarsMapped)
+  /* This pump only runs in modern mode. Freeze its roster when loading is
+     scheduled, before AllocateCars replaces roster indices with car slots. */
+  if (!s_frontend.byRaceScheduled)
     NetFrontendSyncLegacyRoster();
   if (s_frontend.byReadySent)
     NetFrontendStatus(s_frontend.byHost ? "READY - WAITING FOR PLAYERS" :
