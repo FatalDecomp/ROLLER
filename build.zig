@@ -849,6 +849,52 @@ fn configureRenderQueue3DTests(
     const net_frontend_tests = b.step("test-net-frontend-start", "Check real-UDP frontend race loading and startup cameras");
     net_frontend_tests.dependOn(&run_net_frontend.step);
     net_foundations_tests.dependOn(&run_net_frontend.step);
+    const net_legacy_lobby_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    net_legacy_lobby_mod.sanitize_c = .off;
+    net_legacy_lobby_mod.addCMacro("ROLLER_EDITOR_CORE", "1");
+    net_legacy_lobby_mod.addIncludePath(sdl.builder.path("include"));
+    net_legacy_lobby_mod.addIncludePath(sdl_image_source.builder.path("include"));
+    net_legacy_lobby_mod.addIncludePath(wildmidi.builder.path("include"));
+    net_legacy_lobby_mod.addIncludePath(libcdio.builder.path("include"));
+    net_legacy_lobby_mod.addIncludePath(libcdio.builder.path("zig-config"));
+    net_legacy_lobby_mod.addIncludePath(b.path("external/Nuklear-4.13.2"));
+    net_legacy_lobby_mod.addIncludePath(b.path("PROJECTS/ROLLER"));
+    net_legacy_lobby_mod.linkLibrary(sdl.artifact("SDL3"));
+    net_legacy_lobby_mod.linkLibrary(sdl_image.artifact("SDL3_image"));
+    net_legacy_lobby_mod.linkLibrary(wildmidi.artifact("wildmidi"));
+    net_legacy_lobby_mod.linkLibrary(libcdio.artifact("cdio"));
+    for (rollerCoreSourcesRealSound(b)) |source| {
+        if (!std.mem.eql(u8, source, "PROJECTS/ROLLER/rollercomms_stub.c"))
+            net_legacy_lobby_mod.addCSourceFile(.{ .file = b.path(source), .flags = c_flags });
+    }
+    net_legacy_lobby_mod.addCSourceFile(.{
+        .file = b.path("PROJECTS/ROLLER/rollercomms.c"),
+        .flags = std.mem.concat(b.allocator, []const u8, &.{
+            c_flags, &.{"-DROLLERCOMMS_LEGACY_IMPLEMENTATION"},
+        }) catch @panic("out of memory"),
+    });
+    net_legacy_lobby_mod.addCSourceFile(.{
+        .file = b.path("tests/net_legacy_lobby_test.c"),
+        .flags = c_flags,
+    });
+    if (target.result.os.tag == .windows) {
+        net_legacy_lobby_mod.linkSystemLibrary("ws2_32", .{});
+        net_legacy_lobby_mod.linkSystemLibrary("iphlpapi", .{});
+    }
+    const net_legacy_lobby_exe = b.addExecutable(.{
+        .name = "net_legacy_lobby_acceptance",
+        .root_module = net_legacy_lobby_mod,
+    });
+    const run_net_legacy_lobby = b.addSystemCommand(&.{ pythonExe(), "tests/net_legacy_lobby.py" });
+    run_net_legacy_lobby.addArtifactArg(net_legacy_lobby_exe);
+    run_net_legacy_lobby.addDirectoryArg(assets_path);
+    run_net_legacy_lobby.addFileArg(assets_path.path(b, soak_track));
+    const net_legacy_lobby_tests = b.step("test-net-legacy-lobby", "Check real-UDP legacy startup, camera and sustained driving");
+    net_legacy_lobby_tests.dependOn(&run_net_legacy_lobby.step);
     const run_net_coherence = b.addRunArtifact(net_foundations_exe);
     run_net_coherence.addFileArg(assets_path.path(b, soak_track));
     run_net_coherence.addDirectoryArg(assets_path);

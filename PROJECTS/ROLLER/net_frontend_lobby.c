@@ -46,6 +46,7 @@ typedef struct
   tRvzSessionInfo hostInfo;
   tRvzSessionInfo aBrowserSessions[NET_RVZ_MAX_SESSIONS];
   eNetServerType eServerType;
+  eNetMode ePreferredMode;
   char szRendezvous[320];
   uint16 unRendezvousPort;
   uint8 byRendezvousOverride, byHasDirectPeer, byJoinSelected;
@@ -70,6 +71,7 @@ typedef struct
 static tNetFrontendLobbyState s_frontend = {
   .unLocalPort = ROLLER_DEFAULT_PORT,
   .eServerType = NET_SERVER_PUBLIC,
+  .ePreferredMode = NET_MODE_MODERN,
   .szRendezvous = "rvz.fatal.racing:7778",
   .unRendezvousPort = NET_RVZ_DEFAULT_PORT,
   .byLocalPlayers = 1
@@ -221,6 +223,25 @@ int NetFrontendSetServerType(eNetServerType eServerType)
 eNetServerType NetFrontendServerType(void)
 {
   return s_frontend.eServerType;
+}
+
+int NetFrontendSetMode(eNetMode eMode)
+{
+  if ((eMode != NET_MODE_MODERN && eMode != NET_MODE_LEGACY) ||
+      network_on || s_frontend.byOpen)
+    return 0;
+  s_frontend.ePreferredMode = eMode;
+  net_mode = eMode;
+  if (eMode == NET_MODE_LEGACY) {
+    ROLLERCommsSetLocalPort(s_frontend.unLocalPort);
+    ROLLERCommsSetCommandBase(0x686C6361u);
+  }
+  return 1;
+}
+
+eNetMode NetFrontendPreferredMode(void)
+{
+  return s_frontend.ePreferredMode;
 }
 
 void NetFrontendSetLocalPort(uint16 unPort)
@@ -958,10 +979,8 @@ void NetFrontendPump(void)
         s_frontend.pClientLobby, 1,
         NetFrontendLocalTrackCRC(&config));
   }
-  /* The roster is frozen once loading begins.  AllocateCars() replaces the
-     frontend display indices in player1_car/player2_car with real Car[]
-     slots; applying the lobby roster after that would corrupt the camera and
-     other local-player state while waiting at the load barrier. */
+  /* This pump only runs in modern mode. Freeze its roster when loading is
+     scheduled, before AllocateCars replaces roster indices with car slots. */
   if (!s_frontend.byRaceScheduled)
     NetFrontendSyncLegacyRoster();
   if (s_frontend.byReadySent)

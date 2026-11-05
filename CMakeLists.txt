@@ -333,8 +333,28 @@ if(ROLLER_BUILD_EDITOR_CORE)
         PROJECTS/ROLLER/net_transport.c)
     target_link_libraries(net-frontend-start-test PRIVATE ROLLER::core SDL3::SDL3)
     roller_configure_c_target(net-frontend-start-test)
+    set(ROLLER_CORE_LEGACY_RACE_SOURCES ${ROLLER_CORE_SOURCES})
+    list(REMOVE_ITEM ROLLER_CORE_LEGACY_RACE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/sound_stub.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/rollercomms_stub.c")
+    list(APPEND ROLLER_CORE_LEGACY_RACE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/PROJECTS/ROLLER/sound.c")
+    add_executable(net-legacy-lobby-test
+        tests/net_legacy_lobby_test.c
+        PROJECTS/ROLLER/rollercomms.c
+        ${ROLLER_CORE_LEGACY_RACE_SOURCES})
+    target_compile_definitions(net-legacy-lobby-test PRIVATE ROLLER_EDITOR_CORE=1)
+    target_compile_features(net-legacy-lobby-test PRIVATE c_std_11)
+    target_include_directories(net-legacy-lobby-test PRIVATE
+        PROJECTS/ROLLER external/Nuklear-4.13.2)
+    target_link_libraries(net-legacy-lobby-test PRIVATE SDL3::SDL3 SDL3_image::SDL3_image)
+    if(ROLLER_MATH_LIBRARY)
+        target_link_libraries(net-legacy-lobby-test PRIVATE "${ROLLER_MATH_LIBRARY}")
+    endif()
+    roller_configure_c_target(net-legacy-lobby-test)
     if(WIN32)
         target_link_libraries(net-frontend-start-test PRIVATE ws2_32 iphlpapi bcrypt)
+        target_link_libraries(net-legacy-lobby-test PRIVATE ws2_32 iphlpapi winmm)
     endif()
     set(ROLLER_CORE_REAL_SOUND_SOURCES ${ROLLER_CORE_SOURCES})
     list(REMOVE_ITEM ROLLER_CORE_REAL_SOUND_SOURCES
@@ -400,6 +420,13 @@ if(ROLLER_BUILD_EDITOR_CORE)
             "$<TARGET_FILE:net-frontend-start-test>"
             "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" "${ROLLER_NET_TEST_ASSETS}")
         set_tests_properties(net-frontend-start PROPERTIES TIMEOUT 180)
+        add_test(NAME net-legacy-lobby COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_legacy_lobby.py"
+            "$<TARGET_FILE:net-legacy-lobby-test>" "${ROLLER_NET_TEST_ASSETS}"
+            "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}")
+        set_tests_properties(net-legacy-lobby PROPERTIES TIMEOUT 90)
+        set_tests_properties(net-frontend-start net-legacy-lobby PROPERTIES
+            RESOURCE_LOCK roller_lan_discovery_port)
         add_test(NAME net-harness COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/net_harness.py"
             --server "$<TARGET_FILE:net-server>" --proxy "$<TARGET_FILE:net-netsim>"
             --track "${ROLLER_NET_TEST_ASSETS}/${ROLLER_NET_TEST_TRACK}" --assets "${ROLLER_NET_TEST_ASSETS}")
@@ -415,7 +442,7 @@ if(ROLLER_BUILD_EDITOR_CORE)
     endif()
     get_target_property(ROLLER_SDL3_TARGET_TYPE SDL3::SDL3 TYPE)
     if(WIN32 AND NOT ROLLER_SDL3_TARGET_TYPE STREQUAL "INTERFACE_LIBRARY")
-        foreach(net_target IN ITEMS net-foundations-test net-frontend-start-test net-replay-output-test net-host-test net-client-test net-bot-test net-server net-bot-process)
+        foreach(net_target IN ITEMS net-foundations-test net-frontend-start-test net-legacy-lobby-test net-replay-output-test net-host-test net-client-test net-bot-test net-server net-bot-process)
             add_custom_command(TARGET ${net_target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE:SDL3_image::SDL3_image>"

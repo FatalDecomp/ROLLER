@@ -618,7 +618,7 @@ static void print_usage(FILE *f, const char *argv0)
   cli_fprintf(f, " --peer IP:PORT         pre-configure a peer for direct connection\n");
   cli_fprintf(f, " --rendezvous HOST[:PORT] rendezvous server (default: rvz.fatal.racing:7778)\n");
   cli_fprintf(f, " --net-slot N           network slot index; use -1 to join as client\n");
-  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern (default)\n");
+  cli_fprintf(f, " --net-mode MODE        multiplayer transport: legacy or modern (overrides ROLLER.INI)\n");
   cli_fprintf(f, " --net-local-players N  local players on a modern node: 1 or 2\n");
   cli_fprintf(f, " --no-crash-handler     disable crash dump generation for this run\n");
   cli_fprintf(f, " --snapshot REPLAY      headless replay-capture mode (writes indexed PNGs)\n");
@@ -2903,6 +2903,8 @@ int main(int argc, const char **argv, const char **envp)
   int iNetPeerPort = 0;
   int iNetSlotOverride = 0;
   int iNetSlotValue = 0;
+  int iNetModeOverride = 0;
+  int iNetModeOverrideValue = NET_MODE_MODERN;
   char whiplash_root[260] = { 0 };
   char szNetPeer[64] = { 0 };
   char szPlayer1NameOverride[ROLLER_PLAYER_NAME_BYTES] = { 0 };
@@ -3016,11 +3018,15 @@ int main(int argc, const char **argv, const char **envp)
         cli_fprintf(stderr, "ERROR: '--net-mode' needs an argument\n");
         return 1;
       }
-      if (strcmp(argv[i + 1], "legacy") == 0)
+      if (strcmp(argv[i + 1], "legacy") == 0) {
         net_mode = NET_MODE_LEGACY;
-      else if (strcmp(argv[i + 1], "modern") == 0)
+        iNetModeOverride = 1;
+        iNetModeOverrideValue = NET_MODE_LEGACY;
+      } else if (strcmp(argv[i + 1], "modern") == 0) {
         net_mode = NET_MODE_MODERN;
-      else {
+        iNetModeOverride = 1;
+        iNetModeOverrideValue = NET_MODE_MODERN;
+      } else {
         cli_fprintf(stderr,
                     "ERROR: '--net-mode' expects legacy or modern\n");
         return 1;
@@ -3159,30 +3165,6 @@ int main(int argc, const char **argv, const char **envp)
     i += consumed;
   }
 
-  if (net_mode == NET_MODE_LEGACY) {
-    if (szNetLocalIP)
-      ROLLERCommsSetLocalIP(szNetLocalIP);
-    if (iNetLocalPort)
-      ROLLERCommsSetLocalPort((uint16_t)iNetLocalPort);
-    if (iNetPeerPort)
-      ROLLERCommsSetPeer(szNetPeer, (uint16_t)iNetPeerPort);
-  } else {
-    if (szNetLocalIP) {
-      cli_fprintf(stderr,
-                  "ERROR: '--local-ip' is only available in legacy mode\n");
-      return 1;
-    }
-#if !defined(IS_WASM)
-    if (iNetLocalPort)
-      NetFrontendSetLocalPort((uint16)iNetLocalPort);
-    if (iNetPeerPort &&
-        !NetFrontendSetPeer(szNetPeer, (uint16)iNetPeerPort)) {
-      cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
-      return 1;
-    }
-#endif
-  }
-
   if (szGpuParityBackend) {
     if (g_bSnapshotMode || g_szDirectTrackPath) {
       cli_fprintf(stderr, "ERROR: '--gpu-parity' cannot be combined with snapshot or track-path mode\n");
@@ -3270,8 +3252,6 @@ int main(int argc, const char **argv, const char **envp)
     ROLLERGetAudioInfo();
   }
 
-  if (net_mode == NET_MODE_LEGACY)
-    ROLLERCommsSetCommandBase(0x686C6361u);       // Initialize legacy communication system
   oldmode = readmode();                         // Save current video mode
   blankpal();
   SVGA_ON = 0;                                  // Disable SVGA mode for initial screen setup
@@ -3335,6 +3315,35 @@ int main(int argc, const char **argv, const char **envp)
   if (strcmp(languagename, "Brazilian") == 0)
     g_bBrazilianMayte = true;
   InputLoadConfig();
+  if (iNetModeOverride)
+    net_mode = iNetModeOverrideValue;
+#if !defined(IS_WASM)
+  /* Retain the CLI port when the debug menu switches transports later. */
+  if (iNetLocalPort)
+    NetFrontendSetLocalPort((uint16)iNetLocalPort);
+#endif
+  if (net_mode == NET_MODE_LEGACY) {
+    ROLLERCommsSetCommandBase(0x686C6361u);     // Initialize legacy communication system
+    if (szNetLocalIP)
+      ROLLERCommsSetLocalIP(szNetLocalIP);
+    if (iNetLocalPort)
+      ROLLERCommsSetLocalPort((uint16_t)iNetLocalPort);
+    if (iNetPeerPort)
+      ROLLERCommsSetPeer(szNetPeer, (uint16_t)iNetPeerPort);
+  } else {
+    if (szNetLocalIP) {
+      cli_fprintf(stderr,
+                  "ERROR: '--local-ip' is only available in legacy mode\n");
+      return 1;
+    }
+#if !defined(IS_WASM)
+    if (iNetPeerPort &&
+        !NetFrontendSetPeer(szNetPeer, (uint16)iNetPeerPort)) {
+      cli_fprintf(stderr, "ERROR: invalid modern peer address\n");
+      return 1;
+    }
+#endif
+  }
   loadcheatnames();
   cdxinit();
   GetFirstCDDrive();
