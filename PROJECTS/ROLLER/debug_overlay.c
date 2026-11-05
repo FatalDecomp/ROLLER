@@ -979,15 +979,32 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
     } else {
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
     {
-      static const char *apszServerTypes[] = { "Public", "LAN" };
-      int iServerType = (int)NetFrontendServerType();
+      static const char *apszServerTypes[] = {
+        "Public", "LAN", "Legacy (LAN)"
+      };
+      const int iLegacyServerType = 2;
+      int iServerType = net_mode == NET_MODE_LEGACY ? iLegacyServerType :
+                        (int)NetFrontendServerType();
+      int bNetworkActive = network_on || NetFrontendIsOpen();
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);
       nk_label(pCtx, "Server type", NK_TEXT_LEFT);
+      if (bNetworkActive)
+        nk_widget_disable_begin(pCtx);
       int iNewServerType = nk_combo(pCtx, apszServerTypes, NK_LEN(apszServerTypes),
           iServerType, COMBO_ITEM_H, nk_vec2(COMBO_W, 9999));
-      if (iNewServerType != iServerType &&
-          NetFrontendSetServerType((eNetServerType)iNewServerType))
-        InputSaveConfig();
+      if (bNetworkActive)
+        nk_widget_disable_end(pCtx);
+      if (!bNetworkActive && iNewServerType != iServerType) {
+        if (iNewServerType == iLegacyServerType) {
+          if (NetFrontendSetMode(NET_MODE_LEGACY))
+            InputSaveConfig();
+        } else if ((iNewServerType == NET_SERVER_PUBLIC ||
+                    iNewServerType == NET_SERVER_LAN) &&
+                   NetFrontendSetServerType((eNetServerType)iNewServerType) &&
+                   NetFrontendSetMode(NET_MODE_MODERN)) {
+          InputSaveConfig();
+        }
+      }
     }
     {
       static char szRendezvous[320];

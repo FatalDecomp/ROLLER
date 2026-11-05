@@ -1,15 +1,23 @@
 # Modern networking menus
 
-Modern networking is the default. `--net-mode legacy` still selects lockstep.
-WASM still has no network-play menu.
+Modern networking is the default. `ServerType=Legacy` in `ROLLER.INI` selects
+legacy lockstep on startup; `--net-mode` overrides the saved choice. WASM still
+has no network-play menu.
 
-In the backtick menu, **Server type** offers **Public** (the default) and
-**LAN**. Public uses the configured rendezvous server and also supports LAN
-discovery. LAN hosts and browses with modern networking using only local
-discovery and direct connections, without resolving or contacting the rendezvous
-server. The choice is saved in `ROLLER.INI` as `ServerType=Public` or
-`ServerType=LAN` and takes effect the next time a host or browser is opened. The
-rendezvous address is retained when switching types.
+In the backtick menu, **Server type** offers **Public** (the default), **LAN**,
+and **Legacy (LAN)**. Public uses the configured rendezvous server and also
+supports LAN discovery. LAN hosts and browses with modern networking using only
+local discovery and direct connections, without resolving or contacting the
+rendezvous server. The selection is saved in `ROLLER.INI` in the active FATDATA
+directory as `ServerType=Public`, `ServerType=LAN`, or `ServerType=Legacy`.
+Public and LAN take effect the next time a host or browser is opened.
+**Legacy (LAN)** selects the original lockstep
+netcode for local network play; it does not provide public online matchmaking.
+The saved setting is loaded on startup. `--net-mode` overrides it for that run
+without changing the preference in `ROLLER.INI`.
+Selecting Public or LAN returns to modern networking. The selector is disabled
+while a network session is active. The rendezvous address is retained when
+switching types.
 
 **Rendezvous server** is a single-line address field, initially
 `rvz.fatal.racing:7778`. Enter or leaving the field saves it in `ROLLER.INI` as
@@ -25,6 +33,12 @@ unless `--port N` explicitly selects one. LAN discovery always searches port
 example, a client using `--port 7779` discovers a host on 7777 on the same PC;
 both instances can also use their defaults. For a host on another port,
 `--peer HOST:PORT` provides a direct connection.
+
+`--port` is retained when switching between modern networking and Legacy (LAN)
+in the debug menu. To run two legacy instances on the same PC, launch the host
+normally and the other instance with `--port 7790`, then select Legacy (LAN)
+and NETWORK in each instance. The host keeps port 7777; the other instance
+binds to 7790 and discovers the host on 7777.
 
 Use **PLAYERS -> NETWORK -> HOST SERVER** to create a lobby, or **JOIN GAME** to
 browse. Browsing does not initiate a join. Click a server or select it with

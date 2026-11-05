@@ -1,4 +1,5 @@
 #include "rollerinput.h"
+#include "net_types.h"
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
 #include "net_frontend_lobby.h"
 #endif
@@ -3651,10 +3652,15 @@ int InputLoadConfig(void)
 
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
     if (InputStringEqualsNoCase(szText, "ServerType")) {
-      if (InputStringEqualsNoCase(szValue, "Public"))
+      if (InputStringEqualsNoCase(szValue, "Public")) {
         NetFrontendSetServerType(NET_SERVER_PUBLIC);
-      else if (InputStringEqualsNoCase(szValue, "LAN"))
+        NetFrontendSetMode(NET_MODE_MODERN);
+      } else if (InputStringEqualsNoCase(szValue, "LAN")) {
         NetFrontendSetServerType(NET_SERVER_LAN);
+        NetFrontendSetMode(NET_MODE_MODERN);
+      } else if (InputStringEqualsNoCase(szValue, "Legacy")) {
+        NetFrontendSetMode(NET_MODE_LEGACY);
+      }
       continue;
     }
     if (InputStringEqualsNoCase(szText, "RendezvousServer")) {
@@ -3753,6 +3759,7 @@ void InputSaveConfig(void)
   fprintf(fp, "NoCollisionLimit=%d\n", g_bNoCollisionLimit ? 1 : 0);
 #if !defined(IS_WASM) && !defined(ROLLER_EDITOR_CORE)
   fprintf(fp, "ServerType=%s\n",
+          NetFrontendPreferredMode() == NET_MODE_LEGACY ? "Legacy" :
           NetFrontendServerType() == NET_SERVER_LAN ? "LAN" : "Public");
   fprintf(fp, "RendezvousServer=%s\n", NetFrontendRendezvous());
 #endif
