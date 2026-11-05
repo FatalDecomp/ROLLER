@@ -135,9 +135,9 @@ bool g_bBrazilianMayte = false;
 bool g_bFreeCamera = false;
 int   g_iTextureFilter   = 0;
 int   g_iAnisotropyLevel = 3;     /* default 16x */
-bool  g_bTrilinear       = false;
+bool  g_bTrilinear       = true;
 bool  g_bDisableMipmaps  = false;
-float g_fLodBias         = 0.0f;
+float g_fLodBias         = -4.0f;
 float g_fRenderScale     = 1.0f;
 int   g_iAntiAliasing    = 0;     /* 0=off, 1=2x, 2=4x, 3=8x */
 bool  g_bVsync           = true;  /* SDL3 default is vsync on */

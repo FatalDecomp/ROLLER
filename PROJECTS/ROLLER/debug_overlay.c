@@ -1588,7 +1588,7 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
       if (nk_checkbox_label(pCtx, "Reset graphics", &bReset) && bReset) {
         g_fRenderScale    = 1.0f;  g_iAntiAliasing   = 0;
         g_iAnisotropyLevel= 3;     g_iTextureFilter  = 0;
-        g_bTrilinear      = false; g_fLodBias        = 0.0f;
+        g_bTrilinear      = true;  g_fLodBias        = -4.0f;
         g_fFogStart       = 0.0f;  g_fFogDensity     = 0.0f;
         g_uFogColor       = 0xB3BFCCu;
         g_fFovMultiplier  = 1.0f;  g_fVigStrength    = 0.0f;
