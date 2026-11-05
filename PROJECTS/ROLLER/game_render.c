@@ -9,6 +9,7 @@
 #include "sound.h"
 #include "car.h"
 #include "roller.h"    /* g_fMirrorFov */
+#include "menu_render.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -74,6 +75,13 @@ GameRenderer *game_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     r->hw = game_render_hw_create(device);
 #endif
     return r;
+}
+
+void game_render_set_window(GameRenderer *pRenderer, SDL_Window *pWindow) {
+    if (!pRenderer || pRenderer->gpu)
+        return;
+    pRenderer->window = pWindow;
+    scene_render_set_window(pRenderer->scene, pWindow);
 }
 
 void game_render_destroy(GameRenderer *renderer) {
@@ -208,8 +216,13 @@ void game_render_begin_frame(GameRenderer *renderer) {
         }
 #endif
         if (!renderer->gpu) {
+            SDL_Log("game_render: hardware initialization failed: %s", SDL_GetError());
             renderer->pendingMode = GAME_RENDER_SOFTWARE;
-            renderer->splitScreen = false;
+            game_render_set_split_screen(renderer, false);
+#if !defined(ROLLER_EDITOR_CORE)
+            /* The checkbox reads the menu's pending mode during races too. */
+            menu_render_set_mode(GetMenuRenderer(), MENU_RENDER_SOFTWARE);
+#endif
         } else if (!scene_render_get_gpu_load_enabled(renderer->scene)) {
             /* A software session retained the source pixels; upload them only
              * after a GPU backend exists and before its first frame. */

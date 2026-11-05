@@ -163,6 +163,12 @@ bool scene_render_attach_gpu_device(SceneRenderer *renderer,
 #endif
 }
 
+void scene_render_set_window(SceneRenderer *pRenderer, SDL_Window *pWindow) {
+    if (!pRenderer || pRenderer->gpu)
+        return;
+    pRenderer->window = pWindow;
+}
+
 void scene_render_destroy(SceneRenderer *renderer) {
     if (!renderer)
         return;

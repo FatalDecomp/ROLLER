@@ -94,6 +94,13 @@ MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window) {
     return r;
 }
 
+void menu_render_set_window(MenuRenderer *pRenderer, SDL_Window *pWindow) {
+    if (!pRenderer || pRenderer->gpu)
+        return;
+    pRenderer->window = pWindow;
+    menu_render_sw_set_window(pRenderer->sw, pWindow);
+}
+
 void menu_render_destroy(MenuRenderer *renderer) {
     if (!renderer) return;
 #if !defined(IS_WASM)

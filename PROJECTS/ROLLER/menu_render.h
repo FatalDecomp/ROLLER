@@ -20,6 +20,8 @@ typedef struct MenuRenderer MenuRenderer;
 
 // Lifecycle
 MenuRenderer *menu_render_create(SDL_GPUDevice *device, SDL_Window *window);
+/* Rebind a software-only renderer after replacing the presentation window. */
+void menu_render_set_window(MenuRenderer *pRenderer, SDL_Window *pWindow);
 void menu_render_destroy(MenuRenderer *renderer);
 
 // Mode switching

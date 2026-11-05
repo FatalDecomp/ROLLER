@@ -9,6 +9,7 @@ typedef struct MenuRendererSoftware MenuRendererSoftware;
 
 // Lifecycle
 MenuRendererSoftware *menu_render_sw_create(SDL_GPUDevice *device, SDL_Window *window);
+void menu_render_sw_set_window(MenuRendererSoftware *pRenderer, SDL_Window *pWindow);
 void menu_render_sw_destroy(MenuRendererSoftware *sw);
 
 // Asset conversion

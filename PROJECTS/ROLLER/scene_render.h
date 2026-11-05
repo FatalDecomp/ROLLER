@@ -12,6 +12,8 @@
 typedef struct SceneRenderer SceneRenderer;
 
 SceneRenderer *scene_render_create(SDL_GPUDevice *device, SDL_Window *window);
+/* Rebind a software-only renderer after replacing the presentation window. */
+void scene_render_set_window(SceneRenderer *pRenderer, SDL_Window *pWindow);
 void scene_render_destroy(SceneRenderer *renderer);
 
 void scene_render_set_target(SceneRenderer *renderer, uint8 *buffer,
