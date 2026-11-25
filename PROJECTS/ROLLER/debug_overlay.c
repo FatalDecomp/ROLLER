@@ -1185,6 +1185,14 @@ static void DrawDebugPanel(DebugOverlay *pOverlay) {
   if (nk_begin(pCtx, "Graphics",
                nk_rect(GRAPHICS_PANEL_X, PANEL_Y, PANEL_COLUMN_W, PANEL_H),
                NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+    int bFullscreenOnBoot = (int)g_bFullscreenOnBoot;
+    nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 1);
+    if (nk_checkbox_label(pCtx, "Fullscreen on boot", &bFullscreenOnBoot)) {
+      g_bFullscreenOnBoot = (bool)bFullscreenOnBoot;
+      InputSaveConfig();
+    }
+#endif
     {
       static const char *apszCRTFilterModes[] = { "Off", "VGA", "Hyllian" };
       nk_layout_row_dynamic(pCtx, DEBUG_ROW_H, 2);

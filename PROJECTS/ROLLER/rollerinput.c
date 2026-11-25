@@ -3422,6 +3422,15 @@ static int InputParseDebugSetting(const char *szName, const char *szValue)
     return 1;
   }
 
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+  if (InputStringEqualsNoCase(szName, "FullscreenOnBoot")) {
+    if (!InputParseBoolSetting(szValue, &bValue))
+      return 0;
+    g_bFullscreenOnBoot = bValue;
+    return 1;
+  }
+#endif
+
   if (InputStringEqualsNoCase(szName, "KeepWindowSize")) {
     if (!InputParseBoolSetting(szValue, &bValue))
       return 0;
@@ -3580,6 +3589,13 @@ static void InputApplyWindowConfig(void)
     SDL_SetWindowSize(pWin, g_iSavedWindowWidth, g_iSavedWindowHeight);
     SDL_SetWindowPosition(pWin, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
   }
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+  if (g_bFullscreenOnBoot && !(SDL_GetWindowFlags(pWin) & SDL_WINDOW_FULLSCREEN)) {
+    /* Finish any pending resize before ToggleFullscreen saves the windowed size. */
+    SDL_SyncWindow(pWin);
+    ToggleFullscreen();
+  }
+#endif
   SDL_ShowWindow(pWin);
 }
 
@@ -3789,6 +3805,9 @@ void InputSaveConfig(void)
                                   g_iCRTFilterMode == 2 ? "Hyllian" : "Off");
   fprintf(fp, "SignsOnTop=%s\n",  g_bSignsOnTop  ? "On" : "Off");
   fprintf(fp, "ShiftFreeze=%s\n", g_bShiftFreezeEnabled ? "On" : "Off");
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+  fprintf(fp, "FullscreenOnBoot=%d\n", g_bFullscreenOnBoot ? 1 : 0);
+#endif
   fprintf(fp, "KeepWindowSize=%d\n", g_bKeepWindowSize ? 1 : 0);
   if (g_bKeepWindowSize) {
     SDL_Window *pWin = ROLLERGetWindow();

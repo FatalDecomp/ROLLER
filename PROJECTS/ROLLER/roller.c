@@ -171,6 +171,9 @@ bool  g_bChaseLookRightDown = false;
 float g_fChaseLookAccumX    = 0.0f;
 float g_fChaseLookAccumY    = 0.0f;
 bool  g_bKeepWindowSize  = false;
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+bool  g_bFullscreenOnBoot = false;
+#endif
 int g_iCurrentSong = 0;
 uint64 g_ullTimer150Ms = 0;
 
@@ -690,7 +693,7 @@ void ROLLERRefreshStartupOverlay()
 
 //-------------------------------------------------------------------------------------------------
 
-void ToggleFullscreen()
+void ToggleFullscreen(void)
 {
 #if defined(IS_ANDROID)
   return;

@@ -59,6 +59,9 @@ extern bool  g_bChaseLookRightDown; /* debug free-look (view.c): RMB currently h
 extern float g_fChaseLookAccumX; /* debug free-look: accumulated raw xrel since last consumed */
 extern float g_fChaseLookAccumY; /* debug free-look: accumulated raw yrel since last consumed */
 extern bool  g_bKeepWindowSize; /* persist window size to ROLLER.INI */
+#if !defined(IS_WASM) && !defined(IS_ANDROID)
+extern bool  g_bFullscreenOnBoot;
+#endif
 extern bool g_bRepeat;
 extern int g_iNumTracks;
 extern int g_iCurrentSong;
@@ -76,6 +79,7 @@ bool ROLLEREnsureGPUDevice(void);
 struct GameRenderer;
 void ROLLERApplyGameRenderSettings(struct GameRenderer *pRenderer);
 SDL_Window *ROLLERGetWindow(void);
+void ToggleFullscreen(void);
 
 // Debug overlay accessor
 struct DebugOverlay;
